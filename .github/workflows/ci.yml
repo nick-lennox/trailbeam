@@ -51,3 +51,21 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm ci
       - run: npm test
+
+  collector:
+    name: Collector configuration
+    runs-on: ubuntu-latest
+    env:
+      OTELCOL_VERSION: "0.165.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download otelcol-contrib
+        run: |
+          curl -sSfL -o /tmp/otelcol.tgz "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTELCOL_VERSION}/otelcol-contrib_${OTELCOL_VERSION}_linux_amd64.tar.gz"
+          tar -xzf /tmp/otelcol.tgz -C /tmp otelcol-contrib
+          /tmp/otelcol-contrib --version
+      - run: pip install pytest opentelemetry-proto
+      - run: QV2_OTELCOL_BIN=/tmp/otelcol-contrib pytest -q collector/tests
