@@ -150,3 +150,35 @@ def test_summary_counts_and_result():
     assert s["result"] == "PASS"
     # Fewer messages sent than expected never passes.
     assert check.summarize(truth, {MID: good, "m-2": good}, 3)["result"] == "FAIL"
+
+
+def test_order_failure_does_not_hide_joins_and_receive_counts():
+    """Order is checked on its own: a message the store shows out of order still reports its joins."""
+    tl = retry_timeline()
+    e = tl["events"]
+    tl["events"] = [e[0], e[1], e[4], e[2], e[3], e[5]]  # redelivery shown before the change that caused it
+    r = check.evaluate(RETRY_TRUTH, tl)
+    assert r["complete"] and not r["in_order"] and not r["passed"]
+    assert r["joined"] and r["receive_count"] and r["final"]
+    s = check.summarize({MID: RETRY_TRUTH}, {MID: r}, 1)
+    assert (s["in_order"], s["joined"], s["receive_count"], s["failed_only_in_order"]) == (0, 1, 1, 1)
+
+
+def test_receive_before_send_still_measures_joins():
+    tl = retry_timeline()
+    e = tl["events"]
+    tl["events"] = [e[1], e[0]] + e[2:]
+    r = check.evaluate(RETRY_TRUTH, tl)
+    assert not r["in_order"] and r["joined"] and r["receive_count"]
+
+
+def test_out_of_order_and_wrongly_joined_reports_both():
+    tl = retry_timeline()
+    e = tl["events"]
+    e[5]["delivery"] = 1
+    e[4]["receive_count"] = 3
+    tl["events"] = [e[1], e[0]] + e[2:]
+    r = check.evaluate(RETRY_TRUTH, tl)
+    assert not r["in_order"] and not r["joined"] and not r["receive_count"]
+    s = check.summarize({MID: RETRY_TRUTH}, {MID: r}, 1)
+    assert s["failed_only_in_order"] == 0

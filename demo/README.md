@@ -79,6 +79,11 @@ passes only if its timeline is:
 | `receive_count` | each receive shows the real `ApproximateReceiveCount` |
 | `final` | the message's state is `deleted` |
 
+Each check is evaluated on its own: `joined` and `receive_count` compare the events whatever order the
+store shows them in, so a message that fails on order still has its joins and receive counts measured. The
+summary counts each column separately, and `failed_only_in_order` counts the messages whose only failure is
+order.
+
 The summary is printed and saved in `demo/results/<run>.txt`, the per-message report in
 `demo/results/<run>-report.json`. Exit status 0 only if all 200 pass. Each run uses its own queue and a
 fresh random receipt-hash key, so runs don't mix and the demo can keep running alongside.

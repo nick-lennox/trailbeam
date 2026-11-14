@@ -13,10 +13,13 @@ JSON API (GET /api/messages/{id}) and checks, per message:
 - in order:      in the order the store shows them, they are the truth's calls in the order they happened;
 - joined:        every delete and visibility change is attached to the delivery whose receipt handle it
                  really used, and has the same result (ok / failed) as the real call;
-- receive count: every receive shows the real ApproximateReceiveCount;
+- receive count: every receive (by delivery number) shows the real ApproximateReceiveCount;
 - final:         the message's state is ``deleted``.
 
-A message passes only if all five hold. Inferred events (such as the visibility-timeout expiry after a
+Each check is evaluated on its own: joined and receive count compare the events regardless of the order
+the store shows them in, so a message that fails only on order still reports its joins and receive counts.
+The summary counts each check separately, plus the messages that fail on order alone. A message passes
+only if all five hold. Inferred events (such as the visibility-timeout expiry after a
 ChangeMessageVisibility to 0) are not compared, but are counted in the report. ``verify`` polls the
 store until every message passes or --timeout seconds pass (spans are exported in batches, every few
 seconds), then reports what it has. It waits only for messages that still miss events; a message whose
@@ -97,8 +100,12 @@ def evaluate(truth: list, timeline) -> dict:
     got = observed_events(timeline)
     complete = collections.Counter(g[0] for g in got) == collections.Counter(w[0] for w in want)
     in_order = complete and [g[0] for g in got] == [w[0] for w in want]
-    joined = in_order and all(g[1] == w[1] and g[2] == w[2] for g, w in zip(got, want) if w[0] in ("delete", "change_visibility"))
-    receive_count = in_order and all(g[3] == w[3] for g, w in zip(got, want) if w[0] == "receive")
+    # Joins and receive counts are compared as multisets, so they are measured whatever the order is.
+    settles = ("delete", "change_visibility")
+    joined = (collections.Counter((e[0], e[1], e[2]) for e in got if e[0] in settles)
+              == collections.Counter((e[0], e[1], e[2]) for e in want if e[0] in settles))
+    receive_count = (collections.Counter((e[1], e[3]) for e in got if e[0] == "receive")
+                     == collections.Counter((e[1], e[3]) for e in want if e[0] == "receive"))
     final = timeline.get("state") == "deleted"
     res = {"found": True, "complete": complete, "in_order": in_order, "joined": joined,
            "receive_count": receive_count, "final": final}
@@ -126,6 +133,8 @@ def summarize(truth_by_id: dict, results: dict, count: int) -> dict:
         "expected_messages": count,
         "messages_sent": len(sent),
         **{k: s[k] for k in ("found",) + CHECKS + ("passed",)},
+        "failed_only_in_order": sum(not results[m]["in_order"] and all(results[m][c] for c in CHECKS if c != "in_order")
+                                    for m in sent),
         "with_change_visibility": sum(any(r["op"] == "change_visibility" for r in truth_by_id[m]) for m in sent),
         "deleted_by_another_process": sum(any(r.get("by") == "deleter" for r in truth_by_id[m]) for m in sent),
         "received_more_than_once": sum(sum(r["op"] == "receive" for r in truth_by_id[m]) > 1 for m in sent),
