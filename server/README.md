@@ -16,6 +16,7 @@ qv2-store --db qv2.sqlite --port 4318
 | `--port` | `QV2_STORE_PORT` | `4318` | Use 4319 when the [Collector](../collector/) runs on the same host |
 | `--stuck-after` | `QV2_STUCK_AFTER_S` | `300` | Seconds without a final delete after which a message is listed as stuck |
 | `--lambda-timeout` | `QV2_LAMBDA_TIMEOUT_S` | `900` | Seconds after which a Lambda receive with no outcome is inferred killed |
+| `--max-receive-count` | `QV2_MAX_RECEIVE_COUNT` | none | `QUEUE=N,...`: each queue's `maxReceiveCount`, so a timeline can say "receive count exceeded `maxReceiveCount`; not seen on the DLQ yet" |
 | `--log-level` | `QV2_STORE_LOG_LEVEL` | `INFO` | |
 
 With the default port, the qv2 packages can export to the store directly, without a Collector.
@@ -78,9 +79,10 @@ The pages are built from the same objects as the JSON API below, so they show ex
 
 `GET /api/messages/{id}` (timeline), `GET /api/messages` (recent), `GET /api/duplicates`,
 `GET /api/stuck`, `GET /api/health`. Documented in [`docs/store-api.md`](../docs/store-api.md).
-Inferred steps (visibility-timeout expiry, the move to a dead-letter queue, the delete Lambda does after
-a success, a Lambda invocation killed without an outcome, receives not observed) are always marked
-`inferred: true`, without a time.
+Inferred steps (visibility-timeout expiry, the delete Lambda does after a success, a Lambda invocation
+killed without an outcome, receives not observed) are always marked `inferred: true`, without a time.
+The move to a dead-letter queue is never inferred. It is shown only when SQS reports it with
+`DeadLetterQueueSourceArn` on the DLQ receive (`source: sqs_dlq_source`, contract §9b).
 
 ## Tests
 
@@ -94,7 +96,8 @@ pytest server/tests
   delete with the handle of an earlier delivery, key mismatches and restarts.
 - `test_ingest.py`: OTLP/HTTP protobuf, JSON and gzip, ignored and rejected spans, bad requests.
 - `test_timeline.py`: timelines and inferred steps (visibility-timeout expiry, `ChangeMessageVisibility`
-  to 0, a stale delete, a poison message moving to the dead-letter queue, Lambda success, failure and
+  to 0, a stale delete, a poison message whose move to the dead-letter queue SQS reports, and one whose
+  move nobody has seen yet, Lambda success, failure and
   kill, unobserved receives, clock skew, notices), duplicate deliveries and stuck messages.
 - `test_api.py`: the JSON API over HTTP.
 - `test_web.py`: the web screen over HTTP: inferred steps marked, timeline order, DLQ moves, duplicates and

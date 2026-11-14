@@ -9,13 +9,15 @@ from .db import Store
 MAX_LIMIT = 1000
 
 
-def message(store: Store, message_id: str, now_ns: int, lambda_timeout_s: int) -> Optional[dict]:
+def message(store: Store, message_id: str, now_ns: int, lambda_timeout_s: int,
+            max_receive_counts: Optional[dict] = None) -> Optional[dict]:
+    """``max_receive_counts``: queue name -> maxReceiveCount, as configured (``--max-receive-count``)."""
     rows = store.message_rows(message_id)
-    return timeline.build(rows, now_ns, lambda_timeout_s) if rows else None
+    return timeline.build(rows, now_ns, lambda_timeout_s, max_receive_counts) if rows else None
 
 
-def _summary(store: Store, mid: str, now_ns: int, lambda_timeout_s: int) -> dict:
-    t = message(store, mid, now_ns, lambda_timeout_s)
+def _summary(store: Store, mid: str, now_ns: int, lambda_timeout_s: int, mrc: Optional[dict] = None) -> dict:
+    t = message(store, mid, now_ns, lambda_timeout_s, mrc)
     consumers = sorted({(e["consumer"].get("service_name"), e["consumer"].get("client_id"))
                         for e in t["events"] if e["type"] == "received"}, key=str)
     return {
@@ -24,6 +26,7 @@ def _summary(store: Store, mid: str, now_ns: int, lambda_timeout_s: int) -> dict
         "source_queue": t["source_queue"],
         "current_queue": t["current_queue"],
         "in_dead_letter_queue": t["in_dead_letter_queue"],
+        "dead_letter_queue_move": t["dead_letter_queue_move"],
         "deliveries": t["deliveries"],
         "successful_deliveries": t["successful_deliveries"],
         "consumers": [{"service_name": s, "client_id": c} for s, c in consumers],
@@ -38,16 +41,17 @@ def _queue_filter(queue: Optional[str]) -> tuple[str, tuple]:
     return " AND EXISTS (SELECT 1 FROM spans q WHERE q.mid = s.mid AND q.queue = ?)", (queue,)
 
 
-def recent(store: Store, now_ns: int, lambda_timeout_s: int, limit: int, queue: Optional[str] = None) -> list[dict]:
+def recent(store: Store, now_ns: int, lambda_timeout_s: int, limit: int, queue: Optional[str] = None,
+           mrc: Optional[dict] = None) -> list[dict]:
     qsql, qp = _queue_filter(queue)
     mids = store.query(
         f"""SELECT s.mid, MAX(s.time_ns) AS last FROM spans s WHERE s.mid IS NOT NULL {qsql}
             GROUP BY s.mid ORDER BY last DESC LIMIT ?""", qp + (limit,))
-    return [_summary(store, r["mid"], now_ns, lambda_timeout_s) for r in mids]
+    return [_summary(store, r["mid"], now_ns, lambda_timeout_s, mrc) for r in mids]
 
 
 def duplicates(store: Store, now_ns: int, lambda_timeout_s: int, limit: int,
-               queue: Optional[str] = None, reason: Optional[str] = None) -> list[dict]:
+               queue: Optional[str] = None, reason: Optional[str] = None, mrc: Optional[dict] = None) -> list[dict]:
     """Messages received more than once, or that succeeded more than once.
 
     A success is a delivery that ended in an accepted delete (counted once per delivery, however many
@@ -68,7 +72,7 @@ def duplicates(store: Store, now_ns: int, lambda_timeout_s: int, limit: int,
             ORDER BY last DESC LIMIT ?""", qp + (limit,))
     out = []
     for r in mids:
-        item = _summary(store, r["mid"], now_ns, lambda_timeout_s)
+        item = _summary(store, r["mid"], now_ns, lambda_timeout_s, mrc)
         item["reasons"] = ([ "received_more_than_once"] if item["deliveries"] > 1 else []) + \
                           (["succeeded_more_than_once"] if item["successful_deliveries"] > 1 else [])
         out.append(item)
@@ -76,7 +80,7 @@ def duplicates(store: Store, now_ns: int, lambda_timeout_s: int, limit: int,
 
 
 def stuck(store: Store, now_ns: int, lambda_timeout_s: int, older_than_s: int, limit: int,
-          queue: Optional[str] = None) -> list[dict]:
+          queue: Optional[str] = None, mrc: Optional[dict] = None) -> list[dict]:
     """Messages first seen more than ``older_than_s`` ago that have no final delete.
 
     Final means an accepted delete whose receipt handle is the one from the message's latest receive
@@ -106,7 +110,7 @@ def stuck(store: Store, now_ns: int, lambda_timeout_s: int, older_than_s: int, l
             ORDER BY f.first_ns LIMIT ?""", qp + (cutoff, limit))
     out = []
     for r in rows:
-        item = _summary(store, r["mid"], now_ns, lambda_timeout_s)
+        item = _summary(store, r["mid"], now_ns, lambda_timeout_s, mrc)
         item["age_s"] = round((now_ns - r["first_ns"]) / 1e9, 3)
         out.append(item)
     return out

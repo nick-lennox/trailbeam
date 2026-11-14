@@ -35,6 +35,7 @@ _FIELDS = {
     "qv2.receive_count": ("receive_count", int),
     "qv2.sent_timestamp_ms": ("sent_ts_ms", int),
     "qv2.first_receive_timestamp_ms": ("first_receive_ts_ms", int),
+    "qv2.dead_letter_queue_source_arn": ("dlq_source_arn", str),  # contract 3.1, section 9b
     "qv2.result": ("result", str),
     "qv2.error_code": ("error_code", str),
     "qv2.visibility_timeout": ("visibility_timeout", int),

@@ -175,6 +175,7 @@ def test_a_schema_1_database_is_migrated_with_unknown_starts(tmp_path):
     [row] = s.message_rows("m1")
     assert (row["time_ns"], row["start_ns"]) == (5, None)
     assert (row["order_scope"], row["order_issued"], row["order_returned"]) == (None, None, None)
-    assert s.query("SELECT value FROM meta WHERE key = 'schema_version'")[0][0] == "3"
+    assert row["dlq_source_arn"] is None
+    assert s.query("SELECT value FROM meta WHERE key = 'schema_version'")[0][0] == "4"
     s.close()
     Store(path).close()  # opens again without migrating twice

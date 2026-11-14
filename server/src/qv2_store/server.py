@@ -36,8 +36,10 @@ class App:
     """Request handling, independent of the HTTP server so tests can call it directly."""
 
     def __init__(self, store: Store, *, stuck_after_s: int = 300,
-                 lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S, now: Callable[[], int] = time.time_ns):
+                 lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S, now: Callable[[], int] = time.time_ns,
+                 max_receive_counts: Optional[dict] = None):
         self.store = store
+        self.max_receive_counts = dict(max_receive_counts or {})
         self.stuck_after_s = stuck_after_s
         self.lambda_timeout_s = lambda_timeout_s
         self.now = now
@@ -88,7 +90,8 @@ class App:
         with self.stats_lock:
             ingest = dict(self.stats)
         return {"status": "ok", "version": __version__, "ingest": ingest, "store": self.store.counts(),
-                "config": {"stuck_after_s": self.stuck_after_s, "lambda_timeout_s": self.lambda_timeout_s}}
+                "config": {"stuck_after_s": self.stuck_after_s, "lambda_timeout_s": self.lambda_timeout_s,
+                           "max_receive_counts": self.max_receive_counts}}
 
     def _lambda_timeout(self, q: dict) -> int:
         return _int(q, "lambda_timeout_s", self.lambda_timeout_s, 1, 86_400)
@@ -97,11 +100,12 @@ class App:
         if len(rest) > 1:
             raise ApiError(404, "no such endpoint")
         if rest:
-            t = queries.message(self.store, rest[0], self.now(), self._lambda_timeout(q))
+            t = queries.message(self.store, rest[0], self.now(), self._lambda_timeout(q), self.max_receive_counts)
             if t is None:
                 raise ApiError(404, f"no spans for message ID {rest[0]!r}")
             return t
-        items = queries.recent(self.store, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"))
+        items = queries.recent(self.store, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"),
+                               mrc=self.max_receive_counts)
         return {"messages": items}
 
     def duplicates(self, q: dict, rest: list[str]) -> dict:
@@ -110,14 +114,16 @@ class App:
         reason = q.get("reason")
         if reason not in (None, "received_more_than_once", "succeeded_more_than_once"):
             raise ApiError(400, "reason must be received_more_than_once or succeeded_more_than_once")
-        items = queries.duplicates(self.store, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"), reason)
+        items = queries.duplicates(self.store, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"), reason,
+                                   mrc=self.max_receive_counts)
         return {"messages": items}
 
     def stuck(self, q: dict, rest: list[str]) -> dict:
         if rest:
             raise ApiError(404, "no such endpoint")
         older = _int(q, "older_than_s", self.stuck_after_s, 0, 10 ** 9)
-        items = queries.stuck(self.store, self.now(), self._lambda_timeout(q), older, _limit(q), q.get("queue"))
+        items = queries.stuck(self.store, self.now(), self._lambda_timeout(q), older, _limit(q), q.get("queue"),
+                              mrc=self.max_receive_counts)
         return {"older_than_s": older, "messages": items}
 
 

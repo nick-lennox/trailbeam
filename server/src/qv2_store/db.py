@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS spans (
     message_id TEXT,                 -- messaging.message.id as carried by the span
     receipt_hmac TEXT, key_id TEXT,
     receive_count INTEGER, sent_ts_ms INTEGER, first_receive_ts_ms INTEGER,
+    dlq_source_arn TEXT,             -- receives from a dead-letter queue: the queue SQS moved it from (3.1)
     result TEXT, error_code TEXT, visibility_timeout INTEGER,
     outcome TEXT, error_type TEXT, batch_entry_id TEXT,
     client_id TEXT, pid INTEGER, thread_name TEXT,
@@ -52,14 +53,16 @@ CREATE INDEX IF NOT EXISTS spans_hash ON spans (receipt_hmac, key_id);
 CREATE INDEX IF NOT EXISTS spans_kind_time ON spans (kind, time_ns);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"
 # Schema 1 had no start_ns. Its rows came from contract v1 spans, stamped only when the response arrived,
 # so their start is not known: they are migrated with start_ns NULL. Schema 2 had no call-order columns;
-# its rows came from contract v2 spans, which carry none, so they are migrated with NULLs.
+# its rows came from contract v2 spans, which carry none, so they are migrated with NULLs. Schema 3 had no
+# dlq_source_arn; no package emitted the attribute before contract 3.1, so its rows are migrated with NULL.
 _MIGRATIONS = {
     "1": ("2", ["ALTER TABLE spans ADD COLUMN start_ns INTEGER"]),
     "2": ("3", ["ALTER TABLE spans ADD COLUMN order_scope TEXT", "ALTER TABLE spans ADD COLUMN order_issued INTEGER",
                 "ALTER TABLE spans ADD COLUMN order_returned INTEGER"]),
+    "3": ("4", ["ALTER TABLE spans ADD COLUMN dlq_source_arn TEXT"]),
 }
 
 

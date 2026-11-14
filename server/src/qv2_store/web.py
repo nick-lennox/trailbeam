@@ -7,7 +7,8 @@ Pages:
   response received) and, in plain words, the observed fact that puts it after the step before it
   (the clocks, the call order in one process, SQS's receive count or SQS's timestamps). Steps that no
   fact orders are drawn side by side in one box labelled "concurrent, order unknown". Inferred steps
-  are drawn differently and labelled "inferred".
+  are drawn differently and labelled "inferred". A move to a dead-letter queue says "reported by SQS"
+  and which attribute reported it; it is never inferred.
 - ``/duplicates``: duplicate deliveries.
 - ``/stuck``: stuck messages.
 
@@ -21,6 +22,7 @@ from typing import Callable, Iterable, Optional
 from urllib.parse import quote, urlencode
 
 from . import __version__
+from .timeline import DLQ_SOURCE
 
 Response = tuple[int, dict, bytes]
 
@@ -40,9 +42,13 @@ EVENT_LABELS = {
     "visibility_timeout_expired": "Visibility timeout expired",
     "deliveries_not_observed": "Deliveries not observed",
     "moved_to_dead_letter_queue": "Moved to dead-letter queue",
-    "moved_back_to_source_queue": "Moved back to source queue",
     "deleted_by_lambda": "Deleted by Lambda",
     "lambda_invocation_ended_without_outcome": "Lambda invocation ended without an outcome",
+}
+
+DLQ_MOVE_LABELS = {
+    "observed": "moved, reported by SQS (DeadLetterQueueSourceArn on the DLQ receive)",
+    "not_seen_on_dlq_yet": "receive count exceeded maxReceiveCount; not seen on the DLQ yet",
 }
 
 DUPLICATE_REASONS = {
@@ -72,6 +78,7 @@ ol.timeline li{background:#fff;border:1px solid #d5dae3;border-left:4px solid #3
 ol.timeline li.inferred{background:repeating-linear-gradient(135deg,#fffaf0,#fffaf0 8px,#fdf3e1 8px,#fdf3e1 16px);
   border:1px dashed #c98a1b;border-left:4px dashed #c98a1b}
 ol.timeline li.failed{border-left-color:#c43d3d}
+ol.timeline li.reported{border-left:4px double #3b6fd6}.reported-by{font-size:.9em;margin-top:.2rem}
 .badge{display:inline-block;font-size:.75em;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
   padding:.05rem .4rem;border-radius:3px;background:#c98a1b;color:#fff;margin-right:.4rem}
 .when{color:#5b6475;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;margin-right:.6rem}
@@ -130,6 +137,9 @@ def _message(api, q: dict) -> Response:
     parts.append(_dd("Source queue", escape(t.get("source_queue") or "?")))
     parts.append(_dd("Current queue", escape(t.get("current_queue") or "?")
                      + (" <strong>(dead-letter queue)</strong>" if t.get("in_dead_letter_queue") else "")))
+    if t.get("dead_letter_queue_move"):
+        parts.append(_dd("Dead-letter queue", escape(DLQ_MOVE_LABELS.get(t["dead_letter_queue_move"],
+                                                                         t["dead_letter_queue_move"]))))
     parts.append(_dd("Send observed", "yes" if t.get("send_observed") else "no"))
     parts.append(_dd("Deliveries", f'{t["deliveries"]} ({t["successful_deliveries"]} successful)'))
     parts.append(_dd("First seen", _time(t.get("first_seen"))))
@@ -146,7 +156,10 @@ def _message(api, q: dict) -> Response:
                  "their order is unknown and they are side by side. Where a pair inside a box is ordered, the "
                  "later step says so. Steps marked "
                  '<span class="badge">inferred</span> were deduced by the store; no span recorded them, so they '
-                 "have a time window instead of a time.</p>")
+                 "have a time window instead of a time. A move to a dead-letter queue is shown only when SQS "
+                 "reports it: the receive from the dead-letter queue carries DeadLetterQueueSourceArn naming the "
+                 "queue it came from. SQS gives the move no time, so it has a window too, between the last "
+                 "receive on that queue and the receive that reports it; it is never inferred.</p>")
     parts.append('<ol class="timeline">')
     parts.extend(_timeline_items(t))
     parts.append("</ol>")
@@ -225,12 +238,16 @@ def _ref(e: Optional[dict]) -> str:
 def _why(e: dict, by_id: dict) -> list[str]:
     """One line per step this one is shown after, saying which observed fact proves it."""
     out = []
-    for a in e.get("after") or []:
+    entries = list(e.get("after") or [])
+    if e.get("source") == DLQ_SOURCE and e.get("before"):
+        entries.append(e["before"])
+    for a in entries:
         src = a.get("sources") or [a.get("source")]
         if e.get("inferred"):
             continue  # its anchors are in the reason and the window
+        rel = "Before" if a is e.get("before") else "After"
         out.append(f'<div class="why" data-after="{escape(str(a.get("event")))}" '
-                   f'data-sources="{escape(" ".join(map(str, src)))}">After {escape(_ref(by_id.get(a.get("event"))))}: '
+                   f'data-sources="{escape(" ".join(map(str, src)))}">{rel} {escape(_ref(by_id.get(a.get("event"))))}: '
                    f'{escape(a.get("why") or "")}</div>')
     if e.get("inferred"):
         after = [by_id.get(a.get("event")) for a in e.get("after") or []]
@@ -248,8 +265,12 @@ def _event(e: dict, by_id: Optional[dict] = None) -> str:
     failed = e.get("result") == "failed" or (e["type"] == "lambda_outcome" and e.get("outcome") != "success")
     cls = ["event", "inferred" if inferred else "observed"] + (["failed"] if failed else [])
     head = []
+    reported = e.get("source") == DLQ_SOURCE  # observed, but SQS gives no time for it (contract 9b)
+    if reported:
+        cls.append("reported")
     if inferred:
         head.append('<span class="badge">inferred</span>')
+    if inferred or reported:
         w = e.get("window") or {}
         head.append(f'<span class="when">between {_time(w.get("from"))} and {_time(w.get("to"))}</span>')
     else:
@@ -257,11 +278,14 @@ def _event(e: dict, by_id: Optional[dict] = None) -> str:
     head.append(f'<span class="etype">{label}</span>')
     details = _details(e)
     out = [f'<li class="{" ".join(cls)}" data-type="{escape(e["type"])}" data-inferred="{str(inferred).lower()}"'
+           + (f' data-source="{escape(str(e["source"]))}"' if e.get("source") else "")
            + (f' data-id="{escape(str(e["id"]))}"' if e.get("id") else "") + ">",
            "".join(head)]
+    if reported:
+        out.append(f'<div class="reported-by"><strong>{escape(e.get("reported_by") or "")}</strong></div>')
     if details:
         out.append(f'<div class="detail">{" · ".join(details)}</div>')
-    if inferred and e.get("reason"):
+    if (inferred or reported) and e.get("reason"):
         out.append(f'<div class="reason">{escape(e["reason"])}</div>')
     out.extend(_why(e, by_id or {}))
     out.append("</li>")
@@ -322,6 +346,8 @@ def _summary_table(messages: list[dict], *, empty: str, extra: Optional[tuple] =
         queue = escape(m.get("current_queue") or m.get("source_queue") or "?")
         if m.get("in_dead_letter_queue"):
             queue += f' <span class="muted">(DLQ, from {escape(m.get("source_queue") or "?")})</span>'
+        elif m.get("dead_letter_queue_move") == "not_seen_on_dlq_yet":
+            queue += ' <span class="muted">(maxReceiveCount reached; not seen on the DLQ yet)</span>'
         consumers = ", ".join(escape(str(c.get("service_name") or "?"))
                               + (f' <span class="muted">{escape(str(c["client_id"]))}</span>' if c.get("client_id") else "")
                               for c in m.get("consumers", []))

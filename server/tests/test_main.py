@@ -24,3 +24,17 @@ def test_sigterm_stops_cleanly(tmp_path):
         if p.poll() is None:
             p.kill()
     assert (tmp_path / "q.sqlite").exists()
+
+
+def test_max_receive_count_option():
+    import argparse
+
+    import pytest
+
+    from qv2_store.__main__ import _max_receive_counts
+
+    assert _max_receive_counts("") == {}
+    assert _max_receive_counts("orders=3, payments=5") == {"orders": 3, "payments": 5}
+    for bad in ("orders", "orders=", "=3", "orders=0", "orders=x"):
+        with pytest.raises(argparse.ArgumentTypeError):
+            _max_receive_counts(bad)

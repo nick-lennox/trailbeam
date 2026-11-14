@@ -3,7 +3,9 @@
 Observed events come from qv2 spans. Each is an interval (contract section 2): ``start`` just before the
 SQS request was sent (``None`` if not observed, as for a Lambda receive), ``end`` when the response came.
 Inferred events (contract section 9) have no span and are always marked ``inferred: true``, with a time
-window instead of a time.
+window instead of a time. The move to a dead-letter queue has no span either, but is observed: SQS reports
+it on the dead-letter receive (section 9b), so it is ``inferred: false`` with ``source: sqs_dlq_source``,
+and is placed like an inferred event, by its anchors.
 
 Order (contract section 9a). An observed event is shown before another only when an observed fact proves
 it: the clocks, the call order inside one process, SQS's receive count, or SQS's own timestamps
@@ -33,6 +35,9 @@ def iso(ns: Optional[int]) -> Optional[str]:
 
 
 CONCURRENT_LABEL = "concurrent, order unknown"
+# The source of an observed move to a dead-letter queue (contract section 9b), in the API and on the screen.
+DLQ_SOURCE = "sqs_dlq_source"
+DLQ_REPORTED_BY = "reported by SQS (DeadLetterQueueSourceArn on the DLQ receive)"
 
 
 def _time(start_ns: Optional[int], end_ns: int) -> dict:
@@ -60,8 +65,10 @@ def _inferred(type_: str, frm: Optional[int], to: Optional[int], reason: str, **
             "window": {"from": iso(frm), "to": iso(to)}, "reason": reason, **extra}
 
 
-def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S) -> dict:
-    """``rows``: every stored row of one message (Store.message_rows), any order."""
+def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S,
+          max_receive_counts: Optional[dict] = None) -> dict:
+    """``rows``: every stored row of one message (Store.message_rows), any order. ``max_receive_counts``:
+    queue name -> the maxReceiveCount of its redrive policy, as configured (spans don't carry it)."""
     rows = sorted(rows, key=lambda r: (r["time_ns"], r["row"]))
     mid = rows[0]["mid"]
     receives = [r for r in rows if r["kind"] == "receive"]
@@ -127,7 +134,6 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
 
     # ---- inferred between deliveries ----------------------------------------------------------
     prev_on_queue: dict[str, dict] = {}
-    prev = None
     for r in receives:
         q = r["queue"]
         p = prev_on_queue.get(q)
@@ -156,16 +162,21 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
                 "visibility_timeout_expired", _start(a), r["time_ns"],
                 _expiry_reason(rows, p), queue=q, after_delivery=by_row[p["row"]],
                 before_delivery=by_row[r["row"]]))
-        if prev is not None and q != prev["queue"]:
-            to_dlq = q != source_queue
-            infer(prev, r, 1, _inferred(
-                "moved_to_dead_letter_queue" if to_dlq else "moved_back_to_source_queue",
-                _start(prev), r["time_ns"],
-                f"The message ID was received on {q} after {prev['queue']}. SQS keeps the message ID "
-                f"when it moves a message, so it was moved between those two receives; exactly when is "
-                f"not known.", from_queue=prev["queue"], to_queue=q))
         prev_on_queue[q] = r
-        prev = r
+
+    # ---- the move to a dead-letter queue: observed when SQS reports it (contract section 9b) ----------
+    # Never inferred from the message ID alone. SQS gives the move no time: it is placed after the last
+    # receive on the queue it came from and before the dead-letter receive that reports it.
+    moves = _dlq_moves(receives, sends, proven)
+    for a, b, frm in moves:
+        infer(a, b, 1, {
+            "type": "moved_to_dead_letter_queue", "inferred": False, "source": DLQ_SOURCE, "time": None,
+            "window": {"from": iso(_start(a)) if a is not None else None, "to": iso(b["time_ns"])},
+            "reported_by": DLQ_REPORTED_BY, "source_arn": b["dlq_source_arn"],
+            "reported_on_delivery": by_row[b["row"]], "from_queue": frm, "to_queue": b["queue"],
+            "reason": f"SQS reported this move: the receive on {b['queue']} carries DeadLetterQueueSourceArn "
+                      f"naming {frm}. SQS gives no time for the move; it happened after the last receive on "
+                      f"{frm} and before that receive."})
 
     # ---- inferred: Lambda invocations without an outcome ------------------------------------------
     timeout_ns = lambda_timeout_s * 1_000_000_000
@@ -198,13 +209,23 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
     else:
         state = "not_deleted"
     current_queue = latest["queue"] if latest else source_queue
+    dlqs = {b["queue"] for _, b, _ in moves}
+    mrc = (max_receive_counts or {}).get(source_queue)
+    src_count = max((r["receive_count"] for r in receives if r["queue"] == source_queue), default=0)
+    if moves:
+        dlq_move = "observed"
+    elif mrc and src_count >= mrc and state not in ("deleted", "deleted_inferred"):
+        dlq_move = "not_seen_on_dlq_yet"
+    else:
+        dlq_move = None
     groups = _groups(evs, n_groups)
     return {
         "message_id": mid,
         "state": state,
         "source_queue": source_queue,
         "current_queue": current_queue,
-        "in_dead_letter_queue": current_queue != source_queue,
+        "in_dead_letter_queue": current_queue in dlqs,
+        "dead_letter_queue_move": dlq_move,
         "send_observed": bool(sends),
         "deliveries": len(receives),
         "successful_deliveries": successful_deliveries(rows),
@@ -214,7 +235,8 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
         "groups": groups,
         "events": evs,
         "order": order_doc,
-        "notices": _notices(rows, receives, order),
+        "notices": _notices(rows, receives, order) + ([_not_seen_notice(source_queue, src_count, mrc)]
+                                                       if dlq_move == "not_seen_on_dlq_yet" else []),
     }
 
 
@@ -252,13 +274,22 @@ def _arrange(rows: list, observed: list[dict], inferred: list, order: "order_mod
                            sorted(order.immediate(node), key=lambda i: pos[i])]
         else:
             a, b = anchors[node - n]
+            if ev["inferred"]:
+                src = "inferred_from"
+                why_a = f"Inferred from {_label(events[a])}: it came after it." if a is not None else ""
+                why_b = f"Inferred from {_label(events[b])}: it came before it." if b is not None else ""
+            else:  # the observed move to a dead-letter queue (contract section 9b)
+                src = DLQ_SOURCE
+                frm = ev["from_queue"]
+                why_a = (f"SQS moves a message off {frm} only after its receives there, and reported the move "
+                         f"later, so it came after {_label(events[a])}.") if a is not None else ""
+                why_b = (f"SQS reported the move on {_label(events[b])}: DeadLetterQueueSourceArn on that "
+                         f"receive names {frm}.") if b is not None else ""
             ev["after"] = [] if a is None else [{
-                "event": ids[pos[a]], "type": events[a]["type"], "sources": ["inferred_from"],
-                "source": "inferred_from", "why": f"Inferred from {_label(events[a])}: it came after it."}]
+                "event": ids[pos[a]], "type": events[a]["type"], "sources": [src], "source": src, "why": why_a}]
             if b is not None:
-                ev["before"] = {"event": ids[pos[b]], "type": events[b]["type"], "sources": ["inferred_from"],
-                                "source": "inferred_from",
-                                "why": f"Inferred from {_label(events[b])}: it came before it."}
+                ev["before"] = {"event": ids[pos[b]], "type": events[b]["type"], "sources": [src],
+                                "source": src, "why": why_b}
         out.append(ev)
     edges = []
     for (i, j), sources in sorted(order.edges.items(), key=lambda e: (pos[e[0][0]], pos[e[0][1]])):
@@ -321,15 +352,56 @@ def _groups(evs: list[dict], n: int) -> list[dict]:
     for g in range(n):
         members = [e for e in evs if e.get("group") == g]
         obs = [e for e in members if not e["inferred"]]
-        starts = [int(e["start_unix_nano"]) for e in obs if e["start_unix_nano"] is not None]
+        spans = [e for e in obs if "end_unix_nano" in e]  # the observed move has no time of its own
+        starts = [int(e["start_unix_nano"]) for e in spans if e["start_unix_nano"] is not None]
         concurrent = len(members) > 1  # an inferred member counts: it is not ordered against the rest
         ordered = sum(1 for e in members for x in e.get("after", []) if x["event"] in {m["id"] for m in members})
         out.append({"group": g, "concurrent": concurrent, "label": CONCURRENT_LABEL if concurrent else None,
                     "observed_events": len(obs), "inferred_events": len(members) - len(obs),
                     "ordered_inside": ordered,
-                    "start": iso(min(starts)) if obs and len(starts) == len(obs) else None,
-                    "end": iso(max(int(e["end_unix_nano"]) for e in obs)) if obs else None})
+                    "start": iso(min(starts)) if spans and len(starts) == len(spans) else None,
+                    "end": iso(max(int(e["end_unix_nano"]) for e in spans)) if spans else None})
     return out
+
+
+def _queue_of_arn(arn: str) -> str:
+    return arn.rsplit(":", 1)[-1]
+
+
+def _dlq_moves(receives: list, sends: list, proven) -> list[tuple]:
+    """(earlier anchor or None, the reporting receive, source queue name) per observed move (section 9b).
+
+    One move per (source queue, dead-letter queue) pair, reported by its earliest dead-letter receive
+    that carries DeadLetterQueueSourceArn. The earlier anchor is the last receive on the source queue
+    (one no other receive there is proven to follow, and not proven to come after the report), or the
+    send on it if no receive there was observed."""
+    out = []
+    pairs: dict[tuple[str, str], list] = {}
+    for r in receives:
+        if r["dlq_source_arn"]:
+            frm = _queue_of_arn(r["dlq_source_arn"])
+            if frm != r["queue"]:
+                pairs.setdefault((frm, r["queue"]), []).append(r)
+    for (frm, _), reports in pairs.items():
+        first = [x for x in reports if not any(proven(y, x) for y in reports if y is not x)]
+        b = min(first, key=lambda x: (x["receive_count"], x["time_ns"], x["row"]))
+        on_src = [x for x in receives if x["queue"] == frm and not proven(b, x)]
+        last = [x for x in on_src if not any(proven(x, y) for y in on_src if y is not x)]
+        if last:
+            a = max(last, key=lambda x: (x["receive_count"], x["time_ns"], x["row"]))
+        else:
+            a = next((x for x in sends if x["queue"] == frm and not proven(b, x)), None)
+        out.append((a, b, frm))
+    return out
+
+
+def _not_seen_notice(queue: str, count: int, mrc: int) -> dict:
+    return {"code": "dlq_move_not_seen", "message":
+            f"Receive count exceeded maxReceiveCount; not seen on the DLQ yet. The last receive on {queue} had "
+            f"receive count {count}, and {queue}'s maxReceiveCount is {mrc}, so SQS moves the message to its "
+            f"dead-letter queue instead of delivering it again. No receive from the dead-letter queue has "
+            f"reported the move yet, so no move is shown. qv2 does not receive from the dead-letter queue to "
+            f"check: a receive changes the message's state."}
 
 
 def _delete_status(r, latest) -> str:

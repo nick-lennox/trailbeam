@@ -88,7 +88,8 @@ class Consumer:
         return self._s("qv2 send", t, a, trace_id, start, order)
 
     def receive(self, t, mid, handle, count=1, queue=None, trace_id=None, sent_ms=None, lambda_inv=None, start=None,
-                first_ms=None, order=None):
+                first_ms=None, order=None, dlq_source=None):
+        """``dlq_source``: the queue name SQS reports in DeadLetterQueueSourceArn (contract 3.1)."""
         a = self.base("sqs.receive", "receive", "LambdaEvent" if lambda_inv else "ReceiveMessage", queue)
         a.update({"messaging.message.id": mid, "qv2.receive_count": count,
                   "qv2.receipt_handle.hmac": rh_hash(handle, self.key),
@@ -97,6 +98,8 @@ class Consumer:
             a["qv2.sent_timestamp_ms"] = sent_ms
         if first_ms is not None:
             a["qv2.first_receive_timestamp_ms"] = first_ms
+        if dlq_source is not None:
+            a["qv2.dead_letter_queue_source_arn"] = f"arn:aws:sqs:us-east-1:000000000000:{dlq_source}"
         if lambda_inv:
             # The Lambda wrapper only knows an upper bound (contract section 2).
             a.update({"faas.name": "orders-fn", "faas.invocation_id": lambda_inv, "qv2.start_observed": False})

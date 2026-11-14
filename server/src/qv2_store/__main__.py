@@ -23,12 +23,17 @@ def main(argv=None) -> None:
     p.add_argument("--lambda-timeout", type=int, default=int(os.environ.get("QV2_LAMBDA_TIMEOUT_S", "900")),
                    help="seconds after which a Lambda receive without an outcome is inferred killed "
                         "(env QV2_LAMBDA_TIMEOUT_S, default 900, the Lambda maximum)")
+    p.add_argument("--max-receive-count", type=_max_receive_counts,
+                   default=_max_receive_counts(os.environ.get("QV2_MAX_RECEIVE_COUNT", "")),
+                   help="QUEUE=N[,QUEUE=N...]: the maxReceiveCount of each queue's redrive policy, so a timeline "
+                        "can say when a message should have moved to its dead-letter queue but no receive "
+                        "there has reported it (env QV2_MAX_RECEIVE_COUNT; spans don't carry it)")
     p.add_argument("--log-level", default=os.environ.get("QV2_STORE_LOG_LEVEL", "INFO"))
     a = p.parse_args(argv)
     logging.basicConfig(level=a.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
     store = Store(a.db)
     httpd = make_server(store, a.host, a.port, stuck_after_s=a.stuck_after,
-                        lambda_timeout_s=a.lambda_timeout)
+                        lambda_timeout_s=a.lambda_timeout, max_receive_counts=a.max_receive_count)
     logging.getLogger("qv2_store").info("listening on http://%s:%d (OTLP: /v1/traces, API: /api/), db %s",
                                         a.host, httpd.server_address[1], a.db)
     # docker stop and systemd send SIGTERM; Python ignores it as PID 1 unless a handler is set. Stop the
@@ -41,6 +46,17 @@ def main(argv=None) -> None:
     finally:
         httpd.server_close()
         store.close()
+
+
+def _max_receive_counts(text: str) -> dict:
+    """``orders=3,payments=5`` -> {"orders": 3, "payments": 5}."""
+    out = {}
+    for part in filter(None, (p.strip() for p in text.split(","))):
+        name, sep, n = part.partition("=")
+        if not sep or not name.strip() or not n.strip().isdigit() or not 1 <= int(n) <= 1000:
+            raise argparse.ArgumentTypeError(f"expected QUEUE=N with N from 1 to 1000, got {part!r}")
+        out[name.strip()] = int(n)
+    return out
 
 
 def _interrupt(signum, frame):

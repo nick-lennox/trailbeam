@@ -22,6 +22,9 @@ refer to that file.
 - `lambda_timeout_s` (1 to 86400) is accepted by every endpoint that builds timelines. It overrides the
   server's `--lambda-timeout` (default 900 s, the Lambda maximum, because the store does not know the
   function's real timeout).
+- The server's `--max-receive-count QUEUE=N,...` (env `QV2_MAX_RECEIVE_COUNT`) gives the
+  `maxReceiveCount` of each queue's redrive policy. Spans don't carry it. Without it, the store never
+  says a message is due on its dead-letter queue (`dead_letter_queue_move`, below).
 - There is no authentication in 0.1. Bind to `127.0.0.1` (the default) unless the network is trusted.
 
 ## `GET /api/messages/{message_id}`: one message's timeline
@@ -35,6 +38,7 @@ refer to that file.
   "source_queue": "orders",
   "current_queue": "orders",
   "in_dead_letter_queue": false,
+  "dead_letter_queue_move": null,
   "send_observed": true,
   "deliveries": 2,
   "successful_deliveries": 1,
@@ -106,7 +110,8 @@ two timestamps had been equal (the same millisecond, common on a local emulator)
 | `state` | `deleted`: an observed final delete (below). `deleted_inferred`: the latest delivery was to Lambda and its outcome was `success`, so Lambda deleted it (not observed). `processing`: the latest delivery is a Lambda invocation still within `lambda_timeout_s`, with no outcome yet. `not_deleted`: anything else. |
 | `source_queue` | Queue of the first `sent` event, or of the first receive if the send was not observed. |
 | `current_queue` | Queue of the latest receive (or `source_queue`). |
-| `in_dead_letter_queue` | `current_queue` differs from `source_queue`. |
+| `in_dead_letter_queue` | `current_queue` is a queue SQS reported moving the message to: an observed `moved_to_dead_letter_queue` event (contract §9b) has it as `to_queue`. A receive on another queue without that report doesn't count. |
+| `dead_letter_queue_move` | `"observed"`: SQS reported a move to a dead-letter queue (an event below). `"not_seen_on_dlq_yet"`: the highest receive count on `source_queue` has reached its configured `maxReceiveCount`, the message is not deleted, and no receive from a dead-letter queue has reported a move. No move is shown, and the notice `dlq_move_not_seen` says so. The store does not receive from the DLQ to check, because a receive changes the message's state. `null` otherwise, including when `maxReceiveCount` is not configured. |
 | `deliveries` | Number of observed receives, on any queue. |
 | `successful_deliveries` | Deliveries that ended in an accepted delete (counted once per delivery) or a Lambda `success`. More than one means the message was processed more than once. |
 | `first_seen` | Send time (the end of the send call); if the send was not observed, the earliest SQS `SentTimestamp` from a receive. |
@@ -168,6 +173,18 @@ linking to a tracing backend.
 | `deleted` | `delivery`, `result` (`ok`/`failed`), `status`, `error_code`, `batch_entry_id` |
 | `visibility_changed` | `delivery`, `result`, `visibility_timeout_s` (`0` makes the message visible at once), `error_code`, `batch_entry_id` |
 | `lambda_outcome` | `outcome` (`success`, `failed_reported`, `failed_invalid_response`, `failed_exception`), `error_type`, `delivery` |
+| `moved_to_dead_letter_queue` | Observed, but with no span and no time (below): `source` (`sqs_dlq_source`), `reported_by`, `from_queue`, `to_queue`, `source_arn`, `reported_on_delivery`, `window`, `reason`, `after`, `before` |
+
+**The move to a dead-letter queue** (contract §9b) is observed: SQS reports it on the receive from the
+dead-letter queue, whose `DeadLetterQueueSourceArn` names the queue it came from. It is
+`inferred: false` with `source: "sqs_dlq_source"` and `reported_by: "reported by SQS
+(DeadLetterQueueSourceArn on the DLQ receive)"`. SQS gives the move no time, so it has `time: null`,
+no `start`/`end`/`span`, and a `window`. It is placed like an inferred event, by two anchors: after the
+last receive on `from_queue` (or the send, if no receive there was observed), and before the first
+receive that reports it (`reported_on_delivery`). Its `after` entry and `before` field have source
+`sqs_dlq_source`. Like inferred anchors, they never appear in `order.edges` and never order two
+observed events. There is one move per source and dead-letter queue pair. The store **never infers** a
+move from the message ID alone: a receive on another queue without the attribute shows no move.
 
 `delivery` on a delete or visibility change is the delivery whose receipt handle was used, found by the
 receipt-handle hash join (below). It is `null` if no stored receive has that hash.
@@ -204,8 +221,6 @@ or after it.
 |---|---|---|
 | `visibility_timeout_expired` | A receive on a queue follows an earlier receive on the same queue with a lower receive count. The `reason` says whether a `ChangeMessageVisibility` to 0 or a delete that came too late explains it. | `queue`, `after_delivery`, `before_delivery` |
 | `deliveries_not_observed` | The receive count jumps by more than one, or the first receive on the source queue has a count above 1: receives by a consumer without qv2, or lost spans. | `queue`, `count` |
-| `moved_to_dead_letter_queue` | The message ID is received on another queue than the source queue. SQS keeps the ID when it moves a message; when exactly it moved is not known. | `from_queue`, `to_queue` |
-| `moved_back_to_source_queue` | Received on the source queue again after another queue (a redrive). | `from_queue`, `to_queue` |
 | `deleted_by_lambda` | After a Lambda `success` outcome: the event source mapping deletes the message, unobserved. `window.from` is the outcome time. | `queue`, `delivery` |
 | `lambda_invocation_ended_without_outcome` | A Lambda receive with no outcome after `lambda_timeout_s`: most likely a timeout or out-of-memory kill. | `queue`, `delivery`, `faas_invocation_id` |
 
@@ -219,6 +234,7 @@ or after it.
 | `key_mismatch` | A delete or visibility change for this message used a different hash key than its receives, so it cannot be joined. The services do not share `QV2_RECEIPT_HASH_KEY`. |
 | `unmatched_handle` | A delete or visibility change carries this message ID, but no stored receive has its hash. |
 | `send_not_observed` | No send span: the producer is not instrumented, or the send is older than the data. |
+| `dlq_move_not_seen` | "Receive count exceeded maxReceiveCount; not seen on the DLQ yet." See `dead_letter_queue_move`. |
 | `order_conflict` | The observed facts contradict each other about the order of some steps (for example, a host clock that jumped), so no order is shown between them; see `order.conflicts`. |
 
 ## `GET /api/messages`: recent messages

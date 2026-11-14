@@ -9,8 +9,8 @@ NOW = T0 + 3600 * SEC
 LT = 900
 
 
-def tl(store, mid, now=NOW, lambda_timeout=LT):
-    return queries.message(store, mid, now, lambda_timeout)
+def tl(store, mid, now=NOW, lambda_timeout=LT, mrc=None):
+    return queries.message(store, mid, now, lambda_timeout, mrc)
 
 
 def types(t):
@@ -22,6 +22,10 @@ def check_marking(t):
     for e in t["events"]:
         if e["inferred"]:
             assert e["time"] is None and "window" in e and e["reason"] and "span" not in e
+            assert e["type"] != "moved_to_dead_letter_queue"  # contract 3.1: never inferred
+        elif e["type"] == "moved_to_dead_letter_queue":  # observed, but SQS gives it no time (section 9b)
+            assert e["source"] == "sqs_dlq_source" and e["time"] is None and "span" not in e
+            assert e["reported_by"] == "reported by SQS (DeadLetterQueueSourceArn on the DLQ receive)"
         else:
             assert e["time"] and e["span"]["span_id"] and "window" not in e
 
@@ -86,31 +90,121 @@ def test_change_visibility_to_zero_is_the_reason_for_redelivery(store, ingest):
     assert "to 0" in t["events"][2]["reason"]
 
 
-def test_move_to_dead_letter_queue_is_inferred(store, ingest):
-    """Poison message: three receives on orders, then it shows up on orders-dlq (same message ID)."""
+def poison(c, d, dlq_count=4, dlq_source="orders"):
+    """Three receives on orders, then a receive on orders-dlq (same message ID), deleted there."""
+    return (Consumer("producer").send(T0, "m1"),
+            *[c.receive(T0 + (1 + 31 * i) * SEC, "m1", f"rh-{i}", count=i + 1) for i in range(3)],
+            d.receive(T0 + 200 * SEC, "m1", "rh-dlq", count=dlq_count, dlq_source=dlq_source),
+            d.delete(T0 + 201 * SEC, "rh-dlq"))
+
+
+def test_move_to_dead_letter_queue_is_observed_from_dead_letter_queue_source_arn(store, ingest):
+    """Contract 3.1, section 9b: the DLQ receive carries DeadLetterQueueSourceArn, so SQS reported the move."""
     c, d = Consumer(), Consumer("dlq-worker", queue="orders-dlq")
-    ingest(Consumer("producer").send(T0, "m1"),
-           *[c.receive(T0 + (1 + 31 * i) * SEC, "m1", f"rh-{i}", count=i + 1) for i in range(3)],
-           d.receive(T0 + 200 * SEC, "m1", "rh-dlq", count=4),
-           d.delete(T0 + 201 * SEC, "rh-dlq"))
+    ingest(*poison(c, d))
     t = tl(store, "m1")
     check_marking(t)
     assert types(t) == [("sent", False), ("received", False), ("visibility_timeout_expired", True),
                         ("received", False), ("visibility_timeout_expired", True), ("received", False),
-                        ("moved_to_dead_letter_queue", True), ("received", False), ("deleted", False)]
-    move = t["events"][6]
+                        ("moved_to_dead_letter_queue", False), ("received", False), ("deleted", False)]
+    last_src, move, dlq_rcv = t["events"][5:8]
     assert (move["from_queue"], move["to_queue"]) == ("orders", "orders-dlq")
-    assert move["window"] == {"from": t["events"][5]["time"], "to": t["events"][7]["time"]}
+    assert move["source_arn"] == "arn:aws:sqs:us-east-1:000000000000:orders"
+    assert move["reported_on_delivery"] == dlq_rcv["delivery"] == 4
+    # Placed after the last receive on orders and before the DLQ receive that reports it, by those two only.
+    assert [(a["event"], a["sources"]) for a in move["after"]] == [(last_src["id"], ["sqs_dlq_source"])]
+    assert (move["before"]["event"], move["before"]["sources"]) == (dlq_rcv["id"], ["sqs_dlq_source"])
+    assert "DeadLetterQueueSourceArn" in move["before"]["why"] and "orders" in move["before"]["why"]
+    assert move["window"] == {"from": last_src["start"], "to": dlq_rcv["end"]}
+    assert "sqs_dlq_source" not in [s for e in t["order"]["edges"] for s in e["sources"]]  # not a new order source
     assert t["events"][8]["status"] == "final"
-    assert (t["state"], t["source_queue"], t["current_queue"], t["in_dead_letter_queue"]) == \
-        ("deleted", "orders", "orders-dlq", True)
+    assert (t["state"], t["source_queue"], t["current_queue"], t["in_dead_letter_queue"],
+            t["dead_letter_queue_move"]) == ("deleted", "orders", "orders-dlq", True, "observed")
+    assert not [n for n in t["notices"] if n["code"] == "dlq_move_not_seen"]
+
+
+def test_receive_on_another_queue_without_the_attribute_shows_no_move(store, ingest):
+    """No report from SQS, no move: the message ID on another queue is not enough (contract 3.1)."""
+    c, d = Consumer(), Consumer("dlq-worker", queue="orders-dlq")
+    ingest(*poison(c, d, dlq_source=None))
+    t = tl(store, "m1", mrc={"orders": 3})
+    check_marking(t)
+    assert "moved_to_dead_letter_queue" not in [e["type"] for e in t["events"]]
+    assert "moved_back_to_source_queue" not in [e["type"] for e in t["events"]]
+    assert (t["current_queue"], t["in_dead_letter_queue"], t["dead_letter_queue_move"]) == \
+        ("orders-dlq", False, None)  # deleted, so not "not seen yet" either
+
+
+def test_receive_count_reached_max_but_not_seen_on_the_dead_letter_queue(store, ingest):
+    c = Consumer()
+    ingest(Consumer("producer").send(T0, "m1"),
+           *[c.receive(T0 + (1 + 31 * i) * SEC, "m1", f"rh-{i}", count=i + 1) for i in range(3)])
+    t = tl(store, "m1", mrc={"orders": 3})
+    check_marking(t)
+    assert "moved_to_dead_letter_queue" not in [e["type"] for e in t["events"]]
+    assert (t["dead_letter_queue_move"], t["in_dead_letter_queue"]) == ("not_seen_on_dlq_yet", False)
+    [n] = [n for n in t["notices"] if n["code"] == "dlq_move_not_seen"]
+    assert n["message"].startswith("Receive count exceeded maxReceiveCount; not seen on the DLQ yet.")
+    assert "receive count 3" in n["message"] and "maxReceiveCount is 3" in n["message"]
+    assert "does not receive from the dead-letter queue" in n["message"]
+    # Not configured, or below the limit: nothing to say.
+    assert tl(store, "m1")["dead_letter_queue_move"] is None
+    assert tl(store, "m1", mrc={"orders": 4})["dead_letter_queue_move"] is None
+    assert tl(store, "m1", mrc={"other": 1})["dead_letter_queue_move"] is None
+
+
+def test_deleted_at_max_receive_count_is_not_waiting_for_the_dead_letter_queue(store, ingest):
+    c = Consumer()
+    ingest(c.send(T0, "m1"), c.receive(T0 + SEC, "m1", "rh-1"), c.delete(T0 + 2 * SEC, "rh-1"))
+    t = tl(store, "m1", mrc={"orders": 1})
+    assert (t["state"], t["dead_letter_queue_move"], t["notices"]) == ("deleted", None, [])
+
+
+def test_move_reported_by_the_first_of_several_dead_letter_receives(store, ingest):
+    """Every receive from the DLQ carries the attribute; the move is one step, before the first of them."""
+    c, d = Consumer(), Consumer("dlq-worker", queue="orders-dlq")
+    ingest(c.send(T0, "m1"), c.receive(T0 + SEC, "m1", "rh-1"),
+           d.receive(T0 + 50 * SEC, "m1", "rh-d1", count=2, dlq_source="orders"),
+           d.receive(T0 + 90 * SEC, "m1", "rh-d2", count=3, dlq_source="orders"))
+    t = tl(store, "m1")
+    check_marking(t)
+    assert [e["type"] for e in t["events"]] == ["sent", "received", "moved_to_dead_letter_queue", "received",
+                                                "visibility_timeout_expired", "received"]
+    move = t["events"][2]
+    assert move["reported_on_delivery"] == 2 and move["before"]["event"] == t["events"][3]["id"]
+
+
+def test_move_when_no_receive_on_the_source_queue_was_observed(store, ingest):
+    """The consumers of orders run without qv2: the move is still reported, placed after the send."""
+    p, d = Consumer("producer"), Consumer("dlq-worker", queue="orders-dlq")
+    ingest(p.send(T0, "m1"), d.receive(T0 + 50 * SEC, "m1", "rh-d1", count=4, dlq_source="orders"))
+    t = tl(store, "m1")
+    check_marking(t)
+    assert [e["type"] for e in t["events"]] == ["sent", "moved_to_dead_letter_queue", "received"]
+    assert t["events"][1]["after"][0]["event"] == t["events"][0]["id"]
+    assert t["in_dead_letter_queue"] is True
+
+
+def test_move_is_ordered_against_other_steps_only_through_its_anchors(store, ingest):
+    """A delete on orders that overlaps the last receive there is not placed against the move by any guess."""
+    c, d = Consumer(), Consumer("dlq-worker", queue="orders-dlq")
+    ingest(c.send(T0, "m1"), c.receive(T0 + SEC, "m1", "rh-1", start=T0 + SEC // 2),
+           c.delete(T0 + SEC, "rh-1", start=T0 + SEC // 2),  # overlaps receive 1: not proven after it
+           d.receive(T0 + 50 * SEC, "m1", "rh-d1", count=2, dlq_source="orders"))
+    t = tl(store, "m1")
+    move = next(e for e in t["events"] if e["type"] == "moved_to_dead_letter_queue")
+    assert [a["sources"] for a in move["after"]] == [["sqs_dlq_source"]]
+    rcv1 = next(e for e in t["events"] if e["type"] == "received" and e["delivery"] == 1)
+    assert move["after"][0]["event"] == rcv1["id"]
 
 
 def test_message_waiting_in_dead_letter_queue_is_stuck(store, ingest):
     c, d = Consumer(), Consumer("dlq-peek", queue="orders-dlq")
-    ingest(c.send(T0, "m1"), c.receive(T0 + SEC, "m1", "rh-1"), d.receive(T0 + 100 * SEC, "m1", "rh-2", count=2))
+    ingest(c.send(T0, "m1"), c.receive(T0 + SEC, "m1", "rh-1"),
+           d.receive(T0 + 100 * SEC, "m1", "rh-2", count=2, dlq_source="orders"))
     s = queries.stuck(store, NOW, LT, 300, 100)
-    assert [(x["message_id"], x["current_queue"], x["in_dead_letter_queue"]) for x in s] == [("m1", "orders-dlq", True)]
+    assert [(x["message_id"], x["current_queue"], x["in_dead_letter_queue"], x["dead_letter_queue_move"])
+            for x in s] == [("m1", "orders-dlq", True, "observed")]
 
 
 def test_lambda_success_infers_the_delete(store, ingest):

@@ -1,4 +1,5 @@
 """The web screen over HTTP: lookup, timeline with inferred steps marked, duplicates, stuck messages."""
+import json
 import re
 from html import unescape
 import urllib.error
@@ -56,7 +57,7 @@ def site(server):
         # Fails twice, then moves to the dead-letter queue, where nobody deletes it.
         p.send(T0, POISON), a.receive(T0 + SEC, POISON, "p-1"),
         a.change_visibility(T0 + 2 * SEC, "p-1", 0), a.receive(T0 + 3 * SEC, POISON, "p-2", count=2),
-        dlq.receive(T0 + 100 * SEC, POISON, "p-3", count=3),
+        dlq.receive(T0 + 100 * SEC, POISON, "p-3", count=3, dlq_source="orders"),
         # A message ID with HTML in it, sent and never received.
         p.send(T0, ODD),
     ])
@@ -86,9 +87,43 @@ def test_timeline_in_order_with_inferred_steps_marked(site):
 def test_dead_letter_queue_timeline(site):
     _, _, html = get(site, page(POISON))
     types = events(html)
-    assert ("moved_to_dead_letter_queue", True) in types and ("visibility_changed", False) in types
-    assert types.index(("moved_to_dead_letter_queue", True)) == len(types) - 2  # just before the DLQ receive
+    assert ("moved_to_dead_letter_queue", False) in types and ("visibility_changed", False) in types
+    assert ("moved_to_dead_letter_queue", True) not in types  # contract 3.1: never inferred
+    assert types.index(("moved_to_dead_letter_queue", False)) == len(types) - 2  # just before the DLQ receive
+    move = re.search(r'<li [^>]*data-type="moved_to_dead_letter_queue"[^>]*>(.*?)</li>', html)
+    assert 'data-source="sqs_dlq_source"' in move.group(0)
+    assert "reported by SQS (DeadLetterQueueSourceArn on the DLQ receive)" in move.group(1)
+    assert '<span class="badge">inferred</span>' not in move.group(1)
+    assert "between" in move.group(1)  # SQS gives no time for the move: a window, from its anchors
+    assert re.search(r'data-sources="sqs_dlq_source">After receive 2: ', move.group(1))
+    assert re.search(r'data-sources="sqs_dlq_source">Before receive 3: SQS reported the move', move.group(1))
     assert "(dead-letter queue)" in html and "orders-dlq" in html
+    assert "moved, reported by SQS" in html
+
+
+def test_not_seen_on_the_dead_letter_queue_yet(store):
+    """maxReceiveCount configured for orders; the receive count reached it, and no DLQ receive reported a move."""
+    import threading
+
+    from qv2_store.server import make_server
+
+    httpd = make_server(store, "127.0.0.1", 0, max_receive_counts={"orders": 2})
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    try:
+        a = Consumer("consumer-a")
+        post(base, [a.send(T0, MID), a.receive(T0 + SEC, MID, "rh-1"),
+                    a.receive(T0 + 40 * SEC, MID, "rh-2", count=2)])
+        _, _, html = get(base, page(MID))
+        assert "moved_to_dead_letter_queue" not in html
+        assert 'data-code="dlq_move_not_seen"' in html
+        assert "Receive count exceeded maxReceiveCount; not seen on the DLQ yet." in html
+        _, _, html = get(base, "/")
+        assert "(maxReceiveCount reached; not seen on the DLQ yet)" in html
+        assert json.loads(get(base, "/api/health")[2])["config"]["max_receive_counts"] == {"orders": 2}
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
 
 
 def test_message_id_is_escaped_and_round_trips(site):
