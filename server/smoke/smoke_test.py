@@ -90,7 +90,7 @@ def run(base: str) -> None:
         for t, inferred in got:
             check(inferred == (t == "visibility_timeout_expired"),
                   f"{name}: {t} is {'marked inferred' if inferred else 'observed'}")
-        inferred_items = re.findall(r'<li [^>]*data-inferred="true">(.*?)</li>', html)
+        inferred_items = re.findall(r'<li [^>]*data-inferred="true"[^>]*>(.*?)</li>', html)
         check(len(inferred_items) == sum(i for _, i in got)
               and all('<span class="badge">inferred</span>' in li for li in inferred_items),
               f"{name}: every inferred step carries the visible INFERRED label")
