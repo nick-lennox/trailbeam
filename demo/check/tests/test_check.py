@@ -70,6 +70,17 @@ def test_truth_is_ordered_by_time_not_by_file_order(tmp_path):
     assert check.evaluate(truth[MID], retry_timeline())["passed"]
 
 
+def test_a_millisecond_tie_between_processes_is_broken_by_delivery(tmp_path):
+    """Node.js stamps whole milliseconds (QV-38): the redelivery in another process can tie with the first
+    receive and its release. The file order would put the redelivery first and join the release to it."""
+    truth = [rec("send", 1, kind="retry_once"), rec("receive", 7, rh="a", rc=1),
+             rec("change_visibility", 7, rh="a"), rec("receive", 7, rh="b", rc=2), rec("delete", 7, rh="b")]
+    (tmp_path / "a.jsonl").write_text("".join(json.dumps(r) + "\n" for r in truth[3:]))
+    (tmp_path / "b.jsonl").write_text("".join(json.dumps(r) + "\n" for r in truth[:3]))
+    got = check.load_truth(str(tmp_path))[MID]
+    assert [(r["op"], r.get("rh")) for r in got] == [(r["op"], r.get("rh")) for r in truth]
+
+
 def test_handoff_lines_are_not_sqs_calls(tmp_path):
     (tmp_path / "a.jsonl").write_text(json.dumps(rec("handoff", 3, rh="a")) + "\n")
     assert check.load_truth(str(tmp_path)) == {}

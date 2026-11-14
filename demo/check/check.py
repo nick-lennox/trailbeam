@@ -117,8 +117,25 @@ def load_truth(directory: str) -> dict:
                 if rec.get("op") in TRUTH_OPS:
                     by_id[rec["id"]].append(rec)
     for recs in by_id.values():
-        recs.sort(key=lambda r: int(r["t_ns"]))
+        recs.sort(key=_truth_order(recs))
     return dict(by_id)
+
+
+def _truth_order(recs: list):
+    """Sort key for one message's truth calls: by ``t_ns``. Node.js stamps whole milliseconds (the system
+    clock, as its spans do), so two calls from different processes can tie; a tie is broken by the receive
+    count of the delivery each call belongs to (a settle by its handle's receive), and a receive before the
+    settles of its own delivery, which is the only order SQS allows. Within one process a tie keeps the
+    file's order, which is the order the calls were made."""
+    rc_of_handle = {r.get("rh"): r.get("rc") or 0 for r in recs if r["op"] == "receive"}
+
+    def key(r):
+        if r["op"] == "receive":
+            return int(r["t_ns"]), r.get("rc") or 0, 0
+        if r["op"] in ("delete", "change_visibility"):
+            return int(r["t_ns"]), rc_of_handle.get(r.get("rh"), 0), 1
+        return int(r["t_ns"]), 0, 0
+    return key
 
 
 def expected_events(truth: list) -> list:

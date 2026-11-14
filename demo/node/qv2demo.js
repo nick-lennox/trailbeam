@@ -34,10 +34,11 @@ function kindOf(i, mix) {
 }
 
 const handleHash = (rh) => crypto.createHash('sha256').update(rh).digest('hex').slice(0, 16);
-const nowNs = (() => {
-  const offset = BigInt(Date.now()) * 1000000n - process.hrtime.bigint();
-  return () => String(process.hrtime.bigint() + offset);
-})();
+// Truth times read the system clock on every call, as the spans do (../../node/src/emitter.js nowMs) and as
+// Python's time.time_ns() does, so every process on the host reads the same clock. (Anchoring hrtime to
+// Date.now() once per process, as this did before QV-38, leaves each process on its own clock once the
+// system clock steps or slews: up to ~70 ms apart in QV-35.) The resolution is 1 ms, rounded down.
+const nowNs = () => String(BigInt(Date.now()) * 1000000n);
 
 function truthWriter(dir, role) {
   if (!dir) return () => {};
