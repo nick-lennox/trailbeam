@@ -124,7 +124,8 @@ def test_overlap_passes_as_concurrent():
     tl["events"] = [rcv, sent] + [e for e in tl["events"] if e is not rcv and e is not sent]
     r = check.evaluate(RETRY_TRUTH, tl)
     assert r["in_order"] and r["passed"], r
-    assert r["pairs"]["send->receive"] == {"in_order": 1, "concurrent": 1, "violated": 0, "concurrent_via_chain": 0}
+    assert r["pairs"]["send->receive"] == {"in_order": 1, "concurrent": 1, "violated": 0, "concurrent_via_chain": 0,
+                                                 "concurrent_tied": 0}
     assert r["concurrent_groups"] == 1
 
 
@@ -267,7 +268,18 @@ def test_summary_counts_pairs_and_concurrent_groups():
     assert (s["pairs_in_order"], s["pairs_concurrent"], s["pairs_violated"]) == (6, 6, 0)
     # In the one-group timeline every interval is separate: all 6 are concurrent only through the group.
     assert s["pairs_concurrent_via_chain"] == 6
+    assert s["pairs_concurrent_tied"] == 0
     assert s["pairs_by_kind"]["send->receive"] == {"in_order": 2, "concurrent": 2, "violated": 0,
-                                                   "concurrent_via_chain": 2}
+                                                   "concurrent_via_chain": 2, "concurrent_tied": 0}
     assert s["pairs_by_kind"]["change_visibility->receive"] == {"in_order": 1, "concurrent": 1, "violated": 0,
-                                                                "concurrent_via_chain": 1}
+                                                                "concurrent_via_chain": 1, "concurrent_tied": 0}
+
+
+def test_a_tie_at_the_clock_resolution_is_concurrent_and_counted():
+    tl = retry_timeline()
+    sent, rcv = by_type(tl)["sent"][0], by_type(tl)["received"][0]
+    sent.update(start_unix_nano="10", end_unix_nano="20", group=0)
+    rcv.update(start_unix_nano="20", end_unix_nano="25", group=0)  # starts the instant the send ended
+    r = check.evaluate(RETRY_TRUTH, tl)
+    assert r["passed"]
+    assert r["pairs"]["send->receive"]["concurrent_tied"] == 1
