@@ -105,25 +105,30 @@ passes only if its timeline is:
 | `receive_count` | each receive shows the real `ApproximateReceiveCount` |
 | `final` | the message's state is `deleted` |
 
-**In order.** The store shows each step as an interval (request sent to response received) and groups
-steps whose intervals overlap as "concurrent, order unknown" ([`docs/store-api.md`](../docs/store-api.md#events-and-their-order)).
-The checker takes the cause/effect pairs from the truth files: the send and each receive; receive *k* and
-receive *k*+1; receive *k* and each delete or visibility change that used its handle; an accepted
-`ChangeMessageVisibility` on delivery *k* and receive *k*+1. With the store's intervals and groups, a pair is
+**In order.** The store shows a step before another only when an observed fact proves it, and says which
+(`order.edges`, each with its sources: `clock`, `process_order`, `receive_count`, `sqs_timestamps`;
+[`docs/store-api.md`](../docs/store-api.md#events-and-their-order)). What no fact orders is "concurrent,
+order unknown". The checker takes the cause/effect pairs from the truth files: the send and each receive;
+receive *k* and receive *k*+1; receive *k* and each delete or visibility change that used its handle; an
+accepted `ChangeMessageVisibility` on delivery *k* and receive *k*+1. A pair is
 
-- **violated** if the effect's interval ends before the cause's starts, or the store puts the effect in an
-  earlier group, or orders the pair although the intervals do not prove it (cause end < effect start);
-- **concurrent** if both are in one group;
-- **in order** otherwise.
+- **violated** if the effect's interval ends before the cause's starts, or the store proves the effect
+  before the cause, or puts the effect in an earlier group, or puts the cause in an earlier group without
+  an edge chain that proves it;
+- **in order** ("resolved") if the store's edges prove the cause before the effect;
+- **concurrent** otherwise.
 
 A message is `in_order` when it is complete and none of its pairs is violated.
 
-So that `in_order` cannot pass just by putting everything in one group, the summary also reports
-`with_concurrent_group` (messages with at least one concurrent group) and `pairs_in_order`,
-`pairs_concurrent`, `pairs_violated`, with `pairs_by_kind` per kind of pair. Two diagnostics split the
-concurrent pairs: `concurrent_via_chain`, whose own intervals do not overlap (they share a group only
-because other steps overlap both), and `concurrent_tied`, where the cause ended at exactly the effect's
-start (a tie at the clock's resolution).
+**The floor.** So that `in_order` cannot pass by leaving things concurrent, the run also fails unless at
+least 90% of the send→receive pairs and 90% of the receive→delete pairs are resolved (`floor` in the
+summary; `--floor` to change it, which CI does not). `resolution` gives, per kind (send→receive,
+receive→delete, release→redelivery, receive *n*→receive *n*+1), the pairs resolved and left concurrent, and
+by source: `by_source` (pairs whose direct edge has that source; a pair can count under several),
+`only_source` (that source alone), `via_chain` (resolved only through other steps) and `chain_sources`.
+Release→redelivery has no floor, because SQS gives no time for a redelivery; it is reported anyway. The
+older columns stay: `with_concurrent_group`, `pairs_in_order`, `pairs_concurrent`, `pairs_violated`,
+`pairs_by_kind`, and the diagnostics `concurrent_via_chain` and `concurrent_tied`.
 
 Each check is evaluated on its own: `joined` and `receive_count` compare the events whatever order the
 store shows them in, so a message that fails on order still has its joins and receive counts measured. The
@@ -131,11 +136,59 @@ summary counts each column separately, and `failed_only_in_order` counts the mes
 order.
 
 The summary is printed and saved in `demo/results/<run>.txt`, the per-message report in
-`demo/results/<run>-report.json`. Exit status 0 only if all 200 pass. Each run uses its own queue and a
+`demo/results/<run>-report.json`. Exit status 0 only if all 200 pass and the floor holds. Each run uses its own queue and a
 fresh random receipt-hash key, so runs don't mix and the demo can keep running alongside.
 [`check/tests/`](check/tests/) tests the comparison itself (`pytest demo/check/tests`).
 
-### Result: 200 of 200, with most send/receive pairs left concurrent
+### Result with the four order sources (QV-31): 200 of 200 in order, floor fails on send→receive
+
+Span contract v3, ElasticMQ 1.6.15, all processes on one host. One run per language **locally** (WSL 2
+on Windows, Docker Desktop, 2026-11-14) and one **in CI** (GitHub Actions `ubuntu-latest`, run
+43624764060, commit d16190e; the floor was reported but not yet gating):
+
+| | Python local | Python CI | Node.js local | Node.js CI |
+|---|---|---|---|---|
+| complete, in order, joined, receive count, final | 200 each | 200 each | 200 each | 200 each |
+| pairs violated | 0 | 0 | 0 | 0 |
+| messages with a concurrent group | 195 | 189 | 194 | 86 |
+| **send→receive** resolved | **10 / 229 (4.4%)** | **18 / 229 (7.9%)** | **8 / 229 (3.5%)** | **159 / 229 (69.4%)** |
+| **receive→delete** resolved | **200 / 200** | **200 / 200** | **200 / 200** | **200 / 200** |
+| release→redelivery resolved (no floor) | 0 / 29 | 0 / 29 | 0 / 29 | 1 / 29 |
+| receive *n*→*n*+1 resolved | 29 / 29 | 29 / 29 | 29 / 29 | 29 / 29 |
+
+By source (pairs whose direct edge has it; "alone" = the only source of that edge):
+
+| Kind | Python local | Python CI | Node.js local | Node.js CI |
+|---|---|---|---|---|
+| send→receive | SQS timestamps 6, clock 3, chain 1 | SQS timestamps 12, clock 6, chain 1 | SQS timestamps 6, clock 2 | SQS timestamps 133 (63 alone), clock 96 (26 alone) |
+| receive→delete | clock 200, process order 172 | clock 200, process order 172 | process order 172 (141 alone), clock 59 (28 alone) | process order 172 (34 alone), clock 166 (28 alone) |
+| receive *n*→*n*+1 | receive count 29 (27 alone), clock 2 | receive count 29 (25 alone), clock 4 | receive count 29 (28 alone) | receive count 29 (7 alone), clock 22, process order 6 |
+| release→redelivery | none | none | none | clock and process order 1 |
+
+So the check fails, in both languages, locally and in CI, on one column: **send→receive is far below
+90%**. The floor is not lowered. Why it can't be reached honestly with these sources on this workload:
+
+- **The clocks and the call order can't apply.** An idle consumer is already waiting in a long poll
+  (`ReceiveMessage` with `WaitTimeSeconds`) when the message is sent, so the receive's interval contains
+  the send, and the producer and consumer are different processes.
+- **SQS's timestamps tie.** ElasticMQ stamps `SentTimestamp` and `ApproximateFirstReceiveTimestamp` in
+  milliseconds, and a waiting long poll gets the message within the same millisecond. Measured for QV-31
+  with 12 waiting consumers and 200 sends: the two were equal for 196 of 200 messages (1 ms apart for 3,
+  4 ms for 1). Equal timestamps prove nothing, so the pair stays concurrent. CI resolves more in Node.js
+  because the runner is slower and more receives land a millisecond or more after the send.
+- Ordering it anyway by "a receive comes after its send" would be ordering by cause, which the store
+  does not do.
+
+Receive→delete passes everywhere: the call order resolves every same-process delete (172 of 200; in
+Node.js 141 of them locally only by it, because the delete is issued in the same millisecond the receive
+returned), and the clocks resolve the 28 deletes made by the deleter process. Release→redelivery stays
+concurrent for the same long-poll reason: the consumer that gets the redelivery was already waiting
+before the `ChangeMessageVisibility` returned, usually in another thread.
+
+On AWS, the gap between `SentTimestamp` and the first receive is likely wider than on a local emulator
+[estimate, not measured: no AWS in this work].
+
+### Earlier result (contract v2, clock intervals only): 200 of 200, with most send/receive pairs left concurrent
 
 Measured in CI on 2026-11-14 (GitHub Actions `ubuntu-latest`, ElasticMQ 1.6.15, all processes on one
 host), three runs per language with span contract v2 and the rule above:

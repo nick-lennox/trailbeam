@@ -386,6 +386,7 @@ def test_floor_fails_when_every_pair_is_concurrent():
     """Every message passes on its own (nothing shown out of order), but nothing is resolved."""
     s = summary_of([with_order(one_group(simple_timeline()), []) for _ in range(3)])
     assert s["passed"] == 3 and s["messages_result"] == "PASS"
+    assert s["result"] == "FAIL"  # the run fails on the floor alone
     assert s["resolution"]["send->receive"]["resolved_share"] == 0.0
     assert s["floor"] == {"min_resolved_share": 0.9, "kinds": ["send->receive", "receive->delete"],
                           "failed": ["send->receive", "receive->delete"], "result": "FAIL"}
@@ -400,7 +401,7 @@ def test_floor_counts_the_share_per_kind():
                               groups=[0, 0, 0]))
     s = summary_of(tls)
     assert (s["resolution"]["send->receive"]["resolved"], s["resolution"]["receive->delete"]["resolved"]) == (9, 8)
-    assert s["floor"]["failed"] == ["receive->delete"]
+    assert s["floor"]["failed"] == ["receive->delete"] and s["result"] == "FAIL"
     assert s["resolution"]["receive->delete"]["by_source"]["process_order"] == 8
     assert s["resolution"]["release->redelivery"]["pairs"] == 0  # no floor, reported anyway
 

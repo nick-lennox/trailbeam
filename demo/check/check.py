@@ -77,7 +77,6 @@ RESOLUTION_KINDS = ("send->receive", "receive->delete", "release->redelivery", "
 # leaving everything concurrent. release->redelivery has no floor: SQS gives no time for a redelivery.
 FLOOR = 0.9
 FLOOR_KINDS = ("send->receive", "receive->delete")
-FLOOR_GATES = False  # the floor is reported; it does not yet fail the run
 
 
 def resolution_kind(kind: str, effect_op: str):
@@ -408,8 +407,7 @@ def summarize(truth_by_id: dict, results: dict, count: int, floor: float = FLOOR
         "resolution": table,
         "floor": floor_result,
         "messages_result": "PASS" if s["passed"] == count == len(sent) else "FAIL",
-        "result": "PASS" if s["passed"] == count == len(sent)
-                  and (floor_result["result"] == "PASS" or not FLOOR_GATES) else "FAIL",
+        "result": "PASS" if s["passed"] == count == len(sent) and floor_result["result"] == "PASS" else "FAIL",
     }
 
 
