@@ -64,10 +64,19 @@ function addReceiveAttributeNames(input) {
   return { ...input, MessageSystemAttributeNames: [...cur, ...missing] };
 }
 
+/**
+ * An SQS error code without a protocol namespace: some SQS implementations (ElasticMQ 2.x, for
+ * one) send `com.amazonaws.sqs#ReceiptHandleIsInvalid` where SQS sends `ReceiptHandleIsInvalid`.
+ */
+function plainCode(code) {
+  if (typeof code !== 'string' || !code) return undefined;
+  return code.slice(code.lastIndexOf('#') + 1) || undefined;
+}
+
 /** The SQS error code of a thrown error, or the error's name if it has no code. */
 function errorCode(err) {
   if (err && typeof err === 'object') {
-    return err.Code || err.code || err.name || err.constructor?.name || 'Error';
+    return plainCode(err.Code) || plainCode(err.code) || plainCode(err.name) || err.constructor?.name || 'Error';
   }
   return 'Error';
 }
@@ -133,7 +142,7 @@ class SqsHooks {
     const failed = new Map();
     if (callError === undefined && batch) {
       okIds = new Set((output.Successful || []).map((e) => e && e.Id));
-      for (const e of output.Failed || []) if (e) failed.set(e.Id, e.Code || 'Failed');
+      for (const e of output.Failed || []) if (e) failed.set(e.Id, plainCode(e.Code) || 'Failed');
     }
 
     const t = nowMs();
@@ -256,6 +265,7 @@ module.exports = {
   sqsMiddleware,
   addReceiveAttributeNames,
   errorCode,
+  plainCode,
   RECEIVE_SYSTEM_ATTRIBUTES,
   MIDDLEWARE_NAME,
 };

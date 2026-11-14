@@ -8,7 +8,7 @@ const { BasicTracerProvider } = require('@opentelemetry/sdk-trace-base');
 const S = require('@aws-sdk/client-sqs');
 
 const qv2 = require('../src/index');
-const { addReceiveAttributeNames, errorCode, MIDDLEWARE_NAME } = require('../src/sqs');
+const { addReceiveAttributeNames, errorCode, plainCode, MIDDLEWARE_NAME } = require('../src/sqs');
 const { memoryExporter, stubClient, serviceError, byName } = require('./helpers');
 const { version } = require('../package.json');
 
@@ -235,6 +235,18 @@ test('DeleteMessageBatch: one span per entry with its own result', async (t) => 
     ['DeleteMessageBatch', 'e2', 'mid-2', 'failed', 'ReceiptHandleIsInvalid', qv2.hashReceiptHandle(KEY, RH(2))],
     ['DeleteMessageBatch', 'e3', undefined, 'failed', 'MissingFromResponse', qv2.hashReceiptHandle(KEY, RH(3))],
   ]);
+});
+
+test('namespaced error codes (ElasticMQ 2.x) are recorded as the plain SQS code', async (t) => {
+  const { client, spans } = setup(t, {
+    DeleteMessageBatch: () => ({ Failed: [{ Id: 'e1', Code: 'com.amazonaws.sqs#ReceiptHandleIsInvalid', SenderFault: true }] }),
+  });
+  await client.send(new S.DeleteMessageBatchCommand({ QueueUrl: URL, Entries: [{ Id: 'e1', ReceiptHandle: RH(1) }] }));
+  assert.strictEqual(spans()[0].attributes['qv2.error_code'], 'ReceiptHandleIsInvalid');
+  assert.strictEqual(plainCode('ReceiptHandleIsInvalid'), 'ReceiptHandleIsInvalid');
+  assert.strictEqual(plainCode('AWS.SimpleQueueService.TooManyEntriesInBatchRequest'), 'AWS.SimpleQueueService.TooManyEntriesInBatchRequest');
+  assert.strictEqual(plainCode('ns#'), undefined);
+  assert.strictEqual(errorCode({ Code: 'com.amazonaws.sqs#QueueDoesNotExist' }), 'QueueDoesNotExist');
 });
 
 test('DeleteMessageBatch that throws: one failed span per entry', async (t) => {
