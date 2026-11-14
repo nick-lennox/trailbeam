@@ -1,0 +1,13 @@
+{
+  "name": "@qv2/sdk",
+  "version": "0.1.0-dev.0",
+  "description": "Message-level timelines for Amazon SQS: OpenTelemetry hooks for AWS SDK v3 and AWS Lambda.",
+  "license": "Apache-2.0",
+  "private": true,
+  "main": "src/index.js",
+  "files": ["src"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test"
+  }
+}

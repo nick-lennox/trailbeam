@@ -1,0 +1,3 @@
+'use strict';
+
+module.exports = { version: '0.1.0-dev.0' };
