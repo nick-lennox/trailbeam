@@ -21,6 +21,9 @@
 # every message passes. The summary and the full report are saved in demo/results/.
 #
 # Set DOCKER to another command if `docker` isn't the Docker CLI (for example DOCKER=docker.exe in WSL).
+# COMPOSE_PROJECT_NAME and QV2_DEMO_PORT, if set, choose the Compose project and the store's host port, as for
+# `docker compose` (demo/README.md#more-than-one-checkout-on-the-same-machine). They are added to WSLENV, so
+# they reach docker.exe too, and the project and port Compose resolved are printed before anything starts.
 #
 # The resolved-share floor (90% of send->receive and of receive->delete, demo/check/check.py) gates with
 # --aws. On the emulator it is reported but does not fail the run, as in CI's ElasticMQ job: ElasticMQ
@@ -51,6 +54,18 @@ esac
 DOCKER=${DOCKER:-docker}
 cd "$(dirname "$0")"
 dc() { $DOCKER compose "$@"; }
+# With DOCKER=docker.exe in WSL, Windows processes only see the variables listed in WSLENV (QV-35 section 4).
+# Without this, COMPOSE_PROJECT_NAME and QV2_DEMO_PORT are dropped and the run uses the shared qv2-demo project.
+export WSLENV="COMPOSE_PROJECT_NAME:QV2_DEMO_PORT${WSLENV:+:$WSLENV}"
+resolved=$(dc config)
+project=$(printf '%s\n' "$resolved" | sed -n 's/^name: *//p' | tr -d '"\r')
+port=$(printf '%s\n' "$resolved" | sed -n 's/^ *published: *//p' | tr -d '"\r' | head -n 1)
+echo "== Compose project $project, store on 127.0.0.1:$port"
+# Stop rather than run on another project's stack if the variables didn't reach Compose.
+if [ "$project" != "${COMPOSE_PROJECT_NAME:-qv2-demo}" ] || [ "$port" != "${QV2_DEMO_PORT:-4318}" ]; then
+  echo "error: Compose resolved project $project and port $port, not ${COMPOSE_PROJECT_NAME:-qv2-demo} and ${QV2_DEMO_PORT:-4318}" >&2
+  exit 2
+fi
 
 run=$(date -u +%Y%m%d-%H%M%S)-$lang
 queue=check-$run

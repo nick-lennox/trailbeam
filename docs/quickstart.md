@@ -52,8 +52,18 @@ When the command returns, every container is running. Check:
 docker compose -f demo/compose.yaml ps
 ```
 
-If port 4318 is taken on your machine, start with `QV2_DEMO_PORT=4400 docker compose -f demo/compose.yaml up -d --build --wait`
-and use that port below.
+If port 4318 is taken on your machine, choose another port, check that Compose sees it, then start:
+
+```sh
+export QV2_DEMO_PORT=4400
+export WSLENV="COMPOSE_PROJECT_NAME:QV2_DEMO_PORT${WSLENV:+:$WSLENV}"   # needed only with docker.exe in WSL
+docker compose -f demo/compose.yaml config | grep published               # must say: published: "4400"
+docker compose -f demo/compose.yaml up -d --build --wait
+```
+
+and use that port below. The `WSLENV` line matters only if you run `docker.exe` from WSL (see
+[If something goes wrong](#if-something-goes-wrong)): Windows programs see only the WSL variables listed in
+`WSLENV`, so without it `docker.exe` never sees `QV2_DEMO_PORT` and uses 4318. Elsewhere it does nothing.
 
 ## 3. Look up a message (1 minute)
 
@@ -153,6 +163,6 @@ docker compose -f demo/compose.yaml down -v       # deletes them too
 | `docker: 'compose' is not a docker command` | Install Compose v2 (Docker Desktop includes it; on Linux, the `docker-compose-plugin` package). |
 | `Cannot connect to the Docker daemon` | Start Docker Desktop, or `sudo systemctl start docker`. |
 | `port is already allocated` on 4318 | Use `QV2_DEMO_PORT`, as in step 2. |
-| You have another qv2 checkout with the demo running | Both use the Compose project `qv2-demo`, so starting this one replaces the other's containers and uses its timelines volume. Give this one its own name and port: `COMPOSE_PROJECT_NAME=qv2-other QV2_DEMO_PORT=4400 docker compose -f demo/compose.yaml up -d --build --wait`, and keep the same `COMPOSE_PROJECT_NAME` for every later command. See [`demo/README.md`](../demo/README.md#more-than-one-checkout-on-the-same-machine). |
+| You have another qv2 checkout with the demo running | Both use the Compose project `qv2-demo`, so starting this one replaces the other's containers and uses its timelines volume. Give this one its own name and port, in the same shell for every later command: `export COMPOSE_PROJECT_NAME=qv2-other QV2_DEMO_PORT=4400`, and with `docker.exe` in WSL also `export WSLENV="COMPOSE_PROJECT_NAME:QV2_DEMO_PORT${WSLENV:+:$WSLENV}"`. Before starting, check `docker compose -f demo/compose.yaml config \| grep -E '^name:\|published'` says `name: qv2-other` and `published: "4400"`; if it says `qv2-demo` or `4318`, the variables didn't reach Docker and starting would replace the other checkout's containers. Then `docker compose -f demo/compose.yaml up -d --build --wait`. `demo/check.sh` uses the same variables, adds them to `WSLENV` itself, and stops if Compose resolved another project or port. See [`demo/README.md`](../demo/README.md#more-than-one-checkout-on-the-same-machine). |
 | The start page is empty | Wait a few seconds more; spans are exported in batches. Then `docker compose -f demo/compose.yaml logs collector qv2`. |
 | In WSL, `docker info` or any other command fails with `failed to connect to the docker API at unix:///var/run/docker.sock`, or says `The command 'docker' could not be found in this WSL 2 distro` | Docker Desktop's WSL integration is off for your distribution. Turn it on in Docker Desktop's settings (Resources, WSL integration), or run the same commands with `docker.exe` instead of `docker` (`docker.exe compose -f demo/compose.yaml up -d --build --wait`), and `DOCKER=docker.exe demo/check.sh python` for the concurrency check. |

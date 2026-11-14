@@ -17,12 +17,19 @@ carry that name, so a second checkout started the same way **replaces** the firs
 uses its volume. To run a second checkout alongside, give it its own project name and port:
 
 ```sh
-export COMPOSE_PROJECT_NAME=qv2-other     # or: docker compose -p qv2-other ...
-QV2_DEMO_PORT=4400 docker compose -f demo/compose.yaml up -d --build --wait
-demo/check.sh python                      # the check uses COMPOSE_PROJECT_NAME too
+export COMPOSE_PROJECT_NAME=qv2-other QV2_DEMO_PORT=4400
+export WSLENV="COMPOSE_PROJECT_NAME:QV2_DEMO_PORT${WSLENV:+:$WSLENV}"   # only with docker.exe in WSL
+docker compose -f demo/compose.yaml config | grep -E '^name:|published'  # name: qv2-other, published: "4400"
+docker compose -f demo/compose.yaml up -d --build --wait
+demo/check.sh python                      # the check uses both variables too
 ```
 
-Every later `docker compose` command for that checkout (`ps`, `logs`, `down`) needs the same name.
+Every later `docker compose` command for that checkout (`ps`, `logs`, `down`) needs the same name, so run
+them in the same shell. With `docker.exe` from WSL, the `WSLENV` line is what makes the two variables reach
+Docker: Windows programs see only the WSL variables `WSLENV` lists. Without it, `config` shows
+`name: qv2-demo` and `published: "4318"`, and `up` would replace the other checkout's containers (QV-35).
+`demo/check.sh` adds both to `WSLENV` itself, prints the project and port Compose resolved, and stops if they
+are not the ones you set.
 
 ## What runs
 
