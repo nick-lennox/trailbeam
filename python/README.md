@@ -24,7 +24,9 @@ arrives (contract v2, section 2), read from `time.time_ns()`. Since schema versi
 carries the call's order inside the process: `qv2.order.issued` and `qv2.order.returned` are ticks of
 one per-process counter, taken when the request was sent and when the response arrived, with
 `qv2.order.scope` naming the counter (a forked child gets a new one). A call whose `returned` is
-lower than another's `issued`, in the same scope, returned before the other was sent.
+lower than another's `issued`, in the same scope, returned before the other was sent. The counter is
+shared by every thread of the process, so calls on different threads can be ordered too; why that
+is sound is in [contract section 2a](../docs/span-contract.md#2a-call-order-inside-one-process-schema-version-3).
 
 | Setting | Default |
 |---|---|

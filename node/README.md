@@ -41,7 +41,9 @@ const sqs = qv2.instrument(new SQSClient({}));
   `qv2.order.returned` are ticks of one counter shared by every instrumented client, taken when the
   request was sent and when the response (or error) arrived, with `qv2.order.scope` naming the
   counter (each worker thread has its own). A call whose `returned` is lower than another's
-  `issued`, in the same scope, returned before the other was sent;
+  `issued`, in the same scope, returned before the other was sent. The counter is shared by every
+  async task in the realm, so calls from different tasks can be ordered too; why that is sound is in
+  [contract section 2a](../docs/span-contract.md#2a-call-order-inside-one-process-schema-version-3);
 - never changes the result or error the caller sees.
 
 If the application uses `@opentelemetry/instrumentation-aws-sdk`, each qv2 span is a child of the

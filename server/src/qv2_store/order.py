@@ -5,7 +5,8 @@ observed, never a rule about what causes what:
 
 - ``clock``: A's interval ended before B's started (``A.end < B.start``), on the hosts' clocks.
 - ``process_order``: A and B were made in the same process (same ``qv2.order.scope``), and A's call
-  returned before B's call was issued (``A.order_returned < B.order_issued``, a per-process counter).
+  returned before B's call was issued (``A.order_returned < B.order_issued``, a per-process counter
+  shared by every thread of a Python process, or every async task of a Node.js realm: contract 2a).
 - ``receive_count``: A and B are receives on the same queue and SQS gave A a lower
   ``ApproximateReceiveCount`` than B: delivery n came before delivery n + 1.
 - ``sqs_timestamps``: A is the send and B is the first receive (receive count 1) on the send's queue, and

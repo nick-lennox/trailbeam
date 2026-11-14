@@ -90,6 +90,19 @@ and whichever threads made the calls. Calls in flight at the same time (`B.issue
 `A.issued < B.returned`) are not ordered. The store never compares ticks of different scopes (contract
 §9a: "don't infer it across processes").
 
+**The scope is the whole process (Python) or the whole realm (Node.js), not one thread or async task.**
+One counter is shared by every thread of a Python process (behind a lock) and by every async task of a
+Node.js realm (which runs on one thread), so a call on one thread can be ordered before a call on another.
+That is sound, for the same reason it is sound within one thread. An edge needs A to have *returned*
+before B was *issued*. Both ticks come from one counter whose increments happen one at a time (a lock in
+Python, the single thread of a realm in Node.js), so the tick order is the real-time order of those two
+moments, as a perfect clock's would be. And `returned` is taken after A's response arrived, `issued`
+before B's request was sent. Two calls in flight together never get an edge, whichever threads made them.
+Measured in QV-32: 96 of 1,302 call-order edges joined calls on different threads or async tasks, all of
+them true against the drivers' own records, and 95 of them also proven by the clocks. This scope is a
+decision that can be revisited (narrowing it to one thread or task would order fewer steps); the
+store and packages implement exactly what this section says.
+
 Lambda wrapper: a `qv2 receive` carries `qv2.order.returned` (a tick when the wrapper got the event,
 with its end time) and **no** `qv2.order.issued`, because Lambda's poller made the call; a
 `qv2 outcome` carries `qv2.order.issued` = `qv2.order.returned` = one tick when the outcome was
@@ -316,7 +329,7 @@ Every ordered edge records its sources; the store's API and screen show them (`d
 | Source | A before B when |
 |---|---|
 | `clock` | `A.end < B.start` on the hosts' clocks (section 2). |
-| `process_order` | Same `qv2.order.scope` and `A.order.returned < B.order.issued` (section 2a). |
+| `process_order` | Same `qv2.order.scope` and `A.order.returned < B.order.issued` (section 2a). The scope is one process (Python) or realm (Node.js), shared by all its threads and async tasks. |
 | `receive_count` | A and B are receives of the message on one queue, and A's `qv2.receive_count` is lower: SQS's delivery n came before delivery n + 1. |
 | `sqs_timestamps` | A is the send, B is the receive with `qv2.receive_count = 1` on the send's queue, and B's `qv2.sent_timestamp_ms` is lower than its `qv2.first_receive_timestamp_ms`. Both are SQS's clock; the store never compares them with a host clock. The same millisecond proves nothing. |
 
