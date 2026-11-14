@@ -47,7 +47,9 @@ def spans(exporter, name=None):
     return [s for s in exporter.get_finished_spans() if name is None or s.name == name]
 
 
-# -- the 0.1 "done means" test: every delivery gets a receive and an outcome ---------------------
+# -- the 0.1 "done means" test: every delivery gets a receive; every one not killed, an outcome ----
+# The killed delivery gets no outcome span (nothing runs after the kill); the store infers its outcome,
+# tested end to end in server/tests/test_lambda_end_to_end.py.
 
 def behave(spec):
     def handler(event, context):
@@ -59,7 +61,7 @@ def behave(spec):
     return handler
 
 
-def test_recorded_qv9_events_every_delivery_gets_a_receive_and_an_outcome(monkeypatch):
+def test_recorded_qv9_events_every_delivery_gets_a_receive_and_every_unkilled_one_an_outcome(monkeypatch):
     """Replays the 24 invocations (34 deliveries) recorded in QV-9 through the wrapper."""
     assert len(QV9["invocations"]) == 24
     deliveries = 0

@@ -38,7 +38,8 @@ function withEnv(t, name, value) {
   t.after(() => { if (saved === undefined) delete process.env[name]; else process.env[name] = saved; });
 }
 
-// -- every delivery gets a receive and an outcome ---------------------------------------------
+// -- every delivery gets a receive; every one not killed, an outcome --------------------------
+// The killed delivery gets no outcome span; the store infers it (server/tests/test_lambda_end_to_end.py).
 
 class Killed extends Error {}
 
@@ -51,7 +52,7 @@ function behave(spec) {
   };
 }
 
-test('recorded QV-9 events: every delivery gets a receive and an outcome', async (t) => {
+test('recorded QV-9 events: every delivery gets a receive, every delivery not killed an outcome', async (t) => {
   assert.strictEqual(QV9.invocations.length, 24);
   let deliveries = 0;
   for (const inv of QV9.invocations) {
