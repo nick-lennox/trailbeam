@@ -36,6 +36,7 @@ class S:
     attrs: dict
     trace_id: bytes = field(default_factory=lambda: os.urandom(16))
     span_id: bytes = field(default_factory=lambda: next(_ids).to_bytes(8, "big"))
+    service: str | None = None  # resource service.name; None = the request's default
 
 
 @dataclass
@@ -46,6 +47,12 @@ class Consumer:
     source: str = "client"
     key: str = KEY
     queue: str = "orders"
+
+    def _s(self, name, t, a, trace_id=None) -> S:
+        sp = S(name, t, a, service=self.service)
+        if trace_id:
+            sp.trace_id = trace_id
+        return sp
 
     def base(self, kind: str, op_type: str, op: str, queue: str | None) -> dict:
         q = queue or self.queue
@@ -62,7 +69,7 @@ class Consumer:
         a["messaging.message.id"] = mid
         if batch_entry:
             a["qv2.batch_entry_id"] = batch_entry
-        return S("qv2 send", t, a, **({"trace_id": trace_id} if trace_id else {}))
+        return self._s("qv2 send", t, a, trace_id)
 
     def receive(self, t, mid, handle, count=1, queue=None, trace_id=None, sent_ms=None, lambda_inv=None):
         a = self.base("sqs.receive", "receive", "LambdaEvent" if lambda_inv else "ReceiveMessage", queue)
@@ -73,7 +80,7 @@ class Consumer:
             a["qv2.sent_timestamp_ms"] = sent_ms
         if lambda_inv:
             a.update({"faas.name": "orders-fn", "faas.invocation_id": lambda_inv})
-        return S("qv2 receive", t, a, **({"trace_id": trace_id} if trace_id else {}))
+        return self._s("qv2 receive", t, a, trace_id)
 
     def delete(self, t, handle, mid=None, ok=True, batch_entry=None, queue=None, trace_id=None, error="ReceiptHandleIsInvalid"):
         a = self.base("sqs.settle", "settle", "DeleteMessageBatch" if batch_entry else "DeleteMessage", queue)
@@ -85,7 +92,7 @@ class Consumer:
             a["messaging.message.id"] = mid
         if batch_entry:
             a["qv2.batch_entry_id"] = batch_entry
-        return S("qv2 delete", t, a, **({"trace_id": trace_id} if trace_id else {}))
+        return self._s("qv2 delete", t, a, trace_id)
 
     def change_visibility(self, t, handle, timeout, mid=None, ok=True, queue=None):
         a = self.base("sqs.settle", "settle", "ChangeMessageVisibility", queue)
@@ -96,7 +103,7 @@ class Consumer:
             a["qv2.error_code"] = "MessageNotInflight"
         if mid:
             a["messaging.message.id"] = mid
-        return S("qv2 change_visibility", t, a)
+        return self._s("qv2 change_visibility", t, a)
 
     def outcome(self, t, mid, outcome, invocation, queue=None, error_type=None):
         a = self.base("sqs.outcome", "process", "LambdaEvent", queue)
@@ -104,7 +111,7 @@ class Consumer:
                   "faas.name": "orders-fn", "faas.invocation_id": invocation})
         if error_type:
             a["qv2.error_type"] = error_type
-        return S("qv2 outcome", t, a)
+        return self._s("qv2 outcome", t, a)
 
 
 def _value(v) -> AnyValue:
@@ -116,12 +123,20 @@ def _value(v) -> AnyValue:
 
 
 def to_proto(spans: list[S], service: str = "orders-worker", scope: str = "qv2") -> ExportTraceServiceRequest:
+    """One ResourceSpans per service, as if each service exported its own spans."""
+    groups: dict[str, list[S]] = {}
+    for sp in spans:
+        groups.setdefault(sp.service or service, []).append(sp)
+    return ExportTraceServiceRequest(resource_spans=[_resource_spans(g, svc, scope) for svc, g in groups.items()])
+
+
+def _resource_spans(spans: list[S], service: str, scope: str) -> ResourceSpans:
     pb = [Span(name=s.name, trace_id=s.trace_id, span_id=s.span_id, kind=Span.SPAN_KIND_INTERNAL,
                start_time_unix_nano=s.t, end_time_unix_nano=s.t,
                attributes=[KeyValue(key=k, value=_value(v)) for k, v in s.attrs.items()]) for s in spans]
-    return ExportTraceServiceRequest(resource_spans=[ResourceSpans(
+    return ResourceSpans(
         resource=Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value=service))]),
-        scope_spans=[ScopeSpans(scope=InstrumentationScope(name=scope, version="0.1.0"), spans=pb)])])
+        scope_spans=[ScopeSpans(scope=InstrumentationScope(name=scope, version="0.1.0"), spans=pb)])
 
 
 def _json_value(v) -> dict:

@@ -5,6 +5,7 @@ import gzip
 import json
 import logging
 import threading
+import time
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable, Optional
@@ -13,8 +14,10 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceResponse
 
 from . import __version__
+from . import queries
 from .db import Store
 from .otlp import DecodeError, decode
+from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
 
 log = logging.getLogger("qv2_store")
 
@@ -31,11 +34,16 @@ class ApiError(Exception):
 class App:
     """Request handling, independent of the HTTP server so tests can call it directly."""
 
-    def __init__(self, store: Store):
+    def __init__(self, store: Store, *, stuck_after_s: int = 300,
+                 lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S, now: Callable[[], int] = time.time_ns):
         self.store = store
+        self.stuck_after_s = stuck_after_s
+        self.lambda_timeout_s = lambda_timeout_s
+        self.now = now
         self.stats_lock = threading.Lock()
         self.stats = {"requests": 0, "inserted": 0, "duplicates": 0, "ignored": 0, "rejected": 0}
-        self.routes: dict[str, Callable[[dict, list[str]], object]] = {"health": self.health}
+        self.routes: dict[str, Callable[[dict, list[str]], object]] = {
+            "health": self.health, "messages": self.messages, "duplicates": self.duplicates, "stuck": self.stuck}
 
     # ---- OTLP ingest ----------------------------------------------------------------------
 
@@ -78,7 +86,54 @@ class App:
             raise ApiError(404, "no such endpoint")
         with self.stats_lock:
             ingest = dict(self.stats)
-        return {"status": "ok", "version": __version__, "ingest": ingest, "store": self.store.counts()}
+        return {"status": "ok", "version": __version__, "ingest": ingest, "store": self.store.counts(),
+                "config": {"stuck_after_s": self.stuck_after_s, "lambda_timeout_s": self.lambda_timeout_s}}
+
+    def _lambda_timeout(self, q: dict) -> int:
+        return _int(q, "lambda_timeout_s", self.lambda_timeout_s, 1, 86_400)
+
+    def messages(self, q: dict, rest: list[str]) -> dict:
+        if len(rest) > 1:
+            raise ApiError(404, "no such endpoint")
+        if rest:
+            t = queries.message(self.store, rest[0], self.now(), self._lambda_timeout(q))
+            if t is None:
+                raise ApiError(404, f"no spans for message ID {rest[0]!r}")
+            return t
+        items = queries.recent(self.store, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"))
+        return {"messages": items}
+
+    def duplicates(self, q: dict, rest: list[str]) -> dict:
+        if rest:
+            raise ApiError(404, "no such endpoint")
+        reason = q.get("reason")
+        if reason not in (None, "received_more_than_once", "succeeded_more_than_once"):
+            raise ApiError(400, "reason must be received_more_than_once or succeeded_more_than_once")
+        items = queries.duplicates(self.store, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"), reason)
+        return {"messages": items}
+
+    def stuck(self, q: dict, rest: list[str]) -> dict:
+        if rest:
+            raise ApiError(404, "no such endpoint")
+        older = _int(q, "older_than_s", self.stuck_after_s, 0, 10 ** 9)
+        items = queries.stuck(self.store, self.now(), self._lambda_timeout(q), older, _limit(q), q.get("queue"))
+        return {"older_than_s": older, "messages": items}
+
+
+def _int(q: dict, name: str, default: int, lo: int, hi: int) -> int:
+    if name not in q:
+        return default
+    try:
+        v = int(q[name])
+    except ValueError:
+        raise ApiError(400, f"{name} must be an integer") from None
+    if not lo <= v <= hi:
+        raise ApiError(400, f"{name} must be between {lo} and {hi}")
+    return v
+
+
+def _limit(q: dict) -> int:
+    return _int(q, "limit", 100, 1, queries.MAX_LIMIT)
 
 
 def make_handler(app: App):
@@ -166,7 +221,7 @@ def _bounded(d, data: bytes) -> bytes:
     return out
 
 
-def make_server(store: Store, host: str = "127.0.0.1", port: int = 4318) -> ThreadingHTTPServer:
-    httpd = ThreadingHTTPServer((host, port), make_handler(App(store)))
+def make_server(store: Store, host: str = "127.0.0.1", port: int = 4318, **app_options) -> ThreadingHTTPServer:
+    httpd = ThreadingHTTPServer((host, port), make_handler(App(store, **app_options)))
     httpd.daemon_threads = True
     return httpd
