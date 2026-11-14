@@ -35,6 +35,7 @@ import boto3
 
 import qv2.boto
 
+# Unset: the local emulator. Set but empty: the AWS SDK's default endpoint, that is real SQS (demo/check.sh --aws).
 ENDPOINT = os.environ.get("QV2_DEMO_SQS_ENDPOINT", "http://localhost:9324")
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 stop = threading.Event()
@@ -75,7 +76,7 @@ class Truth:
 
 
 def sqs_client():
-    return boto3.client("sqs", endpoint_url=ENDPOINT, region_name=REGION)
+    return boto3.client("sqs", endpoint_url=ENDPOINT or None, region_name=REGION)
 
 
 def ensure_queue(sqs, name: str, visibility_timeout: int, max_receives: int) -> str:

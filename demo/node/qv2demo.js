@@ -20,7 +20,8 @@ const {
 } = require('@aws-sdk/client-sqs');
 const qv2 = require('@qv2/sdk');
 
-const ENDPOINT = process.env.QV2_DEMO_SQS_ENDPOINT || 'http://localhost:9324';
+// Unset: the local emulator. Set but empty: the AWS SDK's default endpoint, that is real SQS (demo/check.sh --aws).
+const ENDPOINT = process.env.QV2_DEMO_SQS_ENDPOINT ?? 'http://localhost:9324';
 const REGION = process.env.AWS_REGION || 'us-east-1';
 let stopping = false;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -67,7 +68,7 @@ async function ensureQueue(sqs, name, visibilityTimeout, maxReceives) {
 function client(role) {
   process.env.OTEL_SERVICE_NAME = process.env.OTEL_SERVICE_NAME || `qv2-demo-node-${role}`;
   qv2.install();
-  return qv2.instrument(new SQSClient({ endpoint: ENDPOINT, region: REGION }));
+  return qv2.instrument(new SQSClient({ endpoint: ENDPOINT || undefined, region: REGION }));
 }
 
 async function produce(a) {

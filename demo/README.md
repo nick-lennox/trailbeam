@@ -185,8 +185,36 @@ returned), and the clocks resolve the 28 deletes made by the deleter process. Re
 concurrent for the same long-poll reason: the consumer that gets the redelivery was already waiting
 before the `ChangeMessageVisibility` returned, usually in another thread.
 
-On AWS, the gap between `SentTimestamp` and the first receive is likely wider than on a local emulator
-[estimate, not measured: no AWS in this work].
+### The same workload on real SQS: the floor holds in both languages
+
+`demo/check.sh --aws python|node` runs the unchanged workload against real SQS instead of ElasticMQ
+(the Collector, the store and every process stay on this host). It reads `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY` from the environment, passes them to the containers by name only, uses queues
+`qv2-measure-<run>` and `<run>-dlq`, and deletes them when the run ends. CI does not run it.
+
+Measured once per language on 2026-11-14, from this machine (WSL 2, Docker Desktop) against SQS in
+`us-east-1`:
+
+| | Python, real SQS | Node.js, real SQS | Python, ElasticMQ local | Node.js, ElasticMQ local |
+|---|---|---|---|---|
+| complete, in order, joined, receive count, final | 200 each | 200 each | 200 each | 200 each |
+| pairs violated | 0 | 0 | 0 | 0 |
+| messages with a concurrent group | 29 | 29 | 195 | 194 |
+| **send→receive** resolved | **229 / 229** | **229 / 229** | 10 / 229 (4.4%) | 8 / 229 (3.5%) |
+| **receive→delete** resolved | **200 / 200** | **200 / 200** | 200 / 200 | 200 / 200 |
+| release→redelivery resolved (no floor) | 0 / 29 | 0 / 29 | 0 / 29 | 0 / 29 |
+| receive *n*→*n*+1 resolved | 29 / 29 | 29 / 29 | 29 / 29 | 29 / 29 |
+
+By source on real SQS: send→receive is SQS timestamps 200 (all alone) plus 28 (Python) or 29 (Node.js)
+redelivery receives ordered after the send through a chain, and clock 1 in Python; receive→delete is
+clock 200 and process order 172 in Python, process order 172 (111 alone) and clock 89 (28 alone) in
+Node.js; receive *n*→*n*+1 is receive count 29.
+
+So on real SQS `SentTimestamp` and `ApproximateFirstReceiveTimestamp` were at least 1 ms apart for every
+one of the 200 first receives in each language, where ElasticMQ tied 196 of 200. The only pairs left
+concurrent are the 29 release→redelivery pairs, which have no floor. CI keeps running against ElasticMQ,
+so its send→receive column still fails the floor; that is the emulator's same-millisecond stamping, not
+the store.
 
 ### Earlier result (contract v2, clock intervals only): 200 of 200, with most send/receive pairs left concurrent
 
