@@ -10,7 +10,8 @@ intervals overlap", where an unknown start counts as minus infinity. Every event
 any event of the next group started, so the order of groups is proven by the clocks; inside a group it
 is not, and a group of more than one event is shown as "concurrent, order unknown". Events are never
 re-ordered by what caused what. Each inferred event is placed by the observed events it was inferred
-from (its anchors), never by a time of its own.
+from (its anchors), never by a time of its own, and is never ordered against an observed event it was
+not inferred from: if one may have happened on either side of it, they share a group (see ``_place``).
 """
 from __future__ import annotations
 
@@ -74,7 +75,7 @@ def _span(r) -> dict:
 
 def _inferred(type_: str, frm: Optional[int], to: Optional[int], reason: str, **extra) -> dict:
     return {"type": type_, "inferred": True, "time": None,
-            "window": {"from": iso(frm), "to": iso(to)}, "reason": reason, **extra}
+            "window": {"from": iso(frm), "to": iso(to)}, "reason": reason, **extra, "_window_ns": (frm, to)}
 
 
 def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S) -> dict:
@@ -156,8 +157,14 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
                     "deliveries_not_observed", _start(p), r["time_ns"],
                     f"Receive count went from {p['receive_count']} to {r['receive_count']}, so {gap} "
                     f"receive(s) in between were not observed.", count=gap, queue=q))
-            infer(p, r, 3, _inferred(
-                "visibility_timeout_expired", _start(p), r["time_ns"],
+            # A visibility change SQS accepted for delivery p, proven (by the clocks) to be before r, reset
+            # the timer while the message was in flight, so the expiry came after it: it is an anchor too.
+            cmv = [x for x in rows if x["kind"] == "change_visibility" and x["receive_row"] == p["row"]
+                   and x["result"] == "ok" and x["start_ns"] is not None and _start(r) is not None
+                   and x["time_ns"] < _start(r)]
+            a = max(cmv, key=lambda x: (x["start_ns"], x["row"])) if cmv else p
+            infer(a, r, 3, _inferred(
+                "visibility_timeout_expired", _start(a), r["time_ns"],
                 _expiry_reason(rows, p), queue=q, after_delivery=by_row[p["row"]],
                 before_delivery=by_row[r["row"]]))
         if prev is not None and q != prev["queue"]:
@@ -223,34 +230,80 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
 
 
 def _place(observed: list, inferred: list) -> tuple[list[dict], int]:
-    """Observed events in group order, with each inferred event inserted by its anchors (the observed
-    events it was inferred from), so that its position never orders it against anything else:
+    """Observed events in group order, with each inferred event inserted so that it is never ordered
+    against an observed event it was not inferred from (contract section 9a).
 
-    - the later anchor's group holds more than one event, or both anchors: inside that group, just
-      before the later anchor, with that group's number (part of the concurrent group, unordered);
-    - otherwise, just before the later anchor's group, between groups (``group`` null);
+    An inferred event happened inside its window (``from``: the start of its earlier anchor, ``to``: the
+    end of its later anchor; a missing bound is unbounded). An observed event that is not an anchor and
+    whose interval meets the window may have happened before or after it, so the inferred event must be
+    in one group with every such event. If they are in different groups, those groups (and any between)
+    are merged into one: their order against the inferred event is unknown, so the order between them
+    cannot be shown either without ordering the inferred event against one of them. Then:
+
+    - some non-anchor event meets the window: inside that event's group, just before the later anchor if
+      it is in that group, else at the group's end;
+    - none does, and the later anchor's group holds more than one event, or both anchors: inside that
+      group, just before the later anchor;
+    - none does, otherwise: just before the later anchor's group, between groups (``group`` null);
     - only an earlier anchor: just after it, inside its group if that group is concurrent, else after
       the group.
     """
     evs = [ev for _, ev in observed]
     rows = [key[3] for key, _ in observed]
     pos = {row: i for i, row in enumerate(rows)}
+    lo_of = [None if ev["start_unix_nano"] is None else int(ev["start_unix_nano"]) for ev in evs]
+    hi_of = [int(ev["end_unix_nano"]) for ev in evs]
+
+    # Which observed events each inferred event cannot be ordered against.
+    meets: list[list[int]] = []
+    for after, before, _, ev in inferred:
+        frm, to = ev.pop("_window_ns")
+        anchors = {pos[x] for x in (after, before) if x is not None}
+        meets.append([i for i in range(len(evs)) if i not in anchors
+                      and (to is None or lo_of[i] is None or lo_of[i] <= to)
+                      and (frm is None or hi_of[i] >= frm)])
+
+    # Merge groups so that each inferred event's set lies in one group; groups stay contiguous.
+    n = max((e["group"] for e in evs), default=-1) + 1
+    joined = [False] * n  # joined[g]: group g is merged with group g - 1
+    for m in meets:
+        if m:
+            gs = [evs[i]["group"] for i in m]
+            for g in range(min(gs) + 1, max(gs) + 1):
+                joined[g] = True
+    renum, g2 = [], -1
+    for g in range(n):
+        g2 += 0 if (g and joined[g]) else 1
+        renum.append(g2)
+    if any(joined):
+        for e in evs:
+            e["group"] = renum[e["group"]]
+        order = sorted(range(len(evs)), key=lambda i: (evs[i]["group"],) + observed[i][0][1:])
+        evs = [evs[i] for i in order]
+        rows = [rows[i] for i in order]
+        meet_rows = [{observed[i][0][3] for i in m} for m in meets]
+        pos = {row: i for i, row in enumerate(rows)}
+    else:
+        meet_rows = [{rows[i] for i in m} for m in meets]
+
     first: dict = {}
     size: dict = {}
     for i, ev in enumerate(evs):
         first.setdefault(ev["group"], i)
         size[ev["group"]] = size.get(ev["group"], 0) + 1
     slots: list[tuple[int, int, int, dict]] = []  # (insert before index, rank, seq, event)
-    for seq, (after, before, rank, ev) in enumerate(inferred):
-        if before is not None:
-            gb = evs[pos[before]]["group"]
-            ga = evs[pos[after]]["group"] if after is not None else None
+    for seq, ((after, before, rank, ev), m) in enumerate(zip(inferred, meet_rows)):
+        gb = evs[pos[before]]["group"] if before is not None else None
+        ga = evs[pos[after]]["group"] if after is not None else None
+        if m:
+            g = evs[pos[next(iter(m))]]["group"]
+            idx = pos[before] if gb == g else first[g] + size[g]
+        elif before is not None:
             if ga == gb or size[gb] > 1:
                 idx, g = pos[before], gb
             else:
                 idx, g = first[gb], None
         else:
-            ga = evs[pos[after]]["group"]
             if size[ga] > 1:
                 idx, g = pos[after] + 1, ga
             else:
@@ -275,7 +328,7 @@ def _groups(evs: list[dict], n: int) -> list[dict]:
         members = [e for e in evs if e.get("group") == g]
         obs = [e for e in members if not e["inferred"]]
         starts = [int(e["start_unix_nano"]) for e in obs if e["start_unix_nano"] is not None]
-        concurrent = len(obs) > 1
+        concurrent = len(members) > 1  # an inferred member counts: it is not ordered against the rest
         out.append({"group": g, "concurrent": concurrent, "label": CONCURRENT_LABEL if concurrent else None,
                     "observed_events": len(obs), "inferred_events": len(members) - len(obs),
                     "start": iso(min(starts)) if len(starts) == len(obs) else None,

@@ -281,7 +281,9 @@ span with `qv2.start_observed = false` has an unknown start, so it is concurrent
 started before its end. The store never re-orders observed steps by what caused what (for example, a
 receive after its send): the order shown is only the order the clocks prove. Inferred steps
 (section 9) are placed between the observed steps they were inferred from, and are never ordered
-against steps they were not inferred from.
+against steps they were not inferred from: a step that may have happened on either side of an
+inferred step (its interval meets the inferred step's window) is shown in one group with it, and if
+there are several such steps in different groups, those groups are shown as one.
 
 This relies on every process reading the same clock. It holds for processes on one host (the local
 demo) and, to within the hosts' clock offset, across hosts; the store does not correct for clock

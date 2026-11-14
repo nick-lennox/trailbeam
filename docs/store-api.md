@@ -43,7 +43,7 @@ refer to that file.
   "concurrent_groups": 1,
   "groups": [
     {"group": 0, "concurrent": true, "label": "concurrent, order unknown", "observed_events": 2,
-     "inferred_events": 0, "start": "2025-11-14T00:26:39.100000Z", "end": "2025-11-14T00:26:40.030000Z"},
+     "inferred_events": 1, "start": "2025-11-14T00:26:39.100000Z", "end": "2025-11-14T00:26:40.030000Z"},
     {"group": 1, "concurrent": false, "label": null, "observed_events": 1, "inferred_events": 0,
      "start": "2025-11-14T00:27:19.900000Z", "end": "2025-11-14T00:27:20.000000Z"},
     {"group": 2, "concurrent": false, "label": null, "observed_events": 1, "inferred_events": 0,
@@ -57,7 +57,7 @@ refer to that file.
      "queue": "orders", "consumer": {"service_name": "orders-worker", "client_id": "consumer-a", "source": "client", "pid": 4242, "thread_name": "worker-1"},
      "span": {"trace_id": "8f0c...", "span_id": "0000000000000002"}, "delivery": 1, "receive_count": 1},
     {"type": "sent", "inferred": false, "group": 0, "start": "2025-11-14T00:26:40.000000Z", "end": "2025-11-14T00:26:40.030000Z", "...": "..."},
-    {"type": "visibility_timeout_expired", "inferred": true, "group": null, "time": null,
+    {"type": "visibility_timeout_expired", "inferred": true, "group": 0, "time": null,
      "window": {"from": "2025-11-14T00:26:39.100000Z", "to": "2025-11-14T00:27:20.000000Z"},
      "reason": "The visibility timeout expired before the message was deleted, so SQS delivered it again.",
      "queue": "orders", "after_delivery": 1, "before_delivery": 2},
@@ -70,7 +70,9 @@ refer to that file.
 
 Here the receive's long poll (from 39.100) was already waiting when the message was sent (40.000 to
 40.030), and its response (40.020) came back before the send's: the two intervals overlap, so they
-are one concurrent group and the store does not say which came first.
+are one concurrent group and the store does not say which came first. The expiry is in that group
+too: it happened after the receive started, but the clocks do not prove the send ended before it, so
+it is not shown after the send.
 
 ### Summary fields
 
@@ -83,7 +85,7 @@ are one concurrent group and the store does not say which came first.
 | `deliveries` | Number of observed receives, on any queue. |
 | `successful_deliveries` | Deliveries that ended in an accepted delete (counted once per delivery) or a Lambda `success`. More than one means the message was processed more than once. |
 | `first_seen` | Send time (the end of the send call); if the send was not observed, the earliest SQS `SentTimestamp` from a receive. |
-| `groups` | The timeline's groups, in order (below). Each has `group` (its number), `concurrent` (more than one observed event), `label` (`"concurrent, order unknown"` or `null`), `observed_events`, `inferred_events`, `start` (earliest start; `null` if any member's start is unknown) and `end` (latest end). |
+| `groups` | The timeline's groups, in order (below). Each has `group` (its number), `concurrent` (more than one event, observed or inferred), `label` (`"concurrent, order unknown"` or `null`), `observed_events`, `inferred_events`, `start` (earliest start; `null` if any member's start is unknown) and `end` (latest end). |
 | `concurrent_groups` | Number of groups with `concurrent: true`. |
 
 ### Events and their order
@@ -94,7 +96,7 @@ by this rule (contract §9a):
 
 - **Event A is shown before event B only if A ended before B started** (`A.end < B.start`).
 - Events whose intervals overlap, directly or through a chain of overlapping events, form one
-  **group**. A group with more than one observed event is **concurrent**: its order is unknown, and
+  **group**. A group with more than one event (observed or inferred) is **concurrent**: its order is unknown, and
   the screen shows it side by side, labelled "concurrent, order unknown". Inside a group, events are
   listed by `end` only so that the listing is stable; that order means nothing.
 - An event whose start was not observed (`start: null`, `start_observed: false`: a Lambda receive,
@@ -139,12 +141,24 @@ receipt-handle hash join (below). It is `null` if no stored receive has that has
 show the user. Show them differently from observed events.
 
 An inferred event is placed by the observed events it was inferred from (its anchors, such as the
-two receives around a visibility-timeout expiry), never by a time of its own: just before the later
-anchor's group, or, if that group is concurrent, inside it (it then has that `group` number and is
-part of the concurrent group, not ordered against its members). An event with only an earlier anchor
-(`deleted_by_lambda`, `lambda_invocation_ended_without_outcome`) goes just after that anchor, in the
-same way. Its `window` runs from the earlier anchor's `start` (or `null` if unknown) to the later
-anchor's `end`.
+two receives around a visibility-timeout expiry), never by a time of its own, and is **never ordered
+against an observed event it was not inferred from**. Its `window` runs from the earlier anchor's
+`start` (or `null` if unknown) to the later anchor's `end` (`lambda_invocation_ended_without_outcome`:
+the receive's end plus the Lambda timeout). For a visibility-timeout expiry, the earlier anchor is the
+last `ChangeMessageVisibility` SQS accepted for the earlier delivery that ended before the later
+receive started, if there is one (the timer restarted then), else the earlier receive.
+
+- If an observed event that is not an anchor meets the window (it ended at or after `from` and started
+  at or before `to`), it may have happened on either side of the inferred event. The inferred event is
+  then put in that event's group (with its `group` number), so the group is concurrent. If several such
+  events are in different groups, those groups and any between them are **merged into one**: showing
+  them in order would order the inferred event against one of them. Example: a rejected delete of
+  delivery 1 between delivery 1 and its redelivery shares a group with the expiry, since the store
+  cannot tell whether the delete came before or after it.
+- Otherwise it goes just before the later anchor's group (`group` null), or, if that group is
+  concurrent or holds both anchors, inside it. An event with only an earlier anchor
+  (`deleted_by_lambda`, `lambda_invocation_ended_without_outcome`) goes just after that anchor, in the
+  same way.
 
 | `type` | When | Extra fields |
 |---|---|---|

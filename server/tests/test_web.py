@@ -187,3 +187,17 @@ def test_a_chained_concurrent_box_does_not_claim_every_step_overlapped(server):
     assert text == ("concurrentconcurrent, order unknown: the store can't put these 3 steps in one order; "
                     "some of them overlapped in time.")
     assert "overlapped in time, so" not in html and "cannot tell which happened first" not in html
+
+
+def test_a_box_counts_the_inferred_step_it_holds(server):
+    # A rejected delete inside the expiry's window: one box with the delete and the expiry.
+    c = Consumer("consumer-a")
+    post(server, [c.send(T0 + 19 * SEC, "slow-1", start=T0 + 19 * SEC - 2_000_000),
+                  c.receive(T0 + 20 * SEC, "slow-1", "rh-s1", start=T0 + 20 * SEC - 1_000_000),
+                  c.delete(T0 + 32 * SEC, "rh-s1", ok=False, start=T0 + 32 * SEC - 1_000_000),
+                  c.receive(T0 + 35 * SEC, "slow-1", "rh-s2", count=2, start=T0 + 35 * SEC - 1_000_000)])
+    _, _, html = get(server, page("slow-1"))
+    groups = re.findall(r'<li class="group concurrent" data-group="(\d+)">(.*?)</ol></li>', html)
+    assert len(groups) == 1
+    assert "these 2 steps in one order" in groups[0][1]
+    assert events(groups[0][1]) == [("deleted", False), ("visibility_timeout_expired", True)]

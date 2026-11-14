@@ -358,3 +358,80 @@ def test_duplicate_delivery_with_the_same_receive_count(store, ingest, n):
     t = tl(store, "m1")
     assert t["deliveries"] == n and not any(e["inferred"] for e in t["events"])
     assert queries.duplicates(store, NOW, LT, 100)[0]["reasons"] == ["received_more_than_once"]
+
+
+# -- inferred steps are never ordered against steps they were not inferred from (QV-29 report §3) --
+
+def _redelivered(c, mid, *between):
+    """Send, receive 1 at 20.002 s, the given spans, redelivery at 35.000 s, final delete."""
+    return [c.send(T0 + 20 * SEC - 2 * MS, mid, start=T0 + 20 * SEC - 4 * MS),
+            c.receive(T0 + 20 * SEC + 2 * MS, mid, "rh-1", start=T0 + 20 * SEC + MS),
+            *between,
+            c.receive(T0 + 35 * SEC, mid, "rh-2", count=2, start=T0 + 35 * SEC - MS),
+            c.delete(T0 + 35 * SEC + 10 * MS, "rh-2", start=T0 + 35 * SEC + 5 * MS)]
+
+
+def test_expiry_is_not_shown_after_a_rejected_delete_it_was_not_inferred_from(store, ingest):
+    """The reviewer's case: visibility timeout 10 s, so the message expired at about 30.002 s; the
+    delete of delivery 1 at 32.000 s was rejected because of that. The store cannot tell the expiry and
+    the delete apart in time (it does not know the timeout), so they are one concurrent group."""
+    c = Consumer()
+    ingest(*_redelivered(c, "m1", c.delete(T0 + 32 * SEC, "rh-1", ok=False, start=T0 + 32 * SEC - 2 * MS)))
+    t = tl(store, "m1")
+    check_marking(t)
+    assert groups(t) == [["sent"], ["received"], ["deleted", "visibility_timeout_expired"], ["received"],
+                         ["deleted"]]
+    g = t["groups"][2]
+    assert (g["concurrent"], g["label"], g["observed_events"], g["inferred_events"]) == (
+        True, "concurrent, order unknown", 1, 1)
+    assert t["concurrent_groups"] == 1
+
+
+def test_expiry_is_not_shown_after_an_unrelated_failed_visibility_change(store, ingest):
+    c = Consumer()
+    ingest(*_redelivered(c, "m1", c.change_visibility(T0 + 32 * SEC, "rh-1", 30, ok=False,
+                                                     start=T0 + 32 * SEC - 2 * MS)))
+    t = tl(store, "m1")
+    assert groups(t) == [["sent"], ["received"], ["visibility_changed", "visibility_timeout_expired"],
+                         ["received"], ["deleted"]]
+
+
+def test_steps_in_several_groups_inside_the_window_are_merged_with_the_expiry(store, ingest):
+    """A failed visibility change and a rejected delete, ordered against each other, both inside the
+    expiry's window: showing them in order would put the expiry before or after one of them."""
+    c = Consumer()
+    ingest(*_redelivered(c, "m1",
+                         c.change_visibility(T0 + 25 * SEC, "rh-1", 30, ok=False, start=T0 + 25 * SEC - MS),
+                         c.delete(T0 + 32 * SEC, "rh-1", ok=False, start=T0 + 32 * SEC - MS)))
+    t = tl(store, "m1")
+    assert groups(t) == [["sent"], ["received"], ["visibility_changed", "deleted", "visibility_timeout_expired"],
+                         ["received"], ["deleted"]]
+    assert [e["group"] for e in t["events"]] == [0, 1, 2, 2, 2, 3, 4]
+    assert len(t["groups"]) == 5
+
+
+def test_an_accepted_visibility_change_before_the_redelivery_is_an_anchor_of_the_expiry(store, ingest):
+    """A slow consumer extends the timeout twice and then stops: the expiry came after the last accepted
+    extension, so it is placed after it, not merged with the extensions."""
+    c = Consumer()
+    ingest(*_redelivered(c, "m1",
+                         c.change_visibility(T0 + 25 * SEC, "rh-1", 5, start=T0 + 25 * SEC - MS),
+                         c.change_visibility(T0 + 29 * SEC, "rh-1", 5, start=T0 + 29 * SEC - MS)))
+    t = tl(store, "m1")
+    assert groups(t) == [["sent"], ["received"], ["visibility_changed"], ["visibility_changed"],
+                         "visibility_timeout_expired", ["received"], ["deleted"]]
+    expiry = next(e for e in t["events"] if e["type"] == "visibility_timeout_expired")
+    assert expiry["window"]["from"] == iso(T0 + 29 * SEC - MS)
+    assert expiry["reason"] == "The visibility timeout, last changed to 5 s, expired before the message was deleted."
+
+
+def test_expiry_is_not_shown_after_a_send_that_overlaps_the_first_receive(store, ingest):
+    """The long-poll case: the send may have ended after the expiry as far as the clocks show, so the
+    expiry is in the send's group, not after it."""
+    p, c = Consumer("producer"), Consumer()
+    ingest(p.send(T0 + 30 * MS, "m1", start=T0),
+           c.receive(T0 + 20 * MS, "m1", "rh-1", start=T0 - 900 * MS),
+           c.receive(T0 + 40 * SEC, "m1", "rh-2", count=2, start=T0 + 39 * SEC))
+    t = tl(store, "m1")
+    assert groups(t) == [["received", "sent", "visibility_timeout_expired"], ["received"]]
+    assert t["groups"][0]["inferred_events"] == 1

@@ -193,7 +193,7 @@ def _timeline_items(t: dict) -> list[str]:
         while j < len(evs) and evs[j].get("group") == g:
             j += 1
         info = concurrent[g]
-        n = info.get("observed_events", j - i)
+        n = info.get("observed_events", 0) + info.get("inferred_events", 0) or j - i
         out.append(f'<li class="group concurrent" data-group="{int(g)}">'
                    f'<div class="group-head"><span class="badge badge-concurrent">concurrent</span>'
                    f'<strong>{escape(info.get("label") or "concurrent, order unknown")}</strong>: the store can\'t put '
