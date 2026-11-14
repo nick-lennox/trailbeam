@@ -76,7 +76,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [ "$aws" = 1 ]; then where="real SQS in $AWS_REGION"; else where=the emulator; fi
+if [ "$aws" = 1 ]; then where="real SQS in $AWS_REGION"; else where="the emulator"; fi
 echo "== run $run: $count messages on queue $queue ($where)"
 dc build -q $svc checker consumer-python
 if [ "$aws" = 1 ]; then dc up -d --build --wait collector qv2; else dc up -d --build --wait sqs collector qv2; fi
