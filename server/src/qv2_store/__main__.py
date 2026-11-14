@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import signal
 
 from .db import Store
 from .server import make_server
@@ -30,6 +31,9 @@ def main(argv=None) -> None:
                         lambda_timeout_s=a.lambda_timeout)
     logging.getLogger("qv2_store").info("listening on http://%s:%d (OTLP: /v1/traces, API: /api/), db %s",
                                         a.host, httpd.server_address[1], a.db)
+    # docker stop and systemd send SIGTERM; Python ignores it as PID 1 unless a handler is set. Stop the
+    # same way as on Ctrl-C, so the SQLite file is closed cleanly.
+    signal.signal(signal.SIGTERM, _interrupt)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -37,6 +41,10 @@ def main(argv=None) -> None:
     finally:
         httpd.server_close()
         store.close()
+
+
+def _interrupt(signum, frame):
+    raise KeyboardInterrupt
 
 
 if __name__ == "__main__":

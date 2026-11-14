@@ -84,3 +84,29 @@ jobs:
           /tmp/otelcol-contrib --version
       - run: pip install pytest opentelemetry-proto
       - run: QV2_OTELCOL_BIN=/tmp/otelcol-contrib pytest -q collector/tests
+
+  container:
+    name: Store container smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image (local only, not pushed)
+        run: docker build -t qv2-store:ci server
+      - name: Run it with SQLite on a volume
+        run: |
+          docker volume create qv2-ci-data
+          docker run -d --name qv2 -p 127.0.0.1:4318:4318 -v qv2-ci-data:/data qv2-store:ci
+      - name: Send recorded spans, check the timeline page
+        run: python3 server/smoke/smoke_test.py http://127.0.0.1:4318
+      - name: Stops cleanly and keeps the data on the volume
+        run: |
+          time docker stop -t 5 qv2
+          test "$(docker inspect -f '{{.State.ExitCode}}' qv2)" = 0
+          docker run --rm -v qv2-ci-data:/data --entrypoint ls qv2-store:ci -l /data
+          docker rm qv2
+          docker run -d --name qv2 -p 127.0.0.1:4318:4318 -v qv2-ci-data:/data qv2-store:ci
+          python3 server/smoke/smoke_test.py http://127.0.0.1:4318
+          test "$(docker inspect -f '{{.State.Health.Status}}' qv2)" != unhealthy
+      - name: Container logs
+        if: always()
+        run: docker logs qv2 || true

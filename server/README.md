@@ -2,7 +2,7 @@
 
 The qv2 store (`qv2-store`): receives the qv2 spans of [`docs/span-contract.md`](../docs/span-contract.md)
 over OTLP/HTTP, keeps them in SQLite, and joins every delete and visibility change to its message by
-receipt-handle hash, and serves a web screen and a JSON API.
+receipt-handle hash, and serves a web screen and a JSON API. The [`Dockerfile`](Dockerfile) runs it all in one container.
 
 ```sh
 pip install -e server            # Python 3.10+, depends only on opentelemetry-proto
@@ -19,6 +19,24 @@ qv2-store --db qv2.sqlite --port 4318
 | `--log-level` | `QV2_STORE_LOG_LEVEL` | `INFO` | |
 
 With the default port, the qv2 packages can export to the store directly, without a Collector.
+
+## Container
+
+One image runs the store, its OTLP endpoint and the web screen on port 4318, with SQLite in `/data`.
+Build it locally (no image is published):
+
+```sh
+docker build -t qv2-store server
+docker run -d --name qv2 -p 127.0.0.1:4318:4318 -v qv2-data:/data qv2-store
+```
+
+Open `http://127.0.0.1:4318/`, and export to `http://127.0.0.1:4318/v1/traces` (or point the
+[Collector](../collector/) there). The options above are set with `-e`, for example
+`-e QV2_STUCK_AFTER_S=600`; inside the image `QV2_STORE_HOST` is `0.0.0.0` and `QV2_STORE_DB` is
+`/data/qv2.sqlite`. Publish the port on `127.0.0.1` as above unless the network is trusted: there is no
+authentication in 0.1. The store runs as UID 10001; a named volume gets the right owner automatically, a
+bind-mounted directory must be writable by that UID (or add `--user $(id -u)`). `docker stop` closes the
+database cleanly. The image has a `HEALTHCHECK` on `/api/health`.
 
 ## Ingest
 
@@ -76,5 +94,21 @@ pytest server/tests
 - `test_api.py`: the JSON API over HTTP.
 - `test_web.py`: the web screen over HTTP: inferred steps marked, timeline order, DLQ moves, duplicates and
   stuck lists, filters, HTML escaping of message IDs, 400 and 404 pages.
+- `test_main.py`: the `qv2-store` command serves the screen and exits cleanly on SIGTERM.
 - `test_end_to_end.py`: the real `qv2` boto3 hooks on moto's local SQS emulator export to a running
   store; a batch delete from a second installation (empty handle map) joins all three messages by hash.
+
+### Container smoke test
+
+[`smoke/smoke_test.py`](smoke/smoke_test.py) (standard library only) checks a running store: it posts
+[`smoke/recorded-spans.pb`](smoke/recorded-spans.pb), real spans recorded with the `qv2` boto3 hooks on
+moto's local SQS emulator by [`smoke/record_spans.py`](smoke/record_spans.py) (a redelivery after a
+visibility timeout, a `ChangeMessageVisibility` to 0, a message never received), then checks that the
+timeline pages show them in order with the inferred steps marked, and the duplicate and stuck lists. CI
+builds the image, runs it on a volume, runs the smoke test, then restarts the container on the same volume
+and runs it again.
+
+```sh
+docker build -t qv2-store server && docker run -d --name qv2 -p 127.0.0.1:4318:4318 qv2-store
+python3 server/smoke/smoke_test.py http://127.0.0.1:4318
+```

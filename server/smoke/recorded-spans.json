@@ -1,0 +1,32 @@
+{
+  "queue": "qv2-smoke",
+  "redelivered": {
+    "message_id": "bb02cbbb-06ed-480f-b493-cbe7029d23d3",
+    "events": [
+      "sent",
+      "received",
+      "visibility_timeout_expired",
+      "received",
+      "deleted"
+    ]
+  },
+  "released": {
+    "message_id": "3da8ec26-b07c-4f10-a9b2-2d2fa4c50b49",
+    "events": [
+      "sent",
+      "received",
+      "visibility_changed",
+      "visibility_timeout_expired",
+      "received",
+      "deleted"
+    ]
+  },
+  "never_received": {
+    "message_id": "03e7d890-b698-45fe-9997-bd534d5f23fe",
+    "events": [
+      "sent"
+    ]
+  },
+  "qv2_span_count": 10,
+  "span_count": 21
+}
