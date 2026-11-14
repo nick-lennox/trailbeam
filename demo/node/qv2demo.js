@@ -81,7 +81,7 @@ async function produce(a) {
     const kind = kindOf(i, a.mix);
     const t = nowNs();
     const r = await sqs.send(new SendMessageCommand({ QueueUrl: url, MessageBody: JSON.stringify({ kind, n: i }) }));
-    truth({ op: 'send', id: r.MessageId, kind, n: i, t_ns: t, result: 'ok' });
+    truth({ op: 'send', id: r.MessageId, kind, n: i, t_ns: t, result: 'ok', t_start_ns: t, t_end_ns: nowNs() });
     i++;
     if (a.interval) await sleep(a.interval * 1000);
   }
@@ -102,7 +102,7 @@ async function consume(a) {
       result = 'failed';
       console.error(`${op} ${m.MessageId} failed: ${e.name}`);
     }
-    truth({ op, id: m.MessageId, rh: handleHash(m.ReceiptHandle), t_ns: t, result, thread: `consumer-${loop}` });
+    truth({ op, id: m.MessageId, rh: handleHash(m.ReceiptHandle), t_ns: t, result, thread: `consumer-${loop}`, t_start_ns: t, t_end_ns: nowNs() });
   };
 
   const handle = async (m, loop) => {
@@ -131,6 +131,7 @@ async function consume(a) {
   const loop = async (j) => {
     while (!stopping) {
       let r;
+      const t0 = nowNs();
       try {
         r = await sqs.send(new ReceiveMessageCommand({
           QueueUrl: url, MaxNumberOfMessages: 10, WaitTimeSeconds: a.wait, MessageSystemAttributeNames: ['ApproximateReceiveCount'],
@@ -142,7 +143,7 @@ async function consume(a) {
       }
       const t = nowNs();
       for (const m of r.Messages || []) {
-        truth({ op: 'receive', id: m.MessageId, rh: handleHash(m.ReceiptHandle), rc: parseInt(m.Attributes.ApproximateReceiveCount, 10), t_ns: t, result: 'ok', thread: `consumer-${j}`, queue: a.queue });
+        truth({ op: 'receive', id: m.MessageId, rh: handleHash(m.ReceiptHandle), rc: parseInt(m.Attributes.ApproximateReceiveCount, 10), t_ns: t, result: 'ok', thread: `consumer-${j}`, queue: a.queue, t_start_ns: t0, t_end_ns: t });
       }
       for (const m of r.Messages || []) {
         try { await handle(m, j); } catch (e) { console.error(`handling ${m.MessageId} failed: ${e.message}`); }
@@ -157,6 +158,7 @@ async function consume(a) {
     const dlqUrl = (await sqs.send(new GetQueueUrlCommand({ QueueName: dlq }))).QueueUrl;
     while (!stopping) {
       let r;
+      const t0 = nowNs();
       try {
         r = await sqs.send(new ReceiveMessageCommand({
           QueueUrl: dlqUrl, MaxNumberOfMessages: 10, WaitTimeSeconds: a.wait, MessageSystemAttributeNames: ['ApproximateReceiveCount'],
@@ -168,7 +170,7 @@ async function consume(a) {
       }
       const t = nowNs();
       for (const m of r.Messages || []) {
-        truth({ op: 'receive', id: m.MessageId, rh: handleHash(m.ReceiptHandle), rc: parseInt(m.Attributes.ApproximateReceiveCount, 10), t_ns: t, result: 'ok', thread: 'dlq', queue: dlq });
+        truth({ op: 'receive', id: m.MessageId, rh: handleHash(m.ReceiptHandle), rc: parseInt(m.Attributes.ApproximateReceiveCount, 10), t_ns: t, result: 'ok', thread: 'dlq', queue: dlq, t_start_ns: t0, t_end_ns: t });
       }
       for (const m of r.Messages || []) {
         console.log(`dead-letter queue: ${m.MessageId}`);
@@ -180,7 +182,7 @@ async function consume(a) {
           result = 'failed';
           console.error(`dead-letter delete ${m.MessageId} failed: ${e.name}`);
         }
-        truth({ op: 'delete', id: m.MessageId, rh: handleHash(m.ReceiptHandle), t_ns: td, result, thread: 'dlq', queue: dlq });
+        truth({ op: 'delete', id: m.MessageId, rh: handleHash(m.ReceiptHandle), t_ns: td, result, thread: 'dlq', queue: dlq, t_start_ns: td, t_end_ns: nowNs() });
       }
     }
   };
@@ -219,7 +221,7 @@ async function deleter(a) {
       result = 'failed';
       console.error(`delete ${mid} failed: ${e.name}`);
     }
-    truth({ op: 'delete', id: mid, rh: handleHash(rh), t_ns: t, result, by: 'deleter', thread: 'deleter' });
+    truth({ op: 'delete', id: mid, rh: handleHash(rh), t_ns: t, result, by: 'deleter', thread: 'deleter', t_start_ns: t, t_end_ns: nowNs() });
   }
   server.close();
 }

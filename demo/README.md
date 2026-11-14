@@ -101,6 +101,7 @@ passes only if its timeline is:
 |---|---|
 | `complete` | its observed events are exactly the SQS calls the processes made: send, every receive, every visibility change, the delete |
 | `in_order` | the timeline never shows an effect definitely before its cause (below) |
+| `edges_verified` | every edge the store claims in `order.edges` holds: each of its sources recomputes from the events' facts, and no order the edges imply contradicts the truth files (below) |
 | `joined` | each delete and visibility change is attached to the delivery whose receipt handle was really used, with the real result |
 | `receive_count` | each receive shows the real `ApproximateReceiveCount` |
 | `final` | the message's state is `deleted` |
@@ -128,6 +129,26 @@ accepted `ChangeMessageVisibility` on delivery *k* and receive *k*+1. A pair is
 - **concurrent** otherwise.
 
 A message is `in_order` when it is complete and none of its pairs is violated.
+
+**Edges are checked, not trusted** (`edges_verified`, QV-34). The pair checks above would pass a store that
+put every send before every receive and labelled it `sqs_timestamps`: it agrees with what caused what. So
+the checker recomputes every source of every edge from the facts the store reports for the two events
+(the same rules as [`order.py`](../server/src/qv2_store/order.py), written again in the checker):
+
+- `clock`: `from.end < to.start`;
+- `process_order`: the same call-order scope and `from.returned < to.issued` (the events' `process_order`);
+- `receive_count`: two receives on the same queue, with counts that go up;
+- `sqs_timestamps`: the send and the first receive (count 1) on the same queue, with
+  `sent_timestamp_ms < first_receive_timestamp_ms`.
+
+An edge with no source, an unknown source, a source that does not recompute, or an end that is not an
+observed step fails the message. Then every order the edges imply (their transitive closure) is compared
+with the truth files. Each truth line brackets its call (`t_start_ns` just before it was made, `t_end_ns`
+just after it returned, on the one host's clock), so "A before B" is contradicted when B's call returned
+before A's was made. That is the only order one host's brackets prove, and it is sound: a true edge has A
+return before B is issued, which is inside both brackets. It catches a false edge between any two steps,
+including two no cause links (a stale delete and the next receive). The summary counts `edges_checked` and
+`implied_orders_checked`, and the failures `edges_unverified` and `implied_orders_contradicting_truth`.
 
 **The floor.** So that `in_order` cannot pass by leaving things concurrent, the run also fails unless at
 least 90% of the send→receive pairs and 90% of the receive→delete pairs are resolved (`floor` in the

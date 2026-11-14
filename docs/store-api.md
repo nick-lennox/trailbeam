@@ -164,12 +164,15 @@ Every event has `id` (`e1`, `e2`, ... in display order; valid within one respons
 as `end`, kept for clients of the first 0.1 API), `queue`, `consumer` and `span`. `consumer` holds whichever of `service_name`, `client_id`
 (`messaging.client.id`), `source` (`client` or `lambda`), `pid`, `thread_name`, `faas_name` and
 `faas_invocation_id` the span carried (contract §5). `span` holds `trace_id` and `span_id` (hex), for
-linking to a tracing backend.
+linking to a tracing backend. `process_order` holds the span's call-order facts (contract §2a): `scope`,
+`issued` and `returned`, or is `null` for a span without them (schema version 2). With these, the times,
+the queues, the receive counts and the two SQS timestamps in milliseconds, a client can recompute the
+sources of every edge in `order.edges` itself, as the concurrency check does (`demo/check/check.py`).
 
 | `type` | Extra fields |
 |---|---|
 | `sent` | `batch_entry_id` (batch sends) |
-| `received` | `delivery` (1, 2, ... in observed order), `receive_count` (SQS `ApproximateReceiveCount`), `sent_timestamp`, `first_receive_timestamp` (SQS `ApproximateFirstReceiveTimestamp`) |
+| `received` | `delivery` (1, 2, ... in observed order), `receive_count` (SQS `ApproximateReceiveCount`), `sent_timestamp`, `first_receive_timestamp` (SQS `ApproximateFirstReceiveTimestamp`), and the same two as integers, `sent_timestamp_ms` and `first_receive_timestamp_ms` (SQS's milliseconds, as SQS gave them) |
 | `deleted` | `delivery`, `result` (`ok`/`failed`), `status`, `error_code`, `batch_entry_id` |
 | `visibility_changed` | `delivery`, `result`, `visibility_timeout_s` (`0` makes the message visible at once), `error_code`, `batch_entry_id` |
 | `lambda_outcome` | `outcome` (`success`, `failed_reported`, `failed_invalid_response`, `failed_exception`), `error_type`, `delivery` |

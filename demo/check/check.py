@@ -23,6 +23,10 @@ JSON API (GET /api/messages/{id}) and checks, per message:
                    in order   ("resolved") if the store proves the cause before the effect;
                    concurrent otherwise (shown as "concurrent, order unknown").
                  A message is in order when it is complete and no pair is violated;
+- edges verified: every edge in ``order.edges`` is checked, not trusted (QV-34): each source it claims
+                 must recompute from the two events' facts (:func:`source_holds`), and no order the edges
+                 imply may contradict the truth: the drivers bracket each call (``t_start_ns``,
+                 ``t_end_ns``), and A before B is false if B returned before A was made (:func:`verify_edges`);
 - joined:        every delete and visibility change is attached to the delivery whose receipt handle it
                  really used, and has the same result (ok / failed) as the real call;
 - receive count: every receive (by delivery number) shows the real ApproximateReceiveCount;
@@ -40,7 +44,7 @@ not overlap: they share a group only through other overlapping steps. ``concurre
 where the cause ended at exactly the effect's start, a tie at the clock's resolution. Each check is evaluated on its own: joined and receive count compare the events regardless of the order
 the store shows them in, so a message that fails only on order still reports its joins and receive counts.
 The summary counts each check separately, plus the messages that fail on order alone. A message passes
-only if all six hold. The run passes only if every message passes **and** the floor holds: at least 90%
+only if all seven hold. The run passes only if every message passes **and** the floor holds: at least 90%
 (--floor) of the send->receive pairs and of the receive->delete pairs are resolved, so that the check
 can't pass by leaving things concurrent. ``resolution`` in the summary gives, per kind (send->receive,
 receive->delete, release->redelivery, receive n->receive n+1), the pairs resolved and left concurrent and
@@ -64,7 +68,7 @@ import urllib.request
 
 TRUTH_OPS = ("send", "receive", "change_visibility", "delete")
 STORE_TYPES = {"sent": "send", "received": "receive", "visibility_changed": "change_visibility", "deleted": "delete"}
-CHECKS = ("complete", "in_order", "joined", "receive_count", "final", "dlq_move")
+CHECKS = ("complete", "in_order", "edges_verified", "joined", "receive_count", "final", "dlq_move")
 # Contract 3.1, section 9b: the store shows a move to a dead-letter queue only when SQS reports it.
 DLQ_MOVE = "moved_to_dead_letter_queue"
 DLQ_SOURCE = "sqs_dlq_source"
@@ -153,6 +157,10 @@ def observed_details(timeline: dict) -> list:
             "start": _ns(e.get("start_unix_nano")),
             "end": _ns(e.get("end_unix_nano", e.get("time_unix_nano"))),
             "group": e.get("group"),
+            "queue": e.get("queue"),
+            "ticks": e.get("process_order"),
+            "sent_ms": e.get("sent_timestamp_ms") if op == "receive" else None,
+            "first_receive_ms": e.get("first_receive_timestamp_ms") if op == "receive" else None,
         })
     return out
 
@@ -235,6 +243,93 @@ class Proof:
         return {"direct": None, "chain": sorted({s for e in chain for s in self.direct[e]})}
 
 
+def source_holds(src: str, a: dict, b: dict) -> bool:
+    """Whether the observed fact ``src`` puts event ``a`` before event ``b``, recomputed here from the facts
+    the store reports for the two events (their times, call-order ticks, queues, receive counts and SQS
+    timestamps), independently of the store's own code. The four sources are those of contract section 9a."""
+    if src == "clock":
+        return b["start"] is not None and a["end"] is not None and a["end"] < b["start"]
+    if src == "process_order":
+        ta, tb = a.get("ticks") or {}, b.get("ticks") or {}
+        return (ta.get("scope") is not None and ta.get("scope") == tb.get("scope")
+                and ta.get("returned") is not None and tb.get("issued") is not None
+                and int(ta["returned"]) < int(tb["issued"]))
+    if src == "receive_count":
+        return (a["op"] == b["op"] == "receive" and a["queue"] == b["queue"]
+                and a["receive_count"] is not None and b["receive_count"] is not None
+                and int(a["receive_count"]) < int(b["receive_count"]))
+    if src == "sqs_timestamps":
+        return (a["op"] == "send" and b["op"] == "receive" and a["queue"] == b["queue"] and b["receive_count"] == 1
+                and b["sent_ms"] is not None and b["first_receive_ms"] is not None
+                and int(b["sent_ms"]) < int(b["first_receive_ms"]))
+    return False  # not a source of the contract: a rule, a cause, or a typo, none of which proves an order
+
+
+def truth_bounds(r: dict) -> tuple:
+    """(start, end) of a truth call: just before it was made and just after it returned, on the host's clock.
+    Truth files from before QV-34 have only ``t_ns``, which the drivers take before a send or settle and after
+    a receive, so only that bound is known."""
+    start = r.get("t_start_ns", None if r["op"] == "receive" else r["t_ns"])
+    end = r.get("t_end_ns", r["t_ns"] if r["op"] == "receive" else None)
+    return _ns(start), _ns(end)
+
+
+def truth_keys(truth: list) -> dict:
+    """The truth calls of one message by key (op, delivery, n), as in cause_effect_pairs."""
+    seen, out = collections.Counter(), {}
+    for (op, delivery, _, _), r in zip(expected_events(truth), truth):
+        out[(op, delivery, seen[(op, delivery)])] = r
+        seen[(op, delivery)] += 1
+    return out
+
+
+def verify_edges(timeline: dict, details: list, truth_of: dict) -> dict:
+    """Check every edge in ``order.edges`` instead of trusting it (QV-32 section 5).
+
+    - **source**: each source an edge claims must recompute (:func:`source_holds`) from the two events'
+      facts. An edge with no source, or between events that are not observed steps, fails too.
+    - **truth**: every order the edges imply (their transitive closure) is compared with the truth files.
+      A before B is contradicted when the truth shows B's call returned before A's call was made
+      (``B.t_end_ns < A.t_start_ns``). That is the only thing one host's brackets can prove; it holds for any
+      two calls, causally related or not, so an edge made up by a rule fails here when the rule is wrong.
+
+    ``truth_of`` maps a store event ID to its truth call (or is missing it). Returns the counts and the failing
+    edges and orders."""
+    by_id = {d["id"]: d for d in details if d.get("id") is not None}
+    edges = (timeline.get("order") or {}).get("edges", [])
+    unverified, contradicted = [], []
+    succ = collections.defaultdict(set)
+    for e in edges:
+        a, b, sources = by_id.get(e.get("from")), by_id.get(e.get("to")), list(e.get("sources") or [])
+        bad = [s for s in sources if a is None or b is None or not source_holds(s, a, b)]
+        if not sources or bad:
+            unverified.append({"from": e.get("from"), "to": e.get("to"), "sources": sources,
+                               "not_recomputed": bad if sources else ["(no source)"]})
+        if a is not None and b is not None:
+            succ[a["id"]].add(b["id"])
+    implied = 0
+    for x in list(succ):
+        seen, todo = set(), list(succ[x])
+        while todo:
+            y = todo.pop()
+            if y in seen or y == x:
+                continue
+            seen.add(y)
+            todo.extend(succ.get(y, ()))
+        for y in seen:
+            implied += 1
+            tx, ty = truth_of.get(x), truth_of.get(y)
+            if tx is None or ty is None:
+                continue
+            x_start, _ = truth_bounds(tx)
+            _, y_end = truth_bounds(ty)
+            if x_start is not None and y_end is not None and y_end < x_start:
+                contradicted.append({"from": x, "to": y, "truth": [tx["op"], ty["op"]],
+                                     "why": "the truth shows the later call returned before the earlier one was made"})
+    return {"edges": len(edges), "unverified": unverified, "implied": implied, "contradicted": contradicted,
+            "ok": not unverified and not contradicted}
+
+
 def judge_pair(cause: dict, effect: dict, proof: "Proof | None" = None) -> str:
     """``in_order``, ``concurrent`` or ``violated``: see the module docstring. ``proof`` is the store's
     proven order; without it (a timeline from before QV-31), only the intervals prove an order."""
@@ -300,9 +395,12 @@ def check_order(truth: list, timeline: dict) -> dict:
         if verdict == "violated":
             violations.append({"pair": kind, "cause": list(c), "effect": list(e)})
     groups = collections.Counter(d["group"] for d in observed_details(timeline) if d["group"] is not None)
+    keyed = truth_keys(truth)
+    truth_of = {d["id"]: keyed[k] for k, d in found.items() if k in keyed and d.get("id") is not None}
     return {"pairs": {k: {r: v[r] for r in PAIR_RESULTS + DIAGNOSTICS} for k, v in counts.items()},
             "resolution": {k: dict(v) for k, v in resolution.items()},
             "violations": violations,
+            "edges": verify_edges(timeline, observed_details(timeline), truth_of),
             "concurrent_groups": sum(n > 1 for n in groups.values())}
 
 
@@ -333,6 +431,7 @@ def evaluate(truth: list, timeline) -> dict:
     complete = collections.Counter(g[0] for g in got) == collections.Counter(w[0] for w in want)
     order = check_order(truth, timeline)
     in_order = complete and not order["violations"]
+    edges_verified = order["edges"]["ok"]
     # Joins and receive counts are compared as multisets, so they are measured whatever the order is.
     settles = ("delete", "change_visibility")
     joined = (collections.Counter((e[0], e[1], e[2]) for e in got if e[0] in settles)
@@ -341,7 +440,7 @@ def evaluate(truth: list, timeline) -> dict:
                      == collections.Counter((e[1], e[3]) for e in want if e[0] == "receive"))
     final = timeline.get("state") == "deleted"
     moves = dlq_moves(truth, timeline)
-    res = {"found": True, "complete": complete, "in_order": in_order, "joined": joined,
+    res = {"found": True, "complete": complete, "in_order": in_order, "edges_verified": edges_verified, "joined": joined,
            "receive_count": receive_count, "final": final, "dlq_move": moves["ok"]}
     res["passed"] = all(res[c] for c in CHECKS)
     res["expected"] = [w[0] for w in want]
@@ -349,6 +448,7 @@ def evaluate(truth: list, timeline) -> dict:
     res["pairs"] = order["pairs"]
     res["resolution"] = order["resolution"]
     res["violations"] = order["violations"]
+    res["edges"] = order["edges"]
     res["concurrent_groups"] = order["concurrent_groups"]
     res["inferred"] = [e["type"] for e in timeline.get("events", []) if e.get("inferred")]
     res["notices"] = [n["code"] for n in timeline.get("notices", [])]
@@ -423,6 +523,13 @@ def summarize(truth_by_id: dict, results: dict, count: int, floor: float = FLOOR
         "pairs_concurrent_via_chain": total[CHAINED],
         "pairs_concurrent_tied": total[TIED],
         "pairs_by_kind": {k: {r: pairs[k][r] for r in PAIR_RESULTS + DIAGNOSTICS} for k in PAIR_KINDS},
+        # Every edge the store claims, checked rather than trusted (QV-34): its sources recomputed from the
+        # events' facts, and every order the edges imply compared with the truth files.
+        "edges_checked": sum(results[m].get("edges", {}).get("edges", 0) for m in sent),
+        "edges_unverified": sum(len(results[m].get("edges", {}).get("unverified", [])) for m in sent),
+        "implied_orders_checked": sum(results[m].get("edges", {}).get("implied", 0) for m in sent),
+        "implied_orders_contradicting_truth": sum(len(results[m].get("edges", {}).get("contradicted", []))
+                                                  for m in sent),
         "with_change_visibility": sum(any(r["op"] == "change_visibility" for r in truth_by_id[m]) for m in sent),
         "deleted_by_another_process": sum(any(r.get("by") == "deleter" for r in truth_by_id[m]) for m in sent),
         "received_more_than_once": sum(sum(r["op"] == "receive" for r in truth_by_id[m]) > 1 for m in sent),
@@ -498,7 +605,10 @@ def cmd_verify(args) -> int:
     for mid, r in list(failed.items())[:10]:
         print(f"FAILED {mid}: " + ", ".join(f"{c}={r[c]}" for c in ("found",) + CHECKS)
               + f"; expected {r['expected']}, store shows {r['observed']}"
-              + (f"; violated pairs {r['violations']}" if r.get("violations") else ""), flush=True)
+              + (f"; violated pairs {r['violations']}" if r.get("violations") else "")
+              + (f"; edges not recomputed {r['edges']['unverified'][:3]}" if r.get("edges", {}).get("unverified") else "")
+              + (f"; edges against the truth {r['edges']['contradicted'][:3]}"
+                 if r.get("edges", {}).get("contradicted") else ""), flush=True)
     return 0 if summary["result"] == "PASS" else 1
 
 

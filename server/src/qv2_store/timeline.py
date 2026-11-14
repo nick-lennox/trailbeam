@@ -60,6 +60,14 @@ def _span(r) -> dict:
     return {"trace_id": r["trace_id"], "span_id": r["span_id"]}
 
 
+def _ticks(r) -> Optional[dict]:
+    """The call-order facts of one span (contract section 2a), so that a client can recompute every
+    ``process_order`` edge itself. None if the span carries no call order (schema version 2)."""
+    if r["order_scope"] is None:
+        return None
+    return {"scope": r["order_scope"], "issued": r["order_issued"], "returned": r["order_returned"]}
+
+
 def _inferred(type_: str, frm: Optional[int], to: Optional[int], reason: str, **extra) -> dict:
     return {"type": type_, "inferred": True, "time": None,
             "window": {"from": iso(frm), "to": iso(to)}, "reason": reason, **extra}
@@ -96,15 +104,17 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
     for r in rows:
         k = r["kind"]
         base = {"inferred": False, **_time(_start(r), r["time_ns"]), "group": None,
-                "queue": r["queue"], "consumer": consumer(r), "span": _span(r)}
+                "queue": r["queue"], "consumer": consumer(r), "span": _span(r), "process_order": _ticks(r)}
         if k == "send":
             ev = {"type": "sent", **base, **({"batch_entry_id": r["batch_entry_id"]} if r["batch_entry_id"] else {})}
         elif k == "receive":
             ev = {"type": "received", **base, "delivery": by_row[r["row"]], "receive_count": r["receive_count"]}
             if r["sent_ts_ms"] is not None:
                 ev["sent_timestamp"] = iso(r["sent_ts_ms"] * 1_000_000)
+                ev["sent_timestamp_ms"] = r["sent_ts_ms"]
             if r["first_receive_ts_ms"] is not None:
                 ev["first_receive_timestamp"] = iso(r["first_receive_ts_ms"] * 1_000_000)
+                ev["first_receive_timestamp_ms"] = r["first_receive_ts_ms"]
         elif k in ("delete", "change_visibility"):
             ev = {"type": "deleted" if k == "delete" else "visibility_changed", **base,
                   "delivery": by_row.get(r["receive_row"]), "result": r["result"]}

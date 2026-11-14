@@ -16,6 +16,8 @@ Every message body is {"kind": ..., "n": ...}. What the consumer does depends on
                 maxReceiveCount receives SQS moves it to <queue>-dlq, where consume --dlq receives and deletes it
 
 With --truth DIR each process writes what it really did, one JSON line per SQS call, to its own file in DIR.
+Each line brackets the call: ``t_start_ns`` just before it was made, ``t_end_ns`` just after it returned (one
+clock, the host's). ``t_ns`` is kept as before: the start for a send or settle, the end for a receive.
 The concurrency check (demo/check/check.py) compares those files with the timelines in the qv2 store.
 Only message kinds and numbers go in the bodies; nothing is read from AWS.
 """
@@ -120,7 +122,8 @@ def produce(args):
         kind = kind_of(i, args.mix)
         t = time.time_ns()
         r = sqs.send_message(QueueUrl=url, MessageBody=json.dumps({"kind": kind, "n": i}))
-        truth.write(op="send", id=r["MessageId"], kind=kind, n=i, t_ns=t, result="ok")
+        truth.write(op="send", id=r["MessageId"], kind=kind, n=i, t_ns=t, result="ok", t_start_ns=t,
+                    t_end_ns=time.time_ns())
         i += 1
         if args.interval:
             stop.wait(args.interval)
@@ -141,7 +144,9 @@ def consume(args):
         except Exception as e:  # recorded, not fatal: a stale handle can be rejected
             result = "failed"
             print(f"{op} {m['MessageId']} failed: {e}", file=sys.stderr)
-        truth.write(op=op, id=m["MessageId"], rh=handle_hash(m["ReceiptHandle"]), t_ns=t, result=result)
+        t1 = time.time_ns()
+        truth.write(op=op, id=m["MessageId"], rh=handle_hash(m["ReceiptHandle"]), t_ns=t, result=result,
+                    t_start_ns=t, t_end_ns=t1)
 
     def handle(m):
         kind = json.loads(m["Body"])["kind"]
@@ -164,6 +169,7 @@ def consume(args):
 
     def loop():
         while not stop.is_set():
+            t0 = time.time_ns()
             try:
                 r = sqs.receive_message(QueueUrl=url, MaxNumberOfMessages=10, WaitTimeSeconds=args.wait,
                                         MessageSystemAttributeNames=["ApproximateReceiveCount"])
@@ -175,7 +181,7 @@ def consume(args):
             for m in r.get("Messages", []):
                 truth.write(op="receive", id=m["MessageId"], rh=handle_hash(m["ReceiptHandle"]),
                             rc=int(m["Attributes"]["ApproximateReceiveCount"]), t_ns=t, result="ok",
-                            queue=args.queue)
+                            queue=args.queue, t_start_ns=t0, t_end_ns=t)
             for m in r.get("Messages", []):
                 try:
                     handle(m)
@@ -188,6 +194,7 @@ def consume(args):
         dlq = f"{args.queue}-dlq"
         dlq_url = sqs.get_queue_url(QueueName=dlq)["QueueUrl"]
         while not stop.is_set():
+            t0 = time.time_ns()
             try:
                 r = sqs.receive_message(QueueUrl=dlq_url, MaxNumberOfMessages=10, WaitTimeSeconds=args.wait,
                                         MessageSystemAttributeNames=["ApproximateReceiveCount"])
@@ -198,7 +205,8 @@ def consume(args):
             t = time.time_ns()
             for m in r.get("Messages", []):
                 truth.write(op="receive", id=m["MessageId"], rh=handle_hash(m["ReceiptHandle"]),
-                            rc=int(m["Attributes"]["ApproximateReceiveCount"]), t_ns=t, result="ok", queue=dlq)
+                            rc=int(m["Attributes"]["ApproximateReceiveCount"]), t_ns=t, result="ok", queue=dlq,
+                            t_start_ns=t0, t_end_ns=t)
             for m in r.get("Messages", []):
                 print(f"dead-letter queue: {m['MessageId']}", flush=True)
                 t = time.time_ns()
@@ -209,7 +217,7 @@ def consume(args):
                     result = "failed"
                     print(f"dead-letter delete {m['MessageId']} failed: {e}", file=sys.stderr)
                 truth.write(op="delete", id=m["MessageId"], rh=handle_hash(m["ReceiptHandle"]), t_ns=t,
-                            result=result, queue=dlq)
+                            result=result, queue=dlq, t_start_ns=t, t_end_ns=time.time_ns())
 
     threads = [threading.Thread(target=loop, name=f"consumer-{i}") for i in range(args.threads)]
     if args.dlq:
@@ -254,7 +262,8 @@ def deleter(args):
         except Exception as e:
             result = "failed"
             print(f"delete {mid} failed: {e}", file=sys.stderr)
-        truth.write(op="delete", id=mid, rh=handle_hash(rh), t_ns=t, result=result, by="deleter")
+        truth.write(op="delete", id=mid, rh=handle_hash(rh), t_ns=t, result=result, by="deleter", t_start_ns=t,
+                    t_end_ns=time.time_ns())
     server.shutdown()
 
 

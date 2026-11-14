@@ -287,14 +287,27 @@ def test_a_tie_at_the_clock_resolution_is_concurrent_and_counted():
 
 # -- the store's proven order (order.edges, QV-31) -------------------------------------------------
 
-def with_order(tl, edges, groups=None):
+def with_order(tl, edges, groups=None, facts=True):
     """Give the observed events IDs e1, e2, ... (in listing order) and the store's proven ``order.edges``,
-    given as (from index, to index, sources) over the observed events. ``groups`` overrides their groups."""
+    given as (from index, to index, sources) over the observed events. ``groups`` overrides their groups.
+
+    With ``facts`` (the default), the events also get the facts that make each claimed source hold, as a
+    real store's would (the checker recomputes every source): a clock gap, call-order ticks in one scope
+    (in listing order), or SQS timestamps a millisecond apart. ``facts=False`` claims the edges bare."""
     obs = [e for e in tl["events"] if not e["inferred"]]
     for i, e in enumerate(obs):
         e["id"] = f"e{i + 1}"
         if groups is not None:
             e["group"] = groups[i]
+    for a, b, src in edges if facts else ():
+        if "clock" in src:
+            obs[a]["end_unix_nano"] = str(int(obs[b]["start_unix_nano"]) + 40)
+            obs[b]["start_unix_nano"] = str(int(obs[b]["start_unix_nano"]) + 60)
+        if "process_order" in src:
+            for i, e in enumerate(obs):
+                e["process_order"] = {"scope": "s1", "issued": 2 * i + 1, "returned": 2 * i + 2}
+        if "sqs_timestamps" in src:
+            obs[b].update(sent_timestamp_ms=1000, first_receive_timestamp_ms=1001)
     tl["order"] = {"edges": [{"from": obs[a]["id"], "to": obs[b]["id"], "sources": list(src)} for a, b, src in edges]}
     return tl
 
@@ -371,6 +384,116 @@ def test_groups_in_order_without_a_proof_are_a_violation():
     r = check.evaluate(SIMPLE_TRUTH, tl)
     assert not r["in_order"]
     assert {v["pair"] for v in r["violations"]} == {"send->receive"}
+
+
+# -- every edge is checked, not trusted (QV-32 section 5, QV-34) --------------------------------------------
+
+def concurrent_cross_process_timeline():
+    """What the honest store gives on the emulator for a message deleted by another process: the receive's
+    long poll was open before the send (the clocks can't order them), SQS stamped SentTimestamp and
+    ApproximateFirstReceiveTimestamp in the same millisecond, and the delete was made in the deleter process
+    (another call-order scope), with its interval overlapping the receive's."""
+    tl = one_group(simple_timeline())
+    sent, rcv, dele = [e for e in tl["events"] if not e["inferred"]]
+    for e in (sent, rcv, dele):
+        e["queue"] = "q"
+    sent["process_order"] = {"scope": "producer", "issued": 1, "returned": 2}
+    rcv["process_order"] = {"scope": "consumer", "issued": 7, "returned": 8}
+    dele["process_order"] = {"scope": "deleter", "issued": 3, "returned": 4}
+    rcv.update(sent_timestamp_ms=5000, first_receive_timestamp_ms=5000)
+    return tl
+
+
+def test_a_store_that_orders_by_rule_fails_even_with_real_source_labels():
+    """The reviewer's fake store (QV-32 section 5): on the honest data, it adds 'send -> receive' labelled
+    sqs_timestamps and 'receive -> its delete' labelled process_order, with no facts behind them. Before
+    QV-34 the checker took the labels on trust and this passed 200/200 and the floor. Now neither recomputes."""
+    honest = [with_order(concurrent_cross_process_timeline(), []) for _ in range(3)]
+    s = summary_of(honest)
+    assert (s["passed"], s["floor"]["result"], s["result"]) == (3, "FAIL", "FAIL")  # honest: concurrent
+
+    fake = [with_order(concurrent_cross_process_timeline(), [(0, 1, ["sqs_timestamps"]), (1, 2, ["process_order"])],
+                       groups=[0, 1, 2], facts=False) for _ in range(3)]
+    r = check.evaluate([dict(x, id=MID) for x in SIMPLE_TRUTH], fake[0])
+    assert r["in_order"]  # the pair checks alone can't tell: every edge agrees with what caused what
+    assert not r["edges_verified"] and not r["passed"]
+    assert [(u["from"], u["to"], u["not_recomputed"]) for u in r["edges"]["unverified"]] == [
+        ("e1", "e2", ["sqs_timestamps"]), ("e2", "e3", ["process_order"])]
+    s = summary_of(fake)
+    assert s["passed"] == 0 and s["edges_verified"] == 0 and s["result"] == "FAIL"
+    assert (s["edges_checked"], s["edges_unverified"]) == (6, 6)
+    # The floor alone would have passed: the labels resolve every pair.
+    assert s["floor"]["result"] == "PASS"
+
+
+def test_an_edge_whose_sources_recompute_passes():
+    tl = with_order(concurrent_cross_process_timeline(), [(0, 1, ["sqs_timestamps"])], groups=[0, 1, 1])
+    tl["events"][1].update(first_receive_timestamp_ms=5001)  # SQS's stamps differ: the source holds
+    r = check.evaluate(SIMPLE_TRUTH, tl)
+    assert r["passed"], r
+    assert (r["edges"]["edges"], r["edges"]["implied"]) == (1, 1)
+
+
+@pytest.mark.parametrize("sources", [[], ["causality"], ["clock", "receive_count"]])
+def test_an_edge_with_no_source_an_unknown_one_or_one_that_does_not_hold_fails(sources):
+    """receive_count can't order a send before a receive; "causality" is a rule, not a source."""
+    tl = with_order(simple_timeline(), [(0, 1, sources), (1, 2, ["clock"])])
+    r = check.evaluate(SIMPLE_TRUTH, tl)
+    assert not r["edges_verified"] and not r["passed"]
+    assert r["edges"]["unverified"][0]["from"] == "e1"
+
+
+def test_an_edge_to_an_event_that_is_not_an_observed_step_fails():
+    tl = with_order(simple_timeline(), [(0, 1, ["clock"]), (1, 2, ["clock"])])
+    tl["order"]["edges"].append({"from": "e1", "to": "e99", "sources": ["clock"]})
+    r = check.evaluate(SIMPLE_TRUTH, tl)
+    assert not r["edges_verified"]
+
+
+SLOW_TRUTH = [  # a slow consumer: its delete of delivery 1 comes after the redelivery (a stale handle)
+    rec("send", 10, t_start_ns=10, t_end_ns=11),
+    rec("receive", 20, rh="a", rc=1, t_start_ns=5, t_end_ns=20),
+    rec("receive", 40, rh="b", rc=2, t_start_ns=30, t_end_ns=40),
+    rec("delete", 50, rh="a", t_start_ns=50, t_end_ns=51),
+    rec("delete", 60, rh="b", t_start_ns=60, t_end_ns=61),
+]
+
+
+def slow_timeline():
+    return {"state": "deleted", "events": [
+        ev("sent", 1), ev("received", 2, delivery=1, receive_count=1), ev("received", 3, delivery=2, receive_count=2),
+        ev("deleted", 4, delivery=1, result="ok", status="stale_handle"),
+        ev("deleted", 5, delivery=2, result="ok", status="final")]}
+
+
+def test_an_implied_order_that_contradicts_the_truth_fails():
+    """No cause/effect pair joins the stale delete of delivery 1 and receive 2, so the pair checks can't see
+    this. The store's facts are made up to agree with each other (ticks in one scope), but the truth shows
+    receive 2 returned before the delete of delivery 1 was made, so 'delete 1 -> receive 2' is false, and
+    so is everything it implies."""
+    tl = slow_timeline()
+    obs = [e for e in tl["events"] if not e["inferred"]]
+    for i, e in enumerate(obs):
+        e["id"] = f"e{i + 1}"
+        e["group"] = 0
+    ticks = {"e1": (1, 2), "e2": (3, 4), "e4": (5, 6), "e3": (7, 8), "e5": (9, 10)}  # delete 1 before receive 2
+    for e in obs:
+        e["process_order"] = {"scope": "s", "issued": ticks[e["id"]][0], "returned": ticks[e["id"]][1]}
+    tl["order"] = {"edges": [{"from": "e4", "to": "e3", "sources": ["process_order"]}]}
+    r = check.evaluate(SLOW_TRUTH, tl)
+    assert r["edges"]["unverified"] == []  # the label recomputes from the facts given...
+    assert [(c["from"], c["to"]) for c in r["edges"]["contradicted"]] == [("e4", "e3")]  # ...but it's false
+    assert not r["edges_verified"] and not r["passed"]
+    # The true direction passes.
+    tl["order"]["edges"] = [{"from": "e3", "to": "e4", "sources": ["clock"]}]
+    assert check.evaluate(SLOW_TRUTH, tl)["edges_verified"]
+
+
+def test_truth_without_brackets_is_judged_by_the_bound_it_has():
+    """Before QV-34 a truth line had only t_ns: before a send or settle, after a receive."""
+    assert check.truth_bounds({"op": "send", "t_ns": 5}) == (5, None)
+    assert check.truth_bounds({"op": "receive", "t_ns": 7}) == (None, 7)
+    assert check.truth_bounds({"op": "delete", "t_ns": 9, "t_start_ns": 9, "t_end_ns": 12}) == (9, 12)
 
 
 def summary_of(timelines):
