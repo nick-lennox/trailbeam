@@ -3,7 +3,7 @@
 
 const crypto = require('node:crypto');
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const SCOPE_NAME = 'qv2';
 
 const DEFAULT_KEY = 'qv2-default-receipt-hash-key';

@@ -128,9 +128,10 @@ test('receive and outcome attributes for the AWS documentation event', async (t)
   assert.strictEqual(rcv.length, 2);
   assert.strictEqual(out.length, 2);
   assert.deepStrictEqual(rcv[0].attributes, {
-    'qv2.schema_version': 1,
+    'qv2.schema_version': 2,
     'qv2.kind': 'sqs.receive',
     'qv2.source': 'lambda',
+    'qv2.start_observed': false,
     'messaging.system.name': 'aws.sqs',
     'messaging.operation.type': 'receive',
     'messaging.operation.name': 'LambdaEvent',
@@ -155,6 +156,11 @@ test('receive and outcome attributes for the AWS documentation event', async (t)
   assert.strictEqual(o['qv2.outcome'], 'success');
   assert.ok(!('qv2.error_type' in o));
   assert.deepStrictEqual([o['faas.name'], o['faas.invocation_id']], ['orders-fn', 'req-1']);
+  // Contract v2 section 2: Lambda's own ReceiveMessage is not seen. The receive span is zero-length at
+  // its upper bound (before the handler ran), marked start-not-observed; no start is invented.
+  assert.ok(!('qv2.start_observed' in o));
+  const hr = ([sec, ns]) => sec * 1e9 + ns;
+  assert.ok(hr(rcv[0].endTime) <= hr(out[0].startTime));
   for (const s of [...rcv, ...out]) {
     assert.strictEqual(s.instrumentationScope.name, 'qv2');
     assert.deepStrictEqual(s.startTime, s.endTime);

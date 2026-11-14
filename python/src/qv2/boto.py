@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import sys
 import threading
+import time
 from typing import Any, Callable, Optional
 
 from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
@@ -69,6 +70,7 @@ def add_receive_attribute_names(params: dict) -> None:
         params["MessageSystemAttributeNames"] = new + missing
 
 _MAX_PENDING = 10_000
+_now = time.time_ns  # wall clock for span start and end (contract section 2); replaced in tests
 _TRACKED_OPS = frozenset(_SETTLE_OPS) | {"SendMessage", "SendMessageBatch", "ReceiveMessage"}
 
 
@@ -78,8 +80,8 @@ class SqsHooks:
     def __init__(self, emitter: Emitter, handles: Optional[HandleMap] = None):
         self.emitter = emitter
         self.handles = handles if handles is not None else HandleMap()
-        # Settle requests waiting for their response, keyed by the stock span object's id.
-        self._pending: dict[int, dict] = {}
+        # Requests waiting for their response, keyed by the stock span object's id: (params, start_ns).
+        self._pending: dict[int, tuple[dict, int]] = {}
         self._lock = threading.Lock()
 
     # -- hooks -------------------------------------------------------------------------------
@@ -95,51 +97,56 @@ class SqsHooks:
             with self._lock:
                 if len(self._pending) >= _MAX_PENDING:  # only if responses were lost; stay bounded
                     self._pending.clear()
-                self._pending[id(span)] = params
+                # Section 2: the span starts just before the request is sent. The instrumentation calls
+                # this hook right before the API call (and its retries), so take the time last.
+                self._pending[id(span)] = (params, _now())
         except Exception:  # pragma: no cover - defensive; never break the caller's SQS call
             log.debug("qv2 request hook failed", exc_info=True)
 
     def response_hook(self, span, service: str, operation: str, result: Optional[dict]) -> None:
         if service != "sqs":
             return
+        end_ns = _now()  # section 2: the span ends when the response (or the error) arrived
         if operation not in _TRACKED_OPS:
             return
         with self._lock:
-            params = self._pending.pop(id(span), None)
-        if params is None:
+            pending = self._pending.pop(id(span), None)
+        if pending is None:
             return
+        params, start_ns = pending
+        t = (start_ns, end_ns)
         try:
             if operation == "ReceiveMessage":
-                self._on_receive(span, params, result)
+                self._on_receive(span, params, result, t)
             elif operation in ("SendMessage", "SendMessageBatch"):
-                self._on_send(span, operation, params, result)
+                self._on_send(span, operation, params, result, t)
             else:
                 # The instrumentation calls this hook from a ``finally``: during an exception that
                 # was not a ClientError, result is None and sys.exc_info() holds the exception.
                 exc = sys.exc_info()[1]
-                self._on_settle(span, operation, params, result, exc)
+                self._on_settle(span, operation, params, result, exc, t)
         except Exception:  # pragma: no cover - defensive
             log.debug("qv2 response hook failed", exc_info=True)
 
     # -- span builders -----------------------------------------------------------------------
 
-    def _on_send(self, span, operation: str, params: dict, result: Optional[dict]) -> None:
+    def _on_send(self, span, operation: str, params: dict, result: Optional[dict], t: tuple) -> None:
         if not result or "Error" in result:
             return
         name, url = _queue(params)
         if operation == "SendMessage":
             if result.get("MessageId"):
                 self.emitter.emit(SPAN_SEND, operation, name, url, {"messaging.message.id": result["MessageId"]},
-                                  parent=span)
+                                  parent=span, start_ns=t[0], end_ns=t[1])
             return
         for entry in result.get("Successful") or []:
             attrs: dict = {}
             put(attrs, "messaging.message.id", entry.get("MessageId"))
             put(attrs, "qv2.batch_entry_id", entry.get("Id"))
             if "messaging.message.id" in attrs:
-                self.emitter.emit(SPAN_SEND, operation, name, url, attrs, parent=span)
+                self.emitter.emit(SPAN_SEND, operation, name, url, attrs, parent=span, start_ns=t[0], end_ns=t[1])
 
-    def _on_receive(self, span, params: dict, result: Optional[dict]) -> None:
+    def _on_receive(self, span, params: dict, result: Optional[dict], t: tuple) -> None:
         if not result or "Error" in result:
             return
         name, url = _queue(params)
@@ -156,9 +163,9 @@ class SqsHooks:
             put(attrs, "qv2.sent_timestamp_ms", int_or_none(a.get("SentTimestamp")))
             put(attrs, "qv2.first_receive_timestamp_ms", int_or_none(a.get("ApproximateFirstReceiveTimestamp")))
             put(attrs, "qv2.aws_trace_header", a.get("AWSTraceHeader"))
-            self.emitter.emit(SPAN_RECEIVE, "ReceiveMessage", name, url, attrs, parent=span)
+            self.emitter.emit(SPAN_RECEIVE, "ReceiveMessage", name, url, attrs, parent=span, start_ns=t[0], end_ns=t[1])
 
-    def _on_settle(self, span, operation: str, params: dict, result: Optional[dict], exc) -> None:
+    def _on_settle(self, span, operation: str, params: dict, result: Optional[dict], exc, t: tuple) -> None:
         span_name, batch = _SETTLE_OPS[operation]
         name, url = _queue(params)
         call_error = None
@@ -196,7 +203,7 @@ class SqsHooks:
                 put(attrs, "qv2.visibility_timeout", int_or_none(vt))
             attrs["qv2.result"] = "ok" if error is None else "failed"
             put(attrs, "qv2.error_code", error)
-            self.emitter.emit(span_name, operation, name, url, attrs, parent=span)
+            self.emitter.emit(span_name, operation, name, url, attrs, parent=span, start_ns=t[0], end_ns=t[1])
             if error is None and span_name == SPAN_DELETE:
                 self.handles.discard(rh)
 

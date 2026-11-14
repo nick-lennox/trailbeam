@@ -1,7 +1,7 @@
 {
   "queue": "qv2-smoke",
   "redelivered": {
-    "message_id": "bb02cbbb-06ed-480f-b493-cbe7029d23d3",
+    "message_id": "062d98c1-0251-4a88-b4e3-3069ea19a169",
     "events": [
       "sent",
       "received",
@@ -11,7 +11,7 @@
     ]
   },
   "released": {
-    "message_id": "3da8ec26-b07c-4f10-a9b2-2d2fa4c50b49",
+    "message_id": "37b3c40d-b8b3-4a49-846b-cbde9b204c0b",
     "events": [
       "sent",
       "received",
@@ -22,7 +22,7 @@
     ]
   },
   "never_received": {
-    "message_id": "03e7d890-b698-45fe-9997-bd534d5f23fe",
+    "message_id": "48ef0e8f-8ba3-401c-a84d-56cff218c60b",
     "events": [
       "sent"
     ]

@@ -35,6 +35,8 @@ const sqs = qv2.instrument(new SQSClient({}));
   caller asked for is removed, and no message attributes are requested);
 - emits spans after each response, so settle spans carry `qv2.result` (`ok` / `failed`) and
   `qv2.error_code`; a settle call that throws still gets one `failed` span per receipt handle;
+- gives each span the call's interval: it starts just before the request is sent and ends when the
+  response arrives (contract v2, section 2), read from `Date.now()`;
 - never changes the result or error the caller sees.
 
 If the application uses `@opentelemetry/instrumentation-aws-sdk`, each qv2 span is a child of the
@@ -55,7 +57,9 @@ exports.handler = qv2.wrapHandler(async (event, context) => {
 ```
 
 For each SQS record, the wrapper emits a `qv2 receive` and exports it **before** your handler
-runs, so a timeout or out-of-memory kill cannot lose it. After the handler returns or throws, it
+runs, so a timeout or out-of-memory kill cannot lose it. Lambda made the `ReceiveMessage` call, not
+the wrapper, so that span only says the receive happened no later than the handler start: it is
+zero-length and marked `qv2.start_observed = false`. After the handler returns or throws, it
 emits one `qv2 outcome` per record:
 
 | `qv2.outcome` | When |

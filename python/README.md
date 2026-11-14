@@ -19,6 +19,8 @@ qv2.boto.install()   # once per process, before or after creating SQS clients
 This hooks `SendMessage(Batch)`, `ReceiveMessage`, `DeleteMessage(Batch)` and
 `ChangeMessageVisibility(Batch)` through `opentelemetry-instrumentation-botocore`. If your
 application already instruments botocore, qv2 keeps that setup and chains your hooks after its own.
+Each span covers its SQS call: it starts just before the request is sent and ends when the response
+arrives (contract v2, section 2), read from `time.time_ns()`.
 
 | Setting | Default |
 |---|---|
@@ -36,7 +38,9 @@ def handler(event, context):
     ...
 ```
 
-For each SQS record the wrapper emits a `qv2 receive` and flushes it before your handler runs, then a
+For each SQS record the wrapper emits a `qv2 receive` and flushes it before your handler runs. Lambda
+made the `ReceiveMessage` call, not the wrapper, so that span only says the receive happened no later
+than the handler start: it is zero-length and marked `qv2.start_observed = false`. Then the wrapper emits a
 `qv2 outcome` per record: `success`, `failed_reported`, `failed_invalid_response` or
 `failed_exception` (class name only). A timeout or out-of-memory kill leaves a receive with no
 outcome, which the store infers; it cannot be detected from inside the process. Set

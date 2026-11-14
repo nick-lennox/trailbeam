@@ -1,4 +1,4 @@
-"""Builders for contract v1 qv2 spans and OTLP requests, for the store tests."""
+"""Builders for contract v2 qv2 spans and OTLP requests, for the store tests."""
 from __future__ import annotations
 
 import hashlib
@@ -30,13 +30,18 @@ _ids = itertools.count(1)
 
 @dataclass
 class S:
-    """One qv2 span: start time (ns), attributes, trace ID."""
+    """One qv2 span: end time ``t`` (ns), attributes, trace ID, and start time (default: ``t``)."""
     name: str
     t: int
     attrs: dict
     trace_id: bytes = field(default_factory=lambda: os.urandom(16))
     span_id: bytes = field(default_factory=lambda: next(_ids).to_bytes(8, "big"))
     service: str | None = None  # resource service.name; None = the request's default
+    start: int | None = None
+
+    @property
+    def start_time(self) -> int:
+        return self.t if self.start is None else self.start
 
 
 @dataclass
@@ -48,8 +53,9 @@ class Consumer:
     key: str = KEY
     queue: str = "orders"
 
-    def _s(self, name, t, a, trace_id=None) -> S:
-        sp = S(name, t, a, service=self.service)
+    def _s(self, name, t, a, trace_id=None, start=None) -> S:
+        """``t`` is the span's end (the response); ``start`` its start (default: ``t``)."""
+        sp = S(name, t, a, service=self.service, start=start)
         if trace_id:
             sp.trace_id = trace_id
         return sp
@@ -57,21 +63,21 @@ class Consumer:
     def base(self, kind: str, op_type: str, op: str, queue: str | None) -> dict:
         q = queue or self.queue
         return {
-            "qv2.schema_version": 1, "qv2.kind": kind, "qv2.source": self.source,
+            "qv2.schema_version": 2, "qv2.kind": kind, "qv2.source": self.source,
             "messaging.system.name": "aws.sqs", "messaging.operation.type": op_type,
             "messaging.operation.name": op, "messaging.destination.name": q,
             "aws.sqs.queue.url": f"http://localhost:9324/000000000000/{q}",
             "messaging.client.id": self.client_id, "process.pid": 4242, "thread.name": "worker-1",
         }
 
-    def send(self, t, mid, queue=None, batch_entry=None, trace_id=None):
+    def send(self, t, mid, queue=None, batch_entry=None, trace_id=None, start=None):
         a = self.base("sqs.send", "send", "SendMessageBatch" if batch_entry else "SendMessage", queue)
         a["messaging.message.id"] = mid
         if batch_entry:
             a["qv2.batch_entry_id"] = batch_entry
-        return self._s("qv2 send", t, a, trace_id)
+        return self._s("qv2 send", t, a, trace_id, start)
 
-    def receive(self, t, mid, handle, count=1, queue=None, trace_id=None, sent_ms=None, lambda_inv=None):
+    def receive(self, t, mid, handle, count=1, queue=None, trace_id=None, sent_ms=None, lambda_inv=None, start=None):
         a = self.base("sqs.receive", "receive", "LambdaEvent" if lambda_inv else "ReceiveMessage", queue)
         a.update({"messaging.message.id": mid, "qv2.receive_count": count,
                   "qv2.receipt_handle.hmac": rh_hash(handle, self.key),
@@ -79,10 +85,12 @@ class Consumer:
         if sent_ms is not None:
             a["qv2.sent_timestamp_ms"] = sent_ms
         if lambda_inv:
-            a.update({"faas.name": "orders-fn", "faas.invocation_id": lambda_inv})
-        return self._s("qv2 receive", t, a, trace_id)
+            # The Lambda wrapper only knows an upper bound (contract section 2).
+            a.update({"faas.name": "orders-fn", "faas.invocation_id": lambda_inv, "qv2.start_observed": False})
+        return self._s("qv2 receive", t, a, trace_id, start)
 
-    def delete(self, t, handle, mid=None, ok=True, batch_entry=None, queue=None, trace_id=None, error="ReceiptHandleIsInvalid"):
+    def delete(self, t, handle, mid=None, ok=True, batch_entry=None, queue=None, trace_id=None,
+               error="ReceiptHandleIsInvalid", start=None):
         a = self.base("sqs.settle", "settle", "DeleteMessageBatch" if batch_entry else "DeleteMessage", queue)
         a.update({"qv2.receipt_handle.hmac": rh_hash(handle, self.key),
                   "qv2.receipt_handle.key_id": key_id(self.key), "qv2.result": "ok" if ok else "failed"})
@@ -92,9 +100,9 @@ class Consumer:
             a["messaging.message.id"] = mid
         if batch_entry:
             a["qv2.batch_entry_id"] = batch_entry
-        return self._s("qv2 delete", t, a, trace_id)
+        return self._s("qv2 delete", t, a, trace_id, start)
 
-    def change_visibility(self, t, handle, timeout, mid=None, ok=True, queue=None):
+    def change_visibility(self, t, handle, timeout, mid=None, ok=True, queue=None, start=None):
         a = self.base("sqs.settle", "settle", "ChangeMessageVisibility", queue)
         a.update({"qv2.receipt_handle.hmac": rh_hash(handle, self.key),
                   "qv2.receipt_handle.key_id": key_id(self.key), "qv2.result": "ok" if ok else "failed",
@@ -103,7 +111,7 @@ class Consumer:
             a["qv2.error_code"] = "MessageNotInflight"
         if mid:
             a["messaging.message.id"] = mid
-        return self._s("qv2 change_visibility", t, a)
+        return self._s("qv2 change_visibility", t, a, start=start)
 
     def outcome(self, t, mid, outcome, invocation, queue=None, error_type=None):
         a = self.base("sqs.outcome", "process", "LambdaEvent", queue)
@@ -132,7 +140,7 @@ def to_proto(spans: list[S], service: str = "orders-worker", scope: str = "qv2")
 
 def _resource_spans(spans: list[S], service: str, scope: str) -> ResourceSpans:
     pb = [Span(name=s.name, trace_id=s.trace_id, span_id=s.span_id, kind=Span.SPAN_KIND_INTERNAL,
-               start_time_unix_nano=s.t, end_time_unix_nano=s.t,
+               start_time_unix_nano=s.start_time, end_time_unix_nano=s.t,
                attributes=[KeyValue(key=k, value=_value(v)) for k, v in s.attrs.items()]) for s in spans]
     return ResourceSpans(
         resource=Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value=service))]),
@@ -153,6 +161,6 @@ def to_json(spans: list[S], service: str = "orders-worker", scope: str = "qv2") 
         "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": service}}]},
         "scopeSpans": [{"scope": {"name": scope, "version": "0.1.0"}, "spans": [
             {"traceId": s.trace_id.hex(), "spanId": s.span_id.hex(), "name": s.name, "kind": 1,
-             "startTimeUnixNano": str(s.t), "endTimeUnixNano": str(s.t),
+             "startTimeUnixNano": str(s.start_time), "endTimeUnixNano": str(s.t),
              "attributes": [{"key": k, "value": _json_value(v)} for k, v in s.attrs.items()]}
             for s in spans]}]}]}

@@ -13,7 +13,7 @@ from typing import Any, Iterable, Optional
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
 
 SCOPE_NAME = "qv2"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DEFAULT_KEY_ID = "2bd63d10"  # key ID of the published default key, contract section 7
 
 DELETE_OPS = {"DeleteMessage", "DeleteMessageBatch"}
@@ -44,7 +44,9 @@ _FIELDS = {
     "faas.name": ("faas_name", str),
     "faas.invocation_id": ("faas_invocation_id", str),
 }
-RECORD_FIELDS = ["trace_id", "span_id", "kind", "time_ns", "service_name"] + [f for f, _ in _FIELDS.values()]
+# time_ns is the span's end (contract section 2: the response arrived); start_ns its start, or None if
+# the start was not observed (qv2.start_observed = false, a Lambda receive).
+RECORD_FIELDS = ["trace_id", "span_id", "kind", "start_ns", "time_ns", "service_name"] + [f for f, _ in _FIELDS.values()]
 
 # Fields each event kind must carry to be usable (contract section 4).
 _REQUIRED = {
@@ -106,7 +108,7 @@ def _proto_spans(req) -> Iterable[tuple]:
             for s in ss.spans:
                 attrs = {kv.key: _proto_value(kv.value) for kv in s.attributes}
                 yield (ss.scope.name, resource, s.trace_id.hex(), s.span_id.hex(),
-                       s.start_time_unix_nano, attrs)
+                       s.start_time_unix_nano, s.end_time_unix_nano, attrs)
 
 
 # ---- JSON (OTLP/JSON: lowerCamelCase keys, hex trace and span IDs, 64-bit ints as strings) ---
@@ -145,6 +147,7 @@ def _json_spans(doc: dict) -> Iterable[tuple]:
                     yield (scope, resource, str(_get(s, "traceId", "trace_id", "")).lower(),
                            str(_get(s, "spanId", "span_id", "")).lower(),
                            int(_get(s, "startTimeUnixNano", "start_time_unix_nano", 0) or 0),
+                           int(_get(s, "endTimeUnixNano", "end_time_unix_nano", 0) or 0),
                            _json_attrs(s.get("attributes")))
     except (AttributeError, TypeError, ValueError) as e:
         raise DecodeError(f"invalid OTLP/JSON: {e}") from None
@@ -169,7 +172,8 @@ def _event_kind(attrs: dict) -> Optional[str]:
     return None
 
 
-def to_record(resource: dict, trace_id: str, span_id: str, start_ns: int, attrs: dict) -> tuple[Optional[dict], str]:
+def to_record(resource: dict, trace_id: str, span_id: str, start_ns: int, end_ns: int,
+              attrs: dict) -> tuple[Optional[dict], str]:
     """Returns (record, "") or (None, reason)."""
     if attrs.get("qv2.schema_version") != SCHEMA_VERSION:
         return None, f"qv2.schema_version {attrs.get('qv2.schema_version')!r} is not {SCHEMA_VERSION}"
@@ -177,9 +181,13 @@ def to_record(resource: dict, trace_id: str, span_id: str, start_ns: int, attrs:
     if kind is None:
         return None, (f"unknown qv2.kind {attrs.get('qv2.kind')!r} / messaging.operation.name "
                       f"{attrs.get('messaging.operation.name')!r}")
-    if not trace_id or not span_id or not start_ns:
-        return None, "span without trace ID, span ID or start time"
-    rec = {"trace_id": trace_id, "span_id": span_id, "kind": kind, "time_ns": int(start_ns),
+    if not trace_id or not span_id or not start_ns or not end_ns:
+        return None, "span without trace ID, span ID, start time or end time"
+    if end_ns < start_ns:
+        return None, "span ends before it starts"
+    observed = attrs.get("qv2.start_observed") is not False
+    rec = {"trace_id": trace_id, "span_id": span_id, "kind": kind, "time_ns": int(end_ns),
+           "start_ns": int(start_ns) if observed else None,
            "service_name": resource.get("service.name") if isinstance(resource.get("service.name"), str) else None}
     for attr, (name, typ) in _FIELDS.items():
         v = attrs.get(attr)
@@ -199,11 +207,11 @@ def to_record(resource: dict, trace_id: str, span_id: str, start_ns: int, attrs:
 
 def _from_spans(spans: Iterable[tuple]) -> Decoded:
     out = Decoded()
-    for scope, resource, trace_id, span_id, start_ns, attrs in spans:
+    for scope, resource, trace_id, span_id, start_ns, end_ns, attrs in spans:
         if scope != SCOPE_NAME:
             out.ignored += 1
             continue
-        rec, reason = to_record(resource, trace_id, span_id, start_ns, attrs)
+        rec, reason = to_record(resource, trace_id, span_id, start_ns, end_ns, attrs)
         if rec is None:
             out.rejected.append(reason)
         else:

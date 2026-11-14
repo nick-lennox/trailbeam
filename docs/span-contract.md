@@ -1,4 +1,4 @@
-# qv2 span contract, schema version 1
+# qv2 span contract, schema version 2
 
 This file defines the OpenTelemetry spans that the `qv2` Python package and the `@qv2/sdk` Node.js
 package emit, and that the qv2 store reads. Both packages and the store are built and tested against
@@ -41,8 +41,26 @@ change-visibility span names; that is dropped.)
   (`opentelemetry-instrumentation-botocore` in Python, `@opentelemetry/instrumentation-aws-sdk` in
   Node.js), so the qv2 span shares its trace ID. In the Lambda wrapper, the active span at
   invocation time, or none (a root span).
-- Time: the span's start time is the event time. Spans are zero-length (start and end together),
-  except that implementations **may** give `qv2 outcome` a duration covering the handler run.
+- Time (changed in schema version 2, see section 12): a span from the client hooks is an
+  **interval** that contains the moment SQS acted:
+  - start = just before the request is sent: the hook runs before the SDK serializes, signs and
+    sends the request (and before any retry), so the start is a lower bound;
+  - end = when the response (or the error) arrived back in the hook, an upper bound.
+
+  Every span of one call (each entry of a batch, each message of a `ReceiveMessage`) gets that call's
+  interval. Both times are read from the system's wall clock (`time.time_ns()` in Python,
+  `Date.now()` in Node.js, millisecond resolution), so spans from processes on one host can be
+  compared. Rounding is always down, which can make two intervals look like they touch but never
+  turns "A ended before B started" around.
+- Lambda wrapper: Lambda's event source mapping makes the `ReceiveMessage` call, so the wrapper does
+  not see when it started or ended. All the wrapper knows is that the receive happened **no later
+  than** the moment the wrapper got the event, before the handler runs. A `qv2 receive` from the
+  wrapper is therefore zero-length at that moment and carries `qv2.start_observed = false`: its end
+  is an upper bound and its start is **not known**. The wrapper **must not** put any other time in
+  its start. `qv2 outcome` is zero-length at the moment the wrapper decided the outcome, after the
+  handler returned or threw; that moment is observed, so it has no `qv2.start_observed`.
+- A consumer **must not** read an order into two spans whose intervals overlap: SQS may have acted
+  on either first. Section 9a says how the store shows them.
 - One span per message. A batch call produces one qv2 span per entry, all children of the one
   stock span.
 - The store reads only qv2 spans. Stock SQS spans pass through the Collector but are not read by
@@ -52,7 +70,7 @@ change-visibility span names; that is dropped.)
 
 | Attribute | Type | Req. | Value |
 |---|---|---|---|
-| `qv2.schema_version` | int | must | `1` |
+| `qv2.schema_version` | int | must | `2` |
 | `qv2.kind` | string | must | `sqs.send`, `sqs.receive`, `sqs.settle` or `sqs.outcome` |
 | `qv2.source` | string | must | `client` (client hooks) or `lambda` (Lambda wrapper) |
 | `messaging.system.name` | string | must | `aws.sqs` |
@@ -63,6 +81,7 @@ change-visibility span names; that is dropped.)
 | `messaging.client.id` | string | must | consumer or producer identity (section 5) |
 | `process.pid` | int | must | OS process ID |
 | `thread.name` | string | should (Python) | `threading.current_thread().name`; not set in Node.js |
+| `qv2.start_observed` | bool | must (Lambda receive) | `false` when the span's start time is not the start of the SQS call (section 2). Omitted otherwise: absent means the start was observed. |
 
 The `messaging.*`, `aws.sqs.queue.url`, `process.pid` and `thread.name` names are OpenTelemetry
 semantic conventions; `qv2.*` names are ours. `messaging.system.name` replaces the deprecated
@@ -104,8 +123,8 @@ and produce no `qv2 send` span in 0.1.
   `All`. They **must not** remove anything the caller asked for, and **must not** request message
   attributes or read the body. (The prototypes also requested a `tenant` message attribute and read
   the body; message contents are out of scope for 0.1.)
-- **Lambda wrapper** emits one `qv2 receive` per record **before** the user handler runs, and
-  flushes it, so a timeout or out-of-memory kill cannot lose it, as the QV-9 and QV-11 prototype wrappers did.
+- **Lambda wrapper** emits one `qv2 receive` per record **before** the user handler runs, with
+  `qv2.start_observed = false` (section 2), and flushes it, so a timeout or out-of-memory kill cannot lose it, as the QV-9 and QV-11 prototype wrappers did.
 - A `ReceiveMessage` that returns no messages produces no qv2 span.
 
 ### 4.3 `qv2 delete` and `qv2 change_visibility`
@@ -253,6 +272,21 @@ These steps have no span. The store shows each one as **inferred**, never as obs
 - **Lambda invocation killed (timeout or out of memory):** a Lambda `qv2 receive` with no matching
   `qv2 outcome`, once the function's timeout has passed.
 
+## 9a. Order of steps in the store
+
+The store shows step A before step B only when A's interval ended before B's started
+(`A.end < B.start`). Steps whose intervals overlap, directly or through a chain of overlapping
+steps, are one **concurrent group**, shown side by side and labelled "concurrent, order unknown". A
+span with `qv2.start_observed = false` has an unknown start, so it is concurrent with every step that
+started before its end. The store never re-orders observed steps by what caused what (for example, a
+receive after its send): the order shown is only the order the clocks prove. Inferred steps
+(section 9) are placed between the observed steps they were inferred from, and are never ordered
+against steps they were not inferred from.
+
+This relies on every process reading the same clock. It holds for processes on one host (the local
+demo) and, to within the hosts' clock offset, across hosts; the store does not correct for clock
+offset between hosts in 0.1 (a known limit).
+
 ## 10. Example
 
 A `qv2 receive` from the Python client hooks, as attributes (not OTLP wire format):
@@ -263,7 +297,7 @@ A `qv2 receive` from the Python client hooks, as attributes (not OTLP wire forma
   "scope": {"name": "qv2", "version": "0.1.0"},
   "resource": {"service.name": "orders-worker", "service.instance.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11"},
   "attributes": {
-    "qv2.schema_version": 1,
+    "qv2.schema_version": 2,
     "qv2.kind": "sqs.receive",
     "qv2.source": "client",
     "messaging.system.name": "aws.sqs",
@@ -279,9 +313,16 @@ A `qv2 receive` from the Python client hooks, as attributes (not OTLP wire forma
     "qv2.receipt_handle.hmac": "b8cf1504a45e5fadf383d469cfa5ae3e",
     "qv2.receipt_handle.key_id": "3b3edeb7",
     "qv2.sent_timestamp_ms": 1763080000000
-  }
+  },
+  "start_time_unix_nano": 1763080041102331000,
+  "end_time_unix_nano": 1763080041131877000
 }
 ```
+
+The span's start and end are the interval of the `ReceiveMessage` call that returned the message
+(here a long poll that waited 30 ms). A `qv2 receive` from the Lambda wrapper has the same
+attributes with `"qv2.source": "lambda"`, `"messaging.operation.name": "LambdaEvent"`,
+`"qv2.start_observed": false`, the `faas.*` attributes, and equal start and end.
 
 ## 11. Where this came from
 
@@ -320,3 +361,22 @@ Semantic-convention names (`messaging.system.name` and its value `aws.sqs`,
 and the [AWS attribute registry](https://opentelemetry.io/docs/specs/semconv/registry/attributes/aws/)
 on 2026-11-13. All of them are at `development` stability and may still be renamed upstream; if
 they are, this contract keeps its names until a schema version bump.
+
+## 12. Changes in schema version 2
+
+Schema version 1 (the 0.1 build up to QV-28) made every span zero-length, stamped when the response
+arrived, and the store sorted by that stamp. SQS acts **before** its response returns, so under
+concurrency the stamps of two calls can come in the opposite order to what SQS did: in the QV-20
+concurrency check, 4 to 32% of messages showed a receive before its send, or a redelivery before the
+`ChangeMessageVisibility` that released it.
+
+| Version 1 | Version 2 |
+|---|---|
+| `qv2.schema_version = 1` | `2`. The store rejects version 1 spans: their single time is the response time, which cannot be ordered correctly. |
+| zero-length span at the response | client hooks: interval from just before the request to the response (section 2) |
+| Lambda `qv2 receive` at the wrapper's start, read as the receive time | zero-length at that moment, `qv2.start_observed = false`: an upper bound only |
+| Node.js time from `performance.timeOrigin + performance.now()` | `Date.now()`, the same system clock as other processes |
+| store order: by time, and a settle placed after its receive | concurrent groups (section 9a); nothing re-ordered by cause |
+
+Unchanged: span names, kinds and every other attribute, the receipt-handle hash and its test
+vectors, consumer identity, and the store's joins.

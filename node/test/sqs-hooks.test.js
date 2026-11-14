@@ -49,7 +49,7 @@ const message = (n, attrs) => ({
 });
 
 const COMMON = (operation, kind, opType) => ({
-  'qv2.schema_version': 1,
+  'qv2.schema_version': 2,
   'qv2.kind': kind,
   'qv2.source': 'client',
   'messaging.system.name': 'aws.sqs',
@@ -70,17 +70,77 @@ test('SendMessage: one qv2 send with the message ID', async (t) => {
   assert.deepStrictEqual(s.attributes, { ...COMMON('SendMessage', 'sqs.send', 'send'), 'messaging.message.id': 'mid-1' });
 });
 
-test('every qv2 span: scope, kind, zero length, resource, no thread.name in Node.js', async (t) => {
+test('every qv2 span: scope, kind, an interval, resource, no thread.name in Node.js', async (t) => {
   const { client, spans } = setup(t, { SendMessage: () => ({ MessageId: 'mid-1' }) });
   await client.send(new S.SendMessageCommand({ QueueUrl: URL, MessageBody: 'hello' }));
   const [s] = spans();
   assert.strictEqual(s.instrumentationScope.name, 'qv2');
   assert.strictEqual(s.instrumentationScope.version, version);
   assert.strictEqual(s.kind, api.SpanKind.INTERNAL);
-  assert.deepStrictEqual(s.startTime, s.endTime);
+  assert.ok(ms(s.startTime) <= ms(s.endTime));
+  assert.ok(!('qv2.start_observed' in s.attributes));
   assert.strictEqual(s.resource.attributes['service.name'], 'orders-worker');
   assert.strictEqual(s.resource.attributes['service.instance.id'], INSTANCE_ID);
   assert.ok(!('thread.name' in s.attributes));
+});
+
+// -- interval (contract v2, section 2) -------------------------------------------------------
+
+/** An OpenTelemetry HrTime as epoch milliseconds. */
+const ms = ([sec, ns]) => sec * 1e3 + ns / 1e6;
+const sleep = (n) => new Promise((resolve) => { setTimeout(resolve, n); });
+
+test('interval: starts before the request is sent, ends after the response arrives', async (t) => {
+  let sentAt;
+  const { client, spans } = setup(t, {
+    SendMessage: async () => { sentAt = Date.now(); await sleep(30); return { MessageId: 'mid-1' }; },
+  });
+  const before = Date.now();
+  await client.send(new S.SendMessageCommand({ QueueUrl: URL, MessageBody: 'hello' }));
+  const after = Date.now();
+  const [s] = spans();
+  const [start, end] = [ms(s.startTime), ms(s.endTime)];
+  assert.ok(before <= start && start <= sentAt, `start ${start} not in [${before}, ${sentAt}]`);
+  assert.ok(sentAt + 25 <= end && end <= after, `end ${end} not in [${sentAt + 25}, ${after}]`);
+});
+
+test('interval: every entry of a batch call gets the call\'s interval', async (t) => {
+  const { client, spans } = setup(t, {
+    ReceiveMessage: async () => { await sleep(10); return { Messages: [message(1), message(2)] }; },
+    DeleteMessageBatch: async () => { await sleep(10); return { Successful: [{ Id: 'a' }], Failed: [{ Id: 'b', Code: 'X' }] }; },
+  });
+  await client.send(new S.ReceiveMessageCommand({ QueueUrl: URL }));
+  await client.send(new S.DeleteMessageBatchCommand({ QueueUrl: URL, Entries: [
+    { Id: 'a', ReceiptHandle: RH(1) }, { Id: 'b', ReceiptHandle: RH(2) }] }));
+  for (const name of ['qv2 receive', 'qv2 delete']) {
+    const got = byName(spans(), name);
+    assert.strictEqual(got.length, 2);
+    assert.deepStrictEqual(got[0].startTime, got[1].startTime);
+    assert.deepStrictEqual(got[0].endTime, got[1].endTime);
+    assert.ok(ms(got[0].endTime) - ms(got[0].startTime) >= 5, name);
+  }
+  // One caller's sequential calls do not overlap.
+  assert.ok(ms(byName(spans(), 'qv2 receive')[0].endTime) <= ms(byName(spans(), 'qv2 delete')[0].startTime));
+});
+
+test('interval: a settle call that throws still ends when the error arrived', async (t) => {
+  const { client, spans } = setup(t, {
+    DeleteMessage: async () => { await sleep(20); throw serviceError('ReceiptHandleIsInvalid'); },
+  });
+  await assert.rejects(client.send(new S.DeleteMessageCommand({ QueueUrl: URL, ReceiptHandle: RH(1) })));
+  const [s] = spans();
+  assert.ok(ms(s.endTime) - ms(s.startTime) >= 15);
+});
+
+test('SqsHooks: spans take the start and end times they are given', () => {
+  const { exporter, spanProcessor } = memoryExporter();
+  const provider = new BasicTracerProvider({ spanProcessors: [spanProcessor] });
+  const { Emitter } = require('../src/emitter');
+  const { SqsHooks } = require('../src/sqs');
+  const hooks = new SqsHooks(new Emitter(provider, { hash: () => 'h', keyId: 'k' }, 'client', 'c'));
+  hooks.onSend('SendMessage', { QueueUrl: URL }, { MessageId: 'm' }, undefined, { startTime: 1763080000000, endTime: 1763080000250 });
+  const [s] = exporter.getFinishedSpans();
+  assert.deepStrictEqual([ms(s.startTime), ms(s.endTime)], [1763080000000, 1763080000250]);
 });
 
 test('SendMessageBatch: one span per accepted entry; failed entries get none', async (t) => {

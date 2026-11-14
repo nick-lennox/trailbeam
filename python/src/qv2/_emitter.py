@@ -53,7 +53,12 @@ def make_provider(
 
 
 class Emitter:
-    """Emits zero-length qv2 spans with the attributes every qv2 span carries (section 3)."""
+    """Emits qv2 spans with the attributes every qv2 span carries (section 3).
+
+    Times (section 2): ``start_ns`` and ``end_ns`` bound the SQS call (just before the request was sent,
+    and when the response arrived). ``start_observed=False`` marks a span whose start is not known (a
+    Lambda receive: only its end bound is); the span is then zero-length at ``end_ns``.
+    """
 
     def __init__(self, provider: TracerProvider, hasher: ReceiptHasher, source: str, client_id: Optional[str] = None):
         self.provider = provider
@@ -69,7 +74,8 @@ class Emitter:
         }
 
     def emit(self, name: str, operation: str, queue_name: str, queue_url: str, attrs: dict,
-             parent=None, start_ns: Optional[int] = None) -> None:
+             parent=None, start_ns: Optional[int] = None, end_ns: Optional[int] = None,
+             start_observed: bool = True) -> None:
         kind, op_type = KINDS[name]
         base = {
             "qv2.schema_version": SCHEMA_VERSION,
@@ -86,8 +92,13 @@ class Emitter:
             base["messaging.destination.name"] = queue_name
         if queue_url:
             base["aws.sqs.queue.url"] = queue_url
+        if not start_observed:
+            base["qv2.start_observed"] = False
         base.update(attrs)
         ctx = trace.set_span_in_context(parent) if parent is not None else None
-        t = start_ns if start_ns is not None else time.time_ns()
-        span = self.tracer.start_span(name, context=ctx, kind=trace.SpanKind.INTERNAL, attributes=base, start_time=t)
-        span.end(end_time=t)
+        end = end_ns if end_ns is not None else time.time_ns()
+        start = start_ns if start_ns is not None and start_observed else end
+        start = min(start, end)
+        span = self.tracer.start_span(name, context=ctx, kind=trace.SpanKind.INTERNAL, attributes=base,
+                                      start_time=start)
+        span.end(end_time=end)

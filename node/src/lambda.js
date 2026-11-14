@@ -113,6 +113,9 @@ class LambdaRecorder {
     // One Lambda execution environment = one log stream (contract section 5).
     this.emitter.clientId = process.env.AWS_LAMBDA_LOG_STREAM_NAME || this.defaultClientId;
     const faas = LambdaRecorder.faas(context);
+    // Lambda's poller made the ReceiveMessage call, out of sight of the wrapper. All the wrapper
+    // knows is that it happened no later than now (contract section 2): the span ends now, and its
+    // start is marked as not observed rather than invented.
     const t = nowMs();
     for (const r of records) {
       const arn = r.eventSourceARN;
@@ -126,7 +129,7 @@ class LambdaRecorder {
       put(attrs, 'qv2.aws_trace_header', a.AWSTraceHeader);
       put(attrs, 'qv2.queue.arn', arn);
       Object.assign(attrs, faas);
-      this.emitter.emit(SPAN_RECEIVE, OPERATION, name, url, attrs, { parentContext, startTime: t });
+      this.emitter.emit(SPAN_RECEIVE, OPERATION, name, url, attrs, { parentContext, endTime: t, startObserved: false });
     }
     await this.flush();
   }
@@ -140,7 +143,7 @@ class LambdaRecorder {
       const attrs = { 'messaging.message.id': r.messageId, 'qv2.outcome': outcome };
       if (outcome === OUTCOME_FAILED_EXCEPTION) put(attrs, 'qv2.error_type', errType);
       Object.assign(attrs, faas);
-      this.emitter.emit(SPAN_OUTCOME, OPERATION, name, url, attrs, { parentContext, startTime: t });
+      this.emitter.emit(SPAN_OUTCOME, OPERATION, name, url, attrs, { parentContext, startTime: t, endTime: t });
     }
     await this.flush();
   }

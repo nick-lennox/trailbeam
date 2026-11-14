@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS spans (
     trace_id TEXT NOT NULL,
     span_id TEXT NOT NULL,
     kind TEXT NOT NULL,              -- send | receive | delete | change_visibility | outcome
-    time_ns INTEGER NOT NULL,        -- span start time = event time
+    time_ns INTEGER NOT NULL,        -- span end: when the SQS response arrived (contract section 2)
+    start_ns INTEGER,                -- span start: just before the request was sent; NULL = not observed
     service_name TEXT,
     source TEXT, operation TEXT, queue TEXT NOT NULL, queue_url TEXT,
     message_id TEXT,                 -- messaging.message.id as carried by the span
@@ -50,7 +51,10 @@ CREATE INDEX IF NOT EXISTS spans_hash ON spans (receipt_hmac, key_id);
 CREATE INDEX IF NOT EXISTS spans_kind_time ON spans (kind, time_ns);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
+# Schema 1 had no start_ns. Its rows came from contract v1 spans, stamped only when the response arrived,
+# so their start is not known: they are migrated with start_ns NULL.
+_MIGRATIONS = {"1": "ALTER TABLE spans ADD COLUMN start_ns INTEGER"}
 
 
 class Store:
@@ -65,12 +69,16 @@ class Store:
             if path != ":memory:":
                 self.conn.execute("PRAGMA journal_mode=WAL")
             self.conn.execute("PRAGMA foreign_keys=ON")
-            self.conn.executescript(SCHEMA)
+            self.conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
             cur = self.conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
+            if cur is not None and cur[0] != SCHEMA_VERSION:
+                if cur[0] not in _MIGRATIONS:
+                    raise RuntimeError(f"{path}: store schema {cur[0]}, this version needs {SCHEMA_VERSION}")
+                self.conn.execute(_MIGRATIONS[cur[0]])
+                self.conn.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (SCHEMA_VERSION,))
+            self.conn.executescript(SCHEMA)
             if cur is None:
                 self.conn.execute("INSERT INTO meta VALUES ('schema_version', ?)", (SCHEMA_VERSION,))
-            elif cur[0] != SCHEMA_VERSION:
-                raise RuntimeError(f"{path}: store schema {cur[0]}, this version needs {SCHEMA_VERSION}")
 
     def close(self) -> None:
         with self.lock:

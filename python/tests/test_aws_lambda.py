@@ -135,7 +135,8 @@ def test_receive_and_outcome_attributes_for_the_aws_docs_event(exporter, monkeyp
     pid = a.pop("process.pid")
     assert pid == os.getpid() and a.pop("thread.name")
     assert a == {
-        "qv2.schema_version": 1, "qv2.kind": "sqs.receive", "qv2.source": "lambda",
+        "qv2.schema_version": 2, "qv2.kind": "sqs.receive", "qv2.source": "lambda",
+        "qv2.start_observed": False,
         "messaging.system.name": "aws.sqs", "messaging.operation.type": "receive",
         "messaging.operation.name": "LambdaEvent", "messaging.client.id": "2026/11/13/[$LATEST]abc",
         "messaging.destination.name": "my-queue",
@@ -149,6 +150,10 @@ def test_receive_and_outcome_attributes_for_the_aws_docs_event(exporter, monkeyp
         "faas.name": "orders-fn", "faas.invocation_id": "req-1",
     }
     o = dict(out[0].attributes)
+    assert "qv2.start_observed" not in o  # the outcome is decided by the wrapper: its time is known
+    # Contract v2 section 2: Lambda's own ReceiveMessage is not seen. The receive span is zero-length
+    # at its upper bound (before the handler ran), marked start-not-observed; no start is invented.
+    assert rcv[0].end_time <= out[0].start_time
     assert o["qv2.kind"] == "sqs.outcome" and o["messaging.operation.type"] == "process"
     assert o["qv2.outcome"] == "success" and "qv2.error_type" not in o
     assert (o["faas.name"], o["faas.invocation_id"]) == ("orders-fn", "req-1")

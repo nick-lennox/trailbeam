@@ -1,4 +1,4 @@
-"""Names and values from docs/span-contract.md (schema version 1), and the receipt-handle hash."""
+"""Names and values from docs/span-contract.md (schema version 2), and the receipt-handle hash."""
 from __future__ import annotations
 
 import hashlib
@@ -8,7 +8,7 @@ import os
 import threading
 from typing import Optional
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 SCOPE_NAME = "qv2"
 
 DEFAULT_KEY = "qv2-default-receipt-hash-key"

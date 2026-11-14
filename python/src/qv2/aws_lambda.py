@@ -103,6 +103,10 @@ class LambdaRecorder:
     def receives(self, records: list[dict], context) -> None:
         self._client_id()
         faas = self._faas(context)
+        # Lambda's poller made the ReceiveMessage call, out of sight of the wrapper. All the wrapper
+        # knows is that it happened no later than now (contract section 2): the span ends now, and its
+        # start is marked as not observed rather than invented.
+        t = time.time_ns()
         for r in records:
             arn = r.get("eventSourceARN") or ""
             name, url = queue_from_arn(arn)
@@ -117,7 +121,7 @@ class LambdaRecorder:
             put(attrs, "qv2.aws_trace_header", a.get("AWSTraceHeader"))
             put(attrs, "qv2.queue.arn", arn)
             attrs.update(faas)
-            self.emitter.emit(SPAN_RECEIVE, OPERATION, name, url, attrs)
+            self.emitter.emit(SPAN_RECEIVE, OPERATION, name, url, attrs, end_ns=t, start_observed=False)
         self._flush()
 
     def outcomes(self, records: list[dict], context, outcomes: dict[str, str], error_type: Optional[str]) -> None:
@@ -130,7 +134,7 @@ class LambdaRecorder:
             if outcomes[mid] == OUTCOME_FAILED_EXCEPTION:
                 put(attrs, "qv2.error_type", error_type)
             attrs.update(faas)
-            self.emitter.emit(SPAN_OUTCOME, OPERATION, name, url, attrs, start_ns=t)
+            self.emitter.emit(SPAN_OUTCOME, OPERATION, name, url, attrs, start_ns=t, end_ns=t)
         self._flush()
 
     def invoke(self, handler: Callable, event, context, *args, **kwargs):

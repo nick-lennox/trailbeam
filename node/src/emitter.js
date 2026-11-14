@@ -44,8 +44,15 @@ function makeProvider({ spanExporter, spanProcessor } = {}) {
   return { provider, resource };
 }
 
-/** Wall-clock time in epoch milliseconds, with sub-millisecond precision. */
-const nowMs = () => performance.timeOrigin + performance.now();
+/**
+ * Wall-clock time in epoch milliseconds (contract section 2). `Date.now()` reads the system clock on
+ * every call, as Python's `time.time_ns()` does, so every process on a host reads the same clock.
+ * (`performance.timeOrigin + performance.now()` has sub-millisecond precision but follows the
+ * monotonic clock from process start, so it drifts away from the system clock and from other
+ * processes.) Millisecond rounding is always down, which never turns "A ended before B started"
+ * around; it can only make two steps look simultaneous.
+ */
+const nowMs = () => Date.now();
 
 /** Emits qv2 spans with the attributes every qv2 span carries (contract section 3). */
 class Emitter {
@@ -65,10 +72,12 @@ class Emitter {
   }
 
   /**
-   * Emit one span. Zero-length unless `endTime` is given. `parentContext` defaults to the active
-   * context, which inside an SDK call is the stock AWS SDK instrumentation span.
+   * Emit one span from `startTime` to `endTime` (epoch ms; contract section 2: just before the
+   * request was sent, and when the response arrived). `startObserved: false` marks a span whose
+   * start is not known (a Lambda receive): it is then zero-length at `endTime`. `parentContext`
+   * defaults to the active context, which inside an SDK call is the stock AWS SDK span.
    */
-  emit(name, operation, queueName, queueUrl, attrs, { parentContext, startTime, endTime } = {}) {
+  emit(name, operation, queueName, queueUrl, attrs, { parentContext, startTime, endTime, startObserved = true } = {}) {
     const [kind, opType] = KINDS[name];
     const base = {
       'qv2.schema_version': SCHEMA_VERSION,
@@ -82,14 +91,16 @@ class Emitter {
     if (queueName) base['messaging.destination.name'] = queueName;
     if (queueUrl) base['aws.sqs.queue.url'] = queueUrl;
     if (this.clientId) base['messaging.client.id'] = String(this.clientId);
+    if (!startObserved) base['qv2.start_observed'] = false;
     Object.assign(base, attrs);
-    const t = startTime !== undefined ? startTime : nowMs();
+    const end = endTime !== undefined ? endTime : nowMs();
+    const start = startObserved && startTime !== undefined ? Math.min(startTime, end) : end;
     const span = this.tracer.startSpan(
       name,
-      { kind: api.SpanKind.INTERNAL, attributes: base, startTime: t },
+      { kind: api.SpanKind.INTERNAL, attributes: base, startTime: start },
       parentContext || api.context.active(),
     );
-    span.end(endTime !== undefined ? endTime : t);
+    span.end(end);
   }
 }
 

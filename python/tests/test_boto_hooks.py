@@ -52,7 +52,7 @@ def stock_spans(exporter):
 def check_common(span, op, queue_url, kind, op_type):
     a = dict(span.attributes)
     assert COMMON <= set(a), COMMON - set(a)
-    assert a["qv2.schema_version"] == 1
+    assert a["qv2.schema_version"] == 2
     assert a["qv2.kind"] == kind
     assert a["qv2.source"] == "client"
     assert a["messaging.system.name"] == "aws.sqs"
@@ -63,7 +63,9 @@ def check_common(span, op, queue_url, kind, op_type):
     assert a["process.pid"] == os.getpid()
     assert a["messaging.client.id"] == span.resource.attributes["service.instance.id"]
     assert span.instrumentation_scope.version == qv2.__version__
-    assert span.start_time == span.end_time
+    # Contract v2 section 2: an interval from just before the request to the response.
+    assert span.start_time < span.end_time
+    assert "qv2.start_observed" not in a
     for k, v in a.items():  # absent values are omitted, never "" or -1
         assert v != "" and v != -1, k
     # The span name never carries the queue name.
@@ -287,6 +289,75 @@ def test_other_services_and_operations_are_ignored(qv2_spans, make_client, queue
     make_client().get_queue_attributes(QueueUrl=queue_url, AttributeNames=["All"])
     assert qv2_spans() == []
     assert qv2.boto._state["hooks"]._pending == {}
+
+
+# -- interval (contract v2, section 2) ------------------------------------------------------------
+
+class _Clock:
+    """A fake clock for the hooks: each call returns the next tick."""
+
+    def __init__(self, monkeypatch, start=1_000):
+        self.t = start
+        monkeypatch.setattr(qv2.boto, "_now", self)
+
+    def __call__(self):
+        self.t += 1
+        return self.t
+
+
+def test_interval_starts_before_the_request_and_ends_after_the_response(qv2_spans, make_client, queue_url):
+    import time as real_time
+    c = make_client()
+    before = real_time.time_ns()
+    c.send_message(QueueUrl=queue_url, MessageBody="x")
+    msgs = c.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=1, WaitTimeSeconds=1)["Messages"]
+    c.delete_message(QueueUrl=queue_url, ReceiptHandle=msgs[0]["ReceiptHandle"])
+    after = real_time.time_ns()
+    by_name = {s.name: s for s in qv2_spans()}
+    stock = {s.context.span_id: s for s in stock_spans(qv2_spans.exporter)}
+    for name in ("qv2 send", "qv2 receive", "qv2 delete"):
+        s = by_name[name]
+        assert before <= s.start_time < s.end_time <= after, name
+        # The stock span covers the same call: ours lies within it.
+        p = stock[s.parent.span_id]
+        assert p.start_time <= s.start_time and s.end_time <= p.end_time, name
+    # The spans of one thread's sequential calls do not overlap.
+    assert by_name["qv2 send"].end_time < by_name["qv2 receive"].start_time
+    assert by_name["qv2 receive"].end_time < by_name["qv2 delete"].start_time
+
+
+def test_interval_uses_the_request_hook_time_and_the_response_hook_time(qv2_spans, monkeypatch):
+    clock = _Clock(monkeypatch)
+    hooks = qv2.boto._state["hooks"]
+    url = "http://localhost/000000000000/q"
+    span = object()
+    hooks.request_hook(span, "sqs", "ReceiveMessage", {"QueueUrl": url})   # t = 1001
+    clock.t = 5_000
+    hooks.response_hook(span, "sqs", "ReceiveMessage", {"Messages": [       # t = 5001
+        {"MessageId": "m1", "ReceiptHandle": "rh1", "Attributes": {"ApproximateReceiveCount": "1"}},
+        {"MessageId": "m2", "ReceiptHandle": "rh2", "Attributes": {"ApproximateReceiveCount": "1"}}]})
+    spans = qv2_spans("qv2 receive")
+    assert [(s.start_time, s.end_time) for s in spans] == [(1001, 5001), (1001, 5001)]
+
+
+def test_batch_entries_share_the_call_interval(qv2_spans, monkeypatch):
+    clock = _Clock(monkeypatch)
+    hooks = qv2.boto._state["hooks"]
+    span = object()
+    hooks.request_hook(span, "sqs", "DeleteMessageBatch", {"QueueUrl": "http://h/0/q", "Entries": [
+        {"Id": "a", "ReceiptHandle": "rh-a"}, {"Id": "b", "ReceiptHandle": "rh-b"}]})
+    clock.t = 2_000
+    hooks.response_hook(span, "sqs", "DeleteMessageBatch", {"Successful": [{"Id": "a"}],
+                                                            "Failed": [{"Id": "b", "Code": "X"}]})
+    assert {(s.start_time, s.end_time) for s in qv2_spans("qv2 delete")} == {(1001, 2001)}
+
+
+def test_settle_that_throws_has_an_interval_too(qv2_spans, make_client):
+    c = make_client("http://127.0.0.1:9", retries={"max_attempts": 1}, connect_timeout=1)
+    with pytest.raises(EndpointConnectionError):
+        c.delete_message(QueueUrl="http://127.0.0.1:9/000000000000/nowhere", ReceiptHandle="rh")
+    [s] = qv2_spans("qv2 delete")
+    assert s.start_time < s.end_time
 
 
 # -- install -------------------------------------------------------------------------------------

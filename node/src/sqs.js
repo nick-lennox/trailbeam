@@ -81,22 +81,31 @@ function errorCode(err) {
   return 'Error';
 }
 
-/** Turns SQS calls into qv2 spans. Hook methods never throw. */
+/** `{startTime, endTime}` for one call's spans; the end defaults to now, the start to the end. */
+function spanTimes({ startTime, endTime } = {}) {
+  const end = endTime !== undefined ? endTime : nowMs();
+  return { startTime: startTime !== undefined ? startTime : end, endTime: end };
+}
+
+/**
+ * Turns SQS calls into qv2 spans. Hook methods never throw. `times` is `{startTime, endTime}` of the
+ * SQS call in epoch ms (contract section 2); every span of one call, batch entries included, gets it.
+ */
 class SqsHooks {
   constructor(emitter, handles = new HandleMap()) {
     this.emitter = emitter;
     this.handles = handles;
   }
 
-  onSend(operation, input, output, parentContext) {
+  onSend(operation, input, output, parentContext, times = {}) {
     const url = input.QueueUrl;
     const name = queueNameFromUrl(url);
     if (!output) return;
-    const t = nowMs();
+    const t = spanTimes(times);
     if (operation === 'SendMessage') {
       if (output.MessageId) {
         this.emitter.emit(SPAN_SEND, operation, name, url, { 'messaging.message.id': output.MessageId },
-          { parentContext, startTime: t });
+          { parentContext, ...t });
       }
       return;
     }
@@ -104,14 +113,14 @@ class SqsHooks {
       if (!entry || !entry.MessageId) continue;
       const attrs = { 'messaging.message.id': entry.MessageId };
       put(attrs, 'qv2.batch_entry_id', entry.Id);
-      this.emitter.emit(SPAN_SEND, operation, name, url, attrs, { parentContext, startTime: t });
+      this.emitter.emit(SPAN_SEND, operation, name, url, attrs, { parentContext, ...t });
     }
   }
 
-  onReceive(input, output, parentContext) {
+  onReceive(input, output, parentContext, times = {}) {
     const url = input.QueueUrl;
     const name = queueNameFromUrl(url);
-    const t = nowMs();
+    const t = spanTimes(times);
     for (const m of (output && output.Messages) || []) {
       const rh = m && m.ReceiptHandle;
       const mid = m && m.MessageId;
@@ -123,12 +132,12 @@ class SqsHooks {
       put(attrs, 'qv2.sent_timestamp_ms', intOrUndefined(a.SentTimestamp));
       put(attrs, 'qv2.first_receive_timestamp_ms', intOrUndefined(a.ApproximateFirstReceiveTimestamp));
       put(attrs, 'qv2.aws_trace_header', a.AWSTraceHeader);
-      this.emitter.emit(SPAN_RECEIVE, 'ReceiveMessage', name, url, attrs, { parentContext, startTime: t });
+      this.emitter.emit(SPAN_RECEIVE, 'ReceiveMessage', name, url, attrs, { parentContext, ...t });
     }
   }
 
   /** `output` is the response, or undefined if the call threw `err`. */
-  onSettle(operation, input, output, err, parentContext) {
+  onSettle(operation, input, output, err, parentContext, times = {}) {
     const [spanName, batch] = SETTLE_OPS[operation];
     const url = input.QueueUrl;
     const name = queueNameFromUrl(url);
@@ -145,7 +154,7 @@ class SqsHooks {
       for (const e of output.Failed || []) if (e) failed.set(e.Id, plainCode(e.Code) || 'Failed');
     }
 
-    const t = nowMs();
+    const t = spanTimes(times);
     for (const [entryId, rh, vt] of entries) {
       if (typeof rh !== 'string' || !rh) continue;
       let error;
@@ -157,7 +166,7 @@ class SqsHooks {
       if (spanName === SPAN_CHANGE_VISIBILITY) put(attrs, 'qv2.visibility_timeout', intOrUndefined(vt));
       attrs['qv2.result'] = error === undefined ? 'ok' : 'failed';
       put(attrs, 'qv2.error_code', error);
-      this.emitter.emit(spanName, operation, name, url, attrs, { parentContext, startTime: t });
+      this.emitter.emit(spanName, operation, name, url, attrs, { parentContext, ...t });
       if (error === undefined && spanName === SPAN_DELETE) this.handles.discard(rh);
     }
   }
@@ -181,20 +190,25 @@ function sqsMiddleware(getHooks) {
       }
     }
     const parentContext = api.context.active();
+    // Contract section 2: the span starts just before the request is sent. This middleware is in the
+    // initialize step, ahead of serialization, signing and retries, so the start is a lower bound.
+    const startTime = nowMs();
     let result;
     try {
       result = await next(args);
     } catch (err) {
+      const times = { startTime, endTime: nowMs() };
       if (SETTLE_OPS[operation]) {
-        try { hooks.onSettle(operation, input, undefined, err, parentContext); } catch (e) { debug('settle hook', e); }
+        try { hooks.onSettle(operation, input, undefined, err, parentContext, times); } catch (e) { debug('settle hook', e); }
       }
       throw err;
     }
+    const times = { startTime, endTime: nowMs() };
     try {
       const output = result && result.output;
-      if (operation === 'ReceiveMessage') hooks.onReceive(input, output, parentContext);
-      else if (operation === 'SendMessage' || operation === 'SendMessageBatch') hooks.onSend(operation, input, output, parentContext);
-      else hooks.onSettle(operation, input, output || {}, undefined, parentContext);
+      if (operation === 'ReceiveMessage') hooks.onReceive(input, output, parentContext, times);
+      else if (operation === 'SendMessage' || operation === 'SendMessageBatch') hooks.onSend(operation, input, output, parentContext, times);
+      else hooks.onSettle(operation, input, output || {}, undefined, parentContext, times);
     } catch (e) {
       debug(`${operation} hook`, e);
     }
