@@ -337,3 +337,34 @@ def test_first_seen_says_which_clock_it_is_on(server):
     assert "SQS's clock" in row and "this server's clock minus SQS's SentTimestamp: two clocks" in row
     row = re.search(r'<tr><td><a [^>]*>fs-host</a>.*?</tr>', html).group(0)
     assert "SQS's clock" not in row and "two clocks" not in row
+
+
+
+def test_an_inferred_window_that_ties_with_an_observed_start_is_listed_after_it(server):
+    """QV-35 section 3: an inferred visibility-timeout expiry's window starts at its anchor's request start
+    (here receive 1, since the change isn't proven before receive 2), so the two tie, and the box fell back
+    to the store's member order: in the reviewer's screenshots the expiry was listed above the receive it is
+    placed after. On a tie an observed step now comes first, whatever the member order; otherwise rows stay
+    by request start, never by kind."""
+    from qv2_store import web
+
+    p, c, d = Consumer("producer"), Consumer("consumer-a"), Consumer("consumer-b")
+    ms = 1_000_000
+    post(server, [p.send(T0 + 30 * ms, "tie-1", start=T0),
+                  c.receive(T0 + 20 * ms, "tie-1", "rh-t1", start=T0 - 900 * ms),  # long poll, overlaps the send
+                  c.change_visibility(T0 + 28 * ms, "rh-t1", 0, start=T0 + 25 * ms),
+                  d.receive(T0 + 40 * ms, "tie-1", "rh-t2", count=2, start=T0 - 500 * ms),
+                  d.delete(T0 + 60 * ms, "rh-t2", start=T0 + 50 * ms)])
+    tl = json.loads(get(server, "/api/messages/tie-1")[2])
+    evs = tl["events"]
+    expiry = next(e for e in evs if e["type"] == "visibility_timeout_expired")
+    rcv1 = next(e for e in evs if e["type"] == "received" and e["delivery"] == 1)
+    send = next(e for e in evs if e["type"] == "sent")
+    assert web._span_of(expiry)[0] == web._span_of(rcv1)[0]  # the tie
+    by_id = {e["id"]: e for e in evs if e.get("id")}
+    for members in ([expiry, rcv1, send], [rcv1, expiry, send], [send, expiry, rcv1]):
+        assert events(web._waterfall(members, by_id)) == [
+            ("received", False), ("visibility_timeout_expired", True), ("sent", False)]
+    # Without a tie, a window that starts first is listed first: rows are by start, not by kind.
+    early = dict(expiry, window=dict(expiry["window"], **{"from": "2025-11-14T00:26:39Z"}))
+    assert events(web._waterfall([rcv1, early], by_id))[0] == ("visibility_timeout_expired", True)
