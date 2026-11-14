@@ -102,3 +102,71 @@ def test_recorded_killed_invocation_gets_an_inferred_outcome_in_the_store(server
     assert ("lambda_invocation_ended_without_outcome", True) in got
     assert [t for t in got if not t[1]] == [("received", False), ("received", False), ("lambda_outcome", False)]
     assert final["state"] == "deleted_inferred" and final["deliveries"] == 2
+
+
+# -- order (QV-31): what the records carry orders the send, the deliveries and each handler's run --------
+
+def _post_send(server, mid, end_ns):
+    import urllib.request
+
+    from spans import Consumer, to_proto
+
+    send = Consumer("producer", service="orders-api", queue="qv2-exp-lambda", key=KEY).send(
+        end_ns, mid, start=end_ns - 5_000_000)
+    req = urllib.request.Request(server + "/v1/traces", data=to_proto([send]).SerializeToString(),
+                                 headers={"Content-Type": "application/x-protobuf"}, method="POST")
+    urllib.request.urlopen(req, timeout=5).read()
+
+
+def _edges(t):
+    by_id = {e["id"]: e for e in t["events"]}
+    return {(by_id[e["from"]]["type"], by_id[e["from"]].get("delivery"),
+             by_id[e["to"]]["type"], by_id[e["to"]].get("delivery")): e["sources"] for e in t["order"]["edges"]}
+
+
+def _with_first_receive_timestamp(inv, delta_ms):
+    """The record as Lambda delivers it: SQS events carry ApproximateFirstReceiveTimestamp (AWS's sample
+    event, python/tests/fixtures/aws_docs_sqs_event.json); the QV-9 logs did not record it for this one."""
+    inv = copy.deepcopy(inv)
+    for r in inv["event"]["Records"]:
+        a = r["attributes"]
+        a["ApproximateFirstReceiveTimestamp"] = str(int(a["SentTimestamp"]) + delta_ms)
+    return inv
+
+
+@pytest.mark.parametrize("first_receive_ms", [None, 1])
+def test_recorded_timed_out_retry_is_ordered_by_what_the_records_carry(server, store, monkeypatch, first_receive_ms):
+    """The recorded QV-9 timeout: send, receive 1 (the function then timed out), receive 2, success.
+    Before QV-31 the send and both receives were one "concurrent, order unknown" box, because a Lambda
+    receive's start is not observed. Now the receive count puts receive 1 before receive 2, the wrapper's
+    call order puts each outcome after its own receive, and, when the record carries
+    ApproximateFirstReceiveTimestamp, SQS's timestamps put the send before receive 1. What stays unknown
+    is when the killed invocation ended, so its inferred end shares a box with what came after receive 1."""
+    killed, redelivered = invocations_of(KILLED_MID)
+    if first_receive_ms is not None:
+        killed = _with_first_receive_timestamp(killed, first_receive_ms)
+        redelivered = _with_first_receive_timestamp(redelivered, first_receive_ms)
+    _post_send(server, KILLED_MID, time.time_ns() - SEC)
+    run(server, killed, monkeypatch)
+    received_ns = wait_rows(store, KILLED_MID, 2)[-1]["time_ns"]
+    fn = run(server, redelivered, monkeypatch)
+    wait_rows(store, KILLED_MID, 4)
+    fn.qv2_tracer_provider.shutdown()
+
+    t = queries.message(store, KILLED_MID, received_ns + (LT + 1) * SEC, LT)
+    edges = _edges(t)
+    assert edges[("received", 1, "received", 2)] == ["receive_count"]  # no start: only SQS's count orders them
+    assert "process_order" in edges[("received", 2, "lambda_outcome", 2)]
+    if first_receive_ms is None:
+        # The QV-9 record has no ApproximateFirstReceiveTimestamp: nothing orders the send and receive 1.
+        assert ("sent", None, "received", 1) not in edges
+        assert [e["type"] for e in t["events"]][:2] in (["sent", "received"], ["received", "sent"])
+        assert t["events"][0]["group"] == t["events"][1]["group"] == 0
+    else:
+        assert edges[("sent", None, "received", 1)] == ["sqs_timestamps"]
+        g = [(e["type"], e["group"]) for e in t["events"]]
+        assert g[:2] == [("sent", 0), ("received", 1)]
+        box = [e["type"] for e in t["events"] if e["group"] == 2]
+        assert box == ["lambda_invocation_ended_without_outcome", "visibility_timeout_expired", "received",
+                       "lambda_outcome", "deleted_by_lambda"]
+    assert t["state"] == "deleted_inferred" and t["deliveries"] == 2
