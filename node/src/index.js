@@ -1,3 +1,17 @@
 'use strict';
+// @qv2/sdk: the spans in docs/span-contract.md for AWS SDK v3 SQS clients and AWS Lambda.
 
-module.exports = { version: '0.1.0-dev.0' };
+const { version } = require('./version');
+const { hashReceiptHandle, keyId, SCHEMA_VERSION } = require('./contract');
+const { install, instrument, uninstall, forceFlush } = require('./sqs');
+
+module.exports = {
+  version,
+  SCHEMA_VERSION,
+  install,
+  instrument,
+  uninstall,
+  forceFlush,
+  hashReceiptHandle,
+  keyId,
+};
