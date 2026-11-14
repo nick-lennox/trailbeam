@@ -3,7 +3,7 @@ import type { SpanExporter, SpanProcessor, BasicTracerProvider } from '@opentele
 
 export declare const version: string;
 /** `qv2.schema_version` of the spans this package emits (docs/span-contract.md). */
-export declare const SCHEMA_VERSION: 2;
+export declare const SCHEMA_VERSION: 3;
 
 export interface InstallOptions {
   /** Receipt-hash key. Takes precedence over $QV2_RECEIPT_HASH_KEY. */

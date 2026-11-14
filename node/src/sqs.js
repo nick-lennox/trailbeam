@@ -23,6 +23,7 @@ const {
 } = require('./contract');
 const { Emitter, makeProvider, nowMs, SERVICE_INSTANCE_ID } = require('./emitter');
 const { HandleMap } = require('./handles');
+const order = require('./order');
 
 const MIDDLEWARE_NAME = 'qv2SqsMiddleware';
 
@@ -81,15 +82,21 @@ function errorCode(err) {
   return 'Error';
 }
 
-/** `{startTime, endTime}` for one call's spans; the end defaults to now, the start to the end. */
-function spanTimes({ startTime, endTime } = {}) {
+/**
+ * `{startTime, endTime, order}` for one call's spans; the end defaults to now, the start to the end.
+ * `issued` / `returned` are the call-order ticks (schema version 3); absent ones are omitted.
+ */
+function spanTimes({ startTime, endTime, issued, returned } = {}) {
   const end = endTime !== undefined ? endTime : nowMs();
-  return { startTime: startTime !== undefined ? startTime : end, endTime: end };
+  const t = { startTime: startTime !== undefined ? startTime : end, endTime: end };
+  if (issued !== undefined || returned !== undefined) t.order = { issued, returned };
+  return t;
 }
 
 /**
  * Turns SQS calls into qv2 spans. Hook methods never throw. `times` is `{startTime, endTime}` of the
- * SQS call in epoch ms (contract section 2); every span of one call, batch entries included, gets it.
+ * SQS call in epoch ms (contract section 2), plus its call-order ticks `{issued, returned}` (schema
+ * version 3); every span of one call, batch entries included, gets them.
  */
 class SqsHooks {
   constructor(emitter, handles = new HandleMap()) {
@@ -192,18 +199,20 @@ function sqsMiddleware(getHooks) {
     const parentContext = api.context.active();
     // Contract section 2: the span starts just before the request is sent. This middleware is in the
     // initialize step, ahead of serialization, signing and retries, so the start is a lower bound.
+    // The call-order tick (schema version 3) is taken immediately before it.
+    const issued = order.tick();
     const startTime = nowMs();
     let result;
     try {
       result = await next(args);
     } catch (err) {
-      const times = { startTime, endTime: nowMs() };
+      const times = { startTime, endTime: nowMs(), issued, returned: order.tick() };
       if (SETTLE_OPS[operation]) {
         try { hooks.onSettle(operation, input, undefined, err, parentContext, times); } catch (e) { debug('settle hook', e); }
       }
       throw err;
     }
-    const times = { startTime, endTime: nowMs() };
+    const times = { startTime, endTime: nowMs(), issued, returned: order.tick() };
     try {
       const output = result && result.output;
       if (operation === 'ReceiveMessage') hooks.onReceive(input, output, parentContext, times);

@@ -13,6 +13,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcess
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 import qv2.aws_lambda as ql
+from qv2 import _order
 from conftest import TEST_KEY
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -134,8 +135,10 @@ def test_receive_and_outcome_attributes_for_the_aws_docs_event(exporter, monkeyp
     a = dict(rcv[0].attributes)
     pid = a.pop("process.pid")
     assert pid == os.getpid() and a.pop("thread.name")
+    returned = a.pop("qv2.order.returned")
+    assert isinstance(returned, int) and returned > 0
     assert a == {
-        "qv2.schema_version": 2, "qv2.kind": "sqs.receive", "qv2.source": "lambda",
+        "qv2.schema_version": 3, "qv2.order.scope": _order.scope, "qv2.kind": "sqs.receive", "qv2.source": "lambda",
         "qv2.start_observed": False,
         "messaging.system.name": "aws.sqs", "messaging.operation.type": "receive",
         "messaging.operation.name": "LambdaEvent", "messaging.client.id": "2026/11/13/[$LATEST]abc",
@@ -252,3 +255,41 @@ def test_queue_from_arn():
     assert ql.queue_from_arn("arn:aws:sqs:eu-west-1:111122223333:orders") == (
         "orders", "https://sqs.eu-west-1.amazonaws.com/111122223333/orders")
     assert ql.queue_from_arn("garbage") == ("garbage", "")
+
+
+# -- call order inside one process (contract v3) ----------------------------------------------
+
+def test_receive_has_returned_only_and_outcome_has_one_tick_after_it(exporter):
+    seen = {}
+
+    def handler(event, context):
+        seen["during"] = _order.tick()
+
+    fn = wrapped(handler, exporter, batch=False)
+    fn(copy.deepcopy(DOCS), ctx())
+    rcv = spans(exporter, "qv2 receive")
+    out = spans(exporter, "qv2 outcome")
+    assert len(rcv) == len(out) == 2
+    for s in rcv + out:
+        assert s.attributes["qv2.order.scope"] == _order.scope
+    # Lambda's poller made the ReceiveMessage call: its issue is not seen, so there is no issued tick.
+    assert all("qv2.order.issued" not in s.attributes for s in rcv)
+    assert len({s.attributes["qv2.order.returned"] for s in rcv}) == 1
+    assert len({(s.attributes["qv2.order.issued"], s.attributes["qv2.order.returned"]) for s in out}) == 1
+    r_ret = rcv[0].attributes["qv2.order.returned"]
+    o = out[0].attributes
+    assert o["qv2.order.issued"] == o["qv2.order.returned"]
+    assert r_ret < seen["during"] < o["qv2.order.issued"]
+
+
+def test_outcome_after_an_exception_is_ordered_after_the_receive(exporter):
+    def handler(event, context):
+        raise RuntimeError("boom")
+
+    fn = wrapped(handler, exporter, batch=False)
+    with pytest.raises(RuntimeError):
+        fn(copy.deepcopy(DOCS), ctx())
+    [r0, _] = spans(exporter, "qv2 receive")
+    [o0, _] = spans(exporter, "qv2 outcome")
+    assert o0.attributes["qv2.outcome"] == "failed_exception"
+    assert o0.attributes["qv2.order.issued"] == o0.attributes["qv2.order.returned"] > r0.attributes["qv2.order.returned"]

@@ -7,6 +7,7 @@ const { BasicTracerProvider, BatchSpanProcessor, AlwaysOnSampler } = require('@o
 const { detectResources, envDetector, resourceFromAttributes } = require('@opentelemetry/resources');
 
 const { version } = require('./version');
+const order = require('./order');
 const { DEFAULT_ENDPOINT, ENDPOINT_ENV, KINDS, SCHEMA_VERSION, SCOPE_NAME } = require('./contract');
 
 const SERVICE_NAME = 'service.name';
@@ -76,8 +77,12 @@ class Emitter {
    * request was sent, and when the response arrived). `startObserved: false` marks a span whose
    * start is not known (a Lambda receive): it is then zero-length at `endTime`. `parentContext`
    * defaults to the active context, which inside an SDK call is the stock AWS SDK span.
+   *
+   * Call order (schema version 3): `order` is `{ issued, returned }`, ticks of this process's call-order
+   * counter (`order.tick()`) taken at the span's start and end; `issued` is undefined when the start
+   * was not observed. With an order, the span also carries `qv2.order.scope`.
    */
-  emit(name, operation, queueName, queueUrl, attrs, { parentContext, startTime, endTime, startObserved = true } = {}) {
+  emit(name, operation, queueName, queueUrl, attrs, { parentContext, startTime, endTime, startObserved = true, order: ticks } = {}) {
     const [kind, opType] = KINDS[name];
     const base = {
       'qv2.schema_version': SCHEMA_VERSION,
@@ -92,6 +97,12 @@ class Emitter {
     if (queueUrl) base['aws.sqs.queue.url'] = queueUrl;
     if (this.clientId) base['messaging.client.id'] = String(this.clientId);
     if (!startObserved) base['qv2.start_observed'] = false;
+    if (ticks) {
+      const { issued, returned } = ticks;
+      if (issued !== undefined || returned !== undefined) base['qv2.order.scope'] = order.scope;
+      if (issued !== undefined) base['qv2.order.issued'] = issued;
+      if (returned !== undefined) base['qv2.order.returned'] = returned;
+    }
     Object.assign(base, attrs);
     const end = endTime !== undefined ? endTime : nowMs();
     const start = startObserved && startTime !== undefined ? Math.min(startTime, end) : end;

@@ -9,6 +9,7 @@ const S = require('@aws-sdk/client-sqs');
 
 const qv2 = require('../src/index');
 const { addReceiveAttributeNames, errorCode, plainCode, MIDDLEWARE_NAME } = require('../src/sqs');
+const order = require('../src/order');
 const { memoryExporter, stubClient, serviceError, byName } = require('./helpers');
 const { version } = require('../package.json');
 
@@ -49,7 +50,8 @@ const message = (n, attrs) => ({
 });
 
 const COMMON = (operation, kind, opType) => ({
-  'qv2.schema_version': 2,
+  'qv2.schema_version': 3,
+  'qv2.order.scope': order.scope,
   'qv2.kind': kind,
   'qv2.source': 'client',
   'messaging.system.name': 'aws.sqs',
@@ -61,13 +63,20 @@ const COMMON = (operation, kind, opType) => ({
   'process.pid': process.pid,
 });
 
+/** The attributes without the call-order ticks, after checking that issued < returned (contract v3). */
+function withoutTicks(attrs) {
+  const { 'qv2.order.issued': issued, 'qv2.order.returned': returned, ...rest } = attrs;
+  assert.ok(Number.isInteger(issued) && issued > 0 && issued < returned, `issued ${issued}, returned ${returned}`);
+  return rest;
+}
+
 test('SendMessage: one qv2 send with the message ID', async (t) => {
   const { client, spans } = setup(t, { SendMessage: () => ({ MessageId: 'mid-1' }) });
   await client.send(new S.SendMessageCommand({ QueueUrl: URL, MessageBody: 'hello' }));
   const [s, ...rest] = spans();
   assert.strictEqual(rest.length, 0);
   assert.strictEqual(s.name, 'qv2 send');
-  assert.deepStrictEqual(s.attributes, { ...COMMON('SendMessage', 'sqs.send', 'send'), 'messaging.message.id': 'mid-1' });
+  assert.deepStrictEqual(withoutTicks(s.attributes), { ...COMMON('SendMessage', 'sqs.send', 'send'), 'messaging.message.id': 'mid-1' });
 });
 
 test('every qv2 span: scope, kind, an interval, resource, no thread.name in Node.js', async (t) => {
@@ -141,6 +150,79 @@ test('SqsHooks: spans take the start and end times they are given', () => {
   hooks.onSend('SendMessage', { QueueUrl: URL }, { MessageId: 'm' }, undefined, { startTime: 1763080000000, endTime: 1763080000250 });
   const [s] = exporter.getFinishedSpans();
   assert.deepStrictEqual([ms(s.startTime), ms(s.endTime)], [1763080000000, 1763080000250]);
+  // No ticks given: no order attributes, never placeholders.
+  for (const k of ['qv2.order.scope', 'qv2.order.issued', 'qv2.order.returned']) assert.ok(!(k in s.attributes), k);
+});
+
+// -- call order inside one process (contract v3) ---------------------------------------------
+
+const ticks = (s) => [s.attributes['qv2.order.issued'], s.attributes['qv2.order.returned']];
+
+test('order: a call that returned before the next was issued is ordered before it', async (t) => {
+  const { client, spans } = setup(t, {
+    SendMessage: () => ({ MessageId: 'mid-1' }),
+    ReceiveMessage: () => ({ Messages: [message(1)] }),
+  });
+  await client.send(new S.SendMessageCommand({ QueueUrl: URL, MessageBody: 'hello' }));
+  await client.send(new S.ReceiveMessageCommand({ QueueUrl: URL }));
+  await client.send(new S.DeleteMessageCommand({ QueueUrl: URL, ReceiptHandle: RH(1) }));
+  const [send, rcv, del] = ['qv2 send', 'qv2 receive', 'qv2 delete'].map((n) => byName(spans(), n)[0]);
+  for (const s of [send, rcv, del]) {
+    assert.ok(ticks(s)[0] < ticks(s)[1], s.name);
+    assert.strictEqual(s.attributes['qv2.order.scope'], order.scope);
+  }
+  assert.ok(ticks(send)[1] < ticks(rcv)[0]);
+  assert.ok(ticks(rcv)[1] < ticks(del)[0]);
+});
+
+test('order: concurrent calls are not ordered against each other', async (t) => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  let n = 0;
+  const { client, spans } = setup(t, { SendMessage: async () => { n += 1; const id = `mid-${n}`; await gate; return { MessageId: id }; } });
+  const a = client.send(new S.SendMessageCommand({ QueueUrl: URL, MessageBody: 'a' }));
+  const b = client.send(new S.SendMessageCommand({ QueueUrl: URL, MessageBody: 'b' }));
+  await sleep(10);
+  release();
+  await Promise.all([a, b]);
+  const [x, y] = spans();
+  assert.ok(ticks(x)[1] > ticks(y)[0] && ticks(y)[1] > ticks(x)[0]);
+});
+
+test('order: every entry of a batch, and every message of one receive, shares the call\'s ticks', async (t) => {
+  const { client, spans } = setup(t, {
+    SendMessageBatch: () => ({ Successful: [{ Id: 'a', MessageId: 'm-a' }, { Id: 'b', MessageId: 'm-b' }] }),
+    ReceiveMessage: () => ({ Messages: [message(1), message(2)] }),
+    DeleteMessageBatch: () => ({ Successful: [{ Id: 'a' }], Failed: [{ Id: 'b', Code: 'X' }] }),
+  });
+  await client.send(new S.SendMessageBatchCommand({ QueueUrl: URL, Entries: [{ Id: 'a', MessageBody: '1' }, { Id: 'b', MessageBody: '2' }] }));
+  await client.send(new S.ReceiveMessageCommand({ QueueUrl: URL }));
+  await client.send(new S.DeleteMessageBatchCommand({ QueueUrl: URL, Entries: [
+    { Id: 'a', ReceiptHandle: RH(1) }, { Id: 'b', ReceiptHandle: RH(2) }] }));
+  const pairs = [];
+  for (const name of ['qv2 send', 'qv2 receive', 'qv2 delete']) {
+    const got = byName(spans(), name);
+    assert.strictEqual(got.length, 2);
+    assert.deepStrictEqual(ticks(got[0]), ticks(got[1]), name);
+    pairs.push(ticks(got[0]));
+  }
+  assert.ok(pairs[0][1] < pairs[1][0] && pairs[1][1] < pairs[2][0]);
+});
+
+test('order: a settle call that throws gets returned when the error arrived', async (t) => {
+  const { client, spans } = setup(t, {
+    DeleteMessageBatch: () => { throw serviceError('AWS.SimpleQueueService.TooManyEntriesInBatchRequest'); },
+  });
+  const before = order.tick();
+  await assert.rejects(client.send(new S.DeleteMessageBatchCommand({ QueueUrl: URL, Entries: [
+    { Id: 'a', ReceiptHandle: RH(1) }, { Id: 'b', ReceiptHandle: RH(2) }] })));
+  const after = order.tick();
+  const got = spans();
+  assert.strictEqual(got.length, 2);
+  assert.deepStrictEqual(ticks(got[0]), ticks(got[1]));
+  const [issued, returned] = ticks(got[0]);
+  assert.ok(before < issued && issued < returned && returned < after);
+  assert.strictEqual(got[0].attributes['qv2.order.scope'], order.scope);
 });
 
 test('SendMessageBatch: one span per accepted entry; failed entries get none', async (t) => {
@@ -173,7 +255,7 @@ test('ReceiveMessage: one qv2 receive per message with the contract attributes',
   assert.strictEqual(out.Messages.length, 2, 'the caller still gets the response');
   const rs = spans();
   assert.strictEqual(rs.length, 2);
-  assert.deepStrictEqual(rs[0].attributes, {
+  assert.deepStrictEqual(withoutTicks(rs[0].attributes), {
     ...COMMON('ReceiveMessage', 'sqs.receive', 'receive'),
     'messaging.message.id': 'mid-1',
     'qv2.receipt_handle.hmac': qv2.hashReceiptHandle(KEY, RH(1)),
@@ -230,7 +312,7 @@ test('DeleteMessage: emitted after the response, with qv2.result ok and the mess
   await client.send(new S.ReceiveMessageCommand({ QueueUrl: URL }));
   await client.send(new S.DeleteMessageCommand({ QueueUrl: URL, ReceiptHandle: RH(1) }));
   const [d] = byName(spans(), 'qv2 delete');
-  assert.deepStrictEqual(d.attributes, {
+  assert.deepStrictEqual(withoutTicks(d.attributes), {
     ...COMMON('DeleteMessage', 'sqs.settle', 'settle'),
     'qv2.receipt_handle.hmac': qv2.hashReceiptHandle(KEY, RH(1)),
     'qv2.receipt_handle.key_id': qv2.keyId(KEY),
@@ -327,7 +409,7 @@ test('ChangeMessageVisibility: qv2.visibility_timeout, including 0', async (t) =
   await client.send(new S.ReceiveMessageCommand({ QueueUrl: URL }));
   await client.send(new S.ChangeMessageVisibilityCommand({ QueueUrl: URL, ReceiptHandle: RH(1), VisibilityTimeout: 0 }));
   const [c] = byName(spans(), 'qv2 change_visibility');
-  assert.deepStrictEqual(c.attributes, {
+  assert.deepStrictEqual(withoutTicks(c.attributes), {
     ...COMMON('ChangeMessageVisibility', 'sqs.settle', 'settle'),
     'qv2.receipt_handle.hmac': qv2.hashReceiptHandle(KEY, RH(1)),
     'qv2.receipt_handle.key_id': qv2.keyId(KEY),

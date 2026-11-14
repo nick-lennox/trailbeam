@@ -20,7 +20,11 @@ This hooks `SendMessage(Batch)`, `ReceiveMessage`, `DeleteMessage(Batch)` and
 `ChangeMessageVisibility(Batch)` through `opentelemetry-instrumentation-botocore`. If your
 application already instruments botocore, qv2 keeps that setup and chains your hooks after its own.
 Each span covers its SQS call: it starts just before the request is sent and ends when the response
-arrives (contract v2, section 2), read from `time.time_ns()`.
+arrives (contract v2, section 2), read from `time.time_ns()`. Since schema version 3 each span also
+carries the call's order inside the process: `qv2.order.issued` and `qv2.order.returned` are ticks of
+one per-process counter, taken when the request was sent and when the response arrived, with
+`qv2.order.scope` naming the counter (a forked child gets a new one). A call whose `returned` is
+lower than another's `issued`, in the same scope, returned before the other was sent.
 
 | Setting | Default |
 |---|---|
@@ -40,9 +44,11 @@ def handler(event, context):
 
 For each SQS record the wrapper emits a `qv2 receive` and flushes it before your handler runs. Lambda
 made the `ReceiveMessage` call, not the wrapper, so that span only says the receive happened no later
-than the handler start: it is zero-length and marked `qv2.start_observed = false`. Then the wrapper emits a
+than the handler start: it is zero-length and marked `qv2.start_observed = false`, and it carries
+`qv2.order.returned` but no `qv2.order.issued`. Then the wrapper emits a
 `qv2 outcome` per record: `success`, `failed_reported`, `failed_invalid_response` or
-`failed_exception` (class name only). A timeout or out-of-memory kill leaves a receive with no
+`failed_exception` (class name only), with `qv2.order.issued` = `qv2.order.returned` (one tick, after
+the handler). A timeout or out-of-memory kill leaves a receive with no
 outcome, which the store infers; it cannot be detected from inside the process. Set
 `report_batch_item_failures=False` if the event source mapping does not use `ReportBatchItemFailures`,
 because Lambda then ignores `batchItemFailures`.

@@ -1,9 +1,9 @@
 'use strict';
-// Names and values from docs/span-contract.md (schema version 1), and the receipt-handle hash.
+// Names and values from docs/span-contract.md (schema version 3), and the receipt-handle hash.
 
 const crypto = require('node:crypto');
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const SCOPE_NAME = 'qv2';
 
 const DEFAULT_KEY = 'qv2-default-receipt-hash-key';

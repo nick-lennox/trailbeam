@@ -1,4 +1,4 @@
-# qv2 span contract, schema version 2
+# qv2 span contract, schema version 3
 
 This file defines the OpenTelemetry spans that the `qv2` Python package and the `@qv2/sdk` Node.js
 package emit, and that the qv2 store reads. Both packages and the store are built and tested against
@@ -59,10 +59,41 @@ change-visibility span names; that is dropped.)
   is an upper bound and its start is **not known**. The wrapper **must not** put any other time in
   its start. `qv2 outcome` is zero-length at the moment the wrapper decided the outcome, after the
   handler returned or threw; that moment is observed, so it has no `qv2.start_observed`.
-- A consumer **must not** read an order into two spans whose intervals overlap: SQS may have acted
-  on either first. Section 9a says how the store shows them.
+- A consumer **must not** read an order into two spans whose intervals overlap from their times
+  alone: SQS may have acted on either first. Another observed fact can still order them (the call
+  order in one process, section 2a, or SQS's receive count and timestamps); section 9a lists the
+  sources and says how the store shows what none of them orders.
 - One span per message. A batch call produces one qv2 span per entry, all children of the one
   stock span.
+
+## 2a. Call order inside one process (schema version 3)
+
+The clocks have millisecond resolution, and a consumer often issues its delete in the same
+millisecond its receive returned, so the clocks cannot order the two. The process itself can: it
+returned from one call before it issued the next. Each package keeps one **call-order counter** per
+process and records it on every span:
+
+- `qv2.order.scope` names the counter: a random UUID v4 chosen when the package is loaded. Python
+  chooses a new one in a forked child (`os.register_at_fork`), whose counter starts again at 1.
+  Node.js has one per realm, so each `worker_thread` has its own. Counters with different scopes are
+  never compared.
+- `qv2.order.issued` is a tick of the counter taken in the request hook just before the start time
+  is read, so it is no later than the request being sent.
+- `qv2.order.returned` is a tick taken when the response (or error) arrived, just after the end time
+  is read, so it is no earlier than the response.
+- `tick()` returns a strictly increasing integer (1, 2, 3, ...), safe to call from any thread.
+
+Every span of one call shares its `issued` and `returned`. If `A.returned < B.issued` with the same
+scope, A's call returned before B's was issued, so SQS acted on A before B, whatever the clocks say
+and whichever threads made the calls. Calls in flight at the same time (`B.issued < A.returned` and
+`A.issued < B.returned`) are not ordered. The store never compares ticks of different scopes (contract
+§9a: "don't infer it across processes").
+
+Lambda wrapper: a `qv2 receive` carries `qv2.order.returned` (a tick when the wrapper got the event,
+with its end time) and **no** `qv2.order.issued`, because Lambda's poller made the call; a
+`qv2 outcome` carries `qv2.order.issued` = `qv2.order.returned` = one tick when the outcome was
+decided, after the handler returned or threw. So a handler's outcome is ordered after its own receive,
+and nothing is ordered after a Lambda receive by this source.
 - The store reads only qv2 spans. Stock SQS spans pass through the Collector but are not read by
   the 0.1 store.
 
@@ -70,7 +101,7 @@ change-visibility span names; that is dropped.)
 
 | Attribute | Type | Req. | Value |
 |---|---|---|---|
-| `qv2.schema_version` | int | must | `2` |
+| `qv2.schema_version` | int | must | `3` |
 | `qv2.kind` | string | must | `sqs.send`, `sqs.receive`, `sqs.settle` or `sqs.outcome` |
 | `qv2.source` | string | must | `client` (client hooks) or `lambda` (Lambda wrapper) |
 | `messaging.system.name` | string | must | `aws.sqs` |
@@ -81,6 +112,9 @@ change-visibility span names; that is dropped.)
 | `messaging.client.id` | string | must | consumer or producer identity (section 5) |
 | `process.pid` | int | must | OS process ID |
 | `thread.name` | string | should (Python) | `threading.current_thread().name`; not set in Node.js |
+| `qv2.order.scope` | string | must (v3) | the process's call-order counter (section 2a) |
+| `qv2.order.issued` | int | must (v3, except Lambda receive) | counter tick just before the request was sent (section 2a) |
+| `qv2.order.returned` | int | must (v3) | counter tick when the response or error arrived (section 2a) |
 | `qv2.start_observed` | bool | must (Lambda receive) | `false` when the span's start time is not the start of the SQS call (section 2). Omitted otherwise: absent means the start was observed. |
 
 The `messaging.*`, `aws.sqs.queue.url`, `process.pid` and `thread.name` names are OpenTelemetry
@@ -274,20 +308,31 @@ These steps have no span. The store shows each one as **inferred**, never as obs
 
 ## 9a. Order of steps in the store
 
-The store shows step A before step B only when A's interval ended before B's started
-(`A.end < B.start`). Steps whose intervals overlap, directly or through a chain of overlapping
-steps, are one **concurrent group**, shown side by side and labelled "concurrent, order unknown". A
-span with `qv2.start_observed = false` has an unknown start, so it is concurrent with every step that
-started before its end. The store never re-orders observed steps by what caused what (for example, a
-receive after its send): the order shown is only the order the clocks prove. Inferred steps
-(section 9) are placed between the observed steps they were inferred from, and are never ordered
-against steps they were not inferred from: a step that may have happened on either side of an
-inferred step (its interval meets the inferred step's window) is shown in one group with it, and if
-there are several such steps in different groups, those groups are shown as one.
+The store shows step A before step B only when at least one observed fact, a **source**, proves it.
+Every ordered edge records its sources; the store's API and screen show them (`docs/store-api.md`).
 
-This relies on every process reading the same clock. It holds for processes on one host (the local
-demo) and, to within the hosts' clock offset, across hosts; the store does not correct for clock
-offset between hosts in 0.1 (a known limit).
+| Source | A before B when |
+|---|---|
+| `clock` | `A.end < B.start` on the hosts' clocks (section 2). |
+| `process_order` | Same `qv2.order.scope` and `A.order.returned < B.order.issued` (section 2a). |
+| `receive_count` | A and B are receives of the message on one queue, and A's `qv2.receive_count` is lower: SQS's delivery n came before delivery n + 1. |
+| `sqs_timestamps` | A is the send, B is the receive with `qv2.receive_count = 1` on the send's queue, and B's `qv2.sent_timestamp_ms` is lower than its `qv2.first_receive_timestamp_ms`. Both are SQS's clock; the store never compares them with a host clock. The same millisecond proves nothing. |
+
+Order is transitive (A before B by one source, B before C by another), and the edges show the chain.
+Steps that no chain orders are shown as **concurrent**: the store lists the steps in an order that agrees
+with every edge and draws a box labelled "concurrent, order unknown" around each run that can't be cut
+into "everything here is before everything after". The store never re-orders steps by what caused what:
+"a receive comes after its send" or "a release comes before its redelivery" are not sources. If the
+sources contradict each other (a cycle), the store shows no order between the steps on the cycle and says
+so. Inferred steps (section 9) are placed between the observed steps they were inferred from, and are
+ordered against other steps only through those anchors.
+
+The `clock` source relies on every process reading the same clock. It holds for processes on one host
+(the local demo) and, to within the hosts' clock offset, across hosts; the store does not correct for
+clock offset between hosts in 0.1 (a known limit). `receive_count` relies on SQS's
+`ApproximateReceiveCount`, which SQS calls approximate; `sqs_timestamps` relies on SQS's timestamps
+coming from one clock, which is a single host in ElasticMQ and a distributed service on AWS [estimate:
+not measured on AWS].
 
 ## 10. Example
 
@@ -299,7 +344,7 @@ A `qv2 receive` from the Python client hooks, as attributes (not OTLP wire forma
   "scope": {"name": "qv2", "version": "0.1.0"},
   "resource": {"service.name": "orders-worker", "service.instance.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11"},
   "attributes": {
-    "qv2.schema_version": 2,
+    "qv2.schema_version": 3,
     "qv2.kind": "sqs.receive",
     "qv2.source": "client",
     "messaging.system.name": "aws.sqs",
@@ -314,7 +359,11 @@ A `qv2 receive` from the Python client hooks, as attributes (not OTLP wire forma
     "qv2.receive_count": 2,
     "qv2.receipt_handle.hmac": "b8cf1504a45e5fadf383d469cfa5ae3e",
     "qv2.receipt_handle.key_id": "3b3edeb7",
-    "qv2.sent_timestamp_ms": 1763080000000
+    "qv2.sent_timestamp_ms": 1763080041095,
+    "qv2.first_receive_timestamp_ms": 1763080041120,
+    "qv2.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "qv2.order.issued": 1841,
+    "qv2.order.returned": 1846
   },
   "start_time_unix_nano": 1763080041102331000,
   "end_time_unix_nano": 1763080041131877000
@@ -382,3 +431,20 @@ concurrency check, 4 to 32% of messages showed a receive before its send, or a r
 
 Unchanged: span names, kinds and every other attribute, the receipt-handle hash and its test
 vectors, consumer identity, and the store's joins.
+
+## 13. Changes in schema version 3
+
+Schema version 2 could order steps only by the clocks, and left most of them concurrent: in the QV-29
+recheck, send before receive in 7 of 1,374 pairs and release before redelivery in 0 of 174 on a local
+machine (QV-31).
+
+| Version 2 | Version 3 |
+|---|---|
+| `qv2.schema_version = 2` | `3`. The store still reads version 2 spans; they carry no call order, so only the other sources order them. |
+| no call order | `qv2.order.scope`, `qv2.order.issued`, `qv2.order.returned` (section 2a) |
+| store order: clock intervals only | four sources, each recorded on the edge it proves (section 9a) |
+
+Unchanged: span names, kinds, times and every other attribute. The client hooks already asked SQS for
+`SentTimestamp` and `ApproximateFirstReceiveTimestamp` (section 4.2), and the Lambda wrapper already
+copied them from the record. ElasticMQ 1.6.15 fills both (checked for QV-31: the first-receive timestamp
+is set at the first receive and kept on later ones).

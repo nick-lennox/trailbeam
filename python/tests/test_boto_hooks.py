@@ -16,7 +16,7 @@ from opentelemetry.sdk.trace.sampling import ALWAYS_OFF
 
 import qv2
 import qv2.boto
-from qv2 import _contract
+from qv2 import _contract, _order
 from qv2._handles import HandleMap
 
 from conftest import TEST_KEY
@@ -24,7 +24,7 @@ from conftest import TEST_KEY
 KEY_ID = "3b3edeb7"  # key ID of TEST_KEY, from docs/span-contract-vectors.json
 COMMON = {"qv2.schema_version", "qv2.kind", "qv2.source", "messaging.system.name", "messaging.operation.type",
           "messaging.operation.name", "messaging.destination.name", "aws.sqs.queue.url", "messaging.client.id",
-          "process.pid", "thread.name"}
+          "process.pid", "thread.name", "qv2.order.scope", "qv2.order.issued", "qv2.order.returned"}
 
 
 def h(rh, key=TEST_KEY):
@@ -52,7 +52,7 @@ def stock_spans(exporter):
 def check_common(span, op, queue_url, kind, op_type):
     a = dict(span.attributes)
     assert COMMON <= set(a), COMMON - set(a)
-    assert a["qv2.schema_version"] == 2
+    assert a["qv2.schema_version"] == 3
     assert a["qv2.kind"] == kind
     assert a["qv2.source"] == "client"
     assert a["messaging.system.name"] == "aws.sqs"
@@ -66,6 +66,9 @@ def check_common(span, op, queue_url, kind, op_type):
     # Contract v2 section 2: an interval from just before the request to the response.
     assert span.start_time < span.end_time
     assert "qv2.start_observed" not in a
+    # Contract v3: call order inside this process.
+    assert a["qv2.order.scope"] == _order.scope
+    assert 0 < a["qv2.order.issued"] < a["qv2.order.returned"]
     for k, v in a.items():  # absent values are omitted, never "" or -1
         assert v != "" and v != -1, k
     # The span name never carries the queue name.
@@ -358,6 +361,129 @@ def test_settle_that_throws_has_an_interval_too(qv2_spans, make_client):
         c.delete_message(QueueUrl="http://127.0.0.1:9/000000000000/nowhere", ReceiptHandle="rh")
     [s] = qv2_spans("qv2 delete")
     assert s.start_time < s.end_time
+    assert s.attributes["qv2.order.scope"] == _order.scope
+    assert s.attributes["qv2.order.issued"] < s.attributes["qv2.order.returned"]
+
+
+# -- call order inside one process (contract v3) --------------------------------------------------
+
+def order(span):
+    a = span.attributes
+    return a["qv2.order.issued"], a["qv2.order.returned"]
+
+
+def test_order_issued_before_returned_and_sequential_calls_are_ordered(qv2_spans, monkeypatch):
+    _Clock(monkeypatch)
+    hooks = qv2.boto._state["hooks"]
+    url = "http://localhost/000000000000/q"
+    first, second = object(), object()
+    hooks.request_hook(first, "sqs", "SendMessage", {"QueueUrl": url, "MessageBody": "x"})
+    hooks.response_hook(first, "sqs", "SendMessage", {"MessageId": "m1"})
+    hooks.request_hook(second, "sqs", "SendMessage", {"QueueUrl": url, "MessageBody": "y"})
+    hooks.response_hook(second, "sqs", "SendMessage", {"MessageId": "m2"})
+    a, b = qv2_spans("qv2 send")
+    assert order(a)[0] < order(a)[1] < order(b)[0] < order(b)[1]
+    assert a.attributes["qv2.order.scope"] == b.attributes["qv2.order.scope"] == _order.scope
+
+
+def test_order_of_overlapping_calls_is_not_invented(qv2_spans):
+    hooks = qv2.boto._state["hooks"]
+    url = "http://localhost/000000000000/q"
+    first, second = object(), object()
+    hooks.request_hook(first, "sqs", "SendMessage", {"QueueUrl": url})
+    hooks.request_hook(second, "sqs", "SendMessage", {"QueueUrl": url})
+    hooks.response_hook(first, "sqs", "SendMessage", {"MessageId": "m1"})
+    hooks.response_hook(second, "sqs", "SendMessage", {"MessageId": "m2"})
+    a, b = qv2_spans("qv2 send")
+    # Neither returned before the other was issued.
+    assert order(a)[1] > order(b)[0] and order(b)[1] > order(a)[0]
+
+
+def test_order_against_the_real_sdk(qv2_spans, make_client, queue_url):
+    c = make_client()
+    c.send_message(QueueUrl=queue_url, MessageBody="x")
+    msgs = c.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=1, WaitTimeSeconds=1)["Messages"]
+    c.delete_message(QueueUrl=queue_url, ReceiptHandle=msgs[0]["ReceiptHandle"])
+    by_name = {s.name: s for s in qv2_spans()}
+    send, rcv, dele = by_name["qv2 send"], by_name["qv2 receive"], by_name["qv2 delete"]
+    assert order(send)[1] < order(rcv)[0] and order(rcv)[1] < order(dele)[0]
+    assert len({s.attributes["qv2.order.scope"] for s in qv2_spans()}) == 1
+
+
+def test_every_span_of_one_call_shares_the_order_pair(qv2_spans):
+    hooks = qv2.boto._state["hooks"]
+    url = "http://h/0/q"
+    calls = [
+        ("SendMessageBatch", {"QueueUrl": url, "Entries": []},
+         {"Successful": [{"Id": "a", "MessageId": "m-a"}, {"Id": "b", "MessageId": "m-b"}]}),
+        ("ReceiveMessage", {"QueueUrl": url},
+         {"Messages": [{"MessageId": "m1", "ReceiptHandle": "rh1"}, {"MessageId": "m2", "ReceiptHandle": "rh2"}]}),
+        ("DeleteMessageBatch", {"QueueUrl": url, "Entries": [{"Id": "a", "ReceiptHandle": "rh-a"},
+                                                             {"Id": "b", "ReceiptHandle": "rh-b"}]},
+         {"Successful": [{"Id": "a"}], "Failed": [{"Id": "b", "Code": "X"}]}),
+    ]
+    pairs = []
+    for op, params, result in calls:
+        span = object()
+        hooks.request_hook(span, "sqs", op, params)
+        hooks.response_hook(span, "sqs", op, result)
+        spans = [s for s in qv2_spans() if s.attributes["messaging.operation.name"] == op]
+        assert len(spans) == 2
+        assert len({order(s) for s in spans}) == 1, op
+        pairs.append(order(spans[0]))
+    assert pairs == sorted(pairs) and pairs[0][1] < pairs[1][0] and pairs[1][1] < pairs[2][0]
+
+
+def test_order_tick_is_strictly_increasing_across_threads():
+    import threading
+    got: list = []
+
+    def work():
+        got.extend(_order.tick() for _ in range(2_000))
+
+    threads = [threading.Thread(target=work) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(set(got)) == len(got) == 16_000
+    assert _order.tick() > max(got)
+
+
+_FORK_SCRIPT = """
+import json, os, sys
+from qv2 import _order
+parent_scope = _order.scope
+for _ in range(3):
+    _order.tick()
+r, w = os.pipe()
+pid = os.fork()
+if pid == 0:
+    os.close(r)
+    os.write(w, json.dumps({"scope": _order.scope, "tick": _order.tick()}).encode())
+    os._exit(0)
+os.close(w)
+with os.fdopen(r, "rb") as f:
+    child = json.loads(f.read())
+os.waitpid(pid, 0)
+print(json.dumps({"parent_before": parent_scope, "parent_after": _order.scope,
+                  "parent_tick": _order.tick(), "child": child}))
+"""
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="needs os.fork")
+def test_forked_child_gets_a_new_order_scope_and_counter():
+    # In a fresh single-threaded interpreter: forking this multi-threaded pytest process (the moto
+    # server thread) is itself unsafe.
+    import subprocess
+    import sys
+    out = subprocess.run([sys.executable, "-c", _FORK_SCRIPT], check=True, capture_output=True, text=True,
+                         timeout=60).stdout
+    got = json.loads(out)
+    assert got["child"]["scope"] != got["parent_before"]
+    assert got["child"]["tick"] == 1          # the child's counter starts again
+    assert got["parent_after"] == got["parent_before"]  # the parent keeps its scope and counter
+    assert got["parent_tick"] == 4
 
 
 # -- install -------------------------------------------------------------------------------------

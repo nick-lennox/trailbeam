@@ -32,6 +32,7 @@ from ._contract import (
     queue_name_from_url,
     resolve_hasher,
 )
+from . import _order
 from ._emitter import Emitter, make_provider
 from ._handles import HandleMap
 
@@ -80,8 +81,9 @@ class SqsHooks:
     def __init__(self, emitter: Emitter, handles: Optional[HandleMap] = None):
         self.emitter = emitter
         self.handles = handles if handles is not None else HandleMap()
-        # Requests waiting for their response, keyed by the stock span object's id: (params, start_ns).
-        self._pending: dict[int, tuple[dict, int]] = {}
+        # Requests waiting for their response, keyed by the stock span object's id:
+        # (params, start_ns, order scope, issued tick).
+        self._pending: dict[int, tuple[dict, int, str, int]] = {}
         self._lock = threading.Lock()
 
     # -- hooks -------------------------------------------------------------------------------
@@ -98,8 +100,10 @@ class SqsHooks:
                 if len(self._pending) >= _MAX_PENDING:  # only if responses were lost; stay bounded
                     self._pending.clear()
                 # Section 2: the span starts just before the request is sent. The instrumentation calls
-                # this hook right before the API call (and its retries), so take the time last.
-                self._pending[id(span)] = (params, _now())
+                # this hook right before the API call (and its retries), so take the time last, with the
+                # call-order tick (schema version 3) immediately before it.
+                issued = _order.tick()
+                self._pending[id(span)] = (params, _now(), _order.scope, issued)
         except Exception:  # pragma: no cover - defensive; never break the caller's SQS call
             log.debug("qv2 request hook failed", exc_info=True)
 
@@ -109,12 +113,15 @@ class SqsHooks:
         end_ns = _now()  # section 2: the span ends when the response (or the error) arrived
         if operation not in _TRACKED_OPS:
             return
+        returned = _order.tick()
         with self._lock:
             pending = self._pending.pop(id(span), None)
         if pending is None:
             return
-        params, start_ns = pending
-        t = (start_ns, end_ns)
+        params, start_ns, scope, issued = pending
+        if scope != _order.scope:  # forked while the call was in flight: the issued tick is the parent's
+            issued = None
+        t = (start_ns, end_ns, (issued, returned))
         try:
             if operation == "ReceiveMessage":
                 self._on_receive(span, params, result, t)
@@ -137,14 +144,14 @@ class SqsHooks:
         if operation == "SendMessage":
             if result.get("MessageId"):
                 self.emitter.emit(SPAN_SEND, operation, name, url, {"messaging.message.id": result["MessageId"]},
-                                  parent=span, start_ns=t[0], end_ns=t[1])
+                                  parent=span, start_ns=t[0], end_ns=t[1], order=t[2])
             return
         for entry in result.get("Successful") or []:
             attrs: dict = {}
             put(attrs, "messaging.message.id", entry.get("MessageId"))
             put(attrs, "qv2.batch_entry_id", entry.get("Id"))
             if "messaging.message.id" in attrs:
-                self.emitter.emit(SPAN_SEND, operation, name, url, attrs, parent=span, start_ns=t[0], end_ns=t[1])
+                self.emitter.emit(SPAN_SEND, operation, name, url, attrs, parent=span, start_ns=t[0], end_ns=t[1], order=t[2])
 
     def _on_receive(self, span, params: dict, result: Optional[dict], t: tuple) -> None:
         if not result or "Error" in result:
@@ -163,7 +170,7 @@ class SqsHooks:
             put(attrs, "qv2.sent_timestamp_ms", int_or_none(a.get("SentTimestamp")))
             put(attrs, "qv2.first_receive_timestamp_ms", int_or_none(a.get("ApproximateFirstReceiveTimestamp")))
             put(attrs, "qv2.aws_trace_header", a.get("AWSTraceHeader"))
-            self.emitter.emit(SPAN_RECEIVE, "ReceiveMessage", name, url, attrs, parent=span, start_ns=t[0], end_ns=t[1])
+            self.emitter.emit(SPAN_RECEIVE, "ReceiveMessage", name, url, attrs, parent=span, start_ns=t[0], end_ns=t[1], order=t[2])
 
     def _on_settle(self, span, operation: str, params: dict, result: Optional[dict], exc, t: tuple) -> None:
         span_name, batch = _SETTLE_OPS[operation]
@@ -203,7 +210,7 @@ class SqsHooks:
                 put(attrs, "qv2.visibility_timeout", int_or_none(vt))
             attrs["qv2.result"] = "ok" if error is None else "failed"
             put(attrs, "qv2.error_code", error)
-            self.emitter.emit(span_name, operation, name, url, attrs, parent=span, start_ns=t[0], end_ns=t[1])
+            self.emitter.emit(span_name, operation, name, url, attrs, parent=span, start_ns=t[0], end_ns=t[1], order=t[2])
             if error is None and span_name == SPAN_DELETE:
                 self.handles.discard(rh)
 

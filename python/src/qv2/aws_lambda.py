@@ -34,6 +34,7 @@ from ._contract import (
     put,
     resolve_hasher,
 )
+from . import _order
 from ._emitter import Emitter, make_provider
 
 log = logging.getLogger("qv2")
@@ -105,8 +106,10 @@ class LambdaRecorder:
         faas = self._faas(context)
         # Lambda's poller made the ReceiveMessage call, out of sight of the wrapper. All the wrapper
         # knows is that it happened no later than now (contract section 2): the span ends now, and its
-        # start is marked as not observed rather than invented.
+        # start is marked as not observed rather than invented. Likewise the call-order tick (schema
+        # version 3): one "returned" tick for the moment the event arrived, and no "issued" tick.
         t = time.time_ns()
+        returned = _order.tick()
         for r in records:
             arn = r.get("eventSourceARN") or ""
             name, url = queue_from_arn(arn)
@@ -121,12 +124,15 @@ class LambdaRecorder:
             put(attrs, "qv2.aws_trace_header", a.get("AWSTraceHeader"))
             put(attrs, "qv2.queue.arn", arn)
             attrs.update(faas)
-            self.emitter.emit(SPAN_RECEIVE, OPERATION, name, url, attrs, end_ns=t, start_observed=False)
+            self.emitter.emit(SPAN_RECEIVE, OPERATION, name, url, attrs, end_ns=t, start_observed=False,
+                              order=(None, returned))
         self._flush()
 
     def outcomes(self, records: list[dict], context, outcomes: dict[str, str], error_type: Optional[str]) -> None:
         faas = self._faas(context)
+        # The outcome is decided now, after the handler returned or threw: one moment, one tick.
         t = time.time_ns()
+        tick = _order.tick()
         for r in records:
             name, url = queue_from_arn(r.get("eventSourceARN") or "")
             mid = r["messageId"]
@@ -134,7 +140,7 @@ class LambdaRecorder:
             if outcomes[mid] == OUTCOME_FAILED_EXCEPTION:
                 put(attrs, "qv2.error_type", error_type)
             attrs.update(faas)
-            self.emitter.emit(SPAN_OUTCOME, OPERATION, name, url, attrs, start_ns=t, end_ns=t)
+            self.emitter.emit(SPAN_OUTCOME, OPERATION, name, url, attrs, start_ns=t, end_ns=t, order=(tick, tick))
         self._flush()
 
     def invoke(self, handler: Callable, event, context, *args, **kwargs):

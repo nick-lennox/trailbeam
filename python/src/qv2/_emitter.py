@@ -13,7 +13,7 @@ from opentelemetry.sdk.trace import SpanProcessor, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
 from opentelemetry.sdk.trace.sampling import ALWAYS_ON
 
-from . import __version__
+from . import __version__, _order
 from ._contract import (
     DEFAULT_ENDPOINT,
     ENDPOINT_ENV,
@@ -58,6 +58,10 @@ class Emitter:
     Times (section 2): ``start_ns`` and ``end_ns`` bound the SQS call (just before the request was sent,
     and when the response arrived). ``start_observed=False`` marks a span whose start is not known (a
     Lambda receive: only its end bound is); the span is then zero-length at ``end_ns``.
+
+    Call order (schema version 3): ``order=(issued, returned)`` are ticks of this process's call-order
+    counter (``_order.tick()``), taken at the span's start and end. ``issued`` is None when the start
+    was not observed. With an order, the span also carries ``qv2.order.scope``.
     """
 
     def __init__(self, provider: TracerProvider, hasher: ReceiptHasher, source: str, client_id: Optional[str] = None):
@@ -75,7 +79,7 @@ class Emitter:
 
     def emit(self, name: str, operation: str, queue_name: str, queue_url: str, attrs: dict,
              parent=None, start_ns: Optional[int] = None, end_ns: Optional[int] = None,
-             start_observed: bool = True) -> None:
+             start_observed: bool = True, order: Optional[tuple] = None) -> None:
         kind, op_type = KINDS[name]
         base = {
             "qv2.schema_version": SCHEMA_VERSION,
@@ -94,6 +98,14 @@ class Emitter:
             base["aws.sqs.queue.url"] = queue_url
         if not start_observed:
             base["qv2.start_observed"] = False
+        if order is not None:
+            issued, returned = order
+            if issued is not None or returned is not None:
+                base["qv2.order.scope"] = _order.scope
+            if issued is not None:
+                base["qv2.order.issued"] = issued
+            if returned is not None:
+                base["qv2.order.returned"] = returned
         base.update(attrs)
         ctx = trace.set_span_in_context(parent) if parent is not None else None
         end = end_ns if end_ns is not None else time.time_ns()

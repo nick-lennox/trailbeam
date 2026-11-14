@@ -9,6 +9,7 @@ const { AsyncLocalStorageContextManager } = require('@opentelemetry/context-asyn
 const { BasicTracerProvider, BatchSpanProcessor, InMemorySpanExporter, SimpleSpanProcessor } = require('@opentelemetry/sdk-trace-base');
 
 const qv2 = require('../src/index');
+const order = require('../src/order');
 const { decideOutcomes, queueFromArn, sqsRecords, errorType } = require('../src/lambda');
 
 api.context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
@@ -127,8 +128,11 @@ test('receive and outcome attributes for the AWS documentation event', async (t)
   const out = spans('qv2 outcome');
   assert.strictEqual(rcv.length, 2);
   assert.strictEqual(out.length, 2);
-  assert.deepStrictEqual(rcv[0].attributes, {
-    'qv2.schema_version': 2,
+  const { 'qv2.order.returned': returned, ...rcvAttrs } = rcv[0].attributes;
+  assert.ok(Number.isInteger(returned) && returned > 0);
+  assert.deepStrictEqual(rcvAttrs, {
+    'qv2.schema_version': 3,
+    'qv2.order.scope': order.scope,
     'qv2.kind': 'sqs.receive',
     'qv2.source': 'lambda',
     'qv2.start_observed': false,
@@ -299,4 +303,35 @@ test('queueFromArn, sqsRecords and errorType', () => {
   assert.strictEqual(errorType('a string'), 'string');
   assert.strictEqual(errorType(Object.create(null)), 'Object');
   assert.strictEqual(errorType(new Killed()), 'Killed');
+});
+
+// -- call order inside one process (contract v3) ---------------------------------------------
+
+test('order: a receive has returned but no issued; an outcome has issued == returned, after the receive', async () => {
+  let during;
+  const { handler, spans } = wrapped(async () => { during = order.tick(); }, { batch: false });
+  await handler(clone(DOCS), ctx());
+  const rcv = spans('qv2 receive');
+  const out = spans('qv2 outcome');
+  assert.strictEqual(rcv.length, 2);
+  assert.strictEqual(out.length, 2);
+  for (const s of [...rcv, ...out]) assert.strictEqual(s.attributes['qv2.order.scope'], order.scope);
+  // Lambda's poller made the ReceiveMessage call: its issue is not seen.
+  for (const s of rcv) assert.ok(!('qv2.order.issued' in s.attributes));
+  assert.strictEqual(rcv[0].attributes['qv2.order.returned'], rcv[1].attributes['qv2.order.returned']);
+  for (const s of out) {
+    assert.strictEqual(s.attributes['qv2.order.issued'], s.attributes['qv2.order.returned']);
+    assert.strictEqual(s.attributes['qv2.order.issued'], out[0].attributes['qv2.order.issued']);
+  }
+  assert.ok(rcv[0].attributes['qv2.order.returned'] < during && during < out[0].attributes['qv2.order.issued']);
+});
+
+test('order: the outcome after a throw is ordered after the receive', async () => {
+  const { handler, spans } = wrapped(async () => { throw new RangeError('x'); }, { batch: false });
+  await assert.rejects(handler(clone(DOCS), ctx()), RangeError);
+  const [r] = spans('qv2 receive');
+  const [o] = spans('qv2 outcome');
+  assert.strictEqual(o.attributes['qv2.outcome'], 'failed_exception');
+  assert.strictEqual(o.attributes['qv2.order.issued'], o.attributes['qv2.order.returned']);
+  assert.ok(o.attributes['qv2.order.issued'] > r.attributes['qv2.order.returned']);
 });

@@ -22,6 +22,7 @@ const {
   resolveHasher,
 } = require('./contract');
 const { Emitter, makeProvider, nowMs, SERVICE_INSTANCE_ID } = require('./emitter');
+const order = require('./order');
 
 const OPERATION = 'LambdaEvent';
 const DEFAULT_FLUSH_TIMEOUT_MS = 2000;
@@ -115,8 +116,10 @@ class LambdaRecorder {
     const faas = LambdaRecorder.faas(context);
     // Lambda's poller made the ReceiveMessage call, out of sight of the wrapper. All the wrapper
     // knows is that it happened no later than now (contract section 2): the span ends now, and its
-    // start is marked as not observed rather than invented.
+    // start is marked as not observed rather than invented. Likewise the call-order tick (schema
+    // version 3): one "returned" tick for the moment the event arrived, and no "issued" tick.
     const t = nowMs();
+    const returned = order.tick();
     for (const r of records) {
       const arn = r.eventSourceARN;
       const [name, url] = queueFromArn(arn);
@@ -129,21 +132,23 @@ class LambdaRecorder {
       put(attrs, 'qv2.aws_trace_header', a.AWSTraceHeader);
       put(attrs, 'qv2.queue.arn', arn);
       Object.assign(attrs, faas);
-      this.emitter.emit(SPAN_RECEIVE, OPERATION, name, url, attrs, { parentContext, endTime: t, startObserved: false });
+      this.emitter.emit(SPAN_RECEIVE, OPERATION, name, url, attrs, { parentContext, endTime: t, startObserved: false, order: { returned } });
     }
     await this.flush();
   }
 
   async outcomes(records, context, outcomes, errType, parentContext) {
     const faas = LambdaRecorder.faas(context);
+    // The outcome is decided now, after the handler returned or threw: one moment, one tick.
     const t = nowMs();
+    const tick = order.tick();
     for (const r of records) {
       const [name, url] = queueFromArn(r.eventSourceARN);
       const outcome = outcomes[r.messageId];
       const attrs = { 'messaging.message.id': r.messageId, 'qv2.outcome': outcome };
       if (outcome === OUTCOME_FAILED_EXCEPTION) put(attrs, 'qv2.error_type', errType);
       Object.assign(attrs, faas);
-      this.emitter.emit(SPAN_OUTCOME, OPERATION, name, url, attrs, { parentContext, startTime: t, endTime: t });
+      this.emitter.emit(SPAN_OUTCOME, OPERATION, name, url, attrs, { parentContext, startTime: t, endTime: t, order: { issued: tick, returned: tick } });
     }
     await this.flush();
   }
