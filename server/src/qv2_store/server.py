@@ -1,4 +1,5 @@
-"""HTTP server: OTLP/HTTP trace ingest on /v1/traces, and the JSON API under /api/ (docs/store-api.md)."""
+"""HTTP server: OTLP/HTTP trace ingest on /v1/traces, the JSON API under /api/ (docs/store-api.md), and the
+web screen (web.py) on every other GET path."""
 from __future__ import annotations
 
 import gzip
@@ -14,7 +15,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceResponse
 
 from . import __version__
-from . import queries
+from . import queries, web
 from .db import Store
 from .otlp import DecodeError, decode
 from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
@@ -141,9 +142,11 @@ def make_handler(app: App):
         server_version = f"qv2-store/{__version__}"
         protocol_version = "HTTP/1.1"
 
-        def _send(self, status: int, ctype: str, body: bytes):
+        def _send(self, status: int, ctype: str, body: bytes, headers: Optional[dict] = None):
             self.send_response(status)
             self.send_header("Content-Type", ctype)
+            for k, v in (headers or {}).items():
+                self.send_header(k, v)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -194,17 +197,31 @@ def make_handler(app: App):
 
         def do_GET(self):
             u = urlsplit(self.path)
+            q = {k: v[-1] for k, v in parse_qs(u.query).items()}
             if not u.path.startswith("/api/"):
-                self._send(404, "text/plain", b"not found")
+                self._page(u.path, q)
                 return
             try:
-                q = {k: v[-1] for k, v in parse_qs(u.query).items()}
                 self._json(200, app.api(u.path[len("/api/"):], q))
             except ApiError as e:
                 self._json(e.status, {"error": e.message})
             except Exception:
                 log.exception("API request failed")
                 self._json(500, {"error": "internal error"})
+
+        def _page(self, path: str, q: dict):
+            try:
+                r = web.handle(app.api, ApiError, path, q)
+            except Exception:
+                log.exception("page request failed")
+                r = 500, {"Content-Type": "text/plain"}, b"internal error"
+            if r is None:
+                self._send(404, "text/plain", b"not found")
+                return
+            status, headers, body = r
+            headers = dict(headers)
+            ctype = headers.pop("Content-Type", "text/plain")
+            self._send(status, ctype, body, headers)
 
         def log_message(self, fmt, *args):
             log.debug("%s %s", self.address_string(), fmt % args)

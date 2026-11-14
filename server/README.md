@@ -2,7 +2,7 @@
 
 The qv2 store (`qv2-store`): receives the qv2 spans of [`docs/span-contract.md`](../docs/span-contract.md)
 over OTLP/HTTP, keeps them in SQLite, and joins every delete and visibility change to its message by
-receipt-handle hash. The web screen and the container image are built on top of it (separate task).
+receipt-handle hash, and serves a web screen and a JSON API.
 
 ```sh
 pip install -e server            # Python 3.10+, depends only on opentelemetry-proto
@@ -38,6 +38,19 @@ exact delivery whose handle was used. Spans arrive in any order, so the join run
 arrives. A batch delete produces one span per entry, and each entry joins on its own. Hashes made with
 different keys never join. See [`src/qv2_store/db.py`](src/qv2_store/db.py).
 
+## Web screen
+
+Open `http://127.0.0.1:4318/` in a browser (plain server-rendered HTML, no JavaScript):
+
+- `/`: look up a message by ID, and the most recent messages (`?queue=`, `?limit=`).
+- `/message?id=<message ID>`: the message's timeline in order. Steps the store inferred are drawn with a
+  dashed, striped border and an **INFERRED** label, with the time window they fall in and the reason,
+  instead of a time. Notices (such as a receipt-hash key mismatch) are shown above the summary.
+- `/duplicates`: duplicate deliveries (`?reason=received_more_than_once|succeeded_more_than_once`).
+- `/stuck`: stuck messages (`?older_than_s=`, default `--stuck-after`).
+
+The pages are built from the same objects as the JSON API below, so they show exactly what it returns.
+
 ## JSON API
 
 `GET /api/messages/{id}` (timeline), `GET /api/messages` (recent), `GET /api/duplicates`,
@@ -61,5 +74,7 @@ pytest server/tests
   to 0, a stale delete, a poison message moving to the dead-letter queue, Lambda success, failure and
   kill, unobserved receives, clock skew, notices), duplicate deliveries and stuck messages.
 - `test_api.py`: the JSON API over HTTP.
+- `test_web.py`: the web screen over HTTP: inferred steps marked, timeline order, DLQ moves, duplicates and
+  stuck lists, filters, HTML escaping of message IDs, 400 and 404 pages.
 - `test_end_to_end.py`: the real `qv2` boto3 hooks on moto's local SQS emulator export to a running
   store; a batch delete from a second installation (empty handle map) joins all three messages by hash.

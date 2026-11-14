@@ -1,9 +1,10 @@
 # qv2 store API, version 0.1
 
-The qv2 store (`server/`, command `qv2-store`) has two interfaces on one port (default 4318):
+The qv2 store (`server/`, command `qv2-store`) serves three things on one port (default 4318):
 
 - `POST /v1/traces`: OTLP/HTTP trace ingest, for the qv2 packages or the [Collector](../collector/).
-- `GET /api/...`: a read-only JSON API for the web screen, described here.
+- `GET /api/...`: a read-only JSON API, described here.
+- `GET /`, `/message?id=`, `/duplicates`, `/stuck`: the web screen, built from this API (see [`server/README.md`](../server/README.md#web-screen)).
 
 It reads the spans defined in [`span-contract.md`](span-contract.md). Section numbers below ("contract §9")
 refer to that file.
