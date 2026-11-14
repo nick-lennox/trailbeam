@@ -138,16 +138,15 @@ jobs:
       - run: pip install pytest
       - name: Checker unit tests
         run: pytest -q demo/check/tests
-      # The 0.1 check itself. It does not yet pass 200 of 200 (spans are stamped at the response, so the
-      # store can show a receive before its send; see demo/README.md#concurrency-check). It runs on every
-      # push and its counts go to the job summary, but it does not fail the build until that is fixed.
+      # The 0.1 check itself: 200 of 200 complete, in order (no effect shown before its cause), joined,
+      # with the right receive counts and deleted, in each language (demo/README.md#concurrency-check).
+      # It fails the build. The counts, including the pairs left concurrent, go to the job summary.
       - name: Python
         id: python
-        continue-on-error: true
         run: demo/check.sh python 200
       - name: Node.js
         id: node
-        continue-on-error: true
+        if: success() || steps.python.conclusion == 'failure'
         run: demo/check.sh node 200
       - name: Summary
         if: always()
