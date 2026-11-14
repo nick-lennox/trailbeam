@@ -39,40 +39,65 @@ refer to that file.
   "deliveries": 2,
   "successful_deliveries": 1,
   "first_seen": "2025-11-14T00:26:40.030000Z",
-  "last_seen": "2025-11-14T00:27:21.000000Z",
-  "concurrent_groups": 1,
+  "last_seen": "2025-11-14T00:27:20.005000Z",
+  "concurrent_groups": 0,
   "groups": [
-    {"group": 0, "concurrent": true, "label": "concurrent, order unknown", "observed_events": 2,
-     "inferred_events": 1, "start": "2025-11-14T00:26:39.100000Z", "end": "2025-11-14T00:26:40.030000Z"},
-    {"group": 1, "concurrent": false, "label": null, "observed_events": 1, "inferred_events": 0,
-     "start": "2025-11-14T00:27:19.900000Z", "end": "2025-11-14T00:27:20.000000Z"},
-    {"group": 2, "concurrent": false, "label": null, "observed_events": 1, "inferred_events": 0,
-     "start": "2025-11-14T00:27:20.950000Z", "end": "2025-11-14T00:27:21.000000Z"}
+    {"group": 0, "concurrent": false, "label": null, "observed_events": 1, "inferred_events": 0,
+     "ordered_inside": 0, "start": "2025-11-14T00:26:40.000000Z", "end": "2025-11-14T00:26:40.030000Z"},
+    {"group": 1, "...": "..."}, {"group": 2, "...": "..."}, {"group": 3, "...": "..."}
   ],
   "events": [
-    {"type": "received", "inferred": false, "group": 0,
-     "start": "2025-11-14T00:26:39.100000Z", "start_unix_nano": "1763080039100000000",
-     "end": "2025-11-14T00:26:40.020000Z", "end_unix_nano": "1763080040020000000", "start_observed": true,
-     "time": "2025-11-14T00:26:40.020000Z", "time_unix_nano": "1763080040020000000",
-     "queue": "orders", "consumer": {"service_name": "orders-worker", "client_id": "consumer-a", "source": "client", "pid": 4242, "thread_name": "worker-1"},
-     "span": {"trace_id": "8f0c...", "span_id": "0000000000000002"}, "delivery": 1, "receive_count": 1},
-    {"type": "sent", "inferred": false, "group": 0, "start": "2025-11-14T00:26:40.000000Z", "end": "2025-11-14T00:26:40.030000Z", "...": "..."},
-    {"type": "visibility_timeout_expired", "inferred": true, "group": 0, "time": null,
+    {"id": "e1", "type": "sent", "inferred": false, "group": 0,
+     "start": "2025-11-14T00:26:40.000000Z", "start_unix_nano": "1763080040000000000",
+     "end": "2025-11-14T00:26:40.030000Z", "end_unix_nano": "1763080040030000000", "start_observed": true,
+     "time": "2025-11-14T00:26:40.030000Z", "time_unix_nano": "1763080040030000000",
+     "queue": "orders", "consumer": {"service_name": "orders-api", "client_id": "producer", "source": "client", "pid": 4242},
+     "span": {"trace_id": "8f0c...", "span_id": "0000000000000001"}, "after": []},
+    {"id": "e2", "type": "received", "inferred": false, "group": 1,
+     "start": "2025-11-14T00:26:39.100000Z", "end": "2025-11-14T00:26:40.020000Z", "...": "...",
+     "delivery": 1, "receive_count": 1,
+     "sent_timestamp": "2025-11-14T00:26:40.004000Z", "first_receive_timestamp": "2025-11-14T00:26:40.006000Z",
+     "after": [{"event": "e1", "type": "sent", "sources": ["sqs_timestamps"], "source": "sqs_timestamps",
+                "why": "SQS's timestamps show this message was sent (2025-11-14T00:26:40.004000Z) before its first receive (2025-11-14T00:26:40.006000Z)."}]},
+    {"id": "e3", "type": "visibility_timeout_expired", "inferred": true, "group": null, "time": null,
      "window": {"from": "2025-11-14T00:26:39.100000Z", "to": "2025-11-14T00:27:20.000000Z"},
      "reason": "The visibility timeout expired before the message was deleted, so SQS delivered it again.",
-     "queue": "orders", "after_delivery": 1, "before_delivery": 2},
-    {"type": "received", "inferred": false, "group": 1, "...": "...", "delivery": 2, "receive_count": 2},
-    {"type": "deleted", "inferred": false, "group": 2, "...": "...", "delivery": 2, "result": "ok", "status": "final"}
+     "queue": "orders", "after_delivery": 1, "before_delivery": 2,
+     "after": [{"event": "e2", "type": "received", "sources": ["inferred_from"], "source": "inferred_from",
+                "why": "Inferred from receive 1: it came after it."}],
+     "before": {"event": "e4", "type": "received", "sources": ["inferred_from"], "source": "inferred_from",
+                "why": "Inferred from receive 2: it came before it."}},
+    {"id": "e4", "type": "received", "inferred": false, "group": 2, "...": "...", "delivery": 2, "receive_count": 2,
+     "after": [{"event": "e2", "type": "received", "sources": ["clock", "process_order", "receive_count"], "source": "clock",
+                "why": "Receive 1 ended (2025-11-14T00:26:40.020000Z) before this started (2025-11-14T00:27:18.900000Z), on the hosts' clocks. Same process: receive 1 returned before this call was issued. SQS's receive count shows receive 1 (receive count 1) came before this one (receive count 2)."}]},
+    {"id": "e5", "type": "deleted", "inferred": false, "group": 3, "...": "...", "delivery": 2, "result": "ok", "status": "final",
+     "after": [{"event": "e4", "type": "received", "sources": ["process_order"], "source": "process_order",
+                "why": "Same process: receive 2 returned before this call was issued."}]}
   ],
+  "order": {
+    "edges": [
+      {"from": "e1", "to": "e2", "sources": ["sqs_timestamps"]},
+      {"from": "e1", "to": "e4", "sources": ["clock"]},
+      {"from": "e1", "to": "e5", "sources": ["clock"]},
+      {"from": "e2", "to": "e4", "sources": ["clock", "process_order", "receive_count"]},
+      {"from": "e2", "to": "e5", "sources": ["clock", "process_order"]},
+      {"from": "e4", "to": "e5", "sources": ["process_order"]}
+    ],
+    "edges_by_source": {"clock": 4, "process_order": 3, "receive_count": 1, "sqs_timestamps": 1},
+    "conflicts": []
+  },
   "notices": []
 }
 ```
 
 Here the receive's long poll (from 39.100) was already waiting when the message was sent (40.000 to
-40.030), and its response (40.020) came back before the send's: the two intervals overlap, so they
-are one concurrent group and the store does not say which came first. The expiry is in that group
-too: it happened after the receive started, but the clocks do not prove the send ended before it, so
-it is not shown after the send.
+40.030), and its response (40.020) came back before the send's: the clocks can't order the two. SQS's
+own clock can: the receive carries `SentTimestamp` 40.004 and `ApproximateFirstReceiveTimestamp`
+40.006, so the send came first (`sqs_timestamps`). The redelivery's receive count orders the two
+receives, and the consumer's process recorded that it issued the delete after its receive returned
+(`process_order`), even though the delete started in the same millisecond the receive ended. If SQS's
+two timestamps had been equal (the same millisecond, common on a local emulator), the send and receive
+1 would be one "concurrent, order unknown" group.
 
 ### Summary fields
 
@@ -85,29 +110,49 @@ it is not shown after the send.
 | `deliveries` | Number of observed receives, on any queue. |
 | `successful_deliveries` | Deliveries that ended in an accepted delete (counted once per delivery) or a Lambda `success`. More than one means the message was processed more than once. |
 | `first_seen` | Send time (the end of the send call); if the send was not observed, the earliest SQS `SentTimestamp` from a receive. |
-| `groups` | The timeline's groups, in order (below). Each has `group` (its number), `concurrent` (more than one event, observed or inferred), `label` (`"concurrent, order unknown"` or `null`), `observed_events`, `inferred_events`, `start` (earliest start; `null` if any member's start is unknown) and `end` (latest end). |
+| `groups` | The timeline's groups, in order (below). Each has `group` (its number), `concurrent` (more than one event, observed or inferred), `label` (`"concurrent, order unknown"` or `null`), `observed_events`, `inferred_events`, `ordered_inside` (how many `after` entries link two members of the group: pairs inside the group whose order is known), `start` (earliest start; `null` if any member's start is unknown) and `end` (latest end; `null` for a group of inferred events only). |
 | `concurrent_groups` | Number of groups with `concurrent: true`. |
+| `order` | The proven order between observed events (below): `edges` (every directly proven pair, `from` before `to`, with the `sources` that prove it), `edges_by_source` (edges per source) and `conflicts` (edges dropped because the sources contradicted each other). |
 
 ### Events and their order
 
 Each observed event is an interval (contract §2): `start` is just before the SQS request was sent,
 `end` is when its response arrived, and SQS acted somewhere in between. Events are in display order,
-by this rule (contract §9a):
+by these rules (contract §9a):
 
-- **Event A is shown before event B only if A ended before B started** (`A.end < B.start`).
-- Events whose intervals overlap, directly or through a chain of overlapping events, form one
-  **group**. A group with more than one event (observed or inferred) is **concurrent**: its order is unknown, and
-  the screen shows it side by side, labelled "concurrent, order unknown". Inside a group, events are
-  listed by `end` only so that the listing is stable; that order means nothing.
+- **Event A is shown before event B only if an observed fact proves it.** Each fact is a **source**:
+
+  | Source | A is before B when | Wording on the screen |
+  |---|---|---|
+  | `clock` | A ended before B started (`A.end < B.start`), on the hosts' clocks | "Receive 1 ended (...) before this started (...), on the hosts' clocks." |
+  | `process_order` | A and B were made by the same process (same `qv2.order.scope`), and A's call returned before B's was issued (contract §2a) | "Same process: receive 1 returned before this call was issued." |
+  | `receive_count` | A and B are receives on the same queue, and A's `ApproximateReceiveCount` is lower | "SQS's receive count shows receive 1 (receive count 1) came before this one (receive count 2)." |
+  | `sqs_timestamps` | A is the send and B the first receive (receive count 1) on its queue, and B's `SentTimestamp` is earlier than its `ApproximateFirstReceiveTimestamp`. Both come from SQS's clock, which is never compared with a host clock; equal values prove nothing | "SQS's timestamps show this message was sent (...) before its first receive (...)." |
+
+- Order is transitive: A before B by one source and B before C by another puts A before C.
+  `order.edges` lists every directly proven pair, so a client can follow the chain. Each event's
+  `after` lists the events it immediately follows (no other proven event in between), each with its
+  `sources`, `source` (the first of them) and `why` (the sentence the screen shows).
+- The events are listed in an order that agrees with every proven edge, and cut into **groups** at
+  every point where everything before the cut is proven before everything after it. A group with
+  more than one event (observed or inferred) is **concurrent**: the screen shows it as one box
+  labelled "concurrent, order unknown". Some pairs inside a box may still be ordered; their `after`
+  entries say so, and the listing agrees with them. Otherwise the order inside a box (by `end`) only
+  keeps the listing stable and means nothing.
 - An event whose start was not observed (`start: null`, `start_observed: false`: a Lambda receive,
-  where only an upper bound is known) is treated as starting at minus infinity, so it is concurrent
-  with everything that started before its end.
-- Events are **never re-ordered by cause**. If a host's clock is behind, its delete can be shown
-  before the receive whose handle it used (its `delivery` still says which one); the store shows what
-  the clocks say. 0.1 does not correct for clock offset between hosts.
+  where only an upper bound is known) is never after anything by the `clock` or `process_order`
+  sources; the receive count and SQS's timestamps can still order it.
+- Events are **never re-ordered by cause**: a rule such as "a receive comes after its send" or "a
+  release comes before its redelivery" is not a source. If a host's clock is behind, its delete can be
+  shown before the receive whose handle it used (its `delivery` still says which one).
+- If the sources contradict each other (a cycle, for example a host clock that jumped back between
+  two calls of one process), no order is shown between the events on the cycle, the dropped edges are
+  in `order.conflicts`, and an `order_conflict` notice says so. 0.1 does not correct for clock offset
+  between hosts.
 
-Every event has `type`, `inferred` and `group` (its group's number; `null` for an inferred event
-placed between groups).
+Every event has `id` (`e1`, `e2`, ... in display order; valid within one response), `type`,
+`inferred`, `group` (its group's number; `null` for an inferred event alone between two groups) and
+`after`.
 
 **Observed events** (`inferred: false`) come from one qv2 span each, and have `start`, `end`,
 `start_unix_nano`, `end_unix_nano` (strings), `start_observed`, `time` and `time_unix_nano` (the same
@@ -119,7 +164,7 @@ linking to a tracing backend.
 | `type` | Extra fields |
 |---|---|
 | `sent` | `batch_entry_id` (batch sends) |
-| `received` | `delivery` (1, 2, ... in observed order), `receive_count` (SQS `ApproximateReceiveCount`), `sent_timestamp` |
+| `received` | `delivery` (1, 2, ... in observed order), `receive_count` (SQS `ApproximateReceiveCount`), `sent_timestamp`, `first_receive_timestamp` (SQS `ApproximateFirstReceiveTimestamp`) |
 | `deleted` | `delivery`, `result` (`ok`/`failed`), `status`, `error_code`, `batch_entry_id` |
 | `visibility_changed` | `delivery`, `result`, `visibility_timeout_s` (`0` makes the message visible at once), `error_code`, `batch_entry_id` |
 | `lambda_outcome` | `outcome` (`success`, `failed_reported`, `failed_invalid_response`, `failed_exception`), `error_type`, `delivery` |
@@ -141,24 +186,19 @@ receipt-handle hash join (below). It is `null` if no stored receive has that has
 show the user. Show them differently from observed events.
 
 An inferred event is placed by the observed events it was inferred from (its anchors, such as the
-two receives around a visibility-timeout expiry), never by a time of its own, and is **never ordered
-against an observed event it was not inferred from**. Its `window` runs from the earlier anchor's
-`start` (or `null` if unknown) to the later anchor's `end` (`lambda_invocation_ended_without_outcome`:
-the receive's end plus the Lambda timeout). For a visibility-timeout expiry, the earlier anchor is the
-last `ChangeMessageVisibility` SQS accepted for the earlier delivery that ended before the later
-receive started, if there is one (the timer restarted then), else the earlier receive.
-
-- If an observed event that is not an anchor meets the window (it ended at or after `from` and started
-  at or before `to`), it may have happened on either side of the inferred event. The inferred event is
-  then put in that event's group (with its `group` number), so the group is concurrent. If several such
-  events are in different groups, those groups and any between them are **merged into one**: showing
-  them in order would order the inferred event against one of them. Example: a rejected delete of
-  delivery 1 between delivery 1 and its redelivery shares a group with the expiry, since the store
-  cannot tell whether the delete came before or after it.
-- Otherwise it goes just before the later anchor's group (`group` null), or, if that group is
-  concurrent or holds both anchors, inside it. An event with only an earlier anchor
-  (`deleted_by_lambda`, `lambda_invocation_ended_without_outcome`) goes just after that anchor, in the
-  same way.
+two receives around a visibility-timeout expiry), never by a time of its own, and is **ordered against
+another event only through its anchors**: it is after an event exactly when that event is its earlier
+anchor or proven before it, and before an event exactly when that event is its later anchor or proven
+after it. Anything else may have happened on either side of it, so it shares a group with the inferred
+event. Its `after` entry and `before` field name its anchors (source `inferred_from`); these never
+appear in `order.edges` and never order two observed events. Its `window` runs from the earlier
+anchor's `start` (or `null` if unknown) to the later anchor's `end`
+(`lambda_invocation_ended_without_outcome`: the receive's end plus the Lambda timeout). For a
+visibility-timeout expiry, the earlier anchor is the last `ChangeMessageVisibility` SQS accepted for the
+earlier delivery that is proven before the later receive, if there is one (the timer restarted then),
+else the earlier receive. Example: a rejected delete of delivery 1 between delivery 1 and its
+redelivery shares a group with the expiry, since the store cannot tell whether the delete came before
+or after it.
 
 | `type` | When | Extra fields |
 |---|---|---|
@@ -179,6 +219,7 @@ receive started, if there is one (the timer restarted then), else the earlier re
 | `key_mismatch` | A delete or visibility change for this message used a different hash key than its receives, so it cannot be joined. The services do not share `QV2_RECEIPT_HASH_KEY`. |
 | `unmatched_handle` | A delete or visibility change carries this message ID, but no stored receive has its hash. |
 | `send_not_observed` | No send span: the producer is not instrumented, or the send is older than the data. |
+| `order_conflict` | The observed facts contradict each other about the order of some steps (for example, a host clock that jumped), so no order is shown between them; see `order.conflicts`. |
 
 ## `GET /api/messages`: recent messages
 
@@ -246,7 +287,7 @@ whose receive has not arrived (or never will, for example with a different hash 
 ## Known limits in 0.1
 
 - Two queues with the same name in different accounts or regions are merged (contract §6).
-- Time order across hosts relies on their clocks (see "Events and their order"); the store does not
+- The `clock` source across hosts relies on their clocks (see "Events and their order"); the store does not
   correct for clock offset between hosts. The local demo runs everything on one host, one clock.
 - No retention: data is kept until the SQLite file is deleted.
 - List endpoints build a timeline for each listed message, so they are meant for the `limit` sizes the

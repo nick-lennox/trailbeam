@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS spans (
     outcome TEXT, error_type TEXT, batch_entry_id TEXT,
     client_id TEXT, pid INTEGER, thread_name TEXT,
     faas_name TEXT, faas_invocation_id TEXT,
+    order_scope TEXT, order_issued INTEGER, order_returned INTEGER,  -- call order in one process (contract 3)
     attributes TEXT NOT NULL,        -- every span attribute, as JSON
     mid TEXT,                        -- the message this row belongs to (see module docstring)
     mid_source TEXT,                 -- 'span' | 'receipt_hash' | NULL (settle span not joined yet)
@@ -51,10 +52,15 @@ CREATE INDEX IF NOT EXISTS spans_hash ON spans (receipt_hmac, key_id);
 CREATE INDEX IF NOT EXISTS spans_kind_time ON spans (kind, time_ns);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 # Schema 1 had no start_ns. Its rows came from contract v1 spans, stamped only when the response arrived,
-# so their start is not known: they are migrated with start_ns NULL.
-_MIGRATIONS = {"1": "ALTER TABLE spans ADD COLUMN start_ns INTEGER"}
+# so their start is not known: they are migrated with start_ns NULL. Schema 2 had no call-order columns;
+# its rows came from contract v2 spans, which carry none, so they are migrated with NULLs.
+_MIGRATIONS = {
+    "1": ("2", ["ALTER TABLE spans ADD COLUMN start_ns INTEGER"]),
+    "2": ("3", ["ALTER TABLE spans ADD COLUMN order_scope TEXT", "ALTER TABLE spans ADD COLUMN order_issued INTEGER",
+                "ALTER TABLE spans ADD COLUMN order_returned INTEGER"]),
+}
 
 
 class Store:
@@ -71,11 +77,14 @@ class Store:
             self.conn.execute("PRAGMA foreign_keys=ON")
             self.conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
             cur = self.conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
-            if cur is not None and cur[0] != SCHEMA_VERSION:
-                if cur[0] not in _MIGRATIONS:
-                    raise RuntimeError(f"{path}: store schema {cur[0]}, this version needs {SCHEMA_VERSION}")
-                self.conn.execute(_MIGRATIONS[cur[0]])
-                self.conn.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (SCHEMA_VERSION,))
+            version = cur[0] if cur is not None else None
+            while version is not None and version != SCHEMA_VERSION:
+                if version not in _MIGRATIONS:
+                    raise RuntimeError(f"{path}: store schema {version}, this version needs {SCHEMA_VERSION}")
+                version, statements = _MIGRATIONS[version]
+                for sql in statements:
+                    self.conn.execute(sql)
+                self.conn.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (version,))
             self.conn.executescript(SCHEMA)
             if cur is None:
                 self.conn.execute("INSERT INTO meta VALUES ('schema_version', ?)", (SCHEMA_VERSION,))

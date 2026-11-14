@@ -66,7 +66,7 @@ def test_spans_of_other_scopes_are_ignored(server, store):
 
 
 @pytest.mark.parametrize("mutate,reason", [
-    (lambda a: a.update({"qv2.schema_version": 1}), "qv2.schema_version 1 is not 2"),
+    (lambda a: a.update({"qv2.schema_version": 1}), "qv2.schema_version 1 is not one of 2, 3"),
     (lambda a: a.pop("qv2.receipt_handle.hmac"), "receive span without receipt_hmac"),
     (lambda a: a.update({"qv2.kind": "sqs.peek"}), "unknown qv2.kind"),
     (lambda a: a.update({"messaging.message.id": ""}), "receive span without message_id"),
@@ -174,6 +174,7 @@ def test_a_schema_1_database_is_migrated_with_unknown_starts(tmp_path):
     s = Store(path)
     [row] = s.message_rows("m1")
     assert (row["time_ns"], row["start_ns"]) == (5, None)
-    assert s.query("SELECT value FROM meta WHERE key = 'schema_version'")[0][0] == "2"
+    assert (row["order_scope"], row["order_issued"], row["order_returned"]) == (None, None, None)
+    assert s.query("SELECT value FROM meta WHERE key = 'schema_version'")[0][0] == "3"
     s.close()
     Store(path).close()  # opens again without migrating twice

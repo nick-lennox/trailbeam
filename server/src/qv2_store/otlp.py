@@ -13,7 +13,10 @@ from typing import Any, Iterable, Optional
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
 
 SCOPE_NAME = "qv2"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+# Version 2 spans are still read: they only lack the call-order attributes (qv2.order.*), so their
+# steps are ordered by the other sources alone. Version 1 spans are rejected (contract section 12).
+ACCEPTED_SCHEMA_VERSIONS = (2, 3)
 DEFAULT_KEY_ID = "2bd63d10"  # key ID of the published default key, contract section 7
 
 DELETE_OPS = {"DeleteMessage", "DeleteMessageBatch"}
@@ -43,6 +46,9 @@ _FIELDS = {
     "thread.name": ("thread_name", str),
     "faas.name": ("faas_name", str),
     "faas.invocation_id": ("faas_invocation_id", str),
+    "qv2.order.scope": ("order_scope", str),
+    "qv2.order.issued": ("order_issued", int),
+    "qv2.order.returned": ("order_returned", int),
 }
 # time_ns is the span's end (contract section 2: the response arrived); start_ns its start, or None if
 # the start was not observed (qv2.start_observed = false, a Lambda receive).
@@ -175,8 +181,9 @@ def _event_kind(attrs: dict) -> Optional[str]:
 def to_record(resource: dict, trace_id: str, span_id: str, start_ns: int, end_ns: int,
               attrs: dict) -> tuple[Optional[dict], str]:
     """Returns (record, "") or (None, reason)."""
-    if attrs.get("qv2.schema_version") != SCHEMA_VERSION:
-        return None, f"qv2.schema_version {attrs.get('qv2.schema_version')!r} is not {SCHEMA_VERSION}"
+    if attrs.get("qv2.schema_version") not in ACCEPTED_SCHEMA_VERSIONS:
+        return None, (f"qv2.schema_version {attrs.get('qv2.schema_version')!r} is not one of "
+                      f"{', '.join(map(str, ACCEPTED_SCHEMA_VERSIONS))}")
     kind = _event_kind(attrs)
     if kind is None:
         return None, (f"unknown qv2.kind {attrs.get('qv2.kind')!r} / messaging.operation.name "

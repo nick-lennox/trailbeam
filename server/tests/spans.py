@@ -1,4 +1,4 @@
-"""Builders for contract v2 qv2 spans and OTLP requests, for the store tests."""
+"""Builders for contract v3 qv2 spans and OTLP requests, for the store tests."""
 from __future__ import annotations
 
 import hashlib
@@ -53,8 +53,18 @@ class Consumer:
     key: str = KEY
     queue: str = "orders"
 
-    def _s(self, name, t, a, trace_id=None, start=None) -> S:
-        """``t`` is the span's end (the response); ``start`` its start (default: ``t``)."""
+    scope: str | None = None  # qv2.order.scope; None: no call-order attributes (as a v2 span)
+
+    def _s(self, name, t, a, trace_id=None, start=None, order=None) -> S:
+        """``t`` is the span's end (the response); ``start`` its start (default: ``t``). ``order`` is
+        (issued, returned), the call-order counter values (contract section 2a); either may be None."""
+        if order is not None:
+            assert self.scope, "set Consumer(scope=...) to emit call order"
+            a["qv2.order.scope"] = self.scope
+            if order[0] is not None:
+                a["qv2.order.issued"] = order[0]
+            if order[1] is not None:
+                a["qv2.order.returned"] = order[1]
         sp = S(name, t, a, service=self.service, start=start)
         if trace_id:
             sp.trace_id = trace_id
@@ -63,34 +73,37 @@ class Consumer:
     def base(self, kind: str, op_type: str, op: str, queue: str | None) -> dict:
         q = queue or self.queue
         return {
-            "qv2.schema_version": 2, "qv2.kind": kind, "qv2.source": self.source,
+            "qv2.schema_version": 3, "qv2.kind": kind, "qv2.source": self.source,
             "messaging.system.name": "aws.sqs", "messaging.operation.type": op_type,
             "messaging.operation.name": op, "messaging.destination.name": q,
             "aws.sqs.queue.url": f"http://localhost:9324/000000000000/{q}",
             "messaging.client.id": self.client_id, "process.pid": 4242, "thread.name": "worker-1",
         }
 
-    def send(self, t, mid, queue=None, batch_entry=None, trace_id=None, start=None):
+    def send(self, t, mid, queue=None, batch_entry=None, trace_id=None, start=None, order=None):
         a = self.base("sqs.send", "send", "SendMessageBatch" if batch_entry else "SendMessage", queue)
         a["messaging.message.id"] = mid
         if batch_entry:
             a["qv2.batch_entry_id"] = batch_entry
-        return self._s("qv2 send", t, a, trace_id, start)
+        return self._s("qv2 send", t, a, trace_id, start, order)
 
-    def receive(self, t, mid, handle, count=1, queue=None, trace_id=None, sent_ms=None, lambda_inv=None, start=None):
+    def receive(self, t, mid, handle, count=1, queue=None, trace_id=None, sent_ms=None, lambda_inv=None, start=None,
+                first_ms=None, order=None):
         a = self.base("sqs.receive", "receive", "LambdaEvent" if lambda_inv else "ReceiveMessage", queue)
         a.update({"messaging.message.id": mid, "qv2.receive_count": count,
                   "qv2.receipt_handle.hmac": rh_hash(handle, self.key),
                   "qv2.receipt_handle.key_id": key_id(self.key)})
         if sent_ms is not None:
             a["qv2.sent_timestamp_ms"] = sent_ms
+        if first_ms is not None:
+            a["qv2.first_receive_timestamp_ms"] = first_ms
         if lambda_inv:
             # The Lambda wrapper only knows an upper bound (contract section 2).
             a.update({"faas.name": "orders-fn", "faas.invocation_id": lambda_inv, "qv2.start_observed": False})
-        return self._s("qv2 receive", t, a, trace_id, start)
+        return self._s("qv2 receive", t, a, trace_id, start, order)
 
     def delete(self, t, handle, mid=None, ok=True, batch_entry=None, queue=None, trace_id=None,
-               error="ReceiptHandleIsInvalid", start=None):
+               error="ReceiptHandleIsInvalid", start=None, order=None):
         a = self.base("sqs.settle", "settle", "DeleteMessageBatch" if batch_entry else "DeleteMessage", queue)
         a.update({"qv2.receipt_handle.hmac": rh_hash(handle, self.key),
                   "qv2.receipt_handle.key_id": key_id(self.key), "qv2.result": "ok" if ok else "failed"})
@@ -100,9 +113,9 @@ class Consumer:
             a["messaging.message.id"] = mid
         if batch_entry:
             a["qv2.batch_entry_id"] = batch_entry
-        return self._s("qv2 delete", t, a, trace_id, start)
+        return self._s("qv2 delete", t, a, trace_id, start, order)
 
-    def change_visibility(self, t, handle, timeout, mid=None, ok=True, queue=None, start=None):
+    def change_visibility(self, t, handle, timeout, mid=None, ok=True, queue=None, start=None, order=None):
         a = self.base("sqs.settle", "settle", "ChangeMessageVisibility", queue)
         a.update({"qv2.receipt_handle.hmac": rh_hash(handle, self.key),
                   "qv2.receipt_handle.key_id": key_id(self.key), "qv2.result": "ok" if ok else "failed",
@@ -111,15 +124,15 @@ class Consumer:
             a["qv2.error_code"] = "MessageNotInflight"
         if mid:
             a["messaging.message.id"] = mid
-        return self._s("qv2 change_visibility", t, a, start=start)
+        return self._s("qv2 change_visibility", t, a, start=start, order=order)
 
-    def outcome(self, t, mid, outcome, invocation, queue=None, error_type=None):
+    def outcome(self, t, mid, outcome, invocation, queue=None, error_type=None, order=None):
         a = self.base("sqs.outcome", "process", "LambdaEvent", queue)
         a.update({"messaging.message.id": mid, "qv2.outcome": outcome,
                   "faas.name": "orders-fn", "faas.invocation_id": invocation})
         if error_type:
             a["qv2.error_type"] = error_type
-        return self._s("qv2 outcome", t, a)
+        return self._s("qv2 outcome", t, a, order=order)
 
 
 def _value(v) -> AnyValue:

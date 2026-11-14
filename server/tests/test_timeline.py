@@ -223,7 +223,7 @@ def test_overlapping_send_and_receive_are_one_concurrent_group(store, ingest):
     check_marking(t)
     assert groups(t) == [["received", "sent"], ["deleted"]]
     assert t["groups"][0] == {"group": 0, "concurrent": True, "label": "concurrent, order unknown",
-                              "observed_events": 2, "inferred_events": 0,
+                              "observed_events": 2, "inferred_events": 0, "ordered_inside": 0,
                               "start": "2025-11-14T00:26:39.100000Z", "end": "2025-11-14T00:26:40.030000Z"}
     assert t["groups"][1]["concurrent"] is False and t["groups"][1]["label"] is None
     assert t["concurrent_groups"] == 1
@@ -435,3 +435,197 @@ def test_expiry_is_not_shown_after_a_send_that_overlaps_the_first_receive(store,
     t = tl(store, "m1")
     assert groups(t) == [["received", "sent", "visibility_timeout_expired"], ["received"]]
     assert t["groups"][0]["inferred_events"] == 1
+
+
+# -- order sources: each edge says which observed fact proves it (contract section 9a, QV-31) ------
+
+def ev(t, type_, n=0):
+    return [e for e in t["events"] if e["type"] == type_][n]
+
+
+def edge(t, a, b):
+    """The sources of the direct edge a -> b in the API's order.edges, or None."""
+    return next((e["sources"] for e in t["order"]["edges"] if (e["from"], e["to"]) == (a["id"], b["id"])), None)
+
+
+def shown_before(t, a, b):
+    """a is proven before b through the API's edges (a chain is fine)."""
+    succ: dict = {}
+    for e in t["order"]["edges"]:
+        succ.setdefault(e["from"], []).append(e["to"])
+    todo, seen = [a["id"]], set()
+    while todo:
+        x = todo.pop()
+        for y in succ.get(x, []):
+            if y == b["id"]:
+                return True
+            if y not in seen:
+                seen.add(y)
+                todo.append(y)
+    return False
+
+
+def long_poll(c, mid, rh="rh-1", **kw):
+    """A receive whose long poll started before the send (T0) and returned at 20 ms."""
+    return c.receive(T0 + 20 * MS, mid, rh, start=T0 - 900 * MS, **kw)
+
+
+def test_process_order_orders_a_delete_after_its_own_receive_when_the_clocks_tie(store, ingest):
+    """The delete was issued in the same millisecond the receive returned: the clocks can't order them,
+    the process's call counter can."""
+    c = Consumer(scope="proc-1")
+    ingest(c.receive(T0 + 20 * MS, "m1", "rh-1", start=T0, order=(1, 2)),
+           c.delete(T0 + 25 * MS, "rh-1", start=T0 + 20 * MS, order=(3, 4)))
+    t = tl(store, "m1")
+    r, d = ev(t, "received"), ev(t, "deleted")
+    assert edge(t, r, d) == ["process_order"]
+    assert groups(t) == [["received"], ["deleted"]]
+    assert d["after"] == [{"event": r["id"], "type": "received", "sources": ["process_order"],
+                           "source": "process_order",
+                           "why": "Same process: receive 1 returned before this call was issued."}]
+    assert t["order"]["edges_by_source"] == {"clock": 0, "process_order": 1, "receive_count": 0, "sqs_timestamps": 0}
+
+
+def test_process_order_is_never_inferred_across_processes(store, ingest):
+    a, b = Consumer("a", scope="proc-a"), Consumer("b", scope="proc-b")
+    ingest(a.receive(T0 + 20 * MS, "m1", "rh-1", start=T0, order=(1, 2)),
+           b.delete(T0 + 25 * MS, "rh-1", start=T0 + 20 * MS, order=(3, 4)))
+    t = tl(store, "m1")
+    assert t["order"]["edges"] == [] and groups(t) == [["received", "deleted"]]
+
+
+def test_process_order_needs_the_call_to_have_returned_before_the_other_was_issued(store, ingest):
+    """Two calls in flight at once in one process (issued 1, 2; returned 3, 4): no order."""
+    c = Consumer(scope="proc-1")
+    ingest(c.receive(T0 + 20 * MS, "m1", "rh-1", start=T0, order=(1, 3)),
+           c.delete(T0 + 25 * MS, "rh-1", start=T0 + 10 * MS, order=(2, 4)))
+    assert tl(store, "m1")["order"]["edges"] == []
+
+
+def test_receive_count_orders_deliveries_whose_intervals_overlap(store, ingest):
+    a, b = Consumer("a"), Consumer("b")
+    ingest(a.receive(T0 + 20 * MS, "m1", "rh-1", start=T0),
+           b.receive(T0 + 30 * MS, "m1", "rh-2", count=2, start=T0 + 10 * MS))
+    t = tl(store, "m1")
+    r1, r2 = ev(t, "received"), ev(t, "received", 1)
+    assert (r1["receive_count"], r2["receive_count"]) == (1, 2)
+    assert edge(t, r1, r2) == ["receive_count"]
+    assert r2["after"][0]["why"] == ("SQS's receive count shows receive 1 (receive count 1) came before this one "
+                                    "(receive count 2).")
+    # The expiry between them is placed by its anchors; nothing else is in between.
+    assert groups(t) == [["received"], "visibility_timeout_expired", ["received"]]
+
+
+def test_equal_receive_counts_prove_nothing(store, ingest):
+    ingest(Consumer("a").receive(T0 + 20 * MS, "m1", "rh-1", start=T0),
+           Consumer("b").receive(T0 + 30 * MS, "m1", "rh-2", start=T0 + 10 * MS))
+    assert tl(store, "m1")["order"]["edges"] == []
+
+
+def test_sqs_timestamps_order_the_send_before_the_first_receive(store, ingest):
+    """The long-poll case: the clocks can't order the send and the receive, SQS's own clock can."""
+    p, c = Consumer("producer"), Consumer()
+    sent = T0 // MS
+    ingest(p.send(T0 + 30 * MS, "m1", start=T0), long_poll(c, "m1", sent_ms=sent + 3, first_ms=sent + 5))
+    t = tl(store, "m1")
+    s, r = ev(t, "sent"), ev(t, "received")
+    assert edge(t, s, r) == ["sqs_timestamps"]
+    assert groups(t) == [["sent"], ["received"]]
+    assert r["after"][0]["why"] == ("SQS's timestamps show this message was sent (2025-11-14T00:26:40.003000Z) "
+                                    "before its first receive (2025-11-14T00:26:40.005000Z).")
+
+
+def test_sqs_timestamps_in_the_same_millisecond_prove_nothing(store, ingest):
+    p, c = Consumer("producer"), Consumer()
+    sent = T0 // MS
+    ingest(p.send(T0 + 30 * MS, "m1", start=T0), long_poll(c, "m1", sent_ms=sent + 3, first_ms=sent + 3))
+    t = tl(store, "m1")
+    assert t["order"]["edges"] == [] and groups(t) == [["received", "sent"]]
+
+
+def test_sqs_timestamps_order_only_the_first_receive(store, ingest):
+    """Receive count 2 carries the same first-receive timestamp; it says nothing about receive 2 itself."""
+    p, c = Consumer("producer"), Consumer()
+    sent = T0 // MS
+    ingest(p.send(T0 + 30 * MS, "m1", start=T0),
+           long_poll(c, "m1", "rh-2", count=2, sent_ms=sent + 3, first_ms=sent + 5))
+    assert tl(store, "m1")["order"]["edges"] == []
+
+
+def test_order_is_transitive_across_sources_and_the_chain_is_in_the_api(store, ingest):
+    """send -(SQS's timestamps)-> receive 1 -(receive count)-> receive 2 -(process order)-> delete, with
+    every pair overlapping on the clocks."""
+    p, a, b = Consumer("producer"), Consumer("a"), Consumer("b", scope="proc-b")
+    sent = T0 // MS
+    ingest(p.send(T0 + 30 * MS, "m1", start=T0),
+           long_poll(a, "m1", sent_ms=sent + 3, first_ms=sent + 5),
+           b.receive(T0 + 30 * MS, "m1", "rh-2", count=2, start=T0 + 10 * MS, order=(1, 2)),
+           b.delete(T0 + 50 * MS, "rh-2", start=T0 + 30 * MS, order=(3, 4)))
+    t = tl(store, "m1")
+    s, r1, r2, d = ev(t, "sent"), ev(t, "received"), ev(t, "received", 1), ev(t, "deleted")
+    assert (edge(t, s, r1), edge(t, r1, r2), edge(t, r2, d)) == (["sqs_timestamps"], ["receive_count"],
+                                                                 ["process_order"])
+    assert edge(t, s, d) is None and shown_before(t, s, d)
+    assert [e["type"] for e in t["events"]] == ["sent", "received", "visibility_timeout_expired", "received",
+                                                "deleted"]
+    assert t["concurrent_groups"] == 0
+
+
+def test_sources_that_contradict_each_other_order_nothing(store, ingest):
+    """The host clock jumped back 1 s between two calls of one process: the clocks put the delete first,
+    the process's counter puts the receive first. Neither is shown; a notice says why."""
+    c = Consumer(scope="proc-1")
+    ingest(c.receive(T0 + 5 * SEC, "m1", "rh-1", start=T0 + 5 * SEC - MS, order=(1, 2)),
+           c.delete(T0 + 4 * SEC, "rh-1", start=T0 + 4 * SEC - MS, order=(3, 4)))
+    t = tl(store, "m1")
+    assert t["order"]["edges"] == [] and groups(t) == [["deleted", "received"]]
+    assert {(x["sources"][0]) for x in t["order"]["conflicts"]} == {"clock", "process_order"}
+    assert "order_conflict" in [n["code"] for n in t["notices"]]
+
+
+def test_spans_without_call_order_still_work(store, ingest):
+    """Contract v2 spans carry no qv2.order.*: only the other sources apply."""
+    c = Consumer()
+    ingest(c.receive(T0 + 20 * MS, "m1", "rh-1", start=T0), c.delete(T0 + 25 * MS, "rh-1", start=T0 + 20 * MS))
+    assert tl(store, "m1")["order"]["edges"] == []
+
+
+def test_every_event_has_an_id_and_its_after_list_is_proven(store, ingest):
+    c = Consumer(scope="p")
+    ingest(c.send(T0 + 5, "m1", start=T0, order=(1, 2)), c.receive(T0 + SEC, "m1", "rh-1", start=T0 + 10, order=(3, 4)))
+    t = tl(store, "m1")
+    assert [e["id"] for e in t["events"]] == ["e1", "e2"]
+    assert t["events"][1]["after"][0]["sources"] == ["clock", "process_order"]
+    assert t["events"][1]["after"][0]["why"].startswith("The send ended (")
+
+
+def test_qv29_lambda_retry_is_ordered_by_what_the_event_carries(store, ingest):
+    """The QV-29 report's case, one "concurrent, order unknown" box of four before QV-31: send at 0 s,
+    Lambda receive 1 by 1 s, failed outcome at 2 s, receive 2 by 40 s, success at 41 s. The records carry
+    the receive count and SQS's timestamps; the wrapper records the call order in its process.
+
+    Now: SQS's timestamps put the send before receive 1, the receive count puts receive 1 before receive 2,
+    and each handler's outcome is after its own receive. What stays unknown is whether Lambda's poller
+    received delivery 2 before or after handler 1 failed: the wrapper never sees that call, so the
+    failure, the expiry and receive 2 are one concurrent box, and nothing else is."""
+    p = Consumer("producer")
+    fn = Consumer("2026/11/12/[$LATEST]env", source="lambda", scope="env-1")
+    sent = T0 // MS + 2
+    ingest(p.send(T0 + 10 * MS, "m1", start=T0),
+           fn.receive(T0 + SEC, "m1", "rh-1", lambda_inv="inv-1", sent_ms=sent, first_ms=sent + 40, order=(None, 1)),
+           fn.outcome(T0 + 2 * SEC, "m1", "failed_exception", "inv-1", error_type="RuntimeError", order=(2, 2)),
+           fn.receive(T0 + 40 * SEC, "m1", "rh-2", count=2, lambda_inv="inv-2", sent_ms=sent, first_ms=sent + 40,
+                      order=(None, 3)),
+           fn.outcome(T0 + 41 * SEC, "m1", "success", "inv-2", order=(4, 4)))
+    t = tl(store, "m1")
+    check_marking(t)
+    assert groups(t) == [["sent"], ["received"], ["lambda_outcome", "visibility_timeout_expired", "received"],
+                         ["lambda_outcome"], "deleted_by_lambda"]
+    s, r1, r2 = ev(t, "sent"), ev(t, "received"), ev(t, "received", 1)
+    o1, o2 = ev(t, "lambda_outcome"), ev(t, "lambda_outcome", 1)
+    assert edge(t, s, r1) == ["sqs_timestamps"]
+    assert edge(t, r1, r2) == ["receive_count"]
+    assert edge(t, r1, o1) == ["clock", "process_order"] and edge(t, r2, o2) == ["clock", "process_order"]
+    assert not shown_before(t, o1, r2) and not shown_before(t, r2, o1)
+    assert shown_before(t, o1, o2)  # the clocks: outcome 1 at 2 s, outcome 2 at 41 s
+    assert t["concurrent_groups"] == 1
