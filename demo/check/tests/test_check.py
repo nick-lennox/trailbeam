@@ -283,3 +283,127 @@ def test_a_tie_at_the_clock_resolution_is_concurrent_and_counted():
     r = check.evaluate(RETRY_TRUTH, tl)
     assert r["passed"]
     assert r["pairs"]["send->receive"]["concurrent_tied"] == 1
+
+
+# -- the store's proven order (order.edges, QV-31) -------------------------------------------------
+
+def with_order(tl, edges, groups=None):
+    """Give the observed events IDs e1, e2, ... (in listing order) and the store's proven ``order.edges``,
+    given as (from index, to index, sources) over the observed events. ``groups`` overrides their groups."""
+    obs = [e for e in tl["events"] if not e["inferred"]]
+    for i, e in enumerate(obs):
+        e["id"] = f"e{i + 1}"
+        if groups is not None:
+            e["group"] = groups[i]
+    tl["order"] = {"edges": [{"from": obs[a]["id"], "to": obs[b]["id"], "sources": list(src)} for a, b, src in edges]}
+    return tl
+
+
+def one_group(tl):
+    """Every observed event in group 0, with overlapping intervals: the clocks prove nothing."""
+    for e in tl["events"]:
+        if not e["inferred"]:
+            e.update(group=0, start_unix_nano="0", end_unix_nano="100")
+    return tl
+
+
+SIMPLE_TRUTH = [rec("send", 1), rec("receive", 2, rh="a", rc=1), rec("delete", 3, rh="a")]
+
+
+def simple_timeline():
+    return {"state": "deleted", "events": [ev("sent", 1), ev("received", 2, delivery=1, receive_count=1),
+                                           ev("deleted", 3, delivery=1, result="ok", status="final")]}
+
+
+@pytest.mark.parametrize("source,kind,cause,effect", [
+    ("clock", "send->receive", 0, 1),
+    ("sqs_timestamps", "send->receive", 0, 1),
+    ("process_order", "receive->delete", 1, 2),
+    ("clock", "receive->delete", 1, 2),
+])
+def test_a_pair_resolved_by_each_source(source, kind, cause, effect):
+    """The intervals all overlap and every step is in one box, except the one edge the store proves by
+    ``source``: that pair is resolved and attributed to it; the rest stay concurrent."""
+    tl = with_order(one_group(simple_timeline()), [(cause, effect, [source])],
+                    groups=[0, 1, 1] if cause == 0 else [0, 0, 1])
+    r = check.evaluate(SIMPLE_TRUTH, tl)
+    assert r["passed"], r
+    res = r["resolution"][kind]
+    assert (res["pairs"], res["resolved"]) == (1, 1)
+    assert res["direct:" + source] == 1 and res["only:" + source] == 1
+
+
+def test_receive_count_resolves_receive_n_before_receive_n_plus_1():
+    tl = with_order(one_group(retry_timeline()), [(1, 3, ["receive_count"])])
+    r = check.evaluate(RETRY_TRUTH, tl)
+    assert r["passed"], r
+    assert r["resolution"]["receive n->receive n+1"] == {"pairs": 1, "resolved": 1, "direct:receive_count": 1,
+                                                        "only:receive_count": 1}
+    assert r["resolution"]["send->receive"] == {"pairs": 2, "concurrent": 2}
+
+
+def test_release_before_redelivery_resolved_by_process_order():
+    tl = with_order(one_group(retry_timeline()), [(2, 3, ["process_order"])])
+    r = check.evaluate(RETRY_TRUTH, tl)
+    assert r["passed"] and r["resolution"]["release->redelivery"]["resolved"] == 1
+
+
+def test_a_chain_of_sources_resolves_a_pair_and_is_attributed_to_the_chain():
+    """send -(SQS's timestamps)-> receive 1 -(receive count)-> receive 2: the send is before receive 2."""
+    tl = with_order(one_group(retry_timeline()), [(0, 1, ["sqs_timestamps"]), (1, 3, ["receive_count"])],
+                    groups=[0, 1, 1, 1, 1])
+    r = check.evaluate(RETRY_TRUTH, tl)
+    assert r["passed"], r
+    sr = r["resolution"]["send->receive"]
+    assert (sr["resolved"], sr["direct:sqs_timestamps"], sr["via_chain"]) == (2, 1, 1)
+    assert sr["chain:sqs_timestamps"] == 1 and sr["chain:receive_count"] == 1
+
+
+def test_a_store_proof_that_the_effect_came_first_is_a_violation():
+    tl = with_order(one_group(simple_timeline()), [(1, 0, ["clock"])])
+    r = check.evaluate(SIMPLE_TRUTH, tl)
+    assert not r["in_order"] and r["violations"][0]["pair"] == "send->receive"
+
+
+def test_groups_in_order_without_a_proof_are_a_violation():
+    """With order.edges present, a later group must be backed by an edge, even if the intervals agree."""
+    tl = with_order(simple_timeline(), [(1, 2, ["process_order"])])  # send in group 0 but no edge from it
+    r = check.evaluate(SIMPLE_TRUTH, tl)
+    assert not r["in_order"]
+    assert {v["pair"] for v in r["violations"]} == {"send->receive"}
+
+
+def summary_of(timelines):
+    truth, results = {}, {}
+    for i, tl in enumerate(timelines):
+        mid = f"m-{i}"
+        truth[mid] = [dict(r, id=mid) for r in SIMPLE_TRUTH]
+        results[mid] = check.evaluate(truth[mid], tl)
+    return check.summarize(truth, results, len(timelines))
+
+
+def test_floor_fails_when_every_pair_is_concurrent():
+    """Every message passes on its own (nothing shown out of order), but nothing is resolved."""
+    s = summary_of([with_order(one_group(simple_timeline()), []) for _ in range(3)])
+    assert s["passed"] == 3 and s["messages_result"] == "PASS"
+    assert s["resolution"]["send->receive"]["resolved_share"] == 0.0
+    assert s["floor"] == {"min_resolved_share": 0.9, "kinds": ["send->receive", "receive->delete"],
+                          "failed": ["send->receive", "receive->delete"], "result": "FAIL"}
+
+
+def test_floor_counts_the_share_per_kind():
+    """9 of 10 send->receive resolved passes 90%; 8 of 10 receive->delete fails."""
+    tls = []
+    for i in range(10):
+        edges = ([(0, 1, ["sqs_timestamps"])] if i < 9 else []) + ([(1, 2, ["process_order"])] if i < 8 else [])
+        tls.append(with_order(one_group(simple_timeline()), edges,
+                              groups=[0, 0, 0]))
+    s = summary_of(tls)
+    assert (s["resolution"]["send->receive"]["resolved"], s["resolution"]["receive->delete"]["resolved"]) == (9, 8)
+    assert s["floor"]["failed"] == ["receive->delete"]
+    assert s["resolution"]["receive->delete"]["by_source"]["process_order"] == 8
+    assert s["resolution"]["release->redelivery"]["pairs"] == 0  # no floor, reported anyway
+
+
+def test_floor_with_no_pairs_fails():
+    assert check.floor_check(check.resolution_table({}))["result"] == "FAIL"
