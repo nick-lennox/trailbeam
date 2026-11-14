@@ -3,7 +3,9 @@
 Pages:
 
 - ``/``: look up a message by ID, and the most recent messages.
-- ``/message?id=...``: one message's timeline. Inferred steps are drawn differently and labelled "inferred".
+- ``/message?id=...``: one message's timeline. Each observed step shows its interval (request sent to
+  response received). Steps whose intervals overlap are drawn side by side in one box labelled
+  "concurrent, order unknown". Inferred steps are drawn differently and labelled "inferred".
 - ``/duplicates``: duplicate deliveries.
 - ``/stuck``: stuck messages.
 
@@ -73,6 +75,11 @@ ol.timeline li.failed{border-left-color:#c43d3d}
 .when{color:#5b6475;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;margin-right:.6rem}
 .etype{font-weight:600}.detail{color:#3c4352;font-size:.9em;margin-top:.2rem}
 .reason{font-style:italic;margin-top:.2rem}
+ol.timeline li.group{background:none;border:2px dashed #8a94a8;border-left:2px dashed #8a94a8;padding:.4rem .6rem}
+.group-head{font-size:.85em;color:#3c4352;margin-bottom:.2rem}
+.badge-concurrent{background:#5b6475}
+ol.side{list-style:none;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:.5rem}
+ol.side>li{flex:1 1 18rem;margin:0 !important}
 .notice{background:#fff4d6;border:1px solid #e6c25c;padding:.5rem .8rem;margin:.4rem 0;border-radius:3px}
 .error{background:#fde2e2;border:1px solid #d98c8c;padding:.6rem .9rem;border-radius:3px}
 .muted{color:#6b7385}form.filters{margin:.6rem 0 1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
@@ -125,10 +132,15 @@ def _message(api, q: dict) -> Response:
     parts.append(_dd("First seen", _time(t.get("first_seen"))))
     parts.append(_dd("Last seen", _time(t.get("last_seen"))))
     parts.append("</dl>")
-    parts.append('<h2>Timeline</h2><p class="muted">Steps marked <span class="badge">inferred</span> were deduced '
-                 "by the store; no span recorded them, so they have a time window instead of a time.</p>")
+    parts.append('<h2>Timeline</h2><p class="muted">Each step shows when its SQS request was sent and when the '
+                 "response came back; SQS acted somewhere in between. A step is shown above another only if it "
+                 "ended before the other started. Steps in a box marked "
+                 '<span class="badge badge-concurrent">concurrent</span> overlapped in time, so their order is '
+                 "unknown: they are side by side, in no particular order. Steps marked "
+                 '<span class="badge">inferred</span> were deduced by the store; no span recorded them, so they '
+                 "have a time window instead of a time.</p>")
     parts.append('<ol class="timeline">')
-    parts.extend(_event(e) for e in t["events"])
+    parts.extend(_timeline_items(t))
     parts.append("</ol>")
     return _page(200, f'Message {t["message_id"]}', "".join(parts))
 
@@ -163,6 +175,32 @@ def _stuck(api, q: dict) -> Response:
 # ---- pieces -----------------------------------------------------------------------------------
 
 
+def _timeline_items(t: dict) -> list[str]:
+    """One <li> per step, except that each concurrent group is one <li> holding its steps side by side."""
+    concurrent = {g["group"]: g for g in t.get("groups", []) if g.get("concurrent")}
+    out: list[str] = []
+    evs = t["events"]
+    i = 0
+    while i < len(evs):
+        g = evs[i].get("group")
+        if g not in concurrent:
+            out.append(_event(evs[i]))
+            i += 1
+            continue
+        j = i
+        while j < len(evs) and evs[j].get("group") == g:
+            j += 1
+        info = concurrent[g]
+        n = info.get("observed_events", j - i)
+        out.append(f'<li class="group concurrent" data-group="{int(g)}">'
+                   f'<div class="group-head"><span class="badge badge-concurrent">concurrent</span>'
+                   f'<strong>{escape(info.get("label") or "concurrent, order unknown")}</strong>: these {int(n)} '
+                   "steps overlapped in time, so the store cannot tell which happened first.</div>"
+                   '<ol class="side">' + "".join(_event(e) for e in evs[i:j]) + "</ol></li>")
+        i = j
+    return out
+
+
 def _event(e: dict) -> str:
     inferred = bool(e.get("inferred"))
     label = escape(EVENT_LABELS.get(e["type"], e["type"]))
@@ -174,7 +212,7 @@ def _event(e: dict) -> str:
         w = e.get("window") or {}
         head.append(f'<span class="when">between {_time(w.get("from"))} and {_time(w.get("to"))}</span>')
     else:
-        head.append(f'<span class="when">{_time(e.get("time"))}</span>')
+        head.append(f'<span class="when">{_interval(e)}</span>')
     head.append(f'<span class="etype">{label}</span>')
     details = _details(e)
     out = [f'<li class="{" ".join(cls)}" data-type="{escape(e["type"])}" data-inferred="{str(inferred).lower()}">',
@@ -299,6 +337,19 @@ def _time(t: Optional[str]) -> str:
     if not t:
         return '<span class="muted">unknown</span>'
     return f'<time datetime="{escape(t)}">{escape(t.replace("T", " "))}</time>'
+
+
+def _interval(e: dict) -> str:
+    """An observed step's interval: start to end, or only "no later than" the end if the start is unknown."""
+    end = e.get("end") or e.get("time")
+    if not e.get("start"):
+        return f"no later than {_time(end)}"
+    try:
+        dur = (int(e["end_unix_nano"]) - int(e["start_unix_nano"])) / 1e6
+        took = f" ({dur:.1f} ms)" if dur < 10_000 else f" ({dur / 1000:.1f} s)"
+    except (KeyError, TypeError, ValueError):
+        took = ""
+    return f"{_time(e['start'])} to {_time(end)}{escape(took)}"
 
 
 def _age(s) -> str:

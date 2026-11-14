@@ -61,7 +61,12 @@ different keys never join. See [`src/qv2_store/db.py`](src/qv2_store/db.py).
 Open `http://127.0.0.1:4318/` in a browser (plain server-rendered HTML, no JavaScript):
 
 - `/`: look up a message by ID, and the most recent messages (`?queue=`, `?limit=`).
-- `/message?id=<message ID>`: the message's timeline in order. Steps the store inferred are drawn with a
+- `/message?id=<message ID>`: the message's timeline. Each step shows its interval, from when its SQS
+  request was sent to when the response came back (a Lambda receive shows only "no later than", the
+  handler start). A step is drawn above another only if it ended before the other started. Steps whose
+  intervals overlap are drawn side by side in one dashed box labelled **CONCURRENT**, "concurrent,
+  order unknown": the store cannot tell which happened first, and does not guess
+  ([store API](../docs/store-api.md#events-and-their-order)). Steps the store inferred are drawn with a
   dashed, striped border and an **INFERRED** label, with the time window they fall in and the reason,
   instead of a time. Notices (such as a receipt-hash key mismatch) are shown above the summary.
 - `/duplicates`: duplicate deliveries (`?reason=received_more_than_once|succeeded_more_than_once`).

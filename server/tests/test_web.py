@@ -141,3 +141,31 @@ def test_bad_parameter_is_400_page(site):
 def test_unknown_page_is_404(site):
     assert get(site, "/nope")[0] == 404
     assert get(site, "/api/health")[0] == 200  # the JSON API still answers
+
+
+def test_overlapping_steps_are_shown_side_by_side_as_concurrent(server):
+    p, c = Consumer("producer"), Consumer("consumer-a")
+    ms = 1_000_000
+    post(server, [p.send(T0 + 30 * ms, "conc-1", start=T0),
+                  c.receive(T0 + 20 * ms, "conc-1", "rh-c", start=T0 - 900 * ms),   # long poll, overlaps
+                  c.delete(T0 + 60 * ms, "rh-c", start=T0 + 50 * ms)])
+    status, _, html = get(server, page("conc-1"))
+    assert status == 200
+    groups = re.findall(r'<li class="group concurrent" data-group="(\d+)">(.*?)</ol></li>', html)
+    assert len(groups) == 1 and groups[0][0] == "0"
+    inside = groups[0][1]
+    assert "concurrent, order unknown" in inside
+    assert events(inside) == [("received", False), ("sent", False)]
+    assert events(html) == [("received", False), ("sent", False), ("deleted", False)]
+    # The delete is after the group and outside it.
+    assert html.index('data-type="deleted"') > html.index("</ol></li>")
+    # Intervals are shown as start to end.
+    assert "2025-11-14 00:26:40.000000Z</time> to <time" in html and "(30.0 ms)" in html
+    assert "order is unknown" in html  # the explanation above the timeline
+
+
+def test_a_receive_with_an_unknown_start_shows_only_its_upper_bound(server):
+    fn = Consumer("env-1", source="lambda")
+    post(server, [fn.receive(T0, "lam-1", "rh-l", lambda_inv="inv-1"), fn.outcome(T0 + SEC, "lam-1", "success", "inv-1")])
+    _, _, html = get(server, page("lam-1"))
+    assert "no later than <time" in html
