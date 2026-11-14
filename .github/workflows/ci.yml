@@ -138,18 +138,23 @@ jobs:
       - run: pip install pytest
       - name: Checker unit tests
         run: pytest -q demo/check/tests
-      # The 0.1 check itself: 200 of 200 complete, in order (no effect shown before its cause), joined,
-      # with the right receive counts and deleted, in each language (demo/README.md#concurrency-check),
-      # and at least 90% of the send->receive and of the receive->delete pairs resolved (the floor, so the
-      # check can't pass by leaving things concurrent). It fails the build. The counts, including the pairs
-      # resolved and left concurrent per source, go to the job summary.
+      # The 0.1 check on the emulator: 200 of 200 complete, in order (no effect shown before its cause),
+      # joined, with the right receive counts and deleted, in each language (demo/README.md#concurrency-check).
+      # It fails the build. The resolved shares per kind and source are reported in the job summary, but
+      # the 90% floor gates in concurrency-check-aws, not here: ElasticMQ stamps SentTimestamp and
+      # ApproximateFirstReceiveTimestamp in the same millisecond, so send->receive stays concurrent here
+      # for a reason that is the emulator's, not the store's (demo/README.md#the-floor-in-ci).
       - name: Python
         id: python
         run: demo/check.sh python 200
+        env:
+          QV2_CHECK_FLOOR: "0"
       - name: Node.js
         id: node
         if: success() || steps.python.conclusion == 'failure'
         run: demo/check.sh node 200
+        env:
+          QV2_CHECK_FLOOR: "0"
       - name: Summary
         if: always()
         run: |
@@ -161,4 +166,48 @@ jobs:
         if: always()
         with:
           name: concurrency-check-results
+          path: demo/results/
+
+  concurrency-check-aws:
+    # The same check against real SQS in us-east-1, with the 90% floor gating (demo/README.md#the-floor-in-ci).
+    # Needs the repository secrets QV2_AWS_ACCESS_KEY_ID and QV2_AWS_SECRET_ACCESS_KEY (an IAM user limited
+    # to sqs:* on qv2-measure-*). It fails, rather than skips, when they are missing, so the floor can't stop
+    # gating unnoticed. Pull requests from forks get no secrets, so it runs on pushes and same-repo PRs only.
+    name: Concurrency check on real SQS (floor gating)
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    concurrency:
+      group: real-sqs
+      cancel-in-progress: false
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.QV2_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.QV2_AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: us-east-1
+    steps:
+      - uses: actions/checkout@v4
+      - name: The AWS secrets are set
+        run: |
+          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+            echo "::error::Repository secrets QV2_AWS_ACCESS_KEY_ID and QV2_AWS_SECRET_ACCESS_KEY are not set; the send->receive floor can't be checked."
+            exit 1
+          fi
+      # Queues are qv2-measure-<run> and qv2-measure-<run>-dlq, deleted when each run ends.
+      - name: Python
+        id: python
+        run: demo/check.sh --aws python 200
+      - name: Node.js
+        id: node
+        if: success() || steps.python.conclusion == 'failure'
+        run: demo/check.sh --aws node 200
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Concurrency check on real SQS: python ${{ steps.python.outcome }}, node ${{ steps.node.outcome }}"
+            for f in demo/results/*.txt; do echo; echo "\`$f\`"; echo '```'; cat "$f"; echo '```'; done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: concurrency-check-aws-results
           path: demo/results/

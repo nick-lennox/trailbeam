@@ -16,6 +16,9 @@
 # every message passes. The summary and the full report are saved in demo/results/.
 #
 # Set DOCKER to another command if `docker` isn't the Docker CLI (for example DOCKER=docker.exe in WSL).
+# Set QV2_CHECK_FLOOR to change the resolved-share floor (default 0.9, see demo/check/check.py). CI sets it
+# to 0 only for the emulator runs, where ElasticMQ stamps the send and the first receive in the same
+# millisecond; the floor gates in the real-SQS job instead (demo/README.md#the-floor-in-ci).
 set -eu
 
 usage() { echo "usage: $0 [--aws] python|node [count]" >&2; exit 2; }
@@ -109,8 +112,11 @@ done
 
 echo "== comparing the store's timelines with what the processes did"
 status=0
+floor_arg=""
+if [ -n "${QV2_CHECK_FLOOR:-}" ]; then floor_arg="--floor $QV2_CHECK_FLOOR"; fi
+# shellcheck disable=SC2086
 dc run --rm -T --no-deps checker verify --truth "$truth" --count "$count" --store http://qv2:4318 \
-  --report "$truth/report.json" > "results/$run.txt" || status=$?
+  --report "$truth/report.json" $floor_arg > "results/$run.txt" || status=$?
 cat "results/$run.txt"
 dc run --rm -T --no-deps --entrypoint cat checker "$truth/report.json" > "results/$run-report.json" || true
 [ "$wait_status" = 0 ] || status=1

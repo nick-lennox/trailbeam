@@ -190,7 +190,8 @@ before the `ChangeMessageVisibility` returned, usually in another thread.
 `demo/check.sh --aws python|node` runs the unchanged workload against real SQS instead of ElasticMQ
 (the Collector, the store and every process stay on this host). It reads `AWS_ACCESS_KEY_ID` and
 `AWS_SECRET_ACCESS_KEY` from the environment, passes them to the containers by name only, uses queues
-`qv2-measure-<run>` and `<run>-dlq`, and deletes them when the run ends. CI does not run it.
+`qv2-measure-<run>` and `<run>-dlq`, and deletes them when the run ends. CI runs it too (see
+[the floor in CI](#the-floor-in-ci)).
 
 Measured once per language on 2026-11-14, from this machine (WSL 2, Docker Desktop) against SQS in
 `us-east-1`:
@@ -212,9 +213,22 @@ Node.js; receive *n*→*n*+1 is receive count 29.
 
 So on real SQS `SentTimestamp` and `ApproximateFirstReceiveTimestamp` were at least 1 ms apart for every
 one of the 200 first receives in each language, where ElasticMQ tied 196 of 200. The only pairs left
-concurrent are the 29 release→redelivery pairs, which have no floor. CI keeps running against ElasticMQ,
-so its send→receive column still fails the floor; that is the emulator's same-millisecond stamping, not
-the store.
+concurrent are the 29 release→redelivery pairs, which have no floor.
+
+### The floor in CI
+
+CI runs the check twice per language:
+
+- **`concurrency-check` (ElasticMQ).** Gates everything except the floor: 200 of 200 complete, in order,
+  joined, with the right receive counts and final state. It still reports the resolved shares per kind and
+  source in the job summary. It sets `QV2_CHECK_FLOOR=0` because ElasticMQ stamps `SentTimestamp` and
+  `ApproximateFirstReceiveTimestamp` in the same millisecond, so send→receive stays at 4–9% there. That is
+  the emulator's behaviour, not the store's.
+- **`concurrency-check-aws` (real SQS, `us-east-1`).** Runs `check.sh --aws` with the 90% floor gating, as
+  well as everything above. It needs the repository secrets `QV2_AWS_ACCESS_KEY_ID` and
+  `QV2_AWS_SECRET_ACCESS_KEY`. It fails, rather than skips, when they are missing. Fork pull requests get no
+  secrets, so it runs on pushes and same-repo pull requests only. One run at a time (`concurrency: real-sqs`);
+  about 2,000 SQS requests per language (estimated).
 
 ### Earlier result (contract v2, clock intervals only): 200 of 200, with most send/receive pairs left concurrent
 
