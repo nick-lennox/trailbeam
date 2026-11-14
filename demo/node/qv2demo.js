@@ -5,7 +5,9 @@
 //   node qv2demo.js consume --queue orders --consumers 4 --deleter http://deleter:8080
 //   node qv2demo.js deleter --queue orders --port 8080
 //
-// The message kinds and the --truth files are the same as in ../python/qv2demo.py; see there.
+// The message kinds and the --truth files are the same as in ../python/qv2demo.py; see there. The truth is not
+// on the spans' clock to the nanosecond (whole milliseconds here; the spans add a sub-millisecond part), so
+// its lines don't say same_clock_as_spans and the checker doesn't bracket-check Node.js events.
 // "--consumers 4" runs four concurrent receive loops in one process (Node's concurrency model).
 
 const crypto = require('node:crypto');
@@ -39,6 +41,16 @@ const handleHash = (rh) => crypto.createHash('sha256').update(rh).digest('hex').
 // Date.now() once per process, as this did before QV-38, leaves each process on its own clock once the
 // system clock steps or slews: up to ~70 ms apart in QV-35.) The resolution is 1 ms, rounded down.
 const nowNs = () => String(BigInt(Date.now()) * 1000000n);
+
+// The driver asks for SQS's facts itself rather than relying on @qv2/sdk to add them, so the truth doesn't
+// depend on the code under test. A receive's truth line records them (QV-38), null if SQS left one out.
+const RECEIVE_ATTRIBUTES = ['ApproximateReceiveCount', 'SentTimestamp', 'ApproximateFirstReceiveTimestamp'];
+const optInt = (v) => (v === undefined ? null : parseInt(v, 10));
+const sqsFacts = (m) => ({
+  rc: parseInt(m.Attributes.ApproximateReceiveCount, 10),
+  sent_ms: optInt(m.Attributes.SentTimestamp),
+  first_receive_ms: optInt(m.Attributes.ApproximateFirstReceiveTimestamp),
+});
 
 function truthWriter(dir, role) {
   if (!dir) return () => {};
@@ -135,7 +147,7 @@ async function consume(a) {
       const t0 = nowNs();
       try {
         r = await sqs.send(new ReceiveMessageCommand({
-          QueueUrl: url, MaxNumberOfMessages: 10, WaitTimeSeconds: a.wait, MessageSystemAttributeNames: ['ApproximateReceiveCount'],
+          QueueUrl: url, MaxNumberOfMessages: 10, WaitTimeSeconds: a.wait, MessageSystemAttributeNames: RECEIVE_ATTRIBUTES,
         }));
       } catch (e) {
         console.error(`receive failed: ${e.message}`);
@@ -144,7 +156,7 @@ async function consume(a) {
       }
       const t = nowNs();
       for (const m of r.Messages || []) {
-        truth({ op: 'receive', id: m.MessageId, rh: handleHash(m.ReceiptHandle), rc: parseInt(m.Attributes.ApproximateReceiveCount, 10), t_ns: t, result: 'ok', thread: `consumer-${j}`, queue: a.queue, t_start_ns: t0, t_end_ns: t });
+        truth({ op: 'receive', id: m.MessageId, rh: handleHash(m.ReceiptHandle), ...sqsFacts(m), t_ns: t, result: 'ok', thread: `consumer-${j}`, queue: a.queue, t_start_ns: t0, t_end_ns: t });
       }
       for (const m of r.Messages || []) {
         try { await handle(m, j); } catch (e) { console.error(`handling ${m.MessageId} failed: ${e.message}`); }
@@ -162,7 +174,7 @@ async function consume(a) {
       const t0 = nowNs();
       try {
         r = await sqs.send(new ReceiveMessageCommand({
-          QueueUrl: dlqUrl, MaxNumberOfMessages: 10, WaitTimeSeconds: a.wait, MessageSystemAttributeNames: ['ApproximateReceiveCount'],
+          QueueUrl: dlqUrl, MaxNumberOfMessages: 10, WaitTimeSeconds: a.wait, MessageSystemAttributeNames: RECEIVE_ATTRIBUTES,
         }));
       } catch (e) {
         console.error(`dead-letter receive failed: ${e.message}`);
@@ -171,7 +183,7 @@ async function consume(a) {
       }
       const t = nowNs();
       for (const m of r.Messages || []) {
-        truth({ op: 'receive', id: m.MessageId, rh: handleHash(m.ReceiptHandle), rc: parseInt(m.Attributes.ApproximateReceiveCount, 10), t_ns: t, result: 'ok', thread: 'dlq', queue: dlq, t_start_ns: t0, t_end_ns: t });
+        truth({ op: 'receive', id: m.MessageId, rh: handleHash(m.ReceiptHandle), ...sqsFacts(m), t_ns: t, result: 'ok', thread: 'dlq', queue: dlq, t_start_ns: t0, t_end_ns: t });
       }
       for (const m of r.Messages || []) {
         console.log(`dead-letter queue: ${m.MessageId}`);

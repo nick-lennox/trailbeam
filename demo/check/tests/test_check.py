@@ -437,6 +437,115 @@ def test_a_store_that_orders_by_rule_fails_even_with_real_source_labels():
     assert s["floor"]["result"] == "PASS"
 
 
+# The truth as the drivers write it since QV-38: each call in its own process (producer, consumer, deleter)
+# and SQS's own timestamps on the receive, as the honest emulator run gives them (the same millisecond).
+XPROC_TRUTH = [rec("send", 1, host="producer", pid=7),
+               rec("receive", 2, rh="a", rc=1, host="consumer", pid=8, sent_ms=5000, first_receive_ms=5000),
+               rec("delete", 3, rh="a", host="deleter", pid=9, by="deleter")]
+
+
+def fake2(tl):
+    """The reviewer's fake2 (QV-35 section 1): the QV-32 rule edges (send -> receive labelled sqs_timestamps,
+    receive -> its delete labelled process_order), plus made-up facts so that both labels recompute:
+    ApproximateFirstReceiveTimestamp one millisecond after SentTimestamp, and call-order ticks for the
+    receive and the delete in one scope although the deleter is another process."""
+    tl = with_order(tl, [(0, 1, ["sqs_timestamps"]), (1, 2, ["process_order"])], groups=[0, 1, 2], facts=False)
+    sent, rcv, dele = [e for e in tl["events"] if not e["inferred"]]
+    rcv["first_receive_timestamp_ms"] = rcv["sent_timestamp_ms"] + 1
+    rcv["process_order"] = {"scope": "fake", "issued": 1, "returned": 2}
+    dele["process_order"] = {"scope": "fake", "issued": 3, "returned": 4}
+    return tl
+
+
+def xproc_summary(timelines):
+    truth, results = {}, {}
+    for i, tl in enumerate(timelines):
+        mid = f"m-{i}"
+        truth[mid] = [dict(r, id=mid) for r in XPROC_TRUTH]
+        results[mid] = check.evaluate(truth[mid], tl)
+    return check.summarize(truth, results, len(timelines))
+
+
+def test_fake2_with_made_up_facts_fails_against_the_truth():
+    """QV-35 section 1: fake2 passed 200/200 and the gating floor, because every source recomputed from the
+    store's own (made-up) facts. Now the truth records SQS's facts and each call's process, so it fails."""
+    honest = [with_order(concurrent_cross_process_timeline(), []) for _ in range(3)]
+    s = xproc_summary(honest)
+    assert (s["passed"], s["sqs_facts"], s["receives_sqs_facts_compared"]) == (3, 3, 3)
+    assert (s["floor"]["result"], s["result"]) == ("FAIL", "FAIL")  # honest: concurrent, the floor not met
+
+    fakes = [fake2(concurrent_cross_process_timeline()) for _ in range(3)]
+    r = check.evaluate([dict(x, id=MID) for x in XPROC_TRUTH], fakes[0])
+    assert r["in_order"] and r["joined"] and r["receive_count"]  # the checks before QV-38 can't tell
+    assert not r["sqs_facts"] and not r["passed"]
+    assert r["facts"]["sqs_facts_wrong"] == [{"event": "e2", "delivery": 1,
+                                             "store": {"sent_ms": 5000, "first_receive_ms": 5001},
+                                             "truth": {"sent_ms": 5000, "first_receive_ms": 5000}}]
+    # The made-up ticks recompute, but the truth shows the receive and the delete in two processes.
+    assert not r["edges_verified"]
+    assert [(u["from"], u["to"], u["not_recomputed"]) for u in r["edges"]["unverified"]] == [
+        ("e2", "e3", ["process_order"])]
+    s = xproc_summary(fakes)
+    assert (s["passed"], s["sqs_facts"], s["receives_sqs_facts_wrong"], s["result"]) == (0, 0, 3, "FAIL")
+    assert s["floor"]["result"] == "PASS"  # the floor alone would still pass: the labels resolve every pair
+
+
+@pytest.mark.parametrize("store", [{"first_receive_timestamp_ms": None}, {"sent_timestamp_ms": 4999},
+                                   {"first_receive_timestamp_ms": 5000, "sent_timestamp_ms": 5000}])
+def test_a_receive_must_show_the_sqs_facts_the_driver_saw(store):
+    tl = concurrent_cross_process_timeline()
+    rcv = tl["events"][1]
+    for k, v in store.items():
+        if v is None:
+            rcv.pop(k)
+        else:
+            rcv[k] = v
+    r = check.evaluate(XPROC_TRUTH, tl)
+    ok = store == {"first_receive_timestamp_ms": 5000, "sent_timestamp_ms": 5000}
+    assert r["sqs_facts"] is ok and r["passed"] is ok
+
+
+def test_truth_from_before_qv38_has_no_sqs_facts_to_compare():
+    tl = concurrent_cross_process_timeline()
+    tl["events"][1]["first_receive_timestamp_ms"] = 1  # can't be caught without the facts in the truth
+    r = check.evaluate(SIMPLE_TRUTH, tl)
+    assert r["sqs_facts"] and r["facts"]["receives_compared"] == 0
+
+
+def test_process_order_between_two_processes_fails_even_if_the_ticks_recompute():
+    tl = with_order(simple_timeline(), [(0, 1, ["clock"]), (1, 2, ["process_order"])])
+    assert check.evaluate(SIMPLE_TRUTH, tl)["edges_verified"]  # one process (pid 1 on host h): holds
+    r = check.evaluate([dict(x, pid=2) if x["op"] == "delete" else x for x in SIMPLE_TRUTH], tl)
+    assert not r["edges_verified"] and r["edges"]["unverified"][0]["not_recomputed"] == ["process_order"]
+
+
+def bracketed(truth, same_clock=True, slack=1):
+    """The truth with brackets around ev()'s default interval [10 t, 10 t + 5]."""
+    return [dict(r, t_start_ns=10 * r["t_ns"] - slack, t_end_ns=10 * r["t_ns"] + 5 + slack,
+                 **({"same_clock_as_spans": True} if same_clock else {})) for r in truth]
+
+
+def test_python_events_must_lie_within_their_calls_brackets():
+    r = check.evaluate(bracketed(SIMPLE_TRUTH), simple_timeline())
+    assert r["passed"], r
+    assert r["facts"]["events_in_brackets_checked"] == 3
+    r = check.evaluate(bracketed(SIMPLE_TRUTH, slack=0), simple_timeline())
+    assert r["in_brackets"]  # the bracket's ends are inclusive
+    tl = simple_timeline()
+    tl["events"][1]["end_unix_nano"] = str(27)  # the receive "returned" 1 ns after the driver saw it return
+    r = check.evaluate(bracketed(SIMPLE_TRUTH), tl)
+    assert not r["in_brackets"] and not r["passed"]
+    assert r["facts"]["outside_brackets"] == [{"event": None, "op": "receive", "store": [20, 27], "truth": [19, 26]}]
+
+
+def test_truth_on_another_clock_than_the_spans_is_not_bracket_checked():
+    """Node.js: the truth's whole milliseconds and the spans' sub-millisecond times can't be compared exactly."""
+    tl = simple_timeline()
+    tl["events"][1]["end_unix_nano"] = str(27)
+    r = check.evaluate(bracketed(SIMPLE_TRUTH, same_clock=False), tl)
+    assert r["in_brackets"] and r["facts"]["events_in_brackets_checked"] == 0
+
+
 def test_an_edge_whose_sources_recompute_passes():
     tl = with_order(concurrent_cross_process_timeline(), [(0, 1, ["sqs_timestamps"])], groups=[0, 1, 1])
     tl["events"][1].update(first_receive_timestamp_ms=5001)  # SQS's stamps differ: the source holds

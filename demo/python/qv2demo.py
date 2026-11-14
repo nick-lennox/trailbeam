@@ -17,7 +17,10 @@ Every message body is {"kind": ..., "n": ...}. What the consumer does depends on
 
 With --truth DIR each process writes what it really did, one JSON line per SQS call, to its own file in DIR.
 Each line brackets the call: ``t_start_ns`` just before it was made, ``t_end_ns`` just after it returned (one
-clock, the host's). ``t_ns`` is kept as before: the start for a send or settle, the end for a receive.
+clock, the host's: ``time.time_ns()``, which the qv2 hooks also read for the spans, so every line says
+``same_clock_as_spans``). ``t_ns`` is kept as before: the start for a send or settle, the end for a receive.
+A receive line also has SQS's own facts from the same response (QV-38): ``rc`` (ApproximateReceiveCount),
+``sent_ms`` (SentTimestamp) and ``first_receive_ms`` (ApproximateFirstReceiveTimestamp), null if SQS left one out.
 The concurrency check (demo/check/check.py) compares those files with the timelines in the qv2 store.
 Only message kinds and numbers go in the bodies; nothing is read from AWS.
 """
@@ -76,10 +79,24 @@ class Truth:
     def write(self, **kw):
         if self.f is None:
             return
-        kw.update(pid=os.getpid(), host=socket.gethostname(), thread=threading.current_thread().name)
+        kw.update(pid=os.getpid(), host=socket.gethostname(), thread=threading.current_thread().name,
+                  same_clock_as_spans=True)
         with self.lock:
             self.f.write(json.dumps(kw) + "\n")
             self.f.flush()
+
+
+# The driver asks for SQS's facts itself rather than relying on the qv2 hooks to add them, so the truth doesn't
+# depend on the code under test.
+RECEIVE_ATTRIBUTES = ["ApproximateReceiveCount", "SentTimestamp", "ApproximateFirstReceiveTimestamp"]
+
+
+def sqs_facts(m) -> dict:
+    """SQS's own facts about one received message, for its truth line."""
+    a = m.get("Attributes", {})
+    opt = lambda k: int(a[k]) if k in a else None  # noqa: E731
+    return {"rc": int(a["ApproximateReceiveCount"]), "sent_ms": opt("SentTimestamp"),
+            "first_receive_ms": opt("ApproximateFirstReceiveTimestamp")}
 
 
 def sqs_client():
@@ -172,16 +189,15 @@ def consume(args):
             t0 = time.time_ns()
             try:
                 r = sqs.receive_message(QueueUrl=url, MaxNumberOfMessages=10, WaitTimeSeconds=args.wait,
-                                        MessageSystemAttributeNames=["ApproximateReceiveCount"])
+                                        MessageSystemAttributeNames=RECEIVE_ATTRIBUTES)
             except Exception as e:
                 print(f"receive failed: {e}", file=sys.stderr)
                 stop.wait(1)
                 continue
             t = time.time_ns()
             for m in r.get("Messages", []):
-                truth.write(op="receive", id=m["MessageId"], rh=handle_hash(m["ReceiptHandle"]),
-                            rc=int(m["Attributes"]["ApproximateReceiveCount"]), t_ns=t, result="ok",
-                            queue=args.queue, t_start_ns=t0, t_end_ns=t)
+                truth.write(op="receive", id=m["MessageId"], rh=handle_hash(m["ReceiptHandle"]), **sqs_facts(m),
+                            t_ns=t, result="ok", queue=args.queue, t_start_ns=t0, t_end_ns=t)
             for m in r.get("Messages", []):
                 try:
                     handle(m)
@@ -197,16 +213,15 @@ def consume(args):
             t0 = time.time_ns()
             try:
                 r = sqs.receive_message(QueueUrl=dlq_url, MaxNumberOfMessages=10, WaitTimeSeconds=args.wait,
-                                        MessageSystemAttributeNames=["ApproximateReceiveCount"])
+                                        MessageSystemAttributeNames=RECEIVE_ATTRIBUTES)
             except Exception as e:
                 print(f"dead-letter receive failed: {e}", file=sys.stderr)
                 stop.wait(1)
                 continue
             t = time.time_ns()
             for m in r.get("Messages", []):
-                truth.write(op="receive", id=m["MessageId"], rh=handle_hash(m["ReceiptHandle"]),
-                            rc=int(m["Attributes"]["ApproximateReceiveCount"]), t_ns=t, result="ok", queue=dlq,
-                            t_start_ns=t0, t_end_ns=t)
+                truth.write(op="receive", id=m["MessageId"], rh=handle_hash(m["ReceiptHandle"]), **sqs_facts(m),
+                            t_ns=t, result="ok", queue=dlq, t_start_ns=t0, t_end_ns=t)
             for m in r.get("Messages", []):
                 print(f"dead-letter queue: {m['MessageId']}", flush=True)
                 t = time.time_ns()

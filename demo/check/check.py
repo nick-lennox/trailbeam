@@ -30,6 +30,18 @@ JSON API (GET /api/messages/{id}) and checks, per message:
 - joined:        every delete and visibility change is attached to the delivery whose receipt handle it
                  really used, and has the same result (ok / failed) as the real call;
 - receive count: every receive (by delivery number) shows the real ApproximateReceiveCount;
+- sqs facts:     every receive shows the SentTimestamp and ApproximateFirstReceiveTimestamp SQS really returned
+                 for it (QV-38): the drivers write both into the truth (``sent_ms``, ``first_receive_ms``),
+                 and the store's ``sent_timestamp_ms`` / ``first_receive_timestamp_ms`` must equal them, a
+                 missing value included. The ``sqs_timestamps`` source is recomputed from these fields, so
+                 a store that makes them up to resolve a send->receive pair fails here;
+- in brackets:   where the truth says its brackets read the same clock as the spans (``same_clock_as_spans``:
+                 the Python driver, whose truth and spans both read ``time.time_ns()``), every observed
+                 event's start and end lie within its call's truth bracket (``t_start_ns`` <= start <= end
+                 <= ``t_end_ns``). The ``clock`` source is recomputed from these times. Node.js truth is
+                 not checked this way: its spans add a sub-millisecond part to ``Date.now()`` that the
+                 truth's whole milliseconds don't have (node/src/emitter.js), so ``in_brackets`` holds
+                 there with nothing checked, and ``events_checked_in_brackets`` in the summary says so;
 - final:         the message's state is ``deleted``;
 - dlq move:      the timeline shows a move to a dead-letter queue exactly when the truth has the message
                  received on a second queue (``--mix check-dlq``, ``demo/check.sh --dlq``): one observed
@@ -44,7 +56,7 @@ not overlap: they share a group only through other overlapping steps. ``concurre
 where the cause ended at exactly the effect's start, a tie at the clock's resolution. Each check is evaluated on its own: joined and receive count compare the events regardless of the order
 the store shows them in, so a message that fails only on order still reports its joins and receive counts.
 The summary counts each check separately, plus the messages that fail on order alone. A message passes
-only if all seven hold. The run passes only if every message passes **and** the floor holds (unless
+only if all nine hold. The run passes only if every message passes **and** the floor holds (unless
 --floor-report-only, which demo/check.sh uses on the emulator: the floor is then reported, not gated): at least 90%
 (--floor) of the send->receive pairs and of the receive->delete pairs are resolved, so that the check
 can't pass by leaving things concurrent. ``resolution`` in the summary gives, per kind (send->receive,
@@ -69,7 +81,8 @@ import urllib.request
 
 TRUTH_OPS = ("send", "receive", "change_visibility", "delete")
 STORE_TYPES = {"sent": "send", "received": "receive", "visibility_changed": "change_visibility", "deleted": "delete"}
-CHECKS = ("complete", "in_order", "edges_verified", "joined", "receive_count", "final", "dlq_move")
+CHECKS = ("complete", "in_order", "edges_verified", "joined", "receive_count", "sqs_facts", "in_brackets", "final",
+          "dlq_move")
 # Contract 3.1, section 9b: the store shows a move to a dead-letter queue only when SQS reports it.
 DLQ_MOVE = "moved_to_dead_letter_queue"
 DLQ_SOURCE = "sqs_dlq_source"
@@ -292,6 +305,43 @@ def truth_bounds(r: dict) -> tuple:
     return _ns(start), _ns(end)
 
 
+def same_process(ta, tb) -> bool:
+    """Whether the truth shows two calls made by one process. A call missing from the truth can't be shown in
+    another process, so it doesn't fail here (completeness is its own check)."""
+    if ta is None or tb is None:
+        return True
+    return (ta.get("host"), ta.get("pid")) == (tb.get("host"), tb.get("pid"))
+
+
+def check_facts(matched: list) -> dict:
+    """SQS's own facts and the events' times, compared with the truth (QV-38; see the module docstring).
+
+    ``sqs_facts`` fails a receive whose store ``sent_timestamp_ms`` or ``first_receive_timestamp_ms`` differs
+    from what the driver saw in the same response (``sent_ms``, ``first_receive_ms`` in its truth line). A truth
+    line from before QV-38 has neither, and is not compared. ``in_brackets`` fails an event whose start or end
+    lies outside its call's truth bracket, where the truth reads the spans' clock (``same_clock_as_spans``).
+    ``matched`` is the (store event, truth call) pairs, matched by key (op, delivery, n) as in check_order, so
+    an event is compared whether or not the store gives it an ID."""
+    facts_wrong, compared, outside, bracketed = [], 0, [], 0
+    for d, t in matched:
+        if d["op"] == "receive" and ("sent_ms" in t or "first_receive_ms" in t):
+            compared += 1
+            got = {"sent_ms": d["sent_ms"], "first_receive_ms": d["first_receive_ms"]}
+            want = {"sent_ms": t.get("sent_ms"), "first_receive_ms": t.get("first_receive_ms")}
+            if {k: _ns(v) for k, v in got.items()} != {k: _ns(v) for k, v in want.items()}:
+                facts_wrong.append({"event": d["id"], "delivery": d["delivery"], "store": got, "truth": want})
+        if t.get("same_clock_as_spans"):
+            lo, hi = truth_bounds(t)
+            if lo is None or hi is None:
+                continue
+            bracketed += 1
+            start, end = d["start"], d["end"]
+            if start is None or end is None or not lo <= start <= end <= hi:
+                outside.append({"event": d["id"], "op": d["op"], "store": [start, end], "truth": [lo, hi]})
+    return {"receives_compared": compared, "sqs_facts_wrong": facts_wrong,
+            "events_in_brackets_checked": bracketed, "outside_brackets": outside}
+
+
 def truth_keys(truth: list) -> dict:
     """The truth calls of one message by key (op, delivery, n), as in cause_effect_pairs."""
     seen, out = collections.Counter(), {}
@@ -306,6 +356,9 @@ def verify_edges(timeline: dict, details: list, truth_of: dict) -> dict:
 
     - **source**: each source an edge claims must recompute (:func:`source_holds`) from the two events'
       facts. An edge with no source, or between events that are not observed steps, fails too.
+    - **process**: a ``process_order`` source holds only between two calls the truth shows were made by one
+      process (same ``host`` and ``pid``): the call-order scope is a process (Python) or a realm in one
+      (Node.js), so equal scopes across two processes are made up (QV-38).
     - **truth**: every order the edges imply (their transitive closure) is compared with the truth files.
       A before B is contradicted when the truth shows B's call returned before A's call was made
       (``B.t_end_ns < A.t_start_ns``). That is the only thing one host's brackets can prove; it holds for any
@@ -319,7 +372,8 @@ def verify_edges(timeline: dict, details: list, truth_of: dict) -> dict:
     succ = collections.defaultdict(set)
     for e in edges:
         a, b, sources = by_id.get(e.get("from")), by_id.get(e.get("to")), list(e.get("sources") or [])
-        bad = [s for s in sources if a is None or b is None or not source_holds(s, a, b)]
+        bad = [s for s in sources if a is None or b is None or not source_holds(s, a, b)
+               or (s == "process_order" and not same_process(truth_of.get(a["id"]), truth_of.get(b["id"])))]
         if not sources or bad:
             unverified.append({"from": e.get("from"), "to": e.get("to"), "sources": sources,
                                "not_recomputed": bad if sources else ["(no source)"]})
@@ -419,6 +473,7 @@ def check_order(truth: list, timeline: dict) -> dict:
             "resolution": {k: dict(v) for k, v in resolution.items()},
             "violations": violations,
             "edges": verify_edges(timeline, observed_details(timeline), truth_of),
+            "facts": check_facts([(d, keyed[k]) for k, d in found.items() if k in keyed]),
             "concurrent_groups": sum(n > 1 for n in groups.values())}
 
 
@@ -456,10 +511,12 @@ def evaluate(truth: list, timeline) -> dict:
               == collections.Counter((e[0], e[1], e[2]) for e in want if e[0] in settles))
     receive_count = (collections.Counter((e[1], e[3]) for e in got if e[0] == "receive")
                      == collections.Counter((e[1], e[3]) for e in want if e[0] == "receive"))
+    facts = order["facts"]
     final = timeline.get("state") == "deleted"
     moves = dlq_moves(truth, timeline)
     res = {"found": True, "complete": complete, "in_order": in_order, "edges_verified": edges_verified, "joined": joined,
-           "receive_count": receive_count, "final": final, "dlq_move": moves["ok"]}
+           "receive_count": receive_count, "sqs_facts": not facts["sqs_facts_wrong"],
+           "in_brackets": not facts["outside_brackets"], "final": final, "dlq_move": moves["ok"]}
     res["passed"] = all(res[c] for c in CHECKS)
     res["expected"] = [w[0] for w in want]
     res["observed"] = [g[0] for g in got]
@@ -467,6 +524,7 @@ def evaluate(truth: list, timeline) -> dict:
     res["resolution"] = order["resolution"]
     res["violations"] = order["violations"]
     res["edges"] = order["edges"]
+    res["facts"] = facts
     res["concurrent_groups"] = order["concurrent_groups"]
     res["inferred"] = [e["type"] for e in timeline.get("events", []) if e.get("inferred")]
     res["notices"] = [n["code"] for n in timeline.get("notices", [])]
@@ -550,6 +608,13 @@ def summarize(truth_by_id: dict, results: dict, count: int, floor: float = FLOOR
         "implied_orders_checked": sum(results[m].get("edges", {}).get("implied", 0) for m in sent),
         "implied_orders_contradicting_truth": sum(len(results[m].get("edges", {}).get("contradicted", []))
                                                   for m in sent),
+        # SQS's own facts and the events' times against the truth (QV-38), with how much was compared, so a
+        # pass with nothing compared shows as such.
+        "receives_sqs_facts_compared": sum(results[m].get("facts", {}).get("receives_compared", 0) for m in sent),
+        "receives_sqs_facts_wrong": sum(len(results[m].get("facts", {}).get("sqs_facts_wrong", [])) for m in sent),
+        "events_checked_in_brackets": sum(results[m].get("facts", {}).get("events_in_brackets_checked", 0)
+                                          for m in sent),
+        "events_outside_brackets": sum(len(results[m].get("facts", {}).get("outside_brackets", [])) for m in sent),
         "with_change_visibility": sum(any(r["op"] == "change_visibility" for r in truth_by_id[m]) for m in sent),
         "deleted_by_another_process": sum(any(r.get("by") == "deleter" for r in truth_by_id[m]) for m in sent),
         "received_more_than_once": sum(sum(r["op"] == "receive" for r in truth_by_id[m]) > 1 for m in sent),
@@ -630,7 +695,11 @@ def cmd_verify(args) -> int:
               + (f"; violated pairs {r['violations']}" if r.get("violations") else "")
               + (f"; edges not recomputed {r['edges']['unverified'][:3]}" if r.get("edges", {}).get("unverified") else "")
               + (f"; edges against the truth {r['edges']['contradicted'][:3]}"
-                 if r.get("edges", {}).get("contradicted") else ""), flush=True)
+                 if r.get("edges", {}).get("contradicted") else "")
+              + (f"; SQS facts against the truth {r['facts']['sqs_facts_wrong'][:3]}"
+                 if r.get("facts", {}).get("sqs_facts_wrong") else "")
+              + (f"; times outside the truth's brackets {r['facts']['outside_brackets'][:3]}"
+                 if r.get("facts", {}).get("outside_brackets") else ""), flush=True)
     return 0 if summary["result"] == "PASS" else 1
 
 

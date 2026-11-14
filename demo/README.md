@@ -104,6 +104,8 @@ passes only if its timeline is:
 | `edges_verified` | every edge the store claims in `order.edges` holds: each of its sources recomputes from the events' facts, and no order the edges imply contradicts the truth files (below) |
 | `joined` | each delete and visibility change is attached to the delivery whose receipt handle was really used, with the real result |
 | `receive_count` | each receive shows the real `ApproximateReceiveCount` |
+| `sqs_facts` | each receive shows the `SentTimestamp` and `ApproximateFirstReceiveTimestamp` SQS really returned for it (below) |
+| `in_brackets` | Python only: each step's start and end lie inside its call's truth bracket (below) |
 | `final` | the message's state is `deleted` |
 | `dlq_move` | the timeline shows a move to a dead-letter queue exactly when the message was received on a second queue: observed (`source: sqs_dlq_source`), from the first queue to the second, and never inferred |
 
@@ -149,6 +151,29 @@ before A's was made. That is the only order one host's brackets prove, and it is
 return before B is issued, which is inside both brackets. It catches a false edge between any two steps,
 including two no cause links (a stale delete and the next receive). The summary counts `edges_checked` and
 `implied_orders_checked`, and the failures `edges_unverified` and `implied_orders_contradicting_truth`.
+
+**The facts are checked too** (QV-38). Recomputing a source only proves the store's facts agree with its
+edges. A store whose facts are wrong (QV-35's "fake2": `first_receive_timestamp_ms` one millisecond after
+`sent_timestamp_ms`, and call-order ticks in one scope for a receive and a delete made in two processes)
+passed every check above and the floor. So the truth files now record the facts too, and the checker
+compares them:
+
+- `sqs_facts`: each driver asks SQS for `SentTimestamp` and `ApproximateFirstReceiveTimestamp` itself (not
+  through the qv2 hooks) and writes them on the receive's truth line (`sent_ms`, `first_receive_ms`, with `rc`).
+  The store's `sent_timestamp_ms` and `first_receive_timestamp_ms` must be equal to them, and a missing value
+  counts as different. Summary: `receives_sqs_facts_compared`, `receives_sqs_facts_wrong`.
+- `process_order` holds only between two calls the truth shows were made by one process (same `host` and
+  `pid`), since the call-order scope is a process (Python) or a realm in one (Node.js). Otherwise the edge
+  fails `edges_verified`.
+- `in_brackets`: the Python driver's truth and the qv2 hooks' spans both read `time.time_ns()`, so each truth
+  line says `same_clock_as_spans`, and each step's `start` and `end` must lie inside its call's bracket
+  (`t_start_ns <= start <= end <= t_end_ns`). That checks the times the `clock` source is recomputed from.
+  Node.js lines don't say it: the truth has whole milliseconds and the spans add a sub-millisecond part,
+  so the two can't be compared to the nanosecond, and `in_brackets` holds there with nothing compared.
+  Summary: `events_checked_in_brackets` (0 for Node.js), `events_outside_brackets`.
+
+Call-order ticks within one process are not recorded in the truth. A false order between two steps of one
+process still fails, because the truth contradicts it (above).
 
 **The floor.** So that `in_order` cannot pass by leaving things concurrent, the run also fails unless at
 least 90% of the send→receive pairs and 90% of the receive→delete pairs are resolved (`floor` in the
