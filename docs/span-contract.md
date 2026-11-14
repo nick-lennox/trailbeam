@@ -1,0 +1,322 @@
+# qv2 span contract, schema version 1
+
+This file defines the OpenTelemetry spans that the `qv2` Python package and the `@qv2/sdk` Node.js
+package emit, and that the qv2 store reads. Both packages and the store are built and tested against
+it. A change to anything below is a contract change: bump `qv2.schema_version`, and update this file,
+both packages and the store in the same change.
+
+The keywords **must**, **must not**, **should** and **may** are used as in RFC 2119.
+
+## 1. Summary
+
+| Span name | `qv2.kind` | `messaging.operation.type` | Emitted by | When |
+|---|---|---|---|---|
+| `qv2 send` | `sqs.send` | `send` | client hooks | once per message that SQS accepted in `SendMessage` / `SendMessageBatch` |
+| `qv2 receive` | `sqs.receive` | `receive` | client hooks, Lambda wrapper | once per message returned by `ReceiveMessage`, or once per record in a Lambda SQS event |
+| `qv2 delete` | `sqs.settle` | `settle` | client hooks | once per receipt handle in `DeleteMessage` / `DeleteMessageBatch` |
+| `qv2 change_visibility` | `sqs.settle` | `settle` | client hooks | once per receipt handle in `ChangeMessageVisibility` / `ChangeMessageVisibilityBatch` |
+| `qv2 outcome` | `sqs.outcome` | `process` | Lambda wrapper | once per record, after the handler returns or throws |
+
+"Client hooks" are the boto3 hooks (Python) and the AWS SDK v3 hooks (Node.js). "Lambda wrapper" is
+the handler wrapper in each package. In 0.1, `qv2 outcome` comes only from the Lambda wrappers; for
+other consumers, the outcome of processing is the `qv2 delete` (or its absence).
+
+The store **must** identify qv2 spans by instrumentation scope name `qv2` and the attribute
+`qv2.schema_version`, and classify them by `qv2.kind` and `messaging.operation.name`. It **must not**
+parse span names; they are for people reading traces. Span names **must not** contain the queue
+name or any other variable part. (The QV-9/QV-11 prototypes put the queue name in the delete and
+change-visibility span names; that is dropped.)
+
+## 2. Transport and span shape
+
+- Each package creates its **own** `TracerProvider` with an always-on sampler, so qv2 spans are never
+  sampled away by the application's own sampling. This is what the prototypes did, and what QV-9 and
+  QV-11 measured.
+- Export is OTLP over HTTP (protobuf) to `QV2_OTLP_TRACES_ENDPOINT`, default
+  `http://localhost:4318/v1/traces`. The store accepts OTLP/HTTP on that path. The Collector
+  configuration in `collector/` **must** pass every span with scope `qv2` through unsampled.
+- Instrumentation scope: name `qv2`, version = the package version.
+- Span kind: `INTERNAL`.
+- Parent: in the client hooks, the stock AWS SDK instrumentation span for the same call
+  (`opentelemetry-instrumentation-botocore` in Python, `@opentelemetry/instrumentation-aws-sdk` in
+  Node.js), so the qv2 span shares its trace ID. In the Lambda wrapper, the active span at
+  invocation time, or none (a root span).
+- Time: the span's start time is the event time. Spans are zero-length (start and end together),
+  except that implementations **may** give `qv2 outcome` a duration covering the handler run.
+- One span per message. A batch call produces one qv2 span per entry, all children of the one
+  stock span.
+- The store reads only qv2 spans. Stock SQS spans pass through the Collector but are not read by
+  the 0.1 store.
+
+## 3. Attributes on every qv2 span
+
+| Attribute | Type | Req. | Value |
+|---|---|---|---|
+| `qv2.schema_version` | int | must | `1` |
+| `qv2.kind` | string | must | `sqs.send`, `sqs.receive`, `sqs.settle` or `sqs.outcome` |
+| `qv2.source` | string | must | `client` (client hooks) or `lambda` (Lambda wrapper) |
+| `messaging.system.name` | string | must | `aws.sqs` |
+| `messaging.operation.type` | string | must | from the table in section 1 |
+| `messaging.operation.name` | string | must | the SQS API action: `SendMessage`, `SendMessageBatch`, `ReceiveMessage`, `DeleteMessage`, `DeleteMessageBatch`, `ChangeMessageVisibility`, `ChangeMessageVisibilityBatch`; or `LambdaEvent` for spans from the Lambda wrapper |
+| `messaging.destination.name` | string | must | queue name, the last path segment of the queue URL, or the last `:` field of the event source ARN |
+| `aws.sqs.queue.url` | string | must | queue URL (section 6) |
+| `messaging.client.id` | string | must | consumer or producer identity (section 5) |
+| `process.pid` | int | must | OS process ID |
+| `thread.name` | string | should (Python) | `threading.current_thread().name`; not set in Node.js |
+
+The `messaging.*`, `aws.sqs.queue.url`, `process.pid` and `thread.name` names are OpenTelemetry
+semantic conventions; `qv2.*` names are ours. `messaging.system.name` replaces the deprecated
+`messaging.system`; the stock instrumentations seen in QV-11 still emit `messaging.system` with the
+old value `aws_sqs`, which is one more reason the store reads only qv2 spans.
+
+Absent values: an attribute without a value **must** be omitted, never sent as `""`, `0` or `-1`.
+(The prototypes sent empty strings and `-1`; that is dropped.)
+
+## 4. Attributes per span
+
+### 4.1 `qv2 send`
+
+| Attribute | Type | Req. | Value |
+|---|---|---|---|
+| `messaging.message.id` | string | must | `MessageId` from the response |
+| `qv2.batch_entry_id` | string | must for batch | the entry `Id` from `SendMessageBatch` |
+
+Emitted from the response, only for messages SQS accepted. Failed batch entries have no message ID
+and produce no `qv2 send` span in 0.1.
+
+### 4.2 `qv2 receive`
+
+| Attribute | Type | Req. | Value |
+|---|---|---|---|
+| `messaging.message.id` | string | must | `MessageId` (`messageId` in a Lambda record) |
+| `qv2.receive_count` | int | must | system attribute `ApproximateReceiveCount` |
+| `qv2.receipt_handle.hmac` | string | must | keyed hash of this delivery's receipt handle (section 7) |
+| `qv2.receipt_handle.key_id` | string | must | ID of the key used (section 7) |
+| `qv2.sent_timestamp_ms` | int | should | system attribute `SentTimestamp`, epoch milliseconds |
+| `qv2.first_receive_timestamp_ms` | int | may | system attribute `ApproximateFirstReceiveTimestamp`, epoch milliseconds |
+| `qv2.aws_trace_header` | string | may | system attribute `AWSTraceHeader`, verbatim |
+| `faas.name` | string | must (Lambda) | function name |
+| `faas.invocation_id` | string | must (Lambda) | `aws_request_id` / `awsRequestId` |
+
+- **Client hooks** **must** add `ApproximateReceiveCount`, `SentTimestamp`,
+  `ApproximateFirstReceiveTimestamp` and `AWSTraceHeader` to the request's
+  `MessageSystemAttributeNames` before the call, unless the caller already asked for them or for
+  `All`. They **must not** remove anything the caller asked for, and **must not** request message
+  attributes or read the body. (The prototypes also requested a `tenant` message attribute and read
+  the body; message contents are out of scope for 0.1.)
+- **Lambda wrapper** emits one `qv2 receive` per record **before** the user handler runs, and
+  flushes it, so a timeout or out-of-memory kill cannot lose it, as the QV-9 and QV-11 prototype wrappers did.
+- A `ReceiveMessage` that returns no messages produces no qv2 span.
+
+### 4.3 `qv2 delete` and `qv2 change_visibility`
+
+| Attribute | Type | Req. | Value |
+|---|---|---|---|
+| `qv2.receipt_handle.hmac` | string | must | keyed hash of the receipt handle in the request |
+| `qv2.receipt_handle.key_id` | string | must | ID of the key used |
+| `messaging.message.id` | string | should | the message ID, if this process received the handle (section 8); otherwise omitted |
+| `qv2.batch_entry_id` | string | must for batch | the entry `Id` |
+| `qv2.visibility_timeout` | int | must (`change_visibility`) | `VisibilityTimeout` from the request, in seconds. `0` is a real value: it makes the message visible again at once. |
+| `qv2.result` | string | must | `ok` if SQS returned success for this handle or entry, `failed` otherwise |
+| `qv2.error_code` | string | must if failed | the SQS error code, such as `ReceiptHandleIsInvalid`, or the SDK error name if there is no code |
+
+Settle spans are emitted **after** the response, so that `qv2.result` is known. (The prototypes
+emitted them from the request hook, before the result.) If the call throws before any response,
+one span per handle is still emitted with `qv2.result = failed`.
+
+`qv2.result = ok` means SQS accepted the call, **not** that the message was removed. The
+[DeleteMessage API reference](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/APIReference/API_DeleteMessage.html)
+says: "If you use an old `ReceiptHandle`, the request will succeed, but the message might not be
+deleted." The store therefore treats a delete as final only when its `qv2.receipt_handle.hmac`
+matches the hash of the message's **latest** `qv2 receive`. A delete that matches an earlier
+receive is shown as a delete with a stale receipt handle.
+
+### 4.4 `qv2 outcome`
+
+| Attribute | Type | Req. | Value |
+|---|---|---|---|
+| `messaging.message.id` | string | must | record `messageId` |
+| `qv2.outcome` | string | must | one of the values below |
+| `qv2.error_type` | string | must if `failed_exception` | the exception's class name, such as `RuntimeError` or `TypeError` |
+| `faas.name` | string | must | function name |
+| `faas.invocation_id` | string | must | `aws_request_id` / `awsRequestId` |
+
+`qv2.outcome` values, decided per record after the handler returns:
+
+| Value | Meaning |
+|---|---|
+| `success` | the handler returned normally, and this record was not in a valid `batchItemFailures` list. Lambda's event source mapping then deletes the message; that delete is **not observed**, and the store marks it as inferred. |
+| `failed_reported` | the record's ID was in `batchItemFailures` |
+| `failed_invalid_response` | `batchItemFailures` contained an `itemIdentifier` that is not a record ID in this batch; Lambda treats this as a failure of the whole batch, so every record gets this value |
+| `failed_exception` | the handler threw; every record gets this value |
+
+The exception **message** is not recorded, only its class name, because messages often contain
+message contents. (The prototypes recorded `repr(e)`.) If the function times out or runs out of
+memory, no `qv2 outcome` is emitted; the store infers it from the `qv2 receive` with no outcome.
+The prototype value `success_deleted_by_lambda` is renamed `success`, because the delete is not seen.
+
+## 5. Consumer identity
+
+`messaging.client.id` identifies the process, or Lambda execution environment, that emitted the
+span. The store uses it to tell consumers apart (duplicate deliveries to different consumers,
+which consumer held a message when it got stuck).
+
+- **Client hooks:** the `service.instance.id` resource attribute of the package's tracer provider,
+  if set (for example through `OTEL_RESOURCE_ATTRIBUTES`); otherwise a random UUID v4 the package
+  generates once per process at install time and also sets as `service.instance.id`.
+- **Lambda wrapper:** the `AWS_LAMBDA_LOG_STREAM_NAME` environment variable, which names one
+  execution environment.
+
+The store also displays the resource attribute `service.name` (**must** be set; the packages
+default it to `OTEL_SERVICE_NAME`, then to `unknown_service`), `process.pid` and `thread.name`.
+`thread.name` matters in Python, where several consumer threads share one process: QV-9 and QV-11
+ran three processes of four consumers each.
+
+## 6. Queue URL
+
+`aws.sqs.queue.url` is the queue URL:
+
+- **Client hooks:** the `QueueUrl` request parameter, verbatim.
+- **Lambda wrapper:** built from the record's `eventSourceARN` (`arn:aws:sqs:<region>:<account>:<name>`)
+  as `https://sqs.<region>.amazonaws.com/<account>/<name>`. The wrapper also sets `qv2.queue.arn`
+  to the ARN.
+
+The store groups messages by `messaging.destination.name`, not by URL, because one queue can be
+reached by more than one URL (an emulator on `localhost` and on a Docker network name, or AWS's
+legacy and current endpoint forms). In 0.1, two queues with the same name in different accounts or
+regions are therefore merged; this is a known limitation.
+
+## 7. Receipt-handle hash
+
+A receipt handle lets anyone who holds it delete the message or change its visibility while the
+handle is valid, so the packages **must not** export receipt handles. They export a keyed hash
+instead, which is enough for the store to join a delete to the receive it belongs to.
+
+```
+qv2.receipt_handle.hmac   = lower_hex(HMAC-SHA256(key, receipt_handle))[0:32]
+qv2.receipt_handle.key_id = lower_hex(HMAC-SHA256(key, "qv2 key id"))[0:8]
+```
+
+Both `key` and `receipt_handle` are encoded as UTF-8. 32 hex characters is 128 bits.
+
+**Configuring the key**
+
+- Environment variable `QV2_RECEIPT_HASH_KEY`. Its value, as UTF-8 bytes, is the key. Each package
+  also accepts the key as an explicit argument to its install or wrap function, which takes
+  precedence over the environment variable.
+- Every service that receives or settles messages on the same queues **must** use the same key,
+  or the store cannot join their deletes to their receives. `qv2.receipt_handle.key_id` lets the
+  store detect a key mismatch and show it, instead of showing missing deletes.
+- If no key is configured, the packages use the published default key
+  `qv2-default-receipt-hash-key` and log one warning per process. The store shows a notice for
+  spans with the default key's ID, `2bd63d10`. The default exists so the local demo works without
+  setup; it gives no protection.
+- A key shorter than 16 bytes is used, with one warning per process.
+- The key is a secret. It **must not** be committed, logged or exported in spans.
+
+Why a keyed hash rather than a plain SHA-256 (what the prototypes used, truncated to 16 hex
+characters): a receipt handle is long and random, so a plain hash is not reversible either. The key
+adds two things [judgment]: someone who finds a receipt handle elsewhere, such as in an
+application log, cannot match it to a qv2 record without the key; and hashes from different
+deployments cannot be linked to each other. The attribute name changed from
+`qv2.receipt_handle.sha256` to `qv2.receipt_handle.hmac` so prototype data and 0.1 data cannot
+be mixed by accident.
+
+**Test vectors** are in [`span-contract-vectors.json`](span-contract-vectors.json). The Python and
+Node.js tests in this repository check them with each language's standard library, and each
+package's hash function **must** be tested against them.
+
+## 8. Message ID on settle spans
+
+`DeleteMessage` and `ChangeMessageVisibility` take a receipt handle, not a message ID. The client
+hooks keep an in-process map from receipt handle to message ID, filled by `ReceiveMessage`
+responses, and set `messaging.message.id` on a settle span when the handle is in the map. The map
+**must** be safe for concurrent use and **must** be bounded; entries **should** be dropped on a
+successful delete and after 12 hours, the longest SQS visibility timeout.
+
+When the handle is not in the map (another process received it, the process restarted, or the
+entry was evicted), the span carries only the hash. The store joins it to a message through the
+`qv2 receive` with the same `qv2.receipt_handle.hmac`. The store **must** support this join; the
+map is an optimisation, not a requirement for a correct timeline.
+
+## 9. What the store infers
+
+These steps have no span. The store shows each one as **inferred**, never as observed:
+
+- **Visibility timeout expired:** a `qv2 receive` with `qv2.receive_count = n + 1` follows one with
+  `n`, with no successful final delete between them.
+- **Moved to the dead-letter queue:** the message ID appears in a `qv2 receive` on another queue.
+  SQS keeps the message ID when it moves a message to a dead-letter queue (in QV-9's
+  `timelines_hooks.json`, the poison message's dead-letter receive carries the same ID in Python,
+  Node.js and Java). Exactly when the move happened is not known.
+- **Deleted by Lambda:** after `qv2 outcome = success`.
+- **Lambda invocation killed (timeout or out of memory):** a Lambda `qv2 receive` with no matching
+  `qv2 outcome`, once the function's timeout has passed.
+
+## 10. Example
+
+A `qv2 receive` from the Python client hooks, as attributes (not OTLP wire format):
+
+```json
+{
+  "name": "qv2 receive",
+  "scope": {"name": "qv2", "version": "0.1.0"},
+  "resource": {"service.name": "orders-worker", "service.instance.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11"},
+  "attributes": {
+    "qv2.schema_version": 1,
+    "qv2.kind": "sqs.receive",
+    "qv2.source": "client",
+    "messaging.system.name": "aws.sqs",
+    "messaging.operation.type": "receive",
+    "messaging.operation.name": "ReceiveMessage",
+    "messaging.destination.name": "orders",
+    "aws.sqs.queue.url": "http://localhost:9324/000000000000/orders",
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "thread.name": "worker-2",
+    "messaging.message.id": "5fea7756-0ea4-451a-a703-a558b933e274",
+    "qv2.receive_count": 2,
+    "qv2.receipt_handle.hmac": "b8cf1504a45e5fadf383d469cfa5ae3e",
+    "qv2.receipt_handle.key_id": "3b3edeb7",
+    "qv2.sent_timestamp_ms": 1763080000000
+  }
+}
+```
+
+## 11. Where this came from
+
+Source: the hooks in the QV-9 and QV-11 evidence bundles (`pyrun.py`, `node__noderun.js`,
+`bin__hooks.py`, `bin__b2node.js`, `lambda__py__src__app.py`, `lambda__node__src__index.js`), and a
+tally of the 1,820 spans with scope `qv2.hooks` that the client hooks exported in QV-11
+(`raw__otel__ours_all_spans.jsonl`).
+
+Kept from the prototypes: span names `qv2 send`, `qv2 receive`, `qv2 outcome`; `qv2.kind` values;
+`qv2.receive_count`, `qv2.batch_entry_id`, `qv2.visibility_timeout`, `qv2.aws_trace_header`;
+`messaging.message.id` and `messaging.destination.name`; the handle-to-ID map; the Lambda wrapper's
+receive-before-handler order and its outcome rules; a separate always-on tracer provider.
+
+Changed, each described where it is defined above:
+
+| Prototype | Contract v1 |
+|---|---|
+| `qv2.receipt_handle.sha256`, plain SHA-256, 16 hex | `qv2.receipt_handle.hmac`, HMAC-SHA256, 32 hex, plus `qv2.receipt_handle.key_id` |
+| `qv2 delete <queue>`, `qv2 change_visibility <queue>` | `qv2 delete`, `qv2 change_visibility` |
+| settle spans from the request hook | from the response, with `qv2.result` and `qv2.error_code` |
+| `qv2.operation` | `messaging.operation.name` |
+| queue name only | also `aws.sqs.queue.url` |
+| `process.pid`, `thread.name`, `service.name` only | also `messaging.client.id` |
+| `qv2.sent_timestamp` as a string | `qv2.sent_timestamp_ms` as an int |
+| `qv2.t_ns` | dropped; span start time is used |
+| `qv2.tenant`, `qv2.tenant.source`, `tenant` message attribute | dropped (message contents are out of scope for 0.1); the name `qv2.tenant` is reserved |
+| `qv2.error = repr(e)` | `qv2.error_type`, class name only |
+| `success_deleted_by_lambda` | `success` |
+| empty strings and `-1` for absent values | attribute omitted |
+| Node.js hooks without batch settle or tenant | Node.js and Python emit the same spans |
+
+Semantic-convention names (`messaging.system.name` and its value `aws.sqs`,
+`messaging.operation.type` and its values, `messaging.operation.name`, `messaging.client.id`,
+`messaging.message.id`, `messaging.destination.name`, `aws.sqs.queue.url`) were checked against
+[`model/messaging/registry.yaml`](https://github.com/open-telemetry/semantic-conventions/blob/main/model/messaging/registry.yaml)
+and the [AWS attribute registry](https://opentelemetry.io/docs/specs/semconv/registry/attributes/aws/)
+on 2026-11-13. All of them are at `development` stability and may still be renamed upstream; if
+they are, this contract keeps its names until a schema version bump.

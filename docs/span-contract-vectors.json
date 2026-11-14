@@ -1,0 +1,27 @@
+{
+  "description": "Test vectors for docs/span-contract.md section 'Receipt-handle hash'. hmac = lowercase hex of HMAC-SHA256(key utf-8, receipt_handle utf-8), first 32 characters. key_id = lowercase hex of HMAC-SHA256(key utf-8, 'qv2 key id'), first 8 characters.",
+  "default_key": "qv2-default-receipt-hash-key",
+  "vectors": [
+    {
+      "name": "default key",
+      "key": "qv2-default-receipt-hash-key",
+      "receipt_handle": "AQEB3LQoW7GQWgodQCEJXHjMvO/QkeCHiRldRfLC/E6RUggm+BjpthqxfoUOUn6Vs271qmrBaufFqEmnMKgk2n1EuUBne1pe+hZcrDE8IveUUPmqkUT54FGhAAjPX3oEIryz/XeQ/muKAuLclcZvt2Q+ZDPW8DvZqMa1RoHxOqSq+6kQ4PwgQxB+VqDYvIc/LpHOoL4PTROBXgLPjWrzz/knK6HTzKpqC4ESvFdJ/dkk2nvS0iqYOly5VQknK/lv/rTUOgEYevjJSrNLIPDgZGyvgcLwbm6+yo1cW/c9cPDiVm96gIhVkuiCZ1gtskoOtyroZVPcY71clDG2EPZJeY8akMd3u+sXEMWhiOPFs1cgWQs2ugsL+vdwMCbsZRkXbJv7",
+      "hmac": "84d6140b5f229dbee794144f7915cb6d",
+      "key_id": "2bd63d10"
+    },
+    {
+      "name": "example key",
+      "key": "example-key-0123456789abcdef",
+      "receipt_handle": "AQEB3LQoW7GQWgodQCEJXHjMvO/QkeCHiRldRfLC/E6RUggm+BjpthqxfoUOUn6Vs271qmrBaufFqEmnMKgk2n1EuUBne1pe+hZcrDE8IveUUPmqkUT54FGhAAjPX3oEIryz/XeQ/muKAuLclcZvt2Q+ZDPW8DvZqMa1RoHxOqSq+6kQ4PwgQxB+VqDYvIc/LpHOoL4PTROBXgLPjWrzz/knK6HTzKpqC4ESvFdJ/dkk2nvS0iqYOly5VQknK/lv/rTUOgEYevjJSrNLIPDgZGyvgcLwbm6+yo1cW/c9cPDiVm96gIhVkuiCZ1gtskoOtyroZVPcY71clDG2EPZJeY8akMd3u+sXEMWhiOPFs1cgWQs2ugsL+vdwMCbsZRkXbJv7",
+      "hmac": "b8cf1504a45e5fadf383d469cfa5ae3e",
+      "key_id": "3b3edeb7"
+    },
+    {
+      "name": "non-ASCII key and short handle",
+      "key": "clé-ünïcode-key-0001",
+      "receipt_handle": "short-handle",
+      "hmac": "27aaac5fe832aeac21be5f24b4570432",
+      "key_id": "20ce29a4"
+    }
+  ]
+}
