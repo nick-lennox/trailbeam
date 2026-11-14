@@ -408,3 +408,59 @@ def test_floor_counts_the_share_per_kind():
 
 def test_floor_with_no_pairs_fails():
     assert check.floor_check(check.resolution_table({}))["result"] == "FAIL"
+
+
+# -- the move to a dead-letter queue (QV-33, contract 3.1) ---------------------------------------------
+
+DLQ_TRUTH = [
+    rec("send", 1, kind="poison_fast"),
+    rec("receive", 2, rh="a", rc=1, queue="q"),
+    rec("change_visibility", 3, rh="a"),
+    rec("receive", 4, rh="b", rc=2, queue="q-dlq"),
+    rec("delete", 5, rh="b", queue="q-dlq"),
+]
+
+
+def dlq_timeline(move):
+    events = [ev("sent", 1), ev("received", 2, delivery=1, receive_count=1),
+              ev("visibility_changed", 3, delivery=1, result="ok", visibility_timeout_s=0)]
+    if move is not None:
+        events.append(move)
+    events += [ev("received", 4, delivery=2, receive_count=2),
+               ev("deleted", 5, delivery=2, result="ok", status="final")]
+    return {"message_id": MID, "state": "deleted", "events": events, "notices": []}
+
+
+OBSERVED_MOVE = {"type": "moved_to_dead_letter_queue", "inferred": False, "source": "sqs_dlq_source", "time": None,
+                 "group": None, "from_queue": "q", "to_queue": "q-dlq"}
+
+
+def test_observed_dlq_move_passes_and_is_counted():
+    r = check.evaluate(DLQ_TRUTH, dlq_timeline(OBSERVED_MOVE))
+    assert r["passed"] and r["dlq_move"], r
+    assert r["dlq_moves"] == {"expected": [("q", "q-dlq")], "observed": [("q", "q-dlq")], "inferred": 0, "ok": True}
+    s = check.summarize({MID: DLQ_TRUTH}, {MID: r}, 1, floor=0)
+    assert (s["dlq_messages"], s["dlq_moves_observed"], s["dlq_moves_inferred"]) == (1, 1, 0)
+
+
+def test_inferred_dlq_move_fails():
+    inferred = {**OBSERVED_MOVE, "inferred": True, "source": None, "window": {}, "reason": "guessed"}
+    r = check.evaluate(DLQ_TRUTH, dlq_timeline(inferred))
+    assert not r["dlq_move"] and not r["passed"]
+    assert r["complete"] and r["joined"] and r["receive_count"] and r["final"]  # only the move is wrong
+    s = check.summarize({MID: DLQ_TRUTH}, {MID: r}, 1, floor=0)
+    assert (s["dlq_moves_observed"], s["dlq_moves_inferred"], s["result"]) == (0, 1, "FAIL")
+
+
+def test_missing_or_wrong_dlq_move_fails():
+    assert not check.evaluate(DLQ_TRUTH, dlq_timeline(None))["dlq_move"]
+    wrong = {**OBSERVED_MOVE, "from_queue": "other"}
+    assert not check.evaluate(DLQ_TRUTH, dlq_timeline(wrong))["dlq_move"]
+    no_source = {k: v for k, v in OBSERVED_MOVE.items() if k != "source"}
+    assert not check.evaluate(DLQ_TRUTH, dlq_timeline(no_source))["dlq_move"]
+
+
+def test_move_without_one_in_the_truth_fails():
+    truth = [dict(r, queue="q") if r["op"] == "receive" else r for r in DLQ_TRUTH]
+    assert not check.evaluate(truth, dlq_timeline(OBSERVED_MOVE))["dlq_move"]
+    assert check.evaluate(RETRY_TRUTH, retry_timeline())["dlq_moves"]["expected"] == []

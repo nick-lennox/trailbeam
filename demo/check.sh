@@ -1,13 +1,18 @@
 #!/bin/sh
 # qv2 0.1 concurrency check: three processes of four consumers each, 200 messages, one language at a time.
 #
-#   demo/check.sh [--aws] python [count]
-#   demo/check.sh [--aws] node [count]
+#   demo/check.sh [--aws] [--dlq] python [count]
+#   demo/check.sh [--aws] [--dlq] node [count]
 #
 # --aws runs the same workload against real SQS instead of the emulator (the Collector and the store stay
 # local). It needs AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY (and AWS_SESSION_TOKEN if temporary) in the
 # environment; they are passed to the containers by name only, never on a command line. AWS_REGION defaults
 # to us-east-1. Queues are named qv2-measure-RUN and qv2-measure-RUN-dlq and are deleted when the run ends.
+#
+# --dlq adds a poison message every 20 (--mix check-dlq): it is released at once on every receive, so SQS
+# moves it to the dead-letter queue after maxReceiveCount (3) receives, and the consumers read and delete it
+# there. The check then needs the store to show each move as observed (DeadLetterQueueSourceArn, contract
+# 3.1) and none inferred. CI uses it on the emulator only: on real SQS it is not approved yet (QV-33).
 #
 # Starts the emulator, the Collector and the store (demo/compose.yaml), creates a fresh queue for this run,
 # starts one deleter process and three consumer processes (four consumers each) and a producer, waits until
@@ -21,9 +26,17 @@
 # millisecond; the floor gates in the real-SQS job instead (demo/README.md#the-floor-in-ci).
 set -eu
 
-usage() { echo "usage: $0 [--aws] python|node [count]" >&2; exit 2; }
+usage() { echo "usage: $0 [--aws] [--dlq] python|node [count]" >&2; exit 2; }
 aws=0
-if [ "${1:-}" = --aws ]; then aws=1; shift; fi
+mix=check
+dlq_arg=""
+while :; do
+  case ${1:-} in
+    --aws) aws=1; shift ;;
+    --dlq) mix=check-dlq; dlq_arg=--dlq; shift ;;
+    *) break ;;
+  esac
+done
 lang=${1:-}
 count=${2:-200}
 case $lang in
@@ -77,7 +90,7 @@ cleanup() {
 trap cleanup EXIT
 
 if [ "$aws" = 1 ]; then where="real SQS in $AWS_REGION"; else where="the emulator"; fi
-echo "== run $run: $count messages on queue $queue ($where)"
+echo "== run $run: $count messages on queue $queue ($where, mix $mix)"
 dc build -q $svc checker consumer-python
 if [ "$aws" = 1 ]; then dc up -d --build --wait collector qv2; else dc up -d --build --wait sqs collector qv2; fi
 
@@ -89,14 +102,15 @@ start() {  # start NAME ARGS...: one driver process in its own container
 }
 start "$deleter" deleter --port 8080
 for i in 1 2 3; do
-  start "qv2-check-$run-consumer-$i" consume "$per_process" 4 --deleter "http://$deleter:8080"
+  # shellcheck disable=SC2086
+  start "qv2-check-$run-consumer-$i" consume "$per_process" 4 --deleter "http://$deleter:8080" $dlq_arg
 done
 sleep 3
 
 echo "== producing"
 # shellcheck disable=SC2086
 dc run --rm -T --no-deps -e QV2_RECEIPT_HASH_KEY="$key" $aws_env "$svc" produce --queue "$queue" --truth "$truth" \
-  --count "$count" --mix check
+  --count "$count" --mix "$mix"
 
 echo "== waiting until every message is deleted"
 wait_status=0

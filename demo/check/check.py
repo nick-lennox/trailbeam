@@ -26,7 +26,12 @@ JSON API (GET /api/messages/{id}) and checks, per message:
 - joined:        every delete and visibility change is attached to the delivery whose receipt handle it
                  really used, and has the same result (ok / failed) as the real call;
 - receive count: every receive (by delivery number) shows the real ApproximateReceiveCount;
-- final:         the message's state is ``deleted``.
+- final:         the message's state is ``deleted``;
+- dlq move:      the timeline shows a move to a dead-letter queue exactly when the truth has the message
+                 received on a second queue (``--mix check-dlq``, ``demo/check.sh --dlq``): one observed
+                 move (``inferred: false``, source ``sqs_dlq_source``, from the first queue to the second),
+                 and never an inferred one. ``dlq_moves_observed`` and ``dlq_moves_inferred`` (which must
+                 be 0) count them over the run.
 
 So that "in order" cannot pass just by putting everything in one group, the summary also counts the
 messages with at least one concurrent group and the pairs resolved in order vs. left concurrent, per
@@ -35,7 +40,7 @@ not overlap: they share a group only through other overlapping steps. ``concurre
 where the cause ended at exactly the effect's start, a tie at the clock's resolution. Each check is evaluated on its own: joined and receive count compare the events regardless of the order
 the store shows them in, so a message that fails only on order still reports its joins and receive counts.
 The summary counts each check separately, plus the messages that fail on order alone. A message passes
-only if all five hold. The run passes only if every message passes **and** the floor holds: at least 90%
+only if all six hold. The run passes only if every message passes **and** the floor holds: at least 90%
 (--floor) of the send->receive pairs and of the receive->delete pairs are resolved, so that the check
 can't pass by leaving things concurrent. ``resolution`` in the summary gives, per kind (send->receive,
 receive->delete, release->redelivery, receive n->receive n+1), the pairs resolved and left concurrent and
@@ -59,7 +64,10 @@ import urllib.request
 
 TRUTH_OPS = ("send", "receive", "change_visibility", "delete")
 STORE_TYPES = {"sent": "send", "received": "receive", "visibility_changed": "change_visibility", "deleted": "delete"}
-CHECKS = ("complete", "in_order", "joined", "receive_count", "final")
+CHECKS = ("complete", "in_order", "joined", "receive_count", "final", "dlq_move")
+# Contract 3.1, section 9b: the store shows a move to a dead-letter queue only when SQS reports it.
+DLQ_MOVE = "moved_to_dead_letter_queue"
+DLQ_SOURCE = "sqs_dlq_source"
 PAIR_KINDS = ("send->receive", "receive->receive", "receive->settle", "change_visibility->receive")
 PAIR_RESULTS = ("in_order", "concurrent", "violated")
 # Of the concurrent pairs, those whose own intervals do not overlap (cause ended before effect started): the
@@ -298,6 +306,23 @@ def check_order(truth: list, timeline: dict) -> dict:
             "concurrent_groups": sum(n > 1 for n in groups.values())}
 
 
+def dlq_moves(truth: list, timeline: dict) -> dict:
+    """The moves the truth implies (the queues the message was received on, in order: a move between each
+    two) against the moves the timeline shows, observed and inferred."""
+    queues = []
+    for r in truth:
+        q = r.get("queue")
+        if r["op"] == "receive" and q and q not in queues:
+            queues.append(q)
+    want = list(zip(queues, queues[1:]))
+    moves = [e for e in timeline.get("events", []) if e.get("type") == DLQ_MOVE]
+    observed = [(e.get("from_queue"), e.get("to_queue")) for e in moves
+                if not e.get("inferred") and e.get("source") == DLQ_SOURCE]
+    inferred = [e for e in moves if e.get("inferred")]
+    return {"expected": want, "observed": observed, "inferred": len(inferred),
+            "ok": not inferred and len(observed) == len(moves) and sorted(observed) == sorted(want)}
+
+
 def evaluate(truth: list, timeline) -> dict:
     """Check one message. ``timeline`` is the store's JSON for it, or None if the store doesn't know it."""
     want = expected_events(truth)
@@ -315,8 +340,9 @@ def evaluate(truth: list, timeline) -> dict:
     receive_count = (collections.Counter((e[1], e[3]) for e in got if e[0] == "receive")
                      == collections.Counter((e[1], e[3]) for e in want if e[0] == "receive"))
     final = timeline.get("state") == "deleted"
+    moves = dlq_moves(truth, timeline)
     res = {"found": True, "complete": complete, "in_order": in_order, "joined": joined,
-           "receive_count": receive_count, "final": final}
+           "receive_count": receive_count, "final": final, "dlq_move": moves["ok"]}
     res["passed"] = all(res[c] for c in CHECKS)
     res["expected"] = [w[0] for w in want]
     res["observed"] = [g[0] for g in got]
@@ -327,6 +353,7 @@ def evaluate(truth: list, timeline) -> dict:
     res["inferred"] = [e["type"] for e in timeline.get("events", []) if e.get("inferred")]
     res["notices"] = [n["code"] for n in timeline.get("notices", [])]
     res["state"] = timeline.get("state")
+    res["dlq_moves"] = moves
     return res
 
 
@@ -404,6 +431,9 @@ def summarize(truth_by_id: dict, results: dict, count: int, floor: float = FLOOR
         "processes_seen": len(procs - deleters),
         "deleter_processes_seen": len(deleters),
         "inferred_events": dict(inferred),
+        "dlq_messages": sum(bool(results[m].get("dlq_moves", {}).get("expected")) for m in sent),
+        "dlq_moves_observed": sum(len(results[m].get("dlq_moves", {}).get("observed", [])) for m in sent),
+        "dlq_moves_inferred": sum(results[m].get("dlq_moves", {}).get("inferred", 0) for m in sent),
         "resolution": table,
         "floor": floor_result,
         "messages_result": "PASS" if s["passed"] == count == len(sent) else "FAIL",

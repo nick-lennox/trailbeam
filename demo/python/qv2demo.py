@@ -12,6 +12,8 @@ Every message body is {"kind": ..., "n": ...}. What the consumer does depends on
     slow        (demo mix) on the first receive, work past the visibility timeout, so SQS delivers it
                 again to another consumer; then delete it with the old handle
     poison      (demo mix) always fail, never delete; SQS moves it to the dead-letter queue
+    poison_fast (check-dlq mix) ChangeMessageVisibility to 0 on every receive, never delete; after
+                maxReceiveCount receives SQS moves it to <queue>-dlq, where consume --dlq receives and deletes it
 
 With --truth DIR each process writes what it really did, one JSON line per SQS call, to its own file in DIR.
 The concurrency check (demo/check/check.py) compares those files with the timelines in the qv2 store.
@@ -42,8 +44,11 @@ stop = threading.Event()
 
 
 def kind_of(i: int, mix: str) -> str:
-    """The kind of message number i. ``check`` is the QV-11 recheck B2 mix."""
-    if mix == "check":
+    """The kind of message number i. ``check`` is the QV-11 recheck B2 mix; ``check-dlq`` adds a poison
+    message every 20 (QV-33), so the check covers the move to the dead-letter queue."""
+    if mix == "check-dlq" and i % 20 == 10:
+        return "poison_fast"
+    if mix in ("check", "check-dlq"):
         return "retry_once" if i % 7 == 3 else "xproc" if i % 7 == 5 else "ok"
     if i % 25 == 12:
         return "poison"
@@ -152,6 +157,8 @@ def consume(args):
             settle("delete", sqs.delete_message, m)
         elif kind == "poison":
             print(f"poison message {m['MessageId']} failed (receive {rc})", file=sys.stderr)
+        elif kind == "poison_fast":
+            settle("change_visibility", sqs.change_message_visibility, m, VisibilityTimeout=0)
         else:
             settle("delete", sqs.delete_message, m)
 
@@ -167,7 +174,8 @@ def consume(args):
             t = time.time_ns()
             for m in r.get("Messages", []):
                 truth.write(op="receive", id=m["MessageId"], rh=handle_hash(m["ReceiptHandle"]),
-                            rc=int(m["Attributes"]["ApproximateReceiveCount"]), t_ns=t, result="ok")
+                            rc=int(m["Attributes"]["ApproximateReceiveCount"]), t_ns=t, result="ok",
+                            queue=args.queue)
             for m in r.get("Messages", []):
                 try:
                     handle(m)
@@ -175,12 +183,33 @@ def consume(args):
                     print(f"handling {m['MessageId']} failed: {e}", file=sys.stderr)
 
     def dlq_loop():
-        # Reads the dead-letter queue and deletes what it finds, so the store sees the move.
-        dlq_url = sqs.get_queue_url(QueueName=f"{args.queue}-dlq")["QueueUrl"]
+        # Reads the dead-letter queue and deletes what it finds. It does not ask for DeadLetterQueueSourceArn:
+        # the qv2 hooks do, and the store shows the move SQS reports with it (contract 3.1).
+        dlq = f"{args.queue}-dlq"
+        dlq_url = sqs.get_queue_url(QueueName=dlq)["QueueUrl"]
         while not stop.is_set():
-            for m in sqs.receive_message(QueueUrl=dlq_url, MaxNumberOfMessages=10, WaitTimeSeconds=args.wait).get("Messages", []):
+            try:
+                r = sqs.receive_message(QueueUrl=dlq_url, MaxNumberOfMessages=10, WaitTimeSeconds=args.wait,
+                                        MessageSystemAttributeNames=["ApproximateReceiveCount"])
+            except Exception as e:
+                print(f"dead-letter receive failed: {e}", file=sys.stderr)
+                stop.wait(1)
+                continue
+            t = time.time_ns()
+            for m in r.get("Messages", []):
+                truth.write(op="receive", id=m["MessageId"], rh=handle_hash(m["ReceiptHandle"]),
+                            rc=int(m["Attributes"]["ApproximateReceiveCount"]), t_ns=t, result="ok", queue=dlq)
+            for m in r.get("Messages", []):
                 print(f"dead-letter queue: {m['MessageId']}", flush=True)
-                sqs.delete_message(QueueUrl=dlq_url, ReceiptHandle=m["ReceiptHandle"])
+                t = time.time_ns()
+                try:
+                    sqs.delete_message(QueueUrl=dlq_url, ReceiptHandle=m["ReceiptHandle"])
+                    result = "ok"
+                except Exception as e:
+                    result = "failed"
+                    print(f"dead-letter delete {m['MessageId']} failed: {e}", file=sys.stderr)
+                truth.write(op="delete", id=m["MessageId"], rh=handle_hash(m["ReceiptHandle"]), t_ns=t,
+                            result=result, queue=dlq)
 
     threads = [threading.Thread(target=loop, name=f"consumer-{i}") for i in range(args.threads)]
     if args.dlq:
@@ -240,7 +269,7 @@ def main(argv=None):
         s.add_argument("--max-receives", type=int, default=3, help="maxReceiveCount of the redrive policy")
     sub.choices["produce"].add_argument("--count", type=int, default=0, help="0: until stopped")
     sub.choices["produce"].add_argument("--interval", type=float, default=0.0, help="seconds between sends")
-    sub.choices["produce"].add_argument("--mix", choices=("demo", "check"), default="demo")
+    sub.choices["produce"].add_argument("--mix", choices=("demo", "check", "check-dlq"), default="demo")
     sub.choices["consume"].add_argument("--threads", type=int, default=4)
     sub.choices["consume"].add_argument("--wait", type=int, default=1, help="WaitTimeSeconds")
     sub.choices["consume"].add_argument("--deleter", default="http://deleter:8080")

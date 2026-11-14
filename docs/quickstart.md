@@ -101,7 +101,8 @@ Messages worth opening (the demo sends each kind on a fixed schedule; see
 - **http://127.0.0.1:4318/duplicates**: messages delivered more than once, including ones delivered again
   because the consumer took longer than the 10 s visibility timeout;
 - after about a minute, a message with **4 deliveries**: a poison message, failed three times, then an
-  inferred move to the dead-letter queue and a receive on `orders-dlq`;
+  move to the dead-letter queue "reported by SQS (`DeadLetterQueueSourceArn` on the DLQ receive)", never
+  inferred, and a receive on `orders-dlq`;
 - **http://127.0.0.1:4318/stuck**: messages without a final delete for more than 60 s.
 
 The same data as JSON, for example the newest message's timeline:

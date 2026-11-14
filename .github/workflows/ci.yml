@@ -144,15 +144,17 @@ jobs:
       # the 90% floor gates in concurrency-check-aws, not here: ElasticMQ stamps SentTimestamp and
       # ApproximateFirstReceiveTimestamp in the same millisecond, so send->receive stays concurrent here
       # for a reason that is the emulator's, not the store's (demo/README.md#the-floor-in-ci).
+      # --dlq: a poison message every 20 goes to the dead-letter queue; each move must be observed
+      # (DeadLetterQueueSourceArn), none inferred. Emulator only: not approved on real SQS yet (QV-33).
       - name: Python
         id: python
-        run: demo/check.sh python 200
+        run: demo/check.sh --dlq python 200
         env:
           QV2_CHECK_FLOOR: "0"
       - name: Node.js
         id: node
         if: success() || steps.python.conclusion == 'failure'
-        run: demo/check.sh node 200
+        run: demo/check.sh --dlq node 200
         env:
           QV2_CHECK_FLOOR: "0"
       - name: Summary

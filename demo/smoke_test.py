@@ -5,7 +5,8 @@
 Waits until the store has timelines from the demo workload that show each part working, then exits 0:
 messages consumed by the Python consumer and by the Node.js consumer, a delete from the separate deleter
 process joined to its message, a redelivery after ChangeMessageVisibility to 0, and a poison message
-moved to the dead-letter queue (inferred) and received there. Also checks that no qv2 span was rejected.
+moved to the dead-letter queue and received there: the move observed (reported by SQS with
+DeadLetterQueueSourceArn, contract 3.1), never inferred. Also checks that no qv2 span was rejected.
 """
 
 import argparse
@@ -38,7 +39,10 @@ def seen(base):
             found.add("delete by the deleter process, joined")
         if "visibility_changed" in types and types.count("received") >= 2 and "visibility_timeout_expired" in types:
             found.add("redelivery after ChangeMessageVisibility")
-        if "moved_to_dead_letter_queue" in types and any(
+        moves = [e for e in tl["events"] if e["type"] == "moved_to_dead_letter_queue"]
+        if any(e["inferred"] for e in moves):
+            sys.exit(f"FAIL: {m['message_id']} shows an inferred move to the dead-letter queue")
+        if any(e.get("source") == "sqs_dlq_source" for e in moves) and any(
                 e["type"] == "received" and e.get("queue") == "orders-dlq" for e in tl["events"]):
             found.add("poison message moved to the dead-letter queue")
     return found

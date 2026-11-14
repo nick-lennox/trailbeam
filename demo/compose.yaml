@@ -61,6 +61,8 @@ services:
       - "127.0.0.1:${QV2_DEMO_PORT:-4318}:4318"
     environment:
       QV2_STUCK_AFTER_S: "60"
+      # The redrive policy of `orders` below, so a timeline can say "not seen on the DLQ yet" (QV-33).
+      QV2_MAX_RECEIVE_COUNT: orders=3
     volumes: [qv2-data:/data]
 
   # The demo workload on the queue `orders`: one message a second, a mix of kinds (see python/qv2demo.py),

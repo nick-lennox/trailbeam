@@ -27,7 +27,8 @@ let stopping = false;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function kindOf(i, mix) {
-  if (mix === 'check') return i % 7 === 3 ? 'retry_once' : i % 7 === 5 ? 'xproc' : 'ok';
+  if (mix === 'check-dlq' && i % 20 === 10) return 'poison_fast'; // QV-33: the check covers the DLQ move
+  if (mix === 'check' || mix === 'check-dlq') return i % 7 === 3 ? 'retry_once' : i % 7 === 5 ? 'xproc' : 'ok';
   if (i % 25 === 12) return 'poison';
   return { 3: 'retry_once', 5: 'xproc', 7: 'slow' }[i % 10] || 'ok';
 }
@@ -120,6 +121,8 @@ async function consume(a) {
       await settle('delete', DeleteMessageCommand, m, loop);
     } else if (kind === 'poison') {
       console.error(`poison message ${m.MessageId} failed (receive ${rc})`);
+    } else if (kind === 'poison_fast') {
+      await settle('change_visibility', ChangeMessageVisibilityCommand, m, loop, { VisibilityTimeout: 0 });
     } else {
       await settle('delete', DeleteMessageCommand, m, loop);
     }
@@ -139,7 +142,7 @@ async function consume(a) {
       }
       const t = nowNs();
       for (const m of r.Messages || []) {
-        truth({ op: 'receive', id: m.MessageId, rh: handleHash(m.ReceiptHandle), rc: parseInt(m.Attributes.ApproximateReceiveCount, 10), t_ns: t, result: 'ok', thread: `consumer-${j}` });
+        truth({ op: 'receive', id: m.MessageId, rh: handleHash(m.ReceiptHandle), rc: parseInt(m.Attributes.ApproximateReceiveCount, 10), t_ns: t, result: 'ok', thread: `consumer-${j}`, queue: a.queue });
       }
       for (const m of r.Messages || []) {
         try { await handle(m, j); } catch (e) { console.error(`handling ${m.MessageId} failed: ${e.message}`); }
@@ -147,13 +150,37 @@ async function consume(a) {
     }
   };
 
+  // Reads the dead-letter queue and deletes what it finds. It does not ask for DeadLetterQueueSourceArn:
+  // @qv2/sdk does, and the store shows the move SQS reports with it (contract 3.1).
   const dlqLoop = async () => {
-    const dlqUrl = (await sqs.send(new GetQueueUrlCommand({ QueueName: `${a.queue}-dlq` }))).QueueUrl;
+    const dlq = `${a.queue}-dlq`;
+    const dlqUrl = (await sqs.send(new GetQueueUrlCommand({ QueueName: dlq }))).QueueUrl;
     while (!stopping) {
-      const r = await sqs.send(new ReceiveMessageCommand({ QueueUrl: dlqUrl, MaxNumberOfMessages: 10, WaitTimeSeconds: a.wait }));
+      let r;
+      try {
+        r = await sqs.send(new ReceiveMessageCommand({
+          QueueUrl: dlqUrl, MaxNumberOfMessages: 10, WaitTimeSeconds: a.wait, MessageSystemAttributeNames: ['ApproximateReceiveCount'],
+        }));
+      } catch (e) {
+        console.error(`dead-letter receive failed: ${e.message}`);
+        await sleep(1000);
+        continue;
+      }
+      const t = nowNs();
+      for (const m of r.Messages || []) {
+        truth({ op: 'receive', id: m.MessageId, rh: handleHash(m.ReceiptHandle), rc: parseInt(m.Attributes.ApproximateReceiveCount, 10), t_ns: t, result: 'ok', thread: 'dlq', queue: dlq });
+      }
       for (const m of r.Messages || []) {
         console.log(`dead-letter queue: ${m.MessageId}`);
-        await sqs.send(new DeleteMessageCommand({ QueueUrl: dlqUrl, ReceiptHandle: m.ReceiptHandle }));
+        const td = nowNs();
+        let result = 'ok';
+        try {
+          await sqs.send(new DeleteMessageCommand({ QueueUrl: dlqUrl, ReceiptHandle: m.ReceiptHandle }));
+        } catch (e) {
+          result = 'failed';
+          console.error(`dead-letter delete ${m.MessageId} failed: ${e.name}`);
+        }
+        truth({ op: 'delete', id: m.MessageId, rh: handleHash(m.ReceiptHandle), t_ns: td, result, thread: 'dlq', queue: dlq });
       }
     }
   };
@@ -222,7 +249,7 @@ async function main() {
     dlq: v.dlq, port: +v.port,
   };
   const run = { produce, consume, deleter }[role];
-  if (!run || !['demo', 'check'].includes(a.mix)) {
+  if (!run || !['demo', 'check', 'check-dlq'].includes(a.mix)) {
     console.error('usage: node qv2demo.js produce|consume|deleter [--queue Q] [--truth DIR] ...');
     process.exit(2);
   }

@@ -51,7 +51,7 @@ Every message body is `{"kind": ..., "n": ...}`, and the kind decides what the c
 | `retry_once` | 1 in 10 | `ChangeMessageVisibility` to 0 on the first receive, deletes on the next | a visibility change, an **inferred** visibility-timeout expiry, a second delivery |
 | `xproc` | 1 in 10 | hands the receipt handle to the `deleter` process | a delete from another process, joined by receipt-handle hash |
 | `slow` | 1 in 10 | works for 13 s, past the 10 s visibility timeout, then deletes with its old handle | a duplicate delivery (`/duplicates`), and a late delete |
-| `poison` | 1 in 25 | always fails | three deliveries, an **inferred** move to the dead-letter queue, a receive on `orders-dlq` |
+| `poison` | 1 in 25 | always fails | three deliveries, a move to the dead-letter queue **reported by SQS** (`DeadLetterQueueSourceArn` on the `orders-dlq` receive, never inferred), a receive on `orders-dlq` |
 
 Pick a message on the start page, or look at `/duplicates` and `/stuck` (stuck after 60 s in the demo).
 The JSON API is under `/api/` ([`docs/store-api.md`](../docs/store-api.md)).
@@ -104,6 +104,15 @@ passes only if its timeline is:
 | `joined` | each delete and visibility change is attached to the delivery whose receipt handle was really used, with the real result |
 | `receive_count` | each receive shows the real `ApproximateReceiveCount` |
 | `final` | the message's state is `deleted` |
+| `dlq_move` | the timeline shows a move to a dead-letter queue exactly when the message was received on a second queue: observed (`source: sqs_dlq_source`), from the first queue to the second, and never inferred |
+
+**The dead-letter path (`--dlq`).** `demo/check.sh --dlq python|node` uses the `check-dlq` mix: the same
+mix plus a `poison_fast` message 1 in 20 (10 of 200). The consumers release it at once on every receive
+(`ChangeMessageVisibility` to 0). After `maxReceiveCount` (3) receives, SQS moves it to `<queue>-dlq`, and
+each consumer process's DLQ reader receives and deletes it there. Its truth lines name the queue. The
+summary counts `dlq_messages`, `dlq_moves_observed` and `dlq_moves_inferred`, which must be 0. CI's
+ElasticMQ runs use `--dlq`. The real-SQS runs don't, because the move on real SQS is not approved yet
+(QV-33).
 
 **In order.** The store shows a step before another only when an observed fact proves it, and says which
 (`order.edges`, each with its sources: `clock`, `process_order`, `receive_count`, `sqs_timestamps`;
