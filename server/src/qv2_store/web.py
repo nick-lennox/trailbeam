@@ -56,7 +56,8 @@ DUPLICATE_REASONS = {
     "succeeded_more_than_once": "succeeded more than once",
 }
 
-CSS = """
+# A raw string: the CSS has its own escapes (\2191 is the up arrow), which Python must not read as octal.
+CSS = r"""
 body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;color:#1d2330;background:#f7f8fa}
 header{background:#1d2330;color:#fff;padding:.6rem 1.2rem;display:flex;gap:1.5rem;align-items:center}
 header a{color:#fff;text-decoration:none}header a.brand{font-weight:700}

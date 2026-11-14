@@ -263,3 +263,17 @@ def test_each_step_says_which_observed_fact_puts_it_after_another(server):
             "(receive count 2).") in whys
     assert "After receive 1: Same process: receive 1 returned before this call was issued." in whys
     assert "Placed after receive 1 and before receive 2, the steps it was inferred from." in whys
+
+
+CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def test_no_page_carries_control_characters(site, server):
+    """QV-32 section 7: the CSS arrow was written "\\2191" in a plain string, which Python read as the
+    octal escape \\21 (U+0011) followed by "91", so every reason line started with a stray glyph and "91"."""
+    test_each_step_says_which_observed_fact_puts_it_after_another(server)
+    for path in ("/", page(MID), page(POISON), page(ODD), page("why-1"), "/duplicates", "/stuck?older_than_s=0"):
+        status, _, html = get(site, path)
+        assert status == 200, path
+        assert not CONTROL.search(html), (path, CONTROL.search(html))
+    assert '.why:before{content:"\\2191  "' in html  # the CSS escape reaches the browser intact
