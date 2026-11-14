@@ -1,7 +1,16 @@
 """Per-message timelines, built from the stored rows of one message (docs/store-api.md).
 
-Observed events come from qv2 spans. Inferred events (contract section 9) have no span and are always
-marked ``inferred: true``, with a time window instead of a time.
+Observed events come from qv2 spans. Each is an interval (contract section 2): ``start`` just before the
+SQS request was sent (``None`` if not observed, as for a Lambda receive), ``end`` when the response came.
+Inferred events (contract section 9) have no span and are always marked ``inferred: true``, with a time
+window instead of a time.
+
+Order (contract section 9a). Observed events are put in **groups**: the connected components of "their
+intervals overlap", where an unknown start counts as minus infinity. Every event of a group ended before
+any event of the next group started, so the order of groups is proven by the clocks; inside a group it
+is not, and a group of more than one event is shown as "concurrent, order unknown". Events are never
+re-ordered by what caused what. Each inferred event is placed by the observed events it was inferred
+from (its anchors), never by a time of its own.
 """
 from __future__ import annotations
 
@@ -20,8 +29,38 @@ def iso(ns: Optional[int]) -> Optional[str]:
     return dt.isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
-def _time(ns: int) -> dict:
-    return {"time": iso(ns), "time_unix_nano": str(ns)}
+CONCURRENT_LABEL = "concurrent, order unknown"
+
+
+def _time(start_ns: Optional[int], end_ns: int) -> dict:
+    """An observed event's times. ``time`` is the end, kept from the 0.1 API for simple clients."""
+    return {"time": iso(end_ns), "time_unix_nano": str(end_ns),
+            "start": iso(start_ns), "start_unix_nano": None if start_ns is None else str(start_ns),
+            "end": iso(end_ns), "end_unix_nano": str(end_ns), "start_observed": start_ns is not None}
+
+
+def _start(r) -> Optional[int]:
+    return r["start_ns"]
+
+
+def group_rows(rows: list) -> dict:
+    """Row number -> group number (0, 1, ...), by the rule in the module docstring.
+
+    Sort by start (unknown first), sweep, and open a new group only when a start is strictly after
+    the latest end seen so far: then every earlier event ended before it started.
+    """
+    order = sorted(rows, key=lambda r: (-1 if r["start_ns"] is None else r["start_ns"], r["time_ns"], r["row"]))
+    out: dict = {}
+    g, max_end = -1, None
+    for r in order:
+        start = r["start_ns"]
+        if max_end is None or (start is not None and start > max_end):
+            g += 1
+            max_end = r["time_ns"]
+        else:
+            max_end = max(max_end, r["time_ns"])
+        out[r["row"]] = g
+    return out
 
 
 def consumer(r) -> dict:
@@ -48,29 +87,30 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
     latest = receives[-1] if receives else None
     source_queue = sends[0]["queue"] if sends else (receives[0]["queue"] if receives else rows[0]["queue"])
     outcomes = {(r["faas_invocation_id"]): r for r in rows if r["kind"] == "outcome"}
+    group = group_rows(rows)
 
-    events: list[tuple[tuple, dict]] = []  # (sort key, event)
+    observed: list[tuple[tuple, dict]] = []  # (sort key, event)
+    # Inferred events: (after row, before row, rank, event). Either row may be None.
+    inferred: list[tuple[Optional[int], Optional[int], int, dict]] = []
 
-    def add(sort_ns: int, order: int, ev: dict):
-        events.append(((sort_ns, order, len(events)), ev))
+    def infer(after, before, rank: int, ev: dict) -> None:
+        inferred.append((after["row"] if after is not None else None,
+                         before["row"] if before is not None else None, rank, ev))
 
     # ---- observed -------------------------------------------------------------------------
     for r in rows:
         k = r["kind"]
-        base = {"inferred": False, **_time(r["time_ns"]), "queue": r["queue"], "consumer": consumer(r), "span": _span(r)}
+        base = {"inferred": False, **_time(_start(r), r["time_ns"]), "group": group[r["row"]],
+                "queue": r["queue"], "consumer": consumer(r), "span": _span(r)}
         if k == "send":
-            add(r["time_ns"], 0, {"type": "sent", **base,
-                                  **({"batch_entry_id": r["batch_entry_id"]} if r["batch_entry_id"] else {})})
+            ev = {"type": "sent", **base, **({"batch_entry_id": r["batch_entry_id"]} if r["batch_entry_id"] else {})}
         elif k == "receive":
             ev = {"type": "received", **base, "delivery": by_row[r["row"]], "receive_count": r["receive_count"]}
             if r["sent_ts_ms"] is not None:
                 ev["sent_timestamp"] = iso(r["sent_ts_ms"] * 1_000_000)
-            add(r["time_ns"], 0, ev)
         elif k in ("delete", "change_visibility"):
-            rec_row = r["receive_row"]
-            delivery = by_row.get(rec_row)
             ev = {"type": "deleted" if k == "delete" else "visibility_changed", **base,
-                  "delivery": delivery, "result": r["result"]}
+                  "delivery": by_row.get(r["receive_row"]), "result": r["result"]}
             if r["error_code"]:
                 ev["error_code"] = r["error_code"]
             if r["batch_entry_id"]:
@@ -79,9 +119,6 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
                 ev["visibility_timeout_s"] = r["visibility_timeout"]
             else:
                 ev["status"] = _delete_status(r, latest)
-            # Order a settle after the receive it settles, even with clock skew between hosts.
-            rec_t = next((x["time_ns"] for x in receives if x["row"] == rec_row), r["time_ns"])
-            add(max(r["time_ns"], rec_t), 1, ev)
         elif k == "outcome":
             ev = {"type": "lambda_outcome", **base, "outcome": r["outcome"]}
             if r["error_type"]:
@@ -89,12 +126,15 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
             rec = next((x for x in receives if x["faas_invocation_id"] == r["faas_invocation_id"]), None)
             if rec is not None:
                 ev["delivery"] = by_row[rec["row"]]
-            add(r["time_ns"], 2, ev)
             if r["outcome"] == "success":
-                add(r["time_ns"], 3, _inferred(
+                infer(r, None, 0, _inferred(
                     "deleted_by_lambda", r["time_ns"], None,
                     "The handler succeeded for this record, so Lambda's event source mapping deletes the "
                     "message. That delete is not observed.", delivery=ev.get("delivery"), queue=r["queue"]))
+        else:  # pragma: no cover - otlp.decode only produces the kinds above
+            continue
+        # Inside a group the order is not known; list by end time so the listing is stable.
+        observed.append(((group[r["row"]], r["time_ns"], -1 if _start(r) is None else _start(r), r["row"]), ev))
 
     # ---- inferred between deliveries ----------------------------------------------------------
     prev_on_queue: dict[str, dict] = {}
@@ -103,27 +143,28 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
         q = r["queue"]
         p = prev_on_queue.get(q)
         if p is None and q == source_queue and r["receive_count"] > 1:
-            add(r["time_ns"], -2, _inferred(
-                "deliveries_not_observed", sends[0]["time_ns"] if sends else None, r["time_ns"],
+            s0 = sends[0] if sends else None
+            infer(s0, r, 2, _inferred(
+                "deliveries_not_observed", _start(s0) if s0 else None, r["time_ns"],
                 f"The first observed receive has receive count {r['receive_count']}, so "
                 f"{r['receive_count'] - 1} earlier receive(s) were not observed (a consumer without qv2, "
                 f"or lost spans).", count=r["receive_count"] - 1, queue=q))
         if p is not None and r["receive_count"] > p["receive_count"]:
             gap = r["receive_count"] - p["receive_count"] - 1
             if gap > 0:
-                add(r["time_ns"], -2, _inferred(
-                    "deliveries_not_observed", p["time_ns"], r["time_ns"],
+                infer(p, r, 2, _inferred(
+                    "deliveries_not_observed", _start(p), r["time_ns"],
                     f"Receive count went from {p['receive_count']} to {r['receive_count']}, so {gap} "
                     f"receive(s) in between were not observed.", count=gap, queue=q))
-            add(r["time_ns"], -1, _inferred(
-                "visibility_timeout_expired", p["time_ns"], r["time_ns"],
+            infer(p, r, 3, _inferred(
+                "visibility_timeout_expired", _start(p), r["time_ns"],
                 _expiry_reason(rows, p), queue=q, after_delivery=by_row[p["row"]],
                 before_delivery=by_row[r["row"]]))
         if prev is not None and q != prev["queue"]:
             to_dlq = q != source_queue
-            add(r["time_ns"], -3, _inferred(
+            infer(prev, r, 1, _inferred(
                 "moved_to_dead_letter_queue" if to_dlq else "moved_back_to_source_queue",
-                prev["time_ns"], r["time_ns"],
+                _start(prev), r["time_ns"],
                 f"The message ID was received on {q} after {prev['queue']}. SQS keeps the message ID "
                 f"when it moves a message, so it was moved between those two receives; exactly when is "
                 f"not known.", from_queue=prev["queue"], to_queue=q))
@@ -137,7 +178,7 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
         if r["source"] != "lambda" or r["faas_invocation_id"] in outcomes:
             continue
         if now_ns - r["time_ns"] > timeout_ns:
-            add(r["time_ns"] + timeout_ns, 0, _inferred(
+            infer(r, None, 0, _inferred(
                 "lambda_invocation_ended_without_outcome", r["time_ns"], r["time_ns"] + timeout_ns,
                 f"A Lambda receive with no outcome after {lambda_timeout_s} s: the invocation most likely "
                 f"timed out or ran out of memory.", delivery=by_row[r["row"]], queue=r["queue"],
@@ -145,8 +186,8 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
         elif r is latest:
             pending_lambda = True
 
-    events.sort(key=lambda e: e[0])
-    evs = [e for _, e in events]
+    observed.sort(key=lambda e: e[0])
+    evs, n_groups = _place(observed, inferred)
 
     # ---- summary ----------------------------------------------------------------------------
     final = [e for e in evs if e["type"] == "deleted" and e.get("status") == "final"]
@@ -162,6 +203,7 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
     else:
         state = "not_deleted"
     current_queue = latest["queue"] if latest else source_queue
+    groups = _groups(evs, n_groups)
     return {
         "message_id": mid,
         "state": state,
@@ -173,9 +215,72 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
         "successful_deliveries": successful_deliveries(rows),
         "first_seen": iso(first_seen_ns(rows)),
         "last_seen": iso(rows[-1]["time_ns"]),
+        "concurrent_groups": sum(g["concurrent"] for g in groups),
+        "groups": groups,
         "events": evs,
         "notices": _notices(rows, receives),
     }
+
+
+def _place(observed: list, inferred: list) -> tuple[list[dict], int]:
+    """Observed events in group order, with each inferred event inserted by its anchors (the observed
+    events it was inferred from), so that its position never orders it against anything else:
+
+    - the later anchor's group holds more than one event, or both anchors: inside that group, just
+      before the later anchor, with that group's number (part of the concurrent group, unordered);
+    - otherwise, just before the later anchor's group, between groups (``group`` null);
+    - only an earlier anchor: just after it, inside its group if that group is concurrent, else after
+      the group.
+    """
+    evs = [ev for _, ev in observed]
+    rows = [key[3] for key, _ in observed]
+    pos = {row: i for i, row in enumerate(rows)}
+    first: dict = {}
+    size: dict = {}
+    for i, ev in enumerate(evs):
+        first.setdefault(ev["group"], i)
+        size[ev["group"]] = size.get(ev["group"], 0) + 1
+    slots: list[tuple[int, int, int, dict]] = []  # (insert before index, rank, seq, event)
+    for seq, (after, before, rank, ev) in enumerate(inferred):
+        if before is not None:
+            gb = evs[pos[before]]["group"]
+            ga = evs[pos[after]]["group"] if after is not None else None
+            if ga == gb or size[gb] > 1:
+                idx, g = pos[before], gb
+            else:
+                idx, g = first[gb], None
+        else:
+            ga = evs[pos[after]]["group"]
+            if size[ga] > 1:
+                idx, g = pos[after] + 1, ga
+            else:
+                idx, g = first[ga] + size[ga], None
+        slots.append((idx, rank, seq, {**ev, "group": g}))
+    slots.sort(key=lambda s: s[:3])
+    out: list[dict] = []
+    j = 0
+    for i, ev in enumerate(evs + [None]):
+        while j < len(slots) and slots[j][0] == i:
+            out.append(slots[j][3])
+            j += 1
+        if ev is not None:
+            out.append(ev)
+    n_groups = (max((e["group"] for e in evs), default=-1) + 1)
+    return out, n_groups
+
+
+def _groups(evs: list[dict], n: int) -> list[dict]:
+    out = []
+    for g in range(n):
+        members = [e for e in evs if e.get("group") == g]
+        obs = [e for e in members if not e["inferred"]]
+        starts = [int(e["start_unix_nano"]) for e in obs if e["start_unix_nano"] is not None]
+        concurrent = len(obs) > 1
+        out.append({"group": g, "concurrent": concurrent, "label": CONCURRENT_LABEL if concurrent else None,
+                    "observed_events": len(obs), "inferred_events": len(members) - len(obs),
+                    "start": iso(min(starts)) if len(starts) == len(obs) else None,
+                    "end": iso(max(int(e["end_unix_nano"]) for e in obs))})
+    return out
 
 
 def _delete_status(r, latest) -> str:

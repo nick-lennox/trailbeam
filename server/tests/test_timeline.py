@@ -2,6 +2,7 @@
 import pytest
 
 from qv2_store import queries
+from qv2_store.timeline import iso
 from spans import KEY, SEC, T0, Consumer
 
 NOW = T0 + 3600 * SEC
@@ -182,12 +183,128 @@ def test_failed_delete_does_not_settle(store, ingest):
     assert [s["message_id"] for s in queries.stuck(store, NOW, LT, 300, 100)] == ["m1"]
 
 
-def test_settle_is_ordered_after_its_receive_despite_clock_skew(store, ingest):
+def test_observed_steps_are_never_reordered_by_cause(store, ingest):
+    """Contract section 9a: the order shown is the order the clocks prove, nothing else. If b's clock is
+    1 s behind, its delete is shown before the receive it settles; the store does not move it."""
     a, b = Consumer("a"), Consumer("b")
-    ingest(a.receive(T0 + 5 * SEC, "m1", "rh-1"), b.delete(T0 + 4 * SEC, "rh-1"))  # b's clock is 1 s behind
+    ingest(a.receive(T0 + 5 * SEC, "m1", "rh-1", start=T0 + 5 * SEC - 1000),
+           b.delete(T0 + 4 * SEC, "rh-1", start=T0 + 4 * SEC - 1000))
     t = tl(store, "m1")
-    assert [e["type"] for e in t["events"]] == ["received", "deleted"]
-    assert t["events"][1]["time"] < t["events"][0]["time"]  # the real timestamps are kept
+    assert [(e["type"], e["group"]) for e in t["events"]] == [("deleted", 0), ("received", 1)]
+    assert t["events"][0]["delivery"] == 1 and t["events"][0]["status"] == "final"  # the join is unchanged
+
+
+# -- order: concurrent groups (contract section 9a) ----------------------------------------------
+
+MS = 1_000_000
+
+
+def groups(t):
+    """Event types per group, in display order; inferred events between groups as their own entry."""
+    out = []
+    for e in t["events"]:
+        if e["group"] is None:
+            out.append(e["type"])
+        elif out and isinstance(out[-1], tuple) and out[-1][0] == e["group"]:
+            out[-1][1].append(e["type"])
+        else:
+            out.append((e["group"], [e["type"]]))
+    return [x if isinstance(x, str) else x[1] for x in out]
+
+
+def test_overlapping_send_and_receive_are_one_concurrent_group(store, ingest):
+    """The QV-20 case: the receive's response came back before the send's, but SQS acted inside both
+    intervals and they overlap, so the store cannot say which came first and does not pretend to."""
+    p, c = Consumer("producer"), Consumer()
+    ingest(p.send(T0 + 30 * MS, "m1", start=T0),                        # 0 to 30 ms
+           c.receive(T0 + 20 * MS, "m1", "rh-1", start=T0 - 900 * MS),   # a long poll, ends at 20 ms
+           c.delete(T0 + 50 * MS, "rh-1", start=T0 + 40 * MS))
+    t = tl(store, "m1")
+    check_marking(t)
+    assert groups(t) == [["received", "sent"], ["deleted"]]
+    assert t["groups"][0] == {"group": 0, "concurrent": True, "label": "concurrent, order unknown",
+                              "observed_events": 2, "inferred_events": 0,
+                              "start": "2025-11-14T00:26:39.100000Z", "end": "2025-11-14T00:26:40.030000Z"}
+    assert t["groups"][1]["concurrent"] is False and t["groups"][1]["label"] is None
+    assert t["concurrent_groups"] == 1
+    sent = t["events"][1]
+    assert (sent["start"], sent["end"], sent["start_observed"]) == (
+        "2025-11-14T00:26:40.000000Z", "2025-11-14T00:26:40.030000Z", True)
+    assert (sent["start_unix_nano"], sent["end_unix_nano"]) == (str(T0), str(T0 + 30 * MS))
+
+
+def test_a_step_is_before_another_only_if_it_ended_before_the_other_started(store, ingest):
+    c = Consumer()
+    # ended before: ordered
+    ingest(c.send(T0 + 10, "a", start=T0), c.receive(T0 + 20, "a", "rh-a", start=T0 + 11))
+    assert groups(tl(store, "a")) == [["sent"], ["received"]]
+    # touching (end == start): not proven, so concurrent
+    ingest(c.send(T0 + 10, "b", start=T0), c.receive(T0 + 20, "b", "rh-b", start=T0 + 10))
+    assert groups(tl(store, "b")) == [["sent", "received"]]
+
+
+def test_a_chain_of_overlaps_is_one_group(store, ingest):
+    """A overlaps B and B overlaps C: one group, even though A ended before C started. Splitting it
+    would show A before B or B before C, which the clocks do not prove."""
+    c = Consumer()
+    ingest(c.send(T0 + 10, "m1", start=T0),
+           c.receive(T0 + 30, "m1", "rh-1", start=T0 + 5),
+           c.delete(T0 + 40, "rh-1", start=T0 + 20),
+           c.delete(T0 + 60, "rh-1", start=T0 + 50, ok=False))
+    t = tl(store, "m1")
+    assert groups(t) == [["sent", "received", "deleted"], ["deleted"]]
+
+
+def test_lambda_receive_has_no_start_so_it_is_concurrent_with_what_came_before(store, ingest):
+    fn = Consumer("env-1", source="lambda")
+    ingest(Consumer("producer").send(T0, "m1", start=T0 - 5 * MS),
+           fn.receive(T0 + SEC, "m1", "rh-1", lambda_inv="inv-1", start=T0 + SEC),
+           fn.outcome(T0 + 2 * SEC, "m1", "success", "inv-1"))
+    t = tl(store, "m1")
+    rcv = t["events"][1]
+    assert (rcv["type"], rcv["start"], rcv["start_unix_nano"], rcv["start_observed"]) == ("received", None, None, False)
+    assert rcv["end"] == "2025-11-14T00:26:41.000000Z"
+    assert groups(t) == [["sent", "received"], ["lambda_outcome"], "deleted_by_lambda"]
+    assert t["groups"][0]["start"] is None  # one member's start is unknown
+
+
+def test_inferred_step_between_groups_is_placed_by_its_anchors_not_by_a_time(store, ingest):
+    c = Consumer()
+    ingest(c.send(T0 + 10, "m1", start=T0),
+           c.receive(T0 + SEC, "m1", "rh-1", start=T0 + 100),
+           c.change_visibility(T0 + SEC + 20, "rh-1", 0, start=T0 + SEC + 10),
+           c.receive(T0 + 2 * SEC, "m1", "rh-2", count=2, start=T0 + SEC + 5),  # overlaps the visibility change
+           c.delete(T0 + 3 * SEC, "rh-2", start=T0 + 2 * SEC + 10))
+    t = tl(store, "m1")
+    check_marking(t)
+    assert groups(t) == [["sent"], ["received"], ["visibility_changed", "visibility_timeout_expired", "received"],
+                         ["deleted"]]
+    expiry = next(e for e in t["events"] if e["type"] == "visibility_timeout_expired")
+    # Its anchors (delivery 1's receive, delivery 2's receive) are in different groups, but delivery 2 is
+    # in a concurrent group: the expiry is shown inside that group, never ordered against its members.
+    assert expiry["group"] == 2
+    assert expiry["window"] == {"from": "2025-11-14T00:26:40.000000Z", "to": "2025-11-14T00:26:42.000000Z"}
+    assert t["groups"][2]["inferred_events"] == 1 and t["groups"][2]["observed_events"] == 2
+
+
+def test_inferred_step_between_two_single_groups_has_no_group(store, ingest):
+    c, d = Consumer("c"), Consumer("d")
+    ingest(c.send(T0, "m1"), c.receive(T0 + SEC, "m1", "rh-1", start=T0 + SEC - 10),
+           d.receive(T0 + 100 * SEC, "m1", "rh-2", count=2, start=T0 + 99 * SEC))
+    t = tl(store, "m1")
+    assert groups(t) == [["sent"], ["received"], "visibility_timeout_expired", ["received"]]
+    expiry = t["events"][2]
+    assert expiry["group"] is None
+    # The window runs from the start of the receive that hid the message to the end of the one that got it.
+    assert expiry["window"]["from"] == iso(T0 + SEC - 10) and expiry["window"]["to"] == iso(T0 + 100 * SEC)
+
+
+def test_every_observed_event_has_start_end_and_group(store, ingest):
+    c = Consumer()
+    ingest(c.send(T0 + 5, "m1", start=T0), c.receive(T0 + SEC, "m1", "rh-1", start=T0 + 10))
+    for e in tl(store, "m1")["events"]:
+        assert {"start", "end", "start_unix_nano", "end_unix_nano", "start_observed", "group"} <= set(e)
+        assert e["time"] == e["end"]
 
 
 def test_notices(store, ingest):

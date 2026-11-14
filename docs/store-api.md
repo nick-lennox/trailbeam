@@ -38,23 +38,39 @@ refer to that file.
   "send_observed": true,
   "deliveries": 2,
   "successful_deliveries": 1,
-  "first_seen": "2025-11-14T00:26:40.000000Z",
+  "first_seen": "2025-11-14T00:26:40.030000Z",
   "last_seen": "2025-11-14T00:27:21.000000Z",
+  "concurrent_groups": 1,
+  "groups": [
+    {"group": 0, "concurrent": true, "label": "concurrent, order unknown", "observed_events": 2,
+     "inferred_events": 0, "start": "2025-11-14T00:26:39.100000Z", "end": "2025-11-14T00:26:40.030000Z"},
+    {"group": 1, "concurrent": false, "label": null, "observed_events": 1, "inferred_events": 0,
+     "start": "2025-11-14T00:27:19.900000Z", "end": "2025-11-14T00:27:20.000000Z"},
+    {"group": 2, "concurrent": false, "label": null, "observed_events": 1, "inferred_events": 0,
+     "start": "2025-11-14T00:27:20.950000Z", "end": "2025-11-14T00:27:21.000000Z"}
+  ],
   "events": [
-    {"type": "sent", "inferred": false, "time": "2025-11-14T00:26:40.000000Z", "time_unix_nano": "1763080000000000000",
-     "queue": "orders", "consumer": {"service_name": "orders-api", "client_id": "producer", "source": "client", "pid": 4242, "thread_name": "worker-1"},
-     "span": {"trace_id": "8f0c...", "span_id": "0000000000000001"}},
-    {"type": "received", "inferred": false, "time": "2025-11-14T00:26:41.000000Z", "...": "...", "delivery": 1, "receive_count": 1},
-    {"type": "visibility_timeout_expired", "inferred": true, "time": null,
-     "window": {"from": "2025-11-14T00:26:41.000000Z", "to": "2025-11-14T00:27:20.000000Z"},
+    {"type": "received", "inferred": false, "group": 0,
+     "start": "2025-11-14T00:26:39.100000Z", "start_unix_nano": "1763080039100000000",
+     "end": "2025-11-14T00:26:40.020000Z", "end_unix_nano": "1763080040020000000", "start_observed": true,
+     "time": "2025-11-14T00:26:40.020000Z", "time_unix_nano": "1763080040020000000",
+     "queue": "orders", "consumer": {"service_name": "orders-worker", "client_id": "consumer-a", "source": "client", "pid": 4242, "thread_name": "worker-1"},
+     "span": {"trace_id": "8f0c...", "span_id": "0000000000000002"}, "delivery": 1, "receive_count": 1},
+    {"type": "sent", "inferred": false, "group": 0, "start": "2025-11-14T00:26:40.000000Z", "end": "2025-11-14T00:26:40.030000Z", "...": "..."},
+    {"type": "visibility_timeout_expired", "inferred": true, "group": null, "time": null,
+     "window": {"from": "2025-11-14T00:26:39.100000Z", "to": "2025-11-14T00:27:20.000000Z"},
      "reason": "The visibility timeout expired before the message was deleted, so SQS delivered it again.",
      "queue": "orders", "after_delivery": 1, "before_delivery": 2},
-    {"type": "received", "inferred": false, "...": "...", "delivery": 2, "receive_count": 2},
-    {"type": "deleted", "inferred": false, "...": "...", "delivery": 2, "result": "ok", "status": "final"}
+    {"type": "received", "inferred": false, "group": 1, "...": "...", "delivery": 2, "receive_count": 2},
+    {"type": "deleted", "inferred": false, "group": 2, "...": "...", "delivery": 2, "result": "ok", "status": "final"}
   ],
   "notices": []
 }
 ```
+
+Here the receive's long poll (from 39.100) was already waiting when the message was sent (40.000 to
+40.030), and its response (40.020) came back before the send's: the two intervals overlap, so they
+are one concurrent group and the store does not say which came first.
 
 ### Summary fields
 
@@ -66,16 +82,34 @@ refer to that file.
 | `in_dead_letter_queue` | `current_queue` differs from `source_queue`. |
 | `deliveries` | Number of observed receives, on any queue. |
 | `successful_deliveries` | Deliveries that ended in an accepted delete (counted once per delivery) or a Lambda `success`. More than one means the message was processed more than once. |
-| `first_seen` | Send time; if the send was not observed, the earliest SQS `SentTimestamp` from a receive. |
+| `first_seen` | Send time (the end of the send call); if the send was not observed, the earliest SQS `SentTimestamp` from a receive. |
+| `groups` | The timeline's groups, in order (below). Each has `group` (its number), `concurrent` (more than one observed event), `label` (`"concurrent, order unknown"` or `null`), `observed_events`, `inferred_events`, `start` (earliest start; `null` if any member's start is unknown) and `end` (latest end). |
+| `concurrent_groups` | Number of groups with `concurrent: true`. |
 
-### Events
+### Events and their order
 
-Events are in display order: by time, except that a delete or visibility change is always placed after
-the receive whose handle it used, even if the clocks of two hosts disagree (its own `time` is kept as
-recorded). Every event has `type` and `inferred`.
+Each observed event is an interval (contract §2): `start` is just before the SQS request was sent,
+`end` is when its response arrived, and SQS acted somewhere in between. Events are in display order,
+by this rule (contract §9a):
 
-**Observed events** (`inferred: false`) come from one qv2 span each, and have `time`, `time_unix_nano`,
-`queue`, `consumer` and `span`. `consumer` holds whichever of `service_name`, `client_id`
+- **Event A is shown before event B only if A ended before B started** (`A.end < B.start`).
+- Events whose intervals overlap, directly or through a chain of overlapping events, form one
+  **group**. A group with more than one observed event is **concurrent**: its order is unknown, and
+  the screen shows it side by side, labelled "concurrent, order unknown". Inside a group, events are
+  listed by `end` only so that the listing is stable; that order means nothing.
+- An event whose start was not observed (`start: null`, `start_observed: false`: a Lambda receive,
+  where only an upper bound is known) is treated as starting at minus infinity, so it is concurrent
+  with everything that started before its end.
+- Events are **never re-ordered by cause**. If a host's clock is behind, its delete can be shown
+  before the receive whose handle it used (its `delivery` still says which one); the store shows what
+  the clocks say. 0.1 does not correct for clock offset between hosts.
+
+Every event has `type`, `inferred` and `group` (its group's number; `null` for an inferred event
+placed between groups).
+
+**Observed events** (`inferred: false`) come from one qv2 span each, and have `start`, `end`,
+`start_unix_nano`, `end_unix_nano` (strings), `start_observed`, `time` and `time_unix_nano` (the same
+as `end`, kept for clients of the first 0.1 API), `queue`, `consumer` and `span`. `consumer` holds whichever of `service_name`, `client_id`
 (`messaging.client.id`), `source` (`client` or `lambda`), `pid`, `thread_name`, `faas_name` and
 `faas_invocation_id` the span carried (contract §5). `span` holds `trace_id` and `span_id` (hex), for
 linking to a tracing backend.
@@ -103,6 +137,14 @@ receipt-handle hash join (below). It is `null` if no stored receive has that has
 **Inferred events** (`inferred: true`) have **no span**. The store deduced them (contract §9). They have
 `time: null`, a `window` (`from`, `to`; either may be `null` when unknown), and a `reason` sentence to
 show the user. Show them differently from observed events.
+
+An inferred event is placed by the observed events it was inferred from (its anchors, such as the
+two receives around a visibility-timeout expiry), never by a time of its own: just before the later
+anchor's group, or, if that group is concurrent, inside it (it then has that `group` number and is
+part of the concurrent group, not ordered against its members). An event with only an earlier anchor
+(`deleted_by_lambda`, `lambda_invocation_ended_without_outcome`) goes just after that anchor, in the
+same way. Its `window` runs from the earlier anchor's `start` (or `null` if unknown) to the later
+anchor's `end`.
 
 | `type` | When | Extra fields |
 |---|---|---|
@@ -190,7 +232,8 @@ whose receive has not arrived (or never will, for example with a different hash 
 ## Known limits in 0.1
 
 - Two queues with the same name in different accounts or regions are merged (contract §6).
-- Time order across hosts relies on their clocks, except for the settle-after-receive rule above.
+- Time order across hosts relies on their clocks (see "Events and their order"); the store does not
+  correct for clock offset between hosts. The local demo runs everything on one host, one clock.
 - No retention: data is kept until the SQLite file is deleted.
 - List endpoints build a timeline for each listed message, so they are meant for the `limit` sizes the
   screens use, not for exports.
