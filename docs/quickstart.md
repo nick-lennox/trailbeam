@@ -64,6 +64,20 @@ see its timeline: when it was sent, by which process, each delivery with its rec
 and the delete. Steps the store **inferred**, rather than observed, are drawn with a dashed border and an
 INFERRED label, for example a visibility-timeout expiry.
 
+Each step shows two times: when its SQS request was sent and when the response came back (for example
+`… 12:00:01.204 to … 12:00:01.231 (27.0 ms)`). SQS did the work somewhere in between, and qv2 cannot see
+exactly when. So the timeline shows one step above another **only if the first one's response came back
+before the second one's request was sent**. When two steps' times overlap, qv2 cannot tell which one SQS did
+first, and it does not guess: it draws them side by side in one dashed box with a **CONCURRENT** badge and
+the label **concurrent, order unknown**. The order inside the box means nothing.
+
+Expect to see that box often, most of all around a send and its first receive. An idle consumer waits in a
+long poll (`WaitTimeSeconds`), so its receive request was usually sent before the message existed, and
+its interval contains the send. That is the honest answer, not a fault: the send certainly happened first,
+but the times alone do not prove it, and qv2 shows only what the times prove. A Lambda receive shows
+**no later than** one time: the wrapper sees the event only after Lambda received it, so it knows an upper
+bound and nothing else.
+
 Messages worth opening (the demo sends each kind on a fixed schedule; see
 [`demo/README.md`](../demo/README.md#what-to-look-at)):
 

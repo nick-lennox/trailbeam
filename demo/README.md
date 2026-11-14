@@ -64,6 +64,13 @@ The JSON API is under `/api/` ([`docs/store-api.md`](../docs/store-api.md)).
 - **ElasticMQ and late deletes.** ElasticMQ rejects a delete with the handle of an earlier delivery
   (`ReceiptHandleIsInvalid`), so the `slow` messages' late deletes show as `failed`. Amazon SQS accepts
   such a delete; the store shows it as `stale_handle` there.
+- **"Concurrent, order unknown".** Each step is an interval from request to response, and a step is
+  drawn above another only if it ended before the other started. Overlapping steps share one dashed
+  box. In the demo that is most often a send and its first receive: idle consumers are already waiting in
+  a long poll when the message is sent. See the [quickstart](../docs/quickstart.md#3-look-up-a-message-1-minute).
+- **One clock.** All demo containers run on one host and read one clock, so their intervals can be
+  compared. Across hosts, the store relies on the hosts' clocks and does not correct for an offset
+  between them (a known limit of 0.1).
 - **Truth files.** With `--truth DIR`, each driver process writes one JSON line per SQS call it makes, to
   its own file. The demo services write none; the [concurrency check](#concurrency-check) uses them.
 - The AWS keys in [`compose.yaml`](compose.yaml) are dummy values for the emulator, not credentials.
@@ -71,7 +78,7 @@ The JSON API is under `/api/` ([`docs/store-api.md`](../docs/store-api.md)).
 ## Concurrency check
 
 The qv2 0.1 "done means" check: with three processes of four consumers each, every one of 200 messages
-gets a complete timeline in the right order, in Python and in Node.js separately.
+gets a complete timeline that never shows an effect before its cause, in Python and in Node.js separately.
 
 ```sh
 demo/check.sh python          # or: demo/check.sh node; optional second argument: message count (200)
@@ -93,10 +100,30 @@ passes only if its timeline is:
 | Check | Meaning |
 |---|---|
 | `complete` | its observed events are exactly the SQS calls the processes made: send, every receive, every visibility change, the delete |
-| `in_order` | in the store's order, they are those calls in the order they happened |
+| `in_order` | the timeline never shows an effect definitely before its cause (below) |
 | `joined` | each delete and visibility change is attached to the delivery whose receipt handle was really used, with the real result |
 | `receive_count` | each receive shows the real `ApproximateReceiveCount` |
 | `final` | the message's state is `deleted` |
+
+**In order.** The store shows each step as an interval (request sent to response received) and groups
+steps whose intervals overlap as "concurrent, order unknown" ([`docs/store-api.md`](../docs/store-api.md#events-and-their-order)).
+The checker takes the cause/effect pairs from the truth files: the send and each receive; receive *k* and
+receive *k*+1; receive *k* and each delete or visibility change that used its handle; an accepted
+`ChangeMessageVisibility` on delivery *k* and receive *k*+1. With the store's intervals and groups, a pair is
+
+- **violated** if the effect's interval ends before the cause's starts, or the store puts the effect in an
+  earlier group, or orders the pair although the intervals do not prove it (cause end < effect start);
+- **concurrent** if both are in one group;
+- **in order** otherwise.
+
+A message is `in_order` when it is complete and none of its pairs is violated.
+
+So that `in_order` cannot pass just by putting everything in one group, the summary also reports
+`with_concurrent_group` (messages with at least one concurrent group) and `pairs_in_order`,
+`pairs_concurrent`, `pairs_violated`, with `pairs_by_kind` per kind of pair. Two diagnostics split the
+concurrent pairs: `concurrent_via_chain`, whose own intervals do not overlap (they share a group only
+because other steps overlap both), and `concurrent_tied`, where the cause ended at exactly the effect's
+start (a tie at the clock's resolution).
 
 Each check is evaluated on its own: `joined` and `receive_count` compare the events whatever order the
 store shows them in, so a message that fails on order still has its joins and receive counts measured. The
@@ -108,31 +135,43 @@ The summary is printed and saved in `demo/results/<run>.txt`, the per-message re
 fresh random receipt-hash key, so runs don't mix and the demo can keep running alongside.
 [`check/tests/`](check/tests/) tests the comparison itself (`pytest demo/check/tests`).
 
-### Result: not 200 of 200 yet
+### Result: 200 of 200, with most send/receive pairs left concurrent
 
-Measured on 2026-11-13 (ElasticMQ 1.6.15, Docker Desktop 4.70 on WSL2, all processes on one host), three
-runs per language:
+Measured in CI on 2026-11-14 (GitHub Actions `ubuntu-latest`, ElasticMQ 1.6.15, all processes on one
+host), three runs per language with span contract v2 and the rule above:
 
-| Language | complete | in order (passed) | final | processes / consumers seen |
-|---|---|---|---|---|
-| Python | 200, 200, 200 | **173, 192, 191** | 200, 200, 200 | 3 + 1 deleter / 12 |
-| Node.js | 200, 200, 200 | **183, 184, 185** | 200, 200, 200 | 3 + 1 deleter / 12 |
+| Language | complete | in order | joined | receive count | final | messages with a concurrent group | pairs in order / concurrent / violated |
+|---|---|---|---|---|---|---|---|
+| Python | 200, 200, 200 | **200, 200, 200** | 200, 200, 200 | 200, 200, 200 | 200, 200, 200 | 197, 200, 196 | 186/330/0, 165/351/0, 188/328/0 |
+| Node.js | 200, 200, 200 | **200, 200, 200** | 200, 200, 200 | 200, 200, 200 | 200, 200, 200 | 149, 181, 121 | 279/237/0, 172/344/0, 318/198/0 |
 
-Every span arrives and every delete joins to its message, including the 28 deleted by another process.
-The failures are all **order**, in two patterns:
+Each run: 3 consumer processes of 4 consumers each, plus 1 deleter process; 29 messages with a visibility
+change, 28 deleted by the deleter process. No pair was violated in any run.
 
-- **A receive shown before its send** (most failures). A consumer's long poll returned the message before
-  the producer's `SendMessage` call returned, by 0.0003 to 1.3 ms.
-- **A redelivery shown before the `ChangeMessageVisibility` to 0 that caused it**, by 0.06 to 5 ms.
-  Another consumer received the message before the change call returned.
+Pairs left concurrent, by kind (of 229 send/receive, 29 receive/receive, 229 receive/settle and 29
+change-visibility/receive pairs per run):
 
-The cause is the timestamps, not the check. The span contract
-([`docs/span-contract.md`](../docs/span-contract.md), sections 2 and 4) makes every qv2 span zero-length, emitted
-from the response, with the time it was emitted. The store orders events by that time. But SQS acts on a
-call before its response gets back, so on a fast network a receive can return before the send that caused
-it does. These are not clock problems (all processes here share one clock). The QV-11 prototype passed 200
-of 200 against Amazon SQS. Its settle spans were stamped at the request, and its send spans at the response
-as now; that sends never lost the race there is probably due to the network round trip to AWS (an
-estimate, not measured). The fix is open: record when
-the call started as well, and have the store order by cause where it is known (a message's send comes
-before its first receive; an accepted visibility change to 0 comes before the next delivery).
+| Kind | Python | Node.js |
+|---|---|---|
+| send, receive | 221, 227, 219 | 145, 186, 112 |
+| receive *k*, receive *k*+1 | 24, 27, 23 | 12, 19, 6 |
+| receive, its settle | 56, 68, 58 (all via chain in the last two runs) | 53, 110, 53 (third run: 42 tied at 1 ms, 11 via chain) |
+| change visibility, next receive | 29, 28, 28 | 27, 27, 27 |
+
+Why so many:
+
+- **Long polling.** An idle consumer waits in `ReceiveMessage` (`WaitTimeSeconds`). The poll that returns
+  a message was usually sent before the message was, so its interval contains the send; the same holds
+  for the redelivery after a `ChangeMessageVisibility` to 0, where another consumer was already waiting.
+  The order is true but not proven by the times, so the store leaves it concurrent. Node.js resolves more
+  send/receive pairs than Python because its consumers are more often busy (not waiting) when a message
+  arrives [estimate, not measured].
+- **Chains.** Groups are connected components of "overlaps": a redelivery's long poll overlaps both the
+  first receive and the visibility change after it, so all three are one group, although the first two
+  are ordered by their own times.
+- **Node.js clock resolution.** `Date.now()` is in milliseconds. Against a local emulator, a delete is
+  often sent in the same millisecond its receive returned, which is a tie, not a proven order.
+
+With span contract v1 and the old rule (the store's list order compared with the truth), the same check
+passed 173 to 192 of 200 in Python and 183 to 185 in Node.js (QV-20): spans were stamped at the response,
+and a receive could come back before the send that caused it.
