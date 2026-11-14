@@ -117,3 +117,48 @@ test('send, receive, change visibility, delete (single and batch) against the em
   const batchSendParents = new Set(sends.slice(1).map((s) => s.parentSpanContext.spanId));
   assert.strictEqual(batchSendParents.size, 1, 'batch entries share the one stock span');
 });
+
+test('dead-letter queue receive carries DeadLetterQueueSourceArn (schema 3.1)', { skip: !ENDPOINT && 'QV2_TEST_SQS_ENDPOINT not set' }, async (t) => {
+  // The move itself has no API call to observe. SQS reports it on the dead-letter receive: ElasticMQ
+  // 1.6.15 sets DeadLetterQueueSourceArn there, with the same MessageId (checked for QV-31).
+  const S = require('@aws-sdk/client-sqs');
+  const qv2 = require('../src/index');
+  const { memoryExporter, byName } = require('./helpers');
+  const { exporter, spanProcessor } = memoryExporter();
+  qv2.install({ receiptHashKey: 'emulator-test-key-0123456789', spanProcessor });
+  t.after(() => qv2.uninstall());
+  const sqs = qv2.instrument(new S.SQSClient({
+    region: 'us-east-1', endpoint: ENDPOINT, credentials: { accessKeyId: 'x', secretAccessKey: 'x' },
+  }));
+  const name = `qv2-node-dlq-${process.pid}-${Date.now()}`;
+  const dlq = (await sqs.send(new S.CreateQueueCommand({ QueueName: `${name}-dlq` }))).QueueUrl;
+  t.after(() => sqs.send(new S.DeleteQueueCommand({ QueueUrl: dlq })));
+  const dlqArn = (await sqs.send(new S.GetQueueAttributesCommand({ QueueUrl: dlq, AttributeNames: ['QueueArn'] }))).Attributes.QueueArn;
+  const src = (await sqs.send(new S.CreateQueueCommand({
+    QueueName: name,
+    Attributes: { RedrivePolicy: JSON.stringify({ deadLetterTargetArn: dlqArn, maxReceiveCount: '1' }) },
+  }))).QueueUrl;
+  t.after(() => sqs.send(new S.DeleteQueueCommand({ QueueUrl: src })));
+  const srcArn = (await sqs.send(new S.GetQueueAttributesCommand({ QueueUrl: src, AttributeNames: ['QueueArn'] }))).Attributes.QueueArn;
+
+  const { MessageId } = await sqs.send(new S.SendMessageCommand({ QueueUrl: src, MessageBody: 'poison' }));
+  const first = await sqs.send(new S.ReceiveMessageCommand({ QueueUrl: src, VisibilityTimeout: 0, WaitTimeSeconds: 1 }));
+  assert.strictEqual(first.Messages[0].MessageId, MessageId);
+  // The next receive on the source queue moves it (receive count 1 has reached maxReceiveCount 1).
+  let moved;
+  for (let i = 0; i < 10 && !moved; i++) {
+    await sqs.send(new S.ReceiveMessageCommand({ QueueUrl: src, WaitTimeSeconds: 0 }));
+    moved = ((await sqs.send(new S.ReceiveMessageCommand({ QueueUrl: dlq, WaitTimeSeconds: 1 }))).Messages || [])[0];
+  }
+  assert.ok(moved, 'the message reached the dead-letter queue');
+  assert.strictEqual(moved.MessageId, MessageId);
+  assert.strictEqual(moved.Attributes.DeadLetterQueueSourceArn, srcArn, 'qv2 asked for it without the caller asking');
+
+  const receives = byName(exporter.getFinishedSpans(), 'qv2 receive');
+  const onSrc = receives.filter((s) => s.attributes['messaging.destination.name'] === name);
+  const onDlq = receives.filter((s) => s.attributes['messaging.destination.name'] === `${name}-dlq`);
+  assert.ok(onSrc.length >= 1 && onDlq.length === 1);
+  for (const s of onSrc) assert.ok(!('qv2.dead_letter_queue_source_arn' in s.attributes));
+  assert.strictEqual(onDlq[0].attributes['qv2.dead_letter_queue_source_arn'], srcArn);
+  assert.strictEqual(onDlq[0].attributes['messaging.message.id'], MessageId);
+});

@@ -44,6 +44,7 @@ RECEIVE_SYSTEM_ATTRIBUTES = (
     "SentTimestamp",
     "ApproximateFirstReceiveTimestamp",
     "AWSTraceHeader",
+    "DeadLetterQueueSourceArn",  # schema 3.1: SQS sets it only on a receive from a dead-letter queue
 )
 
 _SETTLE_OPS = {
@@ -170,6 +171,7 @@ class SqsHooks:
             put(attrs, "qv2.sent_timestamp_ms", int_or_none(a.get("SentTimestamp")))
             put(attrs, "qv2.first_receive_timestamp_ms", int_or_none(a.get("ApproximateFirstReceiveTimestamp")))
             put(attrs, "qv2.aws_trace_header", a.get("AWSTraceHeader"))
+            put(attrs, "qv2.dead_letter_queue_source_arn", a.get("DeadLetterQueueSourceArn"))
             self.emitter.emit(SPAN_RECEIVE, "ReceiveMessage", name, url, attrs, parent=span, start_ns=t[0], end_ns=t[1], order=t[2])
 
     def _on_settle(self, span, operation: str, params: dict, result: Optional[dict], exc, t: tuple) -> None:

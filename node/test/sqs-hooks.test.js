@@ -289,7 +289,7 @@ test('ReceiveMessage request asks for the system attributes, without touching th
   const input = { QueueUrl: URL, MessageSystemAttributeNames: ['SenderId'], MessageAttributeNames: ['trace'] };
   await client.send(new S.ReceiveMessageCommand(input));
   assert.deepStrictEqual(calls[0].input.MessageSystemAttributeNames,
-    ['SenderId', 'ApproximateReceiveCount', 'SentTimestamp', 'ApproximateFirstReceiveTimestamp', 'AWSTraceHeader']);
+    ['SenderId', 'ApproximateReceiveCount', 'SentTimestamp', 'ApproximateFirstReceiveTimestamp', 'AWSTraceHeader', 'DeadLetterQueueSourceArn']);
   assert.deepStrictEqual(calls[0].input.MessageAttributeNames, ['trace'], 'message attributes are left alone');
   assert.deepStrictEqual(input.MessageSystemAttributeNames, ['SenderId'], 'caller input not mutated');
 });
@@ -298,13 +298,27 @@ test('addReceiveAttributeNames: All, legacy AttributeNames, nothing missing, no 
   assert.strictEqual(addReceiveAttributeNames({ MessageSystemAttributeNames: ['All'] }), undefined);
   assert.strictEqual(addReceiveAttributeNames({ AttributeNames: ['All'] }), undefined);
   assert.deepStrictEqual(addReceiveAttributeNames({ AttributeNames: ['SentTimestamp'] }), {
-    AttributeNames: ['SentTimestamp', 'ApproximateReceiveCount', 'ApproximateFirstReceiveTimestamp', 'AWSTraceHeader'],
+    AttributeNames: ['SentTimestamp', 'ApproximateReceiveCount', 'ApproximateFirstReceiveTimestamp', 'AWSTraceHeader', 'DeadLetterQueueSourceArn'],
   });
-  const all4 = ['ApproximateReceiveCount', 'SentTimestamp', 'ApproximateFirstReceiveTimestamp', 'AWSTraceHeader'];
+  const all4 = ['ApproximateReceiveCount', 'SentTimestamp', 'ApproximateFirstReceiveTimestamp', 'AWSTraceHeader', 'DeadLetterQueueSourceArn'];
   assert.strictEqual(addReceiveAttributeNames({ MessageSystemAttributeNames: all4 }), undefined);
   const added = addReceiveAttributeNames({ QueueUrl: URL });
   assert.deepStrictEqual(added, { QueueUrl: URL, MessageSystemAttributeNames: all4 });
   assert.ok(!('MessageAttributeNames' in added));
+});
+
+test('ReceiveMessage from a dead-letter queue: DeadLetterQueueSourceArn is copied verbatim (schema 3.1)', async (t) => {
+  const arn = 'arn:aws:sqs:us-east-1:123456789012:orders';
+  const { client, spans } = setup(t, {
+    ReceiveMessage: () => ({ Messages: [
+      message(1, { ApproximateReceiveCount: '4', DeadLetterQueueSourceArn: arn }),
+      message(2, { ApproximateReceiveCount: '1', DeadLetterQueueSourceArn: '' }),
+      message(3, { ApproximateReceiveCount: '1' }),
+    ] }),
+  });
+  await client.send(new S.ReceiveMessageCommand({ QueueUrl: URL }));
+  const got = byName(spans(), 'qv2 receive').map((s) => s.attributes['qv2.dead_letter_queue_source_arn']);
+  assert.deepStrictEqual(got, [arn, undefined, undefined], 'absent or empty: omitted, never ""');
 });
 
 test('DeleteMessage: emitted after the response, with qv2.result ok and the message ID from the map', async (t) => {

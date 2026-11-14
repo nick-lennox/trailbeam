@@ -122,6 +122,7 @@ class LambdaRecorder:
             put(attrs, "qv2.sent_timestamp_ms", int_or_none(a.get("SentTimestamp")))
             put(attrs, "qv2.first_receive_timestamp_ms", int_or_none(a.get("ApproximateFirstReceiveTimestamp")))
             put(attrs, "qv2.aws_trace_header", a.get("AWSTraceHeader"))
+            put(attrs, "qv2.dead_letter_queue_source_arn", a.get("DeadLetterQueueSourceArn"))
             put(attrs, "qv2.queue.arn", arn)
             attrs.update(faas)
             self.emitter.emit(SPAN_RECEIVE, OPERATION, name, url, attrs, end_ns=t, start_observed=False,

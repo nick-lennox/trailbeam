@@ -167,6 +167,17 @@ def test_receive_and_outcome_attributes_for_the_aws_docs_event(exporter, monkeyp
             assert v != "" and "AQEB" not in str(v)
 
 
+def test_dead_letter_queue_source_arn_is_copied_if_the_record_carries_it(exporter):
+    """Schema 3.1. Not verified on AWS whether Lambda's records carry it; the wrapper copies it if they do."""
+    fn = wrapped(lambda e, c: None, exporter, batch=False)
+    ev = copy.deepcopy(DOCS)
+    ev["Records"][0]["attributes"]["DeadLetterQueueSourceArn"] = "arn:aws:sqs:us-east-2:123456789012:orders"
+    ev["Records"][1]["attributes"]["DeadLetterQueueSourceArn"] = ""
+    fn(ev, ctx())
+    got = [s.attributes.get("qv2.dead_letter_queue_source_arn") for s in spans(exporter, "qv2 receive")]
+    assert got == ["arn:aws:sqs:us-east-2:123456789012:orders", None]
+
+
 def test_exception_records_class_name_only_and_reraises(exporter):
     class SecretError(ValueError):
         pass

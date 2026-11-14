@@ -31,7 +31,7 @@ const sqs = qv2.instrument(new SQSClient({}));
 `instrument` adds a middleware to that client. It:
 
 - asks `ReceiveMessage` for the system attributes `ApproximateReceiveCount`, `SentTimestamp`,
-  `ApproximateFirstReceiveTimestamp` and `AWSTraceHeader` (on a copy of the input; nothing the
+  `ApproximateFirstReceiveTimestamp`, `AWSTraceHeader` and `DeadLetterQueueSourceArn` (on a copy of the input; nothing the
   caller asked for is removed, and no message attributes are requested);
 - emits spans after each response, so settle spans carry `qv2.result` (`ok` / `failed`) and
   `qv2.error_code`; a settle call that throws still gets one `failed` span per receipt handle;

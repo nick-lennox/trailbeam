@@ -217,6 +217,17 @@ test('spans are children of the active span at invocation time, or root spans', 
   assert.ok(spans().length && spans().every((s) => !s.parentSpanContext));
 });
 
+test('a record from a dead-letter queue: DeadLetterQueueSourceArn is copied if the event carries it (schema 3.1)', async () => {
+  // Not verified on AWS whether Lambda's records carry it; the wrapper copies it when they do.
+  const { handler, spans } = wrapped(async () => undefined, { batch: false });
+  const ev = clone(DOCS);
+  ev.Records[0].attributes.DeadLetterQueueSourceArn = 'arn:aws:sqs:us-east-2:123456789012:orders';
+  ev.Records[1].attributes.DeadLetterQueueSourceArn = '';
+  await handler(ev, ctx());
+  assert.deepStrictEqual(spans('qv2 receive').map((s) => s.attributes['qv2.dead_letter_queue_source_arn']),
+    ['arn:aws:sqs:us-east-2:123456789012:orders', undefined]);
+});
+
 test('non-SQS events pass through untouched, with no spans', async () => {
   const { handler, spans } = wrapped(async (e) => e, { batch: false });
   const sns = { Records: [{ eventSource: 'aws:sns' }] };

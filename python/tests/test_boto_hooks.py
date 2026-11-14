@@ -142,6 +142,7 @@ def test_receive_one_span_per_message(qv2_spans, make_client, queue_url):
         assert isinstance(a["qv2.sent_timestamp_ms"], int)
         assert isinstance(a["qv2.first_receive_timestamp_ms"], int)
         assert "qv2.aws_trace_header" not in a  # none was sent; omitted, not ""
+        assert "qv2.dead_letter_queue_source_arn" not in a  # not a dead-letter queue
     no_receipt_handles(spans, [m["ReceiptHandle"] for m in msgs])
 
 
@@ -157,6 +158,24 @@ def test_receive_count_and_trace_header(qv2_spans, make_client, queue_url):
     assert s2.attributes["qv2.aws_trace_header"] == hdr
     assert s1.attributes["qv2.receipt_handle.hmac"] == h(m1["ReceiptHandle"])
     assert s2.attributes["qv2.receipt_handle.hmac"] == h(m2["ReceiptHandle"])
+
+
+def test_dead_letter_queue_source_arn_is_copied_verbatim(qv2_spans):
+    """Schema 3.1: SQS sets DeadLetterQueueSourceArn only on a receive from a dead-letter queue. moto does
+    not fill it, so the response is given here; the Node.js tests check it against ElasticMQ."""
+    hooks = qv2.boto._state["hooks"]
+    arn = "arn:aws:sqs:us-east-1:123456789012:orders"
+    params = {"QueueUrl": "http://localhost:9324/000000000000/orders-dlq"}
+    span = object()
+    hooks.request_hook(span, "sqs", "ReceiveMessage", params)
+    assert "DeadLetterQueueSourceArn" in params["MessageSystemAttributeNames"]
+    hooks.response_hook(span, "sqs", "ReceiveMessage", {"Messages": [
+        {"MessageId": "m1", "ReceiptHandle": "rh-1", "Attributes": {"ApproximateReceiveCount": "4",
+                                                                 "DeadLetterQueueSourceArn": arn}},
+        {"MessageId": "m2", "ReceiptHandle": "rh-2", "Attributes": {"DeadLetterQueueSourceArn": ""}},
+    ]})
+    got = [s.attributes.get("qv2.dead_letter_queue_source_arn") for s in qv2_spans("qv2 receive")]
+    assert got == [arn, None]  # empty: omitted, never ""
 
 
 def test_receive_keeps_what_the_caller_asked_for(qv2_spans, make_client, queue_url):
@@ -179,7 +198,8 @@ def test_empty_receive_produces_no_span(qv2_spans, make_client, queue_url):
     ({"AttributeNames": ["All"]}, {"AttributeNames": ["All"]}),
     ({"MessageSystemAttributeNames": ["SenderId", "SentTimestamp"]},
      {"MessageSystemAttributeNames": ["SenderId", "SentTimestamp", "ApproximateReceiveCount",
-                                      "ApproximateFirstReceiveTimestamp", "AWSTraceHeader"]}),
+                                      "ApproximateFirstReceiveTimestamp", "AWSTraceHeader",
+                                      "DeadLetterQueueSourceArn"]}),
     ({"AttributeNames": ["SenderId"]},
      {"AttributeNames": ["SenderId"] + list(qv2.boto.RECEIVE_SYSTEM_ATTRIBUTES)}),
     ({"MessageAttributeNames": ["tenant"]},

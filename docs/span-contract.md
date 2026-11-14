@@ -1,9 +1,10 @@
-# qv2 span contract, schema version 3
+# qv2 span contract, schema version 3 (revision 3.1)
 
 This file defines the OpenTelemetry spans that the `qv2` Python package and the `@qv2/sdk` Node.js
 package emit, and that the qv2 store reads. Both packages and the store are built and tested against
 it. A change to anything below is a contract change: bump `qv2.schema_version`, and update this file,
-both packages and the store in the same change.
+both packages and the store in the same change. A revision (3.1) only adds an optional attribute that
+older stores ignore and that the store does not require; it keeps `qv2.schema_version = 3` (section 14).
 
 The keywords **must**, **must not**, **should** and **may** are used as in RFC 2119.
 
@@ -148,15 +149,18 @@ and produce no `qv2 send` span in 0.1.
 | `qv2.sent_timestamp_ms` | int | should | system attribute `SentTimestamp`, epoch milliseconds |
 | `qv2.first_receive_timestamp_ms` | int | may | system attribute `ApproximateFirstReceiveTimestamp`, epoch milliseconds |
 | `qv2.aws_trace_header` | string | may | system attribute `AWSTraceHeader`, verbatim |
+| `qv2.dead_letter_queue_source_arn` | string | must when SQS returns it (3.1) | system attribute `DeadLetterQueueSourceArn`, verbatim: the ARN of the queue SQS moved the message from. SQS sets it only on a receive from a dead-letter queue (section 9b). |
 | `faas.name` | string | must (Lambda) | function name |
 | `faas.invocation_id` | string | must (Lambda) | `aws_request_id` / `awsRequestId` |
 
 - **Client hooks** **must** add `ApproximateReceiveCount`, `SentTimestamp`,
-  `ApproximateFirstReceiveTimestamp` and `AWSTraceHeader` to the request's
+  `ApproximateFirstReceiveTimestamp`, `AWSTraceHeader` and (3.1) `DeadLetterQueueSourceArn` to the request's
   `MessageSystemAttributeNames` before the call, unless the caller already asked for them or for
   `All`. They **must not** remove anything the caller asked for, and **must not** request message
   attributes or read the body. (The prototypes also requested a `tenant` message attribute and read
   the body; message contents are out of scope for 0.1.)
+- **Lambda wrapper** copies `DeadLetterQueueSourceArn` from the record's `attributes` when it is there.
+  Whether Lambda's SQS records carry it is **not verified**; the AWS sample events do not show it.
 - **Lambda wrapper** emits one `qv2 receive` per record **before** the user handler runs, with
   `qv2.start_observed = false` (section 2), and flushes it, so a timeout or out-of-memory kill cannot lose it, as the QV-9 and QV-11 prototype wrappers did.
 - A `ReceiveMessage` that returns no messages produces no qv2 span.
@@ -298,10 +302,8 @@ These steps have no span. The store shows each one as **inferred**, never as obs
 
 - **Visibility timeout expired:** a `qv2 receive` with `qv2.receive_count = n + 1` follows one with
   `n`, with no successful final delete between them.
-- **Moved to the dead-letter queue:** the message ID appears in a `qv2 receive` on another queue.
-  SQS keeps the message ID when it moves a message to a dead-letter queue (in QV-9's
-  `timelines_hooks.json`, the poison message's dead-letter receive carries the same ID in Python,
-  Node.js and Java). Exactly when the move happened is not known.
+- The move to a dead-letter queue is **not** inferred (3.1). It is shown only when SQS reports it
+  (section 9b).
 - **Deleted by Lambda:** after `qv2 outcome = success`.
 - **Lambda invocation killed (timeout or out of memory):** a Lambda `qv2 receive` with no matching
   `qv2 outcome`, once the function's timeout has passed.
@@ -333,6 +335,35 @@ clock offset between hosts in 0.1 (a known limit). `receive_count` relies on SQS
 `ApproximateReceiveCount`, which SQS calls approximate; `sqs_timestamps` relies on SQS's timestamps
 coming from one clock, which is a single host in ElasticMQ and a distributed service on AWS [estimate:
 not measured on AWS].
+
+## 9b. The move to a dead-letter queue (3.1)
+
+SQS makes no API call that qv2 could observe when it moves a message to a dead-letter queue. It
+reports the move afterwards: the next receive of the message, on the dead-letter queue, carries the
+same `MessageId` and the system attribute `DeadLetterQueueSourceArn` naming the queue it came from.
+
+- **Observed move:** a `qv2 receive` with `qv2.dead_letter_queue_source_arn` whose last `:` field is
+  the name of the queue the message was received on before. The store shows one step "moved to the
+  dead-letter queue" per such receive, observed, with source `sqs_dlq_source`. It has no time of its
+  own (SQS gives none): it is placed after the last receive on the source queue and before that
+  dead-letter receive, and ordered against other steps only through those two and the proven edges
+  of section 9a.
+- **No report, no move.** A receive on another queue without the attribute (an older package, a
+  consumer without qv2, or an SQS that does not set it) shows no move. The store **must not** infer one
+  from the message ID alone.
+- **Not seen on the DLQ yet:** when a message's highest observed `qv2.receive_count` on its source
+  queue has reached the queue's `maxReceiveCount` and no receive carrying the attribute is stored,
+  the store says "receive count exceeded `maxReceiveCount`; not seen on the DLQ yet" and shows no
+  move. The store does not know `maxReceiveCount` from spans; it is configured
+  (`docs/store-api.md`). qv2 **must not** receive from the dead-letter queue to check: a receive
+  changes the message's state (receive count, visibility, receipt handle).
+- **Moves back** (redrive) are out of scope for 3.1: a receive on the source queue after the
+  dead-letter queue shows no move step.
+
+Verified on ElasticMQ 1.6.15 (QV-31): the dead-letter receive carries `DeadLetterQueueSourceArn`, the
+same `MessageId`, the original `SentTimestamp` and `ApproximateFirstReceiveTimestamp`. The attribute
+is in botocore's SQS model and in `@aws-sdk/client-sqs`'s `MessageSystemAttributeName`. Not verified:
+the same behaviour on AWS SQS, and whether the receive count carries over there.
 
 ## 10. Example
 
@@ -448,3 +479,13 @@ Unchanged: span names, kinds, times and every other attribute. The client hooks 
 `SentTimestamp` and `ApproximateFirstReceiveTimestamp` (section 4.2), and the Lambda wrapper already
 copied them from the record. ElasticMQ 1.6.15 fills both (checked for QV-31: the first-receive timestamp
 is set at the first receive and kept on later ones).
+
+## 14. Changes in revision 3.1
+
+| 3.0 | 3.1 |
+|---|---|
+| the store inferred a move to the dead-letter queue from the message ID on another queue | the move is shown only when SQS reports it (section 9b), source `sqs_dlq_source`; nothing is inferred |
+| receive hooks asked for four system attributes | also `DeadLetterQueueSourceArn`, recorded as `qv2.dead_letter_queue_source_arn` |
+
+`qv2.schema_version` stays `3`: the attribute is optional, a 3.0 store ignores it, and the 3.1 store
+reads 3.0 spans (they simply never show a move).

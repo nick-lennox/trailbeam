@@ -130,6 +130,7 @@ class LambdaRecorder {
       put(attrs, 'qv2.sent_timestamp_ms', intOrUndefined(a.SentTimestamp));
       put(attrs, 'qv2.first_receive_timestamp_ms', intOrUndefined(a.ApproximateFirstReceiveTimestamp));
       put(attrs, 'qv2.aws_trace_header', a.AWSTraceHeader);
+      put(attrs, 'qv2.dead_letter_queue_source_arn', a.DeadLetterQueueSourceArn);
       put(attrs, 'qv2.queue.arn', arn);
       Object.assign(attrs, faas);
       this.emitter.emit(SPAN_RECEIVE, OPERATION, name, url, attrs, { parentContext, endTime: t, startObserved: false, order: { returned } });

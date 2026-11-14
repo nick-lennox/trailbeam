@@ -33,6 +33,7 @@ const RECEIVE_SYSTEM_ATTRIBUTES = Object.freeze([
   'SentTimestamp',
   'ApproximateFirstReceiveTimestamp',
   'AWSTraceHeader',
+  'DeadLetterQueueSourceArn', // schema 3.1: SQS sets it only on a receive from a dead-letter queue
 ]);
 
 // operation -> [span name, is batch]
@@ -139,6 +140,7 @@ class SqsHooks {
       put(attrs, 'qv2.sent_timestamp_ms', intOrUndefined(a.SentTimestamp));
       put(attrs, 'qv2.first_receive_timestamp_ms', intOrUndefined(a.ApproximateFirstReceiveTimestamp));
       put(attrs, 'qv2.aws_trace_header', a.AWSTraceHeader);
+      put(attrs, 'qv2.dead_letter_queue_source_arn', a.DeadLetterQueueSourceArn);
       this.emitter.emit(SPAN_RECEIVE, 'ReceiveMessage', name, url, attrs, { parentContext, ...t });
     }
   }
