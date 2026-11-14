@@ -169,3 +169,21 @@ def test_a_receive_with_an_unknown_start_shows_only_its_upper_bound(server):
     post(server, [fn.receive(T0, "lam-1", "rh-l", lambda_inv="inv-1"), fn.outcome(T0 + SEC, "lam-1", "success", "inv-1")])
     _, _, html = get(server, page("lam-1"))
     assert "no later than <time" in html
+
+
+def test_a_chained_concurrent_box_does_not_claim_every_step_overlapped(server):
+    # The receive overlaps the send, the send overlaps the delete, but the receive ended before the delete
+    # started: one group through the chain, and the box must not say all three overlapped.
+    p, c = Consumer("producer"), Consumer("consumer-a")
+    ms = 1_000_000
+    post(server, [c.receive(T0 + 20 * ms, "chain-1", "rh-ch", start=T0 - 900 * ms),
+                  p.send(T0 + 30 * ms, "chain-1", start=T0),
+                  c.delete(T0 + 60 * ms, "rh-ch", start=T0 + 25 * ms)])
+    _, _, html = get(server, page("chain-1"))
+    groups = re.findall(r'<li class="group concurrent" data-group="(\d+)">(.*?)</ol></li>', html)
+    assert len(groups) == 1
+    head = re.search(r'<div class="group-head">(.*?)</div>', groups[0][1]).group(1)
+    text = re.sub(r"<[^>]+>", "", head)
+    assert text == ("concurrentconcurrent, order unknown: the store can't put these 3 steps in one order; "
+                    "some of them overlapped in time.")
+    assert "overlapped in time, so" not in html and "cannot tell which happened first" not in html

@@ -135,8 +135,10 @@ def _message(api, q: dict) -> Response:
     parts.append('<h2>Timeline</h2><p class="muted">Each step shows when its SQS request was sent and when the '
                  "response came back; SQS acted somewhere in between. A step is shown above another only if it "
                  "ended before the other started. Steps in a box marked "
-                 '<span class="badge badge-concurrent">concurrent</span> overlapped in time, so their order is '
-                 "unknown: they are side by side, in no particular order. Steps marked "
+                 '<span class="badge badge-concurrent">concurrent</span> can\'t be put in one order, because '
+                 "some of them overlapped in time (each step overlaps at least one other in the box, not "
+                 "necessarily all of them), so their order is unknown: they are side by side, in no particular "
+                 "order. Steps marked "
                  '<span class="badge">inferred</span> were deduced by the store; no span recorded them, so they '
                  "have a time window instead of a time.</p>")
     parts.append('<ol class="timeline">')
@@ -194,8 +196,8 @@ def _timeline_items(t: dict) -> list[str]:
         n = info.get("observed_events", j - i)
         out.append(f'<li class="group concurrent" data-group="{int(g)}">'
                    f'<div class="group-head"><span class="badge badge-concurrent">concurrent</span>'
-                   f'<strong>{escape(info.get("label") or "concurrent, order unknown")}</strong>: these {int(n)} '
-                   "steps overlapped in time, so the store cannot tell which happened first.</div>"
+                   f'<strong>{escape(info.get("label") or "concurrent, order unknown")}</strong>: the store can\'t put '
+                   f"these {int(n)} steps in one order; some of them overlapped in time.</div>"
                    '<ol class="side">' + "".join(_event(e) for e in evs[i:j]) + "</ol></li>")
         i = j
     return out

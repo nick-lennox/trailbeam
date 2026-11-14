@@ -69,7 +69,10 @@ Each step shows two times: when its SQS request was sent and when the response c
 exactly when. So the timeline shows one step above another **only if the first one's response came back
 before the second one's request was sent**. When two steps' times overlap, qv2 cannot tell which one SQS did
 first, and it does not guess: it draws them side by side in one dashed box with a **CONCURRENT** badge and
-the label **concurrent, order unknown**. The order inside the box means nothing.
+the label **concurrent, order unknown**. The order inside the box means nothing. A box can also hold
+steps that did not overlap each other, when each overlaps a third step in the box: if a long receive
+overlaps both a send and a later delete, the send and the delete are in one box even though the send
+ended before the delete started, because the store cannot place the receive before or after either.
 
 Expect to see that box often, most of all around a send and its first receive. An idle consumer waits in a
 long poll (`WaitTimeSeconds`), so its receive request was usually sent before the message existed, and
