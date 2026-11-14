@@ -110,3 +110,19 @@ jobs:
       - name: Container logs
         if: always()
         run: docker logs qv2 || true
+
+  demo:
+    name: Local demo (Docker Compose)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and start the demo (images local only, not pushed)
+        run: docker compose -f demo/compose.yaml up -d --build --wait
+      - name: Timelines from the Python and Node.js consumers reach the store
+        run: python3 demo/smoke_test.py http://127.0.0.1:4318 --timeout 180
+      - name: Logs
+        if: always()
+        run: docker compose -f demo/compose.yaml logs --tail 50 || true
+      - name: Stop
+        if: always()
+        run: docker compose -f demo/compose.yaml down -v || true

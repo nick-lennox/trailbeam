@@ -1,0 +1,12 @@
+{
+  "name": "qv2-demo-node",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "qv2 demo producer, consumer and deleter for Node.js",
+  "main": "qv2demo.js",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@aws-sdk/client-sqs": "^3.1169.0",
+    "@qv2/sdk": "file:../../node"
+  }
+}

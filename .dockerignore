@@ -1,0 +1,13 @@
+# Build context for the demo images (demo/compose.yaml builds from the repository root).
+.git
+.github
+.claude
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+**/*.egg-info
+**/*.sqlite
+.env
+.env.*
+**/.venv
+**/venv
