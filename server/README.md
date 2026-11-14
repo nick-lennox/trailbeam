@@ -65,8 +65,9 @@ Open `http://127.0.0.1:4318/` in a browser (plain server-rendered HTML, no JavaS
 - `/message?id=<message ID>`: the message's timeline. Each step shows its interval, from when its SQS
   request was sent to when the response came back (a Lambda receive shows only "no later than", the
   handler start). A step is drawn above another only if it ended before the other started. Steps whose
-  intervals overlap are drawn side by side in one dashed box labelled **CONCURRENT**, "concurrent,
-  order unknown": the store cannot tell which happened first, and does not guess
+  intervals overlap are drawn in one dashed box labelled **CONCURRENT**, "concurrent, order
+  unknown": the store cannot tell which happened first, and does not guess. Inside the box each step is a
+  bar on one time scale (a waterfall), listed by when its request was sent, never by kind or cause
   ([store API](../docs/store-api.md#events-and-their-order)). Steps the store inferred are drawn with a
   dashed, striped border and an **INFERRED** label, with the time window they fall in and the reason,
   instead of a time. Notices (such as a receipt-hash key mismatch) are shown above the summary.

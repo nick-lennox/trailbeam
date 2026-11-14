@@ -8,7 +8,7 @@ in a self-hosted container.
 
 Each step on a timeline is a time interval: from when the SQS request was sent to when its response came
 back. A step is shown before another only if it ended before the other started. Steps whose intervals
-overlap are shown side by side, labelled **concurrent, order unknown**, because the times cannot say which
+overlap are shown in one box, as bars on one time scale, labelled **concurrent, order unknown**, because the times cannot say which
 one SQS did first; qv2 never re-orders them by guessing what caused what. See the
 [quickstart](docs/quickstart.md#3-look-up-a-message-1-minute) for what that looks like, and
 [`docs/store-api.md`](docs/store-api.md#events-and-their-order) for the exact rule. This relies on every

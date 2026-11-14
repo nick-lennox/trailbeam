@@ -68,8 +68,10 @@ Each step shows two times: when its SQS request was sent and when the response c
 `… 12:00:01.204 to … 12:00:01.231 (27.0 ms)`). SQS did the work somewhere in between, and qv2 cannot see
 exactly when. So the timeline shows one step above another **only if the first one's response came back
 before the second one's request was sent**. When two steps' times overlap, qv2 cannot tell which one SQS did
-first, and it does not guess: it draws them side by side in one dashed box with a **CONCURRENT** badge and
-the label **concurrent, order unknown**. The order inside the box means nothing. A box can also hold
+first, and it does not guess: it draws them in one dashed box with a **CONCURRENT** badge and
+the label **concurrent, order unknown**. Inside the box each step is a bar on one time scale, from its request
+to its response, and the rows are listed by when each request was sent: that is not the order SQS acted in.
+Where the bars overlap, SQS may have acted on either first. A box can also hold
 steps that did not overlap each other, when each overlaps a third step in the box: if a long receive
 overlaps both a send and a later delete, the send and the delete are in one box even though the send
 ended before the delete started, because the store cannot place the receive before or after either.

@@ -179,7 +179,7 @@ def test_unknown_page_is_404(site):
     assert get(site, "/api/health")[0] == 200  # the JSON API still answers
 
 
-def test_overlapping_steps_are_shown_side_by_side_as_concurrent(server):
+def test_overlapping_steps_are_shown_as_concurrent_bars_on_one_scale(server):
     p, c = Consumer("producer"), Consumer("consumer-a")
     ms = 1_000_000
     post(server, [p.send(T0 + 30 * ms, "conc-1", start=T0),
@@ -187,20 +187,58 @@ def test_overlapping_steps_are_shown_side_by_side_as_concurrent(server):
                   c.delete(T0 + 60 * ms, "rh-c", start=T0 + 50 * ms)])
     status, _, html = get(server, page("conc-1"))
     assert status == 200
-    groups = re.findall(r'<li class="group concurrent" data-group="(\d+)">(.*?)</ol></li>', html)
+    groups = re.findall(r'<li class="group concurrent" data-group="(\d+)">(.*?)</ul></li>', html)
     assert len(groups) == 1 and groups[0][0] == "0"
     inside = groups[0][1]
     assert "concurrent, order unknown" in inside
+    # A waterfall, not a row of cards: rows by when each request was sent. The long poll was sent 900 ms
+    # before the send, so it is listed first; the bars overlap from T0 to T0 + 20 ms.
+    assert '<ul class="waterfall">' in inside and "which is not the order SQS acted in" in inside
     assert events(inside) == [("received", False), ("sent", False)]
+    assert re.findall(r'data-type="(\w+)".*?style="left:([\d.]+)%;width:([\d.]+)%"', inside) == [
+        ("received", "0.00", "98.92"), ("sent", "96.77", "3.23")]  # scale T0 - 900 ms to T0 + 30 ms
     assert events(html) == [("received", False), ("sent", False), ("deleted", False)]
     # The delete is after the group and outside it.
-    assert html.index('data-type="deleted"') > html.index("</ol></li>")
+    assert html.index('data-type="deleted"') > html.index("</ul></li>")
     # Intervals are shown as start to end.
     assert "2025-11-14 00:26:40.000000Z</time> to <time" in html and "(30.0 ms)" in html
     assert "order is unknown" in html  # the explanation above the timeline
     # The delete says why it is after the box: the clocks.
     d = re.search(r'<li class="event observed" data-type="deleted"[^>]*>(.*?)</li>', html).group(1)
     assert "After receive 1: Receive 1 ended" in d and 'data-sources="clock"' in d
+
+
+def test_rows_in_a_box_follow_the_request_times_not_the_response_times(server):
+    """QV-32 section 7.2: the box listed its steps by end time, so a receive whose response came back first
+    was drawn before the send (Node.js: 351 of 581 boxes). Rows now follow when each request was sent, and
+    each step's bar shows where it sits on the box's one time scale."""
+    p, c = Consumer("producer"), Consumer("consumer-a")
+    ms = 1_000_000
+    post(server, [p.send(T0 + 30 * ms, "wf-1", start=T0),
+                  c.receive(T0 + 20 * ms, "wf-1", "rh-wf", start=T0 + 10 * ms),  # sent after, back first
+                  c.delete(T0 + 60 * ms, "rh-wf", start=T0 + 50 * ms)])
+    _, _, html = get(server, page("wf-1"))
+    inside = re.findall(r'<li class="group concurrent" data-group="(\d+)">(.*?)</ul></li>', html)[0][1]
+    assert events(inside) == [("sent", False), ("received", False)]
+    assert re.findall(r'data-type="(\w+)".*?style="left:([\d.]+)%;width:([\d.]+)%"', inside) == [
+        ("sent", "0.00", "100.00"), ("received", "33.33", "33.33")]
+    assert "The scale runs from" in inside and "(30.0 ms)" in inside
+
+
+def test_a_step_whose_start_is_unknown_is_drawn_open_from_the_left_edge(server):
+    """A Lambda receive (start not observed, no SQS timestamps) and its send: nothing orders them. The
+    receive's bar runs from the box's left edge and fades in there, instead of inventing a start, and it is
+    listed first because it may have started any time before."""
+    p, fn = Consumer("producer"), Consumer("env-1", source="lambda")
+    post(server, [p.send(T0 + 5 * SEC, "lam-wf", start=T0 + 5 * SEC - 1_000_000),
+                  fn.receive(T0 + 10 * SEC, "lam-wf", "rh-l1", lambda_inv="inv-1")])
+    _, _, html = get(server, page("lam-wf"))
+    inside = re.findall(r'<li class="group concurrent" data-group="(\d+)">(.*?)</ul></li>', html)[0][1]
+    got = re.findall(r'data-type="(\w+)".*?<span class="([^"]+)" style="left:([\d.]+)%;width:([\d.]+)%"', inside)
+    # The inferred end of the invocation (no outcome within the 900 s Lambda timeout) is in the box too,
+    # hatched over its window, which sets the scale's right end.
+    assert got == [("received", "bar open-start", "0.00", "0.55"), ("sent", "bar", "0.00", "0.00"),
+                   ("lambda_invocation_ended_without_outcome", "bar window", "0.55", "99.45")]
 
 
 def test_a_receive_with_an_unknown_start_shows_only_its_upper_bound(server):
@@ -219,7 +257,7 @@ def test_a_chained_concurrent_box_does_not_claim_every_step_overlapped(server):
                   p.send(T0 + 30 * ms, "chain-1", start=T0),
                   c.delete(T0 + 60 * ms, "rh-ch", start=T0 + 25 * ms)])
     _, _, html = get(server, page("chain-1"))
-    groups = re.findall(r'<li class="group concurrent" data-group="(\d+)">(.*?)</ol></li>', html)
+    groups = re.findall(r'<li class="group concurrent" data-group="(\d+)">(.*?)</ul></li>', html)
     assert len(groups) == 1
     head = re.search(r'<div class="group-head">(.*?)</div>', groups[0][1]).group(1)
     text = re.sub(r"<[^>]+>", "", head)
@@ -239,10 +277,12 @@ def test_a_box_counts_the_inferred_step_it_holds(server):
                   c.delete(T0 + 32 * SEC, "rh-s1", ok=False, start=T0 + 32 * SEC - 1_000_000),
                   c.receive(T0 + 35 * SEC, "slow-1", "rh-s2", count=2, start=T0 + 35 * SEC - 1_000_000)])
     _, _, html = get(server, page("slow-1"))
-    groups = re.findall(r'<li class="group concurrent" data-group="(\d+)">(.*?)</ol></li>', html)
+    groups = re.findall(r'<li class="group concurrent" data-group="(\d+)">(.*?)</ul></li>', html)
     assert len(groups) == 1
     assert "these 2 steps in one order" in groups[0][1]
-    assert events(groups[0][1]) == [("deleted", False), ("visibility_timeout_expired", True)]
+    # The expiry's window opens at receive 1, before the delete's request was sent, so its row is first.
+    assert events(groups[0][1]) == [("visibility_timeout_expired", True), ("deleted", False)]
+    assert 'class="bar window"' in groups[0][1]
 
 
 def test_each_step_says_which_observed_fact_puts_it_after_another(server):

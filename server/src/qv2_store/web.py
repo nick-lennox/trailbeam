@@ -6,7 +6,10 @@ Pages:
 - ``/message?id=...``: one message's timeline. Each observed step shows its interval (request sent to
   response received) and, in plain words, the observed fact that puts it after the step before it
   (the clocks, the call order in one process, SQS's receive count or SQS's timestamps). Steps that no
-  fact orders are drawn side by side in one box labelled "concurrent, order unknown". Inferred steps
+  fact orders are drawn in one box labelled "concurrent, order unknown", as a waterfall: each step is a
+  bar on a time scale shared by the box, from request sent to response received, and the rows are
+  listed by when each request was sent (an observed time, never the kind of step or what caused what),
+  so the overlap, not the position, says what is known. Inferred steps
   are drawn differently and labelled "inferred". A move to a dead-letter queue says "reported by SQS"
   and which attribute reported it; it is never inferred.
 - ``/duplicates``: duplicate deliveries.
@@ -17,12 +20,13 @@ returns. No JavaScript, no external assets: everything is in one response.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from html import escape
 from typing import Callable, Iterable, Optional
 from urllib.parse import quote, urlencode
 
 from . import __version__
-from .timeline import DLQ_SOURCE
+from .timeline import DLQ_SOURCE, iso
 
 Response = tuple[int, dict, bytes]
 
@@ -89,8 +93,15 @@ ol.timeline li.reported{border-left:4px double #3b6fd6}.reported-by{font-size:.9
 ol.timeline li.group{background:none;border:2px dashed #8a94a8;border-left:2px dashed #8a94a8;padding:.4rem .6rem}
 .group-head{font-size:.85em;color:#3c4352;margin-bottom:.2rem}
 .badge-concurrent{background:#5b6475}
-ol.side{list-style:none;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:.5rem}
-ol.side>li{flex:1 1 18rem;margin:0 !important}
+ul.waterfall{list-style:none;padding:0;margin:0}
+ul.waterfall>li{margin:.3rem 0 !important}
+.group-note{font-size:.8em;color:#5b6475;margin:.1rem 0 .3rem}
+.track{position:relative;height:.7rem;margin:.35rem 0 .1rem;background:#eef0f4;border-radius:2px}
+.track .bar{position:absolute;top:0;bottom:0;min-width:3px;background:#3b6fd6;border-radius:2px}
+.track .bar.open-start{border-top-left-radius:0;border-bottom-left-radius:0;
+  background:linear-gradient(90deg,rgba(59,111,214,.15),#3b6fd6 2rem)}
+.track .bar.open-end{background:linear-gradient(270deg,rgba(59,111,214,.15),#3b6fd6 2rem)}
+.track .bar.window{background:repeating-linear-gradient(135deg,#e7b866,#e7b866 4px,#f6dfb4 4px,#f6dfb4 8px)}
 .notice{background:#fff4d6;border:1px solid #e6c25c;padding:.5rem .8rem;margin:.4rem 0;border-radius:3px}
 .error{background:#fde2e2;border:1px solid #d98c8c;padding:.6rem .9rem;border-radius:3px}
 .muted{color:#6b7385}form.filters{margin:.6rem 0 1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
@@ -154,8 +165,9 @@ def _message(api, q: dict) -> Response:
                  "receive. Nothing is ordered by what usually causes what. Steps in a box marked "
                  '<span class="badge badge-concurrent">concurrent</span> can\'t be put in one order: no '
                  "observed fact orders some of them (they overlapped in time, or a start was not observed), so "
-                 "their order is unknown and they are side by side. Where a pair inside a box is ordered, the "
-                 "later step says so. Steps marked "
+                 "their order is unknown. Each is drawn as a bar on one time scale for the box; the rows are "
+                 "listed by when each request was sent, which is not the order SQS acted in. Where a pair "
+                 "inside a box is ordered, the later step says so. Steps marked "
                  '<span class="badge">inferred</span> were deduced by the store; no span recorded them, so they '
                  "have a time window instead of a time. A move to a dead-letter queue is shown only when SQS "
                  "reports it: the receive from the dead-letter queue carries DeadLetterQueueSourceArn naming the "
@@ -198,7 +210,8 @@ def _stuck(api, q: dict) -> Response:
 
 
 def _timeline_items(t: dict) -> list[str]:
-    """One <li> per step, except that each concurrent group is one <li> holding its steps side by side."""
+    """One <li> per step, except that each concurrent group is one <li> holding its steps as a waterfall
+    (:func:`_waterfall`)."""
     concurrent = {g["group"]: g for g in t.get("groups", []) if g.get("concurrent")}
     out: list[str] = []
     evs = t["events"]
@@ -219,9 +232,67 @@ def _timeline_items(t: dict) -> list[str]:
                    f'<div class="group-head"><span class="badge badge-concurrent">concurrent</span>'
                    f'<strong>{escape(info.get("label") or "concurrent, order unknown")}</strong>: the store can\'t put '
                    f"these {int(n)} steps in one order; no observed fact orders some of them.</div>"
-                   '<ol class="side">' + "".join(_event(e, by_id) for e in evs[i:j]) + "</ol></li>")
+                   + _waterfall(evs[i:j], by_id) + "</li>")
         i = j
     return out
+
+
+def _ns_of_iso(s: Optional[str]) -> Optional[int]:
+    if not s:
+        return None
+    dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    return (int(dt.replace(microsecond=0).timestamp()) * 1_000_000 + dt.microsecond) * 1000
+
+
+def _span_of(e: dict) -> tuple[Optional[int], Optional[int], bool]:
+    """(from, to, is_window) in ns on the hosts' clocks: an observed step's interval, or the window of an
+    inferred step or of a move to a dead-letter queue (which SQS gives no time). Either end may be unknown."""
+    if e.get("inferred") or e.get("source") == DLQ_SOURCE:
+        w = e.get("window") or {}
+        return _ns_of_iso(w.get("from")), _ns_of_iso(w.get("to")), True
+    start = e.get("start_unix_nano")
+    end = e.get("end_unix_nano") or e.get("time_unix_nano")
+    return (None if start is None else int(start)), (None if end is None else int(end)), False
+
+
+def _waterfall(members: list[dict], by_id: dict) -> str:
+    """A concurrent box as a waterfall, so that its steps don't read as a sequence (QV-32 section 7.2).
+
+    Each step gets a bar on a time scale shared by the box: from its request sent to its response received
+    (an inferred step or a move: its window, hatched; an unknown end fades out). The rows are listed by when
+    each request was sent, an observed time; a step whose start is unknown is drawn from the left edge and
+    listed first, since it may have started at any time before. Rows are never ordered by the kind of step
+    or by what caused what, and the note under the header says the rows are not the order SQS acted in."""
+    spans = [_span_of(e) for e in members]
+    known = [x for a, b, _ in spans for x in (a, b) if x is not None]
+    lo, hi = (min(known), max(known)) if known else (0, 0)
+    width = hi - lo
+
+    def pct(x: int) -> float:
+        return 0.0 if width <= 0 else (x - lo) * 100.0 / width
+
+    rows = []
+    for k, (e, (a, b, window)) in enumerate(zip(members, spans)):
+        left = pct(a) if a is not None else 0.0
+        right = pct(b) if b is not None else 100.0
+        cls = ["bar"] + (["window"] if window else []) + (["open-start"] if a is None else []) \
+            + (["open-end"] if b is None else [])
+        bar = (f'<div class="track"><span class="{" ".join(cls)}" '
+               f'style="left:{left:.2f}%;width:{max(right - left, 0.0):.2f}%"></span></div>')
+        rows.append(((lo - 1 if a is None else a), k, _event(e, by_id, bar)))
+    rows.sort(key=lambda r: r[:2])
+    scale = "" if width <= 0 else (f" The scale runs from {_time(iso(lo))} to {_time(iso(hi))}"
+                                   f" ({_took(width)}).")
+    note = ('<p class="group-note">Each bar is one step on the same time scale: from its request sent to its '
+            "response received (hatched: a window, for a step with no time of its own). Rows are listed by when "
+            "each request was sent, which is not the order SQS acted in: where bars overlap, SQS may have acted "
+            f"on either first.{scale}</p>")
+    return note + '<ul class="waterfall">' + "".join(r[2] for r in rows) + "</ul>"
+
+
+def _took(ns: int) -> str:
+    ms = ns / 1e6
+    return f"{ms:.1f} ms" if ms < 10_000 else f"{ms / 1000:.1f} s"
 
 
 def _ref(e: Optional[dict]) -> str:
@@ -260,7 +331,7 @@ def _why(e: dict, by_id: dict) -> list[str]:
     return out
 
 
-def _event(e: dict, by_id: Optional[dict] = None) -> str:
+def _event(e: dict, by_id: Optional[dict] = None, bar: str = "") -> str:
     inferred = bool(e.get("inferred"))
     label = escape(EVENT_LABELS.get(e["type"], e["type"]))
     failed = e.get("result") == "failed" or (e["type"] == "lambda_outcome" and e.get("outcome") != "success")
@@ -281,7 +352,7 @@ def _event(e: dict, by_id: Optional[dict] = None) -> str:
     out = [f'<li class="{" ".join(cls)}" data-type="{escape(e["type"])}" data-inferred="{str(inferred).lower()}"'
            + (f' data-source="{escape(str(e["source"]))}"' if e.get("source") else "")
            + (f' data-id="{escape(str(e["id"]))}"' if e.get("id") else "") + ">",
-           "".join(head)]
+           "".join(head), bar]
     if reported:
         out.append(f'<div class="reported-by"><strong>{escape(e.get("reported_by") or "")}</strong></div>')
     if details:
@@ -415,8 +486,7 @@ def _interval(e: dict) -> str:
     if not e.get("start"):
         return f"no later than {_time(end)}"
     try:
-        dur = (int(e["end_unix_nano"]) - int(e["start_unix_nano"])) / 1e6
-        took = f" ({dur:.1f} ms)" if dur < 10_000 else f" ({dur / 1000:.1f} s)"
+        took = f" ({_took(int(e['end_unix_nano']) - int(e['start_unix_nano']))})"
     except (KeyError, TypeError, ValueError):
         took = ""
     return f"{_time(e['start'])} to {_time(end)}{escape(took)}"
