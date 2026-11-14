@@ -1,16 +1,17 @@
 """The real qv2 Python package, on a local SQS emulator (moto), exporting OTLP/HTTP to a running store.
 
-Skipped unless the `qv2` package from ../python and moto are installed:
-    pip install -e '../python[test]'
+Needs the `qv2` package from ../python and moto: pip install -e '../python[test]'. Skipped locally without
+them, and a failure in CI (tests/needs.py).
 No AWS: credentials are dummies and every call goes to the in-process emulator.
 """
 import os
 import time
 
 import pytest
+from needs import need
 
-pytest.importorskip("qv2.boto")
-pytest.importorskip("moto.server")
+need("qv2.boto")
+need("moto.server")
 
 for _k in [k for k in os.environ if k.startswith("AWS_")]:
     del os.environ[_k]

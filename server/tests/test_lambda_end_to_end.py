@@ -1,7 +1,8 @@
 """The recorded killed Lambda invocation (QV-9) through the real qv2 Lambda wrapper, exported over OTLP/HTTP
 to a running store: the store must show the outcome the wrapper could not send as inferred.
 
-Skipped unless the `qv2` package from ../python is installed (pip install -e '../python[test]'). No AWS.
+Needs the `qv2` package from ../python (pip install -e '../python[test]'): skipped locally without it, and a
+failure in CI (tests/needs.py). No AWS.
 """
 import copy
 import json
@@ -10,8 +11,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from needs import need
 
-pytest.importorskip("qv2.aws_lambda")
+need("qv2.aws_lambda")
 
 from qv2_store import queries  # noqa: E402
 
