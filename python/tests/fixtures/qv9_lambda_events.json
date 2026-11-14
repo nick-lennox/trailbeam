@@ -1,0 +1,933 @@
+{
+ "provenance": "Rebuild the SQS events of the QV-9 Lambda run from its CloudWatch logs.\n\nInput: ``raw__lambda_logs.json`` from the QV-9 evidence bundle (qv9-evidence-bundle.zip on QV-9).\nOutput: ``qv9_lambda_events.json`` next to this file. Run with ``python -I build_qv9_lambda_events.py <logs>``.\n\nThe QV-9 prototype wrapper logged one ``QV2SPAN`` line per span it emitted: a ``qv2 receive`` per\nrecord (message ID, receive count, sent timestamp, AWSTraceHeader, queue name, request ID) and a\n``qv2 outcome`` per record. From those, each invocation's ``Records`` are rebuilt. What the logs do\nnot contain is filled in, and marked in ``provenance``:\n\n- receipt handles: synthetic (the prototype logged only a hash), one per delivery;\n- bodies: a fixed synthetic body (the bodies were synthetic and are not needed);\n- eventSourceARN account: 123456789012 (the AWS documentation example account);\n- ApproximateFirstReceiveTimestamp and SenderId: from the ``QV2EVENT`` line when one matches the\n  record's SentTimestamp and AWSTraceHeader, otherwise omitted.\n\n``expected`` is what the prototype recorded for each record: its outcome (with\n``success_deleted_by_lambda`` renamed ``success``), or null when the invocation logged no outcome\n(the function was killed). ``behaviour`` is what the test handler does to reproduce it.",
+ "source": "QV-9 evidence bundle, raw__lambda_logs.json",
+ "invocations": [
+  {
+   "aws_request_id": "9bba454b-5fdf-5909-ba15-263b587ff30d",
+   "log_stream_name": "2026/11/12/[$LATEST]a5c60598c94f4d93b9f18037b6c326d5",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "f7a098d8-bb4b-48e9-afa0-0d5f20f17d17",
+      "receiptHandle": "synthetic-rh-4d9bf17062365eb12d13587ead1c99b7dd0fc4738776bcb4af3c0d192c07ac4b",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508135798",
+       "AWSTraceHeader": "Root=1-cfdbd62b-05ed93fcbc54f07ffb1954a1;Parent=85b37d5602969747;Sampled=1",
+       "SenderId": "AIDAEXAMPLEUSERID0000",
+       "ApproximateFirstReceiveTimestamp": "1794508135800"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     },
+     {
+      "messageId": "37bace2a-2fa6-419d-85a2-33633062de3b",
+      "receiptHandle": "synthetic-rh-79c0ab27af528944b8a1d1e689893c5a8298220f66c31b7edfb7d9315a033722",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508135841",
+       "AWSTraceHeader": "Root=1-0d94ddb3-e77d75335149f33dae21c5ef;Parent=a43075e3b54dffe6;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     },
+     {
+      "messageId": "777ccc7d-be2d-4af1-9c5a-24ff269d7960",
+      "receiptHandle": "synthetic-rh-532f97df59e55c6ce95b0d4e41eebc1b07de7de12bd0b55b6babc6e64f0a70e8",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508135945",
+       "AWSTraceHeader": "Root=1-7d4f3d17-fd5444957c89ff40c560e0e4;Parent=0106218ecb9deb22;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": []
+   },
+   "expected": {
+    "f7a098d8-bb4b-48e9-afa0-0d5f20f17d17": "success",
+    "37bace2a-2fa6-419d-85a2-33633062de3b": "success",
+    "777ccc7d-be2d-4af1-9c5a-24ff269d7960": "success"
+   }
+  },
+  {
+   "aws_request_id": "61c02d38-1745-5e91-8ce5-4e4810e54106",
+   "log_stream_name": "2026/11/12/[$LATEST]7ed4d016aded41d39e9100344fd9044d",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "5b1c2a46-655e-4a58-a18a-d289dbdccccc",
+      "receiptHandle": "synthetic-rh-8ccf2eabef917f713d2df7b04f6592e1fe725dd3618a518091fb4830763b55fc",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508135765",
+       "AWSTraceHeader": "Root=1-fb807b6a-b145cea0595333ee73867663;Parent=a316d7de60e0f6e8;Sampled=1",
+       "SenderId": "AIDAEXAMPLEUSERID0000",
+       "ApproximateFirstReceiveTimestamp": "1794508135774"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     },
+     {
+      "messageId": "22de81f8-166c-4ec1-b9c7-eb47384e48f7",
+      "receiptHandle": "synthetic-rh-cc8ad3a81ff4412fa8af75ba7a490c3ed820ae55f071d6f117ad05ca2d274a21",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508135889",
+       "AWSTraceHeader": "Root=1-78169c25-ccd7e11c42f9e7167faf5e30;Parent=3f0ff5b36ff45b37;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     },
+     {
+      "messageId": "22a5f287-881f-47c4-9ec9-90fa770794cd",
+      "receiptHandle": "synthetic-rh-018db1963877455c6fed334da1d2101e4fb4f26604783978e09482146fcba900",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508135922",
+       "AWSTraceHeader": "Root=1-75823764-519c457cd3752b3ffb214eb2;Parent=ec8bea64ba26589c;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": []
+   },
+   "expected": {
+    "5b1c2a46-655e-4a58-a18a-d289dbdccccc": "success",
+    "22de81f8-166c-4ec1-b9c7-eb47384e48f7": "success",
+    "22a5f287-881f-47c4-9ec9-90fa770794cd": "success"
+   }
+  },
+  {
+   "aws_request_id": "96f9cbc2-d835-5acc-a364-a8b2df95e814",
+   "log_stream_name": "2026/11/12/[$LATEST]b3b393f86cac4ffa85ed38b6965b23eb",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "5c6a1984-3550-44bd-a4bf-42acb52c4f36",
+      "receiptHandle": "synthetic-rh-f44f93958f10fa26edc51c27a6ca654a6ca73ca4e41f8ef38b90fdf80ed20e99",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508135821",
+       "AWSTraceHeader": "Root=1-b923ff7b-be4736ed192d403a0d866ec5;Parent=b9198da43319d087;Sampled=1",
+       "SenderId": "AIDAEXAMPLEUSERID0000",
+       "ApproximateFirstReceiveTimestamp": "1794508135823"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     },
+     {
+      "messageId": "e684c5d4-d54f-4709-8013-27a89aecb79b",
+      "receiptHandle": "synthetic-rh-5f499f178277c03263d643271b2cc2098f86db0501aaae339defcf26d9e12fd9",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508135866",
+       "AWSTraceHeader": "Root=1-e2de40e2-0626ac750159dab76ce3ba66;Parent=df2def11c4a3d486;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": []
+   },
+   "expected": {
+    "5c6a1984-3550-44bd-a4bf-42acb52c4f36": "success",
+    "e684c5d4-d54f-4709-8013-27a89aecb79b": "success"
+   }
+  },
+  {
+   "aws_request_id": "f2295f2c-2a6f-5291-9cd5-3c5c2dcf2bc2",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "907db3fc-242b-4c2c-9814-4a6f3f0fdb95",
+      "receiptHandle": "synthetic-rh-2e674eb907b5897f6472302efc59f76a4c45a30bf9929d052213892fb661182a",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508135731",
+       "AWSTraceHeader": "Root=1-de5aff93-03899098c016b0b5c4835837;Parent=75667c4d2e0eb815;Sampled=1",
+       "SenderId": "AIDAEXAMPLEUSERID0000",
+       "ApproximateFirstReceiveTimestamp": "1794508135740"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     },
+     {
+      "messageId": "9229a584-ea58-44a2-ac0c-0d16a7fe0198",
+      "receiptHandle": "synthetic-rh-d40140bf7e32d24eb59fc1b4c76c88e0e791b64c6b64c0c4148cb810fd923f37",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508135965",
+       "AWSTraceHeader": "Root=1-ce2d022f-b95710f90029a7bac65c5699;Parent=6ecb4a6755e25cf7;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": []
+   },
+   "expected": {
+    "907db3fc-242b-4c2c-9814-4a6f3f0fdb95": "success",
+    "9229a584-ea58-44a2-ac0c-0d16a7fe0198": "success"
+   }
+  },
+  {
+   "aws_request_id": "e3e12589-f03f-5838-ab00-46f9f78bcd16",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "fdc43457-3b04-4cf9-b690-3e1a19b41a97",
+      "receiptHandle": "synthetic-rh-dd42fdfe1f86b785fe66014ccb97b86ce3a756d28e99ae8cfb32b568a77eec65",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508156466",
+       "AWSTraceHeader": "Root=1-9cb89642-cb71328a5a1f3837cd48ad55;Parent=fbf65d9fc88ce7a0;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     },
+     {
+      "messageId": "83ac3564-1b77-4521-8b88-544ea3b0db9b",
+      "receiptHandle": "synthetic-rh-459d3d20a318d66bff8db0761b362ed2707f4ead8eba28603012bca40f0333ce",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508156527",
+       "AWSTraceHeader": "Root=1-e2a77b88-d0052bf7ca23c10d99d42adb;Parent=f773a3e305f46e2e;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     },
+     {
+      "messageId": "a3856ad2-f380-4e00-a667-3b924cb02856",
+      "receiptHandle": "synthetic-rh-bcdef1edae56020e0fd94999746db09018c50bae93f91514f358f4c1010352b4",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508156550",
+       "AWSTraceHeader": "Root=1-316f470d-8004638e31ef4389d9586425;Parent=4ef9e1bb8fbca634;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     },
+     {
+      "messageId": "89477c2a-a435-4452-b6da-4ebfa31b5e32",
+      "receiptHandle": "synthetic-rh-032a108ad08d521de65f5a5ee812a99a49533d68922bdec855330989b0fafa47",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508156574",
+       "AWSTraceHeader": "Root=1-ce71363d-f05169b085e6431fc1b7c5a7;Parent=5c69fab06f65bce8;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "raise",
+    "error_type": "RuntimeError"
+   },
+   "expected": {
+    "fdc43457-3b04-4cf9-b690-3e1a19b41a97": "failed_exception",
+    "83ac3564-1b77-4521-8b88-544ea3b0db9b": "failed_exception",
+    "a3856ad2-f380-4e00-a667-3b924cb02856": "failed_exception",
+    "89477c2a-a435-4452-b6da-4ebfa31b5e32": "failed_exception"
+   }
+  },
+  {
+   "aws_request_id": "8af4920c-9a13-55de-ae6f-f17c9dc3f0f0",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "1f35b246-e2d4-4251-aab0-e4fff64ba0fb",
+      "receiptHandle": "synthetic-rh-92fb526dd0d950a17f3c88d5f86833587d3daec3c5cfe5bae90b95693926e303",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508177170",
+       "AWSTraceHeader": "Root=1-7214a064-d8e03c23c31197fe1068b26f;Parent=63d2262b6e3215c3;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": []
+   },
+   "expected": {
+    "1f35b246-e2d4-4251-aab0-e4fff64ba0fb": "success"
+   }
+  },
+  {
+   "aws_request_id": "ad13f850-1b84-53bc-a166-9b201c5449b8",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "141fbc80-773d-451b-846c-017c666b675a",
+      "receiptHandle": "synthetic-rh-241a335e5ed97471e032fe452af3e0eb0367cc980a4ebca03ff7a50db6519294",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508177214",
+       "AWSTraceHeader": "Root=1-93092991-3fb71a816d3524a741fb7643;Parent=2cadfb26979a6ce7;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": []
+   },
+   "expected": {
+    "141fbc80-773d-451b-846c-017c666b675a": "success"
+   }
+  },
+  {
+   "aws_request_id": "32488b32-ed60-563d-b1db-e842eadda4e5",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "e6fc5dfa-46a4-4cff-b34d-466dd44a75a6",
+      "receiptHandle": "synthetic-rh-77c0a770e95790b30ed9488b05ca656162d3f2c1db33d0d8363bcccfd38f1691",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508177194",
+       "AWSTraceHeader": "Root=1-831f4620-a177109a4bdbca4ba9cee3fe;Parent=60db3c024e5c80f7;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": [
+     "e6fc5dfa-46a4-4cff-b34d-466dd44a75a6"
+    ]
+   },
+   "expected": {
+    "e6fc5dfa-46a4-4cff-b34d-466dd44a75a6": "failed_reported"
+   }
+  },
+  {
+   "aws_request_id": "345156b9-ebb1-5e6d-b43d-35c9ec676103",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "83ac3564-1b77-4521-8b88-544ea3b0db9b",
+      "receiptHandle": "synthetic-rh-12d2334b084446c9f656b8136b95bb2c140ac22aa61982070d54a3e92fa0b2c9",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "2",
+       "SentTimestamp": "1794508156527",
+       "AWSTraceHeader": "Root=1-e2a77b88-d0052bf7ca23c10d99d42adb;Parent=f773a3e305f46e2e;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": []
+   },
+   "expected": {
+    "83ac3564-1b77-4521-8b88-544ea3b0db9b": "success"
+   }
+  },
+  {
+   "aws_request_id": "36d2491c-9fe4-58e2-8f7c-2a6c9835f2e6",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "89477c2a-a435-4452-b6da-4ebfa31b5e32",
+      "receiptHandle": "synthetic-rh-a5cf4edeed7fa242011067cf47b34b295b81e4609c6e572d7c7bd091ea3803b1",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "2",
+       "SentTimestamp": "1794508156574",
+       "AWSTraceHeader": "Root=1-ce71363d-f05169b085e6431fc1b7c5a7;Parent=5c69fab06f65bce8;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": []
+   },
+   "expected": {
+    "89477c2a-a435-4452-b6da-4ebfa31b5e32": "success"
+   }
+  },
+  {
+   "aws_request_id": "90dd7291-5d79-5fbc-9bd9-11e15ac4b6ef",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "0562d40f-8537-44cf-a177-c28e7c1d0f28",
+      "receiptHandle": "synthetic-rh-3a90123f80641d05065c3d7a416c851228a85e9227a9cab0e234d9011237297c",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508177150",
+       "AWSTraceHeader": "Root=1-656ac82b-899934a39fc2b96866b26b23;Parent=eef79913a9030ed9;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": [
+     "0562d40f-8537-44cf-a177-c28e7c1d0f28"
+    ]
+   },
+   "expected": {
+    "0562d40f-8537-44cf-a177-c28e7c1d0f28": "failed_reported"
+   }
+  },
+  {
+   "aws_request_id": "4052fa27-af1b-5468-bd56-9957a8ca66b0",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "a3856ad2-f380-4e00-a667-3b924cb02856",
+      "receiptHandle": "synthetic-rh-9efb7c587c5de8e9e38d25d17268e8422cea9151c60fd708e20d4b077f48a33c",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "2",
+       "SentTimestamp": "1794508156550",
+       "AWSTraceHeader": "Root=1-316f470d-8004638e31ef4389d9586425;Parent=4ef9e1bb8fbca634;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": []
+   },
+   "expected": {
+    "a3856ad2-f380-4e00-a667-3b924cb02856": "success"
+   }
+  },
+  {
+   "aws_request_id": "94ab06f1-d98a-5fa0-9f64-6581de6a45a4",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "ed51d232-5860-4f3f-82d1-34073e1cb9a3",
+      "receiptHandle": "synthetic-rh-150c0ab2480728560b38608bbb56eabca88681e296ffbad57588dcc402851ae4",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508197636",
+       "AWSTraceHeader": "Root=1-864eb482-1ea6ebbbb6ee16bc3f88c304;Parent=6829c13eb9cc0372;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "killed"
+   },
+   "expected": {
+    "ed51d232-5860-4f3f-82d1-34073e1cb9a3": null
+   }
+  },
+  {
+   "aws_request_id": "a55fe683-9c2d-5ca8-ad3f-85f39bcd13c6",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "2ced91ea-88d9-465c-9679-2d58be88cc4e",
+      "receiptHandle": "synthetic-rh-31afa462c3e4cb0f03a6699dc1eaa1f6c1f3530797968f9c5ab1ecd239d5e937",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508197660",
+       "AWSTraceHeader": "Root=1-519d8a9d-c95ebddcdb1f592579f4838d;Parent=9e13c2192b1ca681;Sampled=1",
+       "SenderId": "AIDAEXAMPLEUSERID0000",
+       "ApproximateFirstReceiveTimestamp": "1794508197661"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": []
+   },
+   "expected": {
+    "2ced91ea-88d9-465c-9679-2d58be88cc4e": "success"
+   }
+  },
+  {
+   "aws_request_id": "2f908a43-adf9-5086-b7f3-e933aa289f11",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "fdc43457-3b04-4cf9-b690-3e1a19b41a97",
+      "receiptHandle": "synthetic-rh-2a2a04ee00bd0b030668813c793f5b5a12e0747363b827dc3a3f5a1a9fb0b81a",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "2",
+       "SentTimestamp": "1794508156466",
+       "AWSTraceHeader": "Root=1-9cb89642-cb71328a5a1f3837cd48ad55;Parent=fbf65d9fc88ce7a0;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": []
+   },
+   "expected": {
+    "fdc43457-3b04-4cf9-b690-3e1a19b41a97": "success"
+   }
+  },
+  {
+   "aws_request_id": "4ae7614f-e5be-50f2-a296-023fe24de094",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "0562d40f-8537-44cf-a177-c28e7c1d0f28",
+      "receiptHandle": "synthetic-rh-2490ffce003077b39bc3a903bad22d824c93949b136eb8e94a9f0c3812806c0b",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "2",
+       "SentTimestamp": "1794508177150",
+       "AWSTraceHeader": "Root=1-656ac82b-899934a39fc2b96866b26b23;Parent=eef79913a9030ed9;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": [
+     "0562d40f-8537-44cf-a177-c28e7c1d0f28"
+    ]
+   },
+   "expected": {
+    "0562d40f-8537-44cf-a177-c28e7c1d0f28": "failed_reported"
+   }
+  },
+  {
+   "aws_request_id": "4806ec74-22b9-5f3f-a6fe-8f042551524c",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "132c11d5-2118-4ea8-b752-12381f4494e6",
+      "receiptHandle": "synthetic-rh-46bde1cb62dfc697a0575c41a7d18c19b14faf8e335f0da980cfd95d10be3d55",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508218268",
+       "AWSTraceHeader": "Root=1-b1feddc4-361619667411e461abcba396;Parent=0c6df461afd9b979;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     },
+     {
+      "messageId": "7551e6b8-a80e-4de9-96dc-2db6622fbbf0",
+      "receiptHandle": "synthetic-rh-bc97cb836d298b1bbf2b8206f16b250dc3ed8fadea6d6b5f701ea84f42e0729a",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508218288",
+       "AWSTraceHeader": "Root=1-2c51a217-5222a9b19251b46bd3b40856;Parent=784c5c87c3f112c1;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": [
+     "not-a-message-id"
+    ]
+   },
+   "expected": {
+    "132c11d5-2118-4ea8-b752-12381f4494e6": "failed_invalid_response",
+    "7551e6b8-a80e-4de9-96dc-2db6622fbbf0": "failed_invalid_response"
+   }
+  },
+  {
+   "aws_request_id": "776542b8-ceb8-57fd-aec5-21c8c941d893",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "029cd194-7a55-40eb-939b-092dba7007f6",
+      "receiptHandle": "synthetic-rh-6867688fba51bad092fa0eca008071574f9f227e0365a7529af8da85c449eb63",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "1",
+       "SentTimestamp": "1794508218308",
+       "AWSTraceHeader": "Root=1-7dfeb041-0b8ea38a4477820624bab6e5;Parent=87beac666d59a6aa;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": []
+   },
+   "expected": {
+    "029cd194-7a55-40eb-939b-092dba7007f6": "success"
+   }
+  },
+  {
+   "aws_request_id": "d7024c41-1f2f-5e56-83ca-2f3118ca260d",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "e6fc5dfa-46a4-4cff-b34d-466dd44a75a6",
+      "receiptHandle": "synthetic-rh-2d91c1b984a87aeca7b42e404f6dd16cf4299400b7cd449836140e942a99a2fe",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "2",
+       "SentTimestamp": "1794508177194",
+       "AWSTraceHeader": "Root=1-831f4620-a177109a4bdbca4ba9cee3fe;Parent=60db3c024e5c80f7;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": [
+     "e6fc5dfa-46a4-4cff-b34d-466dd44a75a6"
+    ]
+   },
+   "expected": {
+    "e6fc5dfa-46a4-4cff-b34d-466dd44a75a6": "failed_reported"
+   }
+  },
+  {
+   "aws_request_id": "fae713e5-b196-59fc-8d2f-7095b99ff99a",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "ed51d232-5860-4f3f-82d1-34073e1cb9a3",
+      "receiptHandle": "synthetic-rh-f752b9895d2924827dbf8f303be8510f8b6ad9e1b0e2c58c53bb134fa3447043",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "2",
+       "SentTimestamp": "1794508197636",
+       "AWSTraceHeader": "Root=1-864eb482-1ea6ebbbb6ee16bc3f88c304;Parent=6829c13eb9cc0372;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": []
+   },
+   "expected": {
+    "ed51d232-5860-4f3f-82d1-34073e1cb9a3": "success"
+   }
+  },
+  {
+   "aws_request_id": "8c8f99c6-167e-5f66-add0-fab61e77cdbe",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "e6fc5dfa-46a4-4cff-b34d-466dd44a75a6",
+      "receiptHandle": "synthetic-rh-789bdda3d52a737bb9d72ce621d8d035a968e693a5f4a2a9cc918474ef1b21cc",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "3",
+       "SentTimestamp": "1794508177194",
+       "AWSTraceHeader": "Root=1-831f4620-a177109a4bdbca4ba9cee3fe;Parent=60db3c024e5c80f7;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": [
+     "e6fc5dfa-46a4-4cff-b34d-466dd44a75a6"
+    ]
+   },
+   "expected": {
+    "e6fc5dfa-46a4-4cff-b34d-466dd44a75a6": "failed_reported"
+   }
+  },
+  {
+   "aws_request_id": "47d8b105-1ba5-54e8-aa98-d27513b08eec",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "0562d40f-8537-44cf-a177-c28e7c1d0f28",
+      "receiptHandle": "synthetic-rh-f08458baf5dfe64c156e9fd45029987322255edd3dde8049153e81a24fb2bd53",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "3",
+       "SentTimestamp": "1794508177150",
+       "AWSTraceHeader": "Root=1-656ac82b-899934a39fc2b96866b26b23;Parent=eef79913a9030ed9;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": [
+     "0562d40f-8537-44cf-a177-c28e7c1d0f28"
+    ]
+   },
+   "expected": {
+    "0562d40f-8537-44cf-a177-c28e7c1d0f28": "failed_reported"
+   }
+  },
+  {
+   "aws_request_id": "91c80774-c35d-5821-ae60-6404cb4f09a2",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "7551e6b8-a80e-4de9-96dc-2db6622fbbf0",
+      "receiptHandle": "synthetic-rh-5571f60af423726b18185ca0d754804be03aa43a07f3fae9827e31f02f4785f1",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "2",
+       "SentTimestamp": "1794508218288",
+       "AWSTraceHeader": "Root=1-2c51a217-5222a9b19251b46bd3b40856;Parent=784c5c87c3f112c1;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": []
+   },
+   "expected": {
+    "7551e6b8-a80e-4de9-96dc-2db6622fbbf0": "success"
+   }
+  },
+  {
+   "aws_request_id": "2050033a-3caa-5bfd-b61e-604a34a7b2ae",
+   "log_stream_name": "2026/11/12/[$LATEST]02beab3c68924f35a9cb4cf68edbd6a8",
+   "function_name": "qv2-exp-fn",
+   "event": {
+    "Records": [
+     {
+      "messageId": "132c11d5-2118-4ea8-b752-12381f4494e6",
+      "receiptHandle": "synthetic-rh-56f244df92f1f4650bb3f3f935377de02adbb712c9ab08f0ddf4da1b7f975d13",
+      "body": "{\"synthetic\": true}",
+      "attributes": {
+       "ApproximateReceiveCount": "2",
+       "SentTimestamp": "1794508218268",
+       "AWSTraceHeader": "Root=1-b1feddc4-361619667411e461abcba396;Parent=0c6df461afd9b979;Sampled=1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "3d100e8628b341ead13521b72f1790f7",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:qv2-exp-lambda",
+      "awsRegion": "us-east-1"
+     }
+    ]
+   },
+   "behaviour": {
+    "kind": "return",
+    "batchItemFailures": []
+   },
+   "expected": {
+    "132c11d5-2118-4ea8-b752-12381f4494e6": "success"
+   }
+  }
+ ]
+}
