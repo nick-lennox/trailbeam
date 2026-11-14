@@ -317,3 +317,23 @@ def test_no_page_carries_control_characters(site, server):
         assert status == 200, path
         assert not CONTROL.search(html), (path, CONTROL.search(html))
     assert '.why:before{content:"\\2191  "' in html  # the CSS escape reaches the browser intact
+
+
+def test_first_seen_says_which_clock_it_is_on(server):
+    """QV-32 section 4: the send's time on the host's clock when the send was observed; SQS's
+    SentTimestamp only when it wasn't, labelled as SQS's, on the timeline and on the stuck list."""
+    p, c = Consumer("producer"), Consumer("consumer-a")
+    post(server, [p.send(T0, "fs-host"),
+                  c.receive(T0 + SEC, "fs-host", "rh-fh", sent_ms=T0 // 1_000_000 - 2000),  # SQS 2 s behind
+                  c.receive(T0 + SEC, "fs-sqs", "rh-fs", sent_ms=T0 // 1_000_000 - 2000)])
+    _, _, html = get(server, page("fs-host"))
+    seen = re.search(r"<dt>First seen</dt><dd>(.*?)</dd>", html).group(1)
+    assert "2025-11-14 00:26:40.000000Z" in seen and "the send, on the host's clock" in seen
+    _, _, html = get(server, page("fs-sqs"))
+    seen = re.search(r"<dt>First seen</dt><dd>(.*?)</dd>", html).group(1)
+    assert "2025-11-14 00:26:38.000000Z" in seen and "SQS's SentTimestamp, on SQS's clock" in seen
+    _, _, html = get(server, "/stuck?older_than_s=0")
+    row = re.search(r'<tr><td><a [^>]*>fs-sqs</a>.*?</tr>', html).group(0)
+    assert "SQS's clock" in row and "this server's clock minus SQS's SentTimestamp: two clocks" in row
+    row = re.search(r'<tr><td><a [^>]*>fs-host</a>.*?</tr>', html).group(0)
+    assert "SQS's clock" not in row and "two clocks" not in row

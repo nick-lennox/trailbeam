@@ -229,6 +229,7 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
     else:
         dlq_move = None
     groups = _groups(evs, n_groups)
+    first_ns, first_clock = first_seen_ns(rows)
     return {
         "message_id": mid,
         "state": state,
@@ -239,7 +240,8 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
         "send_observed": bool(sends),
         "deliveries": len(receives),
         "successful_deliveries": successful_deliveries(rows),
-        "first_seen": iso(first_seen_ns(rows)),
+        "first_seen": iso(first_ns),
+        "first_seen_clock": first_clock,
         "last_seen": iso(rows[-1]["time_ns"]),
         "concurrent_groups": sum(g["concurrent"] for g in groups),
         "groups": groups,
@@ -445,11 +447,22 @@ def successful_deliveries(rows) -> int:
     return len(ok) + len(ok_inv)
 
 
-def first_seen_ns(rows) -> int:
-    ts = [r["time_ns"] for r in rows if r["kind"] == "send"]
-    ts += [r["sent_ts_ms"] * 1_000_000 if r["sent_ts_ms"] is not None else r["time_ns"]
-           for r in rows if r["kind"] == "receive"]
-    return min(ts) if ts else min(r["time_ns"] for r in rows)
+# The clock a "first seen" time is on (QV-32 section 4). The two are never compared with each other.
+HOST_CLOCK = "host"  # the clock of the host that made the call (a qv2 span's end)
+SQS_CLOCK = "sqs"    # SQS's own clock: SentTimestamp, in milliseconds
+
+
+def first_seen_ns(rows) -> tuple[int, str]:
+    """(time, clock) the message was first seen. The send's time, on the producer host's clock, when the
+    send was observed; otherwise the earliest SentTimestamp a receive carries, on SQS's clock; otherwise the
+    earliest span, on its host's clock. Never the minimum across the two clocks."""
+    sends = [r["time_ns"] for r in rows if r["kind"] == "send"]
+    if sends:
+        return min(sends), HOST_CLOCK
+    sqs = [r["sent_ts_ms"] for r in rows if r["kind"] == "receive" and r["sent_ts_ms"] is not None]
+    if sqs:
+        return min(sqs) * 1_000_000, SQS_CLOCK
+    return min(r["time_ns"] for r in rows), HOST_CLOCK
 
 
 def _notices(rows, receives, order=None) -> list[dict]:

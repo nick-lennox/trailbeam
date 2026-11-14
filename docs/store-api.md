@@ -43,6 +43,7 @@ refer to that file.
   "deliveries": 2,
   "successful_deliveries": 1,
   "first_seen": "2025-11-14T00:26:40.030000Z",
+  "first_seen_clock": "host",
   "last_seen": "2025-11-14T00:27:20.005000Z",
   "concurrent_groups": 0,
   "groups": [
@@ -114,7 +115,8 @@ two timestamps had been equal (the same millisecond, common on a local emulator)
 | `dead_letter_queue_move` | `"observed"`: SQS reported a move to a dead-letter queue (an event below). `"not_seen_on_dlq_yet"`: the highest receive count on `source_queue` has reached its configured `maxReceiveCount`, the message is not deleted, and no receive from a dead-letter queue has reported a move. No move is shown, and the notice `dlq_move_not_seen` says so. The store does not receive from the DLQ to check, because a receive changes the message's state. `null` otherwise, including when `maxReceiveCount` is not configured. |
 | `deliveries` | Number of observed receives, on any queue. |
 | `successful_deliveries` | Deliveries that ended in an accepted delete (counted once per delivery) or a Lambda `success`. More than one means the message was processed more than once. |
-| `first_seen` | Send time (the end of the send call); if the send was not observed, the earliest SQS `SentTimestamp` from a receive. |
+| `first_seen` | Send time (the end of the send call), on the producer host's clock. Only if the send was not observed: the earliest SQS `SentTimestamp` from a receive, on SQS's clock (or, with no `SentTimestamp` either, the earliest span). Never the earlier of a host time and an SQS time: the two clocks are not compared. |
+| `first_seen_clock` | `"host"` or `"sqs"`: the clock `first_seen` is on. Every other time in a timeline is a host time, so a `first_seen` on `"sqs"` must not be compared with them without allowing for skew between the clocks. |
 | `groups` | The timeline's groups, in order (below). Each has `group` (its number), `concurrent` (more than one event, observed or inferred), `label` (`"concurrent, order unknown"` or `null`), `observed_events`, `inferred_events`, `ordered_inside` (how many `after` entries link two members of the group: pairs inside the group whose order is known), `start` (earliest start; `null` if any member's start is unknown) and `end` (latest end; `null` for a group of inferred events only). |
 | `concurrent_groups` | Number of groups with `concurrent: true`. |
 | `order` | The proven order between observed events (below): `edges` (every directly proven pair, `from` before `to`, with the `sources` that prove it), `edges_by_source` (edges per source) and `conflicts` (edges dropped because the sources contradicted each other). |
@@ -255,7 +257,7 @@ A **summary** is:
   "message_id": "...", "state": "deleted", "source_queue": "orders", "current_queue": "orders",
   "in_dead_letter_queue": false, "deliveries": 2, "successful_deliveries": 2,
   "consumers": [{"service_name": "orders-worker", "client_id": "consumer-a"}],
-  "first_seen": "...", "last_seen": "..."
+  "first_seen": "...", "first_seen_clock": "host", "last_seen": "..."
 }
 ```
 
@@ -283,8 +285,13 @@ that have no final delete: no accepted delete with the handle of the latest rece
 dead-letter queue (`in_dead_letter_queue: true`). Oldest first. Parameters: `older_than_s` (0 to 10⁹),
 `limit`, `queue`.
 
+`age_s` is this server's clock now minus `first_seen`, and the cutoff compares the same two. When
+`first_seen_clock` is `"sqs"` (the send was not observed), that is SQS's clock against this server's, and
+the item says so with `age_across_clocks: true`: skew between the clocks is in its age, and in whether it
+is listed. "Oldest first" sorts by `first_seen` whichever clock it is on.
+
 ```json
-{"older_than_s": 300, "messages": [<summary> + {"age_s": 3600.0}, ...]}
+{"older_than_s": 300, "messages": [<summary> + {"age_s": 3600.0, "age_across_clocks": false}, ...]}
 ```
 
 ## `GET /api/health`

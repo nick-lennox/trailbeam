@@ -154,7 +154,7 @@ def _message(api, q: dict) -> Response:
                                                                          t["dead_letter_queue_move"]))))
     parts.append(_dd("Send observed", "yes" if t.get("send_observed") else "no"))
     parts.append(_dd("Deliveries", f'{t["deliveries"]} ({t["successful_deliveries"]} successful)'))
-    parts.append(_dd("First seen", _time(t.get("first_seen"))))
+    parts.append(_dd("First seen", _first_seen(t)))
     parts.append(_dd("Last seen", _time(t.get("last_seen"))))
     parts.append("</dl>")
     parts.append('<h2>Timeline</h2><p class="muted">Each step shows when its SQS request was sent and when the '
@@ -197,12 +197,13 @@ def _stuck(api, q: dict) -> Response:
     data = api("stuck", _pick(q, "older_than_s", "limit", "queue"))
     body = ("<h1>Stuck messages</h1>"
             f'<p class="muted">First seen more than {int(data["older_than_s"])} s ago, with no final delete. '
-            "Oldest first.</p>"
+            "Oldest first. First seen is the send, on the producer host's clock. Only when the send was not "
+            "observed is it SQS's SentTimestamp, on SQS's clock; that message's age then compares SQS's clock "
+            "with this server's, and says so.</p>"
             + _filters("/stuck", {**q, "older_than_s": str(data["older_than_s"])},
                        [("older_than_s", "Older than (s)", "number"), ("queue", "Queue", "text"),
                         ("limit", "Limit", "number")])
-            + _summary_table(data["messages"], extra=("Age", lambda m: escape(_age(m.get("age_s")))),
-                             empty="No stuck messages."))
+            + _summary_table(data["messages"], extra=("Age", _stuck_age), empty="No stuck messages."))
     return _page(200, "Stuck messages", body)
 
 
@@ -425,7 +426,7 @@ def _summary_table(messages: list[dict], *, empty: str, extra: Optional[tuple] =
                               for c in m.get("consumers", []))
         cells = [f'<a class="mono" href="/message?{escape(urlencode({"id": m["message_id"]}))}">{escape(m["message_id"])}</a>',
                  _state(m["state"]), queue, f'{m["deliveries"]} ({m["successful_deliveries"]} ok)', consumers,
-                 _time(m.get("first_seen")), _time(m.get("last_seen"))]
+                 _first_seen(m, short=True), _time(m.get("last_seen"))]
         if extra:
             cells.append(extra[1](m))
         rows.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
@@ -490,6 +491,27 @@ def _interval(e: dict) -> str:
     except (KeyError, TypeError, ValueError):
         took = ""
     return f"{_time(e['start'])} to {_time(end)}{escape(took)}"
+
+
+def _first_seen(m: dict, short: bool = False) -> str:
+    """First seen, saying which clock it is on when it is SQS's (QV-32 section 4)."""
+    t = _time(m.get("first_seen"))
+    if m.get("first_seen_clock") != "sqs":
+        if short:
+            return t
+        what = "the send" if m.get("send_observed") else "the earliest step"
+        return t + f' <span class="muted">({what}, on the host\'s clock that recorded it)</span>'
+    if short:
+        return t + ' <span class="muted clock-sqs">SQS\'s clock</span>'
+    return (t + ' <span class="muted clock-sqs">(SQS\'s SentTimestamp, on SQS\'s clock: the send was not '
+            "observed; not comparable with the host times below)</span>")
+
+
+def _stuck_age(m: dict) -> str:
+    age = escape(_age(m.get("age_s")))
+    if m.get("age_across_clocks"):
+        age += ' <span class="muted clock-sqs">(this server\'s clock minus SQS\'s SentTimestamp: two clocks)</span>'
+    return age
 
 
 def _age(s) -> str:

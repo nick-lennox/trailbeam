@@ -31,6 +31,7 @@ def _summary(store: Store, mid: str, now_ns: int, lambda_timeout_s: int, mrc: Op
         "successful_deliveries": t["successful_deliveries"],
         "consumers": [{"service_name": s, "client_id": c} for s, c in consumers],
         "first_seen": t["first_seen"],
+        "first_seen_clock": t["first_seen_clock"],
         "last_seen": t["last_seen"],
     }
 
@@ -85,7 +86,9 @@ def stuck(store: Store, now_ns: int, lambda_timeout_s: int, older_than_s: int, l
 
     Final means an accepted delete whose receipt handle is the one from the message's latest receive
     (span contract section 4.3), or a Lambda ``success`` outcome for the latest receive. First seen is
-    the send time, or the SQS SentTimestamp of a receive when the send was not observed.
+    as in :func:`timeline.first_seen_ns`: the send time on the producer host's clock when the send was
+    observed, and only otherwise SQS's SentTimestamp, on SQS's clock. For those messages the cutoff and
+    ``age_s`` compare SQS's clock with this server's, and each such item says so (``age_across_clocks``).
     """
     cutoff = now_ns - older_than_s * 1_000_000_000
     qsql, qp = _queue_filter(queue)
@@ -96,12 +99,17 @@ def stuck(store: Store, now_ns: int, lambda_timeout_s: int, older_than_s: int, l
                            ROW_NUMBER() OVER (PARTITION BY mid ORDER BY time_ns DESC, row DESC) AS rn
                     FROM spans WHERE kind = 'receive')
                 WHERE rn = 1),
-            first AS (
-                SELECT s.mid, MIN(CASE WHEN s.kind = 'receive' AND s.sent_ts_ms IS NOT NULL
-                                       THEN s.sent_ts_ms * 1000000 ELSE s.time_ns END) AS first_ns
+            seen AS (
+                SELECT s.mid, MIN(CASE WHEN s.kind = 'send' THEN s.time_ns END) AS send_ns,
+                       MIN(CASE WHEN s.kind = 'receive' THEN s.sent_ts_ms END) * 1000000 AS sqs_ns,
+                       MIN(s.time_ns) AS any_ns
                 FROM spans s WHERE s.mid IS NOT NULL AND s.kind IN ('send', 'receive') {qsql}
-                GROUP BY s.mid)
-            SELECT f.mid, f.first_ns FROM first f LEFT JOIN latest l ON l.mid = f.mid
+                GROUP BY s.mid),
+            first AS (
+                SELECT mid, COALESCE(send_ns, sqs_ns, any_ns) AS first_ns,
+                       send_ns IS NULL AND sqs_ns IS NOT NULL AS on_sqs_clock
+                FROM seen)
+            SELECT f.mid, f.first_ns, f.on_sqs_clock FROM first f LEFT JOIN latest l ON l.mid = f.mid
             WHERE f.first_ns < ?
               AND NOT EXISTS (SELECT 1 FROM spans d WHERE d.kind = 'delete' AND d.result = 'ok'
                               AND d.receive_row = l.rrow)
@@ -112,5 +120,8 @@ def stuck(store: Store, now_ns: int, lambda_timeout_s: int, older_than_s: int, l
     for r in rows:
         item = _summary(store, r["mid"], now_ns, lambda_timeout_s, mrc)
         item["age_s"] = round((now_ns - r["first_ns"]) / 1e9, 3)
+        # True when first seen is SQS's SentTimestamp: the age is this server's clock minus SQS's, so skew
+        # between the two clocks is in it.
+        item["age_across_clocks"] = bool(r["on_sqs_clock"])
         out.append(item)
     return out

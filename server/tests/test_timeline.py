@@ -428,6 +428,20 @@ class TestStuck:
         assert [x["message_id"] for x in s] == ["never-received", "other-queue", "no-send"]
         assert s[0]["age_s"] == 3600 and s[0]["deliveries"] == 0 and s[0]["state"] == "not_deleted"
         assert s[2]["age_s"] == 3595  # from SQS SentTimestamp, since the send was not observed
+        assert [x["age_across_clocks"] for x in s] == [False, False, True]  # and it says so
+        assert [x["first_seen_clock"] for x in s] == ["host", "host", "sqs"]
+
+    def test_an_observed_send_is_never_replaced_by_an_earlier_sqs_timestamp(self, store, ingest):
+        """QV-32 section 4: first seen took the minimum of host send times and SQS SentTimestamps. With SQS's
+        clock 2 s behind the producer's, that moved first seen (and the stuck age and cutoff) by 2 s."""
+        p, c = Consumer("producer"), Consumer()
+        ingest(p.send(NOW - 299 * SEC, "skew"),
+               c.receive(NOW - 298 * SEC, "skew", "rh-k", sent_ms=(NOW - 301 * SEC) // 1_000_000))
+        t = tl(store, "skew")
+        assert (t["first_seen"], t["first_seen_clock"]) == (iso(NOW - 299 * SEC), "host")
+        assert queries.stuck(store, NOW, LT, 300, 100) == []  # 299 s on the host's clock: not stuck yet
+        s = queries.stuck(store, NOW, LT, 290, 100)
+        assert [(x["message_id"], x["age_s"], x["age_across_clocks"]) for x in s] == [("skew", 299.0, False)]
 
     def test_threshold_and_queue_filter(self, store, ingest):
         self.setup(ingest)
