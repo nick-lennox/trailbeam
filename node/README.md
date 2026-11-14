@@ -1,9 +1,9 @@
 # @qv2/sdk (Node.js)
 
-OpenTelemetry hooks for AWS SDK v3 SQS clients. They emit the spans defined in
-[`docs/span-contract.md`](../docs/span-contract.md): `qv2 send`, `qv2 receive`, `qv2 delete` and
-`qv2 change_visibility`, one per message, with a keyed hash of each receipt handle and never the
-handle itself or the message body.
+OpenTelemetry hooks for AWS SDK v3 SQS clients, and a wrapper for Lambda handlers that consume
+SQS. They emit the spans defined in [`docs/span-contract.md`](../docs/span-contract.md):
+`qv2 send`, `qv2 receive`, `qv2 delete`, `qv2 change_visibility` and `qv2 outcome`, one per
+message, with a keyed hash of each receipt handle and never the handle itself or the message body.
 
 `"private": true` stays in `package.json` until a release decision; 0.1 publishes nothing to npm.
 
@@ -43,6 +43,36 @@ active span, if any. qv2 uses its own always-on tracer provider, so the applicat
 never drops qv2 spans, and it does not register anything globally. For parent spans to be found,
 the application needs an OpenTelemetry context manager (any `NodeSDK` setup registers one).
 
+## Lambda wrapper
+
+```js
+const qv2 = require('@qv2/sdk');
+
+exports.handler = qv2.wrapHandler(async (event, context) => {
+  // ...
+  return { batchItemFailures: [] };
+});
+```
+
+For each SQS record, the wrapper emits a `qv2 receive` and exports it **before** your handler
+runs, so a timeout or out-of-memory kill cannot lose it. After the handler returns or throws, it
+emits one `qv2 outcome` per record:
+
+| `qv2.outcome` | When |
+|---|---|
+| `success` | the handler returned and the record is not in `batchItemFailures` |
+| `failed_reported` | the record's ID is in `batchItemFailures` |
+| `failed_invalid_response` | `batchItemFailures` has an entry that is not a record ID in the batch (Lambda then fails the whole batch) |
+| `failed_exception` | the handler threw; `qv2.error_type` is the error's class name, never its message |
+
+A timeout or out-of-memory kill gets no outcome; the store infers it from the receive. Pass
+`reportBatchItemFailures: false` if the event source mapping does not have `ReportBatchItemFailures`
+turned on, since Lambda then ignores `batchItemFailures`. Async, sync and callback-style handlers
+are accepted; the wrapper is always an async handler. Events without SQS records pass straight
+through. `messaging.client.id` is `AWS_LAMBDA_LOG_STREAM_NAME`, which names one execution
+environment. Each flush waits at most `flushTimeoutMs` (default 2000), so an unreachable collector
+cannot use up the function's time.
+
 ## Configuration
 
 | Variable | Default | |
@@ -63,5 +93,6 @@ QV2_TEST_SQS_ENDPOINT=http://localhost:9324 npm test  # plus end to end against 
 ```
 
 The receipt-hash tests use the shared vectors in
-[`docs/span-contract-vectors.json`](../docs/span-contract-vectors.json), which the Python tests
-check too.
+[`docs/span-contract-vectors.json`](../docs/span-contract-vectors.json), and the wrapper tests replay
+the recorded QV-9 Lambda events in [`python/tests/fixtures`](../python/tests/fixtures); the Python
+tests use both too.

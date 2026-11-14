@@ -1,0 +1,233 @@
+'use strict';
+// qv2 wrapper for AWS Lambda handlers invoked by an SQS event source mapping (contract 4.2, 4.4).
+//
+//     const qv2 = require('@qv2/sdk');
+//     exports.handler = qv2.wrapHandler(async (event, context) => { ... });
+//
+// For each SQS record the wrapper emits one `qv2 receive` and flushes it before the handler runs,
+// so a timeout or out-of-memory kill cannot lose it. After the handler returns or throws it emits
+// one `qv2 outcome` per record. A killed invocation has no outcome; the store infers it.
+
+const api = require('@opentelemetry/api');
+
+const {
+  OUTCOME_FAILED_EXCEPTION,
+  OUTCOME_FAILED_INVALID_RESPONSE,
+  OUTCOME_FAILED_REPORTED,
+  OUTCOME_SUCCESS,
+  SPAN_OUTCOME,
+  SPAN_RECEIVE,
+  intOrUndefined,
+  put,
+  resolveHasher,
+} = require('./contract');
+const { Emitter, makeProvider, nowMs, SERVICE_INSTANCE_ID } = require('./emitter');
+
+const OPERATION = 'LambdaEvent';
+const DEFAULT_FLUSH_TIMEOUT_MS = 2000;
+
+function debug(what, err) {
+  api.diag.debug(`qv2: ${what} failed`, err);
+}
+
+/** `arn:aws:sqs:<region>:<account>:<name>` -> [name, https://sqs.<region>.amazonaws.com/<account>/<name>]. */
+function queueFromArn(arn) {
+  const parts = typeof arn === 'string' ? arn.split(':') : [];
+  if (parts.length < 6 || !parts[5]) return [parts.length ? parts[parts.length - 1] : '', ''];
+  const [, , , region, account] = parts;
+  const name = parts.slice(5).join(':');
+  return [name, `https://sqs.${region}.amazonaws.com/${account}/${name}`];
+}
+
+const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * Outcome per record ID after the handler returned `result` (contract 4.4). Follows Lambda's
+ * partial batch response rules: no `batchItemFailures`, null or empty means success; an entry whose
+ * `itemIdentifier` is missing, empty or not in the batch fails the whole batch.
+ */
+function decideOutcomes(recordIds, result, reportBatchItemFailures = true) {
+  const ids = new Set(recordIds);
+  const failed = new Set();
+  if (reportBatchItemFailures && isObject(result)) {
+    const items = result.batchItemFailures;
+    if (items !== undefined && items !== null) {
+      let valid = Array.isArray(items);
+      for (const item of valid ? items : []) {
+        const ident = isObject(item) ? item.itemIdentifier : undefined;
+        if (typeof ident === 'string' && ids.has(ident)) failed.add(ident);
+        else valid = false;
+      }
+      if (!valid) return Object.fromEntries(recordIds.map((i) => [i, OUTCOME_FAILED_INVALID_RESPONSE]));
+    }
+  }
+  return Object.fromEntries(recordIds.map((i) => [i, failed.has(i) ? OUTCOME_FAILED_REPORTED : OUTCOME_SUCCESS]));
+}
+
+/** The SQS records of a Lambda event, or [] if it is not an SQS event. */
+function sqsRecords(event) {
+  if (!isObject(event) || !Array.isArray(event.Records)) return [];
+  return event.Records.filter((r) => isObject(r) && r.eventSource === 'aws:sqs'
+    && typeof r.messageId === 'string' && r.messageId);
+}
+
+/** Class name of a thrown value, never its message (messages often contain message contents). */
+function errorType(err) {
+  if (err !== null && typeof err === 'object') return (err.constructor && err.constructor.name) || 'Object';
+  return typeof err;
+}
+
+/** Emits the wrapper's spans. One per wrapped handler; holds the qv2 tracer provider. */
+class LambdaRecorder {
+  constructor(provider, emitter, { flushTimeoutMs, reportBatchItemFailures }) {
+    this.provider = provider;
+    this.emitter = emitter;
+    this.defaultClientId = emitter.clientId;
+    this.flushTimeoutMs = flushTimeoutMs;
+    this.reportBatchItemFailures = reportBatchItemFailures;
+  }
+
+  /** Flush, but never hold the invocation longer than the flush timeout or fail it. */
+  async flush() {
+    let timer;
+    try {
+      await Promise.race([
+        this.provider.forceFlush(),
+        new Promise((resolve) => { timer = setTimeout(resolve, this.flushTimeoutMs); }),
+      ]);
+    } catch (e) {
+      debug('flush', e);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  static faas(context) {
+    const attrs = {};
+    put(attrs, 'faas.name', (context && context.functionName) || process.env.AWS_LAMBDA_FUNCTION_NAME);
+    put(attrs, 'faas.invocation_id', context && context.awsRequestId);
+    return attrs;
+  }
+
+  async receives(records, context, parentContext) {
+    // One Lambda execution environment = one log stream (contract section 5).
+    this.emitter.clientId = process.env.AWS_LAMBDA_LOG_STREAM_NAME || this.defaultClientId;
+    const faas = LambdaRecorder.faas(context);
+    const t = nowMs();
+    for (const r of records) {
+      const arn = r.eventSourceARN;
+      const [name, url] = queueFromArn(arn);
+      const a = isObject(r.attributes) ? r.attributes : {};
+      const attrs = { 'messaging.message.id': r.messageId };
+      if (typeof r.receiptHandle === 'string' && r.receiptHandle) Object.assign(attrs, this.emitter.hashAttrs(r.receiptHandle));
+      put(attrs, 'qv2.receive_count', intOrUndefined(a.ApproximateReceiveCount));
+      put(attrs, 'qv2.sent_timestamp_ms', intOrUndefined(a.SentTimestamp));
+      put(attrs, 'qv2.first_receive_timestamp_ms', intOrUndefined(a.ApproximateFirstReceiveTimestamp));
+      put(attrs, 'qv2.aws_trace_header', a.AWSTraceHeader);
+      put(attrs, 'qv2.queue.arn', arn);
+      Object.assign(attrs, faas);
+      this.emitter.emit(SPAN_RECEIVE, OPERATION, name, url, attrs, { parentContext, startTime: t });
+    }
+    await this.flush();
+  }
+
+  async outcomes(records, context, outcomes, errType, parentContext) {
+    const faas = LambdaRecorder.faas(context);
+    const t = nowMs();
+    for (const r of records) {
+      const [name, url] = queueFromArn(r.eventSourceARN);
+      const outcome = outcomes[r.messageId];
+      const attrs = { 'messaging.message.id': r.messageId, 'qv2.outcome': outcome };
+      if (outcome === OUTCOME_FAILED_EXCEPTION) put(attrs, 'qv2.error_type', errType);
+      Object.assign(attrs, faas);
+      this.emitter.emit(SPAN_OUTCOME, OPERATION, name, url, attrs, { parentContext, startTime: t });
+    }
+    await this.flush();
+  }
+
+  async invoke(handler, thisArg, event, context, rest) {
+    const records = sqsRecords(event);
+    if (!records.length) return callHandler(handler, thisArg, event, context, rest);
+    const parentContext = api.context.active();
+    try {
+      await this.receives(records, context, parentContext);
+    } catch (e) {
+      debug('receive spans', e);
+    }
+    const ids = records.map((r) => r.messageId);
+    let result;
+    try {
+      result = await callHandler(handler, thisArg, event, context, rest);
+    } catch (err) {
+      await this.safeOutcomes(records, context, Object.fromEntries(ids.map((i) => [i, OUTCOME_FAILED_EXCEPTION])), errorType(err), parentContext);
+      throw err;
+    }
+    await this.safeOutcomes(records, context, decideOutcomes(ids, result, this.reportBatchItemFailures), undefined, parentContext);
+    return result;
+  }
+
+  async safeOutcomes(...args) {
+    try {
+      await this.outcomes(...args);
+    } catch (e) {
+      debug('outcome spans', e);
+    }
+  }
+}
+
+/**
+ * Call an async (or sync) handler, or a callback-style `(event, context, callback)` handler, and
+ * return a promise of its result.
+ */
+function callHandler(handler, thisArg, event, context, rest) {
+  if (handler.length >= 3 && rest.length === 0) {
+    return new Promise((resolve, reject) => {
+      const callback = (err, value) => (err !== undefined && err !== null ? reject(err) : resolve(value));
+      try {
+        const ret = handler.call(thisArg, event, context, callback);
+        if (ret && typeof ret.then === 'function') ret.then(resolve, reject);
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+  try {
+    return Promise.resolve(handler.call(thisArg, event, context, ...rest));
+  } catch (e) {
+    return Promise.reject(e);
+  }
+}
+
+/**
+ * Wrap a Lambda handler. Returns an async handler `(event, context) => Promise`.
+ *
+ * `reportBatchItemFailures` should match the event source mapping's `FunctionResponseTypes`: when
+ * it is off, Lambda ignores `batchItemFailures`, and so does qv2. Events without SQS records are
+ * passed to the handler untouched. The wrapped handler has a `qv2TracerProvider` property.
+ *
+ * @param {Function} handler
+ * @param {object} [options]
+ * @param {string} [options.receiptHashKey] takes precedence over $QV2_RECEIPT_HASH_KEY
+ * @param {import('@opentelemetry/sdk-trace-base').SpanExporter} [options.spanExporter]
+ * @param {import('@opentelemetry/sdk-trace-base').SpanProcessor} [options.spanProcessor]
+ * @param {number} [options.flushTimeoutMs=2000] longest wait for each flush
+ * @param {boolean} [options.reportBatchItemFailures=true]
+ */
+function wrapHandler(handler, options = {}) {
+  if (typeof handler !== 'function') throw new TypeError('qv2.wrapHandler expects a function');
+  const { provider, resource } = makeProvider(options);
+  const emitter = new Emitter(provider, resolveHasher(options.receiptHashKey), 'lambda', resource.attributes[SERVICE_INSTANCE_ID]);
+  const recorder = new LambdaRecorder(provider, emitter, {
+    flushTimeoutMs: options.flushTimeoutMs !== undefined ? options.flushTimeoutMs : DEFAULT_FLUSH_TIMEOUT_MS,
+    reportBatchItemFailures: options.reportBatchItemFailures !== undefined ? options.reportBatchItemFailures : true,
+  });
+  // Two declared parameters, so the Lambda runtime treats the wrapper as an async handler.
+  const wrapped = async function qv2WrappedHandler(event, context, ...rest) {
+    return recorder.invoke(handler, this, event, context, rest);
+  };
+  Object.defineProperty(wrapped, 'name', { value: handler.name || 'qv2WrappedHandler' });
+  wrapped.qv2TracerProvider = provider;
+  return wrapped;
+}
+
+module.exports = { wrapHandler, decideOutcomes, queueFromArn, sqsRecords, errorType, OPERATION };

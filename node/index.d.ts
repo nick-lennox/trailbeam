@@ -35,3 +35,31 @@ export declare function forceFlush(): Promise<void>;
 export declare function hashReceiptHandle(key: string, receiptHandle: string): string;
 /** `qv2.receipt_handle.key_id`: lower hex of HMAC-SHA256(key, "qv2 key id"), first 8 characters. */
 export declare function keyId(key: string): string;
+
+export interface WrapHandlerOptions extends InstallOptions {
+  /** Longest wait for each flush, in milliseconds. Default 2000. */
+  flushTimeoutMs?: number;
+  /**
+   * Whether the event source mapping has `ReportBatchItemFailures` in `FunctionResponseTypes`.
+   * When false, `batchItemFailures` is ignored, as Lambda ignores it. Default true.
+   */
+  reportBatchItemFailures?: boolean;
+}
+
+export type LambdaHandler<E = any, C = any, R = any> =
+  | ((event: E, context: C) => R | Promise<R>)
+  | ((event: E, context: C, callback: (error?: unknown, result?: R) => void) => void);
+
+export type WrappedHandler<E = any, C = any, R = any> = ((event: E, context: C) => Promise<R>) & {
+  /** The qv2 tracer provider of this wrapper. */
+  qv2TracerProvider: BasicTracerProvider;
+};
+
+/**
+ * Wrap a Lambda handler for an SQS event source mapping: one `qv2 receive` per record, exported
+ * before the handler runs, and one `qv2 outcome` per record after it returns or throws.
+ */
+export declare function wrapHandler<E = any, C = any, R = any>(
+  handler: LambdaHandler<E, C, R>,
+  options?: WrapHandlerOptions,
+): WrappedHandler<E, C, R>;
