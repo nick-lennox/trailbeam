@@ -512,7 +512,7 @@ def test_floor_fails_when_every_pair_is_concurrent():
     assert s["result"] == "FAIL"  # the run fails on the floor alone
     assert s["resolution"]["send->receive"]["resolved_share"] == 0.0
     assert s["floor"] == {"min_resolved_share": 0.9, "kinds": ["send->receive", "receive->delete"],
-                          "failed": ["send->receive", "receive->delete"], "result": "FAIL"}
+                          "failed": ["send->receive", "receive->delete"], "result": "FAIL", "gates": True}
 
 
 def test_floor_counts_the_share_per_kind():
@@ -527,6 +527,17 @@ def test_floor_counts_the_share_per_kind():
     assert s["floor"]["failed"] == ["receive->delete"] and s["result"] == "FAIL"
     assert s["resolution"]["receive->delete"]["by_source"]["process_order"] == 8
     assert s["resolution"]["release->redelivery"]["pairs"] == 0  # no floor, reported anyway
+
+
+def test_floor_report_only_reports_the_floor_but_does_not_fail_the_run():
+    """The emulator (QV-34): messages still gate, the floor is computed at 90% and shown, but not gated."""
+    truth = {f"m-{i}": [dict(r, id=f"m-{i}") for r in SIMPLE_TRUTH] for i in range(3)}
+    results = {m: check.evaluate(t, with_order(one_group(simple_timeline()), [])) for m, t in truth.items()}
+    s = check.summarize(truth, results, 3, floor_gates=False)
+    assert s["floor"]["result"] == "FAIL" and s["floor"]["gates"] is False and s["floor"]["min_resolved_share"] == 0.9
+    assert s["result"] == "PASS"
+    results["m-0"] = check.evaluate(truth["m-0"], None)  # a message that fails still fails the run
+    assert check.summarize(truth, results, 3, floor_gates=False)["result"] == "FAIL"
 
 
 def test_floor_with_no_pairs_fails():

@@ -44,7 +44,8 @@ not overlap: they share a group only through other overlapping steps. ``concurre
 where the cause ended at exactly the effect's start, a tie at the clock's resolution. Each check is evaluated on its own: joined and receive count compare the events regardless of the order
 the store shows them in, so a message that fails only on order still reports its joins and receive counts.
 The summary counts each check separately, plus the messages that fail on order alone. A message passes
-only if all seven hold. The run passes only if every message passes **and** the floor holds: at least 90%
+only if all seven hold. The run passes only if every message passes **and** the floor holds (unless
+--floor-report-only, which demo/check.sh uses on the emulator: the floor is then reported, not gated): at least 90%
 (--floor) of the send->receive pairs and of the receive->delete pairs are resolved, so that the check
 can't pass by leaving things concurrent. ``resolution`` in the summary gives, per kind (send->receive,
 receive->delete, release->redelivery, receive n->receive n+1), the pairs resolved and left concurrent and
@@ -477,15 +478,17 @@ def resolution_table(counters: dict) -> dict:
     return out
 
 
-def floor_check(table: dict, floor: float = FLOOR) -> dict:
+def floor_check(table: dict, floor: float = FLOOR, gates: bool = True) -> dict:
     """The resolved-share floor: each kind in FLOOR_KINDS must have at least ``floor`` of its pairs resolved.
-    A kind with no pairs fails too: there is nothing to show the floor holds."""
+    A kind with no pairs fails too: there is nothing to show the floor holds. With ``gates`` false the result
+    is still computed and reported, but the run's result doesn't depend on it (the emulator: see
+    demo/README.md#the-floor-in-ci)."""
     failed = [k for k in FLOOR_KINDS if table[k]["pairs"] == 0 or table[k]["resolved"] < floor * table[k]["pairs"]]
     return {"min_resolved_share": floor, "kinds": list(FLOOR_KINDS), "failed": failed,
-            "result": "FAIL" if failed else "PASS"}
+            "result": "FAIL" if failed else "PASS", "gates": gates}
 
 
-def summarize(truth_by_id: dict, results: dict, count: int, floor: float = FLOOR) -> dict:
+def summarize(truth_by_id: dict, results: dict, count: int, floor: float = FLOOR, floor_gates: bool = True) -> dict:
     sent = [m for m, t in truth_by_id.items() if any(r["op"] == "send" for r in t)]
     s = collections.Counter()
     for mid in sent:
@@ -508,7 +511,7 @@ def summarize(truth_by_id: dict, results: dict, count: int, floor: float = FLOOR
         for k, v in results[mid].get("resolution", {}).items():
             resolution[k].update(v)
     table = resolution_table(resolution)
-    floor_result = floor_check(table, floor)
+    floor_result = floor_check(table, floor, floor_gates)
     return {
         "expected_messages": count,
         "messages_sent": len(sent),
@@ -544,7 +547,8 @@ def summarize(truth_by_id: dict, results: dict, count: int, floor: float = FLOOR
         "resolution": table,
         "floor": floor_result,
         "messages_result": "PASS" if s["passed"] == count == len(sent) else "FAIL",
-        "result": "PASS" if s["passed"] == count == len(sent) and floor_result["result"] == "PASS" else "FAIL",
+        "result": "PASS" if s["passed"] == count == len(sent)
+                  and (floor_result["result"] == "PASS" or not floor_gates) else "FAIL",
     }
 
 
@@ -589,7 +593,7 @@ def cmd_verify(args) -> int:
         if not waiting or time.time() > deadline:
             break
         time.sleep(2)
-    summary = summarize(truth, results, args.count, args.floor)
+    summary = summarize(truth, results, args.count, args.floor, not args.floor_report_only)
     summary["seconds_waited_for_spans"] = round(args.timeout - max(0.0, deadline - time.time()), 1)
     failed = {m: r for m, r in results.items() if not r["passed"]}
     report = {"summary": summary, "failed": failed, "messages": results}
@@ -598,7 +602,8 @@ def cmd_verify(args) -> int:
             json.dump(report, f, indent=1)
     print(json.dumps(summary, indent=1))
     if summary["floor"]["result"] != "PASS":
-        print("FLOOR FAILED: fewer than {:.0%} of the pairs resolved for {}".format(
+        print(("FLOOR NOT MET (reported, not gating: --floor-report-only)" if args.floor_report_only
+               else "FLOOR FAILED") + ": fewer than {:.0%} of the pairs resolved for {}".format(
             summary["floor"]["min_resolved_share"], ", ".join(summary["floor"]["failed"])) + "; " + ", ".join(
             f"{k} {summary['resolution'][k]['resolved']}/{summary['resolution'][k]['pairs']}"
             for k in summary["floor"]["kinds"]), flush=True)
@@ -626,6 +631,9 @@ def main(argv=None) -> int:
     sub.choices["verify"].add_argument("--floor", type=float, default=FLOOR,
                                        help="least share of send->receive and receive->delete pairs that must be "
                                             "resolved (default %(default)s)")
+    sub.choices["verify"].add_argument("--floor-report-only", action="store_true",
+                                       help="report the floor but don't fail the run on it (the emulator, where "
+                                            "SQS's two timestamps tie: demo/README.md#the-floor-in-ci)")
     args = p.parse_args(argv)
     return {"wait": cmd_wait, "verify": cmd_verify}[args.cmd](args)
 

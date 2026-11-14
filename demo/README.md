@@ -152,7 +152,8 @@ including two no cause links (a stale delete and the next receive). The summary 
 
 **The floor.** So that `in_order` cannot pass by leaving things concurrent, the run also fails unless at
 least 90% of the send→receive pairs and 90% of the receive→delete pairs are resolved (`floor` in the
-summary; `--floor` to change it, which CI does not). `resolution` gives, per kind (send→receive,
+summary; `--floor` to change it, which CI does not). On the emulator `check.sh` reports the floor but doesn't
+gate on it ([the floor in CI](#the-floor-in-ci)); with `--aws` it gates. `resolution` gives, per kind (send→receive,
 receive→delete, release→redelivery, receive *n*→receive *n*+1), the pairs resolved and left concurrent, and
 by source: `by_source` (pairs whose direct edge has that source; a pair can count under several),
 `only_source` (that source alone), `via_chain` (resolved only through other steps) and `chain_sources`.
@@ -166,7 +167,7 @@ summary counts each column separately, and `failed_only_in_order` counts the mes
 order.
 
 The summary is printed and saved in `demo/results/<run>.txt`, the per-message report in
-`demo/results/<run>-report.json`. Exit status 0 only if all 200 pass and the floor holds. Each run uses its own queue and a
+`demo/results/<run>-report.json`. Exit status 0 only if all 200 pass and, where it gates (`--aws`), the floor holds. Each run uses its own queue and a
 fresh random receipt-hash key, so runs don't mix and the demo can keep running alongside.
 [`check/tests/`](check/tests/) tests the comparison itself (`pytest demo/check/tests`).
 
@@ -250,10 +251,12 @@ concurrent are the 29 release→redelivery pairs, which have no floor.
 CI runs the check twice per language:
 
 - **`concurrency-check` (ElasticMQ).** Gates everything except the floor: 200 of 200 complete, in order,
-  joined, with the right receive counts and final state. It still reports the resolved shares per kind and
-  source in the job summary. It sets `QV2_CHECK_FLOOR=0` because ElasticMQ stamps `SentTimestamp` and
-  `ApproximateFirstReceiveTimestamp` in the same millisecond, so send→receive stays at 4–9% there. That is
-  the emulator's behaviour, not the store's.
+  edges verified, joined, with the right receive counts and final state. It still reports the resolved
+  shares per kind and source, and the floor's result, in the job summary. The floor doesn't gate there
+  because ElasticMQ stamps `SentTimestamp` and `ApproximateFirstReceiveTimestamp` in the same millisecond,
+  so send→receive stays at 4–9% there. That is the emulator's behaviour, not the store's. `check.sh` does
+  the same on the emulator by default (`--floor-report-only`), locally and in CI, so a run without AWS can
+  pass; `QV2_CHECK_FLOOR=0.9` makes it gate there too.
 - **`concurrency-check-aws` (real SQS, `us-east-1`).** Runs `check.sh --aws` with the 90% floor gating, as
   well as everything above. It needs the repository secrets `QV2_AWS_ACCESS_KEY_ID` and
   `QV2_AWS_SECRET_ACCESS_KEY`. It fails, rather than skips, when they are missing. Fork pull requests get no

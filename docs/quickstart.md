@@ -136,7 +136,14 @@ docker compose -f demo/compose.yaml down -v       # deletes them too
   In 0.1 the packages and the image are installed from this repository; nothing is published.
 - **The concurrency check** (three processes of four consumers each, 200 messages):
   `demo/check.sh python` or `demo/check.sh node`. In WSL without Docker Desktop's WSL integration, tell it
-  to use `docker.exe`: `DOCKER=docker.exe demo/check.sh python`. See
+  to use `docker.exe`: `DOCKER=docker.exe demo/check.sh python`. It exits 0 when all 200 messages pass.
+  It needs no AWS account. The summary also reports the **floor** (at least 90% of send→receive and of
+  receive→delete pairs put in a proven order), but on the emulator the floor is reported, not gated, as in
+  CI's emulator job. That's because ElasticMQ stamps a message's `SentTimestamp` and
+  `ApproximateFirstReceiveTimestamp` in the same millisecond, so they can't show the send came first, and
+  a long poll that was already waiting when the message was sent leaves the clocks unable to show it
+  either. On real SQS the two stamps differ, and the floor gates: `demo/check.sh --aws python` (with AWS
+  credentials in the environment) and CI's real-SQS job. Everything else gates in both places. See
   [`demo/README.md`](../demo/README.md#concurrency-check) for what it checks and its current result.
 
 ## If something goes wrong

@@ -21,9 +21,13 @@
 # every message passes. The summary and the full report are saved in demo/results/.
 #
 # Set DOCKER to another command if `docker` isn't the Docker CLI (for example DOCKER=docker.exe in WSL).
-# Set QV2_CHECK_FLOOR to change the resolved-share floor (default 0.9, see demo/check/check.py). CI sets it
-# to 0 only for the emulator runs, where ElasticMQ stamps the send and the first receive in the same
-# millisecond; the floor gates in the real-SQS job instead (demo/README.md#the-floor-in-ci).
+#
+# The resolved-share floor (90% of send->receive and of receive->delete, demo/check/check.py) gates with
+# --aws. On the emulator it is reported but does not fail the run, as in CI's ElasticMQ job: ElasticMQ
+# stamps SentTimestamp and ApproximateFirstReceiveTimestamp in the same millisecond, so send->receive stays
+# near 5% there for a reason that is the emulator's, not the store's (demo/README.md#the-floor-in-ci).
+# Everything else gates in both. Set QV2_CHECK_FLOOR to a share (e.g. 0.9) to make the floor gate at that
+# share on the emulator too.
 set -eu
 
 usage() { echo "usage: $0 [--aws] [--dlq] python|node [count]" >&2; exit 2; }
@@ -127,7 +131,12 @@ done
 echo "== comparing the store's timelines with what the processes did"
 status=0
 floor_arg=""
-if [ -n "${QV2_CHECK_FLOOR:-}" ]; then floor_arg="--floor $QV2_CHECK_FLOOR"; fi
+if [ -n "${QV2_CHECK_FLOOR:-}" ]; then
+  floor_arg="--floor $QV2_CHECK_FLOOR"
+elif [ "$aws" = 0 ]; then
+  floor_arg="--floor-report-only"
+  echo "== the floor is reported, not gated, on the emulator (QV2_CHECK_FLOOR=0.9 to gate it)"
+fi
 # shellcheck disable=SC2086
 dc run --rm -T --no-deps checker verify --truth "$truth" --count "$count" --store http://qv2:4318 \
   --report "$truth/report.json" $floor_arg > "results/$run.txt" || status=$?

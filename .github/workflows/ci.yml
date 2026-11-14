@@ -140,8 +140,9 @@ jobs:
         run: pytest -q demo/check/tests
       # The 0.1 check on the emulator: 200 of 200 complete, in order (no effect shown before its cause),
       # joined, with the right receive counts and deleted, in each language (demo/README.md#concurrency-check).
-      # It fails the build. The resolved shares per kind and source are reported in the job summary, but
-      # the 90% floor gates in concurrency-check-aws, not here: ElasticMQ stamps SentTimestamp and
+      # It fails the build. The resolved shares per kind and source, and the 90% floor's result, are
+      # reported in the job summary, but on the emulator check.sh doesn't gate on the floor (as locally);
+      # it gates in concurrency-check-aws: ElasticMQ stamps SentTimestamp and
       # ApproximateFirstReceiveTimestamp in the same millisecond, so send->receive stays concurrent here
       # for a reason that is the emulator's, not the store's (demo/README.md#the-floor-in-ci).
       # --dlq: a poison message every 20 goes to the dead-letter queue; each move must be observed
@@ -149,14 +150,10 @@ jobs:
       - name: Python
         id: python
         run: demo/check.sh --dlq python 200
-        env:
-          QV2_CHECK_FLOOR: "0"
       - name: Node.js
         id: node
         if: success() || steps.python.conclusion == 'failure'
         run: demo/check.sh --dlq node 200
-        env:
-          QV2_CHECK_FLOOR: "0"
       - name: Summary
         if: always()
         run: |
