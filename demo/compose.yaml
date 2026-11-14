@@ -8,6 +8,11 @@
 # Span flow:    every driver --OTLP/HTTP--> collector:4318 --qv2 spans only--> qv2:4318 (store + web screen)
 #
 # See demo/README.md. The concurrency check (demo/check.sh) reuses these images with `docker compose run`.
+#
+# The project name is qv2-demo unless you set another one with `docker compose -p NAME` or
+# COMPOSE_PROJECT_NAME=NAME (both override the line below). Containers, volumes, the network and the local
+# image tags (NAME-python:local and so on) all follow it, so a second checkout with its own name, and its own
+# QV2_DEMO_PORT, doesn't replace the first one's containers, timelines or images.
 name: qv2-demo
 
 x-sdk-env: &sdk-env
@@ -22,7 +27,7 @@ x-sdk-env: &sdk-env
 
 x-python: &python
   build: { context: .., dockerfile: demo/python/Dockerfile }
-  image: qv2-demo-python:local
+  image: ${COMPOSE_PROJECT_NAME:-qv2-demo}-python:local
   init: true
   environment: *sdk-env
   volumes: [truth:/truth]
@@ -30,7 +35,7 @@ x-python: &python
 
 x-node: &node
   build: { context: .., dockerfile: demo/node/Dockerfile }
-  image: qv2-demo-node:local
+  image: ${COMPOSE_PROJECT_NAME:-qv2-demo}-node:local
   init: true
   environment: *sdk-env
   volumes: [truth:/truth]
@@ -42,7 +47,7 @@ services:
 
   collector:
     build: { context: .., dockerfile: demo/collector-image/Dockerfile }
-    image: qv2-demo-collector:local
+    image: ${COMPOSE_PROJECT_NAME:-qv2-demo}-collector:local
     environment:
       QV2_COLLECTOR_HTTP_ENDPOINT: 0.0.0.0:4318
       QV2_COLLECTOR_GRPC_ENDPOINT: 0.0.0.0:4317
@@ -51,7 +56,7 @@ services:
 
   qv2:
     build: ../server
-    image: qv2-store:local
+    image: ${COMPOSE_PROJECT_NAME:-qv2-demo}-store:local
     ports:
       - "127.0.0.1:${QV2_DEMO_PORT:-4318}:4318"
     environment:
@@ -82,7 +87,7 @@ services:
   # The concurrency checker, used only by demo/check.sh (`docker compose run`); `up` doesn't start it.
   checker:
     build: { context: .., dockerfile: demo/check/Dockerfile }
-    image: qv2-demo-checker:local
+    image: ${COMPOSE_PROJECT_NAME:-qv2-demo}-checker:local
     profiles: [check]
     volumes: [truth:/truth]
 

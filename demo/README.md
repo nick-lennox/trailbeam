@@ -9,6 +9,21 @@ docker compose -f demo/compose.yaml up -d --build
 docker compose -f demo/compose.yaml down        # add -v to delete the stored timelines too
 ```
 
+### More than one checkout on the same machine
+
+The Compose project is called `qv2-demo`. Its containers, its volumes (`qv2-demo_qv2-data` with the stored
+timelines, `qv2-demo_truth`), its network and its local image tags (`qv2-demo-store:local` and so on) all
+carry that name, so a second checkout started the same way **replaces** the first one's containers and
+uses its volume. To run a second checkout alongside, give it its own project name and port:
+
+```sh
+export COMPOSE_PROJECT_NAME=qv2-other     # or: docker compose -p qv2-other ...
+QV2_DEMO_PORT=4400 docker compose -f demo/compose.yaml up -d --build --wait
+demo/check.sh python                      # the check uses COMPOSE_PROJECT_NAME too
+```
+
+Every later `docker compose` command for that checkout (`ps`, `logs`, `down`) needs the same name.
+
 ## What runs
 
 | Service | What it is |
