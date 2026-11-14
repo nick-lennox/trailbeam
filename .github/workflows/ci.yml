@@ -52,6 +52,21 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  store:
+    name: Store (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e './server[test]' -e './python[test]'
+      - run: pytest -q server/tests -rs
+
   collector:
     name: Collector configuration
     runs-on: ubuntu-latest

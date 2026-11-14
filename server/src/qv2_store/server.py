@@ -1,0 +1,172 @@
+"""HTTP server: OTLP/HTTP trace ingest on /v1/traces, and the JSON API under /api/ (docs/store-api.md)."""
+from __future__ import annotations
+
+import gzip
+import json
+import logging
+import threading
+import zlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Callable, Optional
+from urllib.parse import parse_qs, unquote, urlsplit
+
+from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceResponse
+
+from . import __version__
+from .db import Store
+from .otlp import DecodeError, decode
+
+log = logging.getLogger("qv2_store")
+
+MAX_BODY = 32 * 1024 * 1024  # bytes, after decompression
+
+
+class ApiError(Exception):
+    def __init__(self, status: int, message: str):
+        super().__init__(message)
+        self.status = status
+        self.message = message
+
+
+class App:
+    """Request handling, independent of the HTTP server so tests can call it directly."""
+
+    def __init__(self, store: Store):
+        self.store = store
+        self.stats_lock = threading.Lock()
+        self.stats = {"requests": 0, "inserted": 0, "duplicates": 0, "ignored": 0, "rejected": 0}
+        self.routes: dict[str, Callable[[dict, list[str]], object]] = {"health": self.health}
+
+    # ---- OTLP ingest ----------------------------------------------------------------------
+
+    def ingest(self, body: bytes, content_type: str) -> tuple[int, str, bytes]:
+        json_mode = (content_type or "").split(";")[0].strip().lower() == "application/json"
+        try:
+            d = decode(body, content_type)
+        except DecodeError as e:
+            return 400, "text/plain; charset=utf-8", str(e).encode()
+        inserted, dupes = self.store.insert(d.records)
+        with self.stats_lock:
+            self.stats["requests"] += 1
+            self.stats["inserted"] += inserted
+            self.stats["duplicates"] += dupes
+            self.stats["ignored"] += d.ignored
+            self.stats["rejected"] += len(d.rejected)
+        resp = ExportTraceServiceResponse()
+        msg = ""
+        if d.rejected:
+            reasons = sorted(set(d.rejected))
+            msg = f"{len(d.rejected)} qv2 span(s) rejected: " + "; ".join(reasons[:5])
+            log.warning(msg)
+            resp.partial_success.rejected_spans = len(d.rejected)
+            resp.partial_success.error_message = msg
+        if json_mode:
+            out = {"partialSuccess": {"rejectedSpans": str(len(d.rejected)), "errorMessage": msg}} if d.rejected else {}
+            return 200, "application/json", json.dumps(out).encode()
+        return 200, "application/x-protobuf", resp.SerializeToString()
+
+    # ---- JSON API -------------------------------------------------------------------------
+
+    def api(self, path: str, query: dict) -> object:
+        parts = [unquote(p) for p in path.split("/") if p]
+        if not parts or parts[0] not in self.routes:
+            raise ApiError(404, f"no such endpoint: /api/{'/'.join(parts)}")
+        return self.routes[parts[0]](query, parts[1:])
+
+    def health(self, query: dict, rest: list[str]) -> dict:
+        if rest:
+            raise ApiError(404, "no such endpoint")
+        with self.stats_lock:
+            ingest = dict(self.stats)
+        return {"status": "ok", "version": __version__, "ingest": ingest, "store": self.store.counts()}
+
+
+def make_handler(app: App):
+    class Handler(BaseHTTPRequestHandler):
+        server_version = f"qv2-store/{__version__}"
+        protocol_version = "HTTP/1.1"
+
+        def _send(self, status: int, ctype: str, body: bytes):
+            self.send_response(status)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _json(self, status: int, obj):
+            self._send(status, "application/json", json.dumps(obj, indent=None).encode())
+
+        def _body(self) -> Optional[bytes]:
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                n = -1
+            if n < 0 or n > MAX_BODY:
+                self.close_connection = True
+                self._send(413, "text/plain", b"request body too large or without a valid Content-Length")
+                return None
+            body = self.rfile.read(n)
+            enc = (self.headers.get("Content-Encoding") or "identity").lower()
+            try:
+                if enc == "gzip":
+                    body = _bounded(zlib.decompressobj(16 + zlib.MAX_WBITS), body)
+                elif enc == "deflate":
+                    body = _bounded(zlib.decompressobj(), body)
+                elif enc != "identity":
+                    self._send(415, "text/plain", f"unsupported Content-Encoding {enc}".encode())
+                    return None
+            except (zlib.error, EOFError, gzip.BadGzipFile):
+                self._send(400, "text/plain", b"body does not match its Content-Encoding")
+                return None
+            except OverflowError:
+                self._send(413, "text/plain", b"decompressed request body too large")
+                return None
+            return body
+
+        def do_POST(self):
+            if urlsplit(self.path).path != "/v1/traces":
+                self._send(404, "text/plain", b"not found")
+                return
+            body = self._body()
+            if body is None:
+                return
+            try:
+                status, ctype, out = app.ingest(body, self.headers.get("Content-Type", ""))
+            except Exception:
+                log.exception("ingest failed")
+                status, ctype, out = 500, "text/plain", b"internal error"
+            self._send(status, ctype, out)
+
+        def do_GET(self):
+            u = urlsplit(self.path)
+            if not u.path.startswith("/api/"):
+                self._send(404, "text/plain", b"not found")
+                return
+            try:
+                q = {k: v[-1] for k, v in parse_qs(u.query).items()}
+                self._json(200, app.api(u.path[len("/api/"):], q))
+            except ApiError as e:
+                self._json(e.status, {"error": e.message})
+            except Exception:
+                log.exception("API request failed")
+                self._json(500, {"error": "internal error"})
+
+        def log_message(self, fmt, *args):
+            log.debug("%s %s", self.address_string(), fmt % args)
+
+    return Handler
+
+
+def _bounded(d, data: bytes) -> bytes:
+    out = d.decompress(data, MAX_BODY + 1)
+    if len(out) > MAX_BODY or d.unconsumed_tail:
+        raise OverflowError
+    if not d.eof:
+        raise EOFError
+    return out
+
+
+def make_server(store: Store, host: str = "127.0.0.1", port: int = 4318) -> ThreadingHTTPServer:
+    httpd = ThreadingHTTPServer((host, port), make_handler(App(store)))
+    httpd.daemon_threads = True
+    return httpd
