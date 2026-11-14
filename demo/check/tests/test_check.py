@@ -20,8 +20,15 @@ def rec(op, t, rh=None, **kw):
     return r
 
 
-def ev(type_, t, **kw):
-    return {"type": type_, "inferred": False, "time_unix_nano": str(t), **kw}
+def ev(type_, t, group=None, start=None, **kw):
+    """An observed store event (contract v2): interval [start, end], in a group. By default the interval
+    is [10 t, 10 t + 5] and the group is t - 1, so events at t = 1, 2, ... are one per group, in order."""
+    start = 10 * t if start is None else start
+    end = kw.pop("end", 10 * t + 5)
+    g = t - 1 if group is None else group
+    return {"type": type_, "inferred": False, "group": g,
+            "start_unix_nano": None if start == "unknown" else str(start), "end_unix_nano": str(end),
+            "time_unix_nano": str(end), **kw}
 
 
 RETRY_TRUTH = [
@@ -86,19 +93,83 @@ def test_extra_event_is_incomplete():
     assert not check.evaluate(RETRY_TRUTH, tl)["complete"]
 
 
-@pytest.mark.parametrize("order", [
-    ["received", "sent", "visibility_changed", "received", "deleted"],   # receive before its send
-    ["sent", "received", "received", "visibility_changed", "deleted"],   # redelivery before the change that caused it
-])
-def test_wrong_order_fails(order):
-    tl = retry_timeline()
-    by_type = {}
+def by_type(tl):
+    out = {}
     for e in tl["events"]:
         if not e["inferred"]:
-            by_type.setdefault(e["type"], []).append(e)
-    tl["events"] = [by_type[t].pop(0) for t in order]
+            out.setdefault(e["type"], []).append(e)
+    return out
+
+
+def test_effect_interval_ending_before_its_cause_starts_fails():
+    """The new rule fails: the receive's interval ends before the send's starts (and the store, following
+    the clocks, shows it first). The store did nothing wrong; the timeline still shows the impossible."""
+    tl = retry_timeline()
+    sent, rcv = by_type(tl)["sent"][0], by_type(tl)["received"][0]
+    sent.update(start_unix_nano="22", end_unix_nano="28", group=1)
+    rcv.update(start_unix_nano="10", end_unix_nano="20", group=0)
     r = check.evaluate(RETRY_TRUTH, tl)
     assert r["complete"] and not r["in_order"] and not r["passed"]
+    assert r["violations"] == [{"pair": "send->receive", "cause": ["send", None, 0], "effect": ["receive", 1, 0]}]
+    assert r["joined"] and r["receive_count"] and r["final"]
+
+
+def test_overlap_passes_as_concurrent():
+    """The receive's response came back before the send's, but the intervals overlap and the store put
+    them in one concurrent group: not shown out of order, so in order; and counted as concurrent."""
+    tl = retry_timeline()
+    sent, rcv = by_type(tl)["sent"][0], by_type(tl)["received"][0]
+    rcv.update(start_unix_nano="5", end_unix_nano="12", group=0)
+    sent.update(start_unix_nano="10", end_unix_nano="15", group=0)
+    tl["events"] = [rcv, sent] + [e for e in tl["events"] if e is not rcv and e is not sent]
+    r = check.evaluate(RETRY_TRUTH, tl)
+    assert r["in_order"] and r["passed"], r
+    assert r["pairs"]["send->receive"] == {"in_order": 1, "concurrent": 1, "violated": 0}
+    assert r["concurrent_groups"] == 1
+
+
+def test_effect_placed_in_an_earlier_group_fails_even_if_intervals_overlap():
+    tl = retry_timeline()
+    cv, rcv2 = by_type(tl)["visibility_changed"][0], by_type(tl)["received"][1]
+    cv.update(start_unix_nano="30", end_unix_nano="45", group=3)   # overlaps the redelivery (40 to 45)
+    rcv2.update(group=2)                                            # but the store shows it first
+    r = check.evaluate(RETRY_TRUTH, tl)
+    assert not r["in_order"]
+    assert {"pair": "change_visibility->receive", "cause": ["change_visibility", 1, 0],
+            "effect": ["receive", 2, 0]} in r["violations"]
+
+
+def test_order_the_clocks_do_not_prove_fails():
+    """The store must not claim an order the intervals do not show (cause ends after effect starts)."""
+    tl = retry_timeline()
+    by_type(tl)["sent"][0].update(end_unix_nano="22")  # send 10 to 22, receive 20 to 25, separate groups
+    r = check.evaluate(RETRY_TRUTH, tl)
+    assert not r["in_order"] and r["violations"][0]["pair"] == "send->receive"
+
+
+def test_unknown_start_cannot_be_ordered_after_its_cause():
+    truth = [rec("send", 1), rec("receive", 2, rh="a", rc=1), rec("delete", 3, rh="a")]
+    tl = {"state": "deleted", "events": [ev("sent", 1, group=0), ev("received", 2, group=0, start="unknown"),
+                                         ev("deleted", 3, group=1, delivery=1, result="ok", status="final")]}
+    tl["events"][1].update(delivery=1, receive_count=1)
+    r = check.evaluate(truth, tl)
+    assert r["passed"] and r["pairs"]["send->receive"]["concurrent"] == 1
+    tl["events"][1]["group"] = 1  # a store that ordered it after the send without a start to prove it
+    tl["events"][2]["group"] = 2
+    assert not check.evaluate(truth, tl)["in_order"]
+
+
+def test_cause_effect_pairs_of_a_retried_message():
+    pairs = check.cause_effect_pairs(RETRY_TRUTH)
+    assert sorted(p[0] for p in pairs) == sorted([
+        "send->receive", "send->receive", "receive->receive", "receive->settle", "receive->settle",
+        "change_visibility->receive"])
+
+
+def test_change_visibility_after_the_redelivery_is_not_a_cause():
+    truth = [rec("send", 1), rec("receive", 2, rh="a", rc=1), rec("receive", 4, rh="b", rc=2),
+             rec("change_visibility", 5, rh="a", result="failed"), rec("delete", 6, rh="b")]
+    assert "change_visibility->receive" not in [p[0] for p in check.cause_effect_pairs(truth)]
 
 
 def test_settle_joined_to_wrong_delivery_fails():
@@ -152,33 +223,47 @@ def test_summary_counts_and_result():
     assert check.summarize(truth, {MID: good, "m-2": good}, 3)["result"] == "FAIL"
 
 
+def reversed_receive_and_send(tl):
+    """Make the first receive's interval end before the send's starts, as the clocks would show it if they
+    were wrong: the receive is then definitely before its cause."""
+    sent, rcv = by_type(tl)["sent"][0], by_type(tl)["received"][0]
+    sent.update(start_unix_nano="22", end_unix_nano="28", group=1)
+    rcv.update(start_unix_nano="10", end_unix_nano="20", group=0)
+    return tl
+
+
 def test_order_failure_does_not_hide_joins_and_receive_counts():
-    """Order is checked on its own: a message the store shows out of order still reports its joins."""
-    tl = retry_timeline()
-    e = tl["events"]
-    tl["events"] = [e[0], e[1], e[4], e[2], e[3], e[5]]  # redelivery shown before the change that caused it
-    r = check.evaluate(RETRY_TRUTH, tl)
+    """Order is checked on its own: a message shown out of order still reports its joins."""
+    r = check.evaluate(RETRY_TRUTH, reversed_receive_and_send(retry_timeline()))
     assert r["complete"] and not r["in_order"] and not r["passed"]
     assert r["joined"] and r["receive_count"] and r["final"]
     s = check.summarize({MID: RETRY_TRUTH}, {MID: r}, 1)
     assert (s["in_order"], s["joined"], s["receive_count"], s["failed_only_in_order"]) == (0, 1, 1, 1)
 
 
-def test_receive_before_send_still_measures_joins():
-    tl = retry_timeline()
-    e = tl["events"]
-    tl["events"] = [e[1], e[0]] + e[2:]
-    r = check.evaluate(RETRY_TRUTH, tl)
-    assert not r["in_order"] and r["joined"] and r["receive_count"]
-
-
 def test_out_of_order_and_wrongly_joined_reports_both():
-    tl = retry_timeline()
+    tl = reversed_receive_and_send(retry_timeline())
     e = tl["events"]
     e[5]["delivery"] = 1
     e[4]["receive_count"] = 3
-    tl["events"] = [e[1], e[0]] + e[2:]
     r = check.evaluate(RETRY_TRUTH, tl)
     assert not r["in_order"] and not r["joined"] and not r["receive_count"]
     s = check.summarize({MID: RETRY_TRUTH}, {MID: r}, 1)
     assert s["failed_only_in_order"] == 0
+
+
+def test_summary_counts_pairs_and_concurrent_groups():
+    """The two columns that keep in_order from passing vacuously."""
+    ordered = check.evaluate(RETRY_TRUTH, retry_timeline())
+    tl = retry_timeline()
+    for e in tl["events"]:  # everything in one group: in order, but nothing resolved
+        if not e["inferred"]:
+            e["group"] = 0
+    blob = check.evaluate(RETRY_TRUTH, tl)
+    assert blob["in_order"] and blob["concurrent_groups"] == 1
+    s = check.summarize({MID: RETRY_TRUTH, "m-2": [dict(r, id="m-2") for r in RETRY_TRUTH]},
+                        {MID: ordered, "m-2": blob}, 2)
+    assert s["with_concurrent_group"] == 1
+    assert (s["pairs_in_order"], s["pairs_concurrent"], s["pairs_violated"]) == (6, 6, 0)
+    assert s["pairs_by_kind"]["send->receive"] == {"in_order": 2, "concurrent": 2, "violated": 0}
+    assert s["pairs_by_kind"]["change_visibility->receive"] == {"in_order": 1, "concurrent": 1, "violated": 0}
