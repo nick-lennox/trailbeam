@@ -9,14 +9,25 @@ the compose plugin on Linux), and about 2 GB of free disk for the images (about 
 ```sh
 git --version
 docker compose version        # v2.x or later
+docker info                   # contacts the Docker daemon; must print a "Server:" section without errors
 ```
+
+`docker compose version` only checks that the CLI is installed. `docker info` checks that the CLI can
+reach the daemon, which every command below needs. If it fails, see [If something goes wrong](#if-something-goes-wrong).
+
+For now the repository is **private**: you need a GitHub account that has been given access to
+`nick-lennox/qv2`, and the [GitHub CLI](https://cli.github.com/) logged in with it (`gh auth login`).
 
 ## 1. Get the code (1 minute)
 
 ```sh
-git clone https://github.com/nick-lennox/qv2
+gh repo clone nick-lennox/qv2
 cd qv2
 ```
+
+A plain `git clone https://github.com/nick-lennox/qv2` fails with
+`fatal: could not read Username for 'https://github.com'` while the repository is private, unless git
+already has credentials for an account with access.
 
 ## 2. Start the demo (1 to 5 minutes the first time, depending on download speed)
 
@@ -56,8 +67,20 @@ INFERRED label, for example a visibility-timeout expiry.
 Messages worth opening (the demo sends each kind on a fixed schedule; see
 [`demo/README.md`](../demo/README.md#what-to-look-at)):
 
-- one with **2 deliveries** on the start page: a `ChangeMessageVisibility` to 0, an inferred
-  visibility-timeout expiry, and a second delivery, often to a consumer in the other language;
+- one with **2 deliveries** on the start page. The demo makes two kinds, and both show `2 (1 ok)` in the
+  Deliveries column:
+  - a **`ChangeMessageVisibility` to 0** (`retry_once`): the consumer releases the message on its first
+    receive, the timeline shows the visibility change, an inferred visibility-timeout expiry, and a second
+    delivery, often to a consumer in the other language, which deletes it. Everything happens within a
+    second or two, so **First seen** and **Last seen** are about the same;
+  - a **slow consumer** (`slow`): the first consumer works for 13 s, past the 10 s visibility timeout, so
+    the timeline shows an inferred visibility-timeout expiry and a second delivery to another consumer,
+    which deletes it, and then the first consumer's late delete, `failed` with `ReceiptHandleIsInvalid`
+    (ElasticMQ rejects a stale handle). There is no visibility change. **Last seen** is about 13 s after
+    **First seen**.
+
+  On the message page, the difference is the **Visibility changed** step (first kind) or the failed delete
+  from delivery 1 (second kind);
 - **http://127.0.0.1:4318/duplicates**: messages delivered more than once, including ones delivered again
   because the consumer took longer than the 10 s visibility timeout;
 - after about a minute, a message with **4 deliveries**: a poison message, failed three times, then an
@@ -73,7 +96,8 @@ curl -s "http://127.0.0.1:4318/api/messages/$id" | python3 -m json.tool
 
 The API is described in [`docs/store-api.md`](store-api.md).
 
-The page shows a notice that the **default receipt-hash key** is in use. That is expected in the demo. To
+Each message page (`/message?id=…`) shows a notice that the **default receipt-hash key** is in use. The
+start page does not. That is expected in the demo. To
 use your own key, start the demo with `QV2_RECEIPT_HASH_KEY=$(openssl rand -hex 32)` in front of the
 `docker compose` command; in your own services, set the same secret on every service that uses the same
 queues.
@@ -91,7 +115,8 @@ docker compose -f demo/compose.yaml down -v       # deletes them too
   run the [Collector configuration](../collector/README.md) and the [store container](../server/README.md).
   In 0.1 the packages and the image are installed from this repository; nothing is published.
 - **The concurrency check** (three processes of four consumers each, 200 messages):
-  `demo/check.sh python` or `demo/check.sh node`. See
+  `demo/check.sh python` or `demo/check.sh node`. In WSL without Docker Desktop's WSL integration, tell it
+  to use `docker.exe`: `DOCKER=docker.exe demo/check.sh python`. See
   [`demo/README.md`](../demo/README.md#concurrency-check) for what it checks and its current result.
 
 ## If something goes wrong
@@ -102,4 +127,4 @@ docker compose -f demo/compose.yaml down -v       # deletes them too
 | `Cannot connect to the Docker daemon` | Start Docker Desktop, or `sudo systemctl start docker`. |
 | `port is already allocated` on 4318 | Use `QV2_DEMO_PORT`, as in step 2. |
 | The start page is empty | Wait a few seconds more; spans are exported in batches. Then `docker compose -f demo/compose.yaml logs collector qv2`. |
-| WSL without Docker Desktop's WSL integration | Run the same commands with `docker.exe` instead of `docker`, or turn on the integration for your distribution in Docker Desktop's settings. |
+| In WSL, `docker info` or any other command fails with `failed to connect to the docker API at unix:///var/run/docker.sock`, or says `The command 'docker' could not be found in this WSL 2 distro` | Docker Desktop's WSL integration is off for your distribution. Turn it on in Docker Desktop's settings (Resources, WSL integration), or run the same commands with `docker.exe` instead of `docker` (`docker.exe compose -f demo/compose.yaml up -d --build --wait`), and `DOCKER=docker.exe demo/check.sh python` for the concurrency check. |

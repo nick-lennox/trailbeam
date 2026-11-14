@@ -60,7 +60,11 @@ gets a complete timeline in the right order, in Python and in Node.js separately
 
 ```sh
 demo/check.sh python          # or: demo/check.sh node; optional second argument: message count (200)
+DOCKER=docker.exe demo/check.sh python   # in WSL without Docker Desktop's WSL integration
 ```
+
+`check.sh` runs `docker` by default; set `DOCKER` to the command to use instead. In WSL without the
+integration, plain `docker` fails with `failed to connect to the docker API at unix:///var/run/docker.sock`.
 
 [`check.sh`](check.sh) starts `sqs`, `collector` and `qv2`, creates a fresh queue for the run, then starts
 (with `docker compose run`, each in its own container) one deleter process and three consumer processes of
