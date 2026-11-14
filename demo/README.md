@@ -50,5 +50,65 @@ The JSON API is under `/api/` ([`docs/store-api.md`](../docs/store-api.md)).
   (`ReceiptHandleIsInvalid`), so the `slow` messages' late deletes show as `failed`. Amazon SQS accepts
   such a delete; the store shows it as `stale_handle` there.
 - **Truth files.** With `--truth DIR`, each driver process writes one JSON line per SQS call it makes, to
-  its own file. The demo services write none.
+  its own file. The demo services write none; the [concurrency check](#concurrency-check) uses them.
 - The AWS keys in [`compose.yaml`](compose.yaml) are dummy values for the emulator, not credentials.
+
+## Concurrency check
+
+The qv2 0.1 "done means" check: with three processes of four consumers each, every one of 200 messages
+gets a complete timeline in the right order, in Python and in Node.js separately.
+
+```sh
+demo/check.sh python          # or: demo/check.sh node; optional second argument: message count (200)
+```
+
+[`check.sh`](check.sh) starts `sqs`, `collector` and `qv2`, creates a fresh queue for the run, then starts
+(with `docker compose run`, each in its own container) one deleter process and three consumer processes of
+four consumers each (threads in Python, concurrent receive loops in Node.js), all in the chosen language,
+and a producer that sends 200 messages: the QV-11 recheck B2 mix of `ok`, `retry_once` (1 in 7) and
+`xproc` (1 in 7, deleted by the deleter process). Every process writes a truth file. When every message is
+deleted, the processes are stopped (which flushes their spans) and [`check/check.py`](check/check.py)
+reads each message's timeline from the store's JSON API and compares it with the truth files. A message
+passes only if its timeline is:
+
+| Check | Meaning |
+|---|---|
+| `complete` | its observed events are exactly the SQS calls the processes made: send, every receive, every visibility change, the delete |
+| `in_order` | in the store's order, they are those calls in the order they happened |
+| `joined` | each delete and visibility change is attached to the delivery whose receipt handle was really used, with the real result |
+| `receive_count` | each receive shows the real `ApproximateReceiveCount` |
+| `final` | the message's state is `deleted` |
+
+The summary is printed and saved in `demo/results/<run>.txt`, the per-message report in
+`demo/results/<run>-report.json`. Exit status 0 only if all 200 pass. Each run uses its own queue and a
+fresh random receipt-hash key, so runs don't mix and the demo can keep running alongside.
+[`check/tests/`](check/tests/) tests the comparison itself (`pytest demo/check/tests`).
+
+### Result: not 200 of 200 yet
+
+Measured on 2026-11-13 (ElasticMQ 1.6.15, Docker Desktop 4.70 on WSL2, all processes on one host), three
+runs per language:
+
+| Language | complete | in order (passed) | final | processes / consumers seen |
+|---|---|---|---|---|
+| Python | 200, 200, 200 | **173, 192, 191** | 200, 200, 200 | 3 + 1 deleter / 12 |
+| Node.js | 200, 200, 200 | **183, 184, 185** | 200, 200, 200 | 3 + 1 deleter / 12 |
+
+Every span arrives and every delete joins to its message, including the 28 deleted by another process.
+The failures are all **order**, in two patterns:
+
+- **A receive shown before its send** (most failures). A consumer's long poll returned the message before
+  the producer's `SendMessage` call returned, by 0.0003 to 1.3 ms.
+- **A redelivery shown before the `ChangeMessageVisibility` to 0 that caused it**, by 0.06 to 5 ms.
+  Another consumer received the message before the change call returned.
+
+The cause is the timestamps, not the check. The span contract
+([`docs/span-contract.md`](../docs/span-contract.md), sections 2 and 4) makes every qv2 span zero-length, emitted
+from the response, with the time it was emitted. The store orders events by that time. But SQS acts on a
+call before its response gets back, so on a fast network a receive can return before the send that caused
+it does. These are not clock problems (all processes here share one clock). The QV-11 prototype passed 200
+of 200 against Amazon SQS. Its settle spans were stamped at the request, and its send spans at the response
+as now; that sends never lost the race there is probably due to the network round trip to AWS (an
+estimate, not measured). The fix is open: record when
+the call started as well, and have the store order by cause where it is known (a message's send comes
+before its first receive; an accepted visibility change to 0 comes before the next delivery).

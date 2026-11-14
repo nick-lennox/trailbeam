@@ -7,7 +7,7 @@
 # Message flow: producer --SendMessage--> orders (ElasticMQ) --ReceiveMessage--> consumers / deleter
 # Span flow:    every driver --OTLP/HTTP--> collector:4318 --qv2 spans only--> qv2:4318 (store + web screen)
 #
-# See demo/README.md.
+# See demo/README.md. The concurrency check (demo/check.sh) reuses these images with `docker compose run`.
 name: qv2-demo
 
 x-sdk-env: &sdk-env
@@ -78,6 +78,13 @@ services:
   deleter:
     <<: *python
     command: ["deleter", "--queue", "orders", "--port", "8080", "--visibility-timeout", "10"]
+
+  # The concurrency checker, used only by demo/check.sh (`docker compose run`); `up` doesn't start it.
+  checker:
+    build: { context: .., dockerfile: demo/check/Dockerfile }
+    image: qv2-demo-checker:local
+    profiles: [check]
+    volumes: [truth:/truth]
 
 volumes:
   qv2-data:

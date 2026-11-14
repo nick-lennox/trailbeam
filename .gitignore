@@ -32,3 +32,6 @@ npm-debug.log*
 .idea/
 .vscode/
 .DS_Store
+
+# Demo check results
+/demo/results/

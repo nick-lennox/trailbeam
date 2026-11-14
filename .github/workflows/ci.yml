@@ -126,3 +126,38 @@ jobs:
       - name: Stop
         if: always()
         run: docker compose -f demo/compose.yaml down -v || true
+
+  concurrency-check:
+    name: Concurrency check (3 processes x 4 consumers, 200 messages)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      - name: Checker unit tests
+        run: pytest -q demo/check/tests
+      # The 0.1 check itself. It does not yet pass 200 of 200 (spans are stamped at the response, so the
+      # store can show a receive before its send; see demo/README.md#concurrency-check). It runs on every
+      # push and its counts go to the job summary, but it does not fail the build until that is fixed.
+      - name: Python
+        id: python
+        continue-on-error: true
+        run: demo/check.sh python 200
+      - name: Node.js
+        id: node
+        continue-on-error: true
+        run: demo/check.sh node 200
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Concurrency check: python ${{ steps.python.outcome }}, node ${{ steps.node.outcome }}"
+            for f in demo/results/*.txt; do echo; echo "\`$f\`"; echo '```'; cat "$f"; echo '```'; done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: concurrency-check-results
+          path: demo/results/
