@@ -1,5 +1,6 @@
 """The web screen over HTTP: lookup, timeline with inferred steps marked, duplicates, stuck messages."""
 import re
+from html import unescape
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -162,6 +163,9 @@ def test_overlapping_steps_are_shown_side_by_side_as_concurrent(server):
     # Intervals are shown as start to end.
     assert "2025-11-14 00:26:40.000000Z</time> to <time" in html and "(30.0 ms)" in html
     assert "order is unknown" in html  # the explanation above the timeline
+    # The delete says why it is after the box: the clocks.
+    d = re.search(r'<li class="event observed" data-type="deleted"[^>]*>(.*?)</li>', html).group(1)
+    assert "After receive 1: Receive 1 ended" in d and 'data-sources="clock"' in d
 
 
 def test_a_receive_with_an_unknown_start_shows_only_its_upper_bound(server):
@@ -185,7 +189,10 @@ def test_a_chained_concurrent_box_does_not_claim_every_step_overlapped(server):
     head = re.search(r'<div class="group-head">(.*?)</div>', groups[0][1]).group(1)
     text = re.sub(r"<[^>]+>", "", head)
     assert text == ("concurrentconcurrent, order unknown: the store can't put these 3 steps in one order; "
-                    "some of them overlapped in time.")
+                    "no observed fact orders some of them.")
+    # The one pair the clocks do order inside the box says so, on the later step.
+    d = re.search(r'<li class="event observed" data-type="deleted"[^>]*>(.*?)</li>', html).group(1)
+    assert 'data-sources="clock">After receive 1: Receive 1 ended (' in d
     assert "overlapped in time, so" not in html and "cannot tell which happened first" not in html
 
 
@@ -201,3 +208,23 @@ def test_a_box_counts_the_inferred_step_it_holds(server):
     assert len(groups) == 1
     assert "these 2 steps in one order" in groups[0][1]
     assert events(groups[0][1]) == [("deleted", False), ("visibility_timeout_expired", True)]
+
+
+def test_each_step_says_which_observed_fact_puts_it_after_another(server):
+    """The QV-31 sources on the screen, in plain words."""
+    p, c = Consumer("producer"), Consumer("consumer-a", scope="proc-a")
+    ms = 1_000_000
+    sent = T0 // ms
+    post(server, [p.send(T0 + 30 * ms, "why-1", start=T0),
+                  c.receive(T0 + 20 * ms, "why-1", "rh-w1", start=T0 - 900 * ms, sent_ms=sent + 4, first_ms=sent + 6,
+                            order=(1, 2)),
+                  c.receive(T0 + 25 * ms, "why-1", "rh-w2", count=2, start=T0 + 15 * ms),
+                  c.delete(T0 + 40 * ms, "rh-w1", start=T0 + 20 * ms, order=(3, 4))])
+    _, _, html = get(server, page("why-1"))
+    whys = [unescape(re.sub(r"<[^>]+>", "", w)) for w in re.findall(r'<div class="why"[^>]*>(.*?)</div>', html)]
+    assert ("After the send: SQS's timestamps show this message was sent (2025-11-14T00:26:40.004000Z) before "
+            "its first receive (2025-11-14T00:26:40.006000Z).") in whys
+    assert ("After receive 1: SQS's receive count shows receive 1 (receive count 1) came before this one "
+            "(receive count 2).") in whys
+    assert "After receive 1: Same process: receive 1 returned before this call was issued." in whys
+    assert "Placed after receive 1 and before receive 2, the steps it was inferred from." in whys

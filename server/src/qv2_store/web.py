@@ -4,8 +4,10 @@ Pages:
 
 - ``/``: look up a message by ID, and the most recent messages.
 - ``/message?id=...``: one message's timeline. Each observed step shows its interval (request sent to
-  response received). Steps whose intervals overlap are drawn side by side in one box labelled
-  "concurrent, order unknown". Inferred steps are drawn differently and labelled "inferred".
+  response received) and, in plain words, the observed fact that puts it after the step before it
+  (the clocks, the call order in one process, SQS's receive count or SQS's timestamps). Steps that no
+  fact orders are drawn side by side in one box labelled "concurrent, order unknown". Inferred steps
+  are drawn differently and labelled "inferred".
 - ``/duplicates``: duplicate deliveries.
 - ``/stuck``: stuck messages.
 
@@ -75,6 +77,7 @@ ol.timeline li.failed{border-left-color:#c43d3d}
 .when{color:#5b6475;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;margin-right:.6rem}
 .etype{font-weight:600}.detail{color:#3c4352;font-size:.9em;margin-top:.2rem}
 .reason{font-style:italic;margin-top:.2rem}
+.why{font-size:.85em;color:#2f5a2f;margin-top:.2rem}.why:before{content:"\2191  ";color:#5b8a5b}
 ol.timeline li.group{background:none;border:2px dashed #8a94a8;border-left:2px dashed #8a94a8;padding:.4rem .6rem}
 .group-head{font-size:.85em;color:#3c4352;margin-bottom:.2rem}
 .badge-concurrent{background:#5b6475}
@@ -133,12 +136,15 @@ def _message(api, q: dict) -> Response:
     parts.append(_dd("Last seen", _time(t.get("last_seen"))))
     parts.append("</dl>")
     parts.append('<h2>Timeline</h2><p class="muted">Each step shows when its SQS request was sent and when the '
-                 "response came back; SQS acted somewhere in between. A step is shown above another only if it "
-                 "ended before the other started. Steps in a box marked "
-                 '<span class="badge badge-concurrent">concurrent</span> can\'t be put in one order, because '
-                 "some of them overlapped in time (each step overlaps at least one other in the box, not "
-                 "necessarily all of them), so their order is unknown: they are side by side, in no particular "
-                 "order. Steps marked "
+                 "response came back; SQS acted somewhere in between. A step is shown above another only if an "
+                 "observed fact proves it came first, and the step says which: it ended before the other "
+                 "started (the hosts' clocks), the same process issued it after the other returned, SQS's "
+                 "receive count went up, or SQS's own timestamps show the message was sent before its first "
+                 "receive. Nothing is ordered by what usually causes what. Steps in a box marked "
+                 '<span class="badge badge-concurrent">concurrent</span> can\'t be put in one order: no '
+                 "observed fact orders some of them (they overlapped in time, or a start was not observed), so "
+                 "their order is unknown and they are side by side. Where a pair inside a box is ordered, the "
+                 "later step says so. Steps marked "
                  '<span class="badge">inferred</span> were deduced by the store; no span recorded them, so they '
                  "have a time window instead of a time.</p>")
     parts.append('<ol class="timeline">')
@@ -182,11 +188,12 @@ def _timeline_items(t: dict) -> list[str]:
     concurrent = {g["group"]: g for g in t.get("groups", []) if g.get("concurrent")}
     out: list[str] = []
     evs = t["events"]
+    by_id = {e["id"]: e for e in evs if e.get("id")}
     i = 0
     while i < len(evs):
         g = evs[i].get("group")
         if g not in concurrent:
-            out.append(_event(evs[i]))
+            out.append(_event(evs[i], by_id))
             i += 1
             continue
         j = i
@@ -197,13 +204,45 @@ def _timeline_items(t: dict) -> list[str]:
         out.append(f'<li class="group concurrent" data-group="{int(g)}">'
                    f'<div class="group-head"><span class="badge badge-concurrent">concurrent</span>'
                    f'<strong>{escape(info.get("label") or "concurrent, order unknown")}</strong>: the store can\'t put '
-                   f"these {int(n)} steps in one order; some of them overlapped in time.</div>"
-                   '<ol class="side">' + "".join(_event(e) for e in evs[i:j]) + "</ol></li>")
+                   f"these {int(n)} steps in one order; no observed fact orders some of them.</div>"
+                   '<ol class="side">' + "".join(_event(e, by_id) for e in evs[i:j]) + "</ol></li>")
         i = j
     return out
 
 
-def _event(e: dict) -> str:
+def _ref(e: Optional[dict]) -> str:
+    """A step as a reader names it: "the send", "receive 2", "the delete of delivery 1"."""
+    if not e:
+        return "an earlier step"
+    t, d = e["type"], e.get("delivery")
+    of = f" of delivery {d}" if d is not None else ""
+    names = {"sent": "the send", "received": f"receive {d}" if d is not None else "a receive",
+             "deleted": "the delete" + of, "visibility_changed": "the visibility change" + of,
+             "lambda_outcome": "the Lambda outcome" + of}
+    return names.get(t, EVENT_LABELS.get(t, t).lower())
+
+
+def _why(e: dict, by_id: dict) -> list[str]:
+    """One line per step this one is shown after, saying which observed fact proves it."""
+    out = []
+    for a in e.get("after") or []:
+        src = a.get("sources") or [a.get("source")]
+        if e.get("inferred"):
+            continue  # its anchors are in the reason and the window
+        out.append(f'<div class="why" data-after="{escape(str(a.get("event")))}" '
+                   f'data-sources="{escape(" ".join(map(str, src)))}">After {escape(_ref(by_id.get(a.get("event"))))}: '
+                   f'{escape(a.get("why") or "")}</div>')
+    if e.get("inferred"):
+        after = [by_id.get(a.get("event")) for a in e.get("after") or []]
+        before = by_id.get((e.get("before") or {}).get("event"))
+        names = [f"after {_ref(x)}" for x in after if x] + ([f"before {_ref(before)}"] if before else [])
+        if names:
+            out.append(f'<div class="why" data-sources="inferred_from">Placed {escape(" and ".join(names))}, the '
+                       f'step{"s" if len(names) > 1 else ""} it was inferred from.</div>')
+    return out
+
+
+def _event(e: dict, by_id: Optional[dict] = None) -> str:
     inferred = bool(e.get("inferred"))
     label = escape(EVENT_LABELS.get(e["type"], e["type"]))
     failed = e.get("result") == "failed" or (e["type"] == "lambda_outcome" and e.get("outcome") != "success")
@@ -217,12 +256,14 @@ def _event(e: dict) -> str:
         head.append(f'<span class="when">{_interval(e)}</span>')
     head.append(f'<span class="etype">{label}</span>')
     details = _details(e)
-    out = [f'<li class="{" ".join(cls)}" data-type="{escape(e["type"])}" data-inferred="{str(inferred).lower()}">',
+    out = [f'<li class="{" ".join(cls)}" data-type="{escape(e["type"])}" data-inferred="{str(inferred).lower()}"'
+           + (f' data-id="{escape(str(e["id"]))}"' if e.get("id") else "") + ">",
            "".join(head)]
     if details:
         out.append(f'<div class="detail">{" · ".join(details)}</div>')
     if inferred and e.get("reason"):
         out.append(f'<div class="reason">{escape(e["reason"])}</div>')
+    out.extend(_why(e, by_id or {}))
     out.append("</li>")
     return "".join(out)
 
