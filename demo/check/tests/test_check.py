@@ -124,7 +124,7 @@ def test_overlap_passes_as_concurrent():
     tl["events"] = [rcv, sent] + [e for e in tl["events"] if e is not rcv and e is not sent]
     r = check.evaluate(RETRY_TRUTH, tl)
     assert r["in_order"] and r["passed"], r
-    assert r["pairs"]["send->receive"] == {"in_order": 1, "concurrent": 1, "violated": 0}
+    assert r["pairs"]["send->receive"] == {"in_order": 1, "concurrent": 1, "violated": 0, "concurrent_via_chain": 0}
     assert r["concurrent_groups"] == 1
 
 
@@ -265,5 +265,9 @@ def test_summary_counts_pairs_and_concurrent_groups():
                         {MID: ordered, "m-2": blob}, 2)
     assert s["with_concurrent_group"] == 1
     assert (s["pairs_in_order"], s["pairs_concurrent"], s["pairs_violated"]) == (6, 6, 0)
-    assert s["pairs_by_kind"]["send->receive"] == {"in_order": 2, "concurrent": 2, "violated": 0}
-    assert s["pairs_by_kind"]["change_visibility->receive"] == {"in_order": 1, "concurrent": 1, "violated": 0}
+    # In the one-group timeline every interval is separate: all 6 are concurrent only through the group.
+    assert s["pairs_concurrent_via_chain"] == 6
+    assert s["pairs_by_kind"]["send->receive"] == {"in_order": 2, "concurrent": 2, "violated": 0,
+                                                   "concurrent_via_chain": 2}
+    assert s["pairs_by_kind"]["change_visibility->receive"] == {"in_order": 1, "concurrent": 1, "violated": 0,
+                                                                "concurrent_via_chain": 1}

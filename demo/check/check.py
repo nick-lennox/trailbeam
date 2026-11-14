@@ -29,7 +29,8 @@ JSON API (GET /api/messages/{id}) and checks, per message:
 
 So that "in order" cannot pass just by putting everything in one group, the summary also counts the
 messages with at least one concurrent group and the pairs resolved in order vs. left concurrent, per
-kind of pair. Each check is evaluated on its own: joined and receive count compare the events regardless of the order
+kind of pair. ``concurrent_via_chain`` (a diagnostic) counts the concurrent pairs whose own intervals do
+not overlap: they share a group only through other overlapping steps. Each check is evaluated on its own: joined and receive count compare the events regardless of the order
 the store shows them in, so a message that fails only on order still reports its joins and receive counts.
 The summary counts each check separately, plus the messages that fail on order alone. A message passes
 only if all five hold. Inferred events (such as the visibility-timeout expiry after a
@@ -55,6 +56,9 @@ STORE_TYPES = {"sent": "send", "received": "receive", "visibility_changed": "cha
 CHECKS = ("complete", "in_order", "joined", "receive_count", "final")
 PAIR_KINDS = ("send->receive", "receive->receive", "receive->settle", "change_visibility->receive")
 PAIR_RESULTS = ("in_order", "concurrent", "violated")
+# Of the concurrent pairs, those whose own intervals do not overlap (cause ended before effect started): the
+# store's one-line grouping put them together only through a chain of other overlapping steps. A diagnostic.
+CHAINED = "concurrent_via_chain"
 
 
 def load_truth(directory: str) -> dict:
@@ -179,10 +183,12 @@ def check_order(truth: list, timeline: dict) -> dict:
             continue
         verdict = judge_pair(found[c], found[e])
         counts[kind][verdict] += 1
+        if verdict == "concurrent" and found[e]["start"] is not None and found[c]["end"] < found[e]["start"]:
+            counts[kind][CHAINED] += 1
         if verdict == "violated":
             violations.append({"pair": kind, "cause": list(c), "effect": list(e)})
     groups = collections.Counter(d["group"] for d in observed_details(timeline) if d["group"] is not None)
-    return {"pairs": {k: {r: v[r] for r in PAIR_RESULTS} for k, v in counts.items()},
+    return {"pairs": {k: {r: v[r] for r in PAIR_RESULTS + (CHAINED,)} for k, v in counts.items()},
             "violations": violations,
             "concurrent_groups": sum(n > 1 for n in groups.values())}
 
@@ -247,7 +253,8 @@ def summarize(truth_by_id: dict, results: dict, count: int) -> dict:
         "pairs_in_order": total["in_order"],
         "pairs_concurrent": total["concurrent"],
         "pairs_violated": total["violated"],
-        "pairs_by_kind": {k: {r: pairs[k][r] for r in PAIR_RESULTS} for k in PAIR_KINDS},
+        "pairs_concurrent_via_chain": total[CHAINED],
+        "pairs_by_kind": {k: {r: pairs[k][r] for r in PAIR_RESULTS + (CHAINED,)} for k in PAIR_KINDS},
         "with_change_visibility": sum(any(r["op"] == "change_visibility" for r in truth_by_id[m]) for m in sent),
         "deleted_by_another_process": sum(any(r.get("by") == "deleter" for r in truth_by_id[m]) for m in sent),
         "received_more_than_once": sum(sum(r["op"] == "receive" for r in truth_by_id[m]) > 1 for m in sent),
