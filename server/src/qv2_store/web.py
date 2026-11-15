@@ -265,8 +265,10 @@ def _waterfall(members: list[dict], by_id: dict) -> str:
     listed first, since it may have started at any time before. When a window (an inferred step or a move)
     starts at the same time as an observed step, the observed step is listed first (QV-35 section 3): a
     window starts at its anchor's request, so it ties with that step, and listing it above the step it is
-    placed after read as the wrong order. Otherwise rows are never ordered by the kind of step or by what
-    caused what, and the note under the header says the rows are not the order SQS acted in."""
+    placed after read as the wrong order. The tie is taken at microseconds (QV-40): a window's ``from`` is
+    an ISO time to the microsecond, while an observed start is in nanoseconds (Python's spans), so the two
+    never tie exactly. Otherwise rows are never ordered by the kind of step or by what caused what, and the
+    note under the header says the rows are not the order SQS acted in."""
     spans = [_span_of(e) for e in members]
     known = [x for a, b, _ in spans for x in (a, b) if x is not None]
     lo, hi = (min(known), max(known)) if known else (0, 0)
@@ -283,8 +285,8 @@ def _waterfall(members: list[dict], by_id: dict) -> str:
             + (["open-end"] if b is None else [])
         bar = (f'<div class="track"><span class="{" ".join(cls)}" '
                f'style="left:{left:.2f}%;width:{max(right - left, 0.0):.2f}%"></span></div>')
-        rows.append(((lo - 1 if a is None else a), window, k, _event(e, by_id, bar)))
-    rows.sort(key=lambda r: r[:3])  # by start; on a tie, observed before a window; then the store's order
+        rows.append(((lo // 1000 - 1) if a is None else a // 1000, window, k, _event(e, by_id, bar)))
+    rows.sort(key=lambda r: r[:3])  # by start (µs); on a tie, observed before a window; then the store's order
     scale = "" if width <= 0 else (f" The scale runs from {_time(iso(lo))} to {_time(iso(hi))}"
                                    f" ({_took(width)}).")
     note = ('<p class="group-note">Each bar is one step on the same time scale: from its request sent to its '

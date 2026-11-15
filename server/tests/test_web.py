@@ -368,3 +368,33 @@ def test_an_inferred_window_that_ties_with_an_observed_start_is_listed_after_it(
     # Without a tie, a window that starts first is listed first: rows are by start, not by kind.
     early = dict(expiry, window=dict(expiry["window"], **{"from": "2025-11-14T00:26:39Z"}))
     assert events(web._waterfall([rcv1, early], by_id))[0] == ("visibility_timeout_expired", True)
+
+
+def test_the_tie_holds_for_nanosecond_starts_as_python_spans_have(server):
+    """QV-39 S2: Python's spans start in nanoseconds (time.time_ns()), and the expiry's window ``from`` is an ISO
+    time to the microsecond, so the receive started a few hundred ns after its window's ``from`` and the
+    exact-tie rule never fired: the expiry was listed above its receive in 87 of 87 Python windows. The times
+    here are shaped like real ones (QV-39: from ...45.115712Z, receive start ...45.115712133 ns)."""
+    from qv2_store import web
+
+    p, c, d = Consumer("producer"), Consumer("consumer-a"), Consumer("consumer-b")
+    ms = 1_000_000
+    t = T0 + 115_712_133  # a receive start with sub-microsecond digits, as Python's time.time_ns() gives
+    post(server, [p.send(t + 190 * ms + 873, "tie-ns", start=t + 189 * ms + 4_211),
+                  c.receive(t + 191 * ms + 371, "tie-ns", "rh-n1", start=t),  # a long poll open before the send
+                  c.change_visibility(t + 194 * ms + 59, "rh-n1", 0, start=t + 191 * ms + 902),
+                  d.receive(t + 196 * ms + 618, "tie-ns", "rh-n2", count=2, start=t + 100 * ms + 77),
+                  d.delete(t + 199 * ms + 286, "rh-n2", start=t + 197 * ms + 15)])
+    tl = json.loads(get(server, "/api/messages/tie-ns")[2])
+    evs = tl["events"]
+    expiry = next(e for e in evs if e["type"] == "visibility_timeout_expired")
+    rcv1 = next(e for e in evs if e["type"] == "received" and e["delivery"] == 1)
+    send = next(e for e in evs if e["type"] == "sent")
+    w_from, r_start = web._span_of(expiry)[0], web._span_of(rcv1)[0]
+    assert r_start - w_from == 133 and w_from // 1000 == r_start // 1000  # not an exact tie: the same µs
+    by_id = {e["id"]: e for e in evs if e.get("id")}
+    for members in ([expiry, rcv1, send], [rcv1, expiry, send], [send, expiry, rcv1]):
+        assert events(web._waterfall(members, by_id))[:2] == [("received", False), ("visibility_timeout_expired", True)]
+    # A step that starts a microsecond after the window's from is listed after it: rows stay by start.
+    later = dict(rcv1, start_unix_nano=str(w_from + 1000))
+    assert events(web._waterfall([later, expiry], by_id))[0] == ("visibility_timeout_expired", True)
