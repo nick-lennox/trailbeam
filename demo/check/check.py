@@ -44,7 +44,7 @@ JSON API (GET /api/messages/{id}) and checks, per message:
                  without a bound a store could move a receive's start to just after its send's end, anywhere
                  inside a long poll's bracket, and claim a false clock order (QV-39 fake3). The bound is wide
                  because the gap between the hook's stamp and the driver's is scheduling, not clock: under 1
-                 ms on an idle machine (Python), 0-2 ms in Node.js's whole ms, but up to 26 ms on a busy CI
+                 ms on an idle machine (Python), 0-2 ms in Node.js's whole ms, but up to 31 ms on a busy CI
                  runner. So it catches a time moved by more than 100 ms (a long poll's start stamped late,
                  for example), not a smaller move. The summary also reports, without gating, the events more
                  than :data:`TIGHT_BOUND_NS` (1 ms) inside (``events_more_than_1ms_inside_brackets``) and the
@@ -114,9 +114,9 @@ FLOOR_KINDS = ("send->receive", "receive->delete")
 # How far an observed event's start may lie after its call's truth start, and its end before its truth end
 # (QV-40). The hooks stamp a span inside the driver's own stamps; the gap between the two is scheduling (threads,
 # the GIL, the event loop), so it depends on load. Honest gaps seen: idle WSL2 machine, Python 0.04-0.38 ms and
-# Node.js 0-2 ms (whole ms); GitHub runners (CI run 43662541852), up to 15.8 ms in Python and 26 ms in Node.js.
+# Node.js 0-2 ms (whole ms); GitHub runners (CI runs 43662541852, 43663303311), up to 31 ms in Python and 26 ms in Node.js.
 # A 1 ms bound failed the honest store there, so 1 ms is reported, not gated (TIGHT_BOUND_NS), and the gate is
-# 100 ms: about 4x the worst honest gap seen. A store whose times lie further inside a bracket fails.
+# 100 ms: about 3x the worst honest gap seen. A store whose times lie further inside a bracket fails.
 BRACKET_BOUND_NS = 100_000_000
 TIGHT_BOUND_NS = 1_000_000
 

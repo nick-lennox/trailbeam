@@ -570,7 +570,7 @@ def receive_offset_by(start_ns, end_ns):
     (100 * MS + 1, 0, False, 1), (0, 100 * MS + 1, False, 1), (714 * MS, 0, False, 1)])
 def test_times_may_lie_at_most_100_ms_inside_their_brackets(start_ns, end_ns, ok, tight):
     """Start at most 100 ms after the truth start, end at most 100 ms before the truth end (QV-40). The honest gap
-    is scheduling: under 1 ms on an idle machine, up to 26 ms on a busy CI runner. QV-39's fake3 moved starts by
+    is scheduling: under 1 ms on an idle machine, up to 31 ms on a busy CI runner. QV-39's fake3 moved starts by
     1.5-714 ms. Events more than 1 ms inside are counted, not failed."""
     r = receive_offset_by(start_ns, end_ns)
     assert r["in_brackets"] is ok and r["passed"] is ok

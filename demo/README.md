@@ -184,7 +184,7 @@ compares them:
   200/200 and the gating floor. The bound is 100 ms, not 1 ms, because the gap between the hook's stamp and
   the driver's is scheduling (threads, the GIL, the event loop), so it grows with load:
   - On an idle WSL2 machine (QV-40 runs): Python 0.04–0.38 ms; Node.js 0–2 ms, in whole ms.
-  - On GitHub's runners: up to 15.8 ms in Python and 26 ms in Node.js. A 1 ms bound failed the honest
+  - On GitHub's runners: up to 31 ms in Python and 26 ms in Node.js (two CI runs). A 1 ms bound failed the honest
     store there, in both the emulator and the real-SQS jobs.
 
   So the gate catches a time moved by more than 100 ms (for example a long poll's start stamped when it
