@@ -71,10 +71,13 @@ The JSON API is under `/api/` ([`docs/store-api.md`](../docs/store-api.md)).
 - **ElasticMQ and late deletes.** ElasticMQ rejects a delete with the handle of an earlier delivery
   (`ReceiptHandleIsInvalid`), so the `slow` messages' late deletes show as `failed`. Amazon SQS accepts
   such a delete; the store shows it as `stale_handle` there.
-- **"Concurrent, order unknown".** Each step is an interval from request to response, and a step is
-  drawn above another only if it ended before the other started. Overlapping steps share one dashed
-  box. In the demo that is most often a send and its first receive: idle consumers are already waiting in
-  a long poll when the message is sent. See the [quickstart](../docs/quickstart.md#3-look-up-a-message-1-minute).
+- **"Concurrent, order unknown".** Each step is an interval from request to response. A step is drawn
+  above another only when an observed fact proves the order: the clocks, the call order in one
+  process, SQS's receive count, or SQS's timestamps. Steps that no fact orders share one dashed box. In
+  the demo that is most often a send and its first receive: idle consumers are already waiting in a long
+  poll when the message is sent, and ElasticMQ stamps `SentTimestamp` and
+  `ApproximateFirstReceiveTimestamp` in the same millisecond. See the
+  [quickstart](../docs/quickstart.md#read-the-timeline).
 - **One clock.** All demo containers run on one host and read one clock, so their intervals can be
   compared. Across hosts, the store relies on the hosts' clocks and does not correct for an offset
   between them (a known limit of 0.1).
@@ -180,7 +183,7 @@ compares them:
   (`BRACKET_BOUND_NS` in `check.py`).
 
   Without a bound, a store could move a long poll's start to just after its send's end, anywhere inside the
-  receive's bracket, and claim a false send→receive clock order. That is QV-39's "fake3", and it passed
+  receive's bracket, and claim a false send-to-receive clock order. That is QV-39's "fake3", and it passed
   200/200 and the gating floor. The bound is 100 ms, not 1 ms, because the gap between the hook's stamp and
   the driver's is scheduling (threads, the GIL, the event loop), so it grows with load:
   - On an idle WSL2 machine (QV-40 runs): Python 0.04–0.38 ms; Node.js 0–2 ms, in whole ms.
@@ -202,13 +205,13 @@ can't contradict either order, and only the sources' recomputation and the time 
 can claim.
 
 **The floor.** So that `in_order` cannot pass by leaving things concurrent, the run also fails unless at
-least 90% of the send→receive pairs and 90% of the receive→delete pairs are resolved (`floor` in the
+least 90% of the send-to-receive pairs and 90% of the receive-to-delete pairs are resolved (`floor` in the
 summary; `--floor` to change it, which CI does not). On the emulator `check.sh` reports the floor but doesn't
-gate on it ([the floor in CI](#the-floor-in-ci)); with `--aws` it gates. `resolution` gives, per kind (send→receive,
-receive→delete, release→redelivery, receive *n*→receive *n*+1), the pairs resolved and left concurrent, and
+gate on it ([the floor in CI](#the-floor-in-ci)); with `--aws` it gates. `resolution` gives, per kind (send-to-receive,
+receive-to-delete, release-to-redelivery, receive *n*-to-receive *n*+1), the pairs resolved and left concurrent, and
 by source: `by_source` (pairs whose direct edge has that source; a pair can count under several),
 `only_source` (that source alone), `via_chain` (resolved only through other steps) and `chain_sources`.
-Release→redelivery has no floor, because SQS gives no time for a redelivery; it is reported anyway. The
+Release-to-redelivery has no floor, because SQS gives no time for a redelivery; it is reported anyway. The
 older columns stay: `with_concurrent_group`, `pairs_in_order`, `pairs_concurrent`, `pairs_violated`,
 `pairs_by_kind`, and the diagnostics `concurrent_via_chain` and `concurrent_tied`.
 
@@ -222,7 +225,7 @@ The summary is printed and saved in `demo/results/<run>.txt`, the per-message re
 fresh random receipt-hash key, so runs don't mix and the demo can keep running alongside.
 [`check/tests/`](check/tests/) tests the comparison itself (`pytest demo/check/tests`).
 
-### Result with the four order sources (QV-31): 200 of 200 in order, floor fails on send→receive
+### Result with the four order sources (QV-31): 200 of 200 in order, floor fails on send-to-receive
 
 Span contract v3, ElasticMQ 1.6.15, all processes on one host. One run per language **locally** (WSL 2
 on Windows, Docker Desktop, 2026-11-14) and one **in CI** (GitHub Actions `ubuntu-latest`, run
@@ -233,21 +236,21 @@ on Windows, Docker Desktop, 2026-11-14) and one **in CI** (GitHub Actions `ubunt
 | complete, in order, joined, receive count, final | 200 each | 200 each | 200 each | 200 each |
 | pairs violated | 0 | 0 | 0 | 0 |
 | messages with a concurrent group | 195 | 189 | 194 | 86 |
-| **send→receive** resolved | **10 / 229 (4.4%)** | **18 / 229 (7.9%)** | **8 / 229 (3.5%)** | **159 / 229 (69.4%)** |
-| **receive→delete** resolved | **200 / 200** | **200 / 200** | **200 / 200** | **200 / 200** |
-| release→redelivery resolved (no floor) | 0 / 29 | 0 / 29 | 0 / 29 | 1 / 29 |
-| receive *n*→*n*+1 resolved | 29 / 29 | 29 / 29 | 29 / 29 | 29 / 29 |
+| **send-to-receive** resolved | **10 / 229 (4.4%)** | **18 / 229 (7.9%)** | **8 / 229 (3.5%)** | **159 / 229 (69.4%)** |
+| **receive-to-delete** resolved | **200 / 200** | **200 / 200** | **200 / 200** | **200 / 200** |
+| release-to-redelivery resolved (no floor) | 0 / 29 | 0 / 29 | 0 / 29 | 1 / 29 |
+| receive *n* to *n*+1 resolved | 29 / 29 | 29 / 29 | 29 / 29 | 29 / 29 |
 
 By source (pairs whose direct edge has it; "alone" = the only source of that edge):
 
 | Kind | Python local | Python CI | Node.js local | Node.js CI |
 |---|---|---|---|---|
-| send→receive | SQS timestamps 6, clock 3, chain 1 | SQS timestamps 12, clock 6, chain 1 | SQS timestamps 6, clock 2 | SQS timestamps 133 (63 alone), clock 96 (26 alone) |
-| receive→delete | clock 200, process order 172 | clock 200, process order 172 | process order 172 (141 alone), clock 59 (28 alone) | process order 172 (34 alone), clock 166 (28 alone) |
-| receive *n*→*n*+1 | receive count 29 (27 alone), clock 2 | receive count 29 (25 alone), clock 4 | receive count 29 (28 alone) | receive count 29 (7 alone), clock 22, process order 6 |
-| release→redelivery | none | none | none | clock and process order 1 |
+| send-to-receive | SQS timestamps 6, clock 3, chain 1 | SQS timestamps 12, clock 6, chain 1 | SQS timestamps 6, clock 2 | SQS timestamps 133 (63 alone), clock 96 (26 alone) |
+| receive-to-delete | clock 200, process order 172 | clock 200, process order 172 | process order 172 (141 alone), clock 59 (28 alone) | process order 172 (34 alone), clock 166 (28 alone) |
+| receive *n* to *n*+1 | receive count 29 (27 alone), clock 2 | receive count 29 (25 alone), clock 4 | receive count 29 (28 alone) | receive count 29 (7 alone), clock 22, process order 6 |
+| release-to-redelivery | none | none | none | clock and process order 1 |
 
-So the check fails, in both languages, locally and in CI, on one column: **send→receive is far below
+So the check fails, in both languages, locally and in CI, on one column: **send-to-receive is far below
 90%**. The floor is not lowered. Why it can't be reached honestly with these sources on this workload:
 
 - **The clocks and the call order can't apply.** An idle consumer is already waiting in a long poll
@@ -261,9 +264,9 @@ So the check fails, in both languages, locally and in CI, on one column: **send�
 - Ordering it anyway by "a receive comes after its send" would be ordering by cause, which the store
   does not do.
 
-Receive→delete passes everywhere: the call order resolves every same-process delete (172 of 200; in
+Receive-to-delete passes everywhere: the call order resolves every same-process delete (172 of 200; in
 Node.js 141 of them locally only by it, because the delete is issued in the same millisecond the receive
-returned), and the clocks resolve the 28 deletes made by the deleter process. Release→redelivery stays
+returned), and the clocks resolve the 28 deletes made by the deleter process. Release-to-redelivery stays
 concurrent for the same long-poll reason: the consumer that gets the redelivery was already waiting
 before the `ChangeMessageVisibility` returned, usually in another thread.
 
@@ -283,19 +286,19 @@ Measured once per language on 2026-11-14, from this machine (WSL 2, Docker Deskt
 | complete, in order, joined, receive count, final | 200 each | 200 each | 200 each | 200 each |
 | pairs violated | 0 | 0 | 0 | 0 |
 | messages with a concurrent group | 29 | 29 | 195 | 194 |
-| **send→receive** resolved | **229 / 229** | **229 / 229** | 10 / 229 (4.4%) | 8 / 229 (3.5%) |
-| **receive→delete** resolved | **200 / 200** | **200 / 200** | 200 / 200 | 200 / 200 |
-| release→redelivery resolved (no floor) | 0 / 29 | 0 / 29 | 0 / 29 | 0 / 29 |
-| receive *n*→*n*+1 resolved | 29 / 29 | 29 / 29 | 29 / 29 | 29 / 29 |
+| **send-to-receive** resolved | **229 / 229** | **229 / 229** | 10 / 229 (4.4%) | 8 / 229 (3.5%) |
+| **receive-to-delete** resolved | **200 / 200** | **200 / 200** | 200 / 200 | 200 / 200 |
+| release-to-redelivery resolved (no floor) | 0 / 29 | 0 / 29 | 0 / 29 | 0 / 29 |
+| receive *n* to *n*+1 resolved | 29 / 29 | 29 / 29 | 29 / 29 | 29 / 29 |
 
-By source on real SQS: send→receive is SQS timestamps 200 (all alone) plus 28 (Python) or 29 (Node.js)
-redelivery receives ordered after the send through a chain, and clock 1 in Python; receive→delete is
+By source on real SQS: send-to-receive is SQS timestamps 200 (all alone) plus 28 (Python) or 29 (Node.js)
+redelivery receives ordered after the send through a chain, and clock 1 in Python; receive-to-delete is
 clock 200 and process order 172 in Python, process order 172 (111 alone) and clock 89 (28 alone) in
-Node.js; receive *n*→*n*+1 is receive count 29.
+Node.js; receive *n* to *n*+1 is receive count 29.
 
 So on real SQS `SentTimestamp` and `ApproximateFirstReceiveTimestamp` were at least 1 ms apart for every
 one of the 200 first receives in each language, where ElasticMQ tied 196 of 200. The only pairs left
-concurrent are the 29 release→redelivery pairs, which have no floor.
+concurrent are the 29 release-to-redelivery pairs, which have no floor.
 
 ### The floor in CI
 
@@ -305,7 +308,7 @@ CI runs the check twice per language:
   edges verified, joined, with the right receive counts and final state. It still reports the resolved
   shares per kind and source, and the floor's result, in the job summary. The floor doesn't gate there
   because ElasticMQ stamps `SentTimestamp` and `ApproximateFirstReceiveTimestamp` in the same millisecond,
-  so send→receive stays at 4–9% there. That is the emulator's behaviour, not the store's. `check.sh` does
+  so send-to-receive stays at 4–9% there. That is the emulator's behaviour, not the store's. `check.sh` does
   the same on the emulator by default (`--floor-report-only`), locally and in CI, so a run without AWS can
   pass; `QV2_CHECK_FLOOR=0.9` makes it gate there too.
 - **`concurrency-check-aws` (real SQS, `us-east-1`).** Runs `check.sh --aws` with the 90% floor gating, as
