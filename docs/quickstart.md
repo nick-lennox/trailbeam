@@ -67,7 +67,9 @@ and use that port below. The `WSLENV` line matters only if you run `docker.exe` 
 
 ## 3. Look up a message (1 minute)
 
-Wait about a minute for some messages to go through, then open **http://127.0.0.1:4318/**.
+Wait about a minute for some messages to go through, then open **http://127.0.0.1:4318/**. The URLs in
+this step use port 4318: if you set `QV2_DEMO_PORT` in step 2 or for another checkout, use that port
+instead (the JSON commands below read the variable themselves).
 
 The start page lists the most recent messages. Click any message ID, or paste one into the lookup box, to
 see its timeline: when it was sent, by which process, each delivery with its receive count and consumer,
@@ -120,8 +122,9 @@ Messages worth opening (the demo sends each kind on a fixed schedule; see
 The same data as JSON, for example the newest message's timeline:
 
 ```sh
-id=$(curl -s 'http://127.0.0.1:4318/api/messages?limit=1' | python3 -c 'import json,sys; print(json.load(sys.stdin)["messages"][0]["message_id"])')
-curl -s "http://127.0.0.1:4318/api/messages/$id" | python3 -m json.tool
+port=${QV2_DEMO_PORT:-4318}
+id=$(curl -s "http://127.0.0.1:$port/api/messages?limit=1" | python3 -c 'import json,sys; print(json.load(sys.stdin)["messages"][0]["message_id"])')
+curl -s "http://127.0.0.1:$port/api/messages/$id" | python3 -m json.tool
 ```
 
 The API is described in [`docs/store-api.md`](store-api.md).
@@ -163,6 +166,6 @@ docker compose -f demo/compose.yaml down -v       # deletes them too
 | `docker: 'compose' is not a docker command` | Install Compose v2 (Docker Desktop includes it; on Linux, the `docker-compose-plugin` package). |
 | `Cannot connect to the Docker daemon` | Start Docker Desktop, or `sudo systemctl start docker`. |
 | `port is already allocated` on 4318 | Use `QV2_DEMO_PORT`, as in step 2. |
-| You have another qv2 checkout with the demo running | Both use the Compose project `qv2-demo`, so starting this one replaces the other's containers and uses its timelines volume. Give this one its own name and port, in the same shell for every later command: `export COMPOSE_PROJECT_NAME=qv2-other QV2_DEMO_PORT=4400`, and with `docker.exe` in WSL also `export WSLENV="COMPOSE_PROJECT_NAME:QV2_DEMO_PORT${WSLENV:+:$WSLENV}"`. Before starting, check `docker compose -f demo/compose.yaml config \| grep -E '^name:\|published'` says `name: qv2-other` and `published: "4400"`; if it says `qv2-demo` or `4318`, the variables didn't reach Docker and starting would replace the other checkout's containers. Then `docker compose -f demo/compose.yaml up -d --build --wait`. `demo/check.sh` uses the same variables, adds them to `WSLENV` itself, and stops if Compose resolved another project or port. See [`demo/README.md`](../demo/README.md#more-than-one-checkout-on-the-same-machine). |
+| You have another qv2 checkout with the demo running | Both use the Compose project `qv2-demo`, so starting this one replaces the other's containers and uses its timelines volume. Give this one its own name and port, in the same shell for every later command: `export COMPOSE_PROJECT_NAME=qv2-other QV2_DEMO_PORT=4400`, and with `docker.exe` in WSL also `export WSLENV="COMPOSE_PROJECT_NAME:QV2_DEMO_PORT${WSLENV:+:$WSLENV}"`. Before starting, check `docker compose -f demo/compose.yaml config \| grep -E '^name:\|published'` says `name: qv2-other` and `published: "4400"`; if it says `qv2-demo` or `4318`, the variables didn't reach Docker and starting would replace the other checkout's containers. Then `docker compose -f demo/compose.yaml up -d --build --wait`, and in step 3 use port 4400 in place of 4318 (the JSON commands there read `QV2_DEMO_PORT` themselves). `demo/check.sh` uses the same variables, adds them to `WSLENV` itself, and stops if Compose resolved another project or port. See [`demo/README.md`](../demo/README.md#more-than-one-checkout-on-the-same-machine). |
 | The start page is empty | Wait a few seconds more; spans are exported in batches. Then `docker compose -f demo/compose.yaml logs collector qv2`. |
 | In WSL, `docker info` or any other command fails with `failed to connect to the docker API at unix:///var/run/docker.sock`, or says `The command 'docker' could not be found in this WSL 2 distro` | Docker Desktop's WSL integration is off for your distribution. Turn it on in Docker Desktop's settings (Resources, WSL integration), or run the same commands with `docker.exe` instead of `docker` (`docker.exe compose -f demo/compose.yaml up -d --build --wait`), and `DOCKER=docker.exe demo/check.sh python` for the concurrency check. |
