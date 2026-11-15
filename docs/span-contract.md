@@ -49,10 +49,10 @@ change-visibility span names; that is dropped.)
   - end = when the response (or the error) arrived back in the hook, an upper bound.
 
   Every span of one call (each entry of a batch, each message of a `ReceiveMessage`) gets that call's
-  interval. Both times are read from the system's wall clock (`time.time_ns()` in Python,
-  `Date.now()` in Node.js, millisecond resolution), so spans from processes on one host can be
-  compared. Rounding is always down, which can make two intervals look like they touch but never
-  turns "A ended before B started" around.
+  interval. Both times are read from the system's wall clock, so spans from processes on one host can
+  be compared. Python reads `time.time_ns()` (nanoseconds). Node.js reads `Date.now()` (whole
+  milliseconds). Node.js rounding is always down. It can make two intervals look like they touch, but
+  it never reverses "A ended before B started".
 - Lambda wrapper: Lambda's event source mapping makes the `ReceiveMessage` call, so the wrapper does
   not see when it started or ended. All the wrapper knows is that the receive happened **no later
   than** the moment the wrapper got the event, before the handler runs. A `qv2 receive` from the
@@ -66,6 +66,8 @@ change-visibility span names; that is dropped.)
   sources and says how the store shows what none of them orders.
 - One span per message. A batch call produces one qv2 span per entry, all children of the one
   stock span.
+- The store reads only qv2 spans. Stock SQS spans pass through the Collector but are not read by
+  the 0.1 store.
 
 ## 2a. Call order inside one process (schema version 3)
 
@@ -87,8 +89,8 @@ process and records it on every span:
 Every span of one call shares its `issued` and `returned`. If `A.returned < B.issued` with the same
 scope, A's call returned before B's was issued, so SQS acted on A before B, whatever the clocks say
 and whichever threads made the calls. Calls in flight at the same time (`B.issued < A.returned` and
-`A.issued < B.returned`) are not ordered. The store never compares ticks of different scopes (contract
-§9a: "don't infer it across processes").
+`A.issued < B.returned`) are not ordered. The store never compares ticks of different scopes
+(section 9a).
 
 **The scope is the whole process (Python) or the whole realm (Node.js), not one thread or async task.**
 One counter is shared by every thread of a Python process (behind a lock) and by every async task of a
@@ -108,8 +110,6 @@ with its end time) and **no** `qv2.order.issued`, because Lambda's poller made t
 `qv2 outcome` carries `qv2.order.issued` = `qv2.order.returned` = one tick when the outcome was
 decided, after the handler returned or threw. So a handler's outcome is ordered after its own receive,
 and nothing is ordered after a Lambda receive by this source.
-- The store reads only qv2 spans. Stock SQS spans pass through the Collector but are not read by
-  the 0.1 store.
 
 ## 3. Attributes on every qv2 span
 
@@ -163,7 +163,8 @@ and produce no `qv2 send` span in 0.1.
 | `qv2.first_receive_timestamp_ms` | int | may | system attribute `ApproximateFirstReceiveTimestamp`, epoch milliseconds |
 | `qv2.aws_trace_header` | string | may | system attribute `AWSTraceHeader`, verbatim |
 | `qv2.dead_letter_queue_source_arn` | string | must when SQS returns it (3.1) | system attribute `DeadLetterQueueSourceArn`, verbatim: the ARN of the queue SQS moved the message from. SQS sets it only on a receive from a dead-letter queue (section 9b). |
-| `faas.name` | string | must (Lambda) | function name |
+| `qv2.queue.arn` | string | must (Lambda) | the record's `eventSourceARN`, verbatim (section 6) |
+| `faas.name` | string | must (Lambda) | function name, from the context, else `AWS_LAMBDA_FUNCTION_NAME` |
 | `faas.invocation_id` | string | must (Lambda) | `aws_request_id` / `awsRequestId` |
 
 - **Client hooks** **must** add `ApproximateReceiveCount`, `SentTimestamp`,
@@ -225,6 +226,30 @@ message contents. (The prototypes recorded `repr(e)`.) If the function times out
 memory, no `qv2 outcome` is emitted; the store infers it from the `qv2 receive` with no outcome.
 The prototype value `success_deleted_by_lambda` is renamed `success`, because the delete is not seen.
 
+### 4.5 What the store requires
+
+The store ([`otlp.py`](../server/src/qv2_store/otlp.py)) reads a span only if its instrumentation scope
+is `qv2`. It counts spans of other scopes as ignored. It rejects a qv2 span, and reports the reason in
+the OTLP `partial_success` field, when any of these is true:
+
+- `qv2.schema_version` is not `2` or `3`;
+- `qv2.kind` is unknown, or `sqs.settle` comes with a `messaging.operation.name` that is not a delete
+  or visibility-change action;
+- the trace ID, span ID, start time or end time is missing, or the span ends before it starts;
+- a required field for its kind is missing or has the wrong type:
+
+  | Kind | Required attributes |
+  |---|---|
+  | send | `messaging.destination.name`, `messaging.message.id` |
+  | receive | `messaging.destination.name`, `messaging.message.id`, `qv2.receive_count`, `qv2.receipt_handle.hmac`, `qv2.receipt_handle.key_id` |
+  | delete, change_visibility | `messaging.destination.name`, `qv2.receipt_handle.hmac`, `qv2.receipt_handle.key_id`, `qv2.result` |
+  | outcome | `messaging.destination.name`, `messaging.message.id`, `qv2.outcome` |
+
+- `qv2.result` is not `ok` or `failed`, or `qv2.outcome` is not one of the four values in section 4.4.
+
+The store reads integer attributes sent as decimal strings as integers. It keeps every attribute of
+the span as JSON in the row, and uses only the ones this contract names.
+
 ## 5. Consumer identity
 
 `messaging.client.id` identifies the process, or Lambda execution environment, that emitted the
@@ -232,10 +257,11 @@ span. The store uses it to tell consumers apart (duplicate deliveries to differe
 which consumer held a message when it got stuck).
 
 - **Client hooks:** the `service.instance.id` resource attribute of the package's tracer provider,
-  if set (for example through `OTEL_RESOURCE_ATTRIBUTES`); otherwise a random UUID v4 the package
-  generates once per process at install time and also sets as `service.instance.id`.
+  if set (for example through `OTEL_RESOURCE_ATTRIBUTES`). Otherwise a random UUID v4, which the
+  package also sets as `service.instance.id`. The package generates it when it creates the tracer
+  provider: on each `install` call, and once for each wrapped Lambda handler.
 - **Lambda wrapper:** the `AWS_LAMBDA_LOG_STREAM_NAME` environment variable, which names one
-  execution environment.
+  execution environment. If it is not set, the wrapper's `service.instance.id` as above.
 
 The store also displays the resource attribute `service.name` (**must** be set; the packages
 default it to `OTEL_SERVICE_NAME`, then to `unknown_service`), `process.pid` and `thread.name`.
@@ -311,15 +337,22 @@ map is an optimisation, not a requirement for a correct timeline.
 
 ## 9. What the store infers
 
-These steps have no span. The store shows each one as **inferred**, never as observed:
+These events have no span. The store shows each one as **inferred**, never as observed:
 
-- **Visibility timeout expired:** a `qv2 receive` with `qv2.receive_count = n + 1` follows one with
-  `n`, with no successful final delete between them.
-- The move to a dead-letter queue is **not** inferred (3.1). It is shown only when SQS reports it
-  (section 9b).
+- **Visibility timeout expired:** a `qv2 receive` on a queue follows an earlier `qv2 receive` on the
+  same queue with a lower `qv2.receive_count`. A delete that SQS accepted for the earlier delivery
+  does not prevent it: the later receive shows the delete came too late.
+- **Deliveries not observed:** `qv2.receive_count` goes up by more than 1 between two receives on one
+  queue, or the first receive on the source queue has `qv2.receive_count` above 1. A consumer without
+  qv2, or lost spans, made the missing receives.
 - **Deleted by Lambda:** after `qv2 outcome = success`.
-- **Lambda invocation killed (timeout or out of memory):** a Lambda `qv2 receive` with no matching
-  `qv2 outcome`, once the function's timeout has passed.
+- **Lambda invocation killed (timeout or out of memory):** a Lambda `qv2 receive` with no `qv2 outcome`
+  for the same `faas.invocation_id`, once the store's configured Lambda timeout has passed
+  (`--lambda-timeout`, default 900 s, the Lambda maximum). The store does not know the function's
+  real timeout.
+
+The move to a dead-letter queue is **not** inferred (3.1). It is shown only when SQS reports it
+(section 9b).
 
 ## 9a. Order of steps in the store
 
@@ -356,11 +389,12 @@ reports the move afterwards: the next receive of the message, on the dead-letter
 same `MessageId` and the system attribute `DeadLetterQueueSourceArn` naming the queue it came from.
 
 - **Observed move:** a `qv2 receive` with `qv2.dead_letter_queue_source_arn` whose last `:` field is
-  the name of the queue the message was received on before. The store shows one step "moved to the
-  dead-letter queue" per such receive, observed, with source `sqs_dlq_source`. It has no time of its
-  own (SQS gives none): it is placed after the last receive on the source queue and before that
-  dead-letter receive, and ordered against other steps only through those two and the proven edges
-  of section 9a.
+  the name of another queue. The store shows one event "moved to the dead-letter queue" for each
+  pair of source queue and dead-letter queue, observed, with source `sqs_dlq_source`. The earliest
+  dead-letter receive that carries the attribute reports it. The event has no time of its own (SQS
+  gives none). It is placed after the last receive on the source queue (or the send, if no receive
+  there was observed) and before the reporting receive. It is ordered against other events only
+  through those two and the proven edges of section 9a.
 - **No report, no move.** A receive on another queue without the attribute (an older package, a
   consumer without qv2, or an SQS that does not set it) shows no move. The store **must not** infer one
   from the message ID alone.
@@ -385,7 +419,7 @@ A `qv2 receive` from the Python client hooks, as attributes (not OTLP wire forma
 ```json
 {
   "name": "qv2 receive",
-  "scope": {"name": "qv2", "version": "0.1.0"},
+  "scope": {"name": "qv2", "version": "0.1.0.dev0"},
   "resource": {"service.name": "orders-worker", "service.instance.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11"},
   "attributes": {
     "qv2.schema_version": 3,
