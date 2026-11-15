@@ -1,8 +1,8 @@
-# qv2 store API, version 0.1
+# Trailbeam store API, version 0.1
 
-The qv2 store (`server/`, command `qv2-store`) serves three things on one port (default 4318):
+The Trailbeam store (`server/`, command `trailbeam-store`) serves three things on one port (default 4318):
 
-- `POST /v1/traces`: OTLP/HTTP trace ingest, for the qv2 packages or the [Collector](../collector/).
+- `POST /v1/traces`: OTLP/HTTP trace ingest, for the Trailbeam packages or the [Collector](../collector/).
 - `GET /api/...`: a read-only JSON API, described here.
 - `GET /`, `/message?id=`, `/duplicates`, `/stuck`: the web screen, built from this API (see [`server/README.md`](../server/README.md#web-screen)).
 
@@ -22,7 +22,7 @@ refer to that file.
 - `lambda_timeout_s` (1 to 86400) is accepted by every endpoint that builds timelines. It overrides the
   server's `--lambda-timeout` (default 900 s, the Lambda maximum, because the store does not know the
   function's real timeout).
-- The server's `--max-receive-count QUEUE=N,...` (env `QV2_MAX_RECEIVE_COUNT`) gives the
+- The server's `--max-receive-count QUEUE=N,...` (env `TRAILBEAM_MAX_RECEIVE_COUNT`) gives the
   `maxReceiveCount` of each queue's redrive policy. Spans don't carry it. Without it, the store never
   says a message is due on its dead-letter queue (`dead_letter_queue_move`, below).
 - There is no authentication in 0.1. Bind to `127.0.0.1` (the default) unless the network is trusted.
@@ -132,7 +132,7 @@ by these rules (contract §9a):
   | Source | A is before B when | Wording on the screen |
   |---|---|---|
   | `clock` | A ended before B started (`A.end < B.start`), on the hosts' clocks | "Receive 1 ended (...) before this started (...), on the hosts' clocks." |
-  | `process_order` | A and B were made by the same process (same `qv2.order.scope`), and A's call returned before B's was issued (contract §2a) | "Same process: receive 1 returned before this call was issued." |
+  | `process_order` | A and B were made by the same process (same `trailbeam.order.scope`), and A's call returned before B's was issued (contract §2a) | "Same process: receive 1 returned before this call was issued." |
   | `receive_count` | A and B are receives on the same queue, and A's `ApproximateReceiveCount` is lower | "SQS's receive count shows receive 1 (receive count 1) came before this one (receive count 2)." |
   | `sqs_timestamps` | A is the send and B the first receive (receive count 1) on its queue, and B's `SentTimestamp` is earlier than its `ApproximateFirstReceiveTimestamp`. Both come from SQS's clock, which is never compared with a host clock; equal values prove nothing | "SQS's timestamps show this message was sent (...) before its first receive (...)." |
 
@@ -161,7 +161,7 @@ Every event has `id` (`e1`, `e2`, ... in display order; valid within one respons
 `inferred`, `group` (its group's number; `null` for an inferred event alone between two groups) and
 `after`.
 
-**Observed events** (`inferred: false`) come from one qv2 span each, and have `start`, `end`,
+**Observed events** (`inferred: false`) come from one Trailbeam span each, and have `start`, `end`,
 `start_unix_nano`, `end_unix_nano` (strings), `start_observed`, `time` and `time_unix_nano` (the same
 as `end`, kept for clients of the first 0.1 API), `queue`, `consumer` and `span`. `consumer` holds whichever of `service_name`, `client_id`
 (`messaging.client.id`), `source` (`client` or `lambda`), `pid`, `thread_name`, `faas_name` and
@@ -225,7 +225,7 @@ or after it.
 | `type` | When | Extra fields |
 |---|---|---|
 | `visibility_timeout_expired` | A receive on a queue follows an earlier receive on the same queue with a lower receive count. The `reason` says whether a `ChangeMessageVisibility` to 0 or a delete that came too late explains it. | `queue`, `after_delivery`, `before_delivery` |
-| `deliveries_not_observed` | The receive count jumps by more than one, or the first receive on the source queue has a count above 1: receives by a consumer without qv2, or lost spans. | `queue`, `count` |
+| `deliveries_not_observed` | The receive count jumps by more than one, or the first receive on the source queue has a count above 1: receives by a consumer without Trailbeam, or lost spans. | `queue`, `count` |
 | `deleted_by_lambda` | After a Lambda `success` outcome: the event source mapping deletes the message, unobserved. `window.from` is the outcome time. | `queue`, `delivery` |
 | `lambda_invocation_ended_without_outcome` | A Lambda receive with no outcome after `lambda_timeout_s`: most likely a timeout or out-of-memory kill. | `queue`, `delivery`, `faas_invocation_id` |
 
@@ -235,8 +235,8 @@ or after it.
 
 | `code` | Meaning |
 |---|---|
-| `default_key` | Some spans use the published default receipt-hash key (key ID `2bd63d10`). |
-| `key_mismatch` | A delete or visibility change for this message used a different hash key than its receives, so it cannot be joined. The services do not share `QV2_RECEIPT_HASH_KEY`. |
+| `default_key` | Some spans use the published default receipt-hash key (key ID `b5e633f7`). |
+| `key_mismatch` | A delete or visibility change for this message used a different hash key than its receives, so it cannot be joined. The services do not share `TRAILBEAM_RECEIPT_HASH_KEY`. |
 | `unmatched_handle` | A delete or visibility change carries this message ID, but no stored receive has its hash. |
 | `send_not_observed` | No send span: the producer is not instrumented, or the send is older than the data. |
 | `dlq_move_not_seen` | "Receive count exceeded maxReceiveCount; not seen on the DLQ yet." See `dead_letter_queue_move`. |
@@ -307,7 +307,7 @@ is listed. "Oldest first" sorts by `first_seen` whichever clock it is on.
 ```
 
 `ingest` counts since the server started: `ignored` spans had another instrumentation scope, `rejected`
-qv2 spans broke the contract. `store.unjoined_settles` is the number of deletes and visibility changes
+Trailbeam spans broke the contract. `store.unjoined_settles` is the number of deletes and visibility changes
 whose receive has not arrived (or never will, for example with a different hash key).
 
 ## Known limits in 0.1

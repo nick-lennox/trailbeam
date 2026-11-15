@@ -1,6 +1,6 @@
-"""The real qv2 Python package, on a local SQS emulator (moto), exporting OTLP/HTTP to a running store.
+"""The real Trailbeam Python package, on a local SQS emulator (moto), exporting OTLP/HTTP to a running store.
 
-Needs the `qv2` package from ../python and moto: pip install -e '../python[test]'. Skipped locally without
+Needs the `trailbeam` package from ../python and moto: pip install -e '../python[test]'. Skipped locally without
 them, and a failure in CI (tests/needs.py).
 No AWS: credentials are dummies and every call goes to the in-process emulator.
 """
@@ -10,7 +10,7 @@ import time
 import pytest
 from needs import need
 
-need("qv2.boto")
+need("trailbeam.boto")
 need("moto.server")
 
 for _k in [k for k in os.environ if k.startswith("AWS_")]:
@@ -39,16 +39,16 @@ def install(server_url):
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 
-    import qv2.boto
-    return qv2.boto.install(KEY, span_processor=SimpleSpanProcessor(OTLPSpanExporter(endpoint=server_url + "/v1/traces")))
+    import trailbeam.boto
+    return trailbeam.boto.install(KEY, span_processor=SimpleSpanProcessor(OTLPSpanExporter(endpoint=server_url + "/v1/traces")))
 
 
 def test_batch_delete_from_another_process_joins_by_hash(server, store, sqs):
-    import qv2.boto
+    import trailbeam.boto
 
     try:
         install(server)
-        url = sqs.create_queue(QueueName="qv2-e2e")["QueueUrl"]
+        url = sqs.create_queue(QueueName="trailbeam-e2e")["QueueUrl"]
         sent = sqs.send_message_batch(QueueUrl=url, Entries=[{"Id": str(i), "MessageBody": f"b{i}"} for i in range(3)])
         mids = sorted(e["MessageId"] for e in sent["Successful"])
         got = sqs.receive_message(QueueUrl=url, MaxNumberOfMessages=10, WaitTimeSeconds=1)["Messages"]
@@ -60,7 +60,7 @@ def test_batch_delete_from_another_process_joins_by_hash(server, store, sqs):
             {"Id": f"e{i}", "ReceiptHandle": m["ReceiptHandle"]} for i, m in enumerate(got)])
         assert len(res["Successful"]) == 3
     finally:
-        qv2.boto.uninstall()
+        trailbeam.boto.uninstall()
 
     deadline = time.time() + 5
     while time.time() < deadline and len(store.query("SELECT row FROM spans")) < 9:

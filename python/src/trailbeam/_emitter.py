@@ -1,4 +1,4 @@
-"""The qv2 tracer provider (section 2) and the code that builds and emits qv2 spans."""
+"""The Trailbeam tracer provider (section 2) and the code that builds and emits Trailbeam spans."""
 from __future__ import annotations
 
 import os
@@ -30,9 +30,9 @@ def make_provider(
     span_exporter: Optional[SpanExporter] = None,
     span_processor: Optional[SpanProcessor] = None,
 ) -> TracerProvider:
-    """An always-on provider of our own, so the application's sampling never drops qv2 spans.
+    """An always-on provider of our own, so the application's sampling never drops Trailbeam spans.
 
-    Exports OTLP/HTTP to $QV2_OTLP_TRACES_ENDPOINT unless an exporter or processor is given.
+    Exports OTLP/HTTP to $TRAILBEAM_OTLP_TRACES_ENDPOINT unless an exporter or processor is given.
     ``service.instance.id`` comes from OTEL_RESOURCE_ATTRIBUTES if set, else a UUID v4 per provider.
     """
     resource = Resource.create({})  # reads OTEL_SERVICE_NAME and OTEL_RESOURCE_ATTRIBUTES
@@ -53,7 +53,7 @@ def make_provider(
 
 
 class Emitter:
-    """Emits qv2 spans with the attributes every qv2 span carries (section 3).
+    """Emits Trailbeam spans with the attributes every Trailbeam span carries (section 3).
 
     Times (section 2): ``start_ns`` and ``end_ns`` bound the SQS call (just before the request was sent,
     and when the response arrived). ``start_observed=False`` marks a span whose start is not known (a
@@ -61,7 +61,7 @@ class Emitter:
 
     Call order (schema version 3): ``order=(issued, returned)`` are ticks of this process's call-order
     counter (``_order.tick()``), taken at the span's start and end. ``issued`` is None when the start
-    was not observed. With an order, the span also carries ``qv2.order.scope``.
+    was not observed. With an order, the span also carries ``trailbeam.order.scope``.
     """
 
     def __init__(self, provider: TracerProvider, hasher: ReceiptHasher, source: str, client_id: Optional[str] = None):
@@ -73,8 +73,8 @@ class Emitter:
 
     def hash_attrs(self, receipt_handle: str) -> dict:
         return {
-            "qv2.receipt_handle.hmac": self.hasher(receipt_handle),
-            "qv2.receipt_handle.key_id": self.hasher.key_id,
+            "trailbeam.receipt_handle.hmac": self.hasher(receipt_handle),
+            "trailbeam.receipt_handle.key_id": self.hasher.key_id,
         }
 
     def emit(self, name: str, operation: str, queue_name: str, queue_url: str, attrs: dict,
@@ -82,9 +82,9 @@ class Emitter:
              start_observed: bool = True, order: Optional[tuple] = None) -> None:
         kind, op_type = KINDS[name]
         base = {
-            "qv2.schema_version": SCHEMA_VERSION,
-            "qv2.kind": kind,
-            "qv2.source": self.source,
+            "trailbeam.schema_version": SCHEMA_VERSION,
+            "trailbeam.kind": kind,
+            "trailbeam.source": self.source,
             "messaging.system.name": "aws.sqs",
             "messaging.operation.type": op_type,
             "messaging.operation.name": operation,
@@ -97,15 +97,15 @@ class Emitter:
         if queue_url:
             base["aws.sqs.queue.url"] = queue_url
         if not start_observed:
-            base["qv2.start_observed"] = False
+            base["trailbeam.start_observed"] = False
         if order is not None:
             issued, returned = order
             if issued is not None or returned is not None:
-                base["qv2.order.scope"] = _order.scope
+                base["trailbeam.order.scope"] = _order.scope
             if issued is not None:
-                base["qv2.order.issued"] = issued
+                base["trailbeam.order.issued"] = issued
             if returned is not None:
-                base["qv2.order.returned"] = returned
+                base["trailbeam.order.returned"] = returned
         base.update(attrs)
         ctx = trace.set_span_in_context(parent) if parent is not None else None
         end = end_ns if end_ns is not None else time.time_ns()

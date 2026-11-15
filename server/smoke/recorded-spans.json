@@ -1,5 +1,5 @@
 {
-  "queue": "qv2-smoke",
+  "queue": "trailbeam-smoke",
   "redelivered": {
     "message_id": "062d98c1-0251-4a88-b4e3-3069ea19a169",
     "events": [
@@ -27,6 +27,6 @@
       "sent"
     ]
   },
-  "qv2_span_count": 10,
+  "trailbeam_span_count": 10,
   "span_count": 21
 }

@@ -1,5 +1,5 @@
 #!/bin/sh
-# qv2 0.1 concurrency check: three processes of four consumers each, 200 messages, one language at a time.
+# Trailbeam 0.1 concurrency check: three processes of four consumers each, 200 messages, one language at a time.
 #
 #   demo/check.sh [--aws] [--dlq] python [count]
 #   demo/check.sh [--aws] [--dlq] node [count]
@@ -21,7 +21,7 @@
 # every message passes. The summary and the full report are saved in demo/results/.
 #
 # Set DOCKER to another command if `docker` isn't the Docker CLI (for example DOCKER=docker.exe in WSL).
-# COMPOSE_PROJECT_NAME and QV2_DEMO_PORT, if set, choose the Compose project and the store's host port, as for
+# COMPOSE_PROJECT_NAME and TRAILBEAM_DEMO_PORT, if set, choose the Compose project and the store's host port, as for
 # `docker compose` (demo/README.md#more-than-one-checkout-on-the-same-machine). They are added to WSLENV, so
 # they reach docker.exe too, and the project and port Compose resolved are printed before anything starts.
 #
@@ -29,7 +29,7 @@
 # --aws. On the emulator it is reported but does not fail the run, as in CI's ElasticMQ job: ElasticMQ
 # stamps SentTimestamp and ApproximateFirstReceiveTimestamp in the same millisecond, so send->receive stays
 # near 5% there for a reason that is the emulator's, not the store's (demo/README.md#the-floor-in-ci).
-# Everything else gates in both. Set QV2_CHECK_FLOOR to a share (e.g. 0.9) to make the floor gate at that
+# Everything else gates in both. Set TRAILBEAM_CHECK_FLOOR to a share (e.g. 0.9) to make the floor gate at that
 # share on the emulator too.
 set -eu
 
@@ -55,15 +55,15 @@ DOCKER=${DOCKER:-docker}
 cd "$(dirname "$0")"
 dc() { $DOCKER compose "$@"; }
 # With DOCKER=docker.exe in WSL, Windows processes only see the variables listed in WSLENV (QV-35 section 4).
-# Without this, COMPOSE_PROJECT_NAME and QV2_DEMO_PORT are dropped and the run uses the shared qv2-demo project.
-export WSLENV="COMPOSE_PROJECT_NAME:QV2_DEMO_PORT${WSLENV:+:$WSLENV}"
+# Without this, COMPOSE_PROJECT_NAME and TRAILBEAM_DEMO_PORT are dropped and the run uses the shared trailbeam-demo project.
+export WSLENV="COMPOSE_PROJECT_NAME:TRAILBEAM_DEMO_PORT${WSLENV:+:$WSLENV}"
 resolved=$(dc config)
 project=$(printf '%s\n' "$resolved" | sed -n 's/^name: *//p' | tr -d '"\r')
 port=$(printf '%s\n' "$resolved" | sed -n 's/^ *published: *//p' | tr -d '"\r' | head -n 1)
 echo "== Compose project $project, store on 127.0.0.1:$port"
 # Stop rather than run on another project's stack if the variables didn't reach Compose.
-if [ "$project" != "${COMPOSE_PROJECT_NAME:-qv2-demo}" ] || [ "$port" != "${QV2_DEMO_PORT:-4318}" ]; then
-  echo "error: Compose resolved project $project and port $port, not ${COMPOSE_PROJECT_NAME:-qv2-demo} and ${QV2_DEMO_PORT:-4318}" >&2
+if [ "$project" != "${COMPOSE_PROJECT_NAME:-trailbeam-demo}" ] || [ "$port" != "${TRAILBEAM_DEMO_PORT:-4318}" ]; then
+  echo "error: Compose resolved project $project and port $port, not ${COMPOSE_PROJECT_NAME:-trailbeam-demo} and ${TRAILBEAM_DEMO_PORT:-4318}" >&2
   exit 2
 fi
 
@@ -75,7 +75,7 @@ if [ "$aws" = 1 ]; then
   export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION="${AWS_REGION:-us-east-1}"
   queue=qv2-measure-$run
   # Empty endpoint: the SDK's default, real SQS. -e NAME without a value copies the variable from here.
-  aws_env="-e QV2_DEMO_SQS_ENDPOINT= -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_REGION"
+  aws_env="-e TRAILBEAM_DEMO_SQS_ENDPOINT= -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_REGION"
   if [ -n "${AWS_SESSION_TOKEN:-}" ]; then export AWS_SESSION_TOKEN; aws_env="$aws_env -e AWS_SESSION_TOKEN"; fi
   # With DOCKER=docker.exe in WSL, Windows processes only see the variables listed in WSLENV.
   export WSLENV="AWS_ACCESS_KEY_ID:AWS_SECRET_ACCESS_KEY:AWS_SESSION_TOKEN:AWS_REGION${WSLENV:+:$WSLENV}"
@@ -83,7 +83,7 @@ fi
 truth=/truth/$run
 # A fresh random receipt-hash key for this run, shared by its processes. Passed with -e, not stored anywhere.
 key=$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')
-deleter=qv2-check-$run-deleter
+deleter=trailbeam-check-$run-deleter
 names=""
 mkdir -p results
 
@@ -111,24 +111,24 @@ trap cleanup EXIT
 if [ "$aws" = 1 ]; then where="real SQS in $AWS_REGION"; else where="the emulator"; fi
 echo "== run $run: $count messages on queue $queue ($where, mix $mix)"
 dc build -q $svc checker consumer-python
-if [ "$aws" = 1 ]; then dc up -d --build --wait collector qv2; else dc up -d --build --wait sqs collector qv2; fi
+if [ "$aws" = 1 ]; then dc up -d --build --wait collector trailbeam; else dc up -d --build --wait sqs collector trailbeam; fi
 
 start() {  # start NAME ARGS...: one driver process in its own container
   name=$1; shift
   names="$names $name"
   # shellcheck disable=SC2086
-  dc run -d --no-deps --name "$name" -e QV2_RECEIPT_HASH_KEY="$key" $aws_env "$svc" "$@" --queue "$queue" --truth "$truth" >/dev/null
+  dc run -d --no-deps --name "$name" -e TRAILBEAM_RECEIPT_HASH_KEY="$key" $aws_env "$svc" "$@" --queue "$queue" --truth "$truth" >/dev/null
 }
 start "$deleter" deleter --port 8080
 for i in 1 2 3; do
   # shellcheck disable=SC2086
-  start "qv2-check-$run-consumer-$i" consume "$per_process" 4 --deleter "http://$deleter:8080" $dlq_arg
+  start "trailbeam-check-$run-consumer-$i" consume "$per_process" 4 --deleter "http://$deleter:8080" $dlq_arg
 done
 sleep 3
 
 echo "== producing"
 # shellcheck disable=SC2086
-dc run --rm -T --no-deps -e QV2_RECEIPT_HASH_KEY="$key" $aws_env "$svc" produce --queue "$queue" --truth "$truth" \
+dc run --rm -T --no-deps -e TRAILBEAM_RECEIPT_HASH_KEY="$key" $aws_env "$svc" produce --queue "$queue" --truth "$truth" \
   --count "$count" --mix "$mix"
 
 echo "== waiting until every message is deleted"
@@ -146,14 +146,14 @@ done
 echo "== comparing the store's timelines with what the processes did"
 status=0
 floor_arg=""
-if [ -n "${QV2_CHECK_FLOOR:-}" ]; then
-  floor_arg="--floor $QV2_CHECK_FLOOR"
+if [ -n "${TRAILBEAM_CHECK_FLOOR:-}" ]; then
+  floor_arg="--floor $TRAILBEAM_CHECK_FLOOR"
 elif [ "$aws" = 0 ]; then
   floor_arg="--floor-report-only"
-  echo "== the floor is reported, not gated, on the emulator (QV2_CHECK_FLOOR=0.9 to gate it)"
+  echo "== the floor is reported, not gated, on the emulator (TRAILBEAM_CHECK_FLOOR=0.9 to gate it)"
 fi
 # shellcheck disable=SC2086
-dc run --rm -T --no-deps checker verify --truth "$truth" --count "$count" --store http://qv2:4318 \
+dc run --rm -T --no-deps checker verify --truth "$truth" --count "$count" --store http://trailbeam:4318 \
   --report "$truth/report.json" $floor_arg > "results/$run.txt" || status=$?
 cat "results/$run.txt"
 dc run --rm -T --no-deps --entrypoint cat checker "$truth/report.json" > "results/$run-report.json" || true

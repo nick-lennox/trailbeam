@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "qv2"
+name = "trailbeam"
 version = "0.1.0.dev0"
 description = "Message-level timelines for Amazon SQS: OpenTelemetry hooks for boto3 and AWS Lambda."
 readme = "README.md"

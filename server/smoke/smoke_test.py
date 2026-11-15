@@ -1,8 +1,8 @@
-"""Smoke test for a running qv2 store (for example the container): send recorded spans, check the screen.
+"""Smoke test for a running Trailbeam store (for example the container): send recorded spans, check the screen.
 
     python smoke_test.py http://127.0.0.1:4318
 
-Standard library only. Waits for ``/api/health``, posts ``recorded-spans.pb`` (real qv2 spans recorded
+Standard library only. Waits for ``/api/health``, posts ``recorded-spans.pb`` (real Trailbeam spans recorded
 by ``record_spans.py``) to ``/v1/traces``, then checks that the web screen shows each message's timeline
 in order, with the inferred step marked, and lists the duplicate and the stuck message. Exits non-zero
 with a message on the first failure.
@@ -78,8 +78,8 @@ def run(base: str) -> None:
     inserted = health["ingest"]["inserted"] - before["ingest"]["inserted"]
     # A second run against the same volume finds them stored already, which is fine too.
     dupes = health["ingest"]["duplicates"] - before["ingest"]["duplicates"]
-    check(inserted + dupes == expected["qv2_span_count"] and health["ingest"]["rejected"] == 0,
-          f"{expected['qv2_span_count']} qv2 spans stored, none rejected")
+    check(inserted + dupes == expected["trailbeam_span_count"] and health["ingest"]["rejected"] == 0,
+          f"{expected['trailbeam_span_count']} Trailbeam spans stored, none rejected")
 
     for name in ("redelivered", "released", "never_received"):
         m = expected[name]

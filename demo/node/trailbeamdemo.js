@@ -1,11 +1,11 @@
 'use strict';
-// qv2 demo driver for Node.js: a producer, a consumer and a deleter on an SQS emulator, with @qv2/sdk.
+// Trailbeam demo driver for Node.js: a producer, a consumer and a deleter on an SQS emulator, with @trailbeam/sdk.
 //
-//   node qv2demo.js produce --queue orders --count 200 --mix check
-//   node qv2demo.js consume --queue orders --consumers 4 --deleter http://deleter:8080
-//   node qv2demo.js deleter --queue orders --port 8080
+//   node trailbeamdemo.js produce --queue orders --count 200 --mix check
+//   node trailbeamdemo.js consume --queue orders --consumers 4 --deleter http://deleter:8080
+//   node trailbeamdemo.js deleter --queue orders --port 8080
 //
-// The message kinds and the --truth files are the same as in ../python/qv2demo.py; see there. The truth reads
+// The message kinds and the --truth files are the same as in ../python/trailbeamdemo.py; see there. The truth reads
 // the spans' clock, Date.now() in whole milliseconds (../../node/src/emitter.js nowMs), so its lines say
 // same_clock_as_spans and the checker bracket-checks Node.js events too (QV-40; demo/check/check.py
 // BRACKET_BOUND_NS).
@@ -21,10 +21,10 @@ const {
   SQSClient, CreateQueueCommand, GetQueueAttributesCommand, GetQueueUrlCommand, SendMessageCommand,
   ReceiveMessageCommand, DeleteMessageCommand, ChangeMessageVisibilityCommand,
 } = require('@aws-sdk/client-sqs');
-const qv2 = require('@qv2/sdk');
+const trailbeam = require('@trailbeam/sdk');
 
 // Unset: the local emulator. Set but empty: the AWS SDK's default endpoint, that is real SQS (demo/check.sh --aws).
-const ENDPOINT = process.env.QV2_DEMO_SQS_ENDPOINT ?? 'http://localhost:9324';
+const ENDPOINT = process.env.TRAILBEAM_DEMO_SQS_ENDPOINT ?? 'http://localhost:9324';
 const REGION = process.env.AWS_REGION || 'us-east-1';
 let stopping = false;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -43,7 +43,7 @@ const handleHash = (rh) => crypto.createHash('sha256').update(rh).digest('hex').
 // system clock steps or slews: up to ~70 ms apart in QV-35.) The resolution is 1 ms, rounded down.
 const nowNs = () => String(BigInt(Date.now()) * 1000000n);
 
-// The driver asks for SQS's facts itself rather than relying on @qv2/sdk to add them, so the truth doesn't
+// The driver asks for SQS's facts itself rather than relying on @trailbeam/sdk to add them, so the truth doesn't
 // depend on the code under test. A receive's truth line records them (QV-38), null if SQS left one out.
 const RECEIVE_ATTRIBUTES = ['ApproximateReceiveCount', 'SentTimestamp', 'ApproximateFirstReceiveTimestamp'];
 const optInt = (v) => (v === undefined ? null : parseInt(v, 10));
@@ -81,9 +81,9 @@ async function ensureQueue(sqs, name, visibilityTimeout, maxReceives) {
 }
 
 function client(role) {
-  process.env.OTEL_SERVICE_NAME = process.env.OTEL_SERVICE_NAME || `qv2-demo-node-${role}`;
-  qv2.install();
-  return qv2.instrument(new SQSClient({ endpoint: ENDPOINT || undefined, region: REGION }));
+  process.env.OTEL_SERVICE_NAME = process.env.OTEL_SERVICE_NAME || `trailbeam-demo-node-${role}`;
+  trailbeam.install();
+  return trailbeam.instrument(new SQSClient({ endpoint: ENDPOINT || undefined, region: REGION }));
 }
 
 async function produce(a) {
@@ -166,7 +166,7 @@ async function consume(a) {
   };
 
   // Reads the dead-letter queue and deletes what it finds. It does not ask for DeadLetterQueueSourceArn:
-  // @qv2/sdk does, and the store shows the move SQS reports with it (contract 3.1).
+  // @trailbeam/sdk does, and the store shows the move SQS reports with it (contract 3.1).
   const dlqLoop = async () => {
     const dlq = `${a.queue}-dlq`;
     const dlqUrl = (await sqs.send(new GetQueueUrlCommand({ QueueName: dlq }))).QueueUrl;
@@ -266,14 +266,14 @@ async function main() {
   };
   const run = { produce, consume, deleter }[role];
   if (!run || !['demo', 'check', 'check-dlq'].includes(a.mix)) {
-    console.error('usage: node qv2demo.js produce|consume|deleter [--queue Q] [--truth DIR] ...');
+    console.error('usage: node trailbeamdemo.js produce|consume|deleter [--queue Q] [--truth DIR] ...');
     process.exit(2);
   }
   for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { stopping = true; });
   try {
     await run(a);
   } finally {
-    await qv2.uninstall(); // flushes the qv2 spans
+    await trailbeam.uninstall(); // flushes the Trailbeam spans
   }
 }
 

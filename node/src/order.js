@@ -2,7 +2,7 @@
 // Call order inside one process (span contract schema version 3).
 //
 // `scope` names this realm's counter; `tick()` returns a strictly increasing integer, starting at 1.
-// Two ticks with the same scope were taken in this order, whatever the clock said. Every qv2 client
+// Two ticks with the same scope were taken in this order, whatever the clock said. Every Trailbeam client
 // hook and Lambda wrapper loaded in this realm shares this one counter, across all its async tasks: the
 // scope is the realm, not one task. That is sound because a realm runs on one thread, so the ticks are one
 // sequence in real time, and an edge needs A's `returned` tick (after its response) before B's `issued`

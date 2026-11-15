@@ -33,7 +33,7 @@ def test_delete_with_message_id_is_also_joined_to_its_receive(store, ingest):
 def test_batch_delete_joins_each_entry_to_its_own_message(store, ingest):
     """One ReceiveMessage returns three messages; one DeleteMessageBatch call deletes all three.
 
-    The batch call is one stock span with one qv2 span per entry (contract section 2), all in one
+    The batch call is one stock span with one Trailbeam span per entry (contract section 2), all in one
     trace. No entry carries a message ID. One entry fails. Each entry must land on its own message.
     """
     c = Consumer()
@@ -115,7 +115,7 @@ def test_same_hash_with_another_key_id_does_not_join(store, ingest):
     c = Consumer()
     ingest(c.receive(T0, "m1", "rh-1"))
     d = c.delete(T0 + SEC, "rh-1")
-    d.attrs["qv2.receipt_handle.key_id"] = "00000000"
+    d.attrs["trailbeam.receipt_handle.key_id"] = "00000000"
     ingest(d)
     assert rows(store, "delete")[0]["mid"] is None
 
@@ -135,11 +135,11 @@ def test_lambda_receive_and_outcome_belong_to_the_message(store, ingest):
 
 
 def test_rows_survive_a_restart(tmp_path):
-    from qv2_store.db import Store
-    from qv2_store.otlp import decode
+    from trailbeam_store.db import Store
+    from trailbeam_store.otlp import decode
     from spans import to_proto
 
-    path = str(tmp_path / "qv2.sqlite")
+    path = str(tmp_path / "trailbeam.sqlite")
     c = Consumer()
     s = Store(path)
     s.insert(decode(to_proto([c.receive(T0, "m1", "rh-1")]).SerializeToString(), "").records)

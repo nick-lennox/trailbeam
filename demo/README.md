@@ -1,6 +1,6 @@
 # demo
 
-qv2 on your machine against an SQS emulator: no AWS account, no AWS credentials. Needs Docker with
+Trailbeam on your machine against an SQS emulator: no AWS account, no AWS credentials. Needs Docker with
 Compose v2. Step-by-step from a fresh clone: [`docs/quickstart.md`](../docs/quickstart.md).
 
 ```sh
@@ -11,15 +11,15 @@ docker compose -f demo/compose.yaml down        # add -v to delete the stored ti
 
 ### More than one checkout on the same machine
 
-The Compose project is called `qv2-demo`. Its containers, its volumes (`qv2-demo_qv2-data` with the stored
-timelines, `qv2-demo_truth`), its network and its local image tags (`qv2-demo-store:local` and so on) all
+The Compose project is called `trailbeam-demo`. Its containers, its volumes (`trailbeam-demo_trailbeam-data` with the stored
+timelines, `trailbeam-demo_truth`), its network and its local image tags (`trailbeam-demo-store:local` and so on) all
 carry that name, so a second checkout started the same way **replaces** the first one's containers and
 uses its volume. To run a second checkout alongside, give it its own project name and port:
 
 ```sh
-export COMPOSE_PROJECT_NAME=qv2-other QV2_DEMO_PORT=4400
-export WSLENV="COMPOSE_PROJECT_NAME:QV2_DEMO_PORT${WSLENV:+:$WSLENV}"   # only with docker.exe in WSL
-docker compose -f demo/compose.yaml config | grep -E '^name:|published'  # name: qv2-other, published: "4400"
+export COMPOSE_PROJECT_NAME=trailbeam-other TRAILBEAM_DEMO_PORT=4400
+export WSLENV="COMPOSE_PROJECT_NAME:TRAILBEAM_DEMO_PORT${WSLENV:+:$WSLENV}"   # only with docker.exe in WSL
+docker compose -f demo/compose.yaml config | grep -E '^name:|published'  # name: trailbeam-other, published: "4400"
 docker compose -f demo/compose.yaml up -d --build --wait
 demo/check.sh python                      # the check uses both variables too
 ```
@@ -27,7 +27,7 @@ demo/check.sh python                      # the check uses both variables too
 Every later `docker compose` command for that checkout (`ps`, `logs`, `down`) needs the same name, so run
 them in the same shell. With `docker.exe` from WSL, the `WSLENV` line is what makes the two variables reach
 Docker: Windows programs see only the WSL variables `WSLENV` lists. Without it, `config` shows
-`name: qv2-demo` and `published: "4318"`, and `up` would replace the other checkout's containers (QV-35).
+`name: trailbeam-demo` and `published: "4318"`, and `up` would replace the other checkout's containers (QV-35).
 `demo/check.sh` adds both to `WSLENV` itself, prints the project and port Compose resolved, and stops if they
 are not the ones you set.
 
@@ -36,11 +36,11 @@ are not the ones you set.
 | Service | What it is |
 |---|---|
 | `sqs` | [ElasticMQ](https://github.com/softwaremill/elasticmq) 1.6.15 (`softwaremill/elasticmq-native`), an SQS-compatible emulator. Not published to the host. |
-| `collector` | OpenTelemetry Collector contrib 0.165.0 with [`collector/qv2-collector.yaml`](../collector/qv2-collector.yaml) copied in ([`collector-image/Dockerfile`](collector-image/Dockerfile)). Receives OTLP from the services below and forwards the qv2 spans to the store. |
-| `qv2` | The qv2 store and web screen ([`server/`](../server/)), on `127.0.0.1:4318` (set `QV2_DEMO_PORT` to change the host port). SQLite on the `qv2-data` volume. |
-| `producer` | Python, [`python/qv2demo.py`](python/qv2demo.py) with the `qv2` boto3 hooks: one message a second to the queue `orders`. |
+| `collector` | OpenTelemetry Collector contrib 0.165.0 with [`collector/trailbeam-collector.yaml`](../collector/trailbeam-collector.yaml) copied in ([`collector-image/Dockerfile`](collector-image/Dockerfile)). Receives OTLP from the services below and forwards the Trailbeam spans to the store. |
+| `trailbeam` | The Trailbeam store and web screen ([`server/`](../server/)), on `127.0.0.1:4318` (set `TRAILBEAM_DEMO_PORT` to change the host port). SQLite on the `trailbeam-data` volume. |
+| `producer` | Python, [`python/trailbeamdemo.py`](python/trailbeamdemo.py) with the `trailbeam` boto3 hooks: one message a second to the queue `orders`. |
 | `consumer-python` | Python, 4 consumer threads on `orders`, plus one thread that empties `orders-dlq`. |
-| `consumer-node` | Node.js, [`node/qv2demo.js`](node/qv2demo.js) with `@qv2/sdk`: 4 concurrent consumers on `orders`. |
+| `consumer-node` | Node.js, [`node/trailbeamdemo.js`](node/trailbeamdemo.js) with `@trailbeam/sdk`: 4 concurrent consumers on `orders`. |
 | `deleter` | Python, a separate process that deletes the messages the consumers hand to it, by receipt handle. |
 
 The Python and Node.js consumers share the queue, so a message can be received by one and redelivered to
@@ -65,9 +65,9 @@ The JSON API is under `/api/` ([`docs/store-api.md`](../docs/store-api.md)).
 
 ## Notes
 
-- **Receipt-hash key.** The services hash receipt handles with `QV2_RECEIPT_HASH_KEY`. If it is not set
+- **Receipt-hash key.** The services hash receipt handles with `TRAILBEAM_RECEIPT_HASH_KEY`. If it is not set
   when you run `docker compose up`, they use the published default key and the timeline page shows a
-  notice saying so. To use your own: `QV2_RECEIPT_HASH_KEY=$(openssl rand -hex 32) docker compose -f demo/compose.yaml up -d`.
+  notice saying so. To use your own: `TRAILBEAM_RECEIPT_HASH_KEY=$(openssl rand -hex 32) docker compose -f demo/compose.yaml up -d`.
 - **ElasticMQ and late deletes.** ElasticMQ rejects a delete with the handle of an earlier delivery
   (`ReceiptHandleIsInvalid`), so the `slow` messages' late deletes show as `failed`. Amazon SQS accepts
   such a delete; the store shows it as `stale_handle` there.
@@ -84,7 +84,7 @@ The JSON API is under `/api/` ([`docs/store-api.md`](../docs/store-api.md)).
 
 ## Concurrency check
 
-The qv2 0.1 "done means" check: with three processes of four consumers each, every one of 200 messages
+The Trailbeam 0.1 "done means" check: with three processes of four consumers each, every one of 200 messages
 gets a complete timeline that never shows an effect before its cause, in Python and in Node.js separately.
 
 ```sh
@@ -95,7 +95,7 @@ DOCKER=docker.exe demo/check.sh python   # in WSL without Docker Desktop's WSL i
 `check.sh` runs `docker` by default; set `DOCKER` to the command to use instead. In WSL without the
 integration, plain `docker` fails with `failed to connect to the docker API at unix:///var/run/docker.sock`.
 
-[`check.sh`](check.sh) starts `sqs`, `collector` and `qv2`, creates a fresh queue for the run, then starts
+[`check.sh`](check.sh) starts `sqs`, `collector` and `trailbeam`, creates a fresh queue for the run, then starts
 (with `docker compose run`, each in its own container) one deleter process and three consumer processes of
 four consumers each (threads in Python, concurrent receive loops in Node.js), all in the chosen language,
 and a producer that sends 200 messages: the QV-11 recheck B2 mix of `ok`, `retry_once` (1 in 7) and
@@ -142,7 +142,7 @@ A message is `in_order` when it is complete and none of its pairs is violated.
 **Edges are checked, not trusted** (`edges_verified`, QV-34). The pair checks above would pass a store that
 put every send before every receive and labelled it `sqs_timestamps`: it agrees with what caused what. So
 the checker recomputes every source of every edge from the facts the store reports for the two events
-(the same rules as [`order.py`](../server/src/qv2_store/order.py), written again in the checker):
+(the same rules as [`order.py`](../server/src/trailbeam_store/order.py), written again in the checker):
 
 - `clock`: `from.end < to.start`;
 - `process_order`: the same call-order scope and `from.returned < to.issued` (the events' `process_order`);
@@ -166,13 +166,13 @@ passed every check above and the floor. So the truth files now record the facts 
 compares them:
 
 - `sqs_facts`: each driver asks SQS for `SentTimestamp` and `ApproximateFirstReceiveTimestamp` itself (not
-  through the qv2 hooks) and writes them on the receive's truth line (`sent_ms`, `first_receive_ms`, with `rc`).
+  through the Trailbeam hooks) and writes them on the receive's truth line (`sent_ms`, `first_receive_ms`, with `rc`).
   The store's `sent_timestamp_ms` and `first_receive_timestamp_ms` must be equal to them, and a missing value
   counts as different. Summary: `receives_sqs_facts_compared`, `receives_sqs_facts_wrong`.
 - `process_order` holds only between two calls the truth shows were made by one process (same `host` and
   `pid`), since the call-order scope is a process (Python) or a realm in one (Node.js). Otherwise the edge
   fails `edges_verified`.
-- `in_brackets` (QV-40): each driver's truth reads the same clock as the qv2 hooks' spans, so each truth
+- `in_brackets` (QV-40): each driver's truth reads the same clock as the Trailbeam hooks' spans, so each truth
   line says `same_clock_as_spans`. In Python both read `time.time_ns()`. In Node.js both read `Date.now()`,
   in whole milliseconds ([`node/src/emitter.js`](../node/src/emitter.js) `nowMs`). Each step's `start` and
   `end` must lie inside its call's bracket (`t_start_ns <= start <= end <= t_end_ns`), and not far inside
@@ -307,7 +307,7 @@ CI runs the check twice per language:
   because ElasticMQ stamps `SentTimestamp` and `ApproximateFirstReceiveTimestamp` in the same millisecond,
   so send→receive stays at 4–9% there. That is the emulator's behaviour, not the store's. `check.sh` does
   the same on the emulator by default (`--floor-report-only`), locally and in CI, so a run without AWS can
-  pass; `QV2_CHECK_FLOOR=0.9` makes it gate there too.
+  pass; `TRAILBEAM_CHECK_FLOOR=0.9` makes it gate there too.
 - **`concurrency-check-aws` (real SQS, `us-east-1`).** Runs `check.sh --aws` with the 90% floor gating, as
   well as everything above. It needs the repository secrets `QV2_AWS_ACCESS_KEY_ID` and
   `QV2_AWS_SECRET_ACCESS_KEY`. It fails, rather than skips, when they are missing. Fork pull requests get no

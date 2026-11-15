@@ -1,7 +1,7 @@
-"""The recorded killed Lambda invocation (QV-9) through the real qv2 Lambda wrapper, exported over OTLP/HTTP
+"""The recorded killed Lambda invocation (QV-9) through the real Trailbeam Lambda wrapper, exported over OTLP/HTTP
 to a running store: the store must show the outcome the wrapper could not send as inferred.
 
-Needs the `qv2` package from ../python (pip install -e '../python[test]'): skipped locally without it, and a
+Needs the `trailbeam` package from ../python (pip install -e '../python[test]'): skipped locally without it, and a
 failure in CI (tests/needs.py). No AWS.
 """
 import copy
@@ -13,9 +13,9 @@ from types import SimpleNamespace
 import pytest
 from needs import need
 
-need("qv2.aws_lambda")
+need("trailbeam.aws_lambda")
 
-from qv2_store import queries  # noqa: E402
+from trailbeam_store import queries  # noqa: E402
 
 FIXTURE = Path(__file__).resolve().parents[2] / "python" / "tests" / "fixtures" / "qv9_lambda_events.json"
 KILLED_MID = "ed51d232-5860-4f3f-82d1-34073e1cb9a3"  # function timeout in the QV-9 prototype
@@ -37,7 +37,7 @@ def run(server, inv, monkeypatch):
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-    import qv2.aws_lambda as ql
+    import trailbeam.aws_lambda as ql
 
     monkeypatch.setenv("AWS_LAMBDA_LOG_STREAM_NAME", inv["log_stream_name"])
     kind = inv["behaviour"]["kind"]
@@ -95,7 +95,7 @@ def test_recorded_killed_invocation_gets_an_inferred_outcome_in_the_store(server
     # The recorded redelivery succeeds: the killed delivery keeps its inferred outcome.
     fn = run(server, redelivered, monkeypatch)
     rows = wait_rows(store, KILLED_MID, 3)
-    fn.qv2_tracer_provider.shutdown()
+    fn.trailbeam_tracer_provider.shutdown()
     assert [r["kind"] for r in rows] == ["receive", "receive", "outcome"]
     # Both invocations ran milliseconds apart here; on SQS the redelivery comes only after the visibility
     # timeout. Look once the killed receive is older than the Lambda timeout, as it is by then on SQS.
@@ -153,7 +153,7 @@ def test_recorded_timed_out_retry_is_ordered_by_what_the_records_carry(server, s
     received_ns = wait_rows(store, KILLED_MID, 2)[-1]["time_ns"]
     fn = run(server, redelivered, monkeypatch)
     wait_rows(store, KILLED_MID, 4)
-    fn.qv2_tracer_provider.shutdown()
+    fn.trailbeam_tracer_provider.shutdown()
 
     t = queries.message(store, KILLED_MID, received_ns + (LT + 1) * SEC, LT)
     edges = _edges(t)

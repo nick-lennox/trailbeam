@@ -24,7 +24,7 @@ test('hash functions match the shared test vectors (same as the Python package)'
 
 test('default key is the published one, with the ID the contract names', () => {
   assert.strictEqual(contract.DEFAULT_KEY, VECTORS.default_key);
-  assert.strictEqual(sdk.keyId(contract.DEFAULT_KEY), '2bd63d10');
+  assert.strictEqual(sdk.keyId(contract.DEFAULT_KEY), 'b5e633f7');
 });
 
 test('ReceiptHasher never shows its key', () => {
@@ -38,20 +38,20 @@ test('ReceiptHasher never shows its key', () => {
 test('resolveHasher: explicit key, then environment, then default with one warning', (t) => {
   const warnings = [];
   contract._setWarn((m) => warnings.push(m));
-  const saved = process.env.QV2_RECEIPT_HASH_KEY;
+  const saved = process.env.TRAILBEAM_RECEIPT_HASH_KEY;
   t.after(() => {
-    if (saved === undefined) delete process.env.QV2_RECEIPT_HASH_KEY; else process.env.QV2_RECEIPT_HASH_KEY = saved;
+    if (saved === undefined) delete process.env.TRAILBEAM_RECEIPT_HASH_KEY; else process.env.TRAILBEAM_RECEIPT_HASH_KEY = saved;
     contract._setWarn(null);
   });
 
-  process.env.QV2_RECEIPT_HASH_KEY = 'env-key-0123456789abcdef';
+  process.env.TRAILBEAM_RECEIPT_HASH_KEY = 'env-key-0123456789abcdef';
   assert.strictEqual(contract.resolveHasher('explicit-key-0123456789').keyId, sdk.keyId('explicit-key-0123456789'));
   assert.strictEqual(contract.resolveHasher().keyId, sdk.keyId('env-key-0123456789abcdef'));
   assert.deepStrictEqual(warnings, []);
 
-  delete process.env.QV2_RECEIPT_HASH_KEY;
-  assert.strictEqual(contract.resolveHasher().keyId, '2bd63d10');
-  assert.strictEqual(contract.resolveHasher().keyId, '2bd63d10');
+  delete process.env.TRAILBEAM_RECEIPT_HASH_KEY;
+  assert.strictEqual(contract.resolveHasher().keyId, 'b5e633f7');
+  assert.strictEqual(contract.resolveHasher().keyId, 'b5e633f7');
   assert.strictEqual(warnings.length, 1, 'one default-key warning per process');
   assert.match(warnings[0], /default key/);
 

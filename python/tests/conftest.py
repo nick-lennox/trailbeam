@@ -1,6 +1,6 @@
 """Shared fixtures. No AWS: every AWS_* variable is removed and the SQS client talks to a local emulator.
 
-By default the emulator is moto's server, started in-process on 127.0.0.1. Set QV2_TEST_SQS_ENDPOINT
+By default the emulator is moto's server, started in-process on 127.0.0.1. Set TRAILBEAM_TEST_SQS_ENDPOINT
 to use another local emulator instead, e.g. ElasticMQ (http://localhost:9324) or LocalStack
 (http://localhost:4566).
 """
@@ -16,7 +16,7 @@ os.environ.update(
     AWS_SHARED_CREDENTIALS_FILE=os.devnull,
     AWS_EC2_METADATA_DISABLED="true",
 )
-for _k in ("QV2_RECEIPT_HASH_KEY", "OTEL_RESOURCE_ATTRIBUTES", "OTEL_SERVICE_NAME"):
+for _k in ("TRAILBEAM_RECEIPT_HASH_KEY", "OTEL_RESOURCE_ATTRIBUTES", "OTEL_SERVICE_NAME"):
     os.environ.pop(_k, None)
 
 import uuid  # noqa: E402
@@ -28,7 +28,7 @@ TEST_KEY = "example-key-0123456789abcdef"
 
 @pytest.fixture(scope="session")
 def sqs_endpoint():
-    url = os.environ.get("QV2_TEST_SQS_ENDPOINT")
+    url = os.environ.get("TRAILBEAM_TEST_SQS_ENDPOINT")
     if url:
         yield url
         return
@@ -58,7 +58,7 @@ def make_client(sqs_endpoint):
 @pytest.fixture
 def queue_url(make_client):
     c = make_client()
-    url = c.create_queue(QueueName=f"qv2-test-{uuid.uuid4().hex[:12]}")["QueueUrl"]
+    url = c.create_queue(QueueName=f"trailbeam-test-{uuid.uuid4().hex[:12]}")["QueueUrl"]
     yield url
     try:
         c.delete_queue(QueueUrl=url)

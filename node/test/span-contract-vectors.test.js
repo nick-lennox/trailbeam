@@ -13,6 +13,6 @@ test('vectors match HMAC-SHA256', () => {
   assert.ok(vectors.vectors.length > 0);
   for (const v of vectors.vectors) {
     assert.strictEqual(hmacHex(v.key, v.receipt_handle).slice(0, 32), v.hmac, v.name);
-    assert.strictEqual(hmacHex(v.key, 'qv2 key id').slice(0, 8), v.key_id, v.name);
+    assert.strictEqual(hmacHex(v.key, 'trailbeam key id').slice(0, 8), v.key_id, v.name);
   }
 });

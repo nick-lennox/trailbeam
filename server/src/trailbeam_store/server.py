@@ -20,7 +20,7 @@ from .db import Store
 from .otlp import DecodeError, decode
 from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
 
-log = logging.getLogger("qv2_store")
+log = logging.getLogger("trailbeam_store")
 
 MAX_BODY = 32 * 1024 * 1024  # bytes, after decompression
 
@@ -67,7 +67,7 @@ class App:
         msg = ""
         if d.rejected:
             reasons = sorted(set(d.rejected))
-            msg = f"{len(d.rejected)} qv2 span(s) rejected: " + "; ".join(reasons[:5])
+            msg = f"{len(d.rejected)} Trailbeam span(s) rejected: " + "; ".join(reasons[:5])
             log.warning(msg)
             resp.partial_success.rejected_spans = len(d.rejected)
             resp.partial_success.error_message = msg
@@ -145,7 +145,7 @@ def _limit(q: dict) -> int:
 
 def make_handler(app: App):
     class Handler(BaseHTTPRequestHandler):
-        server_version = f"qv2-store/{__version__}"
+        server_version = f"trailbeam-store/{__version__}"
         protocol_version = "HTTP/1.1"
 
         def _send(self, status: int, ctype: str, body: bytes, headers: Optional[dict] = None):

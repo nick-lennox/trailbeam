@@ -1,0 +1,44 @@
+# Trailbeam OpenTelemetry Collector configuration: keeps every Trailbeam span and forwards it to the Trailbeam store.
+#
+# Run on its own:         otelcol-contrib --config trailbeam-collector.yaml
+# With a tracing backend: otelcol-contrib --config trailbeam-collector.yaml --config backend.yaml
+#
+# Applications export OTLP to this Collector (4318 HTTP, 4317 gRPC). Spans whose instrumentation scope
+# is `trailbeam` (docs/span-contract.md) go to the store, with no sampling on the way. Nothing else goes to the
+# store. See README.md for the environment variables.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: "${env:TRAILBEAM_COLLECTOR_HTTP_ENDPOINT:-localhost:4318}"
+      grpc:
+        endpoint: "${env:TRAILBEAM_COLLECTOR_GRPC_ENDPOINT:-localhost:4317}"
+
+processors:
+  # The filter processor drops the spans that match. This keeps the Trailbeam spans and drops the rest.
+  filter/trailbeam_only:
+    error_mode: ignore
+    traces:
+      span:
+        - 'instrumentation_scope.name != "trailbeam"'
+  batch: {}
+
+exporters:
+  otlp_http/trailbeam_store:
+    # The store's OTLP/HTTP base URL; the exporter appends /v1/traces.
+    endpoint: "${env:TRAILBEAM_STORE_ENDPOINT:-http://localhost:4319}"
+    compression: gzip
+    retry_on_failure:
+      enabled: true
+      # Keep retrying while the store is down, until the in-memory queue is full (default 5m).
+      max_elapsed_time: 0s
+    sending_queue:
+      enabled: true
+      queue_size: 5000
+
+service:
+  pipelines:
+    traces/trailbeam:
+      receivers: [otlp]
+      processors: [filter/trailbeam_only, batch]
+      exporters: [otlp_http/trailbeam_store]

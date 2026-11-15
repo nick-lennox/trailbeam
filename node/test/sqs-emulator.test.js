@@ -1,16 +1,16 @@
 'use strict';
 // End to end against a local SQS emulator (ElasticMQ or LocalStack), with the stock
 // @opentelemetry/instrumentation-aws-sdk installed by the "application". Skipped unless
-// QV2_TEST_SQS_ENDPOINT is set, for example:
+// TRAILBEAM_TEST_SQS_ENDPOINT is set, for example:
 //
 //     java -jar elasticmq-server.jar &          # listens on http://localhost:9324
-//     QV2_TEST_SQS_ENDPOINT=http://localhost:9324 npm test
+//     TRAILBEAM_TEST_SQS_ENDPOINT=http://localhost:9324 npm test
 const test = require('node:test');
 const assert = require('node:assert');
 
-const ENDPOINT = process.env.QV2_TEST_SQS_ENDPOINT;
+const ENDPOINT = process.env.TRAILBEAM_TEST_SQS_ENDPOINT;
 
-test('send, receive, change visibility, delete (single and batch) against the emulator', { skip: !ENDPOINT && 'QV2_TEST_SQS_ENDPOINT not set' }, async (t) => {
+test('send, receive, change visibility, delete (single and batch) against the emulator', { skip: !ENDPOINT && 'TRAILBEAM_TEST_SQS_ENDPOINT not set' }, async (t) => {
   // The application's own OpenTelemetry setup: a provider that samples nothing, and the stock
   // AWS SDK instrumentation. It must be registered before the SDK is loaded.
   const api = require('@opentelemetry/api');
@@ -24,18 +24,18 @@ test('send, receive, change visibility, delete (single and batch) against the em
   registerInstrumentations({ tracerProvider: appProvider, instrumentations: [new AwsInstrumentation()] });
 
   const S = require('@aws-sdk/client-sqs');
-  const qv2 = require('../src/index');
+  const trailbeam = require('../src/index');
   const { memoryExporter, byName } = require('./helpers');
 
   const KEY = 'emulator-test-key-0123456789';
   const { exporter, spanProcessor } = memoryExporter();
-  qv2.install({ receiptHashKey: KEY, spanProcessor });
-  t.after(() => qv2.uninstall());
-  const sqs = qv2.instrument(new S.SQSClient({
+  trailbeam.install({ receiptHashKey: KEY, spanProcessor });
+  t.after(() => trailbeam.uninstall());
+  const sqs = trailbeam.instrument(new S.SQSClient({
     region: 'us-east-1', endpoint: ENDPOINT, credentials: { accessKeyId: 'x', secretAccessKey: 'x' },
   }));
 
-  const name = `qv2-node-test-${process.pid}-${Date.now()}`;
+  const name = `trailbeam-node-test-${process.pid}-${Date.now()}`;
   const { QueueUrl } = await sqs.send(new S.CreateQueueCommand({ QueueName: name }));
   t.after(() => sqs.send(new S.DeleteQueueCommand({ QueueUrl })));
 
@@ -71,27 +71,27 @@ test('send, receive, change visibility, delete (single and batch) against the em
   const spans = exporter.getFinishedSpans();
   const attr = (s, k) => s.attributes[k];
 
-  const sends = byName(spans, 'qv2 send');
+  const sends = byName(spans, 'trailbeam send');
   assert.deepStrictEqual(sends.map((s) => attr(s, 'messaging.message.id')), sentIds);
 
-  const receives = byName(spans, 'qv2 receive');
+  const receives = byName(spans, 'trailbeam receive');
   assert.strictEqual(receives.length, 4);
   for (const s of receives) {
-    assert.ok(Number.isInteger(attr(s, 'qv2.sent_timestamp_ms')));
+    assert.ok(Number.isInteger(attr(s, 'trailbeam.sent_timestamp_ms')));
     assert.strictEqual(attr(s, 'messaging.destination.name'), name);
     assert.strictEqual(attr(s, 'aws.sqs.queue.url'), QueueUrl);
   }
   const firstReceives = receives.filter((s) => attr(s, 'messaging.message.id') === first.MessageId);
-  assert.deepStrictEqual(firstReceives.map((s) => attr(s, 'qv2.receive_count')), [1, 2]);
+  assert.deepStrictEqual(firstReceives.map((s) => attr(s, 'trailbeam.receive_count')), [1, 2]);
 
-  const [cv] = byName(spans, 'qv2 change_visibility');
-  assert.strictEqual(attr(cv, 'qv2.visibility_timeout'), 0);
-  assert.strictEqual(attr(cv, 'qv2.result'), 'ok');
-  assert.strictEqual(attr(cv, 'qv2.receipt_handle.hmac'), attr(firstReceives[0], 'qv2.receipt_handle.hmac'));
+  const [cv] = byName(spans, 'trailbeam change_visibility');
+  assert.strictEqual(attr(cv, 'trailbeam.visibility_timeout'), 0);
+  assert.strictEqual(attr(cv, 'trailbeam.result'), 'ok');
+  assert.strictEqual(attr(cv, 'trailbeam.receipt_handle.hmac'), attr(firstReceives[0], 'trailbeam.receipt_handle.hmac'));
 
   // DeleteMessage, DeleteMessageBatch (3 entries), then the DeleteMessage that threw.
-  const deletes = byName(spans, 'qv2 delete');
-  assert.deepStrictEqual(deletes.map((s) => [attr(s, 'messaging.operation.name'), attr(s, 'qv2.batch_entry_id'), attr(s, 'qv2.result')]), [
+  const deletes = byName(spans, 'trailbeam delete');
+  assert.deepStrictEqual(deletes.map((s) => [attr(s, 'messaging.operation.name'), attr(s, 'trailbeam.batch_entry_id'), attr(s, 'trailbeam.result')]), [
     ['DeleteMessage', undefined, 'ok'],
     ['DeleteMessageBatch', 'd0', 'ok'],
     ['DeleteMessageBatch', 'd1', 'ok'],
@@ -100,15 +100,15 @@ test('send, receive, change visibility, delete (single and batch) against the em
   ]);
   const [single, d0, d1, bogus, thrown] = deletes;
   assert.strictEqual(attr(single, 'messaging.message.id'), first.MessageId);
-  assert.strictEqual(attr(single, 'qv2.receipt_handle.hmac'), attr(firstReceives[1], 'qv2.receipt_handle.hmac'),
+  assert.strictEqual(attr(single, 'trailbeam.receipt_handle.hmac'), attr(firstReceives[1], 'trailbeam.receipt_handle.hmac'),
     'the delete matches the latest receive');
   assert.deepStrictEqual([d0, d1].map((s) => attr(s, 'messaging.message.id')), rest.map((m) => m.MessageId));
-  assert.strictEqual(attr(bogus, 'qv2.error_code'), 'ReceiptHandleIsInvalid');
-  assert.strictEqual(attr(thrown, 'qv2.error_code'), 'ReceiptHandleIsInvalid');
+  assert.strictEqual(attr(bogus, 'trailbeam.error_code'), 'ReceiptHandleIsInvalid');
+  assert.strictEqual(attr(thrown, 'trailbeam.error_code'), 'ReceiptHandleIsInvalid');
   assert.ok(!('messaging.message.id' in bogus.attributes));
 
-  // Every qv2 span is a child of the stock span for its call, although the application samples
-  // nothing: qv2 has its own always-on provider.
+  // Every Trailbeam span is a child of the stock span for its call, although the application samples
+  // nothing: Trailbeam has its own always-on provider.
   assert.strictEqual(appExporter.getFinishedSpans().length, 0);
   for (const s of spans) {
     assert.ok(s.parentSpanContext && s.parentSpanContext.spanId, `${s.name} has a parent`);
@@ -118,19 +118,19 @@ test('send, receive, change visibility, delete (single and batch) against the em
   assert.strictEqual(batchSendParents.size, 1, 'batch entries share the one stock span');
 });
 
-test('dead-letter queue receive carries DeadLetterQueueSourceArn (schema 3.1)', { skip: !ENDPOINT && 'QV2_TEST_SQS_ENDPOINT not set' }, async (t) => {
+test('dead-letter queue receive carries DeadLetterQueueSourceArn (schema 3.1)', { skip: !ENDPOINT && 'TRAILBEAM_TEST_SQS_ENDPOINT not set' }, async (t) => {
   // The move itself has no API call to observe. SQS reports it on the dead-letter receive: ElasticMQ
   // 1.6.15 sets DeadLetterQueueSourceArn there, with the same MessageId (checked for QV-31).
   const S = require('@aws-sdk/client-sqs');
-  const qv2 = require('../src/index');
+  const trailbeam = require('../src/index');
   const { memoryExporter, byName } = require('./helpers');
   const { exporter, spanProcessor } = memoryExporter();
-  qv2.install({ receiptHashKey: 'emulator-test-key-0123456789', spanProcessor });
-  t.after(() => qv2.uninstall());
-  const sqs = qv2.instrument(new S.SQSClient({
+  trailbeam.install({ receiptHashKey: 'emulator-test-key-0123456789', spanProcessor });
+  t.after(() => trailbeam.uninstall());
+  const sqs = trailbeam.instrument(new S.SQSClient({
     region: 'us-east-1', endpoint: ENDPOINT, credentials: { accessKeyId: 'x', secretAccessKey: 'x' },
   }));
-  const name = `qv2-node-dlq-${process.pid}-${Date.now()}`;
+  const name = `trailbeam-node-dlq-${process.pid}-${Date.now()}`;
   const dlq = (await sqs.send(new S.CreateQueueCommand({ QueueName: `${name}-dlq` }))).QueueUrl;
   t.after(() => sqs.send(new S.DeleteQueueCommand({ QueueUrl: dlq })));
   const dlqArn = (await sqs.send(new S.GetQueueAttributesCommand({ QueueUrl: dlq, AttributeNames: ['QueueArn'] }))).Attributes.QueueArn;
@@ -152,13 +152,13 @@ test('dead-letter queue receive carries DeadLetterQueueSourceArn (schema 3.1)', 
   }
   assert.ok(moved, 'the message reached the dead-letter queue');
   assert.strictEqual(moved.MessageId, MessageId);
-  assert.strictEqual(moved.Attributes.DeadLetterQueueSourceArn, srcArn, 'qv2 asked for it without the caller asking');
+  assert.strictEqual(moved.Attributes.DeadLetterQueueSourceArn, srcArn, 'Trailbeam asked for it without the caller asking');
 
-  const receives = byName(exporter.getFinishedSpans(), 'qv2 receive');
+  const receives = byName(exporter.getFinishedSpans(), 'trailbeam receive');
   const onSrc = receives.filter((s) => s.attributes['messaging.destination.name'] === name);
   const onDlq = receives.filter((s) => s.attributes['messaging.destination.name'] === `${name}-dlq`);
   assert.ok(onSrc.length >= 1 && onDlq.length === 1);
-  for (const s of onSrc) assert.ok(!('qv2.dead_letter_queue_source_arn' in s.attributes));
-  assert.strictEqual(onDlq[0].attributes['qv2.dead_letter_queue_source_arn'], srcArn);
+  for (const s of onSrc) assert.ok(!('trailbeam.dead_letter_queue_source_arn' in s.attributes));
+  assert.strictEqual(onDlq[0].attributes['trailbeam.dead_letter_queue_source_arn'], srcArn);
   assert.strictEqual(onDlq[0].attributes['messaging.message.id'], MessageId);
 });

@@ -9,22 +9,22 @@ import threading
 from typing import Optional
 
 SCHEMA_VERSION = 3
-SCOPE_NAME = "qv2"
+SCOPE_NAME = "trailbeam"
 
-DEFAULT_KEY = "qv2-default-receipt-hash-key"
-KEY_ENV = "QV2_RECEIPT_HASH_KEY"
-ENDPOINT_ENV = "QV2_OTLP_TRACES_ENDPOINT"
+DEFAULT_KEY = "trailbeam-default-receipt-hash-key"
+KEY_ENV = "TRAILBEAM_RECEIPT_HASH_KEY"
+ENDPOINT_ENV = "TRAILBEAM_OTLP_TRACES_ENDPOINT"
 DEFAULT_ENDPOINT = "http://localhost:4318/v1/traces"
 MIN_KEY_BYTES = 16
 
 # Span names (section 1). They never contain a variable part.
-SPAN_SEND = "qv2 send"
-SPAN_RECEIVE = "qv2 receive"
-SPAN_DELETE = "qv2 delete"
-SPAN_CHANGE_VISIBILITY = "qv2 change_visibility"
-SPAN_OUTCOME = "qv2 outcome"
+SPAN_SEND = "trailbeam send"
+SPAN_RECEIVE = "trailbeam receive"
+SPAN_DELETE = "trailbeam delete"
+SPAN_CHANGE_VISIBILITY = "trailbeam change_visibility"
+SPAN_OUTCOME = "trailbeam outcome"
 
-# (qv2.kind, messaging.operation.type) per span name.
+# (trailbeam.kind, messaging.operation.type) per span name.
 KINDS = {
     SPAN_SEND: ("sqs.send", "send"),
     SPAN_RECEIVE: ("sqs.receive", "receive"),
@@ -38,7 +38,7 @@ OUTCOME_FAILED_REPORTED = "failed_reported"
 OUTCOME_FAILED_INVALID_RESPONSE = "failed_invalid_response"
 OUTCOME_FAILED_EXCEPTION = "failed_exception"
 
-log = logging.getLogger("qv2")
+log = logging.getLogger("trailbeam")
 
 
 def _hex(key: bytes, data: str) -> str:
@@ -52,7 +52,7 @@ class ReceiptHasher:
 
     def __init__(self, key: str):
         self._key = key.encode("utf-8")
-        self.key_id = _hex(self._key, "qv2 key id")[:8]
+        self.key_id = _hex(self._key, "trailbeam key id")[:8]
 
     def __call__(self, receipt_handle: str) -> str:
         return _hex(self._key, receipt_handle)[:32]
@@ -74,18 +74,18 @@ def _warn_once(tag: str, msg: str) -> None:
 
 
 def resolve_hasher(key: Optional[str] = None) -> ReceiptHasher:
-    """Explicit key, then $QV2_RECEIPT_HASH_KEY, then the published default key (with one warning)."""
+    """Explicit key, then $TRAILBEAM_RECEIPT_HASH_KEY, then the published default key (with one warning)."""
     if key is None:
         key = os.environ.get(KEY_ENV) or None
     if key is None:
         _warn_once(
             "default-key",
-            "qv2: no receipt-hash key configured (QV2_RECEIPT_HASH_KEY); using the published default key, "
+            "trailbeam: no receipt-hash key configured (TRAILBEAM_RECEIPT_HASH_KEY); using the published default key, "
             "which gives no protection. Set the same key on every service that uses these queues.",
         )
         key = DEFAULT_KEY
     elif len(key.encode("utf-8")) < MIN_KEY_BYTES:
-        _warn_once("short-key", f"qv2: the receipt-hash key is shorter than {MIN_KEY_BYTES} bytes")
+        _warn_once("short-key", f"trailbeam: the receipt-hash key is shorter than {MIN_KEY_BYTES} bytes")
     return ReceiptHasher(key)
 
 

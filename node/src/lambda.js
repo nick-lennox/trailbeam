@@ -1,12 +1,12 @@
 'use strict';
-// qv2 wrapper for AWS Lambda handlers invoked by an SQS event source mapping (contract 4.2, 4.4).
+// Trailbeam wrapper for AWS Lambda handlers invoked by an SQS event source mapping (contract 4.2, 4.4).
 //
-//     const qv2 = require('@qv2/sdk');
-//     exports.handler = qv2.wrapHandler(async (event, context) => { ... });
+//     const trailbeam = require('@trailbeam/sdk');
+//     exports.handler = trailbeam.wrapHandler(async (event, context) => { ... });
 //
-// For each SQS record the wrapper emits one `qv2 receive` and flushes it before the handler runs,
+// For each SQS record the wrapper emits one `trailbeam receive` and flushes it before the handler runs,
 // so a timeout or out-of-memory kill cannot lose it. After the handler returns or throws it emits
-// one `qv2 outcome` per record. A killed invocation has no outcome; the store infers it.
+// one `trailbeam outcome` per record. A killed invocation has no outcome; the store infers it.
 
 const api = require('@opentelemetry/api');
 
@@ -28,7 +28,7 @@ const OPERATION = 'LambdaEvent';
 const DEFAULT_FLUSH_TIMEOUT_MS = 2000;
 
 function debug(what, err) {
-  api.diag.debug(`qv2: ${what} failed`, err);
+  api.diag.debug(`trailbeam: ${what} failed`, err);
 }
 
 /** `arn:aws:sqs:<region>:<account>:<name>` -> [name, https://sqs.<region>.amazonaws.com/<account>/<name>]. */
@@ -78,7 +78,7 @@ function errorType(err) {
   return typeof err;
 }
 
-/** Emits the wrapper's spans. One per wrapped handler; holds the qv2 tracer provider. */
+/** Emits the wrapper's spans. One per wrapped handler; holds the Trailbeam tracer provider. */
 class LambdaRecorder {
   constructor(provider, emitter, { flushTimeoutMs, reportBatchItemFailures }) {
     this.provider = provider;
@@ -126,12 +126,12 @@ class LambdaRecorder {
       const a = isObject(r.attributes) ? r.attributes : {};
       const attrs = { 'messaging.message.id': r.messageId };
       if (typeof r.receiptHandle === 'string' && r.receiptHandle) Object.assign(attrs, this.emitter.hashAttrs(r.receiptHandle));
-      put(attrs, 'qv2.receive_count', intOrUndefined(a.ApproximateReceiveCount));
-      put(attrs, 'qv2.sent_timestamp_ms', intOrUndefined(a.SentTimestamp));
-      put(attrs, 'qv2.first_receive_timestamp_ms', intOrUndefined(a.ApproximateFirstReceiveTimestamp));
-      put(attrs, 'qv2.aws_trace_header', a.AWSTraceHeader);
-      put(attrs, 'qv2.dead_letter_queue_source_arn', a.DeadLetterQueueSourceArn);
-      put(attrs, 'qv2.queue.arn', arn);
+      put(attrs, 'trailbeam.receive_count', intOrUndefined(a.ApproximateReceiveCount));
+      put(attrs, 'trailbeam.sent_timestamp_ms', intOrUndefined(a.SentTimestamp));
+      put(attrs, 'trailbeam.first_receive_timestamp_ms', intOrUndefined(a.ApproximateFirstReceiveTimestamp));
+      put(attrs, 'trailbeam.aws_trace_header', a.AWSTraceHeader);
+      put(attrs, 'trailbeam.dead_letter_queue_source_arn', a.DeadLetterQueueSourceArn);
+      put(attrs, 'trailbeam.queue.arn', arn);
       Object.assign(attrs, faas);
       this.emitter.emit(SPAN_RECEIVE, OPERATION, name, url, attrs, { parentContext, endTime: t, startObserved: false, order: { returned } });
     }
@@ -146,8 +146,8 @@ class LambdaRecorder {
     for (const r of records) {
       const [name, url] = queueFromArn(r.eventSourceARN);
       const outcome = outcomes[r.messageId];
-      const attrs = { 'messaging.message.id': r.messageId, 'qv2.outcome': outcome };
-      if (outcome === OUTCOME_FAILED_EXCEPTION) put(attrs, 'qv2.error_type', errType);
+      const attrs = { 'messaging.message.id': r.messageId, 'trailbeam.outcome': outcome };
+      if (outcome === OUTCOME_FAILED_EXCEPTION) put(attrs, 'trailbeam.error_type', errType);
       Object.assign(attrs, faas);
       this.emitter.emit(SPAN_OUTCOME, OPERATION, name, url, attrs, { parentContext, startTime: t, endTime: t, order: { issued: tick, returned: tick } });
     }
@@ -211,19 +211,19 @@ function callHandler(handler, thisArg, event, context, rest) {
  * Wrap a Lambda handler. Returns an async handler `(event, context) => Promise`.
  *
  * `reportBatchItemFailures` should match the event source mapping's `FunctionResponseTypes`: when
- * it is off, Lambda ignores `batchItemFailures`, and so does qv2. Events without SQS records are
- * passed to the handler untouched. The wrapped handler has a `qv2TracerProvider` property.
+ * it is off, Lambda ignores `batchItemFailures`, and so does Trailbeam. Events without SQS records are
+ * passed to the handler untouched. The wrapped handler has a `trailbeamTracerProvider` property.
  *
  * @param {Function} handler
  * @param {object} [options]
- * @param {string} [options.receiptHashKey] takes precedence over $QV2_RECEIPT_HASH_KEY
+ * @param {string} [options.receiptHashKey] takes precedence over $TRAILBEAM_RECEIPT_HASH_KEY
  * @param {import('@opentelemetry/sdk-trace-base').SpanExporter} [options.spanExporter]
  * @param {import('@opentelemetry/sdk-trace-base').SpanProcessor} [options.spanProcessor]
  * @param {number} [options.flushTimeoutMs=2000] longest wait for each flush
  * @param {boolean} [options.reportBatchItemFailures=true]
  */
 function wrapHandler(handler, options = {}) {
-  if (typeof handler !== 'function') throw new TypeError('qv2.wrapHandler expects a function');
+  if (typeof handler !== 'function') throw new TypeError('trailbeam.wrapHandler expects a function');
   const { provider, resource } = makeProvider(options);
   const emitter = new Emitter(provider, resolveHasher(options.receiptHashKey), 'lambda', resource.attributes[SERVICE_INSTANCE_ID]);
   const recorder = new LambdaRecorder(provider, emitter, {
@@ -231,11 +231,11 @@ function wrapHandler(handler, options = {}) {
     reportBatchItemFailures: options.reportBatchItemFailures !== undefined ? options.reportBatchItemFailures : true,
   });
   // Two declared parameters, so the Lambda runtime treats the wrapper as an async handler.
-  const wrapped = async function qv2WrappedHandler(event, context, ...rest) {
+  const wrapped = async function trailbeamWrappedHandler(event, context, ...rest) {
     return recorder.invoke(handler, this, event, context, rest);
   };
-  Object.defineProperty(wrapped, 'name', { value: handler.name || 'qv2WrappedHandler' });
-  wrapped.qv2TracerProvider = provider;
+  Object.defineProperty(wrapped, 'name', { value: handler.name || 'trailbeamWrappedHandler' });
+  wrapped.trailbeamTracerProvider = provider;
   return wrapped;
 }
 

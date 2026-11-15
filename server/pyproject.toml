@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "qv2-store"
+name = "trailbeam-store"
 version = "0.1.0.dev0"
-description = "qv2 store: receives qv2 OpenTelemetry spans over OTLP/HTTP, keeps them in SQLite and builds per-message SQS timelines."
+description = "Trailbeam store: receives Trailbeam OpenTelemetry spans over OTLP/HTTP, keeps them in SQLite and builds per-message SQS timelines."
 license = "Apache-2.0"
 requires-python = ">=3.10"
 dependencies = [
@@ -18,7 +18,7 @@ test = [
 ]
 
 [project.scripts]
-qv2-store = "qv2_store.__main__:main"
+trailbeam-store = "trailbeam_store.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

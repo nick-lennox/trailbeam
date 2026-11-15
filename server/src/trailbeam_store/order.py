@@ -4,7 +4,7 @@ A step A is before a step B only when at least one **source** proves it. Each so
 observed, never a rule about what causes what:
 
 - ``clock``: A's interval ended before B's started (``A.end < B.start``), on the hosts' clocks.
-- ``process_order``: A and B were made in the same process (same ``qv2.order.scope``), and A's call
+- ``process_order``: A and B were made in the same process (same ``trailbeam.order.scope``), and A's call
   returned before B's call was issued (``A.order_returned < B.order_issued``, a per-process counter
   shared by every thread of a Python process, or every async task of a Node.js realm: contract 2a).
 - ``receive_count``: A and B are receives on the same queue and SQS gave A a lower

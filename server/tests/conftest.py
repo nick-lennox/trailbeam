@@ -5,8 +5,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from qv2_store.db import Store  # noqa: E402
-from qv2_store.otlp import decode  # noqa: E402
+from trailbeam_store.db import Store  # noqa: E402
+from trailbeam_store.otlp import decode  # noqa: E402
 from spans import to_proto  # noqa: E402
 
 
@@ -32,7 +32,7 @@ def server(store):
     """A running store on a free port. Yields its base URL."""
     import threading
 
-    from qv2_store.server import make_server
+    from trailbeam_store.server import make_server
 
     httpd = make_server(store, "127.0.0.1", 0)
     t = threading.Thread(target=httpd.serve_forever, daemon=True)

@@ -1,9 +1,9 @@
-"""SQLite storage for qv2 spans, and the receipt-hash join of settle spans to receives.
+"""SQLite storage for Trailbeam spans, and the receipt-hash join of settle spans to receives.
 
-Every qv2 span is one row in ``spans``. ``mid`` is the message the row belongs to:
+Every Trailbeam span is one row in ``spans``. ``mid`` is the message the row belongs to:
 
 - send, receive, outcome: the span's own ``messaging.message.id``;
-- delete, change_visibility: the message ID of the ``qv2 receive`` with the same receipt-handle hash
+- delete, change_visibility: the message ID of the ``trailbeam receive`` with the same receipt-handle hash
   and key ID (``mid_source = 'receipt_hash'``, and ``receive_row`` points at that receive). If no such
   receive has arrived yet, the settle span's own message ID, if it has one (``mid_source = 'span'``).
 
