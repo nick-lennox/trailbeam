@@ -1,8 +1,8 @@
-"""qv2 demo driver for Python: a producer, a consumer and a deleter on an SQS emulator, with the qv2 boto3 hooks.
+"""Trailbeam demo driver for Python: a producer, a consumer and a deleter on an SQS emulator, with the Trailbeam boto3 hooks.
 
-    qv2demo.py produce --queue orders --count 200 --mix check
-    qv2demo.py consume --queue orders --threads 4 --deleter http://deleter:8080
-    qv2demo.py deleter --queue orders --port 8080
+    trailbeamdemo.py produce --queue orders --count 200 --mix check
+    trailbeamdemo.py consume --queue orders --threads 4 --deleter http://deleter:8080
+    trailbeamdemo.py deleter --queue orders --port 8080
 
 Every message body is {"kind": ..., "n": ...}. What the consumer does depends on the kind:
 
@@ -17,11 +17,11 @@ Every message body is {"kind": ..., "n": ...}. What the consumer does depends on
 
 With --truth DIR each process writes what it really did, one JSON line per SQS call, to its own file in DIR.
 Each line brackets the call: ``t_start_ns`` just before it was made, ``t_end_ns`` just after it returned (one
-clock, the host's: ``time.time_ns()``, which the qv2 hooks also read for the spans, so every line says
+clock, the host's: ``time.time_ns()``, which the Trailbeam hooks also read for the spans, so every line says
 ``same_clock_as_spans``). ``t_ns`` is kept as before: the start for a send or settle, the end for a receive.
 A receive line also has SQS's own facts from the same response (QV-38): ``rc`` (ApproximateReceiveCount),
 ``sent_ms`` (SentTimestamp) and ``first_receive_ms`` (ApproximateFirstReceiveTimestamp), null if SQS left one out.
-The concurrency check (demo/check/check.py) compares those files with the timelines in the qv2 store.
+The concurrency check (demo/check/check.py) compares those files with the timelines in the Trailbeam store.
 Only message kinds and numbers go in the bodies; nothing is read from AWS.
 """
 
@@ -40,10 +40,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import boto3
 
-import qv2.boto
+import trailbeam.boto
 
 # Unset: the local emulator. Set but empty: the AWS SDK's default endpoint, that is real SQS (demo/check.sh --aws).
-ENDPOINT = os.environ.get("QV2_DEMO_SQS_ENDPOINT", "http://localhost:9324")
+ENDPOINT = os.environ.get("TRAILBEAM_DEMO_SQS_ENDPOINT", "http://localhost:9324")
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 stop = threading.Event()
 
@@ -61,7 +61,7 @@ def kind_of(i: int, mix: str) -> str:
 
 
 def handle_hash(receipt_handle: str) -> str:
-    """A plain hash of a receipt handle for the truth files, independent of qv2's keyed hash."""
+    """A plain hash of a receipt handle for the truth files, independent of Trailbeam's keyed hash."""
     return hashlib.sha256(receipt_handle.encode()).hexdigest()[:16]
 
 
@@ -86,7 +86,7 @@ class Truth:
             self.f.flush()
 
 
-# The driver asks for SQS's facts itself rather than relying on the qv2 hooks to add them, so the truth doesn't
+# The driver asks for SQS's facts itself rather than relying on the Trailbeam hooks to add them, so the truth doesn't
 # depend on the code under test.
 RECEIVE_ATTRIBUTES = ["ApproximateReceiveCount", "SentTimestamp", "ApproximateFirstReceiveTimestamp"]
 
@@ -121,8 +121,8 @@ def ensure_queue(sqs, name: str, visibility_timeout: int, max_receives: int) -> 
 
 
 def install_hooks(role: str):
-    os.environ.setdefault("OTEL_SERVICE_NAME", f"qv2-demo-py-{role}")
-    qv2.boto.install()
+    os.environ.setdefault("OTEL_SERVICE_NAME", f"trailbeam-demo-py-{role}")
+    trailbeam.boto.install()
 
 
 def on_sigterm(*_):
@@ -206,7 +206,7 @@ def consume(args):
 
     def dlq_loop():
         # Reads the dead-letter queue and deletes what it finds. It does not ask for DeadLetterQueueSourceArn:
-        # the qv2 hooks do, and the store shows the move SQS reports with it (contract 3.1).
+        # the Trailbeam hooks do, and the store shows the move SQS reports with it (contract 3.1).
         dlq = f"{args.queue}-dlq"
         dlq_url = sqs.get_queue_url(QueueName=dlq)["QueueUrl"]
         while not stop.is_set():
@@ -305,7 +305,7 @@ def main(argv=None):
     try:
         {"produce": produce, "consume": consume, "deleter": deleter}[args.role](args)
     finally:
-        qv2.boto.uninstall()  # flushes the qv2 spans
+        trailbeam.boto.uninstall()  # flushes the Trailbeam spans
 
 
 if __name__ == "__main__":

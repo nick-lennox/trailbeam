@@ -105,7 +105,7 @@ def test_not_seen_on_the_dead_letter_queue_yet(store):
     """maxReceiveCount configured for orders; the receive count reached it, and no DLQ receive reported a move."""
     import threading
 
-    from qv2_store.server import make_server
+    from trailbeam_store.server import make_server
 
     httpd = make_server(store, "127.0.0.1", 0, max_receive_counts={"orders": 2})
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
@@ -346,7 +346,7 @@ def test_an_inferred_window_that_ties_with_an_observed_start_is_listed_after_it(
     to the store's member order: in the reviewer's screenshots the expiry was listed above the receive it is
     placed after. On a tie an observed step now comes first, whatever the member order; otherwise rows stay
     by request start, never by kind."""
-    from qv2_store import web
+    from trailbeam_store import web
 
     p, c, d = Consumer("producer"), Consumer("consumer-a"), Consumer("consumer-b")
     ms = 1_000_000
@@ -375,7 +375,7 @@ def test_the_tie_holds_for_nanosecond_starts_as_python_spans_have(server):
     time to the microsecond, so the receive started a few hundred ns after its window's ``from`` and the
     exact-tie rule never fired: the expiry was listed above its receive in 87 of 87 Python windows. The times
     here are shaped like real ones (QV-39: from ...45.115712Z, receive start ...45.115712133 ns)."""
-    from qv2_store import web
+    from trailbeam_store import web
 
     p, c, d = Consumer("producer"), Consumer("consumer-a"), Consumer("consumer-b")
     ms = 1_000_000

@@ -8,7 +8,7 @@ const api = require('@opentelemetry/api');
 const { AsyncLocalStorageContextManager } = require('@opentelemetry/context-async-hooks');
 const { BasicTracerProvider, BatchSpanProcessor, InMemorySpanExporter, SimpleSpanProcessor } = require('@opentelemetry/sdk-trace-base');
 
-const qv2 = require('../src/index');
+const trailbeam = require('../src/index');
 const order = require('../src/order');
 const { decideOutcomes, queueFromArn, sqsRecords, errorType } = require('../src/lambda');
 
@@ -19,7 +19,7 @@ const FIXTURES = path.join(__dirname, '..', '..', 'python', 'tests', 'fixtures')
 const QV9 = JSON.parse(fs.readFileSync(path.join(FIXTURES, 'qv9_lambda_events.json'), 'utf8'));
 const DOCS = JSON.parse(fs.readFileSync(path.join(FIXTURES, 'aws_docs_sqs_event.json'), 'utf8')).event;
 
-const KEY = 'example-key-0123456789abcdef'; // key ID 3b3edeb7, from docs/span-contract-vectors.json
+const KEY = 'example-key-0123456789abcdef'; // key ID 05769f58, from docs/span-contract-vectors.json
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const ctx = (awsRequestId = 'req-1', functionName = 'orders-fn') => ({ awsRequestId, functionName, getRemainingTimeInMillis: () => 30000 });
 
@@ -29,7 +29,7 @@ function wrapped(fn, { batch = true, ...options } = {}) {
   const spanProcessor = batch
     ? new BatchSpanProcessor(exporter, { scheduledDelayMillis: 60000 })
     : new SimpleSpanProcessor(exporter);
-  const handler = qv2.wrapHandler(fn, { receiptHashKey: KEY, spanProcessor, ...options });
+  const handler = trailbeam.wrapHandler(fn, { receiptHashKey: KEY, spanProcessor, ...options });
   return { handler, exporter, spans: (name) => exporter.getFinishedSpans().filter((s) => !name || s.name === name) };
 }
 
@@ -77,20 +77,20 @@ test('recorded QV-9 events: every delivery gets a receive, every delivery not ki
       assert.deepStrictEqual(await run, await inner(event, c));
     }
     const finished = exporter.getFinishedSpans(); // before shutdown: the wrapper must have flushed
-    await handler.qv2TracerProvider.shutdown();
+    await handler.trailbeamTracerProvider.shutdown();
     deliveries += records.length;
     assert.deepStrictEqual(event, inv.event, 'the wrapper does not modify the event');
 
-    assert.deepStrictEqual(seenBeforeHandler, Array(records.length).fill('qv2 receive'), 'receives exported before the handler ran');
-    const receives = new Map(finished.filter((s) => s.name === 'qv2 receive').map((s) => [s.attributes['messaging.message.id'], s]));
-    const outcomes = new Map(finished.filter((s) => s.name === 'qv2 outcome').map((s) => [s.attributes['messaging.message.id'], s]));
+    assert.deepStrictEqual(seenBeforeHandler, Array(records.length).fill('trailbeam receive'), 'receives exported before the handler ran');
+    const receives = new Map(finished.filter((s) => s.name === 'trailbeam receive').map((s) => [s.attributes['messaging.message.id'], s]));
+    const outcomes = new Map(finished.filter((s) => s.name === 'trailbeam outcome').map((s) => [s.attributes['messaging.message.id'], s]));
     assert.strictEqual(finished.length, records.length + outcomes.size);
     assert.strictEqual(receives.size, records.length);
     for (const r of records) {
       const mid = r.messageId;
       const rcv = receives.get(mid).attributes;
-      assert.strictEqual(rcv['qv2.receipt_handle.hmac'], qv2.hashReceiptHandle(KEY, r.receiptHandle));
-      assert.strictEqual(rcv['qv2.receive_count'], Number(r.attributes.ApproximateReceiveCount));
+      assert.strictEqual(rcv['trailbeam.receipt_handle.hmac'], trailbeam.hashReceiptHandle(KEY, r.receiptHandle));
+      assert.strictEqual(rcv['trailbeam.receive_count'], Number(r.attributes.ApproximateReceiveCount));
       assert.strictEqual(rcv['faas.invocation_id'], inv.aws_request_id);
       assert.strictEqual(rcv['messaging.client.id'], inv.log_stream_name);
       const want = inv.expected[mid];
@@ -98,10 +98,10 @@ test('recorded QV-9 events: every delivery gets a receive, every delivery not ki
         assert.ok(!outcomes.has(mid), 'killed: no outcome; the store infers it from the receive');
       } else {
         const out = outcomes.get(mid);
-        assert.strictEqual(out.attributes['qv2.outcome'], want, `${inv.aws_request_id} ${mid}`);
+        assert.strictEqual(out.attributes['trailbeam.outcome'], want, `${inv.aws_request_id} ${mid}`);
         assert.strictEqual(out.attributes['faas.invocation_id'], inv.aws_request_id);
-        if (want === 'failed_exception') assert.strictEqual(out.attributes['qv2.error_type'], 'RuntimeError');
-        else assert.ok(!('qv2.error_type' in out.attributes));
+        if (want === 'failed_exception') assert.strictEqual(out.attributes['trailbeam.error_type'], 'RuntimeError');
+        else assert.ok(!('trailbeam.error_type' in out.attributes));
         const tOut = out.startTime[0] * 1e9 + out.startTime[1];
         const tRcv = receives.get(mid).endTime[0] * 1e9 + receives.get(mid).endTime[1];
         assert.ok(tOut >= tRcv);
@@ -124,49 +124,49 @@ test('receive and outcome attributes for the AWS documentation event', async (t)
   withEnv(t, 'AWS_LAMBDA_LOG_STREAM_NAME', '2026/11/13/[$LATEST]abc');
   const { handler, spans } = wrapped(async () => undefined, { batch: false });
   assert.strictEqual(await handler(clone(DOCS), ctx()), undefined);
-  const rcv = spans('qv2 receive');
-  const out = spans('qv2 outcome');
+  const rcv = spans('trailbeam receive');
+  const out = spans('trailbeam outcome');
   assert.strictEqual(rcv.length, 2);
   assert.strictEqual(out.length, 2);
-  const { 'qv2.order.returned': returned, ...rcvAttrs } = rcv[0].attributes;
+  const { 'trailbeam.order.returned': returned, ...rcvAttrs } = rcv[0].attributes;
   assert.ok(Number.isInteger(returned) && returned > 0);
   assert.deepStrictEqual(rcvAttrs, {
-    'qv2.schema_version': 3,
-    'qv2.order.scope': order.scope,
-    'qv2.kind': 'sqs.receive',
-    'qv2.source': 'lambda',
-    'qv2.start_observed': false,
+    'trailbeam.schema_version': 3,
+    'trailbeam.order.scope': order.scope,
+    'trailbeam.kind': 'sqs.receive',
+    'trailbeam.source': 'lambda',
+    'trailbeam.start_observed': false,
     'messaging.system.name': 'aws.sqs',
     'messaging.operation.type': 'receive',
     'messaging.operation.name': 'LambdaEvent',
     'messaging.client.id': '2026/11/13/[$LATEST]abc',
     'messaging.destination.name': 'my-queue',
     'aws.sqs.queue.url': 'https://sqs.us-east-2.amazonaws.com/123456789012/my-queue',
-    'qv2.queue.arn': 'arn:aws:sqs:us-east-2:123456789012:my-queue',
+    'trailbeam.queue.arn': 'arn:aws:sqs:us-east-2:123456789012:my-queue',
     'process.pid': process.pid,
     'messaging.message.id': '059f36b4-87a3-44ab-83d2-661975830a7d',
-    'qv2.receipt_handle.hmac': qv2.hashReceiptHandle(KEY, 'AQEBwJnKyrHigUMZj6rYigCgxlaS3SLy0a...'),
-    'qv2.receipt_handle.key_id': '3b3edeb7',
-    'qv2.receive_count': 1,
-    'qv2.sent_timestamp_ms': 1545082649183,
-    'qv2.first_receive_timestamp_ms': 1545082649185,
+    'trailbeam.receipt_handle.hmac': trailbeam.hashReceiptHandle(KEY, 'AQEBwJnKyrHigUMZj6rYigCgxlaS3SLy0a...'),
+    'trailbeam.receipt_handle.key_id': '05769f58',
+    'trailbeam.receive_count': 1,
+    'trailbeam.sent_timestamp_ms': 1545082649183,
+    'trailbeam.first_receive_timestamp_ms': 1545082649185,
     'faas.name': 'orders-fn',
     'faas.invocation_id': 'req-1',
   });
   const o = out[0].attributes;
-  assert.strictEqual(o['qv2.kind'], 'sqs.outcome');
+  assert.strictEqual(o['trailbeam.kind'], 'sqs.outcome');
   assert.strictEqual(o['messaging.operation.type'], 'process');
-  assert.strictEqual(o['qv2.source'], 'lambda');
-  assert.strictEqual(o['qv2.outcome'], 'success');
-  assert.ok(!('qv2.error_type' in o));
+  assert.strictEqual(o['trailbeam.source'], 'lambda');
+  assert.strictEqual(o['trailbeam.outcome'], 'success');
+  assert.ok(!('trailbeam.error_type' in o));
   assert.deepStrictEqual([o['faas.name'], o['faas.invocation_id']], ['orders-fn', 'req-1']);
   // Contract v2 section 2: Lambda's own ReceiveMessage is not seen. The receive span is zero-length at
   // its upper bound (before the handler ran), marked start-not-observed; no start is invented.
-  assert.ok(!('qv2.start_observed' in o));
+  assert.ok(!('trailbeam.start_observed' in o));
   const hr = ([sec, ns]) => sec * 1e9 + ns;
   assert.ok(hr(rcv[0].endTime) <= hr(out[0].startTime));
   for (const s of [...rcv, ...out]) {
-    assert.strictEqual(s.instrumentationScope.name, 'qv2');
+    assert.strictEqual(s.instrumentationScope.name, 'trailbeam');
     assert.deepStrictEqual(s.startTime, s.endTime);
     assert.strictEqual(s.kind, api.SpanKind.INTERNAL);
     for (const v of Object.values(s.attributes)) {
@@ -179,31 +179,31 @@ test('an exception records the class name only, and is rethrown', async () => {
   class SecretError extends TypeError {}
   const { handler, spans } = wrapped(async () => { throw new SecretError('contains customer data'); }, { batch: false });
   await assert.rejects(handler(clone(DOCS), ctx()), SecretError);
-  const out = spans('qv2 outcome');
-  assert.deepStrictEqual(out.map((s) => s.attributes['qv2.outcome']), ['failed_exception', 'failed_exception']);
-  assert.deepStrictEqual(new Set(out.map((s) => s.attributes['qv2.error_type'])), new Set(['SecretError']));
+  const out = spans('trailbeam outcome');
+  assert.deepStrictEqual(out.map((s) => s.attributes['trailbeam.outcome']), ['failed_exception', 'failed_exception']);
+  assert.deepStrictEqual(new Set(out.map((s) => s.attributes['trailbeam.error_type'])), new Set(['SecretError']));
   assert.ok(!out.some((s) => Object.values(s.attributes).some((v) => String(v).includes('customer'))));
 });
 
 test('a synchronous handler, and one that throws synchronously', async () => {
   let w = wrapped(() => ({ batchItemFailures: [{ itemIdentifier: DOCS.Records[1].messageId }] }), { batch: false });
   assert.deepStrictEqual(await w.handler(clone(DOCS), ctx()), { batchItemFailures: [{ itemIdentifier: DOCS.Records[1].messageId }] });
-  assert.deepStrictEqual(w.spans('qv2 outcome').map((s) => s.attributes['qv2.outcome']), ['success', 'failed_reported']);
+  assert.deepStrictEqual(w.spans('trailbeam outcome').map((s) => s.attributes['trailbeam.outcome']), ['success', 'failed_reported']);
 
   w = wrapped(() => { throw new RangeError('x'); }, { batch: false });
   await assert.rejects(w.handler(clone(DOCS), ctx()), RangeError);
-  assert.deepStrictEqual(w.spans('qv2 outcome').map((s) => s.attributes['qv2.error_type']), ['RangeError', 'RangeError']);
+  assert.deepStrictEqual(w.spans('trailbeam outcome').map((s) => s.attributes['trailbeam.error_type']), ['RangeError', 'RangeError']);
 });
 
 test('a callback-style handler', async () => {
   // eslint-disable-next-line no-unused-vars
   let w = wrapped((event, context, callback) => { setImmediate(() => callback(null, { batchItemFailures: [] })); }, { batch: false });
   assert.deepStrictEqual(await w.handler(clone(DOCS), ctx()), { batchItemFailures: [] });
-  assert.deepStrictEqual(w.spans('qv2 outcome').map((s) => s.attributes['qv2.outcome']), ['success', 'success']);
+  assert.deepStrictEqual(w.spans('trailbeam outcome').map((s) => s.attributes['trailbeam.outcome']), ['success', 'success']);
 
   w = wrapped((event, context, callback) => callback(new SyntaxError('bad')), { batch: false });
   await assert.rejects(w.handler(clone(DOCS), ctx()), SyntaxError);
-  assert.deepStrictEqual(w.spans('qv2 outcome').map((s) => s.attributes['qv2.outcome']), ['failed_exception', 'failed_exception']);
+  assert.deepStrictEqual(w.spans('trailbeam outcome').map((s) => s.attributes['trailbeam.outcome']), ['failed_exception', 'failed_exception']);
   assert.strictEqual(w.handler.length, 2, 'the wrapper itself is an async (event, context) handler');
 });
 
@@ -224,7 +224,7 @@ test('a record from a dead-letter queue: DeadLetterQueueSourceArn is copied if t
   ev.Records[0].attributes.DeadLetterQueueSourceArn = 'arn:aws:sqs:us-east-2:123456789012:orders';
   ev.Records[1].attributes.DeadLetterQueueSourceArn = '';
   await handler(ev, ctx());
-  assert.deepStrictEqual(spans('qv2 receive').map((s) => s.attributes['qv2.dead_letter_queue_source_arn']),
+  assert.deepStrictEqual(spans('trailbeam receive').map((s) => s.attributes['trailbeam.dead_letter_queue_source_arn']),
     ['arn:aws:sqs:us-east-2:123456789012:orders', undefined]);
 });
 
@@ -258,14 +258,14 @@ test('faas.name falls back to AWS_LAMBDA_FUNCTION_NAME; a missing request ID is 
 test('an exporter that never answers does not hold the invocation past the flush timeout', async () => {
   const stuck = { export() {}, shutdown: async () => {}, forceFlush: () => new Promise(() => {}) };
   const spanProcessor = { onStart() {}, onEnd() {}, shutdown: async () => {}, forceFlush: () => stuck.forceFlush() };
-  const handler = qv2.wrapHandler(async () => 'done', { receiptHashKey: KEY, spanProcessor, flushTimeoutMs: 20 });
+  const handler = trailbeam.wrapHandler(async () => 'done', { receiptHashKey: KEY, spanProcessor, flushTimeoutMs: 20 });
   const t0 = Date.now();
   assert.strictEqual(await handler(clone(DOCS), ctx()), 'done');
   assert.ok(Date.now() - t0 < 1000);
 });
 
 test('wrapHandler rejects a non-function', () => {
-  assert.throws(() => qv2.wrapHandler('nope'), TypeError);
+  assert.throws(() => trailbeam.wrapHandler('nope'), TypeError);
 });
 
 // -- outcome rules ------------------------------------------------------------------------------
@@ -300,7 +300,7 @@ test('batchItemFailures are ignored when the mapping does not report them', asyn
   assert.deepStrictEqual(new Set(Object.values(decideOutcomes(IDS, r, false))), new Set(['success']));
   const { handler, spans } = wrapped(async () => r, { batch: false, reportBatchItemFailures: false });
   await handler(clone(DOCS), ctx());
-  assert.deepStrictEqual(spans('qv2 outcome').map((s) => s.attributes['qv2.outcome']), ['success', 'success']);
+  assert.deepStrictEqual(spans('trailbeam outcome').map((s) => s.attributes['trailbeam.outcome']), ['success', 'success']);
 });
 
 test('queueFromArn, sqsRecords and errorType', () => {
@@ -322,27 +322,27 @@ test('order: a receive has returned but no issued; an outcome has issued == retu
   let during;
   const { handler, spans } = wrapped(async () => { during = order.tick(); }, { batch: false });
   await handler(clone(DOCS), ctx());
-  const rcv = spans('qv2 receive');
-  const out = spans('qv2 outcome');
+  const rcv = spans('trailbeam receive');
+  const out = spans('trailbeam outcome');
   assert.strictEqual(rcv.length, 2);
   assert.strictEqual(out.length, 2);
-  for (const s of [...rcv, ...out]) assert.strictEqual(s.attributes['qv2.order.scope'], order.scope);
+  for (const s of [...rcv, ...out]) assert.strictEqual(s.attributes['trailbeam.order.scope'], order.scope);
   // Lambda's poller made the ReceiveMessage call: its issue is not seen.
-  for (const s of rcv) assert.ok(!('qv2.order.issued' in s.attributes));
-  assert.strictEqual(rcv[0].attributes['qv2.order.returned'], rcv[1].attributes['qv2.order.returned']);
+  for (const s of rcv) assert.ok(!('trailbeam.order.issued' in s.attributes));
+  assert.strictEqual(rcv[0].attributes['trailbeam.order.returned'], rcv[1].attributes['trailbeam.order.returned']);
   for (const s of out) {
-    assert.strictEqual(s.attributes['qv2.order.issued'], s.attributes['qv2.order.returned']);
-    assert.strictEqual(s.attributes['qv2.order.issued'], out[0].attributes['qv2.order.issued']);
+    assert.strictEqual(s.attributes['trailbeam.order.issued'], s.attributes['trailbeam.order.returned']);
+    assert.strictEqual(s.attributes['trailbeam.order.issued'], out[0].attributes['trailbeam.order.issued']);
   }
-  assert.ok(rcv[0].attributes['qv2.order.returned'] < during && during < out[0].attributes['qv2.order.issued']);
+  assert.ok(rcv[0].attributes['trailbeam.order.returned'] < during && during < out[0].attributes['trailbeam.order.issued']);
 });
 
 test('order: the outcome after a throw is ordered after the receive', async () => {
   const { handler, spans } = wrapped(async () => { throw new RangeError('x'); }, { batch: false });
   await assert.rejects(handler(clone(DOCS), ctx()), RangeError);
-  const [r] = spans('qv2 receive');
-  const [o] = spans('qv2 outcome');
-  assert.strictEqual(o.attributes['qv2.outcome'], 'failed_exception');
-  assert.strictEqual(o.attributes['qv2.order.issued'], o.attributes['qv2.order.returned']);
-  assert.ok(o.attributes['qv2.order.issued'] > r.attributes['qv2.order.returned']);
+  const [r] = spans('trailbeam receive');
+  const [o] = spans('trailbeam outcome');
+  assert.strictEqual(o.attributes['trailbeam.outcome'], 'failed_exception');
+  assert.strictEqual(o.attributes['trailbeam.order.issued'], o.attributes['trailbeam.order.returned']);
+  assert.ok(o.attributes['trailbeam.order.issued'] > r.attributes['trailbeam.order.returned']);
 });

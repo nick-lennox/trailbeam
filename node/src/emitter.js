@@ -1,5 +1,5 @@
 'use strict';
-// The qv2 tracer provider (contract section 2) and the code that builds and emits qv2 spans.
+// The Trailbeam tracer provider (contract section 2) and the code that builds and emits Trailbeam spans.
 
 const crypto = require('node:crypto');
 const api = require('@opentelemetry/api');
@@ -14,7 +14,7 @@ const SERVICE_NAME = 'service.name';
 const SERVICE_INSTANCE_ID = 'service.instance.id';
 
 /**
- * The resource for qv2 spans (section 5). `service.name` and `service.instance.id` come from
+ * The resource for Trailbeam spans (section 5). `service.name` and `service.instance.id` come from
  * OTEL_SERVICE_NAME / OTEL_RESOURCE_ATTRIBUTES if set, else `unknown_service` and a UUID v4.
  */
 function makeResource() {
@@ -27,8 +27,8 @@ function makeResource() {
 }
 
 /**
- * An always-on provider of our own, so the application's sampling never drops qv2 spans. It is not
- * registered globally. Exports OTLP/HTTP (protobuf) to $QV2_OTLP_TRACES_ENDPOINT unless a span
+ * An always-on provider of our own, so the application's sampling never drops Trailbeam spans. It is not
+ * registered globally. Exports OTLP/HTTP (protobuf) to $TRAILBEAM_OTLP_TRACES_ENDPOINT unless a span
  * exporter or span processor is given. Returns `{ provider, resource }`.
  */
 function makeProvider({ spanExporter, spanProcessor } = {}) {
@@ -55,7 +55,7 @@ function makeProvider({ spanExporter, spanProcessor } = {}) {
  */
 const nowMs = () => Date.now();
 
-/** Emits qv2 spans with the attributes every qv2 span carries (contract section 3). */
+/** Emits Trailbeam spans with the attributes every Trailbeam span carries (contract section 3). */
 class Emitter {
   constructor(provider, hasher, source, clientId) {
     this.provider = provider;
@@ -67,8 +67,8 @@ class Emitter {
 
   hashAttrs(receiptHandle) {
     return {
-      'qv2.receipt_handle.hmac': this.hasher.hash(receiptHandle),
-      'qv2.receipt_handle.key_id': this.hasher.keyId,
+      'trailbeam.receipt_handle.hmac': this.hasher.hash(receiptHandle),
+      'trailbeam.receipt_handle.key_id': this.hasher.keyId,
     };
   }
 
@@ -80,14 +80,14 @@ class Emitter {
    *
    * Call order (schema version 3): `order` is `{ issued, returned }`, ticks of this process's call-order
    * counter (`order.tick()`) taken at the span's start and end; `issued` is undefined when the start
-   * was not observed. With an order, the span also carries `qv2.order.scope`.
+   * was not observed. With an order, the span also carries `trailbeam.order.scope`.
    */
   emit(name, operation, queueName, queueUrl, attrs, { parentContext, startTime, endTime, startObserved = true, order: ticks } = {}) {
     const [kind, opType] = KINDS[name];
     const base = {
-      'qv2.schema_version': SCHEMA_VERSION,
-      'qv2.kind': kind,
-      'qv2.source': this.source,
+      'trailbeam.schema_version': SCHEMA_VERSION,
+      'trailbeam.kind': kind,
+      'trailbeam.source': this.source,
       'messaging.system.name': 'aws.sqs',
       'messaging.operation.type': opType,
       'messaging.operation.name': operation,
@@ -96,12 +96,12 @@ class Emitter {
     if (queueName) base['messaging.destination.name'] = queueName;
     if (queueUrl) base['aws.sqs.queue.url'] = queueUrl;
     if (this.clientId) base['messaging.client.id'] = String(this.clientId);
-    if (!startObserved) base['qv2.start_observed'] = false;
+    if (!startObserved) base['trailbeam.start_observed'] = false;
     if (ticks) {
       const { issued, returned } = ticks;
-      if (issued !== undefined || returned !== undefined) base['qv2.order.scope'] = order.scope;
-      if (issued !== undefined) base['qv2.order.issued'] = issued;
-      if (returned !== undefined) base['qv2.order.returned'] = returned;
+      if (issued !== undefined || returned !== undefined) base['trailbeam.order.scope'] = order.scope;
+      if (issued !== undefined) base['trailbeam.order.issued'] = issued;
+      if (returned !== undefined) base['trailbeam.order.returned'] = returned;
     }
     Object.assign(base, attrs);
     const end = endTime !== undefined ? endTime : nowMs();

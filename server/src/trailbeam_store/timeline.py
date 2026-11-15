@@ -1,6 +1,6 @@
 """Per-message timelines, built from the stored rows of one message (docs/store-api.md).
 
-Observed events come from qv2 spans. Each is an interval (contract section 2): ``start`` just before the
+Observed events come from Trailbeam spans. Each is an interval (contract section 2): ``start`` just before the
 SQS request was sent (``None`` if not observed, as for a Lambda receive), ``end`` when the response came.
 Inferred events (contract section 9) have no span and are always marked ``inferred: true``, with a time
 window instead of a time. The move to a dead-letter queue has no span either, but is observed: SQS reports
@@ -152,7 +152,7 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
             infer(s0, r, 2, _inferred(
                 "deliveries_not_observed", _start(s0) if s0 else None, r["time_ns"],
                 f"The first observed receive has receive count {r['receive_count']}, so "
-                f"{r['receive_count'] - 1} earlier receive(s) were not observed (a consumer without qv2, "
+                f"{r['receive_count'] - 1} earlier receive(s) were not observed (a consumer without Trailbeam, "
                 f"or lost spans).", count=r["receive_count"] - 1, queue=q))
         if p is not None and r["receive_count"] > p["receive_count"]:
             gap = r["receive_count"] - p["receive_count"] - 1
@@ -412,7 +412,7 @@ def _not_seen_notice(queue: str, count: int, mrc: int) -> dict:
             f"Receive count exceeded maxReceiveCount; not seen on the DLQ yet. The last receive on {queue} had "
             f"receive count {count}, and {queue}'s maxReceiveCount is {mrc}, so SQS moves the message to its "
             f"dead-letter queue instead of delivering it again. No receive from the dead-letter queue has "
-            f"reported the move yet, so no move is shown. qv2 does not receive from the dead-letter queue to "
+            f"reported the move yet, so no move is shown. Trailbeam does not receive from the dead-letter queue to "
             f"check: a receive changes the message's state."}
 
 
@@ -448,7 +448,7 @@ def successful_deliveries(rows) -> int:
 
 
 # The clock a "first seen" time is on (QV-32 section 4). The two are never compared with each other.
-HOST_CLOCK = "host"  # the clock of the host that made the call (a qv2 span's end)
+HOST_CLOCK = "host"  # the clock of the host that made the call (a Trailbeam span's end)
 SQS_CLOCK = "sqs"    # SQS's own clock: SentTimestamp, in milliseconds
 
 
@@ -474,7 +474,7 @@ def _notices(rows, receives, order=None) -> list[dict]:
                     "are listed in order.conflicts."})
     if any(r["key_id"] == DEFAULT_KEY_ID for r in rows):
         out.append({"code": "default_key", "message":
-                    "Some spans hash receipt handles with the published default key. Set QV2_RECEIPT_HASH_KEY "
+                    "Some spans hash receipt handles with the published default key. Set TRAILBEAM_RECEIPT_HASH_KEY "
                     "to the same secret in every service."})
     unmatched = [r for r in rows if r["kind"] in ("delete", "change_visibility") and r["receive_row"] is None]
     if unmatched:
@@ -482,14 +482,14 @@ def _notices(rows, receives, order=None) -> list[dict]:
         if receives and any(r["key_id"] not in rkeys for r in unmatched):
             out.append({"code": "key_mismatch", "message":
                         "A delete or visibility change for this message used a different receipt-hash key than "
-                        "its receives (qv2.receipt_handle.key_id differs), so it cannot be joined to a delivery. "
-                        "Use the same QV2_RECEIPT_HASH_KEY everywhere."})
+                        "its receives (trailbeam.receipt_handle.key_id differs), so it cannot be joined to a delivery. "
+                        "Use the same TRAILBEAM_RECEIPT_HASH_KEY everywhere."})
         else:
             out.append({"code": "unmatched_handle", "message":
                         "A delete or visibility change carries this message ID, but no stored receive has its "
                         "receipt-handle hash, so it is not attached to a delivery."})
     if not any(r["kind"] == "send" for r in rows):
         out.append({"code": "send_not_observed", "message":
-                    "No qv2 send span for this message: the producer is not instrumented, or the send is older "
+                    "No trailbeam send span for this message: the producer is not instrumented, or the send is older "
                     "than the stored data."})
     return out

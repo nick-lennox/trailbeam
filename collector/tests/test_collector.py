@@ -1,7 +1,7 @@
-"""Runs the real Collector with qv2-collector.yaml (and backend.yaml) between fake OTLP/HTTP sinks.
+"""Runs the real Collector with trailbeam-collector.yaml (and backend.yaml) between fake OTLP/HTTP sinks.
 
-Needs an otelcol-contrib binary: $QV2_OTELCOL_BIN, or `otelcol-contrib` on PATH. Skipped otherwise.
-The test sends one OTLP request holding qv2 spans, stock SQS spans of several SDKs, and other spans,
+Needs an otelcol-contrib binary: $TRAILBEAM_OTELCOL_BIN, or `otelcol-contrib` on PATH. Skipped otherwise.
+The test sends one OTLP request holding Trailbeam spans, stock SQS spans of several SDKs, and other spans,
 and checks which spans reach the store sink and the backend sink.
 """
 from __future__ import annotations
@@ -23,8 +23,8 @@ from opentelemetry.proto.common.v1.common_pb2 import AnyValue, InstrumentationSc
 from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span
 
 HERE = Path(__file__).resolve().parent.parent
-OTELCOL = os.environ.get("QV2_OTELCOL_BIN") or shutil.which("otelcol-contrib")
-pytestmark = pytest.mark.skipif(not OTELCOL, reason="no otelcol-contrib binary (set QV2_OTELCOL_BIN)")
+OTELCOL = os.environ.get("TRAILBEAM_OTELCOL_BIN") or shutil.which("otelcol-contrib")
+pytestmark = pytest.mark.skipif(not OTELCOL, reason="no otelcol-contrib binary (set TRAILBEAM_OTELCOL_BIN)")
 
 
 def free_port() -> int:
@@ -86,7 +86,7 @@ def span(name: str, trace_id: bytes, n: int, **attrs) -> Span:
 def request() -> ExportTraceServiceRequest:
     """One trace with every kind of span, so tail sampling decides on the same trace the SQS spans are in."""
     tid = os.urandom(16)
-    qv2 = [span(f"qv2 {k}", tid, i + 1, qv2__schema_version=1, qv2__kind=k)
+    trailbeam = [span(f"trailbeam {k}", tid, i + 1, trailbeam__schema_version=1, trailbeam__kind=k)
            for i, k in enumerate(["send", "receive", "delete"])]
     stock = [
         span("SQS.ReceiveMessage", tid, 11, rpc__system="aws-api", rpc__service="SQS"),  # botocore
@@ -99,21 +99,21 @@ def request() -> ExportTraceServiceRequest:
     other = [span("GET /orders", tid, 21, http__request__method="GET"),
              span("SELECT orders", tid, 22, db__system="postgresql")]
     return ExportTraceServiceRequest(resource_spans=[ResourceSpans(scope_spans=[
-        ScopeSpans(scope=InstrumentationScope(name="qv2", version="0.1.0"), spans=qv2),
+        ScopeSpans(scope=InstrumentationScope(name="trailbeam", version="0.1.0"), spans=trailbeam),
         ScopeSpans(scope=InstrumentationScope(name="opentelemetry.instrumentation.botocore"), spans=stock),
         ScopeSpans(scope=InstrumentationScope(name="app"), spans=other),
     ])])
 
 
-QV2 = sorted(["qv2 send", "qv2 receive", "qv2 delete"])
+TRAILBEAM = sorted(["trailbeam send", "trailbeam receive", "trailbeam delete"])
 STOCK = sorted(["SQS.ReceiveMessage", "SQS.DeleteMessage", "Sqs.SendMessage", "orders send", "orders process"])
 OTHER = sorted(["GET /orders", "SELECT orders"])
 
 
 def run_collector(configs: list[str], env: dict):
     http_port, grpc_port = free_port(), free_port()
-    env = {**os.environ, **env, "QV2_COLLECTOR_HTTP_ENDPOINT": f"127.0.0.1:{http_port}",
-           "QV2_COLLECTOR_GRPC_ENDPOINT": f"127.0.0.1:{grpc_port}"}
+    env = {**os.environ, **env, "TRAILBEAM_COLLECTOR_HTTP_ENDPOINT": f"127.0.0.1:{http_port}",
+           "TRAILBEAM_COLLECTOR_GRPC_ENDPOINT": f"127.0.0.1:{grpc_port}"}
     args = [OTELCOL] + [a for c in configs for a in ("--config", str(HERE / c))]
     proc = subprocess.Popen(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     deadline = time.time() + 20
@@ -163,13 +163,13 @@ def stop(proc):
     return out
 
 
-def test_store_gets_every_qv2_span_and_nothing_else(sinks):
-    proc, url = run_collector(["qv2-collector.yaml"], {"QV2_STORE_ENDPOINT": sinks["store"].url})
+def test_store_gets_every_trailbeam_span_and_nothing_else(sinks):
+    proc, url = run_collector(["trailbeam-collector.yaml"], {"TRAILBEAM_STORE_ENDPOINT": sinks["store"].url})
     try:
         post(url, request())
-        wait_for(sinks["store"].snapshot, QV2)
+        wait_for(sinks["store"].snapshot, TRAILBEAM)
         time.sleep(1)  # nothing else arrives later
-        assert sinks["store"].snapshot() == QV2
+        assert sinks["store"].snapshot() == TRAILBEAM
     finally:
         log = stop(proc)
     assert '"error"' not in log.lower() and "\terror\t" not in log, log
@@ -177,19 +177,19 @@ def test_store_gets_every_qv2_span_and_nothing_else(sinks):
 
 @pytest.mark.parametrize("percentage", [0, 100])
 def test_backend_keeps_every_sqs_span_while_the_rest_is_sampled(sinks, percentage):
-    proc, url = run_collector(["qv2-collector.yaml", "backend.yaml"], {
-        "QV2_STORE_ENDPOINT": sinks["store"].url,
-        "QV2_BACKEND_ENDPOINT": sinks["backend"].url,
-        "QV2_BACKEND_SAMPLING_PERCENTAGE": str(percentage),
+    proc, url = run_collector(["trailbeam-collector.yaml", "backend.yaml"], {
+        "TRAILBEAM_STORE_ENDPOINT": sinks["store"].url,
+        "TRAILBEAM_BACKEND_ENDPOINT": sinks["backend"].url,
+        "TRAILBEAM_BACKEND_SAMPLING_PERCENTAGE": str(percentage),
     })
     try:
         post(url, request())
-        want = sorted(QV2 + STOCK + (OTHER if percentage == 100 else []))
+        want = sorted(TRAILBEAM + STOCK + (OTHER if percentage == 100 else []))
         wait_for(sinks["backend"].snapshot, want, timeout=20)  # tail sampling waits 5s per trace
         if percentage == 0:
             time.sleep(6)  # past decision_wait: the sampled-out spans must not arrive late
         assert sinks["backend"].snapshot() == want
-        assert sinks["store"].snapshot() == QV2
+        assert sinks["store"].snapshot() == TRAILBEAM
     finally:
         log = stop(proc)
     assert "\terror\t" not in log, log

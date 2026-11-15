@@ -66,12 +66,12 @@ def test_spans_of_other_scopes_are_ignored(server, store):
 
 
 @pytest.mark.parametrize("mutate,reason", [
-    (lambda a: a.update({"qv2.schema_version": 1}), "qv2.schema_version 1 is not one of 2, 3"),
-    (lambda a: a.pop("qv2.receipt_handle.hmac"), "receive span without receipt_hmac"),
-    (lambda a: a.update({"qv2.kind": "sqs.peek"}), "unknown qv2.kind"),
+    (lambda a: a.update({"trailbeam.schema_version": 1}), "trailbeam.schema_version 1 is not one of 2, 3"),
+    (lambda a: a.pop("trailbeam.receipt_handle.hmac"), "receive span without receipt_hmac"),
+    (lambda a: a.update({"trailbeam.kind": "sqs.peek"}), "unknown trailbeam.kind"),
     (lambda a: a.update({"messaging.message.id": ""}), "receive span without message_id"),
 ])
-def test_invalid_qv2_spans_are_rejected_and_reported(server, store, mutate, reason):
+def test_invalid_trailbeam_spans_are_rejected_and_reported(server, store, mutate, reason):
     c = Consumer()
     bad = c.receive(T0, "m1", "rh-1")
     mutate(bad.attrs)
@@ -83,7 +83,7 @@ def test_invalid_qv2_spans_are_rejected_and_reported(server, store, mutate, reas
 
 def test_rejections_in_json_mode(server, store):
     bad = Consumer().receive(T0, "m1", "rh-1")
-    bad.attrs["qv2.schema_version"] = 1
+    bad.attrs["trailbeam.schema_version"] = 1
     out = json.loads(post(server, json.dumps(to_json([bad])).encode(), ctype="application/json")[2])
     assert out["partialSuccess"]["rejectedSpans"] == "1"
 
@@ -91,7 +91,7 @@ def test_rejections_in_json_mode(server, store):
 def test_settle_operation_decides_delete_or_change_visibility(server, store):
     """Classification uses messaging.operation.name, never the span name (contract section 1)."""
     d = Consumer().delete(T0, "rh-1")
-    d.name = "qv2 change_visibility"  # misleading name: must be ignored
+    d.name = "trailbeam change_visibility"  # misleading name: must be ignored
     post(server, to_proto([d]).SerializeToString())
     assert [r["kind"] for r in store.query("SELECT kind FROM spans")] == ["delete"]
 
@@ -137,7 +137,7 @@ def test_start_and_end_are_stored(server, store, encode):
         assert post(server, json.dumps(to_json(spans)).encode(), ctype="application/json")[0] == 200
     rows = {r["kind"]: r for r in store.query("SELECT kind, start_ns, time_ns FROM spans")}
     assert (rows["send"]["start_ns"], rows["send"]["time_ns"]) == (T0, T0 + 40)
-    # qv2.start_observed = false: the span's start time is not a start, so it is not stored as one.
+    # trailbeam.start_observed = false: the span's start time is not a start, so it is not stored as one.
     assert (rows["receive"]["start_ns"], rows["receive"]["time_ns"]) == (None, T0 + 2 * SEC)
 
 
@@ -152,7 +152,7 @@ def test_a_span_that_ends_before_it_starts_is_rejected(server, store):
 def test_a_schema_1_database_is_migrated_with_unknown_starts(tmp_path):
     import sqlite3
 
-    from qv2_store.db import Store
+    from trailbeam_store.db import Store
 
     path = str(tmp_path / "v1.sqlite")
     old = sqlite3.connect(path)

@@ -1,33 +1,33 @@
-# qv2 local demo: an SQS emulator, the Collector, the qv2 store, and a producer and consumers in Python and
+# Trailbeam local demo: an SQS emulator, the Collector, the Trailbeam store, and a producer and consumers in Python and
 # Node.js. No AWS account and no AWS credentials: the SDKs get dummy keys and talk only to the emulator.
 #
 #   docker compose -f demo/compose.yaml up -d --build
 #   open http://127.0.0.1:4318/
 #
 # Message flow: producer --SendMessage--> orders (ElasticMQ) --ReceiveMessage--> consumers / deleter
-# Span flow:    every driver --OTLP/HTTP--> collector:4318 --qv2 spans only--> qv2:4318 (store + web screen)
+# Span flow:    every driver --OTLP/HTTP--> collector:4318 --Trailbeam spans only--> trailbeam:4318 (store + web screen)
 #
 # See demo/README.md. The concurrency check (demo/check.sh) reuses these images with `docker compose run`.
 #
-# The project name is qv2-demo unless you set another one with `docker compose -p NAME` or
+# The project name is trailbeam-demo unless you set another one with `docker compose -p NAME` or
 # COMPOSE_PROJECT_NAME=NAME (both override the line below). Containers, volumes, the network and the local
 # image tags (NAME-python:local and so on) all follow it, so a second checkout with its own name, and its own
-# QV2_DEMO_PORT, doesn't replace the first one's containers, timelines or images.
-name: qv2-demo
+# TRAILBEAM_DEMO_PORT, doesn't replace the first one's containers, timelines or images.
+name: trailbeam-demo
 
 x-sdk-env: &sdk-env
-  QV2_DEMO_SQS_ENDPOINT: http://sqs:9324
-  QV2_OTLP_TRACES_ENDPOINT: http://collector:4318/v1/traces
+  TRAILBEAM_DEMO_SQS_ENDPOINT: http://sqs:9324
+  TRAILBEAM_OTLP_TRACES_ENDPOINT: http://collector:4318/v1/traces
   # Shared by every service on the same queues, so deletes join to receives across processes. Unset, the
   # packages use the published default key and the screen shows a notice about it.
-  QV2_RECEIPT_HASH_KEY: ${QV2_RECEIPT_HASH_KEY:-}
+  TRAILBEAM_RECEIPT_HASH_KEY: ${TRAILBEAM_RECEIPT_HASH_KEY:-}
   AWS_REGION: us-east-1
   AWS_ACCESS_KEY_ID: demo-not-a-real-key
   AWS_SECRET_ACCESS_KEY: demo-not-a-real-secret
 
 x-python: &python
   build: { context: .., dockerfile: demo/python/Dockerfile }
-  image: ${COMPOSE_PROJECT_NAME:-qv2-demo}-python:local
+  image: ${COMPOSE_PROJECT_NAME:-trailbeam-demo}-python:local
   init: true
   environment: *sdk-env
   volumes: [truth:/truth]
@@ -35,7 +35,7 @@ x-python: &python
 
 x-node: &node
   build: { context: .., dockerfile: demo/node/Dockerfile }
-  image: ${COMPOSE_PROJECT_NAME:-qv2-demo}-node:local
+  image: ${COMPOSE_PROJECT_NAME:-trailbeam-demo}-node:local
   init: true
   environment: *sdk-env
   volumes: [truth:/truth]
@@ -47,25 +47,25 @@ services:
 
   collector:
     build: { context: .., dockerfile: demo/collector-image/Dockerfile }
-    image: ${COMPOSE_PROJECT_NAME:-qv2-demo}-collector:local
+    image: ${COMPOSE_PROJECT_NAME:-trailbeam-demo}-collector:local
     environment:
-      QV2_COLLECTOR_HTTP_ENDPOINT: 0.0.0.0:4318
-      QV2_COLLECTOR_GRPC_ENDPOINT: 0.0.0.0:4317
-      QV2_STORE_ENDPOINT: http://qv2:4318
-    depends_on: [qv2]
+      TRAILBEAM_COLLECTOR_HTTP_ENDPOINT: 0.0.0.0:4318
+      TRAILBEAM_COLLECTOR_GRPC_ENDPOINT: 0.0.0.0:4317
+      TRAILBEAM_STORE_ENDPOINT: http://trailbeam:4318
+    depends_on: [trailbeam]
 
-  qv2:
+  trailbeam:
     build: ../server
-    image: ${COMPOSE_PROJECT_NAME:-qv2-demo}-store:local
+    image: ${COMPOSE_PROJECT_NAME:-trailbeam-demo}-store:local
     ports:
-      - "127.0.0.1:${QV2_DEMO_PORT:-4318}:4318"
+      - "127.0.0.1:${TRAILBEAM_DEMO_PORT:-4318}:4318"
     environment:
-      QV2_STUCK_AFTER_S: "60"
+      TRAILBEAM_STUCK_AFTER_S: "60"
       # The redrive policy of `orders` below, so a timeline can say "not seen on the DLQ yet" (QV-33).
-      QV2_MAX_RECEIVE_COUNT: orders=3
-    volumes: [qv2-data:/data]
+      TRAILBEAM_MAX_RECEIVE_COUNT: orders=3
+    volumes: [trailbeam-data:/data]
 
-  # The demo workload on the queue `orders`: one message a second, a mix of kinds (see python/qv2demo.py),
+  # The demo workload on the queue `orders`: one message a second, a mix of kinds (see python/trailbeamdemo.py),
   # consumed by a Python process and a Node.js process at the same time. Visibility timeout 10 s and
   # maxReceiveCount 3, so redeliveries and the dead-letter queue show up within a minute.
   producer:
@@ -89,10 +89,10 @@ services:
   # The concurrency checker, used only by demo/check.sh (`docker compose run`); `up` doesn't start it.
   checker:
     build: { context: .., dockerfile: demo/check/Dockerfile }
-    image: ${COMPOSE_PROJECT_NAME:-qv2-demo}-checker:local
+    image: ${COMPOSE_PROJECT_NAME:-trailbeam-demo}-checker:local
     profiles: [check]
     volumes: [truth:/truth]
 
 volumes:
-  qv2-data:
+  trailbeam-data:
   truth:

@@ -131,7 +131,7 @@ def _index(api, q: dict) -> Response:
     body = ("<h1>Look up a message</h1>" + _lookup_form("")
             + "<h2>Recent messages</h2>" + _filters("/", q, [("queue", "Queue", "text"), ("limit", "Limit", "number")])
             + _summary_table(data["messages"], empty="No messages stored yet."))
-    return _page(200, "qv2", body)
+    return _page(200, "Trailbeam", body)
 
 
 def _message(api, q: dict) -> Response:
@@ -462,12 +462,12 @@ def _lookup_form(value: str) -> str:
 def _page(status: int, title: str, body: str) -> Response:
     html = ("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-            f"<title>{escape(title)} - qv2</title><style>{CSS}</style></head><body>"
-            '<header><a class="brand" href="/">qv2</a><a href="/">Messages</a>'
+            f"<title>{escape(title)} - Trailbeam</title><style>{CSS}</style></head><body>"
+            '<header><a class="brand" href="/">Trailbeam</a><a href="/">Messages</a>'
             '<a href="/duplicates">Duplicates</a><a href="/stuck">Stuck</a>'
             '<form method="get" action="/message"><input type="text" name="id" placeholder="Message ID">'
             "<button>Go</button></form></header>"
-            f"<main>{body}</main><footer>qv2 store {escape(__version__)} · "
+            f"<main>{body}</main><footer>Trailbeam store {escape(__version__)} · "
             '<a href="/api/health">health</a></footer></body></html>')
     return status, {"Content-Type": "text/html; charset=utf-8"}, html.encode()
 

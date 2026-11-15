@@ -2,7 +2,7 @@
 
 ``scope`` names this process's counter; ``tick()`` returns a strictly increasing integer, starting
 at 1. Two ticks with the same scope were taken in this order in one process, whatever the clock
-said. Every qv2 hook and wrapper in the process shares this one counter, **across all its threads**:
+said. Every Trailbeam hook and wrapper in the process shares this one counter, **across all its threads**:
 the scope is the process, not a thread. That is sound because the lock makes the ticks one sequence in
 real time, and an edge needs A's ``returned`` tick (after its response) before B's ``issued`` tick
 (before its request), so two calls in flight together are never ordered, whichever threads made them

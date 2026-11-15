@@ -1,5 +1,5 @@
 'use strict';
-// @qv2/sdk: the spans in docs/span-contract.md for AWS SDK v3 SQS clients and AWS Lambda.
+// @trailbeam/sdk: the spans in docs/span-contract.md for AWS SDK v3 SQS clients and AWS Lambda.
 
 const { version } = require('./version');
 const { hashReceiptHandle, keyId, SCHEMA_VERSION } = require('./contract');

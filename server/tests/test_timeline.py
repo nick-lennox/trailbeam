@@ -1,8 +1,8 @@
 """Timelines, inferred steps, duplicate deliveries and stuck messages."""
 import pytest
 
-from qv2_store import queries
-from qv2_store.timeline import iso
+from trailbeam_store import queries
+from trailbeam_store.timeline import iso
 from spans import KEY, SEC, T0, Consumer
 
 NOW = T0 + 3600 * SEC
@@ -175,7 +175,7 @@ def test_move_reported_by_the_first_of_several_dead_letter_receives(store, inges
 
 
 def test_move_when_no_receive_on_the_source_queue_was_observed(store, ingest):
-    """The consumers of orders run without qv2: the move is still reported, placed after the send."""
+    """The consumers of orders run without Trailbeam: the move is still reported, placed after the send."""
     p, d = Consumer("producer"), Consumer("dlq-worker", queue="orders-dlq")
     ingest(p.send(T0, "m1"), d.receive(T0 + 50 * SEC, "m1", "rh-d1", count=4, dlq_source="orders"))
     t = tl(store, "m1")
@@ -402,7 +402,7 @@ def test_every_observed_event_has_start_end_and_group(store, ingest):
 
 
 def test_notices(store, ingest):
-    dflt = Consumer(key="qv2-default-receipt-hash-key")
+    dflt = Consumer(key="trailbeam-default-receipt-hash-key")
     ingest(dflt.receive(T0, "m1", "rh-1"), dflt.delete(T0 + SEC, "rh-1"))
     assert [n["code"] for n in tl(store, "m1")["notices"]] == ["default_key", "send_not_observed"]
 
@@ -692,7 +692,7 @@ def test_sources_that_contradict_each_other_order_nothing(store, ingest):
 
 
 def test_spans_without_call_order_still_work(store, ingest):
-    """Contract v2 spans carry no qv2.order.*: only the other sources apply."""
+    """Contract v2 spans carry no trailbeam.order.*: only the other sources apply."""
     c = Consumer()
     ingest(c.receive(T0 + 20 * MS, "m1", "rh-1", start=T0), c.delete(T0 + 25 * MS, "rh-1", start=T0 + 20 * MS))
     assert tl(store, "m1")["order"]["edges"] == []

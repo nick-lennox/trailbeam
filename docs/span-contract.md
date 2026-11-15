@@ -1,46 +1,46 @@
-# qv2 span contract, schema version 3 (revision 3.1)
+# Trailbeam span contract, schema version 3 (revision 3.1)
 
-This file defines the OpenTelemetry spans that the `qv2` Python package and the `@qv2/sdk` Node.js
-package emit, and that the qv2 store reads. Both packages and the store are built and tested against
-it. A change to anything below is a contract change: bump `qv2.schema_version`, and update this file,
+This file defines the OpenTelemetry spans that the `trailbeam` Python package and the `@trailbeam/sdk` Node.js
+package emit, and that the Trailbeam store reads. Both packages and the store are built and tested against
+it. A change to anything below is a contract change: bump `trailbeam.schema_version`, and update this file,
 both packages and the store in the same change. A revision (3.1) only adds an optional attribute that
-older stores ignore and that the store does not require; it keeps `qv2.schema_version = 3` (section 14).
+older stores ignore and that the store does not require; it keeps `trailbeam.schema_version = 3` (section 14).
 
 The keywords **must**, **must not**, **should** and **may** are used as in RFC 2119.
 
 ## 1. Summary
 
-| Span name | `qv2.kind` | `messaging.operation.type` | Emitted by | When |
+| Span name | `trailbeam.kind` | `messaging.operation.type` | Emitted by | When |
 |---|---|---|---|---|
-| `qv2 send` | `sqs.send` | `send` | client hooks | once per message that SQS accepted in `SendMessage` / `SendMessageBatch` |
-| `qv2 receive` | `sqs.receive` | `receive` | client hooks, Lambda wrapper | once per message returned by `ReceiveMessage`, or once per record in a Lambda SQS event |
-| `qv2 delete` | `sqs.settle` | `settle` | client hooks | once per receipt handle in `DeleteMessage` / `DeleteMessageBatch` |
-| `qv2 change_visibility` | `sqs.settle` | `settle` | client hooks | once per receipt handle in `ChangeMessageVisibility` / `ChangeMessageVisibilityBatch` |
-| `qv2 outcome` | `sqs.outcome` | `process` | Lambda wrapper | once per record, after the handler returns or throws |
+| `trailbeam send` | `sqs.send` | `send` | client hooks | once per message that SQS accepted in `SendMessage` / `SendMessageBatch` |
+| `trailbeam receive` | `sqs.receive` | `receive` | client hooks, Lambda wrapper | once per message returned by `ReceiveMessage`, or once per record in a Lambda SQS event |
+| `trailbeam delete` | `sqs.settle` | `settle` | client hooks | once per receipt handle in `DeleteMessage` / `DeleteMessageBatch` |
+| `trailbeam change_visibility` | `sqs.settle` | `settle` | client hooks | once per receipt handle in `ChangeMessageVisibility` / `ChangeMessageVisibilityBatch` |
+| `trailbeam outcome` | `sqs.outcome` | `process` | Lambda wrapper | once per record, after the handler returns or throws |
 
 "Client hooks" are the boto3 hooks (Python) and the AWS SDK v3 hooks (Node.js). "Lambda wrapper" is
-the handler wrapper in each package. In 0.1, `qv2 outcome` comes only from the Lambda wrappers; for
-other consumers, the outcome of processing is the `qv2 delete` (or its absence).
+the handler wrapper in each package. In 0.1, `trailbeam outcome` comes only from the Lambda wrappers; for
+other consumers, the outcome of processing is the `trailbeam delete` (or its absence).
 
-The store **must** identify qv2 spans by instrumentation scope name `qv2` and the attribute
-`qv2.schema_version`, and classify them by `qv2.kind` and `messaging.operation.name`. It **must not**
+The store **must** identify Trailbeam spans by instrumentation scope name `trailbeam` and the attribute
+`trailbeam.schema_version`, and classify them by `trailbeam.kind` and `messaging.operation.name`. It **must not**
 parse span names; they are for people reading traces. Span names **must not** contain the queue
 name or any other variable part. (The QV-9/QV-11 prototypes put the queue name in the delete and
 change-visibility span names; that is dropped.)
 
 ## 2. Transport and span shape
 
-- Each package creates its **own** `TracerProvider` with an always-on sampler, so qv2 spans are never
+- Each package creates its **own** `TracerProvider` with an always-on sampler, so Trailbeam spans are never
   sampled away by the application's own sampling. This is what the prototypes did, and what QV-9 and
   QV-11 measured.
-- Export is OTLP over HTTP (protobuf) to `QV2_OTLP_TRACES_ENDPOINT`, default
+- Export is OTLP over HTTP (protobuf) to `TRAILBEAM_OTLP_TRACES_ENDPOINT`, default
   `http://localhost:4318/v1/traces`. The store accepts OTLP/HTTP on that path. The Collector
-  configuration in `collector/` **must** pass every span with scope `qv2` through unsampled.
-- Instrumentation scope: name `qv2`, version = the package version.
+  configuration in `collector/` **must** pass every span with scope `trailbeam` through unsampled.
+- Instrumentation scope: name `trailbeam`, version = the package version.
 - Span kind: `INTERNAL`.
 - Parent: in the client hooks, the stock AWS SDK instrumentation span for the same call
   (`opentelemetry-instrumentation-botocore` in Python, `@opentelemetry/instrumentation-aws-sdk` in
-  Node.js), so the qv2 span shares its trace ID. In the Lambda wrapper, the active span at
+  Node.js), so the Trailbeam span shares its trace ID. In the Lambda wrapper, the active span at
   invocation time, or none (a root span).
 - Time (changed in schema version 2, see section 12): a span from the client hooks is an
   **interval** that contains the moment SQS acted:
@@ -55,18 +55,18 @@ change-visibility span names; that is dropped.)
   it never reverses "A ended before B started".
 - Lambda wrapper: Lambda's event source mapping makes the `ReceiveMessage` call, so the wrapper does
   not see when it started or ended. All the wrapper knows is that the receive happened **no later
-  than** the moment the wrapper got the event, before the handler runs. A `qv2 receive` from the
-  wrapper is therefore zero-length at that moment and carries `qv2.start_observed = false`: its end
+  than** the moment the wrapper got the event, before the handler runs. A `trailbeam receive` from the
+  wrapper is therefore zero-length at that moment and carries `trailbeam.start_observed = false`: its end
   is an upper bound and its start is **not known**. The wrapper **must not** put any other time in
-  its start. `qv2 outcome` is zero-length at the moment the wrapper decided the outcome, after the
-  handler returned or threw; that moment is observed, so it has no `qv2.start_observed`.
+  its start. `trailbeam outcome` is zero-length at the moment the wrapper decided the outcome, after the
+  handler returned or threw; that moment is observed, so it has no `trailbeam.start_observed`.
 - A consumer **must not** read an order into two spans whose intervals overlap from their times
   alone: SQS may have acted on either first. Another observed fact can still order them (the call
   order in one process, section 2a, or SQS's receive count and timestamps); section 9a lists the
   sources and says how the store shows what none of them orders.
-- One span per message. A batch call produces one qv2 span per entry, all children of the one
+- One span per message. A batch call produces one Trailbeam span per entry, all children of the one
   stock span.
-- The store reads only qv2 spans. Stock SQS spans pass through the Collector but are not read by
+- The store reads only Trailbeam spans. Stock SQS spans pass through the Collector but are not read by
   the 0.1 store.
 
 ## 2a. Call order inside one process (schema version 3)
@@ -76,13 +76,13 @@ millisecond its receive returned, so the clocks cannot order the two. The proces
 returned from one call before it issued the next. Each package keeps one **call-order counter** per
 process and records it on every span:
 
-- `qv2.order.scope` names the counter: a random UUID v4 chosen when the package is loaded. Python
+- `trailbeam.order.scope` names the counter: a random UUID v4 chosen when the package is loaded. Python
   chooses a new one in a forked child (`os.register_at_fork`), whose counter starts again at 1.
   Node.js has one per realm, so each `worker_thread` has its own. Counters with different scopes are
   never compared.
-- `qv2.order.issued` is a tick of the counter taken in the request hook just before the start time
+- `trailbeam.order.issued` is a tick of the counter taken in the request hook just before the start time
   is read, so it is no later than the request being sent.
-- `qv2.order.returned` is a tick taken when the response (or error) arrived, just after the end time
+- `trailbeam.order.returned` is a tick taken when the response (or error) arrived, just after the end time
   is read, so it is no earlier than the response.
 - `tick()` returns a strictly increasing integer (1, 2, 3, ...), safe to call from any thread.
 
@@ -105,19 +105,19 @@ them true against the drivers' own records, and 95 of them also proven by the cl
 decision that can be revisited (narrowing it to one thread or task would order fewer steps); the
 store and packages implement exactly what this section says.
 
-Lambda wrapper: a `qv2 receive` carries `qv2.order.returned` (a tick when the wrapper got the event,
-with its end time) and **no** `qv2.order.issued`, because Lambda's poller made the call; a
-`qv2 outcome` carries `qv2.order.issued` = `qv2.order.returned` = one tick when the outcome was
+Lambda wrapper: a `trailbeam receive` carries `trailbeam.order.returned` (a tick when the wrapper got the event,
+with its end time) and **no** `trailbeam.order.issued`, because Lambda's poller made the call; a
+`trailbeam outcome` carries `trailbeam.order.issued` = `trailbeam.order.returned` = one tick when the outcome was
 decided, after the handler returned or threw. So a handler's outcome is ordered after its own receive,
 and nothing is ordered after a Lambda receive by this source.
 
-## 3. Attributes on every qv2 span
+## 3. Attributes on every Trailbeam span
 
 | Attribute | Type | Req. | Value |
 |---|---|---|---|
-| `qv2.schema_version` | int | must | `3` |
-| `qv2.kind` | string | must | `sqs.send`, `sqs.receive`, `sqs.settle` or `sqs.outcome` |
-| `qv2.source` | string | must | `client` (client hooks) or `lambda` (Lambda wrapper) |
+| `trailbeam.schema_version` | int | must | `3` |
+| `trailbeam.kind` | string | must | `sqs.send`, `sqs.receive`, `sqs.settle` or `sqs.outcome` |
+| `trailbeam.source` | string | must | `client` (client hooks) or `lambda` (Lambda wrapper) |
 | `messaging.system.name` | string | must | `aws.sqs` |
 | `messaging.operation.type` | string | must | from the table in section 1 |
 | `messaging.operation.name` | string | must | the SQS API action: `SendMessage`, `SendMessageBatch`, `ReceiveMessage`, `DeleteMessage`, `DeleteMessageBatch`, `ChangeMessageVisibility`, `ChangeMessageVisibilityBatch`; or `LambdaEvent` for spans from the Lambda wrapper |
@@ -126,44 +126,44 @@ and nothing is ordered after a Lambda receive by this source.
 | `messaging.client.id` | string | must | consumer or producer identity (section 5) |
 | `process.pid` | int | must | OS process ID |
 | `thread.name` | string | should (Python) | `threading.current_thread().name`; not set in Node.js |
-| `qv2.order.scope` | string | must (v3) | the process's call-order counter (section 2a) |
-| `qv2.order.issued` | int | must (v3, except Lambda receive) | counter tick just before the request was sent (section 2a) |
-| `qv2.order.returned` | int | must (v3) | counter tick when the response or error arrived (section 2a) |
-| `qv2.start_observed` | bool | must (Lambda receive) | `false` when the span's start time is not the start of the SQS call (section 2). Omitted otherwise: absent means the start was observed. |
+| `trailbeam.order.scope` | string | must (v3) | the process's call-order counter (section 2a) |
+| `trailbeam.order.issued` | int | must (v3, except Lambda receive) | counter tick just before the request was sent (section 2a) |
+| `trailbeam.order.returned` | int | must (v3) | counter tick when the response or error arrived (section 2a) |
+| `trailbeam.start_observed` | bool | must (Lambda receive) | `false` when the span's start time is not the start of the SQS call (section 2). Omitted otherwise: absent means the start was observed. |
 
 The `messaging.*`, `aws.sqs.queue.url`, `process.pid` and `thread.name` names are OpenTelemetry
-semantic conventions; `qv2.*` names are ours. `messaging.system.name` replaces the deprecated
+semantic conventions; `trailbeam.*` names are ours. `messaging.system.name` replaces the deprecated
 `messaging.system`; the stock instrumentations seen in QV-11 still emit `messaging.system` with the
-old value `aws_sqs`, which is one more reason the store reads only qv2 spans.
+old value `aws_sqs`, which is one more reason the store reads only Trailbeam spans.
 
 Absent values: an attribute without a value **must** be omitted, never sent as `""`, `0` or `-1`.
 (The prototypes sent empty strings and `-1`; that is dropped.)
 
 ## 4. Attributes per span
 
-### 4.1 `qv2 send`
+### 4.1 `trailbeam send`
 
 | Attribute | Type | Req. | Value |
 |---|---|---|---|
 | `messaging.message.id` | string | must | `MessageId` from the response |
-| `qv2.batch_entry_id` | string | must for batch | the entry `Id` from `SendMessageBatch` |
+| `trailbeam.batch_entry_id` | string | must for batch | the entry `Id` from `SendMessageBatch` |
 
 Emitted from the response, only for messages SQS accepted. Failed batch entries have no message ID
-and produce no `qv2 send` span in 0.1.
+and produce no `trailbeam send` span in 0.1.
 
-### 4.2 `qv2 receive`
+### 4.2 `trailbeam receive`
 
 | Attribute | Type | Req. | Value |
 |---|---|---|---|
 | `messaging.message.id` | string | must | `MessageId` (`messageId` in a Lambda record) |
-| `qv2.receive_count` | int | must | system attribute `ApproximateReceiveCount` |
-| `qv2.receipt_handle.hmac` | string | must | keyed hash of this delivery's receipt handle (section 7) |
-| `qv2.receipt_handle.key_id` | string | must | ID of the key used (section 7) |
-| `qv2.sent_timestamp_ms` | int | should | system attribute `SentTimestamp`, epoch milliseconds |
-| `qv2.first_receive_timestamp_ms` | int | may | system attribute `ApproximateFirstReceiveTimestamp`, epoch milliseconds |
-| `qv2.aws_trace_header` | string | may | system attribute `AWSTraceHeader`, verbatim |
-| `qv2.dead_letter_queue_source_arn` | string | must when SQS returns it (3.1) | system attribute `DeadLetterQueueSourceArn`, verbatim: the ARN of the queue SQS moved the message from. SQS sets it only on a receive from a dead-letter queue (section 9b). |
-| `qv2.queue.arn` | string | must (Lambda) | the record's `eventSourceARN`, verbatim (section 6) |
+| `trailbeam.receive_count` | int | must | system attribute `ApproximateReceiveCount` |
+| `trailbeam.receipt_handle.hmac` | string | must | keyed hash of this delivery's receipt handle (section 7) |
+| `trailbeam.receipt_handle.key_id` | string | must | ID of the key used (section 7) |
+| `trailbeam.sent_timestamp_ms` | int | should | system attribute `SentTimestamp`, epoch milliseconds |
+| `trailbeam.first_receive_timestamp_ms` | int | may | system attribute `ApproximateFirstReceiveTimestamp`, epoch milliseconds |
+| `trailbeam.aws_trace_header` | string | may | system attribute `AWSTraceHeader`, verbatim |
+| `trailbeam.dead_letter_queue_source_arn` | string | must when SQS returns it (3.1) | system attribute `DeadLetterQueueSourceArn`, verbatim: the ARN of the queue SQS moved the message from. SQS sets it only on a receive from a dead-letter queue (section 9b). |
+| `trailbeam.queue.arn` | string | must (Lambda) | the record's `eventSourceARN`, verbatim (section 6) |
 | `faas.name` | string | must (Lambda) | function name, from the context, else `AWS_LAMBDA_FUNCTION_NAME` |
 | `faas.invocation_id` | string | must (Lambda) | `aws_request_id` / `awsRequestId` |
 
@@ -175,44 +175,44 @@ and produce no `qv2 send` span in 0.1.
   the body; message contents are out of scope for 0.1.)
 - **Lambda wrapper** copies `DeadLetterQueueSourceArn` from the record's `attributes` when it is there.
   Whether Lambda's SQS records carry it is **not verified**; the AWS sample events do not show it.
-- **Lambda wrapper** emits one `qv2 receive` per record **before** the user handler runs, with
-  `qv2.start_observed = false` (section 2), and flushes it, so a timeout or out-of-memory kill cannot lose it, as the QV-9 and QV-11 prototype wrappers did.
-- A `ReceiveMessage` that returns no messages produces no qv2 span.
+- **Lambda wrapper** emits one `trailbeam receive` per record **before** the user handler runs, with
+  `trailbeam.start_observed = false` (section 2), and flushes it, so a timeout or out-of-memory kill cannot lose it, as the QV-9 and QV-11 prototype wrappers did.
+- A `ReceiveMessage` that returns no messages produces no Trailbeam span.
 
-### 4.3 `qv2 delete` and `qv2 change_visibility`
+### 4.3 `trailbeam delete` and `trailbeam change_visibility`
 
 | Attribute | Type | Req. | Value |
 |---|---|---|---|
-| `qv2.receipt_handle.hmac` | string | must | keyed hash of the receipt handle in the request |
-| `qv2.receipt_handle.key_id` | string | must | ID of the key used |
+| `trailbeam.receipt_handle.hmac` | string | must | keyed hash of the receipt handle in the request |
+| `trailbeam.receipt_handle.key_id` | string | must | ID of the key used |
 | `messaging.message.id` | string | should | the message ID, if this process received the handle (section 8); otherwise omitted |
-| `qv2.batch_entry_id` | string | must for batch | the entry `Id` |
-| `qv2.visibility_timeout` | int | must (`change_visibility`) | `VisibilityTimeout` from the request, in seconds. `0` is a real value: it makes the message visible again at once. |
-| `qv2.result` | string | must | `ok` if SQS returned success for this handle or entry, `failed` otherwise |
-| `qv2.error_code` | string | must if failed | the SQS error code, such as `ReceiptHandleIsInvalid`, or the SDK error name if there is no code |
+| `trailbeam.batch_entry_id` | string | must for batch | the entry `Id` |
+| `trailbeam.visibility_timeout` | int | must (`change_visibility`) | `VisibilityTimeout` from the request, in seconds. `0` is a real value: it makes the message visible again at once. |
+| `trailbeam.result` | string | must | `ok` if SQS returned success for this handle or entry, `failed` otherwise |
+| `trailbeam.error_code` | string | must if failed | the SQS error code, such as `ReceiptHandleIsInvalid`, or the SDK error name if there is no code |
 
-Settle spans are emitted **after** the response, so that `qv2.result` is known. (The prototypes
+Settle spans are emitted **after** the response, so that `trailbeam.result` is known. (The prototypes
 emitted them from the request hook, before the result.) If the call throws before any response,
-one span per handle is still emitted with `qv2.result = failed`.
+one span per handle is still emitted with `trailbeam.result = failed`.
 
-`qv2.result = ok` means SQS accepted the call, **not** that the message was removed. The
+`trailbeam.result = ok` means SQS accepted the call, **not** that the message was removed. The
 [DeleteMessage API reference](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/APIReference/API_DeleteMessage.html)
 says: "If you use an old `ReceiptHandle`, the request will succeed, but the message might not be
-deleted." The store therefore treats a delete as final only when its `qv2.receipt_handle.hmac`
-matches the hash of the message's **latest** `qv2 receive`. A delete that matches an earlier
+deleted." The store therefore treats a delete as final only when its `trailbeam.receipt_handle.hmac`
+matches the hash of the message's **latest** `trailbeam receive`. A delete that matches an earlier
 receive is shown as a delete with a stale receipt handle.
 
-### 4.4 `qv2 outcome`
+### 4.4 `trailbeam outcome`
 
 | Attribute | Type | Req. | Value |
 |---|---|---|---|
 | `messaging.message.id` | string | must | record `messageId` |
-| `qv2.outcome` | string | must | one of the values below |
-| `qv2.error_type` | string | must if `failed_exception` | the exception's class name, such as `RuntimeError` or `TypeError` |
+| `trailbeam.outcome` | string | must | one of the values below |
+| `trailbeam.error_type` | string | must if `failed_exception` | the exception's class name, such as `RuntimeError` or `TypeError` |
 | `faas.name` | string | must | function name |
 | `faas.invocation_id` | string | must | `aws_request_id` / `awsRequestId` |
 
-`qv2.outcome` values, decided per record after the handler returns:
+`trailbeam.outcome` values, decided per record after the handler returns:
 
 | Value | Meaning |
 |---|---|
@@ -223,17 +223,17 @@ receive is shown as a delete with a stale receipt handle.
 
 The exception **message** is not recorded, only its class name, because messages often contain
 message contents. (The prototypes recorded `repr(e)`.) If the function times out or runs out of
-memory, no `qv2 outcome` is emitted; the store infers it from the `qv2 receive` with no outcome.
+memory, no `trailbeam outcome` is emitted; the store infers it from the `trailbeam receive` with no outcome.
 The prototype value `success_deleted_by_lambda` is renamed `success`, because the delete is not seen.
 
 ### 4.5 What the store requires
 
-The store ([`otlp.py`](../server/src/qv2_store/otlp.py)) reads a span only if its instrumentation scope
-is `qv2`. It counts spans of other scopes as ignored. It rejects a qv2 span, and reports the reason in
+The store ([`otlp.py`](../server/src/trailbeam_store/otlp.py)) reads a span only if its instrumentation scope
+is `trailbeam`. It counts spans of other scopes as ignored. It rejects a Trailbeam span, and reports the reason in
 the OTLP `partial_success` field, when any of these is true:
 
-- `qv2.schema_version` is not `2` or `3`;
-- `qv2.kind` is unknown, or `sqs.settle` comes with a `messaging.operation.name` that is not a delete
+- `trailbeam.schema_version` is not `2` or `3`;
+- `trailbeam.kind` is unknown, or `sqs.settle` comes with a `messaging.operation.name` that is not a delete
   or visibility-change action;
 - the trace ID, span ID, start time or end time is missing, or the span ends before it starts;
 - a required field for its kind is missing or has the wrong type:
@@ -241,11 +241,11 @@ the OTLP `partial_success` field, when any of these is true:
   | Kind | Required attributes |
   |---|---|
   | send | `messaging.destination.name`, `messaging.message.id` |
-  | receive | `messaging.destination.name`, `messaging.message.id`, `qv2.receive_count`, `qv2.receipt_handle.hmac`, `qv2.receipt_handle.key_id` |
-  | delete, change_visibility | `messaging.destination.name`, `qv2.receipt_handle.hmac`, `qv2.receipt_handle.key_id`, `qv2.result` |
-  | outcome | `messaging.destination.name`, `messaging.message.id`, `qv2.outcome` |
+  | receive | `messaging.destination.name`, `messaging.message.id`, `trailbeam.receive_count`, `trailbeam.receipt_handle.hmac`, `trailbeam.receipt_handle.key_id` |
+  | delete, change_visibility | `messaging.destination.name`, `trailbeam.receipt_handle.hmac`, `trailbeam.receipt_handle.key_id`, `trailbeam.result` |
+  | outcome | `messaging.destination.name`, `messaging.message.id`, `trailbeam.outcome` |
 
-- `qv2.result` is not `ok` or `failed`, or `qv2.outcome` is not one of the four values in section 4.4.
+- `trailbeam.result` is not `ok` or `failed`, or `trailbeam.outcome` is not one of the four values in section 4.4.
 
 The store reads integer attributes sent as decimal strings as integers. It keeps every attribute of
 the span as JSON in the row, and uses only the ones this contract names.
@@ -274,7 +274,7 @@ ran three processes of four consumers each.
 
 - **Client hooks:** the `QueueUrl` request parameter, verbatim.
 - **Lambda wrapper:** built from the record's `eventSourceARN` (`arn:aws:sqs:<region>:<account>:<name>`)
-  as `https://sqs.<region>.amazonaws.com/<account>/<name>`. The wrapper also sets `qv2.queue.arn`
+  as `https://sqs.<region>.amazonaws.com/<account>/<name>`. The wrapper also sets `trailbeam.queue.arn`
   to the ARN.
 
 The store groups messages by `messaging.destination.name`, not by URL, because one queue can be
@@ -289,23 +289,23 @@ handle is valid, so the packages **must not** export receipt handles. They expor
 instead, which is enough for the store to join a delete to the receive it belongs to.
 
 ```
-qv2.receipt_handle.hmac   = lower_hex(HMAC-SHA256(key, receipt_handle))[0:32]
-qv2.receipt_handle.key_id = lower_hex(HMAC-SHA256(key, "qv2 key id"))[0:8]
+trailbeam.receipt_handle.hmac   = lower_hex(HMAC-SHA256(key, receipt_handle))[0:32]
+trailbeam.receipt_handle.key_id = lower_hex(HMAC-SHA256(key, "trailbeam key id"))[0:8]
 ```
 
 Both `key` and `receipt_handle` are encoded as UTF-8. 32 hex characters is 128 bits.
 
 **Configuring the key**
 
-- Environment variable `QV2_RECEIPT_HASH_KEY`. Its value, as UTF-8 bytes, is the key. Each package
+- Environment variable `TRAILBEAM_RECEIPT_HASH_KEY`. Its value, as UTF-8 bytes, is the key. Each package
   also accepts the key as an explicit argument to its install or wrap function, which takes
   precedence over the environment variable.
 - Every service that receives or settles messages on the same queues **must** use the same key,
-  or the store cannot join their deletes to their receives. `qv2.receipt_handle.key_id` lets the
+  or the store cannot join their deletes to their receives. `trailbeam.receipt_handle.key_id` lets the
   store detect a key mismatch and show it, instead of showing missing deletes.
 - If no key is configured, the packages use the published default key
-  `qv2-default-receipt-hash-key` and log one warning per process. The store shows a notice for
-  spans with the default key's ID, `2bd63d10`. The default exists so the local demo works without
+  `trailbeam-default-receipt-hash-key` and log one warning per process. The store shows a notice for
+  spans with the default key's ID, `b5e633f7`. The default exists so the local demo works without
   setup; it gives no protection.
 - A key shorter than 16 bytes is used, with one warning per process.
 - The key is a secret. It **must not** be committed, logged or exported in spans.
@@ -313,9 +313,9 @@ Both `key` and `receipt_handle` are encoded as UTF-8. 32 hex characters is 128 b
 Why a keyed hash rather than a plain SHA-256 (what the prototypes used, truncated to 16 hex
 characters): a receipt handle is long and random, so a plain hash is not reversible either. The key
 adds two things [judgment]: someone who finds a receipt handle elsewhere, such as in an
-application log, cannot match it to a qv2 record without the key; and hashes from different
+application log, cannot match it to a Trailbeam record without the key; and hashes from different
 deployments cannot be linked to each other. The attribute name changed from
-`qv2.receipt_handle.sha256` to `qv2.receipt_handle.hmac` so prototype data and 0.1 data cannot
+`qv2.receipt_handle.sha256` (the prototypes, under the product's old name) to `trailbeam.receipt_handle.hmac` so prototype data and 0.1 data cannot
 be mixed by accident.
 
 **Test vectors** are in [`span-contract-vectors.json`](span-contract-vectors.json). The Python and
@@ -332,21 +332,21 @@ successful delete and after 12 hours, the longest SQS visibility timeout.
 
 When the handle is not in the map (another process received it, the process restarted, or the
 entry was evicted), the span carries only the hash. The store joins it to a message through the
-`qv2 receive` with the same `qv2.receipt_handle.hmac`. The store **must** support this join; the
+`trailbeam receive` with the same `trailbeam.receipt_handle.hmac`. The store **must** support this join; the
 map is an optimisation, not a requirement for a correct timeline.
 
 ## 9. What the store infers
 
 These events have no span. The store shows each one as **inferred**, never as observed:
 
-- **Visibility timeout expired:** a `qv2 receive` on a queue follows an earlier `qv2 receive` on the
-  same queue with a lower `qv2.receive_count`. A delete that SQS accepted for the earlier delivery
+- **Visibility timeout expired:** a `trailbeam receive` on a queue follows an earlier `trailbeam receive` on the
+  same queue with a lower `trailbeam.receive_count`. A delete that SQS accepted for the earlier delivery
   does not prevent it: the later receive shows the delete came too late.
-- **Deliveries not observed:** `qv2.receive_count` goes up by more than 1 between two receives on one
-  queue, or the first receive on the source queue has `qv2.receive_count` above 1. A consumer without
-  qv2, or lost spans, made the missing receives.
-- **Deleted by Lambda:** after `qv2 outcome = success`.
-- **Lambda invocation killed (timeout or out of memory):** a Lambda `qv2 receive` with no `qv2 outcome`
+- **Deliveries not observed:** `trailbeam.receive_count` goes up by more than 1 between two receives on one
+  queue, or the first receive on the source queue has `trailbeam.receive_count` above 1. A consumer without
+  Trailbeam, or lost spans, made the missing receives.
+- **Deleted by Lambda:** after `trailbeam outcome = success`.
+- **Lambda invocation killed (timeout or out of memory):** a Lambda `trailbeam receive` with no `trailbeam outcome`
   for the same `faas.invocation_id`, once the store's configured Lambda timeout has passed
   (`--lambda-timeout`, default 900 s, the Lambda maximum). The store does not know the function's
   real timeout.
@@ -362,9 +362,9 @@ Every ordered edge records its sources; the store's API and screen show them (`d
 | Source | A before B when |
 |---|---|
 | `clock` | `A.end < B.start` on the hosts' clocks (section 2). |
-| `process_order` | Same `qv2.order.scope` and `A.order.returned < B.order.issued` (section 2a). The scope is one process (Python) or realm (Node.js), shared by all its threads and async tasks. |
-| `receive_count` | A and B are receives of the message on one queue, and A's `qv2.receive_count` is lower: SQS's delivery n came before delivery n + 1. |
-| `sqs_timestamps` | A is the send, B is the receive with `qv2.receive_count = 1` on the send's queue, and B's `qv2.sent_timestamp_ms` is lower than its `qv2.first_receive_timestamp_ms`. Both are SQS's clock; the store never compares them with a host clock. The same millisecond proves nothing. |
+| `process_order` | Same `trailbeam.order.scope` and `A.order.returned < B.order.issued` (section 2a). The scope is one process (Python) or realm (Node.js), shared by all its threads and async tasks. |
+| `receive_count` | A and B are receives of the message on one queue, and A's `trailbeam.receive_count` is lower: SQS's delivery n came before delivery n + 1. |
+| `sqs_timestamps` | A is the send, B is the receive with `trailbeam.receive_count = 1` on the send's queue, and B's `trailbeam.sent_timestamp_ms` is lower than its `trailbeam.first_receive_timestamp_ms`. Both are SQS's clock; the store never compares them with a host clock. The same millisecond proves nothing. |
 
 Order is transitive (A before B by one source, B before C by another), and the edges show the chain.
 Steps that no chain orders are shown as **concurrent**: the store lists the steps in an order that agrees
@@ -384,11 +384,11 @@ not measured on AWS].
 
 ## 9b. The move to a dead-letter queue (3.1)
 
-SQS makes no API call that qv2 could observe when it moves a message to a dead-letter queue. It
+SQS makes no API call that Trailbeam could observe when it moves a message to a dead-letter queue. It
 reports the move afterwards: the next receive of the message, on the dead-letter queue, carries the
 same `MessageId` and the system attribute `DeadLetterQueueSourceArn` naming the queue it came from.
 
-- **Observed move:** a `qv2 receive` with `qv2.dead_letter_queue_source_arn` whose last `:` field is
+- **Observed move:** a `trailbeam receive` with `trailbeam.dead_letter_queue_source_arn` whose last `:` field is
   the name of another queue. The store shows one event "moved to the dead-letter queue" for each
   pair of source queue and dead-letter queue, observed, with source `sqs_dlq_source`. The earliest
   dead-letter receive that carries the attribute reports it. The event has no time of its own (SQS
@@ -396,13 +396,13 @@ same `MessageId` and the system attribute `DeadLetterQueueSourceArn` naming the 
   there was observed) and before the reporting receive. It is ordered against other events only
   through those two and the proven edges of section 9a.
 - **No report, no move.** A receive on another queue without the attribute (an older package, a
-  consumer without qv2, or an SQS that does not set it) shows no move. The store **must not** infer one
+  consumer without Trailbeam, or an SQS that does not set it) shows no move. The store **must not** infer one
   from the message ID alone.
-- **Not seen on the DLQ yet:** when a message's highest observed `qv2.receive_count` on its source
+- **Not seen on the DLQ yet:** when a message's highest observed `trailbeam.receive_count` on its source
   queue has reached the queue's `maxReceiveCount` and no receive carrying the attribute is stored,
   the store says "receive count exceeded `maxReceiveCount`; not seen on the DLQ yet" and shows no
   move. The store does not know `maxReceiveCount` from spans; it is configured
-  (`docs/store-api.md`). qv2 **must not** receive from the dead-letter queue to check: a receive
+  (`docs/store-api.md`). Trailbeam **must not** receive from the dead-letter queue to check: a receive
   changes the message's state (receive count, visibility, receipt handle).
 - **Moves back** (redrive) are out of scope for 3.1: a receive on the source queue after the
   dead-letter queue shows no move step.
@@ -414,17 +414,17 @@ the same behaviour on AWS SQS, and whether the receive count carries over there.
 
 ## 10. Example
 
-A `qv2 receive` from the Python client hooks, as attributes (not OTLP wire format):
+A `trailbeam receive` from the Python client hooks, as attributes (not OTLP wire format):
 
 ```json
 {
-  "name": "qv2 receive",
-  "scope": {"name": "qv2", "version": "0.1.0.dev0"},
+  "name": "trailbeam receive",
+  "scope": {"name": "trailbeam", "version": "0.1.0.dev0"},
   "resource": {"service.name": "orders-worker", "service.instance.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11"},
   "attributes": {
-    "qv2.schema_version": 3,
-    "qv2.kind": "sqs.receive",
-    "qv2.source": "client",
+    "trailbeam.schema_version": 3,
+    "trailbeam.kind": "sqs.receive",
+    "trailbeam.source": "client",
     "messaging.system.name": "aws.sqs",
     "messaging.operation.type": "receive",
     "messaging.operation.name": "ReceiveMessage",
@@ -434,14 +434,14 @@ A `qv2 receive` from the Python client hooks, as attributes (not OTLP wire forma
     "process.pid": 41233,
     "thread.name": "worker-2",
     "messaging.message.id": "5fea7756-0ea4-451a-a703-a558b933e274",
-    "qv2.receive_count": 2,
-    "qv2.receipt_handle.hmac": "b8cf1504a45e5fadf383d469cfa5ae3e",
-    "qv2.receipt_handle.key_id": "3b3edeb7",
-    "qv2.sent_timestamp_ms": 1763080041095,
-    "qv2.first_receive_timestamp_ms": 1763080041120,
-    "qv2.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
-    "qv2.order.issued": 1841,
-    "qv2.order.returned": 1846
+    "trailbeam.receive_count": 2,
+    "trailbeam.receipt_handle.hmac": "b8cf1504a45e5fadf383d469cfa5ae3e",
+    "trailbeam.receipt_handle.key_id": "05769f58",
+    "trailbeam.sent_timestamp_ms": 1763080041095,
+    "trailbeam.first_receive_timestamp_ms": 1763080041120,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.issued": 1841,
+    "trailbeam.order.returned": 1846
   },
   "start_time_unix_nano": 1763080041102331000,
   "end_time_unix_nano": 1763080041131877000
@@ -449,19 +449,20 @@ A `qv2 receive` from the Python client hooks, as attributes (not OTLP wire forma
 ```
 
 The span's start and end are the interval of the `ReceiveMessage` call that returned the message
-(here a long poll that waited 30 ms). A `qv2 receive` from the Lambda wrapper has the same
-attributes with `"qv2.source": "lambda"`, `"messaging.operation.name": "LambdaEvent"`,
-`"qv2.start_observed": false`, the `faas.*` attributes, and equal start and end.
+(here a long poll that waited 30 ms). A `trailbeam receive` from the Lambda wrapper has the same
+attributes with `"trailbeam.source": "lambda"`, `"messaging.operation.name": "LambdaEvent"`,
+`"trailbeam.start_observed": false`, the `faas.*` attributes, and equal start and end.
 
 ## 11. Where this came from
 
 Source: the hooks in the QV-9 and QV-11 evidence bundles (`pyrun.py`, `node__noderun.js`,
 `bin__hooks.py`, `bin__b2node.js`, `lambda__py__src__app.py`, `lambda__node__src__index.js`), and a
 tally of the 1,820 spans with scope `qv2.hooks` that the client hooks exported in QV-11
-(`raw__otel__ours_all_spans.jsonl`).
+(`raw__otel__ours_all_spans.jsonl`). The prototypes ran under the product's old name, so their names
+start with `trailbeam` where this contract's start with `trailbeam`; prototype names below are as recorded.
 
-Kept from the prototypes: span names `qv2 send`, `qv2 receive`, `qv2 outcome`; `qv2.kind` values;
-`qv2.receive_count`, `qv2.batch_entry_id`, `qv2.visibility_timeout`, `qv2.aws_trace_header`;
+Kept from the prototypes (with the prefix renamed): span names `trailbeam send`, `trailbeam receive`, `trailbeam outcome`; `trailbeam.kind` values;
+`trailbeam.receive_count`, `trailbeam.batch_entry_id`, `trailbeam.visibility_timeout`, `trailbeam.aws_trace_header`;
 `messaging.message.id` and `messaging.destination.name`; the handle-to-ID map; the Lambda wrapper's
 receive-before-handler order and its outcome rules; a separate always-on tracer provider.
 
@@ -469,16 +470,16 @@ Changed, each described where it is defined above:
 
 | Prototype | Contract v1 |
 |---|---|
-| `qv2.receipt_handle.sha256`, plain SHA-256, 16 hex | `qv2.receipt_handle.hmac`, HMAC-SHA256, 32 hex, plus `qv2.receipt_handle.key_id` |
-| `qv2 delete <queue>`, `qv2 change_visibility <queue>` | `qv2 delete`, `qv2 change_visibility` |
-| settle spans from the request hook | from the response, with `qv2.result` and `qv2.error_code` |
+| `qv2.receipt_handle.sha256`, plain SHA-256, 16 hex | `trailbeam.receipt_handle.hmac`, HMAC-SHA256, 32 hex, plus `trailbeam.receipt_handle.key_id` |
+| `trailbeam delete <queue>`, `trailbeam change_visibility <queue>` | `trailbeam delete`, `trailbeam change_visibility` |
+| settle spans from the request hook | from the response, with `trailbeam.result` and `trailbeam.error_code` |
 | `qv2.operation` | `messaging.operation.name` |
 | queue name only | also `aws.sqs.queue.url` |
 | `process.pid`, `thread.name`, `service.name` only | also `messaging.client.id` |
-| `qv2.sent_timestamp` as a string | `qv2.sent_timestamp_ms` as an int |
+| `qv2.sent_timestamp` as a string | `trailbeam.sent_timestamp_ms` as an int |
 | `qv2.t_ns` | dropped; span start time is used |
-| `qv2.tenant`, `qv2.tenant.source`, `tenant` message attribute | dropped (message contents are out of scope for 0.1); the name `qv2.tenant` is reserved |
-| `qv2.error = repr(e)` | `qv2.error_type`, class name only |
+| `qv2.tenant`, `qv2.tenant.source`, `tenant` message attribute | dropped (message contents are out of scope for 0.1); the name `trailbeam.tenant` is reserved |
+| `qv2.error = repr(e)` | `trailbeam.error_type`, class name only |
 | `success_deleted_by_lambda` | `success` |
 | empty strings and `-1` for absent values | attribute omitted |
 | Node.js hooks without batch settle or tenant | Node.js and Python emit the same spans |
@@ -501,9 +502,9 @@ concurrency check, 4 to 32% of messages showed a receive before its send, or a r
 
 | Version 1 | Version 2 |
 |---|---|
-| `qv2.schema_version = 1` | `2`. The store rejects version 1 spans: their single time is the response time, which cannot be ordered correctly. |
+| `trailbeam.schema_version = 1` | `2`. The store rejects version 1 spans: their single time is the response time, which cannot be ordered correctly. |
 | zero-length span at the response | client hooks: interval from just before the request to the response (section 2) |
-| Lambda `qv2 receive` at the wrapper's start, read as the receive time | zero-length at that moment, `qv2.start_observed = false`: an upper bound only |
+| Lambda `trailbeam receive` at the wrapper's start, read as the receive time | zero-length at that moment, `trailbeam.start_observed = false`: an upper bound only |
 | Node.js time from `performance.timeOrigin + performance.now()` | `Date.now()`, the same system clock as other processes |
 | store order: by time, and a settle placed after its receive | concurrent groups (section 9a); nothing re-ordered by cause |
 
@@ -518,8 +519,8 @@ machine (QV-31).
 
 | Version 2 | Version 3 |
 |---|---|
-| `qv2.schema_version = 2` | `3`. The store still reads version 2 spans; they carry no call order, so only the other sources order them. |
-| no call order | `qv2.order.scope`, `qv2.order.issued`, `qv2.order.returned` (section 2a) |
+| `trailbeam.schema_version = 2` | `3`. The store still reads version 2 spans; they carry no call order, so only the other sources order them. |
+| no call order | `trailbeam.order.scope`, `trailbeam.order.issued`, `trailbeam.order.returned` (section 2a) |
 | store order: clock intervals only | four sources, each recorded on the edge it proves (section 9a) |
 
 Unchanged: span names, kinds, times and every other attribute. The client hooks already asked SQS for
@@ -532,7 +533,7 @@ is set at the first receive and kept on later ones).
 | 3.0 | 3.1 |
 |---|---|
 | the store inferred a move to the dead-letter queue from the message ID on another queue | the move is shown only when SQS reports it (section 9b), source `sqs_dlq_source`; nothing is inferred |
-| receive hooks asked for four system attributes | also `DeadLetterQueueSourceArn`, recorded as `qv2.dead_letter_queue_source_arn` |
+| receive hooks asked for four system attributes | also `DeadLetterQueueSourceArn`, recorded as `trailbeam.dead_letter_queue_source_arn` |
 
-`qv2.schema_version` stays `3`: the attribute is optional, a 3.0 store ignores it, and the 3.1 store
+`trailbeam.schema_version` stays `3`: the attribute is optional, a 3.0 store ignores it, and the 3.1 store
 reads 3.0 spans (they simply never show a move).

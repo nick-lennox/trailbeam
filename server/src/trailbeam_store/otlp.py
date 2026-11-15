@@ -1,7 +1,7 @@
-"""Decode OTLP/HTTP trace requests (protobuf or JSON) into qv2 span records (docs/span-contract.md).
+"""Decode OTLP/HTTP trace requests (protobuf or JSON) into Trailbeam span records (docs/span-contract.md).
 
-Only spans with instrumentation scope ``qv2`` are read (contract section 1). They are classified by
-``qv2.kind`` and ``messaging.operation.name``; span names are never parsed.
+Only spans with instrumentation scope ``trailbeam`` are read (contract section 1). They are classified by
+``trailbeam.kind`` and ``messaging.operation.name``; span names are never parsed.
 """
 from __future__ import annotations
 
@@ -12,12 +12,12 @@ from typing import Any, Iterable, Optional
 
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
 
-SCOPE_NAME = "qv2"
+SCOPE_NAME = "trailbeam"
 SCHEMA_VERSION = 3
-# Version 2 spans are still read: they only lack the call-order attributes (qv2.order.*), so their
+# Version 2 spans are still read: they only lack the call-order attributes (trailbeam.order.*), so their
 # steps are ordered by the other sources alone. Version 1 spans are rejected (contract section 12).
 ACCEPTED_SCHEMA_VERSIONS = (2, 3)
-DEFAULT_KEY_ID = "2bd63d10"  # key ID of the published default key, contract section 7
+DEFAULT_KEY_ID = "b5e633f7"  # key ID of the published default key, contract section 7
 
 DELETE_OPS = {"DeleteMessage", "DeleteMessageBatch"}
 VISIBILITY_OPS = {"ChangeMessageVisibility", "ChangeMessageVisibilityBatch"}
@@ -25,34 +25,34 @@ OUTCOMES = {"success", "failed_reported", "failed_invalid_response", "failed_exc
 
 # Span attribute -> record field, with the expected Python type.
 _FIELDS = {
-    "qv2.source": ("source", str),
+    "trailbeam.source": ("source", str),
     "messaging.operation.name": ("operation", str),
     "messaging.destination.name": ("queue", str),
     "aws.sqs.queue.url": ("queue_url", str),
     "messaging.message.id": ("message_id", str),
-    "qv2.receipt_handle.hmac": ("receipt_hmac", str),
-    "qv2.receipt_handle.key_id": ("key_id", str),
-    "qv2.receive_count": ("receive_count", int),
-    "qv2.sent_timestamp_ms": ("sent_ts_ms", int),
-    "qv2.first_receive_timestamp_ms": ("first_receive_ts_ms", int),
-    "qv2.dead_letter_queue_source_arn": ("dlq_source_arn", str),  # contract 3.1, section 9b
-    "qv2.result": ("result", str),
-    "qv2.error_code": ("error_code", str),
-    "qv2.visibility_timeout": ("visibility_timeout", int),
-    "qv2.outcome": ("outcome", str),
-    "qv2.error_type": ("error_type", str),
-    "qv2.batch_entry_id": ("batch_entry_id", str),
+    "trailbeam.receipt_handle.hmac": ("receipt_hmac", str),
+    "trailbeam.receipt_handle.key_id": ("key_id", str),
+    "trailbeam.receive_count": ("receive_count", int),
+    "trailbeam.sent_timestamp_ms": ("sent_ts_ms", int),
+    "trailbeam.first_receive_timestamp_ms": ("first_receive_ts_ms", int),
+    "trailbeam.dead_letter_queue_source_arn": ("dlq_source_arn", str),  # contract 3.1, section 9b
+    "trailbeam.result": ("result", str),
+    "trailbeam.error_code": ("error_code", str),
+    "trailbeam.visibility_timeout": ("visibility_timeout", int),
+    "trailbeam.outcome": ("outcome", str),
+    "trailbeam.error_type": ("error_type", str),
+    "trailbeam.batch_entry_id": ("batch_entry_id", str),
     "messaging.client.id": ("client_id", str),
     "process.pid": ("pid", int),
     "thread.name": ("thread_name", str),
     "faas.name": ("faas_name", str),
     "faas.invocation_id": ("faas_invocation_id", str),
-    "qv2.order.scope": ("order_scope", str),
-    "qv2.order.issued": ("order_issued", int),
-    "qv2.order.returned": ("order_returned", int),
+    "trailbeam.order.scope": ("order_scope", str),
+    "trailbeam.order.issued": ("order_issued", int),
+    "trailbeam.order.returned": ("order_returned", int),
 }
 # time_ns is the span's end (contract section 2: the response arrived); start_ns its start, or None if
-# the start was not observed (qv2.start_observed = false, a Lambda receive).
+# the start was not observed (trailbeam.start_observed = false, a Lambda receive).
 RECORD_FIELDS = ["trace_id", "span_id", "kind", "start_ns", "time_ns", "service_name"] + [f for f, _ in _FIELDS.values()]
 
 # Fields each event kind must carry to be usable (contract section 4).
@@ -69,7 +69,7 @@ _REQUIRED = {
 class Decoded:
     records: list[dict] = field(default_factory=list)
     ignored: int = 0  # spans of other instrumentation scopes; not an error
-    rejected: list[str] = field(default_factory=list)  # one reason per rejected qv2 span
+    rejected: list[str] = field(default_factory=list)  # one reason per rejected Trailbeam span
 
 
 class DecodeError(ValueError):
@@ -163,7 +163,7 @@ def _json_spans(doc: dict) -> Iterable[tuple]:
 # ---- span -> record -------------------------------------------------------------------------
 
 def _event_kind(attrs: dict) -> Optional[str]:
-    kind = attrs.get("qv2.kind")
+    kind = attrs.get("trailbeam.kind")
     if kind == "sqs.send":
         return "send"
     if kind == "sqs.receive":
@@ -182,18 +182,18 @@ def _event_kind(attrs: dict) -> Optional[str]:
 def to_record(resource: dict, trace_id: str, span_id: str, start_ns: int, end_ns: int,
               attrs: dict) -> tuple[Optional[dict], str]:
     """Returns (record, "") or (None, reason)."""
-    if attrs.get("qv2.schema_version") not in ACCEPTED_SCHEMA_VERSIONS:
-        return None, (f"qv2.schema_version {attrs.get('qv2.schema_version')!r} is not one of "
+    if attrs.get("trailbeam.schema_version") not in ACCEPTED_SCHEMA_VERSIONS:
+        return None, (f"trailbeam.schema_version {attrs.get('trailbeam.schema_version')!r} is not one of "
                       f"{', '.join(map(str, ACCEPTED_SCHEMA_VERSIONS))}")
     kind = _event_kind(attrs)
     if kind is None:
-        return None, (f"unknown qv2.kind {attrs.get('qv2.kind')!r} / messaging.operation.name "
+        return None, (f"unknown trailbeam.kind {attrs.get('trailbeam.kind')!r} / messaging.operation.name "
                       f"{attrs.get('messaging.operation.name')!r}")
     if not trace_id or not span_id or not start_ns or not end_ns:
         return None, "span without trace ID, span ID, start time or end time"
     if end_ns < start_ns:
         return None, "span ends before it starts"
-    observed = attrs.get("qv2.start_observed") is not False
+    observed = attrs.get("trailbeam.start_observed") is not False
     rec = {"trace_id": trace_id, "span_id": span_id, "kind": kind, "time_ns": int(end_ns),
            "start_ns": int(start_ns) if observed else None,
            "service_name": resource.get("service.name") if isinstance(resource.get("service.name"), str) else None}
@@ -206,9 +206,9 @@ def to_record(resource: dict, trace_id: str, span_id: str, start_ns: int, end_ns
     if missing:
         return None, f"{kind} span without {', '.join(missing)}"
     if kind in ("delete", "change_visibility") and rec["result"] not in ("ok", "failed"):
-        return None, f"qv2.result {rec['result']!r} is not ok or failed"
+        return None, f"trailbeam.result {rec['result']!r} is not ok or failed"
     if kind == "outcome" and rec["outcome"] not in OUTCOMES:
-        return None, f"unknown qv2.outcome {rec['outcome']!r}"
+        return None, f"unknown trailbeam.outcome {rec['outcome']!r}"
     rec["attributes"] = attrs
     return rec, ""
 

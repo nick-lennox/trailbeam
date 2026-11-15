@@ -1,10 +1,10 @@
-"""Record the spans the smoke test sends: real qv2 boto3 hooks on moto's local SQS emulator (no AWS).
+"""Record the spans the smoke test sends: real Trailbeam boto3 hooks on moto's local SQS emulator (no AWS).
 
     pip install -e '../../python[test]' -e '..'
     python record_spans.py            # rewrites recorded-spans.pb and recorded-spans.json
 
-Writes the spans as one OTLP/HTTP protobuf request body (``recorded-spans.pb``, what a qv2 package
-exports) and what the smoke test should find (``recorded-spans.json``). Scenario on queue ``qv2-smoke``:
+Writes the spans as one OTLP/HTTP protobuf request body (``recorded-spans.pb``, what a Trailbeam package
+exports) and what the smoke test should find (``recorded-spans.json``). Scenario on queue ``trailbeam-smoke``:
 
 - ``redelivered``: received with a 1 s visibility timeout and not deleted, received again after it
   expired, then deleted with the second handle. Its timeline has an inferred visibility-timeout expiry.
@@ -23,7 +23,7 @@ for _k in [k for k in os.environ if k.startswith("AWS_")]:
     del os.environ[_k]
 os.environ.update(AWS_ACCESS_KEY_ID="test", AWS_SECRET_ACCESS_KEY="test", AWS_DEFAULT_REGION="us-east-1",
                   AWS_CONFIG_FILE=os.devnull, AWS_SHARED_CREDENTIALS_FILE=os.devnull,
-                  AWS_EC2_METADATA_DISABLED="true", OTEL_SERVICE_NAME="qv2-smoke-worker")
+                  AWS_EC2_METADATA_DISABLED="true", OTEL_SERVICE_NAME="trailbeam-smoke-worker")
 
 import boto3  # noqa: E402
 from moto.server import ThreadedMotoServer  # noqa: E402
@@ -31,7 +31,7 @@ from opentelemetry.exporter.otlp.proto.common.trace_encoder import encode_spans 
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor  # noqa: E402
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter  # noqa: E402
 
-import qv2.boto  # noqa: E402
+import trailbeam.boto  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 KEY = "smoke-test-key-0123456789"  # not a secret: only hashes emulator receipt handles
@@ -48,10 +48,10 @@ def main() -> None:
     srv.start()
     host, port = srv.get_host_and_port()
     exporter = InMemorySpanExporter()
-    qv2.boto.install(KEY, span_processor=SimpleSpanProcessor(exporter))
+    trailbeam.boto.install(KEY, span_processor=SimpleSpanProcessor(exporter))
     try:
         sqs = boto3.session.Session().client("sqs", endpoint_url=f"http://{host}:{port}", region_name="us-east-1")
-        url = sqs.create_queue(QueueName="qv2-smoke")["QueueUrl"]
+        url = sqs.create_queue(QueueName="trailbeam-smoke")["QueueUrl"]
 
         def send(body):
             return sqs.send_message(QueueUrl=url, MessageBody=body)["MessageId"]
@@ -77,20 +77,20 @@ def main() -> None:
 
         never = send("never-received")
     finally:
-        qv2.boto.uninstall()
+        trailbeam.boto.uninstall()
         srv.stop()
 
     spans = exporter.get_finished_spans()
     (HERE / "recorded-spans.pb").write_bytes(encode_spans(spans).SerializeToString())
     expected = {
-        "queue": "qv2-smoke",
+        "queue": "trailbeam-smoke",
         "redelivered": {"message_id": redelivered,
                         "events": ["sent", "received", "visibility_timeout_expired", "received", "deleted"]},
         "released": {"message_id": released,
                      "events": ["sent", "received", "visibility_changed", "visibility_timeout_expired",
                                 "received", "deleted"]},
         "never_received": {"message_id": never, "events": ["sent"]},
-        "qv2_span_count": sum(s.instrumentation_scope.name == "qv2" for s in spans),
+        "trailbeam_span_count": sum(s.instrumentation_scope.name == "trailbeam" for s in spans),
     "span_count": len(spans),
     }
     (HERE / "recorded-spans.json").write_text(json.dumps(expected, indent=2) + "\n")

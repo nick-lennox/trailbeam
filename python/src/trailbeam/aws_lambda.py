@@ -1,16 +1,16 @@
-"""qv2 wrapper for AWS Lambda handlers invoked by an SQS event source mapping (contract 4.2, 4.4).
+"""Trailbeam wrapper for AWS Lambda handlers invoked by an SQS event source mapping (contract 4.2, 4.4).
 
 Usage::
 
-    import qv2.aws_lambda
+    import trailbeam.aws_lambda
 
-    @qv2.aws_lambda.wrap
+    @trailbeam.aws_lambda.wrap
     def handler(event, context):
         ...
 
-For each SQS record the wrapper emits one ``qv2 receive`` and flushes it before the handler runs,
+For each SQS record the wrapper emits one ``trailbeam receive`` and flushes it before the handler runs,
 so a timeout or out-of-memory kill cannot lose it. After the handler returns or throws it emits one
-``qv2 outcome`` per record. A killed invocation has no outcome; the store infers it.
+``trailbeam outcome`` per record. A killed invocation has no outcome; the store infers it.
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ from ._contract import (
 from . import _order
 from ._emitter import Emitter, make_provider
 
-log = logging.getLogger("qv2")
+log = logging.getLogger("trailbeam")
 OPERATION = "LambdaEvent"
 DEFAULT_FLUSH_TIMEOUT_MILLIS = 2000
 
@@ -75,7 +75,7 @@ def decide_outcomes(record_ids: list[str], result: Any, report_batch_item_failur
 
 
 class LambdaRecorder:
-    """Emits the wrapper's spans. One per wrapped handler; holds the qv2 tracer provider."""
+    """Emits the wrapper's spans. One per wrapped handler; holds the Trailbeam tracer provider."""
 
     def __init__(self, provider: TracerProvider, emitter: Emitter, flush_timeout_millis: int,
                  report_batch_item_failures: bool):
@@ -88,7 +88,7 @@ class LambdaRecorder:
         try:
             self.provider.force_flush(self.flush_timeout_millis)
         except Exception:  # pragma: no cover - never fail the invocation because export failed
-            log.debug("qv2 flush failed", exc_info=True)
+            log.debug("trailbeam flush failed", exc_info=True)
 
     @staticmethod
     def _faas(context) -> dict:
@@ -118,12 +118,12 @@ class LambdaRecorder:
             rh = r.get("receiptHandle")
             if isinstance(rh, str) and rh:
                 attrs.update(self.emitter.hash_attrs(rh))
-            put(attrs, "qv2.receive_count", int_or_none(a.get("ApproximateReceiveCount")))
-            put(attrs, "qv2.sent_timestamp_ms", int_or_none(a.get("SentTimestamp")))
-            put(attrs, "qv2.first_receive_timestamp_ms", int_or_none(a.get("ApproximateFirstReceiveTimestamp")))
-            put(attrs, "qv2.aws_trace_header", a.get("AWSTraceHeader"))
-            put(attrs, "qv2.dead_letter_queue_source_arn", a.get("DeadLetterQueueSourceArn"))
-            put(attrs, "qv2.queue.arn", arn)
+            put(attrs, "trailbeam.receive_count", int_or_none(a.get("ApproximateReceiveCount")))
+            put(attrs, "trailbeam.sent_timestamp_ms", int_or_none(a.get("SentTimestamp")))
+            put(attrs, "trailbeam.first_receive_timestamp_ms", int_or_none(a.get("ApproximateFirstReceiveTimestamp")))
+            put(attrs, "trailbeam.aws_trace_header", a.get("AWSTraceHeader"))
+            put(attrs, "trailbeam.dead_letter_queue_source_arn", a.get("DeadLetterQueueSourceArn"))
+            put(attrs, "trailbeam.queue.arn", arn)
             attrs.update(faas)
             self.emitter.emit(SPAN_RECEIVE, OPERATION, name, url, attrs, end_ns=t, start_observed=False,
                               order=(None, returned))
@@ -137,9 +137,9 @@ class LambdaRecorder:
         for r in records:
             name, url = queue_from_arn(r.get("eventSourceARN") or "")
             mid = r["messageId"]
-            attrs: dict = {"messaging.message.id": mid, "qv2.outcome": outcomes[mid]}
+            attrs: dict = {"messaging.message.id": mid, "trailbeam.outcome": outcomes[mid]}
             if outcomes[mid] == OUTCOME_FAILED_EXCEPTION:
-                put(attrs, "qv2.error_type", error_type)
+                put(attrs, "trailbeam.error_type", error_type)
             attrs.update(faas)
             self.emitter.emit(SPAN_OUTCOME, OPERATION, name, url, attrs, start_ns=t, end_ns=t, order=(tick, tick))
         self._flush()
@@ -151,7 +151,7 @@ class LambdaRecorder:
         try:
             self.receives(records, context)
         except Exception:  # pragma: no cover - defensive
-            log.debug("qv2 receive spans failed", exc_info=True)
+            log.debug("trailbeam receive spans failed", exc_info=True)
         ids = [r["messageId"] for r in records]
         try:
             result = handler(event, context, *args, **kwargs)
@@ -167,7 +167,7 @@ class LambdaRecorder:
         try:
             self.outcomes(records, context, outcomes, error_type)
         except Exception:  # pragma: no cover - defensive
-            log.debug("qv2 outcome spans failed", exc_info=True)
+            log.debug("trailbeam outcome spans failed", exc_info=True)
 
 
 def sqs_records(event) -> list[dict]:
@@ -192,7 +192,7 @@ def wrap(
     """Wrap a Lambda handler. Use as ``@wrap`` or ``@wrap(receipt_hash_key=...)``.
 
     ``report_batch_item_failures`` should match the event source mapping's
-    ``FunctionResponseTypes``: when it is off, Lambda ignores ``batchItemFailures``, and so does qv2.
+    ``FunctionResponseTypes``: when it is off, Lambda ignores ``batchItemFailures``, and so does Trailbeam.
     Events without SQS records are passed to the handler untouched.
     """
     def decorate(fn: Callable) -> Callable:
@@ -205,7 +205,7 @@ def wrap(
         def wrapped(event, context, *args, **kwargs):
             return recorder.invoke(fn, event, context, *args, **kwargs)
 
-        wrapped.qv2_tracer_provider = provider  # type: ignore[attr-defined]
+        wrapped.trailbeam_tracer_provider = provider  # type: ignore[attr-defined]
         return wrapped
 
     return decorate(handler) if handler is not None else decorate

@@ -1,13 +1,13 @@
 'use strict';
-// qv2 hooks for AWS SDK v3 SQS clients (contract sections 4.1 to 4.3).
+// Trailbeam hooks for AWS SDK v3 SQS clients (contract sections 4.1 to 4.3).
 //
 // The hooks are a middleware on each SQSClient's middleware stack. When the application uses
 // @opentelemetry/instrumentation-aws-sdk, that instrumentation runs the whole stack inside the
-// context of its span for the call, so each qv2 span is a child of the stock span and shares its
-// trace ID. Without it, qv2 spans are children of whatever span is active, or root spans.
+// context of its span for the call, so each Trailbeam span is a child of the stock span and shares its
+// trace ID. Without it, Trailbeam spans are children of whatever span is active, or root spans.
 //
-//     const qv2 = require('@qv2/sdk');
-//     const sqs = qv2.instrument(new SQSClient({}));   // installs with defaults on first use
+//     const trailbeam = require('@trailbeam/sdk');
+//     const sqs = trailbeam.instrument(new SQSClient({}));   // installs with defaults on first use
 
 const api = require('@opentelemetry/api');
 
@@ -25,7 +25,7 @@ const { Emitter, makeProvider, nowMs, SERVICE_INSTANCE_ID } = require('./emitter
 const { HandleMap } = require('./handles');
 const order = require('./order');
 
-const MIDDLEWARE_NAME = 'qv2SqsMiddleware';
+const MIDDLEWARE_NAME = 'trailbeamSqsMiddleware';
 
 // System attributes the receive hook asks for (section 4.2).
 const RECEIVE_SYSTEM_ATTRIBUTES = Object.freeze([
@@ -46,11 +46,11 @@ const SETTLE_OPS = {
 const OPS = new Set(['SendMessage', 'SendMessageBatch', 'ReceiveMessage', ...Object.keys(SETTLE_OPS)]);
 
 function debug(what, err) {
-  api.diag.debug(`qv2: ${what} failed`, err);
+  api.diag.debug(`trailbeam: ${what} failed`, err);
 }
 
 /**
- * A copy of a ReceiveMessage input that asks for the system attributes qv2 needs, keeping
+ * A copy of a ReceiveMessage input that asks for the system attributes Trailbeam needs, keeping
  * everything the caller asked for; or `undefined` if nothing needs adding. The caller's object is
  * never modified.
  */
@@ -95,7 +95,7 @@ function spanTimes({ startTime, endTime, issued, returned } = {}) {
 }
 
 /**
- * Turns SQS calls into qv2 spans. Hook methods never throw. `times` is `{startTime, endTime}` of the
+ * Turns SQS calls into Trailbeam spans. Hook methods never throw. `times` is `{startTime, endTime}` of the
  * SQS call in epoch ms (contract section 2), plus its call-order ticks `{issued, returned}` (schema
  * version 3); every span of one call, batch entries included, gets them.
  */
@@ -120,7 +120,7 @@ class SqsHooks {
     for (const entry of output.Successful || []) {
       if (!entry || !entry.MessageId) continue;
       const attrs = { 'messaging.message.id': entry.MessageId };
-      put(attrs, 'qv2.batch_entry_id', entry.Id);
+      put(attrs, 'trailbeam.batch_entry_id', entry.Id);
       this.emitter.emit(SPAN_SEND, operation, name, url, attrs, { parentContext, ...t });
     }
   }
@@ -136,11 +136,11 @@ class SqsHooks {
       this.handles.put(rh, mid);
       const a = m.Attributes || {};
       const attrs = { 'messaging.message.id': mid, ...this.emitter.hashAttrs(rh) };
-      put(attrs, 'qv2.receive_count', intOrUndefined(a.ApproximateReceiveCount));
-      put(attrs, 'qv2.sent_timestamp_ms', intOrUndefined(a.SentTimestamp));
-      put(attrs, 'qv2.first_receive_timestamp_ms', intOrUndefined(a.ApproximateFirstReceiveTimestamp));
-      put(attrs, 'qv2.aws_trace_header', a.AWSTraceHeader);
-      put(attrs, 'qv2.dead_letter_queue_source_arn', a.DeadLetterQueueSourceArn);
+      put(attrs, 'trailbeam.receive_count', intOrUndefined(a.ApproximateReceiveCount));
+      put(attrs, 'trailbeam.sent_timestamp_ms', intOrUndefined(a.SentTimestamp));
+      put(attrs, 'trailbeam.first_receive_timestamp_ms', intOrUndefined(a.ApproximateFirstReceiveTimestamp));
+      put(attrs, 'trailbeam.aws_trace_header', a.AWSTraceHeader);
+      put(attrs, 'trailbeam.dead_letter_queue_source_arn', a.DeadLetterQueueSourceArn);
       this.emitter.emit(SPAN_RECEIVE, 'ReceiveMessage', name, url, attrs, { parentContext, ...t });
     }
   }
@@ -171,10 +171,10 @@ class SqsHooks {
       else if (batch && !okIds.has(entryId)) error = failed.get(entryId) || 'MissingFromResponse';
       const attrs = this.emitter.hashAttrs(rh);
       put(attrs, 'messaging.message.id', this.handles.get(rh));
-      if (batch) put(attrs, 'qv2.batch_entry_id', entryId);
-      if (spanName === SPAN_CHANGE_VISIBILITY) put(attrs, 'qv2.visibility_timeout', intOrUndefined(vt));
-      attrs['qv2.result'] = error === undefined ? 'ok' : 'failed';
-      put(attrs, 'qv2.error_code', error);
+      if (batch) put(attrs, 'trailbeam.batch_entry_id', entryId);
+      if (spanName === SPAN_CHANGE_VISIBILITY) put(attrs, 'trailbeam.visibility_timeout', intOrUndefined(vt));
+      attrs['trailbeam.result'] = error === undefined ? 'ok' : 'failed';
+      put(attrs, 'trailbeam.error_code', error);
       this.emitter.emit(spanName, operation, name, url, attrs, { parentContext, ...t });
       if (error === undefined && spanName === SPAN_DELETE) this.handles.discard(rh);
     }
@@ -232,12 +232,12 @@ function sqsMiddleware(getHooks) {
 let state = null;
 
 /**
- * Create the qv2 client hooks for this process: a tracer provider of our own, the receipt-hash key
- * and the handle map. Returns the qv2 tracer provider. Calling it again replaces the previous
+ * Create the Trailbeam client hooks for this process: a tracer provider of our own, the receipt-hash key
+ * and the handle map. Returns the Trailbeam tracer provider. Calling it again replaces the previous
  * installation (and shuts its provider down).
  *
  * @param {object} [options]
- * @param {string} [options.receiptHashKey] takes precedence over $QV2_RECEIPT_HASH_KEY
+ * @param {string} [options.receiptHashKey] takes precedence over $TRAILBEAM_RECEIPT_HASH_KEY
  * @param {import('@opentelemetry/sdk-trace-base').SpanExporter} [options.spanExporter]
  * @param {import('@opentelemetry/sdk-trace-base').SpanProcessor} [options.spanProcessor]
  */
@@ -252,12 +252,12 @@ function install(options = {}) {
 }
 
 /**
- * Add the qv2 hooks to an AWS SDK v3 SQSClient. Installs with default options first if `install`
+ * Add the Trailbeam hooks to an AWS SDK v3 SQSClient. Installs with default options first if `install`
  * has not been called. Safe to call more than once on the same client. Returns the client.
  */
 function instrument(client) {
   if (!client || !client.middlewareStack || typeof client.middlewareStack.add !== 'function') {
-    throw new TypeError('qv2.instrument expects an AWS SDK v3 SQSClient');
+    throw new TypeError('trailbeam.instrument expects an AWS SDK v3 SQSClient');
   }
   if (!state) install();
   client.middlewareStack.add(sqsMiddleware(() => state && state.hooks), {
@@ -269,14 +269,14 @@ function instrument(client) {
   return client;
 }
 
-/** Turn the hooks off on every instrumented client, then flush and shut down the qv2 provider. */
+/** Turn the hooks off on every instrumented client, then flush and shut down the Trailbeam provider. */
 async function uninstall() {
   const previous = state;
   state = null;
   if (previous) await previous.provider.shutdown();
 }
 
-/** Flush qv2 spans that are waiting to be exported. */
+/** Flush Trailbeam spans that are waiting to be exported. */
 async function forceFlush() {
   if (state) await state.provider.forceFlush();
 }

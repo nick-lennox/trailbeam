@@ -1,14 +1,14 @@
-"""qv2 hooks for boto3 / botocore SQS clients (contract sections 4.1 to 4.3).
+"""Trailbeam hooks for boto3 / botocore SQS clients (contract sections 4.1 to 4.3).
 
-The hooks ride on ``opentelemetry-instrumentation-botocore``: each qv2 span is a child of the stock
+The hooks ride on ``opentelemetry-instrumentation-botocore``: each Trailbeam span is a child of the stock
 span for the same API call. Usage::
 
-    import qv2.boto
-    qv2.boto.install()          # before or after creating clients; once per process
+    import trailbeam.boto
+    trailbeam.boto.install()          # before or after creating clients; once per process
 
 If the application has already called ``BotocoreInstrumentor().instrument(...)``, ``install`` keeps
 that instrumentation (and its tracer provider) and chains the application's own hooks after ours.
-Otherwise it instruments botocore with the qv2 tracer provider, so the stock span is exported too.
+Otherwise it instruments botocore with the Trailbeam tracer provider, so the stock span is exported too.
 """
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ from . import _order
 from ._emitter import Emitter, make_provider
 from ._handles import HandleMap
 
-log = logging.getLogger("qv2")
+log = logging.getLogger("trailbeam")
 
 # System attributes the receive hook asks for (section 4.2).
 RECEIVE_SYSTEM_ATTRIBUTES = (
@@ -56,7 +56,7 @@ _SETTLE_OPS = {
 
 
 def add_receive_attribute_names(params: dict) -> None:
-    """Ask for the system attributes qv2 needs, keeping everything the caller asked for."""
+    """Ask for the system attributes Trailbeam needs, keeping everything the caller asked for."""
     new = list(params.get("MessageSystemAttributeNames") or [])
     legacy = list(params.get("AttributeNames") or [])
     asked = set(new) | set(legacy)
@@ -106,7 +106,7 @@ class SqsHooks:
                 issued = _order.tick()
                 self._pending[id(span)] = (params, _now(), _order.scope, issued)
         except Exception:  # pragma: no cover - defensive; never break the caller's SQS call
-            log.debug("qv2 request hook failed", exc_info=True)
+            log.debug("trailbeam request hook failed", exc_info=True)
 
     def response_hook(self, span, service: str, operation: str, result: Optional[dict]) -> None:
         if service != "sqs":
@@ -134,7 +134,7 @@ class SqsHooks:
                 exc = sys.exc_info()[1]
                 self._on_settle(span, operation, params, result, exc, t)
         except Exception:  # pragma: no cover - defensive
-            log.debug("qv2 response hook failed", exc_info=True)
+            log.debug("trailbeam response hook failed", exc_info=True)
 
     # -- span builders -----------------------------------------------------------------------
 
@@ -150,7 +150,7 @@ class SqsHooks:
         for entry in result.get("Successful") or []:
             attrs: dict = {}
             put(attrs, "messaging.message.id", entry.get("MessageId"))
-            put(attrs, "qv2.batch_entry_id", entry.get("Id"))
+            put(attrs, "trailbeam.batch_entry_id", entry.get("Id"))
             if "messaging.message.id" in attrs:
                 self.emitter.emit(SPAN_SEND, operation, name, url, attrs, parent=span, start_ns=t[0], end_ns=t[1], order=t[2])
 
@@ -167,11 +167,11 @@ class SqsHooks:
             a = m.get("Attributes") or {}
             attrs = {"messaging.message.id": mid}
             attrs.update(self.emitter.hash_attrs(rh))
-            put(attrs, "qv2.receive_count", int_or_none(a.get("ApproximateReceiveCount")))
-            put(attrs, "qv2.sent_timestamp_ms", int_or_none(a.get("SentTimestamp")))
-            put(attrs, "qv2.first_receive_timestamp_ms", int_or_none(a.get("ApproximateFirstReceiveTimestamp")))
-            put(attrs, "qv2.aws_trace_header", a.get("AWSTraceHeader"))
-            put(attrs, "qv2.dead_letter_queue_source_arn", a.get("DeadLetterQueueSourceArn"))
+            put(attrs, "trailbeam.receive_count", int_or_none(a.get("ApproximateReceiveCount")))
+            put(attrs, "trailbeam.sent_timestamp_ms", int_or_none(a.get("SentTimestamp")))
+            put(attrs, "trailbeam.first_receive_timestamp_ms", int_or_none(a.get("ApproximateFirstReceiveTimestamp")))
+            put(attrs, "trailbeam.aws_trace_header", a.get("AWSTraceHeader"))
+            put(attrs, "trailbeam.dead_letter_queue_source_arn", a.get("DeadLetterQueueSourceArn"))
             self.emitter.emit(SPAN_RECEIVE, "ReceiveMessage", name, url, attrs, parent=span, start_ns=t[0], end_ns=t[1], order=t[2])
 
     def _on_settle(self, span, operation: str, params: dict, result: Optional[dict], exc, t: tuple) -> None:
@@ -207,11 +207,11 @@ class SqsHooks:
             attrs = self.emitter.hash_attrs(rh)
             put(attrs, "messaging.message.id", self.handles.get(rh))
             if batch:
-                put(attrs, "qv2.batch_entry_id", entry_id)
+                put(attrs, "trailbeam.batch_entry_id", entry_id)
             if span_name == SPAN_CHANGE_VISIBILITY:
-                put(attrs, "qv2.visibility_timeout", int_or_none(vt))
-            attrs["qv2.result"] = "ok" if error is None else "failed"
-            put(attrs, "qv2.error_code", error)
+                put(attrs, "trailbeam.visibility_timeout", int_or_none(vt))
+            attrs["trailbeam.result"] = "ok" if error is None else "failed"
+            put(attrs, "trailbeam.error_code", error)
             self.emitter.emit(span_name, operation, name, url, attrs, parent=span, start_ns=t[0], end_ns=t[1], order=t[2])
             if error is None and span_name == SPAN_DELETE:
                 self.handles.discard(rh)
@@ -248,9 +248,9 @@ def install(
     span_exporter: Optional[SpanExporter] = None,
     span_processor: Optional[SpanProcessor] = None,
 ) -> TracerProvider:
-    """Install the qv2 SQS hooks into botocore. Returns the qv2 tracer provider.
+    """Install the Trailbeam SQS hooks into botocore. Returns the Trailbeam tracer provider.
 
-    ``receipt_hash_key`` takes precedence over $QV2_RECEIPT_HASH_KEY. ``span_exporter`` /
+    ``receipt_hash_key`` takes precedence over $TRAILBEAM_RECEIPT_HASH_KEY. ``span_exporter`` /
     ``span_processor`` replace the default OTLP/HTTP export (used by the tests).
     Calling ``install`` again replaces the previous installation.
     """
@@ -285,6 +285,6 @@ def _uninstall_locked() -> None:
 
 
 def uninstall() -> None:
-    """Remove the qv2 hooks, flush and shut down the qv2 tracer provider."""
+    """Remove the Trailbeam hooks, flush and shut down the Trailbeam tracer provider."""
     with _install_lock:
         _uninstall_locked()

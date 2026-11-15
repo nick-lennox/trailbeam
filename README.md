@@ -1,6 +1,6 @@
-# qv2
+# Trailbeam
 
-qv2 builds a timeline for each Amazon SQS message: sent, received, visibility changed, deleted, moved
+Trailbeam builds a timeline for each Amazon SQS message: sent, received, visibility changed, deleted, moved
 to a dead-letter queue, and the Lambda outcome. You look up a message by its message ID.
 
 Status: pre-release 0.1, unreleased and private. Nothing is published to PyPI, npm or a container
@@ -11,16 +11,16 @@ registry.
 1. OpenTelemetry hooks in your services emit one span per message for each SQS call your code makes:
    `SendMessage`, `ReceiveMessage`, `DeleteMessage`, `ChangeMessageVisibility` and their batch forms.
    A Lambda wrapper does the same for SQS events.
-2. The spans go over OTLP/HTTP to the qv2 store, directly or through an OpenTelemetry Collector.
+2. The spans go over OTLP/HTTP to the Trailbeam store, directly or through an OpenTelemetry Collector.
 3. The store keeps the spans in SQLite. It joins each delete to the receive whose receipt handle it
    used, through a keyed hash of the handle.
 4. When you open a message, the store builds its timeline. It orders two events only when an observed
    fact proves the order. It marks every event that it inferred, such as a visibility timeout that
    expired.
 
-Full explanation: [How qv2 works](docs/architecture.md).
+Full explanation: [How Trailbeam works](docs/architecture.md).
 
-What qv2 does not do:
+What Trailbeam does not do:
 
 - It makes no SQS calls of its own, and never calls `ReceiveMessage` on your queues. The store makes
   no AWS calls.
@@ -29,11 +29,11 @@ What qv2 does not do:
 
 ## Try it
 
-The [quickstart](docs/quickstart.md) runs qv2 on your laptop with Docker and an SQS emulator. It needs
+The [quickstart](docs/quickstart.md) runs Trailbeam on your laptop with Docker and an SQS emulator. It needs
 no AWS account.
 
 ```sh
-gh repo clone nick-lennox/qv2 && cd qv2
+gh repo clone nick-lennox/trailbeam && cd trailbeam
 docker compose -f demo/compose.yaml up -d --build --wait
 # then open http://127.0.0.1:4318/ and click a message ID
 ```
@@ -57,9 +57,9 @@ docker compose -f demo/compose.yaml up -d --build --wait
 
 | Directory | Contents |
 |---|---|
-| [`python/`](python/) | Python package `qv2`: boto3 hooks and a Lambda handler wrapper |
-| [`node/`](node/) | Node.js package `@qv2/sdk`: AWS SDK v3 hooks and a Lambda handler wrapper |
-| [`server/`](server/) | The store (`qv2-store`): OTLP/HTTP ingest, SQLite, JSON API and web screen, and its Dockerfile |
+| [`python/`](python/) | Python package `trailbeam`: boto3 hooks and a Lambda handler wrapper |
+| [`node/`](node/) | Node.js package `@trailbeam/sdk`: AWS SDK v3 hooks and a Lambda handler wrapper |
+| [`server/`](server/) | The store (`trailbeam-store`): OTLP/HTTP ingest, SQLite, JSON API and web screen, and its Dockerfile |
 | [`collector/`](collector/) | OpenTelemetry Collector configuration |
 | [`demo/`](demo/) | Local demo on ElasticMQ with Docker Compose, and the concurrency check (`demo/check.sh`) |
 | [`docs/`](docs/) | The pages listed above, and the receipt-hash test vectors |
@@ -75,7 +75,7 @@ pip install -e './server[test]' -e './python[test]' && pytest server/tests
 pytest demo/check/tests
 ```
 
-The Node.js tests that need an SQS emulator are skipped unless `QV2_TEST_SQS_ENDPOINT` is set, for
+The Node.js tests that need an SQS emulator are skipped unless `TRAILBEAM_TEST_SQS_ENDPOINT` is set, for
 example to `http://localhost:9324`. [`.github/workflows/ci.yml`](.github/workflows/ci.yml) also runs
 the Collector tests, the container smoke test, the demo and the concurrency check.
 

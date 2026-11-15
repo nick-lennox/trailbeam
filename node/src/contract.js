@@ -4,22 +4,22 @@
 const crypto = require('node:crypto');
 
 const SCHEMA_VERSION = 3;
-const SCOPE_NAME = 'qv2';
+const SCOPE_NAME = 'trailbeam';
 
-const DEFAULT_KEY = 'qv2-default-receipt-hash-key';
-const KEY_ENV = 'QV2_RECEIPT_HASH_KEY';
-const ENDPOINT_ENV = 'QV2_OTLP_TRACES_ENDPOINT';
+const DEFAULT_KEY = 'trailbeam-default-receipt-hash-key';
+const KEY_ENV = 'TRAILBEAM_RECEIPT_HASH_KEY';
+const ENDPOINT_ENV = 'TRAILBEAM_OTLP_TRACES_ENDPOINT';
 const DEFAULT_ENDPOINT = 'http://localhost:4318/v1/traces';
 const MIN_KEY_BYTES = 16;
 
 // Span names (section 1). They never contain a variable part.
-const SPAN_SEND = 'qv2 send';
-const SPAN_RECEIVE = 'qv2 receive';
-const SPAN_DELETE = 'qv2 delete';
-const SPAN_CHANGE_VISIBILITY = 'qv2 change_visibility';
-const SPAN_OUTCOME = 'qv2 outcome';
+const SPAN_SEND = 'trailbeam send';
+const SPAN_RECEIVE = 'trailbeam receive';
+const SPAN_DELETE = 'trailbeam delete';
+const SPAN_CHANGE_VISIBILITY = 'trailbeam change_visibility';
+const SPAN_OUTCOME = 'trailbeam outcome';
 
-// [qv2.kind, messaging.operation.type] per span name.
+// [trailbeam.kind, messaging.operation.type] per span name.
 const KINDS = {
   [SPAN_SEND]: ['sqs.send', 'send'],
   [SPAN_RECEIVE]: ['sqs.receive', 'receive'],
@@ -37,14 +37,14 @@ function hmacHex(key, data) {
   return crypto.createHmac('sha256', Buffer.from(key, 'utf8')).update(Buffer.from(data, 'utf8')).digest('hex');
 }
 
-/** `qv2.receipt_handle.hmac` for a receipt handle (section 7). */
+/** `trailbeam.receipt_handle.hmac` for a receipt handle (section 7). */
 function hashReceiptHandle(key, receiptHandle) {
   return hmacHex(key, receiptHandle).slice(0, 32);
 }
 
-/** `qv2.receipt_handle.key_id` for a key (section 7). */
+/** `trailbeam.receipt_handle.key_id` for a key (section 7). */
 function keyId(key) {
-  return hmacHex(key, 'qv2 key id').slice(0, 8);
+  return hmacHex(key, 'trailbeam key id').slice(0, 8);
 }
 
 /** Holds the key and hashes receipt handles. Never logs or exports the key. */
@@ -53,7 +53,7 @@ class ReceiptHasher {
 
   constructor(key) {
     this.#key = Buffer.from(key, 'utf8');
-    this.keyId = crypto.createHmac('sha256', this.#key).update('qv2 key id', 'utf8').digest('hex').slice(0, 8);
+    this.keyId = crypto.createHmac('sha256', this.#key).update('trailbeam key id', 'utf8').digest('hex').slice(0, 8);
   }
 
   hash(receiptHandle) {
@@ -66,7 +66,7 @@ class ReceiptHasher {
 }
 
 const warned = new Set();
-let warn = (msg) => process.emitWarning(msg, { code: 'QV2' });
+let warn = (msg) => process.emitWarning(msg, { code: 'TRAILBEAM' });
 
 function warnOnce(tag, msg) {
   if (warned.has(tag)) return;
@@ -74,16 +74,16 @@ function warnOnce(tag, msg) {
   warn(msg);
 }
 
-/** Explicit key, then $QV2_RECEIPT_HASH_KEY, then the published default key (with one warning). */
+/** Explicit key, then $TRAILBEAM_RECEIPT_HASH_KEY, then the published default key (with one warning). */
 function resolveHasher(key) {
   if (key === undefined || key === null || key === '') key = process.env[KEY_ENV] || undefined;
   if (key === undefined) {
     warnOnce('default-key',
-      'qv2: no receipt-hash key configured (QV2_RECEIPT_HASH_KEY); using the published default key, ' +
+      'trailbeam: no receipt-hash key configured (TRAILBEAM_RECEIPT_HASH_KEY); using the published default key, ' +
       'which gives no protection. Set the same key on every service that uses these queues.');
     key = DEFAULT_KEY;
   } else if (Buffer.byteLength(key, 'utf8') < MIN_KEY_BYTES) {
-    warnOnce('short-key', `qv2: the receipt-hash key is shorter than ${MIN_KEY_BYTES} bytes`);
+    warnOnce('short-key', `trailbeam: the receipt-hash key is shorter than ${MIN_KEY_BYTES} bytes`);
   }
   return new ReceiptHasher(key);
 }

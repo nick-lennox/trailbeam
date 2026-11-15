@@ -1,9 +1,9 @@
-"""qv2 0.1 concurrency check: compare the timelines in the qv2 store with what the demo drivers really did.
+"""Trailbeam 0.1 concurrency check: compare the timelines in the Trailbeam store with what the demo drivers really did.
 
     check.py wait   --truth DIR --count 200 [--timeout 180]
-    check.py verify --truth DIR --count 200 --store http://qv2:4318 [--timeout 60] [--report FILE]
+    check.py verify --truth DIR --count 200 --store http://trailbeam:4318 [--timeout 60] [--report FILE]
 
-The drivers (demo/python/qv2demo.py, demo/node/qv2demo.js) write one truth line per SQS call they make
+The drivers (demo/python/trailbeamdemo.py, demo/node/trailbeamdemo.js) write one truth line per SQS call they make
 (send, receive, change_visibility, delete) to their own file in DIR. ``wait`` returns once every sent
 message has an accepted delete in the truth. ``verify`` reads each message's timeline from the store's
 JSON API (GET /api/messages/{id}) and checks, per message:
@@ -756,7 +756,7 @@ def main(argv=None) -> int:
         s.add_argument("--truth", required=True, help="directory of the drivers' truth files")
         s.add_argument("--count", type=int, default=200, help="number of messages the producer sent")
     sub.choices["wait"].add_argument("--timeout", type=float, default=180)
-    sub.choices["verify"].add_argument("--store", default="http://qv2:4318")
+    sub.choices["verify"].add_argument("--store", default="http://trailbeam:4318")
     sub.choices["verify"].add_argument("--timeout", type=float, default=60, help="seconds to wait for spans to arrive")
     sub.choices["verify"].add_argument("--report", help="write the full per-message report here (JSON)")
     sub.choices["verify"].add_argument("--floor", type=float, default=FLOOR,

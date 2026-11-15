@@ -1,10 +1,10 @@
 # Quickstart: one message's timeline on your laptop
 
-This tutorial runs qv2 on your machine against ElasticMQ, an SQS emulator. At the end you open the
+This tutorial runs Trailbeam on your machine against ElasticMQ, an SQS emulator. At the end you open the
 timeline of one SQS message in the web screen and as JSON. It needs no AWS account and uses no AWS
 credentials.
 
-To learn how the parts fit together, read [How qv2 works](architecture.md) after this page.
+To learn how the parts fit together, read [How Trailbeam works](architecture.md) after this page.
 
 ## Before you start
 
@@ -14,7 +14,7 @@ You need:
 - Docker with Compose v2: Docker Desktop on macOS or Windows, or Docker Engine with the compose
   plugin on Linux;
 - about 2 GB of free disk for the images (about 1.5 GB once built);
-- access to the private repository `nick-lennox/qv2` on GitHub, and the
+- access to the private repository `nick-lennox/trailbeam` on GitHub, and the
   [GitHub CLI](https://cli.github.com/) logged in with that account (`gh auth login`).
 
 Check the tools:
@@ -28,10 +28,10 @@ Check the tools:
 
 ## 1. Get the code
 
-1. Run `gh repo clone nick-lennox/qv2`.
-2. Run `cd qv2`.
+1. Run `gh repo clone nick-lennox/trailbeam`.
+2. Run `cd trailbeam`.
 
-A plain `git clone https://github.com/nick-lennox/qv2` fails with
+A plain `git clone https://github.com/nick-lennox/trailbeam` fails with
 `fatal: could not read Username for 'https://github.com'`, unless git already has credentials for an
 account with access.
 
@@ -52,12 +52,12 @@ account with access.
    | Service | What it is |
    |---|---|
    | `sqs` | ElasticMQ 1.6.15. The demo programs create the queue `orders` and its dead-letter queue `orders-dlq`. |
-   | `producer` | Python, with the `qv2` boto3 hooks. Sends one message per second to `orders`. |
+   | `producer` | Python, with the `trailbeam` boto3 hooks. Sends one message per second to `orders`. |
    | `consumer-python` | Python, 4 consumer threads on `orders`, and 1 thread that receives and deletes from `orders-dlq`. |
-   | `consumer-node` | Node.js, with `@qv2/sdk`. 4 concurrent consumers on `orders`. |
+   | `consumer-node` | Node.js, with `@trailbeam/sdk`. 4 concurrent consumers on `orders`. |
    | `deleter` | Python. A separate process that deletes messages by receipt handle, for messages the consumers hand to it. |
-   | `collector` | The OpenTelemetry Collector with [`collector/qv2-collector.yaml`](../collector/qv2-collector.yaml). |
-   | `qv2` | The qv2 store and web screen, on `127.0.0.1:4318`. It shows the status `(healthy)`. |
+   | `collector` | The OpenTelemetry Collector with [`collector/trailbeam-collector.yaml`](../collector/trailbeam-collector.yaml). |
+   | `trailbeam` | The Trailbeam store and web screen, on `127.0.0.1:4318`. It shows the status `(healthy)`. |
 
 `orders` has a visibility timeout of 10 s and a redrive policy to `orders-dlq` with
 `maxReceiveCount` 3.
@@ -94,7 +94,7 @@ are sorted by request start time. That is not the order in which SQS acted.
 Expect this box often around a send and its first receive. An idle consumer waits in a long poll
 (`WaitTimeSeconds`), so its `ReceiveMessage` started before the message existed. ElasticMQ also
 stamps `SentTimestamp` and `ApproximateFirstReceiveTimestamp` in the same millisecond, which proves
-nothing. qv2 does not order events by cause, so the send and the receive stay concurrent.
+nothing. Trailbeam does not order events by cause, so the send and the receive stay concurrent.
 
 Events that the store inferred, rather than observed, have a dashed border and an `inferred` badge.
 They show a time window and a reason instead of a time. An example is a visibility timeout that
@@ -119,17 +119,17 @@ Also open these lists:
 - `http://127.0.0.1:4318/duplicates`: messages received more than once, or that succeeded more than
   once.
 - `http://127.0.0.1:4318/stuck`: messages without a final delete for more than 60 s. The demo sets
-  `QV2_STUCK_AFTER_S` to 60.
+  `TRAILBEAM_STUCK_AFTER_S` to 60.
 
 Every message page shows the notice for the published default receipt-hash key. The start page does
 not. This is expected in the demo. To use your own key, see [Use your own key](#use-your-own-key).
 
 ### Get the same data as JSON
 
-1. Run these commands. They read `QV2_DEMO_PORT` if you set it:
+1. Run these commands. They read `TRAILBEAM_DEMO_PORT` if you set it:
 
    ```sh
-   port=${QV2_DEMO_PORT:-4318}
+   port=${TRAILBEAM_DEMO_PORT:-4318}
    id=$(curl -s "http://127.0.0.1:$port/api/messages?limit=1" | python3 -c 'import json,sys; print(json.load(sys.stdin)["messages"][0]["message_id"])')
    curl -s "http://127.0.0.1:$port/api/messages/$id" | python3 -m json.tool
    ```
@@ -157,12 +157,12 @@ The fields are described in [`store-api.md`](store-api.md).
 ## 4. Stop
 
 - Run `docker compose -f demo/compose.yaml down` to stop the demo. The timelines stay on the volume
-  `qv2-demo_qv2-data`.
+  `trailbeam-demo_trailbeam-data`.
 - Run `docker compose -f demo/compose.yaml down -v` to stop the demo and delete the timelines.
 
 ## Next steps
 
-- Read [How qv2 works](architecture.md): components, data flow, what is inferred, failure cases.
+- Read [How Trailbeam works](architecture.md): components, data flow, what is inferred, failure cases.
 - Instrument your own services: [Python](../python/README.md), [Node.js](../node/README.md). Then run
   the [store container](../server/README.md) and, optionally, the
   [Collector](../collector/README.md). In 0.1 nothing is published: install everything from this
@@ -174,9 +174,9 @@ The fields are described in [`store-api.md`](store-api.md).
 
 ### Use another port
 
-1. Run `export QV2_DEMO_PORT=4400`.
+1. Run `export TRAILBEAM_DEMO_PORT=4400`.
 2. If you run `docker.exe` from WSL, also run
-   `export WSLENV="COMPOSE_PROJECT_NAME:QV2_DEMO_PORT${WSLENV:+:$WSLENV}"`. Windows programs see only
+   `export WSLENV="COMPOSE_PROJECT_NAME:TRAILBEAM_DEMO_PORT${WSLENV:+:$WSLENV}"`. Windows programs see only
    the WSL variables that `WSLENV` lists. Without this line, `docker.exe` uses port 4318.
 3. Run `docker compose -f demo/compose.yaml config | grep published`. It prints `published: "4400"`.
 4. Run `docker compose -f demo/compose.yaml up -d --build --wait`.
@@ -187,7 +187,7 @@ The fields are described in [`store-api.md`](store-api.md).
 Run the demo with a random receipt-hash key:
 
 ```sh
-QV2_RECEIPT_HASH_KEY=$(openssl rand -hex 32) docker compose -f demo/compose.yaml up -d --build --wait
+TRAILBEAM_RECEIPT_HASH_KEY=$(openssl rand -hex 32) docker compose -f demo/compose.yaml up -d --build --wait
 ```
 
 New spans then use this key, and new message pages show no default-key notice. In your own services,
@@ -201,6 +201,6 @@ set the same key on every service that uses the same queues.
 | `Cannot connect to the Docker daemon`, or `failed to connect to the docker API at unix:///var/run/docker.sock` | Start Docker Desktop, or run `sudo systemctl start docker`. |
 | The same error in WSL, or `The command 'docker' could not be found in this WSL 2 distro` | Docker Desktop's WSL integration is off for your distribution. Turn it on in Docker Desktop (Settings, Resources, WSL integration). Or use `docker.exe` in place of `docker` in every command. |
 | `port is already allocated` on 4318 | [Use another port](#use-another-port). |
-| A demo from another qv2 checkout is running | Both checkouts use the Compose project `qv2-demo`. Starting this one replaces the other's containers and uses its volume. Follow [More than one checkout on the same machine](../demo/README.md#more-than-one-checkout-on-the-same-machine). |
-| The start page is empty | Wait a few seconds: spans are exported in batches. Then run `docker compose -f demo/compose.yaml logs collector qv2`. |
+| A demo from another Trailbeam checkout is running | Both checkouts use the Compose project `trailbeam-demo`. Starting this one replaces the other's containers and uses its volume. Follow [More than one checkout on the same machine](../demo/README.md#more-than-one-checkout-on-the-same-machine). |
+| The start page is empty | Wait a few seconds: spans are exported in batches. Then run `docker compose -f demo/compose.yaml logs collector trailbeam`. |
 | A build step fails with `CERTIFICATE_VERIFY_FAILED` | A proxy on your network intercepts TLS, and the build containers do not trust its certificate. The Dockerfiles have no setting for this in 0.1. |

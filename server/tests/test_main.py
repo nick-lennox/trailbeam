@@ -1,4 +1,4 @@
-"""The qv2-store command: starts, serves, and exits cleanly on SIGTERM (docker stop, systemd)."""
+"""The trailbeam-store command: starts, serves, and exits cleanly on SIGTERM (docker stop, systemd)."""
 import os
 import signal
 import subprocess
@@ -11,8 +11,8 @@ import pytest
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signals")
 def test_sigterm_stops_cleanly(tmp_path):
-    env = {**os.environ, "QV2_STORE_DB": str(tmp_path / "q.sqlite"), "QV2_STORE_PORT": "0"}
-    p = subprocess.Popen([sys.executable, "-m", "qv2_store"], env=env, stderr=subprocess.PIPE, text=True)
+    env = {**os.environ, "TRAILBEAM_STORE_DB": str(tmp_path / "q.sqlite"), "TRAILBEAM_STORE_PORT": "0"}
+    p = subprocess.Popen([sys.executable, "-m", "trailbeam_store"], env=env, stderr=subprocess.PIPE, text=True)
     try:
         line = p.stderr.readline()  # "... listening on http://127.0.0.1:<port> ..."
         port = int(line.split("http://127.0.0.1:")[1].split()[0])
@@ -31,7 +31,7 @@ def test_max_receive_count_option():
 
     import pytest
 
-    from qv2_store.__main__ import _max_receive_counts
+    from trailbeam_store.__main__ import _max_receive_counts
 
     assert _max_receive_counts("") == {}
     assert _max_receive_counts("orders=3, payments=5") == {"orders": 3, "payments": 5}

@@ -17,11 +17,11 @@ def test_vectors_match_hmac_sha256():
     assert VECTORS["vectors"]
     for v in VECTORS["vectors"]:
         assert _hmac_hex(v["key"], v["receipt_handle"])[:32] == v["hmac"], v["name"]
-        assert _hmac_hex(v["key"], "qv2 key id")[:8] == v["key_id"], v["name"]
+        assert _hmac_hex(v["key"], "trailbeam key id")[:8] == v["key_id"], v["name"]
 
 
 def test_default_key_id_is_the_one_in_the_contract():
     contract = (Path(__file__).resolve().parents[2] / "docs" / "span-contract.md").read_text("utf-8")
-    key_id = _hmac_hex(VECTORS["default_key"], "qv2 key id")[:8]
+    key_id = _hmac_hex(VECTORS["default_key"], "trailbeam key id")[:8]
     assert f"`{VECTORS['default_key']}`" in contract
     assert f"`{key_id}`" in contract
