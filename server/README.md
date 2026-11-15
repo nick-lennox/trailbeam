@@ -1,8 +1,16 @@
 # server
 
-The qv2 store (`qv2-store`): receives the qv2 spans of [`docs/span-contract.md`](../docs/span-contract.md)
-over OTLP/HTTP, keeps them in SQLite, and joins every delete and visibility change to its message by
-receipt-handle hash, and serves a web screen and a JSON API. The [`Dockerfile`](Dockerfile) runs it all in one container.
+The qv2 store (`qv2-store`) is one Python process. It does four things on one port:
+
+1. receives the qv2 spans of [`docs/span-contract.md`](../docs/span-contract.md) over OTLP/HTTP;
+2. keeps each span as one row in a SQLite file;
+3. joins each delete and visibility change to its receive by receipt-handle hash;
+4. serves a JSON API and a web screen, and builds each timeline when it is requested.
+
+It makes no AWS calls and needs no AWS credentials. The [`Dockerfile`](Dockerfile) runs it in one
+container. How it fits with the other parts: [How qv2 works](../docs/architecture.md).
+
+## Run it natively
 
 ```sh
 pip install -e server            # Python 3.10+, depends only on opentelemetry-proto
@@ -43,7 +51,8 @@ database cleanly. The image has a `HEALTHCHECK` on `/api/health`.
 
 `POST /v1/traces`, OTLP/HTTP, as the [OTLP specification](https://opentelemetry.io/docs/specs/otlp/#otlphttp)
 defines it: `application/x-protobuf` or `application/json`, optionally `Content-Encoding: gzip`
-(the Collector's default). Only spans with instrumentation scope `qv2` are read; others are counted and
+(the Collector's default) or `deflate`. Status codes and limits:
+[store API](../docs/store-api.md#post-v1traces-ingest). Only spans with instrumentation scope `qv2` are read; others are counted and
 ignored. A qv2 span that breaks the contract (another `qv2.schema_version`, a required attribute missing)
 is not stored and is reported in the response's `partial_success`. A span already stored (same trace and
 span ID, for example an exporter retry) is skipped.
@@ -63,14 +72,15 @@ Open `http://127.0.0.1:4318/` in a browser (plain server-rendered HTML, no JavaS
 
 - `/`: look up a message by ID, and the most recent messages (`?queue=`, `?limit=`).
 - `/message?id=<message ID>`: the message's timeline. Each step shows its interval, from when its SQS
-  request was sent to when the response came back (a Lambda receive shows only "no later than", the
-  handler start). A step is drawn above another only if it ended before the other started. Steps whose
-  intervals overlap are drawn in one dashed box labelled **CONCURRENT**, "concurrent, order
-  unknown": the store cannot tell which happened first, and does not guess. Inside the box each step is a
-  bar on one time scale (a waterfall), listed by when its request was sent, never by kind or cause
-  ([store API](../docs/store-api.md#events-and-their-order)). Steps the store inferred are drawn with a
-  dashed, striped border and an **INFERRED** label, with the time window they fall in and the reason,
-  instead of a time. Notices (such as a receipt-hash key mismatch) are shown above the summary.
+  request was sent to when the response came back. A Lambda receive shows only "no later than" one
+  time. A step is drawn above another only when an observed fact proves the order: the clocks, the
+  call order in one process, SQS's receive count, or SQS's timestamps. Each step names the fact under
+  it. Steps that no fact orders are drawn in one dashed box with a `concurrent` badge and the label
+  "concurrent, order unknown". Inside the box each step is a bar on one time scale (a waterfall),
+  sorted by request start time, never by kind or cause
+  ([store API](../docs/store-api.md#events-and-their-order)). Steps the store inferred have a dashed,
+  striped border and an `inferred` badge, with their time window and reason instead of a time. Notices,
+  such as a receipt-hash key mismatch, are shown above the summary.
 - `/duplicates`: duplicate deliveries (`?reason=received_more_than_once|succeeded_more_than_once`).
 - `/stuck`: stuck messages (`?older_than_s=`, default `--stuck-after`).
 
