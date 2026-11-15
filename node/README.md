@@ -12,7 +12,7 @@ message, with a keyed hash of each receipt handle and never the handle itself or
 Plain CommonJS with type declarations; there is no build step. Node.js 20 or later.
 
 ```sh
-git clone https://github.com/nick-lennox/trailbeam
+gh repo clone nick-lennox/trailbeam   # the repository is private
 npm install ./trailbeam/node          # from your application's directory
 ```
 
@@ -36,7 +36,7 @@ const sqs = trailbeam.instrument(new SQSClient({}));
 - emits spans after each response, so settle spans carry `trailbeam.result` (`ok` / `failed`) and
   `trailbeam.error_code`; a settle call that throws still gets one `failed` span per receipt handle;
 - gives each span the call's interval: it starts just before the request is sent and ends when the
-  response arrives (contract v2, section 2), read from `Date.now()`;
+  response arrives (contract section 2), read from `Date.now()` in whole milliseconds;
 - gives each span the call's order inside the process (schema version 3): `trailbeam.order.issued` and
   `trailbeam.order.returned` are ticks of one counter shared by every instrumented client, taken when the
   request was sent and when the response (or error) arrived, with `trailbeam.order.scope` naming the
@@ -82,7 +82,7 @@ A timeout or out-of-memory kill gets no outcome; the store infers it from the re
 turned on, since Lambda then ignores `batchItemFailures`. Async, sync and callback-style handlers
 are accepted; the wrapper is always an async handler. Events without SQS records pass straight
 through. `messaging.client.id` is `AWS_LAMBDA_LOG_STREAM_NAME`, which names one execution
-environment. Each flush waits at most `flushTimeoutMs` (default 2000), so an unreachable collector
+environment, or the wrapper's `service.instance.id` if that variable is not set. Each flush waits at most `flushTimeoutMs` (default 2000), so an unreachable collector
 cannot use up the function's time.
 
 ## Configuration
@@ -92,9 +92,26 @@ cannot use up the function's time.
 | `TRAILBEAM_RECEIPT_HASH_KEY` | `trailbeam-default-receipt-hash-key`, with one warning | The same key on every service that uses the same queues. A secret: never commit it. |
 | `TRAILBEAM_OTLP_TRACES_ENDPOINT` | `http://localhost:4318/v1/traces` | OTLP/HTTP (protobuf). |
 | `OTEL_SERVICE_NAME` | `unknown_service` | `service.name` |
-| `OTEL_RESOURCE_ATTRIBUTES` | | `service.instance.id` here becomes `messaging.client.id`; otherwise a random UUID per process. |
+| `OTEL_RESOURCE_ATTRIBUTES` | random UUID v4 | `service.instance.id` here becomes `messaging.client.id`. Without it, each `install` call and each `wrapHandler` call generates a random UUID v4. |
 
 Call `await trailbeam.forceFlush()` before a short-lived process exits, or `await trailbeam.uninstall()`.
+Spans still in the batch span processor when the process exits are lost.
+
+The Node.js package does not set `thread.name` (contract section 3).
+
+## API reference
+
+| Export | Effect |
+|---|---|
+| `install({ receiptHashKey, spanExporter, spanProcessor })` | Creates the client hooks for this realm and returns the Trailbeam `BasicTracerProvider`. A second call replaces the first and shuts down its provider. All options are optional. |
+| `instrument(client)` | Adds the middleware `trailbeamSqsMiddleware` to an AWS SDK v3 client and returns the client. Calls `install()` first if needed. Throws `TypeError` if the argument has no middleware stack. |
+| `uninstall()` | Turns the hooks off on every instrumented client, then flushes and shuts down the provider. Returns a promise. |
+| `forceFlush()` | Exports the client-hook spans that are waiting. Returns a promise. |
+| `wrapHandler(handler, { receiptHashKey, spanExporter, spanProcessor, flushTimeoutMs = 2000, reportBatchItemFailures = true })` | Returns an async Lambda handler with a `trailbeamTracerProvider` property. Throws `TypeError` if `handler` is not a function. |
+| `hashReceiptHandle(key, receiptHandle)`, `keyId(key)` | The two values of contract section 7. |
+| `version`, `SCHEMA_VERSION` | The package version and `3`. |
+
+Types are in [`index.d.ts`](index.d.ts).
 
 ## Tests
 

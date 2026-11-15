@@ -1,171 +1,206 @@
-# Quickstart: a message's timeline in under 15 minutes
+# Quickstart: one message's timeline on your laptop
 
-From a clean machine to the timeline of one SQS message, on your laptop. Everything runs locally against
-an SQS emulator: no AWS account and no AWS credentials are needed or used.
+This tutorial runs Trailbeam on your machine against ElasticMQ, an SQS emulator. At the end you open the
+timeline of one SQS message in the web screen and as JSON. It needs no AWS account and uses no AWS
+credentials.
 
-You need **git** and **Docker with Compose v2** (Docker Desktop on macOS or Windows, or Docker Engine with
-the compose plugin on Linux), and about 2 GB of free disk for the images (about 1.5 GB once built). Check:
+To learn how the parts fit together, read [How Trailbeam works](architecture.md) after this page.
 
-```sh
-git --version
-docker compose version        # v2.x or later
-docker info                   # contacts the Docker daemon; must print a "Server:" section without errors
-```
+## Before you start
 
-`docker compose version` only checks that the CLI is installed. `docker info` checks that the CLI can
-reach the daemon, which every command below needs. If it fails, see [If something goes wrong](#if-something-goes-wrong).
+You need:
 
-For now the repository is **private**: you need a GitHub account that has been given access to
-`nick-lennox/trailbeam`, and the [GitHub CLI](https://cli.github.com/) logged in with it (`gh auth login`).
+- git;
+- Docker with Compose v2: Docker Desktop on macOS or Windows, or Docker Engine with the compose
+  plugin on Linux;
+- about 2 GB of free disk for the images (about 1.5 GB once built);
+- access to the private repository `nick-lennox/trailbeam` on GitHub, and the
+  [GitHub CLI](https://cli.github.com/) logged in with that account (`gh auth login`).
 
-## 1. Get the code (1 minute)
+Check the tools:
 
-```sh
-gh repo clone nick-lennox/trailbeam
-cd trailbeam
-```
+1. Run `git --version`. It prints a version.
+2. Run `docker compose version`. It prints `v2` or later.
+3. Run `docker info`. Look for a `Server Version:` line. If the output has a
+   `failed to connect to the docker API` or `Cannot connect to the Docker daemon` line instead, the
+   daemon is not running. `docker info` prints a `Server:` heading even then, so check for
+   `Server Version:`. See [If something goes wrong](#if-something-goes-wrong).
+
+## 1. Get the code
+
+1. Run `gh repo clone nick-lennox/trailbeam`.
+2. Run `cd trailbeam`.
 
 A plain `git clone https://github.com/nick-lennox/trailbeam` fails with
-`fatal: could not read Username for 'https://github.com'` while the repository is private, unless git
-already has credentials for an account with access.
+`fatal: could not read Username for 'https://github.com'`, unless git already has credentials for an
+account with access.
 
-## 2. Start the demo (1 to 5 minutes the first time, depending on download speed)
+## 2. Start the demo
 
-```sh
-docker compose -f demo/compose.yaml up -d --build --wait
-```
+1. Run this command from the repository root:
 
-The first run downloads the ElasticMQ, Collector, Python and Node.js base images and builds four images from
-the repository (the store, the Collector configuration, and the Python
-and Node.js demo programs) and starts:
+   ```sh
+   docker compose -f demo/compose.yaml up -d --build --wait
+   ```
 
-- **ElasticMQ**, an SQS-compatible emulator, with a queue `orders` and its dead-letter queue `orders-dlq`;
-- a **producer** in Python, sending one message a second with the `trailbeam` boto3 hooks installed;
-- **consumers** in Python and in Node.js (four each, sharing the queue), and a **deleter** process that
-  deletes messages another process received;
-- the **OpenTelemetry Collector**, receiving the spans from all of them;
-- the **Trailbeam store**, keeping the spans in SQLite and serving the web screen on `127.0.0.1:4318`.
+   The first run downloads the ElasticMQ, Collector, Python and Node.js base images and builds four
+   images: the store, the Collector image, and the Python and Node.js demo programs. It takes 1 to 5 minutes, depending on download speed. The command returns when every
+   container is running.
 
-When the command returns, every container is running. Check:
+2. Run `docker compose -f demo/compose.yaml ps`. It lists 7 containers with status `Up`:
 
-```sh
-docker compose -f demo/compose.yaml ps
-```
+   | Service | What it is |
+   |---|---|
+   | `sqs` | ElasticMQ 1.6.15. The demo programs create the queue `orders` and its dead-letter queue `orders-dlq`. |
+   | `producer` | Python, with the `trailbeam` boto3 hooks. Sends one message per second to `orders`. |
+   | `consumer-python` | Python, 4 consumer threads on `orders`, and 1 thread that receives and deletes from `orders-dlq`. |
+   | `consumer-node` | Node.js, with `@trailbeam/sdk`. 4 concurrent consumers on `orders`. |
+   | `deleter` | Python. A separate process that deletes messages by receipt handle, for messages the consumers hand to it. |
+   | `collector` | The OpenTelemetry Collector with [`collector/trailbeam-collector.yaml`](../collector/trailbeam-collector.yaml). |
+   | `trailbeam` | The Trailbeam store and web screen, on `127.0.0.1:4318`. It shows the status `(healthy)`. |
 
-If port 4318 is taken on your machine, choose another port, check that Compose sees it, then start:
+`orders` has a visibility timeout of 10 s and a redrive policy to `orders-dlq` with
+`maxReceiveCount` 3.
 
-```sh
-export TRAILBEAM_DEMO_PORT=4400
-export WSLENV="COMPOSE_PROJECT_NAME:TRAILBEAM_DEMO_PORT${WSLENV:+:$WSLENV}"   # needed only with docker.exe in WSL
-docker compose -f demo/compose.yaml config | grep published               # must say: published: "4400"
-docker compose -f demo/compose.yaml up -d --build --wait
-```
+If port 4318 is in use on your machine, see [Use another port](#use-another-port).
 
-and use that port below. The `WSLENV` line matters only if you run `docker.exe` from WSL (see
-[If something goes wrong](#if-something-goes-wrong)): Windows programs see only the WSL variables listed in
-`WSLENV`, so without it `docker.exe` never sees `TRAILBEAM_DEMO_PORT` and uses 4318. Elsewhere it does nothing.
+## 3. Look up a message
 
-## 3. Look up a message (1 minute)
+1. Wait about one minute, so that some messages go through.
+2. Open `http://127.0.0.1:4318/`. The start page lists the most recent messages.
+3. Click a message ID. The message page shows its timeline: the send, each delivery with its receive
+   count and consumer, and the delete.
 
-Wait about a minute for some messages to go through, then open **http://127.0.0.1:4318/**. The URLs in
-this step use port 4318: if you set `TRAILBEAM_DEMO_PORT` in step 2 or for another checkout, use that port
-instead (the JSON commands below read the variable themselves).
+### Read the timeline
 
-The start page lists the most recent messages. Click any message ID, or paste one into the lookup box, to
-see its timeline: when it was sent, by which process, each delivery with its receive count and consumer,
-and the delete. Steps the store **inferred**, rather than observed, are drawn with a dashed border and an
-INFERRED label, for example a visibility-timeout expiry.
+Each observed event shows an interval, for example
+`… 12:00:01.204 to … 12:00:01.231 (27.0 ms)`. The interval starts just before the SQS request was
+sent and ends when the response came back. SQS acted at some moment inside it.
 
-Each step shows two times: when its SQS request was sent and when the response came back (for example
-`… 12:00:01.204 to … 12:00:01.231 (27.0 ms)`). SQS did the work somewhere in between, and Trailbeam cannot see
-exactly when. So the timeline shows one step above another **only if the first one's response came back
-before the second one's request was sent**. When two steps' times overlap, Trailbeam cannot tell which one SQS did
-first, and it does not guess: it draws them in one dashed box with a **CONCURRENT** badge and
-the label **concurrent, order unknown**. Inside the box each step is a bar on one time scale, from its request
-to its response, and the rows are listed by when each request was sent: that is not the order SQS acted in.
-Where the bars overlap, SQS may have acted on either first. A box can also hold
-steps that did not overlap each other, when each overlaps a third step in the box: if a long receive
-overlaps both a send and a later delete, the send and the delete are in one box even though the send
-ended before the delete started, because the store cannot place the receive before or after either.
+The store shows event A above event B only when an observed fact proves that A came first. Each fact
+is a source, and the page names it under the event:
 
-Expect to see that box often, most of all around a send and its first receive. An idle consumer waits in a
-long poll (`WaitTimeSeconds`), so its receive request was usually sent before the message existed, and
-its interval contains the send. That is the honest answer, not a fault: the send certainly happened first,
-but the times alone do not prove it, and Trailbeam shows only what the times prove. A Lambda receive shows
-**no later than** one time: the wrapper sees the event only after Lambda received it, so it knows an upper
-bound and nothing else.
+| Source | The page says |
+|---|---|
+| `clock` | A's interval ended before B's started. |
+| `process_order` | One process: A's call returned before B's call was issued. |
+| `receive_count` | Two receives on one queue: SQS gave A the lower receive count. |
+| `sqs_timestamps` | The send and the first receive: SQS's `SentTimestamp` is earlier than its `ApproximateFirstReceiveTimestamp`. |
 
-Messages worth opening (the demo sends each kind on a fixed schedule; see
-[`demo/README.md`](../demo/README.md#what-to-look-at)):
+When no source orders some events, the page draws them in one dashed box with a `concurrent` badge and
+the label "concurrent, order unknown". Inside the box, each event is a bar on one time scale. The rows
+are sorted by request start time. That is not the order in which SQS acted.
 
-- one with **2 deliveries** on the start page. The demo makes two kinds, and both show `2 (1 ok)` in the
-  Deliveries column:
-  - a **`ChangeMessageVisibility` to 0** (`retry_once`): the consumer releases the message on its first
-    receive, the timeline shows the visibility change, an inferred visibility-timeout expiry, and a second
-    delivery, often to a consumer in the other language, which deletes it. Everything happens within a
-    second or two, so **First seen** and **Last seen** are about the same;
-  - a **slow consumer** (`slow`): the first consumer works for 13 s, past the 10 s visibility timeout, so
-    the timeline shows an inferred visibility-timeout expiry and a second delivery to another consumer,
-    which deletes it, and then the first consumer's late delete, `failed` with `ReceiptHandleIsInvalid`
-    (ElasticMQ rejects a stale handle). There is no visibility change. **Last seen** is about 13 s after
-    **First seen**.
+Expect this box often around a send and its first receive. An idle consumer waits in a long poll
+(`WaitTimeSeconds`), so its `ReceiveMessage` started before the message existed. ElasticMQ also
+stamps `SentTimestamp` and `ApproximateFirstReceiveTimestamp` in the same millisecond, which proves
+nothing. Trailbeam does not order events by cause, so the send and the receive stay concurrent.
 
-  On the message page, the difference is the **Visibility changed** step (first kind) or the failed delete
-  from delivery 1 (second kind);
-- **http://127.0.0.1:4318/duplicates**: messages delivered more than once, including ones delivered again
-  because the consumer took longer than the 10 s visibility timeout;
-- after about a minute, a message with **4 deliveries**: a poison message, failed three times, then an
-  move to the dead-letter queue "reported by SQS (`DeadLetterQueueSourceArn` on the DLQ receive)", never
-  inferred, and a receive on `orders-dlq`;
-- **http://127.0.0.1:4318/stuck**: messages without a final delete for more than 60 s.
+Events that the store inferred, rather than observed, have a dashed border and an `inferred` badge.
+They show a time window and a reason instead of a time. An example is a visibility timeout that
+expired.
 
-The same data as JSON, for example the newest message's timeline:
+A receive from a Lambda wrapper shows only "no later than" one time. The wrapper sees the event after
+Lambda received the message, so only an upper bound is known.
 
-```sh
-port=${TRAILBEAM_DEMO_PORT:-4318}
-id=$(curl -s "http://127.0.0.1:$port/api/messages?limit=1" | python3 -c 'import json,sys; print(json.load(sys.stdin)["messages"][0]["message_id"])')
-curl -s "http://127.0.0.1:$port/api/messages/$id" | python3 -m json.tool
-```
+### Messages to open
 
-The API is described in [`docs/store-api.md`](store-api.md).
+The demo producer sends each kind of message on a fixed schedule
+([`demo/README.md`](../demo/README.md#what-to-look-at)).
 
-Each message page (`/message?id=…`) shows a notice that the **default receipt-hash key** is in use. The
-start page does not. That is expected in the demo. To
-use your own key, start the demo with `TRAILBEAM_RECEIPT_HASH_KEY=$(openssl rand -hex 32)` in front of the
-`docker compose` command; in your own services, set the same secret on every service that uses the same
-queues.
+| Look for | Kind | What the timeline shows |
+|---|---|---|
+| Deliveries `2 (1 ok)`, First seen and Last seen about equal | `retry_once` | A visibility change to 0 on delivery 1, an inferred visibility-timeout expiry, and delivery 2, which is deleted. |
+| Deliveries `2 (1 ok)`, Last seen about 13 s after First seen | `slow` | An inferred visibility-timeout expiry, delivery 2 to another consumer, which deletes the message, then the first consumer's late delete. That delete is `failed` with `ReceiptHandleIsInvalid`, because ElasticMQ rejects a stale receipt handle. |
+| Deliveries `4 (1 ok)`, after about one minute | `poison` | Three receives on `orders` with receive counts 1 to 3, an inferred visibility-timeout expiry after each of the first two, a move to the dead-letter queue "reported by SQS (DeadLetterQueueSourceArn on the DLQ receive)", a receive on `orders-dlq`, and a final delete there. |
+
+Also open these lists:
+
+- `http://127.0.0.1:4318/duplicates`: messages received more than once, or that succeeded more than
+  once.
+- `http://127.0.0.1:4318/stuck`: messages without a final delete for more than 60 s. The demo sets
+  `TRAILBEAM_STUCK_AFTER_S` to 60.
+
+Every message page shows the notice for the published default receipt-hash key. The start page does
+not. This is expected in the demo. To use your own key, see [Use your own key](#use-your-own-key).
+
+### Get the same data as JSON
+
+1. Run these commands. They read `TRAILBEAM_DEMO_PORT` if you set it:
+
+   ```sh
+   port=${TRAILBEAM_DEMO_PORT:-4318}
+   id=$(curl -s "http://127.0.0.1:$port/api/messages?limit=1" | python3 -c 'import json,sys; print(json.load(sys.stdin)["messages"][0]["message_id"])')
+   curl -s "http://127.0.0.1:$port/api/messages/$id" | python3 -m json.tool
+   ```
+
+   The output starts like this:
+
+   ```json
+   {
+       "message_id": "3150c7b8-65f2-44f1-8a1c-3e88df0a11bb",
+       "state": "deleted",
+       "source_queue": "orders",
+       "current_queue": "orders",
+       "in_dead_letter_queue": false,
+       "dead_letter_queue_move": null,
+       "send_observed": true,
+       "deliveries": 1,
+       ...
+   ```
+
+2. Run `curl -s http://127.0.0.1:4318/api/health`. It returns `"status": "ok"`, the span counts per
+   kind, and `"max_receive_counts": {"orders": 3}`.
+
+The fields are described in [`store-api.md`](store-api.md).
 
 ## 4. Stop
 
+- Run `docker compose -f demo/compose.yaml down` to stop the demo. The timelines stay on the volume
+  `trailbeam-demo_trailbeam-data`.
+- Run `docker compose -f demo/compose.yaml down -v` to stop the demo and delete the timelines.
+
+## Next steps
+
+- Read [How Trailbeam works](architecture.md): components, data flow, what is inferred, failure cases.
+- Instrument your own services: [Python](../python/README.md), [Node.js](../node/README.md). Then run
+  the [store container](../server/README.md) and, optionally, the
+  [Collector](../collector/README.md). In 0.1 nothing is published: install everything from this
+  repository.
+- Run the concurrency check, which compares 200 timelines with what the processes really did:
+  [`demo/README.md`](../demo/README.md#concurrency-check).
+
+## Options
+
+### Use another port
+
+1. Run `export TRAILBEAM_DEMO_PORT=4400`.
+2. If you run `docker.exe` from WSL, also run
+   `export WSLENV="COMPOSE_PROJECT_NAME:TRAILBEAM_DEMO_PORT${WSLENV:+:$WSLENV}"`. Windows programs see only
+   the WSL variables that `WSLENV` lists. Without this line, `docker.exe` uses port 4318.
+3. Run `docker compose -f demo/compose.yaml config | grep published`. It prints `published: "4400"`.
+4. Run `docker compose -f demo/compose.yaml up -d --build --wait`.
+5. In step 3, use port 4400 in the URLs. The JSON commands read the variable.
+
+### Use your own key
+
+Run the demo with a random receipt-hash key:
+
 ```sh
-docker compose -f demo/compose.yaml down          # keeps the stored timelines on the trailbeam-data volume
-docker compose -f demo/compose.yaml down -v       # deletes them too
+TRAILBEAM_RECEIPT_HASH_KEY=$(openssl rand -hex 32) docker compose -f demo/compose.yaml up -d --build --wait
 ```
 
-## Next
-
-- **Your own services:** install the hooks ([Python](../python/README.md), [Node.js](../node/README.md)),
-  run the [Collector configuration](../collector/README.md) and the [store container](../server/README.md).
-  In 0.1 the packages and the image are installed from this repository; nothing is published.
-- **The concurrency check** (three processes of four consumers each, 200 messages):
-  `demo/check.sh python` or `demo/check.sh node`. In WSL without Docker Desktop's WSL integration, tell it
-  to use `docker.exe`: `DOCKER=docker.exe demo/check.sh python`. It exits 0 when all 200 messages pass.
-  It needs no AWS account. The summary also reports the **floor** (at least 90% of send→receive and of
-  receive→delete pairs put in a proven order), but on the emulator the floor is reported, not gated, as in
-  CI's emulator job. That's because ElasticMQ stamps a message's `SentTimestamp` and
-  `ApproximateFirstReceiveTimestamp` in the same millisecond, so they can't show the send came first, and
-  a long poll that was already waiting when the message was sent leaves the clocks unable to show it
-  either. On real SQS the two stamps differ, and the floor gates: `demo/check.sh --aws python` (with AWS
-  credentials in the environment) and CI's real-SQS job. Everything else gates in both places. See
-  [`demo/README.md`](../demo/README.md#concurrency-check) for what it checks and its current result.
+New spans then use this key, and new message pages show no default-key notice. In your own services,
+set the same key on every service that uses the same queues.
 
 ## If something goes wrong
 
 | Symptom | Fix |
 |---|---|
-| `docker: 'compose' is not a docker command` | Install Compose v2 (Docker Desktop includes it; on Linux, the `docker-compose-plugin` package). |
-| `Cannot connect to the Docker daemon` | Start Docker Desktop, or `sudo systemctl start docker`. |
-| `port is already allocated` on 4318 | Use `TRAILBEAM_DEMO_PORT`, as in step 2. |
-| You have another Trailbeam checkout with the demo running | Both use the Compose project `trailbeam-demo`, so starting this one replaces the other's containers and uses its timelines volume. Give this one its own name and port, in the same shell for every later command: `export COMPOSE_PROJECT_NAME=trailbeam-other TRAILBEAM_DEMO_PORT=4400`, and with `docker.exe` in WSL also `export WSLENV="COMPOSE_PROJECT_NAME:TRAILBEAM_DEMO_PORT${WSLENV:+:$WSLENV}"`. Before starting, check `docker compose -f demo/compose.yaml config \| grep -E '^name:\|published'` says `name: trailbeam-other` and `published: "4400"`; if it says `trailbeam-demo` or `4318`, the variables didn't reach Docker and starting would replace the other checkout's containers. Then `docker compose -f demo/compose.yaml up -d --build --wait`, and in step 3 use port 4400 in place of 4318 (the JSON commands there read `TRAILBEAM_DEMO_PORT` themselves). `demo/check.sh` uses the same variables, adds them to `WSLENV` itself, and stops if Compose resolved another project or port. See [`demo/README.md`](../demo/README.md#more-than-one-checkout-on-the-same-machine). |
-| The start page is empty | Wait a few seconds more; spans are exported in batches. Then `docker compose -f demo/compose.yaml logs collector trailbeam`. |
-| In WSL, `docker info` or any other command fails with `failed to connect to the docker API at unix:///var/run/docker.sock`, or says `The command 'docker' could not be found in this WSL 2 distro` | Docker Desktop's WSL integration is off for your distribution. Turn it on in Docker Desktop's settings (Resources, WSL integration), or run the same commands with `docker.exe` instead of `docker` (`docker.exe compose -f demo/compose.yaml up -d --build --wait`), and `DOCKER=docker.exe demo/check.sh python` for the concurrency check. |
+| `docker: 'compose' is not a docker command` | Install Compose v2. Docker Desktop includes it. On Linux, install the `docker-compose-plugin` package. |
+| `Cannot connect to the Docker daemon`, or `failed to connect to the docker API at unix:///var/run/docker.sock` | Start Docker Desktop, or run `sudo systemctl start docker`. |
+| The same error in WSL, or `The command 'docker' could not be found in this WSL 2 distro` | Docker Desktop's WSL integration is off for your distribution. Turn it on in Docker Desktop (Settings, Resources, WSL integration). Or use `docker.exe` in place of `docker` in every command. |
+| `port is already allocated` on 4318 | [Use another port](#use-another-port). |
+| A demo from another Trailbeam checkout is running | Both checkouts use the Compose project `trailbeam-demo`. Starting this one replaces the other's containers and uses its volume. Follow [More than one checkout on the same machine](../demo/README.md#more-than-one-checkout-on-the-same-machine). |
+| The start page is empty | Wait a few seconds: spans are exported in batches. Then run `docker compose -f demo/compose.yaml logs collector trailbeam`. |
+| A build step fails with `CERTIFICATE_VERIFY_FAILED` | A proxy on your network intercepts TLS, and the build containers do not trust its certificate. The Dockerfiles have no setting for this in 0.1. |
