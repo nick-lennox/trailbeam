@@ -2,7 +2,8 @@
 
 The qv2 store (`server/`, command `qv2-store`) serves three things on one port (default 4318):
 
-- `POST /v1/traces`: OTLP/HTTP trace ingest, for the qv2 packages or the [Collector](../collector/).
+- `POST /v1/traces`: OTLP/HTTP trace ingest, for the qv2 packages or the [Collector](../collector/)
+  ([below](#post-v1traces-ingest)).
 - `GET /api/...`: a read-only JSON API, described here.
 - `GET /`, `/message?id=`, `/duplicates`, `/stuck`: the web screen, built from this API (see [`server/README.md`](../server/README.md#web-screen)).
 
@@ -11,8 +12,9 @@ refer to that file.
 
 ## Conventions
 
-- Every response is `application/json`. Errors are `{"error": "<message>"}` with status `400` (bad
-  parameter) or `404` (unknown endpoint or message).
+- Every `/api/` response is `application/json`. Errors are `{"error": "<message>"}` with status `400`
+  (bad parameter), `404` (unknown endpoint or message) or `500` (`"internal error"`, logged by the
+  server).
 - Times are ISO 8601 UTC with microseconds, such as `"2026-11-13T21:40:01.123456Z"`. Observed events
   also carry `time_unix_nano` as a **string**, because nanosecond timestamps do not fit in a JavaScript
   number.
@@ -255,13 +257,14 @@ A **summary** is:
 ```json
 {
   "message_id": "...", "state": "deleted", "source_queue": "orders", "current_queue": "orders",
-  "in_dead_letter_queue": false, "deliveries": 2, "successful_deliveries": 2,
+  "in_dead_letter_queue": false, "dead_letter_queue_move": null, "deliveries": 2, "successful_deliveries": 2,
   "consumers": [{"service_name": "orders-worker", "client_id": "consumer-a"}],
   "first_seen": "...", "first_seen_clock": "host", "last_seen": "..."
 }
 ```
 
-`consumers` lists the distinct consumers that received the message.
+`consumers` lists the distinct consumers that received the message, as `service_name` and
+`client_id` pairs. The other fields are as in [Summary fields](#summary-fields).
 
 ## `GET /api/duplicates`: duplicate deliveries
 
@@ -300,15 +303,41 @@ is listed. "Oldest first" sorts by `first_seen` whichever clock it is on.
 {
   "status": "ok", "version": "0.1.0.dev0",
   "ingest": {"requests": 12, "inserted": 340, "duplicates": 0, "ignored": 55, "rejected": 0},
-  "store": {"spans": {"send": 100, "receive": 110, "delete": 100, "change_visibility": 3, "outcome": 0},
+  "store": {"spans": {"send": 100, "receive": 110, "delete": 100, "change_visibility": 3},
             "messages": 100, "unjoined_settles": 0},
-  "config": {"stuck_after_s": 300, "lambda_timeout_s": 900}
+  "config": {"stuck_after_s": 300, "lambda_timeout_s": 900, "max_receive_counts": {"orders": 3}}
 }
 ```
+
+`store.spans` has one key per span kind that has at least one stored row. A kind with no rows is
+absent, not `0`. `config` shows the server's `--stuck-after`, `--lambda-timeout` and
+`--max-receive-count` values. The container's `HEALTHCHECK` calls this endpoint.
 
 `ingest` counts since the server started: `ignored` spans had another instrumentation scope, `rejected`
 qv2 spans broke the contract. `store.unjoined_settles` is the number of deletes and visibility changes
 whose receive has not arrived (or never will, for example with a different hash key).
+
+## `POST /v1/traces`: ingest
+
+OTLP/HTTP, as the [OTLP specification](https://opentelemetry.io/docs/specs/otlp/#otlphttp) defines it.
+
+| Request | Accepted values |
+|---|---|
+| `Content-Type` | `application/x-protobuf`, `application/protobuf`, `application/json`, or none (read as protobuf) |
+| `Content-Encoding` | `gzip`, `deflate`, or none |
+| Body size | at most 32 MiB, after decompression, with a valid `Content-Length` |
+
+| Status | When | Body |
+|---|---|---|
+| `200` | The request decoded. Spans of other scopes are ignored, and rejected qv2 spans are counted in `partial_success`. | `ExportTraceServiceResponse` in the request's format |
+| `400` | The body is not valid protobuf or OTLP/JSON, the `Content-Type` is not supported, or the body does not match its `Content-Encoding` | plain text |
+| `404` | The path is not `/v1/traces` | plain text |
+| `413` | The body, or the decompressed body, is larger than 32 MiB, or `Content-Length` is invalid | plain text |
+| `415` | The `Content-Encoding` is not supported | plain text |
+| `500` | An error inside the store | plain text |
+
+The rules for rejecting a qv2 span are in [contract §4.5](span-contract.md#45-what-the-store-requires).
+A span whose trace ID and span ID are already stored is skipped and counted in `ingest.duplicates`.
 
 ## Known limits in 0.1
 
