@@ -112,7 +112,7 @@ passes only if its timeline is:
 | `joined` | each delete and visibility change is attached to the delivery whose receipt handle was really used, with the real result |
 | `receive_count` | each receive shows the real `ApproximateReceiveCount` |
 | `sqs_facts` | each receive shows the `SentTimestamp` and `ApproximateFirstReceiveTimestamp` SQS really returned for it (below) |
-| `in_brackets` | Python only: each step's start and end lie inside its call's truth bracket (below) |
+| `in_brackets` | each step's start and end lie inside its call's truth bracket, and close to its ends: 1 ms (Node.js: 3 ms for the end) (below) |
 | `final` | the message's state is `deleted` |
 | `dlq_move` | the timeline shows a move to a dead-letter queue exactly when the message was received on a second queue: observed (`source: sqs_dlq_source`), from the first queue to the second, and never inferred |
 
@@ -155,8 +155,8 @@ observed step fails the message. Then every order the edges imply (their transit
 with the truth files. Each truth line brackets its call (`t_start_ns` just before it was made, `t_end_ns`
 just after it returned, on the one host's clock), so "A before B" is contradicted when B's call returned
 before A's was made. That is the only order one host's brackets prove, and it is sound: a true edge has A
-return before B is issued, which is inside both brackets. It catches a false edge between any two steps,
-including two no cause links (a stale delete and the next receive). The summary counts `edges_checked` and
+return before B is issued, which is inside both brackets. It catches a false edge between any two steps
+whose calls didn't overlap in time, including two no cause links (a stale delete and the next receive). The summary counts `edges_checked` and
 `implied_orders_checked`, and the failures `edges_unverified` and `implied_orders_contradicting_truth`.
 
 **The facts are checked too** (QV-38). Recomputing a source only proves the store's facts agree with its
@@ -172,15 +172,30 @@ compares them:
 - `process_order` holds only between two calls the truth shows were made by one process (same `host` and
   `pid`), since the call-order scope is a process (Python) or a realm in one (Node.js). Otherwise the edge
   fails `edges_verified`.
-- `in_brackets`: the Python driver's truth and the qv2 hooks' spans both read `time.time_ns()`, so each truth
-  line says `same_clock_as_spans`, and each step's `start` and `end` must lie inside its call's bracket
-  (`t_start_ns <= start <= end <= t_end_ns`). That checks the times the `clock` source is recomputed from.
-  Node.js lines don't say it: the truth has whole milliseconds and the spans add a sub-millisecond part,
-  so the two can't be compared to the nanosecond, and `in_brackets` holds there with nothing compared.
-  Summary: `events_checked_in_brackets` (0 for Node.js), `events_outside_brackets`.
+- `in_brackets` (QV-40): each driver's truth reads the same clock as the qv2 hooks' spans, so each truth
+  line says `same_clock_as_spans`. In Python both read `time.time_ns()`. In Node.js both read `Date.now()`,
+  in whole milliseconds ([`node/src/emitter.js`](../node/src/emitter.js) `nowMs`), and the lines also say
+  `clock: "Date.now"`. Each step's `start` and `end` must lie inside its call's bracket
+  (`t_start_ns <= start <= end <= t_end_ns`), and close to its ends (`BRACKET_BOUNDS_NS` in `check.py`):
+  - Python: `start` at most 1 ms after `t_start_ns`, and `end` at most 1 ms before `t_end_ns`.
+  - Node.js: `start` at most 1 ms after `t_start_ns`, which in whole milliseconds means the same
+    millisecond or the next one. `end` at most 3 ms before `t_end_ns`, because the Node.js hook builds the
+    span after stamping its end and before the driver's `await` resumes ([`node/src/sqs.js`](../node/src/sqs.js)).
+
+  Honest offsets on the QV-40 runs were 0.04–0.38 ms on both sides in Python. In Node.js they were 0 or
+  1 ms on the start (3,948 events) and 0–2 ms on the end (6 events at 2 ms). Without the bound, a store
+  could move a long poll's start to just after its send's end, anywhere inside the receive's bracket, and
+  claim a false send→receive clock order. That is QV-39's "fake3", and it passed 200/200 and the gating
+  floor. The bound limits the times the `clock` source is recomputed from to where the call really was, to
+  within the bound. It doesn't prove them: a store can still move a time by less than the bound. Summary:
+  `events_checked_in_brackets`, `events_outside_brackets`, and `bracket_offsets_max_ns` (the largest
+  start and end offsets seen). `verify` prints these on its `BRACKETS:` line.
 
 Call-order ticks within one process are not recorded in the truth. A false order between two steps of one
-process still fails, because the truth contradicts it (above).
+process fails only where the truth contradicts it: where one call returned before the other was made
+(above). Where the two calls' brackets overlap, for example two consumer threads of one process, the truth
+can't contradict either order, and only the sources' recomputation and the time bound limit what a store
+can claim.
 
 **The floor.** So that `in_order` cannot pass by leaving things concurrent, the run also fails unless at
 least 90% of the send→receive pairs and 90% of the receive→delete pairs are resolved (`floor` in the

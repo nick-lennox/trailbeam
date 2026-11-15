@@ -539,11 +539,120 @@ def test_python_events_must_lie_within_their_calls_brackets():
 
 
 def test_truth_on_another_clock_than_the_spans_is_not_bracket_checked():
-    """Node.js: the truth's whole milliseconds and the spans' sub-millisecond times can't be compared exactly."""
+    """Truth that doesn't say ``same_clock_as_spans`` (Node.js before QV-40) is not compared with the spans."""
     tl = simple_timeline()
     tl["events"][1]["end_unix_nano"] = str(27)
     r = check.evaluate(bracketed(SIMPLE_TRUTH, same_clock=False), tl)
     assert r["in_brackets"] and r["facts"]["events_in_brackets_checked"] == 0
+
+
+# -- times bounded, not only contained (QV-40) -------------------------------------------------------------
+
+MS = 1_000_000
+
+
+def receive_offset_by(start_ns, end_ns, clock=None):
+    """SIMPLE_TRUTH bracketed widely (a long poll), with the store's receive starting ``start_ns`` after its
+    truth start and ending ``end_ns`` before its truth end; the other calls tightly bracketed."""
+    truth = [dict(r, t_start_ns=10 * r["t_ns"], t_end_ns=10 * r["t_ns"] + 5, same_clock_as_spans=True,
+                  **({"clock": clock} if clock else {})) for r in SIMPLE_TRUTH]
+    truth[1].update(t_start_ns=1000, t_end_ns=100 * MS)  # opened after the send returned (ns 15)
+    tl = simple_timeline()
+    tl["events"][1].update(start_unix_nano=str(1000 + start_ns), end_unix_nano=str(100 * MS - end_ns))
+    for e in tl["events"][2:]:  # the delete after the receive returned
+        e.update(start_unix_nano=str(100 * MS + 1), end_unix_nano=str(100 * MS + 2))
+    truth[2].update(t_start_ns=100 * MS + 1, t_end_ns=100 * MS + 2)
+    return check.evaluate(truth, tl)
+
+
+@pytest.mark.parametrize("start_ns,end_ns,ok", [
+    (MS, MS, True), (1, 0, True), (MS + 1, 0, False), (0, MS + 1, False), (714 * MS, 0, False)])
+def test_python_times_may_lie_at_most_1_ms_inside_their_brackets(start_ns, end_ns, ok):
+    """Python (ns truth on the spans' clock): start at most 1 ms after the truth start, end at most 1 ms
+    before the truth end. Honest offsets on the QV-40 runs were 0.04-0.38 ms; QV-39's fake3 1.5-714 ms."""
+    r = receive_offset_by(start_ns, end_ns)
+    assert r["in_brackets"] is ok and r["passed"] is ok
+    assert r["facts"]["bracket_offsets_max_ns"] == {"start": start_ns, "end": end_ns}
+
+
+@pytest.mark.parametrize("start_ns,end_ns,ok", [(MS, 3 * MS, True), (2 * MS, 0, False), (0, 4 * MS, False)])
+def test_nodejs_times_in_whole_ms_start_in_the_same_or_next_ms_and_end_within_3_ms(start_ns, end_ns, ok):
+    """Node.js (``clock: "Date.now"``, whole ms): the start in the same or the next millisecond as the truth
+    start; the end at most 3 ms before the truth end, since the Node.js hook builds its span between its end
+    stamp and the driver's (honest QV-40 runs: 0-2 ms)."""
+    r = receive_offset_by(start_ns, end_ns, clock="Date.now")
+    assert r["in_brackets"] is ok and r["passed"] is ok
+
+
+def real_run(lang):
+    """Nine messages (three of each kind) of a real ``demo/check.sh`` run on the emulator, unedited: their truth
+    lines and the store's timelines (tests/fixtures, QV-40)."""
+    with open(os.path.join(os.path.dirname(__file__), "fixtures", f"real-{lang}.json"), encoding="utf-8") as f:
+        return json.load(f)
+
+
+def fake3(tl, b=False):
+    """The reviewer's fake3 (QV-39 section 2) on one timeline: the receive of delivery 1 now starts 1 ns after the
+    send's end, where that is later than its real start and still before its end (so inside its bracket), and
+    the store claims the clock edge send -> receive, which now recomputes. No rule labels, no SQS facts changed.
+    fake3b (``b``) first pulls the send's end back to 2 ns before the receive's end where it was later, inside
+    the send's bracket too. Returns (timeline, whether anything moved)."""
+    tl = json.loads(json.dumps(tl))
+    evs = [e for e in tl["events"] if not e.get("inferred")]
+    send = next(e for e in evs if e["type"] == "sent")
+    rcv = next(e for e in evs if e["type"] == "received" and e["delivery"] == 1)
+    s_start, s_end, r_start, r_end = (int(send["start_unix_nano"]), int(send["end_unix_nano"]),
+                                      int(rcv["start_unix_nano"]), int(rcv["end_unix_nano"]))
+    if b and s_end + 1 >= r_end and r_end - 2 >= s_start:
+        s_end = r_end - 2
+        send["end_unix_nano"] = send["time_unix_nano"] = str(s_end)
+    if not r_start <= s_end + 1 < r_end:
+        return tl, False
+    rcv["start_unix_nano"] = str(s_end + 1)
+    edges = tl.setdefault("order", {}).setdefault("edges", [])
+    edge = next((e for e in edges if (e["from"], e["to"]) == (send["id"], rcv["id"])), None)
+    if edge is None:
+        edges.append({"from": send["id"], "to": rcv["id"], "sources": ["clock"]})
+    elif "clock" not in edge["sources"]:
+        edge["sources"].append("clock")
+    return tl, True
+
+
+@pytest.mark.parametrize("lang", ["python", "node"])
+def test_a_real_run_passes_with_every_time_bracket_checked(lang):
+    run = real_run(lang)
+    for mid, truth in run["truth"].items():
+        r = check.evaluate(truth, run["timelines"][mid])
+        assert r["passed"], (mid, r)
+        assert r["facts"]["events_in_brackets_checked"] == len(truth)
+
+
+@pytest.mark.parametrize("lang", ["python", "node"])
+@pytest.mark.parametrize("b", [False, True], ids=["fake3", "fake3b"])
+def test_fake3_and_fake3b_on_real_runs_pass_containment_but_fail_the_time_bound(lang, b, monkeypatch):
+    """QV-39 S1: on real data, fake3 and fake3b passed every check and the gating floor, because a time was
+    only checked to lie inside its call's bracket. With the bound, every message the fake moved fails, and
+    only on in_brackets."""
+    run = real_run(lang)
+    fakes = {mid: fake3(tl, b) for mid, tl in run["timelines"].items()}
+    moved = {mid for mid, (_, m) in fakes.items() if m}
+    assert len(moved) >= 6
+
+    def summary():
+        results = {mid: check.evaluate(run["truth"][mid], fakes[mid][0]) for mid in run["truth"]}
+        return results, check.summarize(run["truth"], results, len(results))
+
+    # Containment alone (the checker before QV-40): the fake passes, with send -> receive resolved by the clock.
+    monkeypatch.setattr(check, "BRACKET_BOUNDS_NS", {k: (10 ** 18, 10 ** 18) for k in check.BRACKET_BOUNDS_NS})
+    results, s = summary()
+    assert s["passed"] == len(results) and s["edges_verified"] == len(results)
+    assert all(results[mid]["resolution"]["send->receive"]["resolved"] for mid in moved)
+    monkeypatch.undo()
+
+    results, s = summary()
+    failed = {mid for mid, r in results.items() if not r["passed"]}
+    assert failed == moved and s["result"] == "FAIL"
+    assert all([c for c in check.CHECKS if not results[mid][c]] == ["in_brackets"] for mid in failed)
 
 
 def test_an_edge_whose_sources_recompute_passes():

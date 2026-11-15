@@ -5,9 +5,10 @@
 //   node qv2demo.js consume --queue orders --consumers 4 --deleter http://deleter:8080
 //   node qv2demo.js deleter --queue orders --port 8080
 //
-// The message kinds and the --truth files are the same as in ../python/qv2demo.py; see there. The truth is not
-// on the spans' clock to the nanosecond (whole milliseconds here; the spans add a sub-millisecond part), so
-// its lines don't say same_clock_as_spans and the checker doesn't bracket-check Node.js events.
+// The message kinds and the --truth files are the same as in ../python/qv2demo.py; see there. The truth reads
+// the spans' clock, Date.now() in whole milliseconds (../../node/src/emitter.js nowMs), so its lines say
+// same_clock_as_spans and clock "Date.now", and the checker bracket-checks Node.js events too, in whole
+// milliseconds (QV-40; demo/check/check.py BRACKET_BOUNDS_NS).
 // "--consumers 4" runs four concurrent receive loops in one process (Node's concurrency model).
 
 const crypto = require('node:crypto');
@@ -56,7 +57,8 @@ function truthWriter(dir, role) {
   if (!dir) return () => {};
   fs.mkdirSync(dir, { recursive: true });
   const fd = fs.openSync(path.join(dir, `node-${role}-${os.hostname()}-${process.pid}.jsonl`), 'a');
-  return (rec) => fs.writeSync(fd, JSON.stringify({ ...rec, pid: process.pid, host: os.hostname() }) + '\n');
+  const same = { same_clock_as_spans: true, clock: 'Date.now' };  // the spans' clock (above)
+  return (rec) => fs.writeSync(fd, JSON.stringify({ ...rec, pid: process.pid, host: os.hostname(), ...same }) + '\n');
 }
 
 async function ensureQueue(sqs, name, visibilityTimeout, maxReceives) {

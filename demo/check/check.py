@@ -36,12 +36,18 @@ JSON API (GET /api/messages/{id}) and checks, per message:
                  missing value included. The ``sqs_timestamps`` source is recomputed from these fields, so
                  a store that makes them up to resolve a send->receive pair fails here;
 - in brackets:   where the truth says its brackets read the same clock as the spans (``same_clock_as_spans``:
-                 the Python driver, whose truth and spans both read ``time.time_ns()``), every observed
-                 event's start and end lie within its call's truth bracket (``t_start_ns`` <= start <= end
-                 <= ``t_end_ns``). The ``clock`` source is recomputed from these times. Node.js truth is
-                 not checked this way: its spans add a sub-millisecond part to ``Date.now()`` that the
-                 truth's whole milliseconds don't have (node/src/emitter.js), so ``in_brackets`` holds
-                 there with nothing checked, and ``events_checked_in_brackets`` in the summary says so;
+                 both drivers; Python's truth and spans read ``time.time_ns()``, Node.js's both read
+                 ``Date.now()``, whole milliseconds, node/src/emitter.js ``nowMs``), every observed event lies
+                 within its call's truth bracket **and close to its ends** (QV-40): ``t_start_ns`` <= start
+                 <= end <= ``t_end_ns``, and start - ``t_start_ns`` and ``t_end_ns`` - end within
+                 :data:`BRACKET_BOUNDS_NS`: 1 ms and 1 ms for Python; for Node.js (``clock: "Date.now"``)
+                 1 ms on the start, which in whole milliseconds reads "the same or the next millisecond", and
+                 3 ms on the end, since its hook builds the span between the two stamps. The ``clock`` source
+                 is recomputed from these times, so without the bound a store could move a receive's start to
+                 just after its send's end, anywhere inside a long poll's bracket, and claim a false clock
+                 order (QV-39 fake3). The summary reports the largest offsets seen
+                 (``bracket_offsets_max_ns``). Truth without ``same_clock_as_spans`` (Node.js before QV-40)
+                 is not checked this way, and ``events_checked_in_brackets`` says so;
 - final:         the message's state is ``deleted``;
 - dlq move:      the timeline shows a move to a dead-letter queue exactly when the truth has the message
                  received on a second queue (``--mix check-dlq``, ``demo/check.sh --dlq``): one observed
@@ -103,6 +109,14 @@ RESOLUTION_KINDS = ("send->receive", "receive->delete", "release->redelivery", "
 # leaving everything concurrent. release->redelivery has no floor: SQS gives no time for a redelivery.
 FLOOR = 0.9
 FLOOR_KINDS = ("send->receive", "receive->delete")
+# How far an observed event's start may lie after its call's truth start, and its end before its truth end
+# (QV-40), by the clock the truth line names (``clock``; Python's lines name none). The hooks stamp a span just
+# inside the driver's own stamps. On the QV-40 runs: Python 0.04-0.38 ms on both sides. Node.js, in whole ms:
+# starts 0 or 1 ms (3,948 events), ends 0, 1 or 2 ms (6 events at 2 ms), because the Node.js hook builds the
+# span after stamping its end and before the driver's await resumes (node/src/sqs.js). A store whose times lie
+# anywhere else in a wide bracket (QV-39's fake3) fails.
+BRACKET_BOUND_NS = 1_000_000
+BRACKET_BOUNDS_NS = {None: (BRACKET_BOUND_NS, BRACKET_BOUND_NS), "Date.now": (BRACKET_BOUND_NS, 3_000_000)}
 
 
 def resolution_kind(kind: str, effect_op: str):
@@ -319,10 +333,12 @@ def check_facts(matched: list) -> dict:
     ``sqs_facts`` fails a receive whose store ``sent_timestamp_ms`` or ``first_receive_timestamp_ms`` differs
     from what the driver saw in the same response (``sent_ms``, ``first_receive_ms`` in its truth line). A truth
     line from before QV-38 has neither, and is not compared. ``in_brackets`` fails an event whose start or end
-    lies outside its call's truth bracket, where the truth reads the spans' clock (``same_clock_as_spans``).
+    lies outside its call's truth bracket, or starts or ends further inside it than :data:`BRACKET_BOUNDS_NS`
+    allows for the truth's clock, where the truth reads the spans' clock (``same_clock_as_spans``).
     ``matched`` is the (store event, truth call) pairs, matched by key (op, delivery, n) as in check_order, so
     an event is compared whether or not the store gives it an ID."""
     facts_wrong, compared, outside, bracketed = [], 0, [], 0
+    worst = {"start": None, "end": None}  # the largest start - t_start_ns and t_end_ns - end seen
     for d, t in matched:
         if d["op"] == "receive" and ("sent_ms" in t or "first_receive_ms" in t):
             compared += 1
@@ -336,10 +352,16 @@ def check_facts(matched: list) -> dict:
                 continue
             bracketed += 1
             start, end = d["start"], d["end"]
-            if start is None or end is None or not lo <= start <= end <= hi:
+            if start is not None and end is not None:
+                for k, off in (("start", start - lo), ("end", hi - end)):
+                    if worst[k] is None or off > worst[k]:
+                        worst[k] = off
+            max_start, max_end = BRACKET_BOUNDS_NS.get(t.get("clock"), BRACKET_BOUNDS_NS[None])
+            if (start is None or end is None or not lo <= start <= end <= hi
+                    or start - lo > max_start or hi - end > max_end):
                 outside.append({"event": d["id"], "op": d["op"], "store": [start, end], "truth": [lo, hi]})
     return {"receives_compared": compared, "sqs_facts_wrong": facts_wrong,
-            "events_in_brackets_checked": bracketed, "outside_brackets": outside}
+            "events_in_brackets_checked": bracketed, "outside_brackets": outside, "bracket_offsets_max_ns": worst}
 
 
 def truth_keys(truth: list) -> dict:
@@ -587,6 +609,11 @@ def summarize(truth_by_id: dict, results: dict, count: int, floor: float = FLOOR
             resolution[k].update(v)
     table = resolution_table(resolution)
     floor_result = floor_check(table, floor, floor_gates)
+    offsets = {"start": [], "end": []}
+    for mid in sent:
+        for k, v in results[mid].get("facts", {}).get("bracket_offsets_max_ns", {}).items():
+            if v is not None:
+                offsets[k].append(v)
     return {
         "expected_messages": count,
         "messages_sent": len(sent),
@@ -615,6 +642,10 @@ def summarize(truth_by_id: dict, results: dict, count: int, floor: float = FLOOR
         "events_checked_in_brackets": sum(results[m].get("facts", {}).get("events_in_brackets_checked", 0)
                                           for m in sent),
         "events_outside_brackets": sum(len(results[m].get("facts", {}).get("outside_brackets", [])) for m in sent),
+        # The largest offsets of an event's start after its call's truth start, and of its end before its truth
+        # end, over the run (ns; the bounds are BRACKET_BOUNDS_NS), so the margin an honest store leaves shows.
+        "bracket_offsets_max_ns": {k: max(offsets[k], default=None) for k in ("start", "end")},
+        "bracket_bounds_ns": {str(k): {"start": v[0], "end": v[1]} for k, v in BRACKET_BOUNDS_NS.items()},
         "with_change_visibility": sum(any(r["op"] == "change_visibility" for r in truth_by_id[m]) for m in sent),
         "deleted_by_another_process": sum(any(r.get("by") == "deleter" for r in truth_by_id[m]) for m in sent),
         "received_more_than_once": sum(sum(r["op"] == "receive" for r in truth_by_id[m]) > 1 for m in sent),
@@ -683,6 +714,11 @@ def cmd_verify(args) -> int:
         with open(args.report, "w", encoding="utf-8") as f:
             json.dump(report, f, indent=1)
     print(json.dumps(summary, indent=1))
+    worst = summary["bracket_offsets_max_ns"]
+    ms = lambda v: "n/a" if v is None else f"{v / 1e6:.3f} ms"  # noqa: E731
+    print(f"BRACKETS: {summary['events_checked_in_brackets']} events checked, "
+          f"{summary['events_outside_brackets']} outside their call's truth bracket or too far inside it; largest "
+          f"offsets from the truth: start {ms(worst['start'])}, end {ms(worst['end'])}", flush=True)
     if summary["floor"]["result"] != "PASS":
         print(("FLOOR NOT MET (reported, not gating: --floor-report-only)" if args.floor_report_only
                else "FLOOR FAILED") + ": fewer than {:.0%} of the pairs resolved for {}".format(
