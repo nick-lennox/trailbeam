@@ -7,8 +7,8 @@
 //
 // The message kinds and the --truth files are the same as in ../python/qv2demo.py; see there. The truth reads
 // the spans' clock, Date.now() in whole milliseconds (../../node/src/emitter.js nowMs), so its lines say
-// same_clock_as_spans and clock "Date.now", and the checker bracket-checks Node.js events too, in whole
-// milliseconds (QV-40; demo/check/check.py BRACKET_BOUNDS_NS).
+// same_clock_as_spans and the checker bracket-checks Node.js events too (QV-40; demo/check/check.py
+// BRACKET_BOUND_NS).
 // "--consumers 4" runs four concurrent receive loops in one process (Node's concurrency model).
 
 const crypto = require('node:crypto');
@@ -57,8 +57,7 @@ function truthWriter(dir, role) {
   if (!dir) return () => {};
   fs.mkdirSync(dir, { recursive: true });
   const fd = fs.openSync(path.join(dir, `node-${role}-${os.hostname()}-${process.pid}.jsonl`), 'a');
-  const same = { same_clock_as_spans: true, clock: 'Date.now' };  // the spans' clock (above)
-  return (rec) => fs.writeSync(fd, JSON.stringify({ ...rec, pid: process.pid, host: os.hostname(), ...same }) + '\n');
+  return (rec) => fs.writeSync(fd, JSON.stringify({ ...rec, pid: process.pid, host: os.hostname(), same_clock_as_spans: true }) + '\n');
 }
 
 async function ensureQueue(sqs, name, visibilityTimeout, maxReceives) {

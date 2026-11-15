@@ -112,7 +112,7 @@ passes only if its timeline is:
 | `joined` | each delete and visibility change is attached to the delivery whose receipt handle was really used, with the real result |
 | `receive_count` | each receive shows the real `ApproximateReceiveCount` |
 | `sqs_facts` | each receive shows the `SentTimestamp` and `ApproximateFirstReceiveTimestamp` SQS really returned for it (below) |
-| `in_brackets` | each step's start and end lie inside its call's truth bracket, and close to its ends: 1 ms (Node.js: 3 ms for the end) (below) |
+| `in_brackets` | each step's start and end lie inside its call's truth bracket, and at most 100 ms inside it (below) |
 | `final` | the message's state is `deleted` |
 | `dlq_move` | the timeline shows a move to a dead-letter queue exactly when the message was received on a second queue: observed (`source: sqs_dlq_source`), from the first queue to the second, and never inferred |
 
@@ -174,22 +174,26 @@ compares them:
   fails `edges_verified`.
 - `in_brackets` (QV-40): each driver's truth reads the same clock as the qv2 hooks' spans, so each truth
   line says `same_clock_as_spans`. In Python both read `time.time_ns()`. In Node.js both read `Date.now()`,
-  in whole milliseconds ([`node/src/emitter.js`](../node/src/emitter.js) `nowMs`), and the lines also say
-  `clock: "Date.now"`. Each step's `start` and `end` must lie inside its call's bracket
-  (`t_start_ns <= start <= end <= t_end_ns`), and close to its ends (`BRACKET_BOUNDS_NS` in `check.py`):
-  - Python: `start` at most 1 ms after `t_start_ns`, and `end` at most 1 ms before `t_end_ns`.
-  - Node.js: `start` at most 1 ms after `t_start_ns`, which in whole milliseconds means the same
-    millisecond or the next one. `end` at most 3 ms before `t_end_ns`, because the Node.js hook builds the
-    span after stamping its end and before the driver's `await` resumes ([`node/src/sqs.js`](../node/src/sqs.js)).
+  in whole milliseconds ([`node/src/emitter.js`](../node/src/emitter.js) `nowMs`). Each step's `start` and
+  `end` must lie inside its call's bracket (`t_start_ns <= start <= end <= t_end_ns`), and not far inside
+  it: `start` at most 100 ms after `t_start_ns`, and `end` at most 100 ms before `t_end_ns`
+  (`BRACKET_BOUND_NS` in `check.py`).
 
-  Honest offsets on the QV-40 runs were 0.04–0.38 ms on both sides in Python. In Node.js they were 0 or
-  1 ms on the start (3,948 events) and 0–2 ms on the end (6 events at 2 ms). Without the bound, a store
-  could move a long poll's start to just after its send's end, anywhere inside the receive's bracket, and
-  claim a false send→receive clock order. That is QV-39's "fake3", and it passed 200/200 and the gating
-  floor. The bound limits the times the `clock` source is recomputed from to where the call really was, to
-  within the bound. It doesn't prove them: a store can still move a time by less than the bound. Summary:
-  `events_checked_in_brackets`, `events_outside_brackets`, and `bracket_offsets_max_ns` (the largest
-  start and end offsets seen). `verify` prints these on its `BRACKETS:` line.
+  Without a bound, a store could move a long poll's start to just after its send's end, anywhere inside the
+  receive's bracket, and claim a false send→receive clock order. That is QV-39's "fake3", and it passed
+  200/200 and the gating floor. The bound is 100 ms, not 1 ms, because the gap between the hook's stamp and
+  the driver's is scheduling (threads, the GIL, the event loop), so it grows with load:
+  - On an idle WSL2 machine (QV-40 runs): Python 0.04–0.38 ms; Node.js 0–2 ms, in whole ms.
+  - On GitHub's runners: up to 15.8 ms in Python and 26 ms in Node.js. A 1 ms bound failed the honest
+    store there, in both the emulator and the real-SQS jobs.
+
+  So the gate catches a time moved by more than 100 ms (for example a long poll's start stamped when it
+  returned), and not a smaller move. On the QV-40 runs, fake3 and fake3b still fail every run, but only the
+  messages they moved by more than 100 ms fail: 7 to 13 of 200 on the emulator, where most of fake3's
+  moves are a few milliseconds. The summary also reports, without gating,
+  `events_more_than_1ms_inside_brackets`, which is 0 on an idle machine for Python, and
+  `bracket_offsets_max_ns`, the largest start and end offsets seen. `verify` prints both on its
+  `BRACKETS:` line, with `events_checked_in_brackets` and `events_outside_brackets`.
 
 Call-order ticks within one process are not recorded in the truth. A false order between two steps of one
 process fails only where the truth contradicts it: where one call returned before the other was made
