@@ -10,3 +10,9 @@ export { errorCauses, type ErrorCause } from "./errors.ts";
 export type * from "./timeline/types.ts";
 export { TenantsTable, TenantSearch, tenantsFootnote, fmtWait, fmtShare } from "./tenants/Tenants.tsx";
 export type * from "./tenants/types.ts";
+export { BodyPanel, type BodyPanelProps } from "./body/BodyPanel.tsx";
+export { bodyView, NO_BODY_TEXT, noBodyNotes, type BodySpan } from "./body/rules.ts";
+export {
+  bodyHit, bodyMatches, bodyPath, bodyValues, isBodyField, numHit, parseBodyQuery, parsedBody, textHit, NUM, RANGE, type BodyTerm,
+} from "./body/search.ts";
+export type * from "./body/types.ts";

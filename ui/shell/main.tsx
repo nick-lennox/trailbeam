@@ -1,14 +1,24 @@
 /*
-  Self-hosted Trailbeam's pages drawn with the shared views (../src): the timeline at /message?id=<message ID>
-  and the Tenants page at /tenants. They read Trailbeam's own API on the same origin. The other pages are
-  still Trailbeam's server-rendered HTML for now; these link back to them.
+  Self-hosted Trailbeam's pages drawn with the shared views (../src): the message page at /message?id=<message ID>
+  (the timeline, and with &tab=body the Body tab) and the Tenants page at /tenants. They read Trailbeam's own
+  API on the same origin. The other pages are still Trailbeam's server-rendered HTML for now; these link back
+  to them.
 */
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { TenantSearch, TenantsTable, TimelineView, answerFor, tenantsFootnote, type TenantStats, type Timeline } from "../src/index.ts";
+import {
+  BodyPanel, TenantSearch, TenantsTable, TimelineView, answerFor, tenantsFootnote, type MessageBody, type TenantStats, type Timeline,
+} from "../src/index.ts";
 import "./styles.css";
 
 type State = { kind: "loading" } | { kind: "missing" } | { kind: "error"; message: string } | { kind: "ok"; t: Timeline };
+type BodyState = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ok"; v: MessageBody };
+
+/* Self-hosted Trailbeam has no logins: the only gates are TRAILBEAM_STORE_BODIES and who can reach it. */
+const ACCESS = "No logins: anyone who can reach this Trailbeam can read the bodies it keeps.";
+const HINTS = {
+  not_opted_in: <>To keep this queue&rsquo;s bodies from now on, add it to <code className="font-mono text-caption">TRAILBEAM_STORE_BODIES</code> on the server.</>,
+};
 
 /** A tenant's messages: the server-rendered list, filtered (contract/tenants.md, "Tenant filter"). */
 const tenantHref = (t: string) => `/?tenant=${encodeURIComponent(t)}`;
@@ -97,8 +107,11 @@ function TenantsPage() {
 }
 
 function MessagePage() {
-  const id = new URLSearchParams(location.search).get("id")?.trim() ?? "";
+  const params = new URLSearchParams(location.search);
+  const id = params.get("id")?.trim() ?? "";
+  const tab = params.get("tab") === "body" ? "body" : "timeline";
   const [state, setState] = useState<State>(id ? { kind: "loading" } : { kind: "missing" });
+  const [body, setBody] = useState<BodyState>({ kind: "loading" });
 
   useEffect(() => {
     if (!id) return;
@@ -111,6 +124,15 @@ function MessagePage() {
       })
       .catch(() => setState({ kind: "error", message: "Couldn't reach Trailbeam's API." }));
   }, [id]);
+
+  useEffect(() => {
+    if (!id || tab !== "body") return;
+    fetch(`/api/messages/${encodeURIComponent(id)}/body`)
+      .then(async (r) => (r.ok ? setBody({ kind: "ok", v: (await r.json()) as MessageBody }) : setBody({ kind: "error", message: `Trailbeam answered ${r.status}.` })))
+      .catch(() => setBody({ kind: "error", message: "Couldn't reach Trailbeam's API." }));
+  }, [id, tab]);
+
+  const here = `/message?id=${encodeURIComponent(id)}`;
 
   return (
     <div className="mx-auto max-w-[1100px] px-4 pb-16 md:px-8">
@@ -129,13 +151,36 @@ function MessagePage() {
                 ))}
               </ul>
             )}
-            <div className="overflow-hidden rounded-[16px] border border-sky-line bg-sky-2/55">
-              <TimelineView t={state.t} answer={answerFor(state.t)} />
-            </div>
-            <p className="mt-3 text-sm text-sky-ink-3">
-              Times are in UTC. Steps are in an order only where something observed proves it. Dashed steps are inferred.
-              The same data as JSON: <a className="font-mono text-caption text-dawn hover:underline" href={`/api/messages/${encodeURIComponent(id)}`}>/api/messages/{id}</a>
-            </p>
+            <nav className="mb-4 flex gap-1 border-b border-sky-line text-sm" aria-label="Message views">
+              {([["timeline", "Timeline", here], ["body", "Body", `${here}&tab=body`]] as const).map(([k, label, href]) => (
+                <a key={k} href={href} aria-current={tab === k ? "page" : undefined}
+                  className={`-mb-px border-b-2 px-3 py-2 ${tab === k ? "border-sky-ink text-sky-ink" : "border-transparent text-sky-ink-2 hover:text-sky-ink"}`}>{label}</a>
+              ))}
+            </nav>
+            {tab === "timeline" ? (
+              <>
+                <div className="overflow-hidden rounded-[16px] border border-sky-line bg-sky-2/55">
+                  <TimelineView t={state.t} answer={answerFor(state.t)} />
+                </div>
+                <p className="mt-3 text-sm text-sky-ink-3">
+                  Times are in UTC. Steps are in an order only where something observed proves it. Dashed steps are inferred.
+                  The same data as JSON: <a className="font-mono text-caption text-dawn hover:underline" href={`/api/messages/${encodeURIComponent(id)}`}>/api/messages/{id}</a>
+                </p>
+              </>
+            ) : (
+              <>
+                {body.kind === "loading" && <p className="text-sky-ink-3">Loading the body</p>}
+                {body.kind === "error" && <p className="text-sky-ink-2" role="alert">{body.message}</p>}
+                {body.kind === "ok" && (
+                  <div className="overflow-hidden rounded-[16px] border border-sky-line bg-sky-2/55">
+                    <BodyPanel view={body.v} access={ACCESS} hints={HINTS} />
+                  </div>
+                )}
+                <p className="mt-3 text-sm text-sky-ink-3">
+                  The same data as JSON: <a className="font-mono text-caption text-dawn hover:underline" href={`/api/messages/${encodeURIComponent(id)}/body`}>/api/messages/{id}/body</a>
+                </p>
+              </>
+            )}
           </>
         )}
       </main>

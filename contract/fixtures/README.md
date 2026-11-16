@@ -16,3 +16,14 @@ same inputs. Do not edit it by hand: re-record it, and replace both copies toget
 | `legacy-svc` | 3 | a package from before 3.2: no `trailbeam.body.capture_status` |
 
 Used by `python/tests/server/test_store_bodies.py`.
+
+## `body-views.json`
+
+What [`../body-view.md`](../body-view.md) gives for those spans, under four `TRAILBEAM_STORE_BODIES`
+settings: each message's Body tab (`GET /api/messages/{id}/body`) and the result of a list of
+`body.*` searches. It also holds term cases written by hand from the spec (a body, a query, whether
+it matches). It is written by `make-body-views.py` from the open-source server; don't edit it by hand.
+
+Checked by `python/tests/server/test_body_view.py` and `ui/test/body.test.ts` here, and by the hosted
+app's `test/body-shared.test.ts`, which runs the app's own store and explorer on the same spans.
+`@trailbeam/ui` ships both files under `@trailbeam/ui/fixtures/`.

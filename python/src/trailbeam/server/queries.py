@@ -6,7 +6,7 @@ import math
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from . import timeline
+from . import bodies, timeline
 from .db import Database
 
 MAX_LIMIT = 1000
@@ -55,6 +55,16 @@ def recent(db: Database, now_ns: int, lambda_timeout_s: int, limit: int, queue: 
         f"""SELECT s.mid, MAX(s.time_ns) AS last FROM spans s WHERE s.mid IS NOT NULL {qsql}
             GROUP BY s.mid ORDER BY last DESC LIMIT ?""", qp + (limit,))
     return [_summary(db, r["mid"], now_ns, lambda_timeout_s, mrc) for r in mids]
+
+
+def body_search(db: Database, now_ns: int, lambda_timeout_s: int, limit: int, queue: Optional[str],
+                terms: list[dict], mrc: Optional[dict] = None) -> list[dict]:
+    """Messages whose kept body matches the body.* terms (bodies.py), most recently seen first."""
+    mids = bodies.search(db, terms, db.store_bodies)
+    if queue:
+        inq = {r["mid"] for r in db.query("SELECT DISTINCT mid FROM spans WHERE queue = ? AND mid IS NOT NULL", (queue,))}
+        mids = [m for m in mids if m in inq]
+    return [_summary(db, m, now_ns, lambda_timeout_s, mrc) for m in mids[:limit]]
 
 
 def duplicates(db: Database, now_ns: int, lambda_timeout_s: int, limit: int,

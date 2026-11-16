@@ -2,7 +2,8 @@
 
 Pages:
 
-- ``/``: look up a message by ID, and the most recent messages.
+- ``/``: look up a message by ID, and the most recent messages, or with ``body=`` those whose kept body
+  matches body.* terms (bodies.py).
 - ``/message?id=...``: one message's timeline. Each observed step shows its interval (request sent to
   response received) and, in plain words, the observed fact that puts it after the step before it
   (the clocks, the call order in one process, SQS's receive count or SQS's timestamps). Steps that no
@@ -129,11 +130,22 @@ def handle(api: Callable[[str, dict], object], api_error: type, path: str, query
 
 
 def _index(api, q: dict) -> Response:
-    data = api("messages", _pick(q, "limit", "queue", "tenant"))
+    data = api("messages", _pick(q, "limit", "queue", "tenant", "body"))
+    searching = "body_search" in data
+    note = ""
+    if searching:
+        note = ('<p class="muted body-note">Searches only the bodies this server keeps: those of queues in '
+                "<code>TRAILBEAM_STORE_BODIES</code>, as the package redacted them. Trailbeam has no logins, so "
+                "anyone who can reach this server can read them.</p>")
+        if not data["body_search"]["stores_bodies"]:
+            note += ('<p class="notice">This server keeps no bodies: <code>TRAILBEAM_STORE_BODIES</code> is not '
+                     "set, so a body search finds nothing.</p>")
     body = ("<h1>Look up a message</h1>" + _lookup_form("")
-            + "<h2>Recent messages</h2>" + _filters("/", q, [("queue", "Queue", "text"), ("tenant", "Tenant", "text"),
-                                                            ("limit", "Limit", "number")])
-            + _summary_table(data["messages"], empty="No messages stored yet."))
+            + ("<h2>Messages whose body matches</h2>" if searching else "<h2>Recent messages</h2>")
+            + _filters("/", q, [("body", "Body", "text"), ("queue", "Queue", "text"),
+                                 ("tenant", "Tenant", "text"), ("limit", "Limit", "number")])
+            + note
+            + _summary_table(data["messages"], empty="No message body matches." if searching else "No messages stored yet."))
     return _page(200, "Trailbeam", body)
 
 
@@ -179,6 +191,9 @@ def _message(api, q: dict) -> Response:
     parts.append('<ol class="timeline">')
     parts.extend(_timeline_items(t))
     parts.append("</ol>")
+    body_url = "/api/messages/" + _quote_segment(t["message_id"]) + "/body"
+    parts.append(f'<p class="muted">The message body, or why there is none: <a href="{escape(body_url)}">'
+                 f"{escape(body_url)}</a> (the Body tab, with scripts on).</p>")
     return _page(200, f'Message {t["message_id"]}', "".join(parts))
 
 
