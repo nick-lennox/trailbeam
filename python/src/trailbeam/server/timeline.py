@@ -1,4 +1,4 @@
-"""Per-message timelines, built from the stored rows of one message (docs/store-api.md).
+"""Per-message timelines, built from the stored rows of one message (docs/api.md).
 
 Observed events come from Trailbeam spans. Each is an interval (contract section 2): ``start`` just before the
 SQS request was sent (``None`` if not observed, as for a Lambda receive), ``end`` when the response came.
@@ -24,7 +24,7 @@ from typing import Optional
 from . import order as order_mod
 from .otlp import DEFAULT_KEY_ID
 
-DEFAULT_LAMBDA_TIMEOUT_S = 900  # the longest Lambda timeout; the store does not know the real one
+DEFAULT_LAMBDA_TIMEOUT_S = 900  # the longest Lambda timeout; Trailbeam does not know the real one
 
 
 def iso(ns: Optional[int]) -> Optional[str]:

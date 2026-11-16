@@ -1,6 +1,6 @@
 """Optional test dependencies that must not be skipped silently where they are meant to run (QV-32 §6).
 
-The end-to-end tests need the `trailbeam` package from ../python (and moto), which the store does not depend on.
+The end-to-end tests need the `trailbeam` package from ../python (and moto), which Trailbeam does not depend on.
 Locally they are skipped, with the reason and the command to install them, if those are missing. In CI
 (the ``CI`` variable GitHub Actions sets) or with ``TRAILBEAM_REQUIRE_E2E=1``, a missing package is an import
 error instead, which fails the run: CI installs them (`pip install -e './server[test]' -e './python[test]'`),

@@ -52,20 +52,6 @@ jobs:
       - run: npm ci
       - run: npm test
 
-  store:
-    name: Store (Python ${{ matrix.python }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.10", "3.12"]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
-      - run: pip install -e './server[test]' -e './python[test]'
-      - run: pytest -q server/tests -rs
 
   collector:
     name: Collector configuration
@@ -91,21 +77,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build the image (local only, not pushed)
-        run: docker build -t trailbeam-store:ci server
+        run: docker build -t trailbeam:ci .
       - name: Run it with SQLite on a volume
         run: |
           docker volume create trailbeam-ci-data
-          docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-ci-data:/data trailbeam-store:ci
+          docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-ci-data:/data trailbeam:ci
       - name: Send recorded spans, check the timeline page
-        run: python3 server/smoke/smoke_test.py http://127.0.0.1:4318
+        run: python3 python/smoke/smoke_test.py http://127.0.0.1:4318
       - name: Stops cleanly and keeps the data on the volume
         run: |
           time docker stop -t 5 trailbeam
           test "$(docker inspect -f '{{.State.ExitCode}}' trailbeam)" = 0
-          docker run --rm -v trailbeam-ci-data:/data --entrypoint ls trailbeam-store:ci -l /data
+          docker run --rm -v trailbeam-ci-data:/data --entrypoint ls trailbeam:ci -l /data
           docker rm trailbeam
-          docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-ci-data:/data trailbeam-store:ci
-          python3 server/smoke/smoke_test.py http://127.0.0.1:4318
+          docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-ci-data:/data trailbeam:ci
+          python3 python/smoke/smoke_test.py http://127.0.0.1:4318
           test "$(docker inspect -f '{{.State.Health.Status}}' trailbeam)" != unhealthy
       - name: Container logs
         if: always()
@@ -118,7 +104,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build and start the demo (images local only, not pushed)
         run: docker compose -f demo/compose.yaml up -d --build --wait
-      - name: Timelines from the Python and Node.js consumers reach the store
+      - name: Timelines from the Python and Node.js consumers reach Trailbeam
         run: python3 demo/smoke_test.py http://127.0.0.1:4318 --timeout 180
       - name: Logs
         if: always()
@@ -144,7 +130,7 @@ jobs:
       # reported in the job summary, but on the emulator check.sh doesn't gate on the floor (as locally);
       # it gates in concurrency-check-aws: ElasticMQ stamps SentTimestamp and
       # ApproximateFirstReceiveTimestamp in the same millisecond, so send->receive stays concurrent here
-      # for a reason that is the emulator's, not the store's (demo/README.md#the-floor-in-ci).
+      # for a reason that is the emulator's, not Trailbeam's (demo/README.md#the-floor-in-ci).
       # --dlq: a poison message every 20 goes to the dead-letter queue; each move must be observed
       # (DeadLetterQueueSourceArn), none inferred. Emulator only: not approved on real SQS yet (QV-33).
       - name: Python

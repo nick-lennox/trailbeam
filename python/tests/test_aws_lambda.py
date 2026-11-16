@@ -14,7 +14,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 
 import trailbeam.aws_lambda as ql
 from trailbeam import _order
-from conftest import TEST_KEY
+from sdk_constants import TEST_KEY
 
 FIXTURES = Path(__file__).parent / "fixtures"
 QV9 = json.loads((FIXTURES / "qv9_lambda_events.json").read_text("utf-8"))
@@ -49,7 +49,7 @@ def spans(exporter, name=None):
 
 
 # -- the 0.1 "done means" test: every delivery gets a receive; every one not killed, an outcome ----
-# The killed delivery gets no outcome span (nothing runs after the kill); the store infers its outcome,
+# The killed delivery gets no outcome span (nothing runs after the kill); Trailbeam infers its outcome,
 # tested end to end in server/tests/test_lambda_end_to_end.py.
 
 def behave(spec):
@@ -106,7 +106,7 @@ def test_recorded_qv9_events_every_delivery_gets_a_receive_and_every_unkilled_on
             assert rcv["faas.invocation_id"] == inv["aws_request_id"]
             assert rcv["messaging.client.id"] == inv["log_stream_name"]
             want = inv["expected"][mid]
-            if want is None:  # killed: no outcome; the store infers it from the receive
+            if want is None:  # killed: no outcome; Trailbeam infers it from the receive
                 assert mid not in outcomes
             else:
                 assert outcomes[mid].attributes["trailbeam.outcome"] == want, (inv["aws_request_id"], mid)

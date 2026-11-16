@@ -1,14 +1,14 @@
 # How Trailbeam works
 
 This page explains the Trailbeam 0.1 architecture end to end. It covers the components, the data that moves
-between them, what the store records and what it infers, and how it fails. The exact span attributes
-are in [`span-contract.md`](span-contract.md). The JSON API is in [`store-api.md`](store-api.md). Terms
+between them, what Trailbeam records and what it infers, and how it fails. The exact span attributes
+are in [`span-contract.md`](span-contract.md). The JSON API is in [`api.md`](api.md). Terms
 are defined in the [glossary](glossary.md).
 
 ## Components
 
 ```
- your process                                   optional                 trailbeam store (one container)
+ your process                                   optional                 trailbeam (one container)   
 +-------------------------------+         +-------------------+        +----------------------------+
 | app code                      |         | OpenTelemetry     |        | POST /v1/traces  (ingest)  |
 |   | SQS SDK call              |  OTLP/  | Collector         |  OTLP/ | SQLite file, table spans   |
@@ -27,9 +27,9 @@ are defined in the [glossary](glossary.md).
 | Python Lambda wrapper | [`python/src/trailbeam/aws_lambda.py`](../python/src/trailbeam/aws_lambda.py), `@trailbeam.aws_lambda.wrap` | Emits one `trailbeam receive` per SQS record before the handler runs, and one `trailbeam outcome` per record after it. |
 | Node.js client hooks | [`node/src/sqs.js`](../node/src/sqs.js), `trailbeam.instrument(client)` | Adds a middleware to an AWS SDK v3 `SQSClient`. Emits the same spans as the Python hooks. |
 | Node.js Lambda wrapper | [`node/src/lambda.js`](../node/src/lambda.js), `trailbeam.wrapHandler(fn)` | Same behaviour as the Python wrapper. |
-| Collector configuration | [`collector/trailbeam-collector.yaml`](../collector/trailbeam-collector.yaml) | Optional. Forwards every span with instrumentation scope `trailbeam` to the store, unsampled. |
-| Store | [`server/src/trailbeam_store/`](../server/src/trailbeam_store/), command `trailbeam-store` | One Python process. Decodes OTLP/HTTP, stores each Trailbeam span as one SQLite row, joins deletes to receives, and builds timelines when you read them. |
-| Web screen | [`server/src/trailbeam_store/web.py`](../server/src/trailbeam_store/web.py) | Server-rendered HTML built from the JSON API's responses. No JavaScript. |
+| Collector configuration | [`collector/trailbeam-collector.yaml`](../collector/trailbeam-collector.yaml) | Optional. Forwards every span with instrumentation scope `trailbeam` to Trailbeam, unsampled. |
+| Trailbeam | [`python/src/trailbeam/server/`](../python/src/trailbeam/server/), command `trailbeam` | One Python process. Decodes OTLP/HTTP, stores each Trailbeam span as one SQLite row, joins deletes to receives, and builds timelines when you read them. |
+| Web screen | [`python/src/trailbeam/server/web.py`](../python/src/trailbeam/server/web.py) | Server-rendered HTML built from the JSON API's responses. No JavaScript. |
 
 The 7 SQS actions are `SendMessage`, `SendMessageBatch`, `ReceiveMessage`, `DeleteMessage`,
 `DeleteMessageBatch`, `ChangeMessageVisibility` and `ChangeMessageVisibilityBatch`. The hooks ignore
@@ -38,7 +38,7 @@ every other SQS action.
 ## What Trailbeam does and does not do to your queues and data
 
 - Trailbeam makes no SQS calls of its own. The packages only observe the calls your code already makes. The
-  store makes no AWS calls and needs no AWS credentials.
+  Trailbeam makes no AWS calls and needs no AWS credentials.
 - Trailbeam never calls `ReceiveMessage` on your queues, including the dead-letter queue. A receive changes a
   message's state: its receive count, its visibility timeout and its receipt handle.
 - The client hooks change one thing in your requests. On `ReceiveMessage`, they add the system
@@ -94,7 +94,7 @@ map from receipt handle to message ID. The map holds at most 100,000 entries, ea
 hours. When the handle is in the map, the settle span also carries `messaging.message.id`.
 
 The Lambda wrapper cannot see Lambda's `ReceiveMessage` call. Its `trailbeam receive` is zero-length at the
-moment the wrapper got the event, with `trailbeam.start_observed = false`. The store reads that time as an
+moment the wrapper got the event, with `trailbeam.start_observed = false`. Trailbeam reads that time as an
 upper bound only. The wrapper flushes the receive spans before the handler runs, and waits at most
 2000 ms by default for that flush.
 
@@ -106,33 +106,33 @@ OTLP/HTTP protobuf to `TRAILBEAM_OTLP_TRACES_ENDPOINT`, default `http://localhos
 the OpenTelemetry SDK's `BatchSpanProcessor`.
 
 In Python, if your application has not instrumented botocore, `trailbeam.boto.install()` instruments it with
-the Trailbeam provider. The stock botocore spans then go to the same endpoint. The store counts them as
+the Trailbeam provider. The stock botocore spans then go to the same endpoint. Trailbeam counts them as
 `ignored`. If your application instruments botocore first, Trailbeam keeps your provider for the stock
 spans.
 
-You can export to the store directly or through the Collector. The Collector configuration keeps every
-span with instrumentation scope `trailbeam` and drops every other span before the store.
+You can export to Trailbeam directly or through the Collector. The Collector configuration keeps every
+span with instrumentation scope `trailbeam` and drops every other span before Trailbeam.
 
 ### 4. Ingest
 
-The store accepts `POST /v1/traces` with `application/x-protobuf` or `application/json`, and
-optionally `Content-Encoding: gzip` or `deflate`. For each span, the store does this:
+Trailbeam accepts `POST /v1/traces` with `application/x-protobuf` or `application/json`, and
+optionally `Content-Encoding: gzip` or `deflate`. For each span, Trailbeam does this:
 
 1. If the instrumentation scope is not `trailbeam`, it counts the span as `ignored` and drops it.
 2. If `trailbeam.schema_version` is not 2 or 3, or a required attribute is missing, it counts the span as
    `rejected`. It reports the reason in the OTLP `partial_success` field of the response.
 3. It classifies the span by `trailbeam.kind` and `messaging.operation.name`. It never parses span names.
 4. It inserts one row into the SQLite table `spans`. A span with a trace ID and span ID already stored
-   is a duplicate (for example an exporter retry), and the store skips it.
+   is a duplicate (for example an exporter retry), and Trailbeam skips it.
 
 ### 5. The receipt-hash join
 
 Each row has a `mid` column: the message the row belongs to.
 
 - Send, receive and outcome rows: `mid` is the span's own `messaging.message.id`.
-- Delete and visibility-change rows: the store looks for a `trailbeam receive` with the same
+- Delete and visibility-change rows: Trailbeam looks for a `trailbeam receive` with the same
   `trailbeam.receipt_handle.hmac` and `trailbeam.receipt_handle.key_id`. If it finds one, `mid` is that receive's
-  message ID, and `receive_row` points at that receive. This tells the store which delivery the
+  message ID, and `receive_row` points at that receive. This tells Trailbeam which delivery the
   handle came from.
 - If no receive matches yet, `mid` is the settle span's own message ID, if it has one.
 
@@ -142,7 +142,7 @@ never match.
 
 ### 6. Building a timeline
 
-The store builds a timeline each time you request one (`GET /api/messages/{id}` or the message page).
+Trailbeam builds a timeline each time you request one (`GET /api/messages/{id}` or the message page).
 It does not store timelines. It reads every row whose `mid` is the message ID and then does this:
 
 1. It makes one observed event per row.
@@ -156,22 +156,22 @@ It does not store timelines. It reads every row whose `mid` is the message ID an
    | `receive_count` | Two receives on one queue, and A has the lower `ApproximateReceiveCount`. |
    | `sqs_timestamps` | A is the send, B is the receive with receive count 1 on that queue, and B's `SentTimestamp` is lower than its `ApproximateFirstReceiveTimestamp`. Equal values prove nothing. |
 
-   Order is transitive. If the sources contradict each other (a cycle), the store drops the edges on
+   Order is transitive. If the sources contradict each other (a cycle), Trailbeam drops the edges on
    the cycle and adds an `order_conflict` notice.
 3. It adds inferred events and the observed dead-letter queue move (next section).
 4. It lists the events in an order that agrees with every proven edge. It cuts the list into groups
    wherever everything before the cut is proven before everything after it. A group of more than one
    event is "concurrent, order unknown".
 5. It computes the summary: `state`, `deliveries`, `successful_deliveries`, `first_seen` and the
-   other fields in [Summary fields](store-api.md#summary-fields).
+   other fields in [Summary fields](api.md#summary-fields).
 
-The store never orders events by what caused what. "A receive comes after its send" is not a source.
+Trailbeam never orders events by what caused what. "A receive comes after its send" is not a source.
 If no source orders a send and its receive, they share a concurrent group. This is common when a
 consumer waits in a long poll: its `ReceiveMessage` started before the message was sent.
 
 ## What is recorded and what is inferred
 
-| Timeline event | How the store knows | Evidence |
+| Timeline event | How Trailbeam knows | Evidence |
 |---|---|---|
 | `sent` | recorded | a `trailbeam send` span |
 | `received` | recorded | a `trailbeam receive` span |
@@ -185,33 +185,33 @@ consumer waits in a long poll: its `ReceiveMessage` started before the message w
 | `lambda_invocation_ended_without_outcome` | inferred | a Lambda receive with no `trailbeam outcome` for its invocation after `--lambda-timeout` seconds (default 900) |
 
 An inferred event has no span and no time. It has a `window`, a `reason` sentence and anchors: the
-observed events it was inferred from. The store places it next to its anchors and orders it against
+observed events it was inferred from. Trailbeam places it next to its anchors and orders it against
 other events only through them.
 
-The store never infers a move to a dead-letter queue from the message ID alone. If you configure the
+Trailbeam never infers a move to a dead-letter queue from the message ID alone. If you configure the
 queue's `maxReceiveCount` (`--max-receive-count`), and the receive count on the source queue has
-reached it, the store says "not seen on the DLQ yet". It shows no move until a receive from the
+reached it, Trailbeam says "not seen on the DLQ yet". It shows no move until a receive from the
 dead-letter queue reports one.
 
 ## Failure cases
 
-| What happens | Effect on the timeline | What the store shows |
+| What happens | Effect on the timeline | What Trailbeam shows |
 |---|---|---|
 | A process exits or is killed before its `BatchSpanProcessor` exports | Those spans are lost. | Missing events. A lost receive can produce `deliveries_not_observed`. |
 | A Lambda invocation times out or runs out of memory | The receive span was flushed before the handler ran. No outcome span exists. | `lambda_invocation_ended_without_outcome` after `--lambda-timeout`. Until then, if it is the latest delivery, `state` is `processing`. |
 | A producer or consumer has no Trailbeam hooks | No spans from it. | `send_not_observed` notice, or `deliveries_not_observed`. |
 | Services use different receipt-hash keys | Deletes cannot join to receives. | `key_mismatch` notice, `deleted.status` `unmatched_handle`, `unjoined_settles` in `/api/health`. |
 | No key is set | The packages use the published default key and log one warning. | `default_key` notice on every message page. |
-| A host clock is offset from another host's | `clock` edges between those hosts can be wrong. The store does not correct clock offset in 0.1. | Possibly a wrong order, or an `order_conflict` notice when sources disagree. |
+| A host clock is offset from another host's | `clock` edges between those hosts can be wrong. Trailbeam does not correct clock offset in 0.1. | Possibly a wrong order, or an `order_conflict` notice when sources disagree. |
 | A delete uses an old receipt handle | Amazon SQS can accept it without deleting the message. | `deleted.status` `stale_handle`, and a later receive. ElasticMQ rejects such a delete (`failed`, `ReceiptHandleIsInvalid`). |
-| The store is down, export goes through the Collector | The Collector retries until its queue of 5,000 batches is full, then drops new spans. Its queue is in memory. | Missing events after the queue fills, or after a Collector restart. |
-| The store is down, export goes directly to it | The SDK exporter retries and then drops the batch. | Missing events. |
-| The same span arrives twice | The store skips the duplicate. | No effect. `ingest.duplicates` in `/api/health` counts it. |
-| Two queues in different accounts or regions share a name | The store groups by queue name. | Their messages are merged under one name. |
+| Trailbeam is down, export goes through the Collector | The Collector retries until its queue of 5,000 batches is full, then drops new spans. Its queue is in memory. | Missing events after the queue fills, or after a Collector restart. |
+| Trailbeam is down, export goes directly to it | The SDK exporter retries and then drops the batch. | Missing events. |
+| The same span arrives twice | Trailbeam skips the duplicate. | No effect. `ingest.duplicates` in `/api/health` counts it. |
+| Two queues in different accounts or regions share a name | Trailbeam groups by queue name. | Their messages are merged under one name. |
 
 ## Limits of 0.1
 
-- One store process with one SQLite connection behind a lock.
+- One Trailbeam process with one SQLite connection behind a lock.
 - No authentication. Bind to `127.0.0.1` unless the network is trusted.
 - No retention. Data stays until you delete the SQLite file.
 - List endpoints build a full timeline for each listed message. They are for screen-sized `limit`

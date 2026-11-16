@@ -1,5 +1,5 @@
 """The recorded killed Lambda invocation (QV-9) through the real Trailbeam Lambda wrapper, exported over OTLP/HTTP
-to a running store: the store must show the outcome the wrapper could not send as inferred.
+to a running Trailbeam: Trailbeam must show the outcome the wrapper could not send as inferred.
 
 Needs the `trailbeam` package from ../python (pip install -e '../python[test]'): skipped locally without it, and a
 failure in CI (tests/needs.py). No AWS.
@@ -15,13 +15,13 @@ from needs import need
 
 need("trailbeam.aws_lambda")
 
-from trailbeam_store import queries  # noqa: E402
+from trailbeam.server import queries  # noqa: E402
 
-FIXTURE = Path(__file__).resolve().parents[2] / "python" / "tests" / "fixtures" / "qv9_lambda_events.json"
+FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "qv9_lambda_events.json"
 KILLED_MID = "ed51d232-5860-4f3f-82d1-34073e1cb9a3"  # function timeout in the QV-9 prototype
 KEY = "lambda-end-to-end-key-0123456789"
 SEC = 1_000_000_000
-LT = 900  # the store's Lambda timeout, seconds
+LT = 900  # Trailbeam's Lambda timeout, seconds
 
 
 class Killed(BaseException):
@@ -48,7 +48,7 @@ def run(server, inv, monkeypatch):
         assert kind == "return"
         return {"batchItemFailures": [{"itemIdentifier": i} for i in inv["behaviour"]["batchItemFailures"]]}
 
-    # The production processor: what reaches the store is what the wrapper flushed, not what shutdown() adds.
+    # The production processor: what reaches Trailbeam is what the wrapper flushed, not what shutdown() adds.
     proc = BatchSpanProcessor(OTLPSpanExporter(endpoint=server + "/v1/traces"), schedule_delay_millis=60_000)
     fn = ql.wrap(handler, receipt_hash_key=KEY, span_processor=proc)
     ctx = SimpleNamespace(aws_request_id=inv["aws_request_id"], function_name=inv["function_name"])

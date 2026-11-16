@@ -1,11 +1,11 @@
-"""Trailbeam 0.1 concurrency check: compare the timelines in the Trailbeam store with what the demo drivers really did.
+"""Trailbeam 0.1 concurrency check: compare the timelines in the Trailbeam with what the demo drivers really did.
 
     check.py wait   --truth DIR --count 200 [--timeout 180]
-    check.py verify --truth DIR --count 200 --store http://trailbeam:4318 [--timeout 60] [--report FILE]
+    check.py verify --truth DIR --count 200 --trailbeam http://trailbeam:4318 [--timeout 60] [--report FILE]
 
 The drivers (demo/python/trailbeamdemo.py, demo/node/trailbeamdemo.js) write one truth line per SQS call they make
 (send, receive, change_visibility, delete) to their own file in DIR. ``wait`` returns once every sent
-message has an accepted delete in the truth. ``verify`` reads each message's timeline from the store's
+message has an accepted delete in the truth. ``verify`` reads each message's timeline from Trailbeam's
 JSON API (GET /api/messages/{id}) and checks, per message:
 
 - complete:      the observed events (sent, received, visibility_changed, deleted) are exactly the SQS
@@ -13,14 +13,14 @@ JSON API (GET /api/messages/{id}) and checks, per message:
 - in order:      the timeline never shows an effect definitely before its cause. Cause/effect pairs come
                  from the truth: send -> each receive; receive k -> receive k+1; receive k -> each settle
                  with delivery k's handle; an accepted change_visibility on delivery k -> receive k+1 (if
-                 the truth has the change first). The store's proven order is the chain of its
+                 the truth has the change first). Trailbeam's proven order is the chain of its
                  ``order.edges`` (each with its sources: clock, process_order, receive_count,
                  sqs_timestamps); a timeline without ``order`` (before QV-31) is judged by its intervals.
-                 With each event's interval (start, end) and group from the store, a pair is
-                   violated   if the effect's interval ends before the cause's starts, or the store proves
+                 With each event's interval (start, end) and group from Trailbeam, a pair is
+                   violated   if the effect's interval ends before the cause's starts, or Trailbeam proves
                               the effect before the cause, or puts the effect in an earlier group than the
                               cause, or puts the cause in an earlier group although it does not prove it;
-                   in order   ("resolved") if the store proves the cause before the effect;
+                   in order   ("resolved") if Trailbeam proves the cause before the effect;
                    concurrent otherwise (shown as "concurrent, order unknown").
                  A message is in order when it is complete and no pair is violated;
 - edges verified: every edge in ``order.edges`` is checked, not trusted (QV-34): each source it claims
@@ -32,7 +32,7 @@ JSON API (GET /api/messages/{id}) and checks, per message:
 - receive count: every receive (by delivery number) shows the real ApproximateReceiveCount;
 - sqs facts:     every receive shows the SentTimestamp and ApproximateFirstReceiveTimestamp SQS really returned
                  for it (QV-38): the drivers write both into the truth (``sent_ms``, ``first_receive_ms``),
-                 and the store's ``sent_timestamp_ms`` / ``first_receive_timestamp_ms`` must equal them, a
+                 and Trailbeam's ``sent_timestamp_ms`` / ``first_receive_timestamp_ms`` must equal them, a
                  missing value included. The ``sqs_timestamps`` source is recomputed from these fields, so
                  a store that makes them up to resolve a send->receive pair fails here;
 - in brackets:   where the truth says its brackets read the same clock as the spans (``same_clock_as_spans``:
@@ -62,7 +62,7 @@ messages with at least one concurrent group and the pairs resolved in order vs. 
 kind of pair. ``concurrent_via_chain`` (a diagnostic) counts the concurrent pairs whose own intervals do
 not overlap: they share a group only through other overlapping steps. ``concurrent_tied`` counts those
 where the cause ended at exactly the effect's start, a tie at the clock's resolution. Each check is evaluated on its own: joined and receive count compare the events regardless of the order
-the store shows them in, so a message that fails only on order still reports its joins and receive counts.
+Trailbeam shows them in, so a message that fails only on order still reports its joins and receive counts.
 The summary counts each check separately, plus the messages that fail on order alone. A message passes
 only if all nine hold. The run passes only if every message passes **and** the floor holds (unless
 --floor-report-only, which demo/check.sh uses on the emulator: the floor is then reported, not gated): at least 90%
@@ -91,7 +91,7 @@ TRUTH_OPS = ("send", "receive", "change_visibility", "delete")
 STORE_TYPES = {"sent": "send", "received": "receive", "visibility_changed": "change_visibility", "deleted": "delete"}
 CHECKS = ("complete", "in_order", "edges_verified", "joined", "receive_count", "sqs_facts", "in_brackets", "final",
           "dlq_move")
-# Contract 3.1, section 9b: the store shows a move to a dead-letter queue only when SQS reports it.
+# Contract 3.1, section 9b: Trailbeam shows a move to a dead-letter queue only when SQS reports it.
 DLQ_MOVE = "moved_to_dead_letter_queue"
 DLQ_SOURCE = "sqs_dlq_source"
 PAIR_KINDS = ("send->receive", "receive->receive", "receive->settle", "change_visibility->receive")
@@ -168,7 +168,7 @@ def _truth_order(recs: list):
 
 
 def expected_events(truth: list) -> list:
-    """The truth as (op, delivery, result, receive_count): delivery numbers count receives, as the store does,
+    """The truth as (op, delivery, result, receive_count): delivery numbers count receives, as Trailbeam does,
     and a settle gets the number of the receive whose handle (``rh``) it used."""
     out, delivery_of_handle, n = [], {}, 0
     for r in truth:
@@ -188,8 +188,8 @@ def _ns(v):
 
 
 def observed_details(timeline: dict) -> list:
-    """The store's observed events as dicts: op, delivery, result, receive_count, start, end (ns; start None
-    if not observed) and group, in the order the store shows them."""
+    """Trailbeam's observed events as dicts: op, delivery, result, receive_count, start, end (ns; start None
+    if not observed) and group, in the order Trailbeam shows them."""
     out = []
     for e in timeline.get("events", []):
         if e.get("inferred") or e.get("type") not in STORE_TYPES:
@@ -213,7 +213,7 @@ def observed_details(timeline: dict) -> list:
 
 
 def observed_events(timeline: dict) -> list:
-    """The store's observed events as (op, delivery, result, receive_count), in the order the store shows them."""
+    """Trailbeam's observed events as (op, delivery, result, receive_count), in the order Trailbeam shows them."""
     return [(d["op"], d["delivery"], d["result"], d["receive_count"]) for d in observed_details(timeline)]
 
 
@@ -282,7 +282,7 @@ class Proof:
         return self._reach[key]
 
     def attribution(self, a, b) -> dict:
-        """How the store proved a before b: ``direct`` sources of the edge a -> b, or the sources along the
+        """How Trailbeam proved a before b: ``direct`` sources of the edge a -> b, or the sources along the
         chain if there is no direct edge."""
         if (a, b) in self.direct:
             return {"direct": self.direct[(a, b)], "chain": None}
@@ -292,8 +292,8 @@ class Proof:
 
 def source_holds(src: str, a: dict, b: dict) -> bool:
     """Whether the observed fact ``src`` puts event ``a`` before event ``b``, recomputed here from the facts
-    the store reports for the two events (their times, call-order ticks, queues, receive counts and SQS
-    timestamps), independently of the store's own code. The four sources are those of contract section 9a."""
+    Trailbeam reports for the two events (their times, call-order ticks, queues, receive counts and SQS
+    timestamps), independently of Trailbeam's own code. The four sources are those of contract section 9a."""
     if src == "clock":
         return b["start"] is not None and a["end"] is not None and a["end"] < b["start"]
     if src == "process_order":
@@ -338,7 +338,7 @@ def check_facts(matched: list) -> dict:
     lies outside its call's truth bracket, or starts or ends more than :data:`BRACKET_BOUND_NS` inside it, where
     the truth reads the spans' clock (``same_clock_as_spans``).
     ``matched`` is the (store event, truth call) pairs, matched by key (op, delivery, n) as in check_order, so
-    an event is compared whether or not the store gives it an ID."""
+    an event is compared whether or not Trailbeam gives it an ID."""
     facts_wrong, compared, outside, bracketed = [], 0, [], 0
     worst = {"start": None, "end": None}  # the largest start - t_start_ns and t_end_ns - end seen
     tight = 0  # events more than TIGHT_BOUND_NS inside their bracket: reported, not gated
@@ -348,7 +348,7 @@ def check_facts(matched: list) -> dict:
             got = {"sent_ms": d["sent_ms"], "first_receive_ms": d["first_receive_ms"]}
             want = {"sent_ms": t.get("sent_ms"), "first_receive_ms": t.get("first_receive_ms")}
             if {k: _ns(v) for k, v in got.items()} != {k: _ns(v) for k, v in want.items()}:
-                facts_wrong.append({"event": d["id"], "delivery": d["delivery"], "store": got, "truth": want})
+                facts_wrong.append({"event": d["id"], "delivery": d["delivery"], "trailbeam": got, "truth": want})
         if t.get("same_clock_as_spans"):
             lo, hi = truth_bounds(t)
             if lo is None or hi is None:
@@ -363,7 +363,7 @@ def check_facts(matched: list) -> dict:
                     tight += 1
             if (start is None or end is None or not lo <= start <= end <= hi
                     or start - lo > BRACKET_BOUND_NS or hi - end > BRACKET_BOUND_NS):
-                outside.append({"event": d["id"], "op": d["op"], "store": [start, end], "truth": [lo, hi]})
+                outside.append({"event": d["id"], "op": d["op"], "trailbeam": [start, end], "truth": [lo, hi]})
     return {"receives_compared": compared, "sqs_facts_wrong": facts_wrong,
             "events_in_brackets_checked": bracketed, "outside_brackets": outside, "bracket_offsets_max_ns": worst,
             "more_than_1ms_inside": tight}
@@ -430,15 +430,15 @@ def verify_edges(timeline: dict, details: list, truth_of: dict) -> dict:
 
 
 def judge_pair(cause: dict, effect: dict, proof: "Proof | None" = None) -> str:
-    """``in_order``, ``concurrent`` or ``violated``: see the module docstring. ``proof`` is the store's
+    """``in_order``, ``concurrent`` or ``violated``: see the module docstring. ``proof`` is Trailbeam's
     proven order; without it (a timeline from before QV-31), only the intervals prove an order."""
     if cause["start"] is not None and effect["end"] < cause["start"]:
-        return "violated"  # the effect definitely happened before its cause, and the store has the times
+        return "violated"  # the effect definitely happened before its cause, and Trailbeam has the times
     gc, ge = cause["group"], effect["group"]
     if gc is None or ge is None:
-        return "violated"  # an observed event outside any group: the store gives no order
+        return "violated"  # an observed event outside any group: Trailbeam gives no order
     if proof is not None and proof.before(effect["id"], cause["id"]):
-        return "violated"  # the store claims a proof that the effect came first
+        return "violated"  # Trailbeam claims a proof that the effect came first
     if ge < gc:
         return "violated"  # shown before its cause
     if proof is not None:
@@ -448,7 +448,7 @@ def judge_pair(cause: dict, effect: dict, proof: "Proof | None" = None) -> str:
     if proven:
         return "in_order"
     if gc < ge:
-        return "violated"  # ordered by the store, but not proven
+        return "violated"  # ordered by Trailbeam, but not proven
     return "concurrent"
 
 
@@ -522,7 +522,7 @@ def dlq_moves(truth: list, timeline: dict) -> dict:
 
 
 def evaluate(truth: list, timeline) -> dict:
-    """Check one message. ``timeline`` is the store's JSON for it, or None if the store doesn't know it."""
+    """Check one message. ``timeline`` is Trailbeam's JSON for it, or None if Trailbeam doesn't know it."""
     want = expected_events(truth)
     if timeline is None:
         return {"found": False, **{c: False for c in CHECKS}, "passed": False,
@@ -633,7 +633,7 @@ def summarize(truth_by_id: dict, results: dict, count: int, floor: float = FLOOR
         "pairs_concurrent_via_chain": total[CHAINED],
         "pairs_concurrent_tied": total[TIED],
         "pairs_by_kind": {k: {r: pairs[k][r] for r in PAIR_RESULTS + DIAGNOSTICS} for k in PAIR_KINDS},
-        # Every edge the store claims, checked rather than trusted (QV-34): its sources recomputed from the
+        # Every edge Trailbeam claims, checked rather than trusted (QV-34): its sources recomputed from the
         # events' facts, and every order the edges imply compared with the truth files.
         "edges_checked": sum(results[m].get("edges", {}).get("edges", 0) for m in sent),
         "edges_unverified": sum(len(results[m].get("edges", {}).get("unverified", [])) for m in sent),
@@ -706,7 +706,7 @@ def cmd_verify(args) -> int:
     while True:
         for mid in sent:
             if mid not in results or not results[mid]["passed"]:
-                results[mid] = evaluate(truth[mid], fetch_timeline(args.store, mid))
+                results[mid] = evaluate(truth[mid], fetch_timeline(args.trailbeam, mid))
         # Keep polling only while some message is still missing events (the export may be in flight).
         waiting = [m for m in sent if not results[m]["passed"]
                    and len(results[m]["observed"]) < len(results[m]["expected"])]
@@ -736,7 +736,7 @@ def cmd_verify(args) -> int:
             for k in summary["floor"]["kinds"]), flush=True)
     for mid, r in list(failed.items())[:10]:
         print(f"FAILED {mid}: " + ", ".join(f"{c}={r[c]}" for c in ("found",) + CHECKS)
-              + f"; expected {r['expected']}, store shows {r['observed']}"
+              + f"; expected {r['expected']}, Trailbeam shows {r['observed']}"
               + (f"; violated pairs {r['violations']}" if r.get("violations") else "")
               + (f"; edges not recomputed {r['edges']['unverified'][:3]}" if r.get("edges", {}).get("unverified") else "")
               + (f"; edges against the truth {r['edges']['contradicted'][:3]}"
@@ -756,7 +756,7 @@ def main(argv=None) -> int:
         s.add_argument("--truth", required=True, help="directory of the drivers' truth files")
         s.add_argument("--count", type=int, default=200, help="number of messages the producer sent")
     sub.choices["wait"].add_argument("--timeout", type=float, default=180)
-    sub.choices["verify"].add_argument("--store", default="http://trailbeam:4318")
+    sub.choices["verify"].add_argument("--trailbeam", default="http://trailbeam:4318")
     sub.choices["verify"].add_argument("--timeout", type=float, default=60, help="seconds to wait for spans to arrive")
     sub.choices["verify"].add_argument("--report", help="write the full per-message report here (JSON)")
     sub.choices["verify"].add_argument("--floor", type=float, default=FLOOR,

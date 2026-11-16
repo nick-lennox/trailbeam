@@ -21,7 +21,7 @@ node_modules/
 npm-debug.log*
 *.tgz
 
-# Store data and local runs
+# Trailbeam data and local runs
 *.sqlite
 *.sqlite3
 *.db

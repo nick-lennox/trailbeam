@@ -2,7 +2,7 @@
 
     python3 demo/smoke_test.py [http://127.0.0.1:4318] [--timeout 150]
 
-Waits until the store has timelines from the demo workload that show each part working, then exits 0:
+Waits until Trailbeam has timelines from the demo workload that show each part working, then exits 0:
 messages consumed by the Python consumer and by the Node.js consumer, a delete from the separate deleter
 process joined to its message, a redelivery after ChangeMessageVisibility to 0, and a poison message
 moved to the dead-letter queue and received there: the move observed (reported by SQS with
@@ -62,12 +62,12 @@ def main():
         try:
             found = seen(a.base)
         except OSError as e:
-            print(f"store not ready: {e}")
+            print(f"Trailbeam not ready: {e}")
         if found >= WANT:
             break
         time.sleep(5)
     health = get(a.base, "/api/health")
-    print(json.dumps(health["store"]), json.dumps(health["ingest"]))
+    print(json.dumps(health["data"]), json.dumps(health["ingest"]))
     for w in sorted(WANT):
         print(("ok      " if w in found else "MISSING ") + w)
     ok = found >= WANT and health["ingest"]["rejected"] == 0

@@ -6,7 +6,7 @@
 // context of its span for the call, so each Trailbeam span is a child of the stock span and shares its
 // trace ID. Without it, Trailbeam spans are children of whatever span is active, or root spans.
 //
-//     const trailbeam = require('@trailbeam/sdk');
+//     const trailbeam = require('trailbeam');
 //     const sqs = trailbeam.instrument(new SQSClient({}));   // installs with defaults on first use
 
 const api = require('@opentelemetry/api');

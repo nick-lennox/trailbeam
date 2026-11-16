@@ -83,7 +83,7 @@ class Store:
             version = cur[0] if cur is not None else None
             while version is not None and version != SCHEMA_VERSION:
                 if version not in _MIGRATIONS:
-                    raise RuntimeError(f"{path}: store schema {version}, this version needs {SCHEMA_VERSION}")
+                    raise RuntimeError(f"{path}: database schema {version}, this version needs {SCHEMA_VERSION}")
                 version, statements = _MIGRATIONS[version]
                 for sql in statements:
                     self.conn.execute(sql)

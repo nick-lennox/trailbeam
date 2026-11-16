@@ -1,11 +1,11 @@
-# Trailbeam store API, version 0.1
+# Trailbeam API, version 0.1
 
-The Trailbeam store (`server/`, command `trailbeam-store`) serves three things on one port (default 4318):
+Trailbeam (command `trailbeam`) serves three things on one port (default 4318):
 
 - `POST /v1/traces`: OTLP/HTTP trace ingest, for the Trailbeam packages or the [Collector](../collector/)
   ([below](#post-v1traces-ingest)).
 - `GET /api/...`: a read-only JSON API, described here.
-- `GET /`, `/message?id=`, `/duplicates`, `/stuck`: the web screen, built from this API (see [`server/README.md`](../server/README.md#web-screen)).
+- `GET /`, `/message?id=`, `/duplicates`, `/stuck`: the web screen, built from this API (see [Run Trailbeam](running.md#web-screen)).
 
 It reads the spans defined in [`span-contract.md`](span-contract.md). Section numbers below ("contract §9")
 refer to that file.
@@ -22,10 +22,10 @@ refer to that file.
 - List endpoints take `limit` (1 to 1000, default 100) and `queue` (only messages with at least one span
   on that queue, by `messaging.destination.name`).
 - `lambda_timeout_s` (1 to 86400) is accepted by every endpoint that builds timelines. It overrides the
-  server's `--lambda-timeout` (default 900 s, the Lambda maximum, because the store does not know the
+  server's `--lambda-timeout` (default 900 s, the Lambda maximum, because Trailbeam does not know the
   function's real timeout).
 - The server's `--max-receive-count QUEUE=N,...` (env `TRAILBEAM_MAX_RECEIVE_COUNT`) gives the
-  `maxReceiveCount` of each queue's redrive policy. Spans don't carry it. Without it, the store never
+  `maxReceiveCount` of each queue's redrive policy. Spans don't carry it. Without it, Trailbeam never
   says a message is due on its dead-letter queue (`dead_letter_queue_move`, below).
 - There is no authentication in 0.1. Bind to `127.0.0.1` (the default) unless the network is trusted.
 
@@ -114,7 +114,7 @@ two timestamps had been equal (the same millisecond, common on a local emulator)
 | `source_queue` | Queue of the first `sent` event, or of the first receive if the send was not observed. |
 | `current_queue` | Queue of the latest receive (or `source_queue`). |
 | `in_dead_letter_queue` | `current_queue` is a queue SQS reported moving the message to: an observed `moved_to_dead_letter_queue` event (contract §9b) has it as `to_queue`. A receive on another queue without that report doesn't count. |
-| `dead_letter_queue_move` | `"observed"`: SQS reported a move to a dead-letter queue (an event below). `"not_seen_on_dlq_yet"`: the highest receive count on `source_queue` has reached its configured `maxReceiveCount`, the message is not deleted, and no receive from a dead-letter queue has reported a move. No move is shown, and the notice `dlq_move_not_seen` says so. The store does not receive from the DLQ to check, because a receive changes the message's state. `null` otherwise, including when `maxReceiveCount` is not configured. |
+| `dead_letter_queue_move` | `"observed"`: SQS reported a move to a dead-letter queue (an event below). `"not_seen_on_dlq_yet"`: the highest receive count on `source_queue` has reached its configured `maxReceiveCount`, the message is not deleted, and no receive from a dead-letter queue has reported a move. No move is shown, and the notice `dlq_move_not_seen` says so. Trailbeam does not receive from the DLQ to check, because a receive changes the message's state. `null` otherwise, including when `maxReceiveCount` is not configured. |
 | `deliveries` | Number of observed receives, on any queue. |
 | `successful_deliveries` | Deliveries that ended in an accepted delete (counted once per delivery) or a Lambda `success`. More than one means the message was processed more than once. |
 | `first_seen` | Send time (the end of the send call), on the producer host's clock. Only if the send was not observed: the earliest SQS `SentTimestamp` from a receive, on SQS's clock (or, with no `SentTimestamp` either, the earliest span). Never the earlier of a host time and an SQS time: the two clocks are not compared. |
@@ -190,7 +190,7 @@ no `start`/`end`/`span`, and a `window`. It is placed like an inferred event, by
 last receive on `from_queue` (or the send, if no receive there was observed), and before the first
 receive that reports it (`reported_on_delivery`). Its `after` entry and `before` field have source
 `sqs_dlq_source`. Like inferred anchors, they never appear in `order.edges` and never order two
-observed events. There is one move per source and dead-letter queue pair. The store **never infers** a
+observed events. There is one move per source and dead-letter queue pair. Trailbeam **never infers** a
 move from the message ID alone: a receive on another queue without the attribute shows no move.
 
 `delivery` on a delete or visibility change is the delivery whose receipt handle was used, found by the
@@ -205,7 +205,7 @@ receipt-handle hash join (below). It is `null` if no stored receive has that has
 | `failed` | SQS rejected the delete (`error_code` says why). |
 | `unmatched_handle` | Accepted, but no stored receive has this handle's hash, so it is not known which delivery it settled. See `notices`. |
 
-**Inferred events** (`inferred: true`) have **no span**. The store deduced them (contract §9). They have
+**Inferred events** (`inferred: true`) have **no span**. Trailbeam deduced them (contract §9). They have
 `time: null`, a `window` (`from`, `to`; either may be `null` when unknown), and a `reason` sentence to
 show the user. Show them differently from observed events.
 
@@ -221,7 +221,7 @@ anchor's `start` (or `null` if unknown) to the later anchor's `end`
 visibility-timeout expiry, the earlier anchor is the last `ChangeMessageVisibility` SQS accepted for the
 earlier delivery that is proven before the later receive, if there is one (the timer restarted then),
 else the earlier receive. Example: a rejected delete of delivery 1 between delivery 1 and its
-redelivery shares a group with the expiry, since the store cannot tell whether the delete came before
+redelivery shares a group with the expiry, since Trailbeam cannot tell whether the delete came before
 or after it.
 
 | `type` | When | Extra fields |
@@ -303,18 +303,18 @@ is listed. "Oldest first" sorts by `first_seen` whichever clock it is on.
 {
   "status": "ok", "version": "0.1.0.dev0",
   "ingest": {"requests": 12, "inserted": 340, "duplicates": 0, "ignored": 55, "rejected": 0},
-  "store": {"spans": {"send": 100, "receive": 110, "delete": 100, "change_visibility": 3},
+  "data": {"spans": {"send": 100, "receive": 110, "delete": 100, "change_visibility": 3},
             "messages": 100, "unjoined_settles": 0},
   "config": {"stuck_after_s": 300, "lambda_timeout_s": 900, "max_receive_counts": {"orders": 3}}
 }
 ```
 
-`store.spans` has one key per span kind that has at least one stored row. A kind with no rows is
+`data.spans` has one key per span kind that has at least one stored row. A kind with no rows is
 absent, not `0`. `config` shows the server's `--stuck-after`, `--lambda-timeout` and
 `--max-receive-count` values. The container's `HEALTHCHECK` calls this endpoint.
 
 `ingest` counts since the server started: `ignored` spans had another instrumentation scope, `rejected`
-Trailbeam spans broke the contract. `store.unjoined_settles` is the number of deletes and visibility changes
+Trailbeam spans broke the contract. `data.unjoined_settles` is the number of deletes and visibility changes
 whose receive has not arrived (or never will, for example with a different hash key).
 
 ## `POST /v1/traces`: ingest
@@ -334,15 +334,15 @@ OTLP/HTTP, as the [OTLP specification](https://opentelemetry.io/docs/specs/otlp/
 | `404` | The path is not `/v1/traces` | plain text |
 | `413` | The body, or the decompressed body, is larger than 32 MiB, or `Content-Length` is invalid | plain text |
 | `415` | The `Content-Encoding` is not supported | plain text |
-| `500` | An error inside the store | plain text |
+| `500` | An error inside Trailbeam | plain text |
 
-The rules for rejecting a Trailbeam span are in [contract §4.5](span-contract.md#45-what-the-store-requires).
+The rules for rejecting a Trailbeam span are in [contract §4.5](span-contract.md#45-what-trailbeam-requires).
 A span whose trace ID and span ID are already stored is skipped and counted in `ingest.duplicates`.
 
 ## Known limits in 0.1
 
 - Two queues with the same name in different accounts or regions are merged (contract §6).
-- The `clock` source across hosts relies on their clocks (see "Events and their order"); the store does not
+- The `clock` source across hosts relies on their clocks (see "Events and their order"); Trailbeam does not
   correct for clock offset between hosts. The local demo runs everything on one host, one clock.
 - No retention: data is kept until the SQLite file is deleted.
 - List endpoints build a timeline for each listed message, so they are meant for the `limit` sizes the

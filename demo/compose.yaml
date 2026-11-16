@@ -1,4 +1,4 @@
-# Trailbeam local demo: an SQS emulator, the Collector, the Trailbeam store, and a producer and consumers in Python and
+# Trailbeam local demo: an SQS emulator, the Collector, the Trailbeam, and a producer and consumers in Python and
 # Node.js. No AWS account and no AWS credentials: the SDKs get dummy keys and talk only to the emulator.
 #
 #   docker compose -f demo/compose.yaml up -d --build
@@ -51,12 +51,12 @@ services:
     environment:
       TRAILBEAM_COLLECTOR_HTTP_ENDPOINT: 0.0.0.0:4318
       TRAILBEAM_COLLECTOR_GRPC_ENDPOINT: 0.0.0.0:4317
-      TRAILBEAM_STORE_ENDPOINT: http://trailbeam:4318
+      TRAILBEAM_ENDPOINT: http://trailbeam:4318
     depends_on: [trailbeam]
 
   trailbeam:
-    build: ../server
-    image: ${COMPOSE_PROJECT_NAME:-trailbeam-demo}-store:local
+    build: { context: .., dockerfile: Dockerfile }
+    image: ${COMPOSE_PROJECT_NAME:-trailbeam-demo}-trailbeam:local
     ports:
       - "127.0.0.1:${TRAILBEAM_DEMO_PORT:-4318}:4318"
     environment:

@@ -1,4 +1,4 @@
-"""The real Trailbeam Python package, on a local SQS emulator (moto), exporting OTLP/HTTP to a running store.
+"""The real Trailbeam Python package, on a local SQS emulator (moto), exporting OTLP/HTTP to a running Trailbeam.
 
 Needs the `trailbeam` package from ../python and moto: pip install -e '../python[test]'. Skipped locally without
 them, and a failure in CI (tests/needs.py).

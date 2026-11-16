@@ -40,7 +40,7 @@ function withEnv(t, name, value) {
 }
 
 // -- every delivery gets a receive; every one not killed, an outcome --------------------------
-// The killed delivery gets no outcome span; the store infers it (server/tests/test_lambda_end_to_end.py).
+// The killed delivery gets no outcome span; Trailbeam infers it (server/tests/test_lambda_end_to_end.py).
 
 class Killed extends Error {}
 
@@ -95,7 +95,7 @@ test('recorded QV-9 events: every delivery gets a receive, every delivery not ki
       assert.strictEqual(rcv['messaging.client.id'], inv.log_stream_name);
       const want = inv.expected[mid];
       if (want === null) {
-        assert.ok(!outcomes.has(mid), 'killed: no outcome; the store infers it from the receive');
+        assert.ok(!outcomes.has(mid), 'killed: no outcome; Trailbeam infers it from the receive');
       } else {
         const out = outcomes.get(mid);
         assert.strictEqual(out.attributes['trailbeam.outcome'], want, `${inv.aws_request_id} ${mid}`);

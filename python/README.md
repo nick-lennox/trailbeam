@@ -29,7 +29,7 @@ later.
    ```
 
 2. Set `TRAILBEAM_RECEIPT_HASH_KEY` to the same secret in every service that uses the same queues.
-3. Set `TRAILBEAM_OTLP_TRACES_ENDPOINT` to the store or the Collector, if it is not on
+3. Set `TRAILBEAM_OTLP_TRACES_ENDPOINT` to Trailbeam or the Collector, if it is not on
    `http://localhost:4318/v1/traces`.
 
 The hooks cover `SendMessage`, `SendMessageBatch`, `ReceiveMessage`, `DeleteMessage`,
@@ -42,7 +42,7 @@ calls of their own. On `ReceiveMessage` they add the system attributes Trailbeam
 - If your application already called `BotocoreInstrumentor().instrument(...)`, `install` keeps that
   instrumentation and its tracer provider. It runs the Trailbeam hooks first, then your own hooks.
 - Otherwise `install` instruments botocore with the Trailbeam tracer provider. The stock botocore spans are
-  then exported to `TRAILBEAM_OTLP_TRACES_ENDPOINT` as well. The store ignores them.
+  then exported to `TRAILBEAM_OTLP_TRACES_ENDPOINT` as well. Trailbeam ignores them.
 
 Each Trailbeam span is a child of the stock botocore span for the same call. Each span covers its SQS call:
 it starts just before the request is sent and ends when the response arrives, read from
@@ -88,7 +88,7 @@ What the wrapper does on each invocation with SQS records:
    both `trailbeam.order.issued` and `trailbeam.order.returned`.
 
 A timeout or out-of-memory kill leaves a receive with no outcome. The wrapper cannot detect that from
-inside the process. The store infers it. `BaseException` subclasses that are not `Exception`, such as
+inside the process. Trailbeam infers it. `BaseException` subclasses that are not `Exception`, such as
 `SystemExit`, are not caught and produce no outcome.
 
 Events without SQS records go to the handler unchanged. `messaging.client.id` is

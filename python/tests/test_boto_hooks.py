@@ -19,7 +19,7 @@ import trailbeam.boto
 from trailbeam import _contract, _order
 from trailbeam._handles import HandleMap
 
-from conftest import TEST_KEY
+from sdk_constants import TEST_KEY
 
 KEY_ID = "05769f58"  # key ID of TEST_KEY, from docs/span-contract-vectors.json
 COMMON = {"trailbeam.schema_version", "trailbeam.kind", "trailbeam.source", "messaging.system.name", "messaging.operation.type",

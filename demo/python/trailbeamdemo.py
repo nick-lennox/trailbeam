@@ -21,7 +21,7 @@ clock, the host's: ``time.time_ns()``, which the Trailbeam hooks also read for t
 ``same_clock_as_spans``). ``t_ns`` is kept as before: the start for a send or settle, the end for a receive.
 A receive line also has SQS's own facts from the same response (QV-38): ``rc`` (ApproximateReceiveCount),
 ``sent_ms`` (SentTimestamp) and ``first_receive_ms`` (ApproximateFirstReceiveTimestamp), null if SQS left one out.
-The concurrency check (demo/check/check.py) compares those files with the timelines in the Trailbeam store.
+The concurrency check (demo/check/check.py) compares those files with the timelines in the Trailbeam.
 Only message kinds and numbers go in the bodies; nothing is read from AWS.
 """
 
@@ -206,7 +206,7 @@ def consume(args):
 
     def dlq_loop():
         # Reads the dead-letter queue and deletes what it finds. It does not ask for DeadLetterQueueSourceArn:
-        # the Trailbeam hooks do, and the store shows the move SQS reports with it (contract 3.1).
+        # the Trailbeam hooks do, and Trailbeam shows the move SQS reports with it (contract 3.1).
         dlq = f"{args.queue}-dlq"
         dlq_url = sqs.get_queue_url(QueueName=dlq)["QueueUrl"]
         while not stop.is_set():

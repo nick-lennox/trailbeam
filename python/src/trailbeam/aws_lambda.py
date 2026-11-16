@@ -10,7 +10,7 @@ Usage::
 
 For each SQS record the wrapper emits one ``trailbeam receive`` and flushes it before the handler runs,
 so a timeout or out-of-memory kill cannot lose it. After the handler returns or throws it emits one
-``trailbeam outcome`` per record. A killed invocation has no outcome; the store infers it.
+``trailbeam outcome`` per record. A killed invocation has no outcome; Trailbeam infers it.
 """
 from __future__ import annotations
 
@@ -157,7 +157,7 @@ class LambdaRecorder:
             result = handler(event, context, *args, **kwargs)
         except Exception as e:
             # BaseException (SystemExit, KeyboardInterrupt) is not caught: the process is going away,
-            # like a timeout, and the store infers that from the receive with no outcome.
+            # like a timeout, and Trailbeam infers that from the receive with no outcome.
             self._safe_outcomes(records, context, {i: OUTCOME_FAILED_EXCEPTION for i in ids}, type(e).__name__)
             raise
         self._safe_outcomes(records, context, decide_outcomes(ids, result, self.report_batch_item_failures), None)

@@ -1,10 +1,10 @@
 # Trailbeam span contract, schema version 3 (revision 3.1)
 
-This file defines the OpenTelemetry spans that the `trailbeam` Python package and the `@trailbeam/sdk` Node.js
-package emit, and that the Trailbeam store reads. Both packages and the store are built and tested against
+This file defines the OpenTelemetry spans that the `trailbeam` Python package and the `trailbeam` Node.js
+package emit, and that the Trailbeam reads. Both packages and Trailbeam are built and tested against
 it. A change to anything below is a contract change: bump `trailbeam.schema_version`, and update this file,
-both packages and the store in the same change. A revision (3.1) only adds an optional attribute that
-older stores ignore and that the store does not require; it keeps `trailbeam.schema_version = 3` (section 14).
+both packages and Trailbeam in the same change. A revision (3.1) only adds an optional attribute that
+older stores ignore and that Trailbeam does not require; it keeps `trailbeam.schema_version = 3` (section 14).
 
 The keywords **must**, **must not**, **should** and **may** are used as in RFC 2119.
 
@@ -22,7 +22,7 @@ The keywords **must**, **must not**, **should** and **may** are used as in RFC 2
 the handler wrapper in each package. In 0.1, `trailbeam outcome` comes only from the Lambda wrappers; for
 other consumers, the outcome of processing is the `trailbeam delete` (or its absence).
 
-The store **must** identify Trailbeam spans by instrumentation scope name `trailbeam` and the attribute
+Trailbeam **must** identify Trailbeam spans by instrumentation scope name `trailbeam` and the attribute
 `trailbeam.schema_version`, and classify them by `trailbeam.kind` and `messaging.operation.name`. It **must not**
 parse span names; they are for people reading traces. Span names **must not** contain the queue
 name or any other variable part. (The QV-9/QV-11 prototypes put the queue name in the delete and
@@ -34,7 +34,7 @@ change-visibility span names; that is dropped.)
   sampled away by the application's own sampling. This is what the prototypes did, and what QV-9 and
   QV-11 measured.
 - Export is OTLP over HTTP (protobuf) to `TRAILBEAM_OTLP_TRACES_ENDPOINT`, default
-  `http://localhost:4318/v1/traces`. The store accepts OTLP/HTTP on that path. The Collector
+  `http://localhost:4318/v1/traces`. Trailbeam accepts OTLP/HTTP on that path. The Collector
   configuration in `collector/` **must** pass every span with scope `trailbeam` through unsampled.
 - Instrumentation scope: name `trailbeam`, version = the package version.
 - Span kind: `INTERNAL`.
@@ -63,11 +63,11 @@ change-visibility span names; that is dropped.)
 - A consumer **must not** read an order into two spans whose intervals overlap from their times
   alone: SQS may have acted on either first. Another observed fact can still order them (the call
   order in one process, section 2a, or SQS's receive count and timestamps); section 9a lists the
-  sources and says how the store shows what none of them orders.
+  sources and says how Trailbeam shows what none of them orders.
 - One span per message. A batch call produces one Trailbeam span per entry, all children of the one
   stock span.
-- The store reads only Trailbeam spans. Stock SQS spans pass through the Collector but are not read by
-  the 0.1 store.
+- Trailbeam reads only Trailbeam spans. Stock SQS spans pass through the Collector but are not read by
+  Trailbeam 0.1.
 
 ## 2a. Call order inside one process (schema version 3)
 
@@ -89,7 +89,7 @@ process and records it on every span:
 Every span of one call shares its `issued` and `returned`. If `A.returned < B.issued` with the same
 scope, A's call returned before B's was issued, so SQS acted on A before B, whatever the clocks say
 and whichever threads made the calls. Calls in flight at the same time (`B.issued < A.returned` and
-`A.issued < B.returned`) are not ordered. The store never compares ticks of different scopes
+`A.issued < B.returned`) are not ordered. Trailbeam never compares ticks of different scopes
 (section 9a).
 
 **The scope is the whole process (Python) or the whole realm (Node.js), not one thread or async task.**
@@ -102,8 +102,8 @@ moments, as a perfect clock's would be. And `returned` is taken after A's respon
 before B's request was sent. Two calls in flight together never get an edge, whichever threads made them.
 Measured in QV-32: 96 of 1,302 call-order edges joined calls on different threads or async tasks, all of
 them true against the drivers' own records, and 95 of them also proven by the clocks. This scope is a
-decision that can be revisited (narrowing it to one thread or task would order fewer steps); the
-store and packages implement exactly what this section says.
+decision that can be revisited (narrowing it to one thread or task would order fewer steps); Trailbeam
+and the packages implement exactly what this section says.
 
 Lambda wrapper: a `trailbeam receive` carries `trailbeam.order.returned` (a tick when the wrapper got the event,
 with its end time) and **no** `trailbeam.order.issued`, because Lambda's poller made the call; a
@@ -134,7 +134,7 @@ and nothing is ordered after a Lambda receive by this source.
 The `messaging.*`, `aws.sqs.queue.url`, `process.pid` and `thread.name` names are OpenTelemetry
 semantic conventions; `trailbeam.*` names are ours. `messaging.system.name` replaces the deprecated
 `messaging.system`; the stock instrumentations seen in QV-11 still emit `messaging.system` with the
-old value `aws_sqs`, which is one more reason the store reads only Trailbeam spans.
+old value `aws_sqs`, which is one more reason Trailbeam reads only Trailbeam spans.
 
 Absent values: an attribute without a value **must** be omitted, never sent as `""`, `0` or `-1`.
 (The prototypes sent empty strings and `-1`; that is dropped.)
@@ -198,7 +198,7 @@ one span per handle is still emitted with `trailbeam.result = failed`.
 `trailbeam.result = ok` means SQS accepted the call, **not** that the message was removed. The
 [DeleteMessage API reference](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/APIReference/API_DeleteMessage.html)
 says: "If you use an old `ReceiptHandle`, the request will succeed, but the message might not be
-deleted." The store therefore treats a delete as final only when its `trailbeam.receipt_handle.hmac`
+deleted." Trailbeam therefore treats a delete as final only when its `trailbeam.receipt_handle.hmac`
 matches the hash of the message's **latest** `trailbeam receive`. A delete that matches an earlier
 receive is shown as a delete with a stale receipt handle.
 
@@ -216,19 +216,19 @@ receive is shown as a delete with a stale receipt handle.
 
 | Value | Meaning |
 |---|---|
-| `success` | the handler returned normally, and this record was not in a valid `batchItemFailures` list. Lambda's event source mapping then deletes the message; that delete is **not observed**, and the store marks it as inferred. |
+| `success` | the handler returned normally, and this record was not in a valid `batchItemFailures` list. Lambda's event source mapping then deletes the message; that delete is **not observed**, and Trailbeam marks it as inferred. |
 | `failed_reported` | the record's ID was in `batchItemFailures` |
 | `failed_invalid_response` | `batchItemFailures` contained an `itemIdentifier` that is not a record ID in this batch; Lambda treats this as a failure of the whole batch, so every record gets this value |
 | `failed_exception` | the handler threw; every record gets this value |
 
 The exception **message** is not recorded, only its class name, because messages often contain
 message contents. (The prototypes recorded `repr(e)`.) If the function times out or runs out of
-memory, no `trailbeam outcome` is emitted; the store infers it from the `trailbeam receive` with no outcome.
+memory, no `trailbeam outcome` is emitted; Trailbeam infers it from the `trailbeam receive` with no outcome.
 The prototype value `success_deleted_by_lambda` is renamed `success`, because the delete is not seen.
 
-### 4.5 What the store requires
+### 4.5 What Trailbeam requires
 
-The store ([`otlp.py`](../server/src/trailbeam_store/otlp.py)) reads a span only if its instrumentation scope
+Trailbeam ([`otlp.py`](../python/src/trailbeam/server/otlp.py)) reads a span only if its instrumentation scope
 is `trailbeam`. It counts spans of other scopes as ignored. It rejects a Trailbeam span, and reports the reason in
 the OTLP `partial_success` field, when any of these is true:
 
@@ -247,13 +247,13 @@ the OTLP `partial_success` field, when any of these is true:
 
 - `trailbeam.result` is not `ok` or `failed`, or `trailbeam.outcome` is not one of the four values in section 4.4.
 
-The store reads integer attributes sent as decimal strings as integers. It keeps every attribute of
+Trailbeam reads integer attributes sent as decimal strings as integers. It keeps every attribute of
 the span as JSON in the row, and uses only the ones this contract names.
 
 ## 5. Consumer identity
 
 `messaging.client.id` identifies the process, or Lambda execution environment, that emitted the
-span. The store uses it to tell consumers apart (duplicate deliveries to different consumers,
+span. Trailbeam uses it to tell consumers apart (duplicate deliveries to different consumers,
 which consumer held a message when it got stuck).
 
 - **Client hooks:** the `service.instance.id` resource attribute of the package's tracer provider,
@@ -263,7 +263,7 @@ which consumer held a message when it got stuck).
 - **Lambda wrapper:** the `AWS_LAMBDA_LOG_STREAM_NAME` environment variable, which names one
   execution environment. If it is not set, the wrapper's `service.instance.id` as above.
 
-The store also displays the resource attribute `service.name` (**must** be set; the packages
+Trailbeam also displays the resource attribute `service.name` (**must** be set; the packages
 default it to `OTEL_SERVICE_NAME`, then to `unknown_service`), `process.pid` and `thread.name`.
 `thread.name` matters in Python, where several consumer threads share one process: QV-9 and QV-11
 ran three processes of four consumers each.
@@ -277,7 +277,7 @@ ran three processes of four consumers each.
   as `https://sqs.<region>.amazonaws.com/<account>/<name>`. The wrapper also sets `trailbeam.queue.arn`
   to the ARN.
 
-The store groups messages by `messaging.destination.name`, not by URL, because one queue can be
+Trailbeam groups messages by `messaging.destination.name`, not by URL, because one queue can be
 reached by more than one URL (an emulator on `localhost` and on a Docker network name, or AWS's
 legacy and current endpoint forms). In 0.1, two queues with the same name in different accounts or
 regions are therefore merged; this is a known limitation.
@@ -286,7 +286,7 @@ regions are therefore merged; this is a known limitation.
 
 A receipt handle lets anyone who holds it delete the message or change its visibility while the
 handle is valid, so the packages **must not** export receipt handles. They export a keyed hash
-instead, which is enough for the store to join a delete to the receive it belongs to.
+instead, which is enough for Trailbeam to join a delete to the receive it belongs to.
 
 ```
 trailbeam.receipt_handle.hmac   = lower_hex(HMAC-SHA256(key, receipt_handle))[0:32]
@@ -301,10 +301,10 @@ Both `key` and `receipt_handle` are encoded as UTF-8. 32 hex characters is 128 b
   also accepts the key as an explicit argument to its install or wrap function, which takes
   precedence over the environment variable.
 - Every service that receives or settles messages on the same queues **must** use the same key,
-  or the store cannot join their deletes to their receives. `trailbeam.receipt_handle.key_id` lets the
-  store detect a key mismatch and show it, instead of showing missing deletes.
+  or Trailbeam cannot join their deletes to their receives. `trailbeam.receipt_handle.key_id` lets
+  Trailbeam detect a key mismatch and show it, instead of showing missing deletes.
 - If no key is configured, the packages use the published default key
-  `trailbeam-default-receipt-hash-key` and log one warning per process. The store shows a notice for
+  `trailbeam-default-receipt-hash-key` and log one warning per process. Trailbeam shows a notice for
   spans with the default key's ID, `b5e633f7`. The default exists so the local demo works without
   setup; it gives no protection.
 - A key shorter than 16 bytes is used, with one warning per process.
@@ -331,13 +331,13 @@ responses, and set `messaging.message.id` on a settle span when the handle is in
 successful delete and after 12 hours, the longest SQS visibility timeout.
 
 When the handle is not in the map (another process received it, the process restarted, or the
-entry was evicted), the span carries only the hash. The store joins it to a message through the
-`trailbeam receive` with the same `trailbeam.receipt_handle.hmac`. The store **must** support this join; the
+entry was evicted), the span carries only the hash. Trailbeam joins it to a message through the
+`trailbeam receive` with the same `trailbeam.receipt_handle.hmac`. Trailbeam **must** support this join; the
 map is an optimisation, not a requirement for a correct timeline.
 
-## 9. What the store infers
+## 9. What Trailbeam infers
 
-These events have no span. The store shows each one as **inferred**, never as observed:
+These events have no span. Trailbeam shows each one as **inferred**, never as observed:
 
 - **Visibility timeout expired:** a `trailbeam receive` on a queue follows an earlier `trailbeam receive` on the
   same queue with a lower `trailbeam.receive_count`. A delete that SQS accepted for the earlier delivery
@@ -347,36 +347,36 @@ These events have no span. The store shows each one as **inferred**, never as ob
   Trailbeam, or lost spans, made the missing receives.
 - **Deleted by Lambda:** after `trailbeam outcome = success`.
 - **Lambda invocation killed (timeout or out of memory):** a Lambda `trailbeam receive` with no `trailbeam outcome`
-  for the same `faas.invocation_id`, once the store's configured Lambda timeout has passed
-  (`--lambda-timeout`, default 900 s, the Lambda maximum). The store does not know the function's
+  for the same `faas.invocation_id`, once Trailbeam's configured Lambda timeout has passed
+  (`--lambda-timeout`, default 900 s, the Lambda maximum). Trailbeam does not know the function's
   real timeout.
 
 The move to a dead-letter queue is **not** inferred (3.1). It is shown only when SQS reports it
 (section 9b).
 
-## 9a. Order of steps in the store
+## 9a. Order of steps in Trailbeam
 
-The store shows step A before step B only when at least one observed fact, a **source**, proves it.
-Every ordered edge records its sources; the store's API and screen show them (`docs/store-api.md`).
+Trailbeam shows step A before step B only when at least one observed fact, a **source**, proves it.
+Every ordered edge records its sources; Trailbeam's API and screen show them (`docs/api.md`).
 
 | Source | A before B when |
 |---|---|
 | `clock` | `A.end < B.start` on the hosts' clocks (section 2). |
 | `process_order` | Same `trailbeam.order.scope` and `A.order.returned < B.order.issued` (section 2a). The scope is one process (Python) or realm (Node.js), shared by all its threads and async tasks. |
 | `receive_count` | A and B are receives of the message on one queue, and A's `trailbeam.receive_count` is lower: SQS's delivery n came before delivery n + 1. |
-| `sqs_timestamps` | A is the send, B is the receive with `trailbeam.receive_count = 1` on the send's queue, and B's `trailbeam.sent_timestamp_ms` is lower than its `trailbeam.first_receive_timestamp_ms`. Both are SQS's clock; the store never compares them with a host clock. The same millisecond proves nothing. |
+| `sqs_timestamps` | A is the send, B is the receive with `trailbeam.receive_count = 1` on the send's queue, and B's `trailbeam.sent_timestamp_ms` is lower than its `trailbeam.first_receive_timestamp_ms`. Both are SQS's clock; Trailbeam never compares them with a host clock. The same millisecond proves nothing. |
 
 Order is transitive (A before B by one source, B before C by another), and the edges show the chain.
-Steps that no chain orders are shown as **concurrent**: the store lists the steps in an order that agrees
+Steps that no chain orders are shown as **concurrent**: Trailbeam lists the steps in an order that agrees
 with every edge and draws a box labelled "concurrent, order unknown" around each run that can't be cut
-into "everything here is before everything after". The store never re-orders steps by what caused what:
+into "everything here is before everything after". Trailbeam never re-orders steps by what caused what:
 "a receive comes after its send" or "a release comes before its redelivery" are not sources. If the
-sources contradict each other (a cycle), the store shows no order between the steps on the cycle and says
+sources contradict each other (a cycle), Trailbeam shows no order between the steps on the cycle and says
 so. Inferred steps (section 9) are placed between the observed steps they were inferred from, and are
 ordered against other steps only through those anchors.
 
 The `clock` source relies on every process reading the same clock. It holds for processes on one host
-(the local demo) and, to within the hosts' clock offset, across hosts; the store does not correct for
+(the local demo) and, to within the hosts' clock offset, across hosts; Trailbeam does not correct for
 clock offset between hosts in 0.1 (a known limit). `receive_count` relies on SQS's
 `ApproximateReceiveCount`, which SQS calls approximate; `sqs_timestamps` relies on SQS's timestamps
 coming from one clock, which is a single host in ElasticMQ and a distributed service on AWS [estimate:
@@ -389,20 +389,20 @@ reports the move afterwards: the next receive of the message, on the dead-letter
 same `MessageId` and the system attribute `DeadLetterQueueSourceArn` naming the queue it came from.
 
 - **Observed move:** a `trailbeam receive` with `trailbeam.dead_letter_queue_source_arn` whose last `:` field is
-  the name of another queue. The store shows one event "moved to the dead-letter queue" for each
+  the name of another queue. Trailbeam shows one event "moved to the dead-letter queue" for each
   pair of source queue and dead-letter queue, observed, with source `sqs_dlq_source`. The earliest
   dead-letter receive that carries the attribute reports it. The event has no time of its own (SQS
   gives none). It is placed after the last receive on the source queue (or the send, if no receive
   there was observed) and before the reporting receive. It is ordered against other events only
   through those two and the proven edges of section 9a.
 - **No report, no move.** A receive on another queue without the attribute (an older package, a
-  consumer without Trailbeam, or an SQS that does not set it) shows no move. The store **must not** infer one
+  consumer without Trailbeam, or an SQS that does not set it) shows no move. Trailbeam **must not** infer one
   from the message ID alone.
 - **Not seen on the DLQ yet:** when a message's highest observed `trailbeam.receive_count` on its source
   queue has reached the queue's `maxReceiveCount` and no receive carrying the attribute is stored,
-  the store says "receive count exceeded `maxReceiveCount`; not seen on the DLQ yet" and shows no
-  move. The store does not know `maxReceiveCount` from spans; it is configured
-  (`docs/store-api.md`). Trailbeam **must not** receive from the dead-letter queue to check: a receive
+  Trailbeam says "receive count exceeded `maxReceiveCount`; not seen on the DLQ yet" and shows no
+  move. Trailbeam does not know `maxReceiveCount` from spans; it is configured
+  (`docs/api.md`). Trailbeam **must not** receive from the dead-letter queue to check: a receive
   changes the message's state (receive count, visibility, receipt handle).
 - **Moves back** (redrive) are out of scope for 3.1: a receive on the source queue after the
   dead-letter queue shows no move step.
@@ -495,21 +495,21 @@ they are, this contract keeps its names until a schema version bump.
 ## 12. Changes in schema version 2
 
 Schema version 1 (the 0.1 build up to QV-28) made every span zero-length, stamped when the response
-arrived, and the store sorted by that stamp. SQS acts **before** its response returns, so under
+arrived, and Trailbeam sorted by that stamp. SQS acts **before** its response returns, so under
 concurrency the stamps of two calls can come in the opposite order to what SQS did: in the QV-20
 concurrency check, 4 to 32% of messages showed a receive before its send, or a redelivery before the
 `ChangeMessageVisibility` that released it.
 
 | Version 1 | Version 2 |
 |---|---|
-| `trailbeam.schema_version = 1` | `2`. The store rejects version 1 spans: their single time is the response time, which cannot be ordered correctly. |
+| `trailbeam.schema_version = 1` | `2`. Trailbeam rejects version 1 spans: their single time is the response time, which cannot be ordered correctly. |
 | zero-length span at the response | client hooks: interval from just before the request to the response (section 2) |
 | Lambda `trailbeam receive` at the wrapper's start, read as the receive time | zero-length at that moment, `trailbeam.start_observed = false`: an upper bound only |
 | Node.js time from `performance.timeOrigin + performance.now()` | `Date.now()`, the same system clock as other processes |
-| store order: by time, and a settle placed after its receive | concurrent groups (section 9a); nothing re-ordered by cause |
+| Trailbeam's order: by time, and a settle placed after its receive | concurrent groups (section 9a); nothing re-ordered by cause |
 
 Unchanged: span names, kinds and every other attribute, the receipt-handle hash and its test
-vectors, consumer identity, and the store's joins.
+vectors, consumer identity, and Trailbeam's joins.
 
 ## 13. Changes in schema version 3
 
@@ -519,9 +519,9 @@ machine (QV-31).
 
 | Version 2 | Version 3 |
 |---|---|
-| `trailbeam.schema_version = 2` | `3`. The store still reads version 2 spans; they carry no call order, so only the other sources order them. |
+| `trailbeam.schema_version = 2` | `3`. Trailbeam still reads version 2 spans; they carry no call order, so only the other sources order them. |
 | no call order | `trailbeam.order.scope`, `trailbeam.order.issued`, `trailbeam.order.returned` (section 2a) |
-| store order: clock intervals only | four sources, each recorded on the edge it proves (section 9a) |
+| Trailbeam's order: clock intervals only | four sources, each recorded on the edge it proves (section 9a) |
 
 Unchanged: span names, kinds, times and every other attribute. The client hooks already asked SQS for
 `SentTimestamp` and `ApproximateFirstReceiveTimestamp` (section 4.2), and the Lambda wrapper already
@@ -532,8 +532,8 @@ is set at the first receive and kept on later ones).
 
 | 3.0 | 3.1 |
 |---|---|
-| the store inferred a move to the dead-letter queue from the message ID on another queue | the move is shown only when SQS reports it (section 9b), source `sqs_dlq_source`; nothing is inferred |
+| Trailbeam inferred a move to the dead-letter queue from the message ID on another queue | the move is shown only when SQS reports it (section 9b), source `sqs_dlq_source`; nothing is inferred |
 | receive hooks asked for four system attributes | also `DeadLetterQueueSourceArn`, recorded as `trailbeam.dead_letter_queue_source_arn` |
 
-`trailbeam.schema_version` stays `3`: the attribute is optional, a 3.0 store ignores it, and the 3.1 store
+`trailbeam.schema_version` stays `3`: the attribute is optional, a Trailbeam built for contract 3.0 ignores it, and one built for 3.1
 reads 3.0 spans (they simply never show a move).

@@ -1,49 +1,52 @@
-# server
+# Run Trailbeam
 
-The Trailbeam store (`trailbeam-store`) is one Python process. It does four things on one port:
+Trailbeam is one Python process, the `trailbeam` command. It does four things on one port:
 
-1. receives the Trailbeam spans of [`docs/span-contract.md`](../docs/span-contract.md) over OTLP/HTTP;
+1. receives the Trailbeam spans of [`docs/span-contract.md`](span-contract.md) over OTLP/HTTP;
 2. keeps each span as one row in a SQLite file;
 3. joins each delete and visibility change to its receive by receipt-handle hash;
 4. serves a JSON API and a web screen, and builds each timeline when it is requested.
 
-It makes no AWS calls and needs no AWS credentials. The [`Dockerfile`](Dockerfile) runs it in one
-container. How it fits with the other parts: [How Trailbeam works](../docs/architecture.md).
+It makes no AWS calls and needs no AWS credentials. The [`Dockerfile`](../Dockerfile) runs it in one
+container. How it fits with the other parts: [How Trailbeam works](architecture.md).
 
 ## Run it natively
 
 ```sh
-pip install -e server            # Python 3.10+, depends only on opentelemetry-proto
-trailbeam-store --db trailbeam.sqlite --port 4318
+pip install "trailbeam[server]"    # Python 3.10+; from a clone: pip install -e "python[server]"
+trailbeam --db trailbeam.sqlite --port 4318
 ```
+
+The `server` extra adds what Trailbeam needs on top of the package your services use. Without it,
+`pip install trailbeam` installs only the hooks for boto3 and Lambda.
 
 | Option | Environment | Default | |
 |---|---|---|---|
-| `--db` | `TRAILBEAM_STORE_DB` | `trailbeam.sqlite` | SQLite file (WAL mode) |
-| `--host` | `TRAILBEAM_STORE_HOST` | `127.0.0.1` | Use `0.0.0.0` in a container |
-| `--port` | `TRAILBEAM_STORE_PORT` | `4318` | Use 4319 when the [Collector](../collector/) runs on the same host |
+| `--db` | `TRAILBEAM_DB` | `trailbeam.sqlite` | SQLite file (WAL mode) |
+| `--host` | `TRAILBEAM_HOST` | `127.0.0.1` | Use `0.0.0.0` in a container |
+| `--port` | `TRAILBEAM_PORT` | `4318` | Use 4319 when the [Collector](../collector/README.md) runs on the same host |
 | `--stuck-after` | `TRAILBEAM_STUCK_AFTER_S` | `300` | Seconds without a final delete after which a message is listed as stuck |
 | `--lambda-timeout` | `TRAILBEAM_LAMBDA_TIMEOUT_S` | `900` | Seconds after which a Lambda receive with no outcome is inferred killed |
 | `--max-receive-count` | `TRAILBEAM_MAX_RECEIVE_COUNT` | none | `QUEUE=N,...` with N from 1 to 1000: each queue's `maxReceiveCount`, so a timeline can say "receive count exceeded `maxReceiveCount`; not seen on the DLQ yet" |
-| `--log-level` | `TRAILBEAM_STORE_LOG_LEVEL` | `INFO` | |
+| `--log-level` | `TRAILBEAM_LOG_LEVEL` | `INFO` | |
 
-With the default port, the Trailbeam packages can export to the store directly, without a Collector.
+With the default port, the Trailbeam packages can export to Trailbeam directly, without a Collector.
 
 ## Container
 
-One image runs the store, its OTLP endpoint and the web screen on port 4318, with SQLite in `/data`.
+One image runs Trailbeam, its OTLP endpoint and the web screen on port 4318, with SQLite in `/data`.
 Build it locally (no image is published):
 
 ```sh
-docker build -t trailbeam-store server
-docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-data:/data trailbeam-store
+docker build -t trailbeam .
+docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-data:/data trailbeam
 ```
 
 Open `http://127.0.0.1:4318/`, and export to `http://127.0.0.1:4318/v1/traces` (or point the
-[Collector](../collector/) there). The options above are set with `-e`, for example
-`-e TRAILBEAM_STUCK_AFTER_S=600`; inside the image `TRAILBEAM_STORE_HOST` is `0.0.0.0` and `TRAILBEAM_STORE_DB` is
+[Collector](../collector/README.md) there). The options above are set with `-e`, for example
+`-e TRAILBEAM_STUCK_AFTER_S=600`; inside the image `TRAILBEAM_HOST` is `0.0.0.0` and `TRAILBEAM_DB` is
 `/data/trailbeam.sqlite`. Publish the port on `127.0.0.1` as above unless the network is trusted: there is no
-authentication in 0.1. The store runs as UID 10001; a named volume gets the right owner automatically, a
+authentication in 0.1. Trailbeam runs as UID 10001; a named volume gets the right owner automatically, a
 bind-mounted directory must be writable by that UID (or add `--user $(id -u)`). `docker stop` closes the
 database cleanly. The image has a `HEALTHCHECK` on `/api/health`.
 
@@ -52,7 +55,7 @@ database cleanly. The image has a `HEALTHCHECK` on `/api/health`.
 `POST /v1/traces`, OTLP/HTTP, as the [OTLP specification](https://opentelemetry.io/docs/specs/otlp/#otlphttp)
 defines it: `application/x-protobuf` or `application/json`, optionally `Content-Encoding: gzip`
 (the Collector's default) or `deflate`. Status codes and limits:
-[store API](../docs/store-api.md#post-v1traces-ingest). Only spans with instrumentation scope `trailbeam` are read; others are counted and
+[API](api.md#post-v1traces-ingest). Only spans with instrumentation scope `trailbeam` are read; others are counted and
 ignored. A Trailbeam span that breaks the contract (another `trailbeam.schema_version`, a required attribute missing)
 is not stored and is reported in the response's `partial_success`. A span already stored (same trace and
 span ID, for example an exporter retry) is skipped.
@@ -64,7 +67,7 @@ that deletes is often not the one that received. Each settle span is joined to t
 the same `trailbeam.receipt_handle.hmac` and `trailbeam.receipt_handle.key_id`, which gives both its message and the
 exact delivery whose handle was used. Spans arrive in any order, so the join runs when either side
 arrives. A batch delete produces one span per entry, and each entry joins on its own. Hashes made with
-different keys never join. See [`src/trailbeam_store/db.py`](src/trailbeam_store/db.py).
+different keys never join. See [`db.py`](../python/src/trailbeam/server/db.py).
 
 ## Web screen
 
@@ -78,7 +81,7 @@ Open `http://127.0.0.1:4318/` in a browser (plain server-rendered HTML, no JavaS
   it. Steps that no fact orders are drawn in one dashed box with a `concurrent` badge and the label
   "concurrent, order unknown". Inside the box each step is a bar on one time scale (a waterfall),
   sorted by request start time, never by kind or cause
-  ([store API](../docs/store-api.md#events-and-their-order)). Steps the store inferred have a dashed,
+  ([API](api.md#events-and-their-order)). Steps Trailbeam inferred have a dashed,
   striped border and an `inferred` badge, with their time window and reason instead of a time. Notices,
   such as a receipt-hash key mismatch, are shown above the summary.
 - `/duplicates`: duplicate deliveries (`?reason=received_more_than_once|succeeded_more_than_once`).
@@ -89,7 +92,7 @@ The pages are built from the same objects as the JSON API below, so they show ex
 ## JSON API
 
 `GET /api/messages/{id}` (timeline), `GET /api/messages` (recent), `GET /api/duplicates`,
-`GET /api/stuck`, `GET /api/health`. Documented in [`docs/store-api.md`](../docs/store-api.md).
+`GET /api/stuck`, `GET /api/health`. Documented in [`api.md`](api.md).
 Inferred steps (visibility-timeout expiry, the delete Lambda does after a success, a Lambda invocation
 killed without an outcome, receives not observed) are always marked `inferred: true`, without a time.
 The move to a dead-letter queue is never inferred. It is shown only when SQS reports it with
@@ -97,9 +100,10 @@ The move to a dead-letter queue is never inferred. It is shown only when SQS rep
 
 ## Tests
 
+Trailbeam's tests are in [`python/tests/server/`](../python/tests/server/) and run with the package's own:
+
 ```sh
-pip install -e 'server[test]' -e 'python[test]'   # python/ only for the end-to-end test
-pytest server/tests
+cd python && pip install -e '.[test]' && pytest tests/server
 ```
 
 - `test_join.py`: the join, including a batch delete of three messages in one call with one failed
@@ -113,21 +117,21 @@ pytest server/tests
 - `test_api.py`: the JSON API over HTTP.
 - `test_web.py`: the web screen over HTTP: inferred steps marked, timeline order, DLQ moves, duplicates and
   stuck lists, filters, HTML escaping of message IDs, 400 and 404 pages.
-- `test_main.py`: the `trailbeam-store` command serves the screen and exits cleanly on SIGTERM.
+- `test_main.py`: the `trailbeam` command serves the screen and exits cleanly on SIGTERM.
 - `test_end_to_end.py`: the real `trailbeam` boto3 hooks on moto's local SQS emulator export to a running
-  store; a batch delete from a second installation (empty handle map) joins all three messages by hash.
+  Trailbeam; a batch delete from a second installation (empty handle map) joins all three messages by hash.
 
 ### Container smoke test
 
-[`smoke/smoke_test.py`](smoke/smoke_test.py) (standard library only) checks a running store: it posts
-[`smoke/recorded-spans.pb`](smoke/recorded-spans.pb), real spans recorded with the `trailbeam` boto3 hooks on
-moto's local SQS emulator by [`smoke/record_spans.py`](smoke/record_spans.py) (a redelivery after a
+[`smoke_test.py`](../python/smoke/smoke_test.py) (standard library only) checks a running Trailbeam: it posts
+[`recorded-spans.pb`](../python/smoke/recorded-spans.pb), real spans recorded with the `trailbeam` boto3 hooks on
+moto's local SQS emulator by [`record_spans.py`](../python/smoke/record_spans.py) (a redelivery after a
 visibility timeout, a `ChangeMessageVisibility` to 0, a message never received), then checks that the
 timeline pages show them in order with the inferred steps marked, and the duplicate and stuck lists. CI
 builds the image, runs it on a volume, runs the smoke test, then restarts the container on the same volume
 and runs it again.
 
 ```sh
-docker build -t trailbeam-store server && docker run -d --name trailbeam -p 127.0.0.1:4318:4318 trailbeam-store
-python3 server/smoke/smoke_test.py http://127.0.0.1:4318
+docker build -t trailbeam . && docker run -d --name trailbeam -p 127.0.0.1:4318:4318 trailbeam
+python3 python/smoke/smoke_test.py http://127.0.0.1:4318
 ```

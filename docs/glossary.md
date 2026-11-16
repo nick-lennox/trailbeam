@@ -14,13 +14,13 @@ redrive policy, dead-letter queue, span, attribute, instrumentation scope.
 | event | One entry in a timeline. Observed events come from one span each. Inferred events have no span. The web screen calls events "steps". |
 | final delete | A delete that SQS accepted, made with the receipt handle of the message's latest receive. |
 | group | A run of events in the timeline such that every event before it is proven before every event in it, and every event in it is proven before every event after it. |
-| inferred | Deduced by the store from other events, with no span. Marked `inferred: true`. |
+| inferred | Deduced by Trailbeam from other events, with no span. Marked `inferred: true`. |
 | Lambda wrapper | `trailbeam.aws_lambda.wrap` (Python) or `trailbeam.wrapHandler` (Node.js), for handlers invoked by an SQS event source mapping. |
 | observed | Backed by a Trailbeam span, or, for the dead-letter queue move, reported by SQS. Marked `inferred: false`. |
-| Trailbeam span | A span with instrumentation scope `trailbeam`. The store reads only these. |
+| Trailbeam span | A span with instrumentation scope `trailbeam`. Trailbeam reads only these. |
 | receipt-hash key | The secret key for the receipt-handle hash, set with `TRAILBEAM_RECEIPT_HASH_KEY`. Every service on the same queues must use the same key. |
 | scope (call order) | `trailbeam.order.scope`: the ID of one call-order counter. One per Python process, one per Node.js realm. |
 | settle span | A `trailbeam delete` or `trailbeam change_visibility` span. |
 | source | An observed fact that proves an edge: `clock`, `process_order`, `receive_count` or `sqs_timestamps`. |
-| store | The `trailbeam-store` process: OTLP/HTTP ingest, SQLite, the JSON API and the web screen on one port. |
+| Trailbeam (the process) | What `trailbeam` or the container runs: OTLP/HTTP ingest, SQLite, the JSON API and the web screen on one port. The packages are what goes in your services. |
 | tick | A value of the call-order counter: `trailbeam.order.issued` (before the request) or `trailbeam.order.returned` (after the response). |

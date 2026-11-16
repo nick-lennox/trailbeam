@@ -1,4 +1,4 @@
-"""The web screen: server-rendered HTML pages built from the JSON API's responses (docs/store-api.md).
+"""The web screen: server-rendered HTML pages built from the JSON API's responses (docs/api.md).
 
 Pages:
 
@@ -168,7 +168,7 @@ def _message(api, q: dict) -> Response:
                  "their order is unknown. Each is drawn as a bar on one time scale for the box; the rows are "
                  "listed by when each request was sent, which is not the order SQS acted in. Where a pair "
                  "inside a box is ordered, the later step says so. Steps marked "
-                 '<span class="badge">inferred</span> were deduced by the store; no span recorded them, so they '
+                 '<span class="badge">inferred</span> were deduced by Trailbeam; no span recorded them, so they '
                  "have a time window instead of a time. A move to a dead-letter queue is shown only when SQS "
                  "reports it: the receive from the dead-letter queue carries DeadLetterQueueSourceArn naming the "
                  "queue it came from. SQS gives the move no time, so it has a window too, between the last "
@@ -231,7 +231,7 @@ def _timeline_items(t: dict) -> list[str]:
         n = info.get("observed_events", 0) + info.get("inferred_events", 0) or j - i
         out.append(f'<li class="group concurrent" data-group="{int(g)}">'
                    f'<div class="group-head"><span class="badge badge-concurrent">concurrent</span>'
-                   f'<strong>{escape(info.get("label") or "concurrent, order unknown")}</strong>: the store can\'t put '
+                   f'<strong>{escape(info.get("label") or "concurrent, order unknown")}</strong>: Trailbeam can\'t put '
                    f"these {int(n)} steps in one order; no observed fact orders some of them.</div>"
                    + _waterfall(evs[i:j], by_id) + "</li>")
         i = j
@@ -286,7 +286,7 @@ def _waterfall(members: list[dict], by_id: dict) -> str:
         bar = (f'<div class="track"><span class="{" ".join(cls)}" '
                f'style="left:{left:.2f}%;width:{max(right - left, 0.0):.2f}%"></span></div>')
         rows.append(((lo // 1000 - 1) if a is None else a // 1000, window, k, _event(e, by_id, bar)))
-    rows.sort(key=lambda r: r[:3])  # by start (µs); on a tie, observed before a window; then the store's order
+    rows.sort(key=lambda r: r[:3])  # by start (µs); on a tie, observed before a window; then Trailbeam's order
     scale = "" if width <= 0 else (f" The scale runs from {_time(iso(lo))} to {_time(iso(hi))}"
                                    f" ({_took(width)}).")
     note = ('<p class="group-note">Each bar is one step on the same time scale: from its request sent to its '
@@ -467,7 +467,7 @@ def _page(status: int, title: str, body: str) -> Response:
             '<a href="/duplicates">Duplicates</a><a href="/stuck">Stuck</a>'
             '<form method="get" action="/message"><input type="text" name="id" placeholder="Message ID">'
             "<button>Go</button></form></header>"
-            f"<main>{body}</main><footer>Trailbeam store {escape(__version__)} · "
+            f"<main>{body}</main><footer>Trailbeam {escape(__version__)} · "
             '<a href="/api/health">health</a></footer></body></html>')
     return status, {"Content-Type": "text/html; charset=utf-8"}, html.encode()
 

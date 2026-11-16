@@ -44,7 +44,7 @@ account with access.
    ```
 
    The first run downloads the ElasticMQ, Collector, Python and Node.js base images and builds four
-   images: the store, the Collector image, and the Python and Node.js demo programs. It takes 1 to 5 minutes, depending on download speed. The command returns when every
+   images: Trailbeam, the Collector image, and the Python and Node.js demo programs. It takes 1 to 5 minutes, depending on download speed. The command returns when every
    container is running.
 
 2. Run `docker compose -f demo/compose.yaml ps`. It lists 7 containers with status `Up`:
@@ -54,10 +54,10 @@ account with access.
    | `sqs` | ElasticMQ 1.6.15. The demo programs create the queue `orders` and its dead-letter queue `orders-dlq`. |
    | `producer` | Python, with the `trailbeam` boto3 hooks. Sends one message per second to `orders`. |
    | `consumer-python` | Python, 4 consumer threads on `orders`, and 1 thread that receives and deletes from `orders-dlq`. |
-   | `consumer-node` | Node.js, with `@trailbeam/sdk`. 4 concurrent consumers on `orders`. |
+   | `consumer-node` | Node.js, with `trailbeam`. 4 concurrent consumers on `orders`. |
    | `deleter` | Python. A separate process that deletes messages by receipt handle, for messages the consumers hand to it. |
    | `collector` | The OpenTelemetry Collector with [`collector/trailbeam-collector.yaml`](../collector/trailbeam-collector.yaml). |
-   | `trailbeam` | The Trailbeam store and web screen, on `127.0.0.1:4318`. It shows the status `(healthy)`. |
+   | `trailbeam` | Trailbeam, with its web screen, on `127.0.0.1:4318`. It shows the status `(healthy)`. |
 
 `orders` has a visibility timeout of 10 s and a redrive policy to `orders-dlq` with
 `maxReceiveCount` 3.
@@ -77,7 +77,7 @@ Each observed event shows an interval, for example
 `… 12:00:01.204 to … 12:00:01.231 (27.0 ms)`. The interval starts just before the SQS request was
 sent and ends when the response came back. SQS acted at some moment inside it.
 
-The store shows event A above event B only when an observed fact proves that A came first. Each fact
+Trailbeam shows event A above event B only when an observed fact proves that A came first. Each fact
 is a source, and the page names it under the event:
 
 | Source | The page says |
@@ -96,7 +96,7 @@ Expect this box often around a send and its first receive. An idle consumer wait
 stamps `SentTimestamp` and `ApproximateFirstReceiveTimestamp` in the same millisecond, which proves
 nothing. Trailbeam does not order events by cause, so the send and the receive stay concurrent.
 
-Events that the store inferred, rather than observed, have a dashed border and an `inferred` badge.
+Events that Trailbeam inferred, rather than observed, have a dashed border and an `inferred` badge.
 They show a time window and a reason instead of a time. An example is a visibility timeout that
 expired.
 
@@ -152,7 +152,7 @@ not. This is expected in the demo. To use your own key, see [Use your own key](#
 2. Run `curl -s http://127.0.0.1:4318/api/health`. It returns `"status": "ok"`, the span counts per
    kind, and `"max_receive_counts": {"orders": 3}`.
 
-The fields are described in [`store-api.md`](store-api.md).
+The fields are described in [`api.md`](api.md).
 
 ## 4. Stop
 
@@ -164,7 +164,7 @@ The fields are described in [`store-api.md`](store-api.md).
 
 - Read [How Trailbeam works](architecture.md): components, data flow, what is inferred, failure cases.
 - Instrument your own services: [Python](../python/README.md), [Node.js](../node/README.md). Then run
-  the [store container](../server/README.md) and, optionally, the
+  the [Trailbeam container](running.md) and, optionally, the
   [Collector](../collector/README.md). In 0.1 nothing is published: install everything from this
   repository.
 - Run the concurrency check, which compares 200 timelines with what the processes really did:

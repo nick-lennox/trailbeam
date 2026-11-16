@@ -105,7 +105,7 @@ def test_not_seen_on_the_dead_letter_queue_yet(store):
     """maxReceiveCount configured for orders; the receive count reached it, and no DLQ receive reported a move."""
     import threading
 
-    from trailbeam_store.server import make_server
+    from trailbeam.server.server import make_server
 
     httpd = make_server(store, "127.0.0.1", 0, max_receive_counts={"orders": 2})
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
@@ -261,7 +261,7 @@ def test_a_chained_concurrent_box_does_not_claim_every_step_overlapped(server):
     assert len(groups) == 1
     head = re.search(r'<div class="group-head">(.*?)</div>', groups[0][1]).group(1)
     text = re.sub(r"<[^>]+>", "", head)
-    assert text == ("concurrentconcurrent, order unknown: the store can't put these 3 steps in one order; "
+    assert text == ("concurrentconcurrent, order unknown: Trailbeam can't put these 3 steps in one order; "
                     "no observed fact orders some of them.")
     # The one pair the clocks do order inside the box says so, on the later step.
     d = re.search(r'<li class="event observed" data-type="deleted"[^>]*>(.*?)</li>', html).group(1)
@@ -343,10 +343,10 @@ def test_first_seen_says_which_clock_it_is_on(server):
 def test_an_inferred_window_that_ties_with_an_observed_start_is_listed_after_it(server):
     """QV-35 section 3: an inferred visibility-timeout expiry's window starts at its anchor's request start
     (here receive 1, since the change isn't proven before receive 2), so the two tie, and the box fell back
-    to the store's member order: in the reviewer's screenshots the expiry was listed above the receive it is
+    to Trailbeam's member order: in the reviewer's screenshots the expiry was listed above the receive it is
     placed after. On a tie an observed step now comes first, whatever the member order; otherwise rows stay
     by request start, never by kind."""
-    from trailbeam_store import web
+    from trailbeam.server import web
 
     p, c, d = Consumer("producer"), Consumer("consumer-a"), Consumer("consumer-b")
     ms = 1_000_000
@@ -375,7 +375,7 @@ def test_the_tie_holds_for_nanosecond_starts_as_python_spans_have(server):
     time to the microsecond, so the receive started a few hundred ns after its window's ``from`` and the
     exact-tie rule never fired: the expiry was listed above its receive in 87 of 87 Python windows. The times
     here are shaped like real ones (QV-39: from ...45.115712Z, receive start ...45.115712133 ns)."""
-    from trailbeam_store import web
+    from trailbeam.server import web
 
     p, c, d = Consumer("producer"), Consumer("consumer-a"), Consumer("consumer-b")
     ms = 1_000_000

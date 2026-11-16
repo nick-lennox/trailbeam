@@ -1,4 +1,4 @@
-// Type declarations for @trailbeam/sdk. The package itself is plain CommonJS; no build step.
+// Type declarations for trailbeam. The package itself is plain CommonJS; no build step.
 import type { SpanExporter, SpanProcessor, BasicTracerProvider } from '@opentelemetry/sdk-trace-base';
 
 export declare const version: string;

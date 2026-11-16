@@ -23,7 +23,7 @@ import uuid  # noqa: E402
 
 import pytest  # noqa: E402
 
-TEST_KEY = "example-key-0123456789abcdef"
+from sdk_constants import TEST_KEY  # noqa: E402,F401
 
 
 @pytest.fixture(scope="session")
