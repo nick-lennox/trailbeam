@@ -1,12 +1,134 @@
-# Trailbeam
+<p align="center">
+  <a href="https://trailbeam.app">
+    <img src="docs/assets/banner.gif" alt="Trailbeam: messages cross a pre-dawn sky as trails of light, watched by an observatory on a mountain peak" width="880">
+  </a>
+</p>
 
-Trailbeam builds a timeline for each Amazon SQS message: sent, received, visibility changed, deleted, moved
-to a dead-letter queue, and the Lambda outcome. You look up a message by its message ID.
+<p align="center">
+  <strong>The whole life of one Amazon SQS message, step by step.</strong>
+</p>
 
-Status: pre-release 0.1, unreleased and private. Nothing is published to PyPI, npm or a container
-registry.
+<p align="center">
+  <a href="https://trailbeam.app">Website</a> |
+  <a href="https://docs.trailbeam.app">Docs</a> |
+  <a href="docs/quickstart.md">Quickstart</a> |
+  <a href="docs/architecture.md">How it works</a>
+</p>
 
-## How it works, in short
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
+  <img src="https://img.shields.io/badge/status-pre--release%200.1-orange" alt="Status: pre-release 0.1">
+  <img src="https://img.shields.io/badge/python-3.10%2B-3776AB" alt="Python 3.10 or later">
+  <img src="https://img.shields.io/badge/node.js-20%2B-5FA04E" alt="Node.js 20 or later">
+</p>
+
+## What is Trailbeam?
+
+Trailbeam builds a timeline for each Amazon SQS message: sent, received, visibility changed, deleted,
+moved to a dead-letter queue, and the Lambda outcome. You look up a message by its message ID and
+read what happened to it, in order, with the service that did each step.
+
+Metrics and tracing tools show queues in aggregate, or the spans your code emitted. Trailbeam
+answers a narrower question: where did this one message go?
+
+> [!NOTE]
+> Trailbeam is pre-release 0.1. This repository is private, and nothing is published to PyPI, npm or
+> a container registry yet. Install the packages and build the image from a clone.
+
+## Features
+
+- **One timeline per message.** Every send, receive, delete and visibility change your services
+  make, joined into a single history you open by message ID.
+- **Recorded and inferred steps are kept apart.** Trailbeam orders two events only when an observed
+  fact proves the order, and marks every step it inferred, such as a visibility timeout that expired.
+- **Deletes joined to their receives.** A delete carries a receipt handle, not a message ID. Trailbeam
+  joins the two through a keyed hash of the handle, so the handle itself never leaves your process.
+- **Dead-letter moves, as SQS reports them.** A move is shown when a receive on the dead-letter queue
+  carries `DeadLetterQueueSourceArn`. It is never guessed from settings.
+- **Lambda outcomes.** A handler wrapper records how each record ended: success, a reported batch
+  item failure, or an exception.
+- **Works with the OpenTelemetry you already run.** The packages use their own tracer provider with
+  an always-on sampler, so your sampling never drops a message's history.
+- **Hands off your queues.** Trailbeam makes no SQS calls of its own and never calls `ReceiveMessage`,
+  because a receive raises a message's receive count.
+- **One container to run.** The store takes OTLP/HTTP, keeps spans in SQLite, and serves a JSON API
+  and a web screen on one port.
+
+## Quickstart
+
+The [quickstart](docs/quickstart.md) runs Trailbeam on your laptop with Docker and an SQS emulator.
+It needs no AWS account.
+
+```sh
+gh repo clone nick-lennox/trailbeam && cd trailbeam
+docker compose -f demo/compose.yaml up -d --build --wait
+# then open http://127.0.0.1:4318/ and click a message ID
+```
+
+## Add it to your services
+
+Add the hooks to every service that sends, receives or deletes on the queues you care about. A
+service without them leaves gaps in a message's history.
+
+**Python (boto3)**
+
+```python
+import boto3
+import trailbeam.boto
+
+trailbeam.boto.install()  # once per process
+sqs = boto3.client("sqs")
+```
+
+**Node.js (AWS SDK v3)**
+
+```js
+const { SQSClient } = require("@aws-sdk/client-sqs");
+const trailbeam = require("@trailbeam/sdk");
+
+const sqs = trailbeam.instrument(new SQSClient({}));
+```
+
+**AWS Lambda**
+
+```python
+import trailbeam.aws_lambda
+
+@trailbeam.aws_lambda.wrap
+def handler(event, context):
+    ...
+```
+
+Point the packages at your store and give every service on the same queues the same hash key:
+
+```sh
+export TRAILBEAM_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces
+export TRAILBEAM_RECEIPT_HASH_KEY=$(openssl rand -hex 32)   # generate once, share with every service
+export OTEL_SERVICE_NAME=orders-worker
+```
+
+Full guides: [Python](python/README.md), [Node.js](node/README.md), and the Lambda sections in each.
+
+## Self-hosting
+
+Trailbeam is one container. It receives OTLP on `/v1/traces` and serves the web screen and the JSON
+API on the same port.
+
+```sh
+docker build -t trailbeam-store server
+docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-data:/data trailbeam-store
+```
+
+There is no authentication in 0.1, so keep it on `127.0.0.1` or a trusted network. See
+[Run the store](server/README.md) and, to forward spans through an OpenTelemetry Collector, the
+[Collector configuration](collector/README.md).
+
+## Trailbeam Cloud
+
+A hosted version is in development at [trailbeam.app](https://trailbeam.app). It is not generally
+available yet.
+
+## How it works
 
 1. OpenTelemetry hooks in your services emit one span per message for each SQS call your code makes:
    `SendMessage`, `ReceiveMessage`, `DeleteMessage`, `ChangeMessageVisibility` and their batch forms.
@@ -14,29 +136,16 @@ registry.
 2. The spans go over OTLP/HTTP to the Trailbeam store, directly or through an OpenTelemetry Collector.
 3. The store keeps the spans in SQLite. It joins each delete to the receive whose receipt handle it
    used, through a keyed hash of the handle.
-4. When you open a message, the store builds its timeline. It orders two events only when an observed
-   fact proves the order. It marks every event that it inferred, such as a visibility timeout that
-   expired.
+4. When you open a message, the store builds its timeline.
 
 Full explanation: [How Trailbeam works](docs/architecture.md).
 
-What Trailbeam does not do:
+## What Trailbeam does not do
 
 - It makes no SQS calls of its own, and never calls `ReceiveMessage` on your queues. The store makes
   no AWS calls.
 - It does not record message bodies or message attributes.
 - It does not export receipt handles, only a keyed hash of each one.
-
-## Try it
-
-The [quickstart](docs/quickstart.md) runs Trailbeam on your laptop with Docker and an SQS emulator. It needs
-no AWS account.
-
-```sh
-gh repo clone nick-lennox/trailbeam && cd trailbeam
-docker compose -f demo/compose.yaml up -d --build --wait
-# then open http://127.0.0.1:4318/ and click a message ID
-```
 
 ## Documentation
 
@@ -64,7 +173,7 @@ docker compose -f demo/compose.yaml up -d --build --wait
 | [`demo/`](demo/) | Local demo on ElasticMQ with Docker Compose, and the concurrency check (`demo/check.sh`) |
 | [`docs/`](docs/) | The pages listed above, and the receipt-hash test vectors |
 
-## Tests
+## Development
 
 Run each line from the repository root:
 
@@ -78,6 +187,13 @@ pytest demo/check/tests
 The Node.js tests that need an SQS emulator are skipped unless `TRAILBEAM_TEST_SQS_ENDPOINT` is set, for
 example to `http://localhost:9324`. [`.github/workflows/ci.yml`](.github/workflows/ci.yml) also runs
 the Collector tests, the container smoke test, the demo and the concurrency check.
+
+## Contributing
+
+Issues and pull requests are welcome. Before opening a pull request, run the tests above for the
+part you changed. If your change alters a span or the store's API, update
+[`docs/span-contract.md`](docs/span-contract.md) or [`docs/store-api.md`](docs/store-api.md) in the
+same pull request.
 
 ## License
 
