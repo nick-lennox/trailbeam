@@ -18,6 +18,7 @@ a time of its own, and is ordered against another event only through those ancho
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -66,6 +67,21 @@ def _ticks(r) -> Optional[dict]:
     if r["order_scope"] is None:
         return None
     return {"scope": r["order_scope"], "issued": r["order_issued"], "returned": r["order_returned"]}
+
+
+def _error_message(r) -> Optional[str]:
+    """The thrown error's message on an outcome span (contract 15.5): redacted by the package, and only there
+    for queues with error text turned on. Read from the stored attributes, so rows stored before this field was
+    shown have it too."""
+    try:
+        raw = r["attributes"]
+    except (IndexError, KeyError):
+        return None
+    try:
+        v = json.loads(raw).get("trailbeam.error_message") if raw else None
+    except (TypeError, ValueError, AttributeError):
+        return None
+    return v if isinstance(v, str) and v else None
 
 
 def _inferred(type_: str, frm: Optional[int], to: Optional[int], reason: str, **extra) -> dict:
@@ -130,6 +146,8 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
             ev = {"type": "lambda_outcome", **base, "outcome": r["outcome"]}
             if r["error_type"]:
                 ev["error_type"] = r["error_type"]
+            if r["outcome"] != "success" and (text := _error_message(r)) is not None:
+                ev["error_message"] = text
             rec = next((x for x in receives if x["faas_invocation_id"] == r["faas_invocation_id"]), None)
             if rec is not None:
                 ev["delivery"] = by_row[rec["row"]]

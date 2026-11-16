@@ -5,4 +5,6 @@
 */
 export { TimelineView, Node, SourceTag, ORDER_SOURCE, BLIND_SPOTS, clock } from "./timeline/Timeline.tsx";
 export { answerFor, consumersOf } from "./summary.ts";
+export { ErrorCauses } from "./timeline/ErrorCauses.tsx";
+export { errorCauses, type ErrorCause } from "./errors.ts";
 export type * from "./timeline/types.ts";
