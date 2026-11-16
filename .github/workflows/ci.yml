@@ -68,6 +68,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: npm pack --dry-run   # the package the hosted app installs: compiled views and the shared fixtures
 
   collector:
     name: Collector configuration

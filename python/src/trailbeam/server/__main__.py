@@ -6,7 +6,7 @@ import logging
 import os
 import signal
 
-from .db import Database
+from .db import Database, parse_queue_list
 from .server import make_server
 
 
@@ -28,10 +28,18 @@ def main(argv=None) -> None:
                    help="QUEUE=N[,QUEUE=N...]: the maxReceiveCount of each queue's redrive policy, so a timeline "
                         "can say when a message should have moved to its dead-letter queue but no receive "
                         "there has reported it (env TRAILBEAM_MAX_RECEIVE_COUNT; spans don't carry it)")
+    p.add_argument("--store-bodies", type=parse_queue_list,
+                   default=parse_queue_list(os.environ.get("TRAILBEAM_STORE_BODIES", "")),
+                   help="QUEUE[,QUEUE...] or *: the queues whose message bodies are stored, for packages that "
+                        "capture them. Bodies of every other queue are dropped before they are written "
+                        "(env TRAILBEAM_STORE_BODIES, default none: no body is stored). Trailbeam has no "
+                        "logins: run it on a trusted network if you set this")
     p.add_argument("--log-level", default=os.environ.get("TRAILBEAM_LOG_LEVEL", "INFO"))
     a = p.parse_args(argv)
     logging.basicConfig(level=a.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    db = Database(a.db)
+    if a.store_bodies:
+        logging.getLogger("trailbeam.server").warning(body_warning(a.store_bodies, a.db))
+    db = Database(a.db, store_bodies=a.store_bodies)
     httpd = make_server(db, a.host, a.port, stuck_after_s=a.stuck_after,
                         lambda_timeout_s=a.lambda_timeout, max_receive_counts=a.max_receive_count)
     logging.getLogger("trailbeam.server").info("listening on http://%s:%d (OTLP: /v1/traces, API: /api/), db %s",
@@ -57,6 +65,13 @@ def _max_receive_counts(text: str) -> dict:
             raise argparse.ArgumentTypeError(f"expected QUEUE=N with N from 1 to 1000, got {part!r}")
         out[name.strip()] = int(n)
     return out
+
+
+def body_warning(store_bodies, db_path: str) -> str:
+    queues = "every queue" if "*" in store_bodies else "queues " + ", ".join(sorted(store_bodies))
+    return (f"storing message bodies for {queues} (TRAILBEAM_STORE_BODIES) in {db_path}. Trailbeam has no "
+            "logins: anyone who can reach this server, or read that file, can read those bodies. Keep it on "
+            "a trusted network.")
 
 
 def _interrupt(signum, frame):

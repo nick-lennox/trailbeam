@@ -1,0 +1,980 @@
+{
+ "about": "What contract/body-view.md gives for contract-3.2-spans.json. Written by make-body-views.py; don't edit by hand. message_ids are sorted.",
+ "cases": [
+  {
+   "name": "default",
+   "store_bodies": [],
+   "services": null,
+   "about": "TRAILBEAM_STORE_BODIES unset: every captured body is dropped",
+   "views": {
+    "m-bill-1": {
+     "message_id": "m-bill-1",
+     "kind": "none",
+     "reason": "not_opted_in",
+     "size": 44,
+     "sends": 0,
+     "receives": 3,
+     "send_status": null,
+     "receive_status": "captured"
+    },
+    "m-bill-2": {
+     "message_id": "m-bill-2",
+     "kind": "none",
+     "reason": "not_opted_in",
+     "size": 46,
+     "sends": 0,
+     "receives": 1,
+     "send_status": null,
+     "receive_status": "captured"
+    },
+    "m-fifo-1": {
+     "message_id": "m-fifo-1",
+     "kind": "none",
+     "reason": "off",
+     "size": 5,
+     "sends": 1,
+     "receives": 1,
+     "send_status": "off",
+     "receive_status": "off"
+    },
+    "m-fifo-2": {
+     "message_id": "m-fifo-2",
+     "kind": "none",
+     "reason": "off",
+     "size": 6,
+     "sends": 1,
+     "receives": 1,
+     "send_status": "off",
+     "receive_status": "off"
+    },
+    "m-legacy": {
+     "message_id": "m-legacy",
+     "kind": "none",
+     "reason": "package_too_old",
+     "size": null,
+     "sends": 1,
+     "receives": 1,
+     "send_status": null,
+     "receive_status": null
+    },
+    "m-orders-1": {
+     "message_id": "m-orders-1",
+     "kind": "none",
+     "reason": "not_opted_in",
+     "size": 135,
+     "sends": 1,
+     "receives": 1,
+     "send_status": "captured",
+     "receive_status": "captured"
+    },
+    "m-orders-2": {
+     "message_id": "m-orders-2",
+     "kind": "none",
+     "reason": "not_opted_in",
+     "size": 85,
+     "sends": 1,
+     "receives": 1,
+     "send_status": "captured",
+     "receive_status": "captured"
+    },
+    "m-orphan": {
+     "message_id": "m-orphan",
+     "kind": "none",
+     "reason": "not_opted_in",
+     "size": 57,
+     "sends": 0,
+     "receives": 1,
+     "send_status": null,
+     "receive_status": "captured"
+    },
+    "m-pay-1": {
+     "message_id": "m-pay-1",
+     "kind": "none",
+     "reason": "off",
+     "size": 40,
+     "sends": 1,
+     "receives": 1,
+     "send_status": "off",
+     "receive_status": "off"
+    },
+    "m-pay-2": {
+     "message_id": "m-pay-2",
+     "kind": "none",
+     "reason": "off",
+     "size": 40,
+     "sends": 1,
+     "receives": 3,
+     "send_status": "off",
+     "receive_status": "off"
+    }
+   },
+   "searches": [
+    {
+     "query": "body.order.sku:A-100",
+     "message_ids": []
+    },
+    {
+     "query": "body.order.sku:a-*",
+     "message_ids": []
+    },
+    {
+     "query": "body.order.qty:>=2",
+     "message_ids": []
+    },
+    {
+     "query": "body.order.qty:1..3",
+     "message_ids": []
+    },
+    {
+     "query": "body.customer.id:acme body.customer.id:globex",
+     "message_ids": []
+    },
+    {
+     "query": "body.customer.id:acme -body.order.qty:2",
+     "message_ids": []
+    },
+    {
+     "query": "body:REDACTED",
+     "message_ids": []
+    },
+    {
+     "query": "body:inv-",
+     "message_ids": []
+    },
+    {
+     "query": "body.password:hunter2",
+     "message_ids": []
+    },
+    {
+     "query": "body.invoice:inv-1",
+     "message_ids": []
+    },
+    {
+     "query": "body.missing.path:x",
+     "message_ids": []
+    }
+   ]
+  },
+  {
+   "name": "orders",
+   "store_bodies": [
+    "orders"
+   ],
+   "services": null,
+   "about": "only orders opted in: billing's captured bodies are dropped",
+   "views": {
+    "m-bill-1": {
+     "message_id": "m-bill-1",
+     "kind": "none",
+     "reason": "not_opted_in",
+     "size": 44,
+     "sends": 0,
+     "receives": 3,
+     "send_status": null,
+     "receive_status": "captured"
+    },
+    "m-bill-2": {
+     "message_id": "m-bill-2",
+     "kind": "none",
+     "reason": "not_opted_in",
+     "size": 46,
+     "sends": 0,
+     "receives": 1,
+     "send_status": null,
+     "receive_status": "captured"
+    },
+    "m-fifo-1": {
+     "message_id": "m-fifo-1",
+     "kind": "none",
+     "reason": "off",
+     "size": 5,
+     "sends": 1,
+     "receives": 1,
+     "send_status": "off",
+     "receive_status": "off"
+    },
+    "m-fifo-2": {
+     "message_id": "m-fifo-2",
+     "kind": "none",
+     "reason": "off",
+     "size": 6,
+     "sends": 1,
+     "receives": 1,
+     "send_status": "off",
+     "receive_status": "off"
+    },
+    "m-legacy": {
+     "message_id": "m-legacy",
+     "kind": "none",
+     "reason": "package_too_old",
+     "size": null,
+     "sends": 1,
+     "receives": 1,
+     "send_status": null,
+     "receive_status": null
+    },
+    "m-orders-1": {
+     "message_id": "m-orders-1",
+     "kind": "body",
+     "body": {
+      "body": "{\"customer\":{\"id\":\"acme\",\"email\":\"[REDACTED]\"},\"order\":{\"sku\":\"A-100\",\"qty\":2},\"card\":\"[REDACTED]\",\"password\":\"[REDACTED]\"}",
+      "format": "json",
+      "redacted_count": 3,
+      "envelope": null,
+      "from_kind": "send",
+      "service": "checkout-api",
+      "queue": "orders",
+      "trace_id": "004c175e11dc08356c306efbbb21258d",
+      "span_id": "a4080bba0b0d9b30",
+      "time_unix_nano": "1794852336910000000"
+     },
+     "size": 135,
+     "tenant": "acme",
+     "tenant_source": "message_attribute"
+    },
+    "m-orders-2": {
+     "message_id": "m-orders-2",
+     "kind": "body",
+     "body": {
+      "body": "{\"customer\":{\"id\":\"globex\"},\"order\":{\"sku\":\"B-7\",\"qty\":1},\"note\":\"call [REDACTED]\"}",
+      "format": "json",
+      "redacted_count": 1,
+      "envelope": null,
+      "from_kind": "send",
+      "service": "checkout-api",
+      "queue": "orders",
+      "trace_id": "c31fa5cf44c1ae5b1b569b39e69b9d72",
+      "span_id": "8ee674b3aa1d533f",
+      "time_unix_nano": "1794852336913000000"
+     },
+     "size": 85,
+     "tenant": "globex",
+     "tenant_source": "body_path"
+    },
+    "m-orphan": {
+     "message_id": "m-orphan",
+     "kind": "body",
+     "body": {
+      "body": "{\"customer\":{\"id\":\"hooli\"},\"order\":{\"sku\":\"C-3\",\"qty\":9}}",
+      "format": "json",
+      "redacted_count": 0,
+      "envelope": null,
+      "from_kind": "receive",
+      "service": "orders-worker",
+      "queue": "orders",
+      "trace_id": "0f2c1d2f02e0bde69f45ff256b5771ed",
+      "span_id": "661d4c30fedb4e9e",
+      "time_unix_nano": "1794852337039000000"
+     },
+     "size": 57,
+     "tenant": "hooli",
+     "tenant_source": "body_path"
+    },
+    "m-pay-1": {
+     "message_id": "m-pay-1",
+     "kind": "none",
+     "reason": "off",
+     "size": 40,
+     "sends": 1,
+     "receives": 1,
+     "send_status": "off",
+     "receive_status": "off"
+    },
+    "m-pay-2": {
+     "message_id": "m-pay-2",
+     "kind": "none",
+     "reason": "off",
+     "size": 40,
+     "sends": 1,
+     "receives": 3,
+     "send_status": "off",
+     "receive_status": "off"
+    }
+   },
+   "searches": [
+    {
+     "query": "body.order.sku:A-100",
+     "message_ids": [
+      "m-orders-1"
+     ]
+    },
+    {
+     "query": "body.order.sku:a-*",
+     "message_ids": [
+      "m-orders-1"
+     ]
+    },
+    {
+     "query": "body.order.qty:>=2",
+     "message_ids": [
+      "m-orders-1",
+      "m-orphan"
+     ]
+    },
+    {
+     "query": "body.order.qty:1..3",
+     "message_ids": [
+      "m-orders-1",
+      "m-orders-2"
+     ]
+    },
+    {
+     "query": "body.customer.id:acme body.customer.id:globex",
+     "message_ids": [
+      "m-orders-1",
+      "m-orders-2"
+     ]
+    },
+    {
+     "query": "body.customer.id:acme -body.order.qty:2",
+     "message_ids": []
+    },
+    {
+     "query": "body:REDACTED",
+     "message_ids": [
+      "m-orders-1",
+      "m-orders-2"
+     ]
+    },
+    {
+     "query": "body:inv-",
+     "message_ids": []
+    },
+    {
+     "query": "body.password:hunter2",
+     "message_ids": []
+    },
+    {
+     "query": "body.invoice:inv-1",
+     "message_ids": []
+    },
+    {
+     "query": "body.missing.path:x",
+     "message_ids": []
+    }
+   ]
+  },
+  {
+   "name": "every queue",
+   "store_bodies": [
+    "*"
+   ],
+   "services": null,
+   "about": "TRAILBEAM_STORE_BODIES=*",
+   "views": {
+    "m-bill-1": {
+     "message_id": "m-bill-1",
+     "kind": "body",
+     "body": {
+      "body": "{\"customer\":{\"id\":\"acme\"},\"invoice\":\"inv-1\"}",
+      "format": "json",
+      "redacted_count": 0,
+      "envelope": null,
+      "from_kind": "receive",
+      "service": "billing-fn",
+      "queue": "billing",
+      "trace_id": "afdd9da7ab9f6a2da661c34488706d0b",
+      "span_id": "4e224fac375bf9f0",
+      "time_unix_nano": "1794852337459000000"
+     },
+     "size": 44,
+     "tenant": "acme",
+     "tenant_source": "body_path"
+    },
+    "m-bill-2": {
+     "message_id": "m-bill-2",
+     "kind": "body",
+     "body": {
+      "body": "{\"customer\":{\"id\":\"globex\"},\"invoice\":\"inv-2\"}",
+      "format": "json",
+      "redacted_count": 0,
+      "envelope": null,
+      "from_kind": "receive",
+      "service": "billing-fn",
+      "queue": "billing",
+      "trace_id": "523a0faa527b8681d7b62baf09004d19",
+      "span_id": "c7a259d34091ba1e",
+      "time_unix_nano": "1794852337459000000"
+     },
+     "size": 46,
+     "tenant": "globex",
+     "tenant_source": "body_path"
+    },
+    "m-fifo-1": {
+     "message_id": "m-fifo-1",
+     "kind": "none",
+     "reason": "off",
+     "size": 5,
+     "sends": 1,
+     "receives": 1,
+     "send_status": "off",
+     "receive_status": "off"
+    },
+    "m-fifo-2": {
+     "message_id": "m-fifo-2",
+     "kind": "none",
+     "reason": "off",
+     "size": 6,
+     "sends": 1,
+     "receives": 1,
+     "send_status": "off",
+     "receive_status": "off"
+    },
+    "m-legacy": {
+     "message_id": "m-legacy",
+     "kind": "none",
+     "reason": "package_too_old",
+     "size": null,
+     "sends": 1,
+     "receives": 1,
+     "send_status": null,
+     "receive_status": null
+    },
+    "m-orders-1": {
+     "message_id": "m-orders-1",
+     "kind": "body",
+     "body": {
+      "body": "{\"customer\":{\"id\":\"acme\",\"email\":\"[REDACTED]\"},\"order\":{\"sku\":\"A-100\",\"qty\":2},\"card\":\"[REDACTED]\",\"password\":\"[REDACTED]\"}",
+      "format": "json",
+      "redacted_count": 3,
+      "envelope": null,
+      "from_kind": "send",
+      "service": "checkout-api",
+      "queue": "orders",
+      "trace_id": "004c175e11dc08356c306efbbb21258d",
+      "span_id": "a4080bba0b0d9b30",
+      "time_unix_nano": "1794852336910000000"
+     },
+     "size": 135,
+     "tenant": "acme",
+     "tenant_source": "message_attribute"
+    },
+    "m-orders-2": {
+     "message_id": "m-orders-2",
+     "kind": "body",
+     "body": {
+      "body": "{\"customer\":{\"id\":\"globex\"},\"order\":{\"sku\":\"B-7\",\"qty\":1},\"note\":\"call [REDACTED]\"}",
+      "format": "json",
+      "redacted_count": 1,
+      "envelope": null,
+      "from_kind": "send",
+      "service": "checkout-api",
+      "queue": "orders",
+      "trace_id": "c31fa5cf44c1ae5b1b569b39e69b9d72",
+      "span_id": "8ee674b3aa1d533f",
+      "time_unix_nano": "1794852336913000000"
+     },
+     "size": 85,
+     "tenant": "globex",
+     "tenant_source": "body_path"
+    },
+    "m-orphan": {
+     "message_id": "m-orphan",
+     "kind": "body",
+     "body": {
+      "body": "{\"customer\":{\"id\":\"hooli\"},\"order\":{\"sku\":\"C-3\",\"qty\":9}}",
+      "format": "json",
+      "redacted_count": 0,
+      "envelope": null,
+      "from_kind": "receive",
+      "service": "orders-worker",
+      "queue": "orders",
+      "trace_id": "0f2c1d2f02e0bde69f45ff256b5771ed",
+      "span_id": "661d4c30fedb4e9e",
+      "time_unix_nano": "1794852337039000000"
+     },
+     "size": 57,
+     "tenant": "hooli",
+     "tenant_source": "body_path"
+    },
+    "m-pay-1": {
+     "message_id": "m-pay-1",
+     "kind": "none",
+     "reason": "off",
+     "size": 40,
+     "sends": 1,
+     "receives": 1,
+     "send_status": "off",
+     "receive_status": "off"
+    },
+    "m-pay-2": {
+     "message_id": "m-pay-2",
+     "kind": "none",
+     "reason": "off",
+     "size": 40,
+     "sends": 1,
+     "receives": 3,
+     "send_status": "off",
+     "receive_status": "off"
+    }
+   },
+   "searches": [
+    {
+     "query": "body.order.sku:A-100",
+     "message_ids": [
+      "m-orders-1"
+     ]
+    },
+    {
+     "query": "body.order.sku:a-*",
+     "message_ids": [
+      "m-orders-1"
+     ]
+    },
+    {
+     "query": "body.order.qty:>=2",
+     "message_ids": [
+      "m-orders-1",
+      "m-orphan"
+     ]
+    },
+    {
+     "query": "body.order.qty:1..3",
+     "message_ids": [
+      "m-orders-1",
+      "m-orders-2"
+     ]
+    },
+    {
+     "query": "body.customer.id:acme body.customer.id:globex",
+     "message_ids": [
+      "m-bill-1",
+      "m-bill-2",
+      "m-orders-1",
+      "m-orders-2"
+     ]
+    },
+    {
+     "query": "body.customer.id:acme -body.order.qty:2",
+     "message_ids": [
+      "m-bill-1"
+     ]
+    },
+    {
+     "query": "body:REDACTED",
+     "message_ids": [
+      "m-orders-1",
+      "m-orders-2"
+     ]
+    },
+    {
+     "query": "body:inv-",
+     "message_ids": [
+      "m-bill-1",
+      "m-bill-2"
+     ]
+    },
+    {
+     "query": "body.password:hunter2",
+     "message_ids": []
+    },
+    {
+     "query": "body.invoice:inv-1",
+     "message_ids": [
+      "m-bill-1"
+     ]
+    },
+    {
+     "query": "body.missing.path:x",
+     "message_ids": []
+    }
+   ]
+  },
+  {
+   "name": "consumer only",
+   "store_bodies": [
+    "orders",
+    "payments"
+   ],
+   "services": [
+    "orders-worker"
+   ],
+   "about": "only the consumer's spans arrived: no message has a send",
+   "views": {
+    "m-fifo-1": {
+     "message_id": "m-fifo-1",
+     "kind": "none",
+     "reason": "producer_not_instrumented",
+     "size": 5,
+     "sends": 0,
+     "receives": 1,
+     "send_status": null,
+     "receive_status": "off"
+    },
+    "m-fifo-2": {
+     "message_id": "m-fifo-2",
+     "kind": "none",
+     "reason": "producer_not_instrumented",
+     "size": 6,
+     "sends": 0,
+     "receives": 1,
+     "send_status": null,
+     "receive_status": "off"
+    },
+    "m-orders-1": {
+     "message_id": "m-orders-1",
+     "kind": "body",
+     "body": {
+      "body": "{\"customer\":{\"id\":\"acme\",\"email\":\"[REDACTED]\"},\"order\":{\"sku\":\"A-100\",\"qty\":2},\"card\":\"[REDACTED]\",\"password\":\"[REDACTED]\"}",
+      "format": "json",
+      "redacted_count": 3,
+      "envelope": null,
+      "from_kind": "receive",
+      "service": "orders-worker",
+      "queue": "orders",
+      "trace_id": "c31816695e531bd80e9c3d27d9e34b12",
+      "span_id": "86a2e4837150ce42",
+      "time_unix_nano": "1794852337039000000"
+     },
+     "size": 135,
+     "tenant": "acme",
+     "tenant_source": "message_attribute"
+    },
+    "m-orders-2": {
+     "message_id": "m-orders-2",
+     "kind": "body",
+     "body": {
+      "body": "{\"customer\":{\"id\":\"globex\"},\"order\":{\"sku\":\"B-7\",\"qty\":1},\"note\":\"call [REDACTED]\"}",
+      "format": "json",
+      "redacted_count": 1,
+      "envelope": null,
+      "from_kind": "receive",
+      "service": "orders-worker",
+      "queue": "orders",
+      "trace_id": "5dd27c6d09df97a3a9c46ffbd7dc8eef",
+      "span_id": "ee996073858e5d65",
+      "time_unix_nano": "1794852337039000000"
+     },
+     "size": 85,
+     "tenant": "globex",
+     "tenant_source": "body_path"
+    },
+    "m-orphan": {
+     "message_id": "m-orphan",
+     "kind": "body",
+     "body": {
+      "body": "{\"customer\":{\"id\":\"hooli\"},\"order\":{\"sku\":\"C-3\",\"qty\":9}}",
+      "format": "json",
+      "redacted_count": 0,
+      "envelope": null,
+      "from_kind": "receive",
+      "service": "orders-worker",
+      "queue": "orders",
+      "trace_id": "0f2c1d2f02e0bde69f45ff256b5771ed",
+      "span_id": "661d4c30fedb4e9e",
+      "time_unix_nano": "1794852337039000000"
+     },
+     "size": 57,
+     "tenant": "hooli",
+     "tenant_source": "body_path"
+    },
+    "m-pay-1": {
+     "message_id": "m-pay-1",
+     "kind": "none",
+     "reason": "producer_not_instrumented",
+     "size": 40,
+     "sends": 0,
+     "receives": 1,
+     "send_status": null,
+     "receive_status": "off"
+    },
+    "m-pay-2": {
+     "message_id": "m-pay-2",
+     "kind": "none",
+     "reason": "producer_not_instrumented",
+     "size": 40,
+     "sends": 0,
+     "receives": 3,
+     "send_status": null,
+     "receive_status": "off"
+    }
+   },
+   "searches": [
+    {
+     "query": "body.order.sku:A-100",
+     "message_ids": [
+      "m-orders-1"
+     ]
+    },
+    {
+     "query": "body.order.sku:a-*",
+     "message_ids": [
+      "m-orders-1"
+     ]
+    },
+    {
+     "query": "body.order.qty:>=2",
+     "message_ids": [
+      "m-orders-1",
+      "m-orphan"
+     ]
+    },
+    {
+     "query": "body.order.qty:1..3",
+     "message_ids": [
+      "m-orders-1",
+      "m-orders-2"
+     ]
+    },
+    {
+     "query": "body.customer.id:acme body.customer.id:globex",
+     "message_ids": [
+      "m-orders-1",
+      "m-orders-2"
+     ]
+    },
+    {
+     "query": "body.customer.id:acme -body.order.qty:2",
+     "message_ids": []
+    },
+    {
+     "query": "body:REDACTED",
+     "message_ids": [
+      "m-orders-1",
+      "m-orders-2"
+     ]
+    },
+    {
+     "query": "body:inv-",
+     "message_ids": []
+    },
+    {
+     "query": "body.password:hunter2",
+     "message_ids": []
+    },
+    {
+     "query": "body.invoice:inv-1",
+     "message_ids": []
+    },
+    {
+     "query": "body.missing.path:x",
+     "message_ids": []
+    }
+   ]
+  }
+ ],
+ "terms": [
+  {
+   "body": "{\"Records\":[{\"key\":\"a.jpg\"},{\"key\":\"b.heic\"}]}",
+   "format": "json",
+   "query": "body.Records.key:b.heic",
+   "matches": true
+  },
+  {
+   "body": "{\"Records\":[{\"key\":\"a.jpg\"},{\"key\":\"b.heic\"}]}",
+   "format": "json",
+   "query": "body.Records.0.key:b.heic",
+   "matches": false
+  },
+  {
+   "body": "{\"Records\":[{\"key\":\"a.jpg\"},{\"key\":\"b.heic\"}]}",
+   "format": "json",
+   "query": "body.Records[1].key:b.heic",
+   "matches": true
+  },
+  {
+   "body": "{\"Records\":[{\"key\":\"a.jpg\"},{\"key\":\"b.heic\"}]}",
+   "format": "json",
+   "query": "body.Records.5.key:a.jpg",
+   "matches": false
+  },
+  {
+   "body": "{\"Records\":[{\"key\":\"a.jpg\"},{\"key\":\"b.heic\"}]}",
+   "format": "json",
+   "query": "body.Records.key:*.JPG",
+   "matches": true
+  },
+  {
+   "body": "{\"a\":{\"b\":1}}",
+   "format": "json",
+   "query": "body.a:1",
+   "matches": false
+  },
+  {
+   "body": "{\"amount\":10000}",
+   "format": "json",
+   "query": "body.amount:>=10000",
+   "matches": true
+  },
+  {
+   "body": "{\"amount\":10000}",
+   "format": "json",
+   "query": "body.amount:>10000",
+   "matches": false
+  },
+  {
+   "body": "{\"amount\":10000}",
+   "format": "json",
+   "query": "body.amount:10000",
+   "matches": true
+  },
+  {
+   "body": "{\"amount\":10000}",
+   "format": "json",
+   "query": "body.amount:10kb",
+   "matches": false
+  },
+  {
+   "body": "{\"amount\":2048}",
+   "format": "json",
+   "query": "body.amount:2kb",
+   "matches": true
+  },
+  {
+   "body": "{\"amount\":1.5}",
+   "format": "json",
+   "query": "body.amount:<2",
+   "matches": true
+  },
+  {
+   "body": "{\"amount\":2.0}",
+   "format": "json",
+   "query": "body.amount:2",
+   "matches": true
+  },
+  {
+   "body": "{\"amount\":2.0}",
+   "format": "json",
+   "query": "body.amount:2*",
+   "matches": true
+  },
+  {
+   "body": "{\"amount\":5}",
+   "format": "json",
+   "query": "body.amount:abc",
+   "matches": false
+  },
+  {
+   "body": "{\"amount\":\"5\"}",
+   "format": "json",
+   "query": "body.amount:>=1",
+   "matches": false
+  },
+  {
+   "body": "{\"amount\":\"5\"}",
+   "format": "json",
+   "query": "body.amount:5",
+   "matches": true
+  },
+  {
+   "body": "{\"paid\":true}",
+   "format": "json",
+   "query": "body.paid:true",
+   "matches": true
+  },
+  {
+   "body": "{\"paid\":true}",
+   "format": "json",
+   "query": "body.paid:TRUE",
+   "matches": true
+  },
+  {
+   "body": "{\"paid\":false}",
+   "format": "json",
+   "query": "body.paid:true",
+   "matches": false
+  },
+  {
+   "body": "{\"x\":null}",
+   "format": "json",
+   "query": "body.x:null",
+   "matches": false
+  },
+  {
+   "body": "{\"note\":\"call me back\"}",
+   "format": "json",
+   "query": "body.note:\"call me back\"",
+   "matches": true
+  },
+  {
+   "body": "{\"note\":\"call me back\"}",
+   "format": "json",
+   "query": "body.note:call",
+   "matches": false
+  },
+  {
+   "body": "{\"note\":\"call me back\"}",
+   "format": "json",
+   "query": "body.note:call*",
+   "matches": true
+  },
+  {
+   "body": "{\"note\":\"Call Me\"}",
+   "format": "json",
+   "query": "body:\"call me\"",
+   "matches": true
+  },
+  {
+   "body": "{\"note\":\"Call Me\"}",
+   "format": "json",
+   "query": "body:CALL",
+   "matches": true
+  },
+  {
+   "body": "{\"customer\":{\"id\":\"acme\"}}",
+   "format": "json",
+   "query": "body.customer.id:acme -body.customer.id:acme",
+   "matches": false
+  },
+  {
+   "body": "{\"customer\":{\"id\":\"acme\"}}",
+   "format": "json",
+   "query": "-body.customer.id:globex",
+   "matches": true
+  },
+  {
+   "body": "{\"customer\":{\"id\":\"acme\"}}",
+   "format": "json",
+   "query": "body.customer.id:",
+   "matches": true
+  },
+  {
+   "body": "{\"constructor\":\"x\"}",
+   "format": "json",
+   "query": "body.constructor:x",
+   "matches": true
+  },
+  {
+   "body": "{\"a\":1}",
+   "format": "json",
+   "query": "body.constructor:*",
+   "matches": false
+  },
+  {
+   "body": "{\"a\":1}",
+   "format": "json",
+   "query": "body.toString:*",
+   "matches": false
+  },
+  {
+   "body": "plain text, not JSON",
+   "format": "text",
+   "query": "body:\"not json\"",
+   "matches": true
+  },
+  {
+   "body": "plain text, not JSON",
+   "format": "text",
+   "query": "body.anything:plain*",
+   "matches": false
+  },
+  {
+   "body": "{\"looks\":\"like json\"}",
+   "format": "text",
+   "query": "body.looks:\"like json\"",
+   "matches": false
+  },
+  {
+   "body": "{\"looks\":\"like json\"}",
+   "format": "text",
+   "query": "body:\"like json\"",
+   "matches": true
+  },
+  {
+   "body": "not json after all {",
+   "format": "json",
+   "query": "body:\"after all\"",
+   "matches": true
+  }
+ ]
+}

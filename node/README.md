@@ -94,6 +94,28 @@ cannot use up the function's time.
 | `OTEL_SERVICE_NAME` | `unknown_service` | `service.name` |
 | `OTEL_RESOURCE_ATTRIBUTES` | random UUID v4 | `service.instance.id` here becomes `messaging.client.id`. Without it, each `install` call and each `wrapHandler` call generates a random UUID v4. |
 
+### Message contents (opt-in)
+
+Contract section 15. Body size is always recorded. The rest is off until you turn it on:
+
+```js
+trailbeam.install({
+  tenant: { messageAttribute: 'tenant', bodyPath: 'customer.id' },   // or TRAILBEAM_TENANT_ATTRIBUTE / _BODY_PATH
+  capture: {
+    bodyQueues: ['orders'],      // bodies of these queues, redacted, or '*'   (TRAILBEAM_CAPTURE_BODY_QUEUES)
+    errorQueues: ['orders'],     // Lambda exception messages, redacted        (TRAILBEAM_CAPTURE_ERROR_QUEUES)
+    redactKeys: ['customer.name'], // added to the default keys                (TRAILBEAM_REDACT_KEYS)
+    maxBodyBytes: 16384,         //                                            (TRAILBEAM_CAPTURE_MAX_BYTES)
+  },
+});
+```
+
+`wrapHandler(fn, { tenant, capture })` takes the same options. Redaction runs in this process before
+export. A body that fails redaction, fails the MD5 check or is over the limit is not exported, and
+the span says why in `trailbeam.body.capture_status`. The package never makes an SQS call of its own.
+A self-hosted Trailbeam stores the body only if the queue is also in its own `TRAILBEAM_STORE_BODIES`
+([Message bodies](../README.md#message-bodies)).
+
 Call `await trailbeam.forceFlush()` before a short-lived process exits, or `await trailbeam.uninstall()`.
 Spans still in the batch span processor when the process exits are lost.
 

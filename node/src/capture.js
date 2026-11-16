@@ -1,0 +1,431 @@
+'use strict';
+// Message contents (contract section 15, revision 3.2): body size, tenant, FIFO fields, opt-in body
+// capture with redaction, and Lambda error text.
+//
+// Nothing here makes an SQS call. Everything is read from the input and output of calls the
+// application made, or from the Lambda event. This mirrors python/src/trailbeam/_capture.py exactly;
+// both are tested against contract/span-contract-vectors.json.
+
+const crypto = require('node:crypto');
+
+const STATUS_CAPTURED = 'captured';
+const STATUS_OFF = 'off';
+const STATUS_MD5_MISMATCH = 'md5_mismatch';
+const STATUS_REDACTION_FAILED = 'redaction_failed';
+const STATUS_EXCEEDS_LIMIT = 'exceeds_capture_limit';
+const STATUS_OFFLOADED = 'offloaded_to_s3';
+
+const REDACTED = '[REDACTED]';
+const DEFAULT_MAX_BODY_BYTES = 16 * 1024;
+const HARD_MAX_BODY_BYTES = 256 * 1024;
+const MAX_ERROR_MESSAGE_CHARS = 1024;
+const MAX_TENANT_CHARS = 256;
+const MAX_JSON_DEPTH = 100;
+const S3_POINTER_CLASS = 'software.amazon.payloadoffloading.PayloadS3Pointer';
+
+const DEFAULT_REDACT_KEYS = Object.freeze([
+  'password', 'passwd', 'secret', 'token', 'access_token', 'refresh_token', 'authorization',
+  'api_key', 'apikey', 'ssn', 'card_number', 'cardnumber', 'cvv', 'cvc',
+]);
+
+// Built-in text patterns (section 15.3): ASCII classes only, so RegExp and Python's re agree.
+const PATTERNS = Object.freeze({
+  aws_access_key: '(?<![A-Z0-9])(?:AKIA|ASIA)[A-Z0-9]{16}(?![A-Z0-9])',
+  bearer: '(?<![A-Za-z])[Bb]earer [A-Za-z0-9._~+/=-]+',
+  email: '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)*\\.[A-Za-z]{2,}',
+  long_number: '(?<![0-9])[0-9](?:[ -]?[0-9]){8,}(?![0-9])',
+});
+const DEFAULT_PATTERNS = Object.freeze(Object.keys(PATTERNS));
+const KEY_RE = /^[A-Za-z0-9_.-]+$/;
+
+const ENV = Object.freeze({
+  TENANT_ATTRIBUTE: 'TRAILBEAM_TENANT_ATTRIBUTE',
+  TENANT_BODY_PATH: 'TRAILBEAM_TENANT_BODY_PATH',
+  BODY_QUEUES: 'TRAILBEAM_CAPTURE_BODY_QUEUES',
+  ERROR_QUEUES: 'TRAILBEAM_CAPTURE_ERROR_QUEUES',
+  REDACT_KEYS: 'TRAILBEAM_REDACT_KEYS',
+  REDACT_PATTERNS: 'TRAILBEAM_REDACT_PATTERNS',
+  MAX_BODY_BYTES: 'TRAILBEAM_CAPTURE_MAX_BYTES',
+});
+
+const lower = (s) => s.replace(/[A-Z]/g, (c) => c.toLowerCase());
+const csv = (v) => (v || '').split(',').map((p) => p.trim()).filter(Boolean);
+const escapeRe = (s) => s.replace(/[.\-]/g, '\\$&');
+
+class RedactionError extends Error {}
+
+/** What the package reads from message contents. Off unless configured. */
+class Config {
+  constructor({
+    tenantAttribute, tenantBodyPath, bodyQueues = [], errorQueues = [],
+    redactKeys = DEFAULT_REDACT_KEYS, redactPatterns = DEFAULT_PATTERNS, maxBodyBytes = DEFAULT_MAX_BODY_BYTES,
+  } = {}) {
+    for (const k of redactKeys) {
+      if (typeof k !== 'string' || !KEY_RE.test(k)) throw new Error(`trailbeam: redact key ${JSON.stringify(k)} may contain only A-Z a-z 0-9 _ . -`);
+    }
+    for (const p of redactPatterns) {
+      if (!Object.prototype.hasOwnProperty.call(PATTERNS, p)) throw new Error(`trailbeam: unknown redact pattern ${JSON.stringify(p)}; known: ${DEFAULT_PATTERNS.join(', ')}`);
+    }
+    if (!(Number.isInteger(maxBodyBytes) && maxBodyBytes > 0 && maxBodyBytes <= HARD_MAX_BODY_BYTES)) {
+      throw new Error(`trailbeam: maxBodyBytes must be 1 to ${HARD_MAX_BODY_BYTES}`);
+    }
+    this.tenantAttribute = tenantAttribute || undefined;
+    this.tenantBodyPath = tenantBodyPath || undefined;
+    this.bodyQueues = new Set(bodyQueues);
+    this.errorQueues = new Set(errorQueues);
+    this.redactKeys = [...redactKeys];
+    this.redactPatterns = [...redactPatterns];
+    this.maxBodyBytes = maxBodyBytes;
+    this.names = new Set(this.redactKeys.filter((k) => !k.includes('.')).map(lower));
+    this.paths = new Set(this.redactKeys.filter((k) => k.includes('.')).map(lower));
+    const names = this.redactKeys.filter((k) => !k.includes('.'));
+    this.keyValueSource = names.length
+      ? `(?<![A-Za-z0-9_])(${names.map((k) => escapeRe(lower(k))).join('|')})(["']?[ \\t]*[:=][ \\t]*)("[^"]*"|'[^']*'|[^ \\t\\r\\n,;&]+)`
+      : undefined;
+    Object.freeze(this);
+  }
+
+  bodyOn(queueName) {
+    return Boolean(queueName) && (this.bodyQueues.has('*') || this.bodyQueues.has(queueName));
+  }
+
+  errorsOn(queueName) {
+    return Boolean(queueName) && (this.errorQueues.has('*') || this.errorQueues.has(queueName));
+  }
+}
+
+/**
+ * Explicit options, else environment variables (section 15.1). Each option group replaces its
+ * environment variables as a whole.
+ * `tenant`: `{ messageAttribute, bodyPath }`. `capture`: `{ bodyQueues, errorQueues, redactKeys,
+ * redactPatterns, maxBodyBytes }`.
+ */
+function resolveConfig(tenant, capture) {
+  const env = process.env;
+  if (tenant === undefined || tenant === null) {
+    tenant = { messageAttribute: env[ENV.TENANT_ATTRIBUTE] || undefined, bodyPath: env[ENV.TENANT_BODY_PATH] || undefined };
+  }
+  if (capture === undefined || capture === null) {
+    capture = {
+      bodyQueues: csv(env[ENV.BODY_QUEUES]),
+      errorQueues: csv(env[ENV.ERROR_QUEUES]),
+      redactKeys: csv(env[ENV.REDACT_KEYS]),
+      redactPatterns: env[ENV.REDACT_PATTERNS] !== undefined ? csv(env[ENV.REDACT_PATTERNS]) : undefined,
+      maxBodyBytes: env[ENV.MAX_BODY_BYTES] ? Number(env[ENV.MAX_BODY_BYTES]) : undefined,
+    };
+  }
+  const extra = (capture.redactKeys || []).filter((k) => !DEFAULT_REDACT_KEYS.includes(k));
+  return new Config({
+    tenantAttribute: tenant.messageAttribute,
+    tenantBodyPath: tenant.bodyPath,
+    bodyQueues: capture.bodyQueues || [],
+    errorQueues: capture.errorQueues || [],
+    redactKeys: [...DEFAULT_REDACT_KEYS, ...extra],
+    redactPatterns: capture.redactPatterns !== undefined && capture.redactPatterns !== null ? capture.redactPatterns : DEFAULT_PATTERNS,
+    maxBodyBytes: capture.maxBodyBytes || DEFAULT_MAX_BODY_BYTES,
+  });
+}
+
+// -- redaction (section 15.3) ----------------------------------------------------------------------
+
+/** Key-value pairs for the configured key names, then the built-in patterns. Returns [text, count]. */
+function redactText(text, config) {
+  let count = 0;
+  if (config.keyValueSource) {
+    text = text.replace(new RegExp(config.keyValueSource, 'gi'), (_m, k, sep) => { count += 1; return k + sep + REDACTED; });
+  }
+  for (const p of config.redactPatterns) {
+    text = text.replace(new RegExp(PATTERNS[p], 'g'), () => { count += 1; return REDACTED; });
+  }
+  return [text, count];
+}
+
+function encodeString(s) {
+  if (/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s)) {
+    throw new RedactionError('lone surrogate'); // cannot be exported as UTF-8: fail closed
+  }
+  return JSON.stringify(s);
+}
+
+const STRING_RE = /"(?:[^"\\\u0000-\u001f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"/y;
+const SCALAR_RE = /-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null/y;
+const isWs = (c) => c === ' ' || c === '\t' || c === '\n' || c === '\r';
+
+class NotJson extends Error {}
+
+/**
+ * A strict JSON scanner that copies the input and rewrites only the values it redacts, so the
+ * output keeps the input's formatting and number text. Throws NotJson if the input is not JSON.
+ */
+class JsonScan {
+  constructor(s, config) {
+    this.s = s;
+    this.config = config;
+    this.out = [];
+    this.count = 0;
+  }
+
+  run() {
+    let i = this.ws(0, true);
+    i = this.value(i, [], 0, true);
+    if (this.ws(i, true) !== this.s.length) throw new NotJson('trailing data');
+    return this.out.join('');
+  }
+
+  ws(i, emit) {
+    const s = this.s;
+    while (i < s.length && isWs(s[i])) {
+      if (emit) this.out.push(s[i]);
+      i += 1;
+    }
+    return i;
+  }
+
+  put(emit, x) {
+    if (emit) this.out.push(x);
+  }
+
+  value(i, path, depth, emit) {
+    if (depth > MAX_JSON_DEPTH) throw new RedactionError('JSON nested too deeply');
+    const s = this.s;
+    if (i >= s.length) throw new NotJson('unexpected end');
+    const c = s[i];
+    if (c === '{') return this.object(i, path, depth, emit);
+    if (c === '[') return this.array(i, path, depth, emit);
+    if (c === '"') {
+      const j = this.stringEnd(i);
+      if (emit) this.out.push(this.redactString(s.slice(i, j)));
+      return j;
+    }
+    SCALAR_RE.lastIndex = i;
+    const m = SCALAR_RE.exec(s);
+    if (!m) throw new NotJson('bad value');
+    if (emit) this.out.push(m[0]);
+    return i + m[0].length;
+  }
+
+  object(i, path, depth, emit) {
+    const s = this.s;
+    this.put(emit, '{');
+    i = this.ws(i + 1, emit);
+    if (s[i] === '}') { this.put(emit, '}'); return i + 1; }
+    for (;;) {
+      if (s[i] !== '"') throw new NotJson('expected key');
+      const j = this.stringEnd(i);
+      const key = JSON.parse(s.slice(i, j));
+      this.put(emit, s.slice(i, j));
+      i = this.ws(j, emit);
+      if (s[i] !== ':') throw new NotJson('expected :');
+      this.put(emit, ':');
+      i = this.ws(i + 1, emit);
+      const kpath = [...path, lower(key)];
+      if (emit && (this.config.names.has(kpath[kpath.length - 1]) || this.config.paths.has(kpath.join('.')))) {
+        this.out.push(`"${REDACTED}"`);
+        this.count += 1;
+        i = this.value(i, kpath, depth + 1, false);
+      } else {
+        i = this.value(i, kpath, depth + 1, emit);
+      }
+      i = this.ws(i, emit);
+      if (s[i] === ',') { this.put(emit, ','); i = this.ws(i + 1, emit); continue; }
+      if (s[i] === '}') { this.put(emit, '}'); return i + 1; }
+      throw new NotJson('expected , or }');
+    }
+  }
+
+  array(i, path, depth, emit) {
+    const s = this.s;
+    this.put(emit, '[');
+    i = this.ws(i + 1, emit);
+    if (s[i] === ']') { this.put(emit, ']'); return i + 1; }
+    for (;;) {
+      i = this.value(i, path, depth + 1, emit);
+      i = this.ws(i, emit);
+      if (s[i] === ',') { this.put(emit, ','); i = this.ws(i + 1, emit); continue; }
+      if (s[i] === ']') { this.put(emit, ']'); return i + 1; }
+      throw new NotJson('expected , or ]');
+    }
+  }
+
+  stringEnd(i) {
+    STRING_RE.lastIndex = i;
+    const m = STRING_RE.exec(this.s);
+    if (!m) throw new NotJson('bad string');
+    return i + m[0].length;
+  }
+
+  redactString(token) {
+    const value = JSON.parse(token);
+    const first = value.replace(/^[ \t\n\r]+/, '')[0];
+    if (first === '{' || first === '[') {
+      // A JSON document inside a string (an SNS envelope's Message, for one): redact it as JSON.
+      const inner = new JsonScan(value, this.config);
+      let redacted;
+      try {
+        redacted = inner.run();
+      } catch (e) {
+        if (!(e instanceof NotJson)) throw e;
+      }
+      if (redacted !== undefined) {
+        if (!inner.count) return token;
+        this.count += inner.count;
+        return encodeString(redacted);
+      }
+    }
+    const [text, n] = redactText(value, this.config);
+    if (!n) return token;
+    this.count += n;
+    return encodeString(text);
+  }
+}
+
+/** [redacted body, number of values replaced, 'json' or 'text']. */
+function redactBody(body, config) {
+  const scan = new JsonScan(body, config);
+  try {
+    return [scan.run(), scan.count, 'json'];
+  } catch (e) {
+    if (!(e instanceof NotJson)) throw e;
+  }
+  const [text, n] = redactText(body, config);
+  return [text, n, 'text'];
+}
+
+// -- reading the body ------------------------------------------------------------------------------
+
+const utf8Bytes = (s) => Buffer.byteLength(s, 'utf8');
+const bodySize = (body) => (typeof body === 'string' ? utf8Bytes(body) : undefined);
+
+function parse(body) {
+  try {
+    return JSON.parse(body);
+  } catch (e) {
+    return undefined;
+  }
+}
+
+const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+function envelope(doc) {
+  if (isObject(doc)) {
+    if (doc.Type === 'Notification' && 'TopicArn' in doc) return 'sns';
+    if ('detail-type' in doc && 'detail' in doc && 'source' in doc) return 'eventbridge';
+  }
+  return undefined;
+}
+
+function md5Matches(body, md5) {
+  if (typeof md5 !== 'string' || !md5) return true; // nothing to check against
+  return crypto.createHash('md5').update(body, 'utf8').digest('hex') === md5.toLowerCase();
+}
+
+/** `{tenant, source}` from the configured message attribute, else the configured body path. */
+function tenantFrom(config, attributes, body, lambdaRecord = false) {
+  if (config.tenantAttribute && isObject(attributes)) {
+    const a = attributes[config.tenantAttribute];
+    const v = isObject(a) ? a[lambdaRecord ? 'stringValue' : 'StringValue'] : undefined;
+    if (typeof v === 'string' && v && v.length <= MAX_TENANT_CHARS) return { tenant: v, source: 'message_attribute' };
+  }
+  if (config.tenantBodyPath && typeof body === 'string') {
+    let doc = parse(body);
+    for (const part of config.tenantBodyPath.split('.')) doc = isObject(doc) ? doc[part] : undefined;
+    if (typeof doc === 'number' && Number.isFinite(doc)) doc = JSON.stringify(doc);
+    if (typeof doc === 'string' && doc && doc.length <= MAX_TENANT_CHARS) return { tenant: doc, source: 'body_path' };
+  }
+  return undefined;
+}
+
+/** Section 15 attributes for one message on a send or receive span. */
+function contentAttrs(config, queueName, body, attributes, md5, lambdaRecord = false) {
+  const out = {};
+  const size = bodySize(body);
+  if (size !== undefined) out['messaging.message.body.size'] = size;
+  const t = tenantFrom(config, attributes, body, lambdaRecord);
+  if (t) {
+    out['trailbeam.tenant'] = t.tenant;
+    out['trailbeam.tenant.source'] = t.source;
+  }
+  if (typeof body !== 'string') return out;
+  if (!config.bodyOn(queueName)) {
+    out['trailbeam.body.capture_status'] = STATUS_OFF;
+    return out;
+  }
+  if (!md5Matches(body, md5)) {
+    out['trailbeam.body.capture_status'] = STATUS_MD5_MISMATCH;
+    return out;
+  }
+  let redacted;
+  let count;
+  let format;
+  try {
+    [redacted, count, format] = redactBody(body, config);
+    encodeString(redacted);
+  } catch (e) {
+    out['trailbeam.body.capture_status'] = STATUS_REDACTION_FAILED;
+    return out;
+  }
+  if (utf8Bytes(redacted) > config.maxBodyBytes) {
+    out['trailbeam.body.capture_status'] = STATUS_EXCEEDS_LIMIT;
+    return out;
+  }
+  const doc = format === 'json' ? parse(body) : undefined;
+  const offloaded = Array.isArray(doc) && doc.length === 2 && doc[0] === S3_POINTER_CLASS;
+  out['trailbeam.body.capture_status'] = offloaded ? STATUS_OFFLOADED : STATUS_CAPTURED;
+  out['trailbeam.body'] = redacted;
+  out['trailbeam.body.format'] = format;
+  out['trailbeam.body.redacted_count'] = count;
+  const env = envelope(doc);
+  if (env) out['trailbeam.body.envelope'] = env;
+  return out;
+}
+
+/** The thrown value's message, redacted and cut to 1,024 characters, if error text is on for the queue. */
+function errorMessage(config, queueName, err) {
+  if (!config.errorsOn(queueName)) return undefined;
+  let text;
+  try {
+    text = err instanceof Error ? err.message : (typeof err === 'string' ? err : undefined);
+  } catch (e) {
+    return undefined;
+  }
+  if (typeof text !== 'string' || !text) return undefined;
+  try {
+    [text] = redactText(text, config);
+    const chars = Array.from(text); // code points, as Python slices strings
+    if (chars.length > MAX_ERROR_MESSAGE_CHARS) text = chars.slice(0, MAX_ERROR_MESSAGE_CHARS).join('');
+    encodeString(text);
+  } catch (e) {
+    return undefined; // fail closed: no text rather than unredacted text
+  }
+  return text;
+}
+
+function fifoAttrs(groupId, sequenceNumber) {
+  const out = {};
+  if (typeof groupId === 'string' && groupId) out['trailbeam.message_group_id'] = groupId;
+  if (typeof sequenceNumber === 'string' && sequenceNumber) out['trailbeam.sequence_number'] = sequenceNumber;
+  return out;
+}
+
+module.exports = {
+  Config,
+  resolveConfig,
+  redactText,
+  redactBody,
+  tenantFrom,
+  contentAttrs,
+  errorMessage,
+  fifoAttrs,
+  bodySize,
+  ENV,
+  PATTERNS,
+  DEFAULT_REDACT_KEYS,
+  DEFAULT_MAX_BODY_BYTES,
+  HARD_MAX_BODY_BYTES,
+  STATUS_CAPTURED,
+  STATUS_OFF,
+  STATUS_MD5_MISMATCH,
+  STATUS_REDACTION_FAILED,
+  STATUS_EXCEEDS_LIMIT,
+  STATUS_OFFLOADED,
+};

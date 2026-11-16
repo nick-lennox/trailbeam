@@ -1,10 +1,11 @@
-# Trailbeam span contract, schema version 3 (revision 3.1)
+# Trailbeam span contract, schema version 3 (revision 3.2)
 
 This file defines the OpenTelemetry spans that the `trailbeam` Python package and the `trailbeam` Node.js
 package emit, and that the Trailbeam reads. Both packages and Trailbeam are built and tested against
 it. A change to anything below is a contract change: bump `trailbeam.schema_version`, and update this file,
 both packages and Trailbeam in the same change. A revision (3.1) only adds an optional attribute that
-older stores ignore and that Trailbeam does not require; it keeps `trailbeam.schema_version = 3` (section 14).
+older stores ignore and that Trailbeam does not require; it keeps `trailbeam.schema_version = 3` (sections 14
+and 16).
 
 The keywords **must**, **must not**, **should** and **may** are used as in RFC 2119.
 
@@ -168,11 +169,11 @@ and produce no `trailbeam send` span in 0.1.
 | `faas.invocation_id` | string | must (Lambda) | `aws_request_id` / `awsRequestId` |
 
 - **Client hooks** **must** add `ApproximateReceiveCount`, `SentTimestamp`,
-  `ApproximateFirstReceiveTimestamp`, `AWSTraceHeader` and (3.1) `DeadLetterQueueSourceArn` to the request's
-  `MessageSystemAttributeNames` before the call, unless the caller already asked for them or for
-  `All`. They **must not** remove anything the caller asked for, and **must not** request message
-  attributes or read the body. (The prototypes also requested a `tenant` message attribute and read
-  the body; message contents are out of scope for 0.1.)
+  `ApproximateFirstReceiveTimestamp`, `AWSTraceHeader`, (3.1) `DeadLetterQueueSourceArn` and (3.2)
+  `MessageGroupId` and `SequenceNumber` to the request's `MessageSystemAttributeNames` before the call,
+  unless the caller already asked for them or for `All`. They **must not** remove anything the caller
+  asked for. The only message attribute they may add to `MessageAttributeNames` is the configured tenant
+  attribute (3.2, section 15.2). What they read from the body, and when they export it, is section 15.
 - **Lambda wrapper** copies `DeadLetterQueueSourceArn` from the record's `attributes` when it is there.
   Whether Lambda's SQS records carry it is **not verified**; the AWS sample events do not show it.
 - **Lambda wrapper** emits one `trailbeam receive` per record **before** the user handler runs, with
@@ -209,6 +210,7 @@ receive is shown as a delete with a stale receipt handle.
 | `messaging.message.id` | string | must | record `messageId` |
 | `trailbeam.outcome` | string | must | one of the values below |
 | `trailbeam.error_type` | string | must if `failed_exception` | the exception's class name, such as `RuntimeError` or `TypeError` |
+| `trailbeam.error_message` | string | may (3.2) | the exception's message, redacted, only for queues with error text turned on (section 15.5) |
 | `faas.name` | string | must | function name |
 | `faas.invocation_id` | string | must | `aws_request_id` / `awsRequestId` |
 
@@ -221,8 +223,9 @@ receive is shown as a delete with a stale receipt handle.
 | `failed_invalid_response` | `batchItemFailures` contained an `itemIdentifier` that is not a record ID in this batch; Lambda treats this as a failure of the whole batch, so every record gets this value |
 | `failed_exception` | the handler threw; every record gets this value |
 
-The exception **message** is not recorded, only its class name, because messages often contain
-message contents. (The prototypes recorded `repr(e)`.) If the function times out or runs out of
+The exception **message** is not recorded by default, only its class name, because messages often
+contain message contents. (The prototypes recorded `repr(e)`.) From 3.2 it is recorded, redacted, for
+queues the user turned error text on for (section 15.5). If the function times out or runs out of
 memory, no `trailbeam outcome` is emitted; Trailbeam infers it from the `trailbeam receive` with no outcome.
 The prototype value `success_deleted_by_lambda` is renamed `success`, because the delete is not seen.
 
@@ -478,8 +481,8 @@ Changed, each described where it is defined above:
 | `process.pid`, `thread.name`, `service.name` only | also `messaging.client.id` |
 | `qv2.sent_timestamp` as a string | `trailbeam.sent_timestamp_ms` as an int |
 | `qv2.t_ns` | dropped; span start time is used |
-| `qv2.tenant`, `qv2.tenant.source`, `tenant` message attribute | dropped (message contents are out of scope for 0.1); the name `trailbeam.tenant` is reserved |
-| `qv2.error = repr(e)` | `trailbeam.error_type`, class name only |
+| `qv2.tenant`, `qv2.tenant.source`, `tenant` message attribute | dropped in 0.1; back in 3.2 as `trailbeam.tenant` and `trailbeam.tenant.source`, from a configured attribute or body path (section 15.2) |
+| `qv2.error = repr(e)` | `trailbeam.error_type`, class name only; 3.2 adds an opt-in, redacted `trailbeam.error_message` |
 | `success_deleted_by_lambda` | `success` |
 | empty strings and `-1` for absent values | attribute omitted |
 | Node.js hooks without batch settle or tenant | Node.js and Python emit the same spans |
@@ -537,3 +540,220 @@ is set at the first receive and kept on later ones).
 
 `trailbeam.schema_version` stays `3`: the attribute is optional, a Trailbeam built for contract 3.0 ignores it, and one built for 3.1
 reads 3.0 spans (they simply never show a move).
+
+## 15. Message contents (revision 3.2)
+
+Revision 3.2 reads message contents for the first time: body size, the tenant, FIFO fields, an
+opt-in captured body and opt-in Lambda error text. Every attribute in this section is optional.
+Trailbeam builds for 3.0 and 3.1 ignore them, and a 3.2 Trailbeam reads older spans, which just
+don't have them.
+
+**The packages make no SQS calls of their own.** They read only the parameters and responses of the
+calls the application makes, and the Lambda event. They never call `ReceiveMessage` to fetch a body,
+including a "peek" with `VisibilityTimeout = 0`: a receive raises the message's receive count,
+changes its visibility and issues a new receipt handle, so it can push the message to the
+dead-letter queue early. They never call `ChangeMessageVisibility`, and never fetch an offloaded body
+from S3. Each package has a test that fails if the hooks make an SQS request
+(`python/tests/test_capture.py`, `node/test/capture.test.js`).
+
+### 15.1 Configuration
+
+Configuration is per process. Each option group is given to `trailbeam.boto.install` /
+`trailbeam.aws_lambda.wrap` (Python) or `install` / `wrapHandler` (Node.js). If a group is not given,
+the package reads its environment variables instead. A group that is given replaces its environment
+variables as a whole.
+
+| Option (Python / Node.js) | Environment variable | Default |
+|---|---|---|
+| `tenant.message_attribute` / `tenant.messageAttribute` | `TRAILBEAM_TENANT_ATTRIBUTE` | none |
+| `tenant.body_path` / `tenant.bodyPath` | `TRAILBEAM_TENANT_BODY_PATH` | none |
+| `capture.body_queues` / `capture.bodyQueues` | `TRAILBEAM_CAPTURE_BODY_QUEUES` (comma-separated) | none: no body is captured |
+| `capture.error_queues` / `capture.errorQueues` | `TRAILBEAM_CAPTURE_ERROR_QUEUES` | none: no error text is recorded |
+| `capture.redact_keys` / `capture.redactKeys` | `TRAILBEAM_REDACT_KEYS` | added to the default keys (15.3) |
+| `capture.redact_patterns` / `capture.redactPatterns` | `TRAILBEAM_REDACT_PATTERNS` | all built-in patterns (15.3) |
+| `capture.max_body_bytes` / `capture.maxBodyBytes` | `TRAILBEAM_CAPTURE_MAX_BYTES` | 16384; at most 262144 |
+
+A queue list holds queue names (`messaging.destination.name`), or `*` for every queue. Capture is
+**opt-in per queue**: a body is exported only for a listed queue. Trailbeam adds a second gate when it
+stores spans. That gate belongs to the server, not to this contract:
+
+- The open-source server stores a body only for the queues in `TRAILBEAM_STORE_BODIES` (none by
+  default). For other queues it removes `trailbeam.body`, `trailbeam.body.format`,
+  `trailbeam.body.redacted_count` and `trailbeam.body.envelope` before writing, keeps
+  `trailbeam.body.capture_status`, and marks the span as having had its body dropped.
+- The hosted Trailbeam app stores a body only for queues an admin opted in under Settings, and shows
+  bodies to owners and admins only.
+
+How both show a body, or the reason there is none, and search bodies is in [body-view.md](body-view.md).
+
+### 15.2 Attributes
+
+On every `trailbeam send` and `trailbeam receive` (client hooks and Lambda wrapper), when the body is
+known:
+
+| Attribute | Type | Req. | Value |
+|---|---|---|---|
+| `messaging.message.body.size` | int | must | UTF-8 length of the body in bytes. Message attributes are not counted. |
+| `trailbeam.body.capture_status` | string | must | 15.4 |
+| `trailbeam.body` | string | when captured | the redacted body (15.3) |
+| `trailbeam.body.format` | string | when captured | `json` if the body is a JSON document, else `text` |
+| `trailbeam.body.redacted_count` | int | when captured | how many values redaction replaced; `0` is a real value |
+| `trailbeam.body.envelope` | string | may | `sns` (a JSON object with `"Type": "Notification"` and `TopicArn`) or `eventbridge` (with `detail-type`, `detail` and `source`): the body is a delivery envelope, not the producer's own payload |
+| `trailbeam.tenant` | string | when configured and found | the tenant, at most 256 characters |
+| `trailbeam.tenant.source` | string | with `trailbeam.tenant` | `message_attribute` or `body_path` |
+| `trailbeam.message_group_id` | string | when SQS has one | `MessageGroupId`: from the request on a send, from the system attribute on a receive |
+| `trailbeam.sequence_number` | string | when SQS returns one | `SequenceNumber` (FIFO queues): from the send response, or from the system attribute on a receive. A string, because it is a decimal number of up to 128 bits. |
+
+Where each value comes from:
+
+| | Send (client hooks) | Receive (client hooks) | Lambda wrapper |
+|---|---|---|---|
+| body | `MessageBody` of the request (`SendMessage`), or of the request entry whose `Id` equals the `Successful[]` entry's `Id` (`SendMessageBatch`) | `Messages[].Body` | `Records[].body` |
+| MD5 checked against | `MD5OfMessageBody` of the response or `Successful[]` entry | `MD5OfBody` | `md5OfBody` |
+| tenant attribute | `MessageAttributes[name].StringValue` of the request (entry) | `MessageAttributes[name].StringValue` | `messageAttributes[name].stringValue` |
+| sequence number | `SequenceNumber` of the response or entry | system attribute `SequenceNumber` | `attributes.SequenceNumber` |
+
+A failed batch entry produces no `trailbeam send` (section 4.1), so it has no body either.
+
+**Tenant.** The message attribute is tried first, then the body path. The body path is a dotted path of
+object keys (`customer.id`) into a JSON body; the value must be a string or a number, and a number is
+written as the language prints it, so `42` becomes `"42"` (use string IDs if they can exceed 2^53).
+Reading the tenant from the body parses the body in the process. That does not export the body; only
+capture does. For a receive, the hooks add the tenant attribute name to `MessageAttributeNames` unless
+the caller already asked for it, `All` or `.*`. That changes what SQS returns, not the message's state.
+
+The Lambda wrapper also sets, on every `trailbeam receive` and `trailbeam outcome`:
+
+| Attribute | Type | Req. | Value |
+|---|---|---|---|
+| `trailbeam.batch.size` | int | must (3.2) | number of SQS records in the event |
+| `trailbeam.batch.index` | int | must (3.2) | 0-based position of this record among them |
+| `trailbeam.batch.reported_failure_count` | int | outcome, when the handler returned (3.2) | how many records were in a valid `batchItemFailures` list, `0` when there was none. Omitted when the list was invalid (every record is then `failed_invalid_response`) and when the handler threw. |
+
+These are not `messaging.batch.message_count`: the semantic conventions say not to set it on spans
+that operate on a single message, and each of these spans is one record.
+
+### 15.3 Redaction
+
+Redaction runs in the package, before the span is exported. Both packages implement exactly the rules
+below, and both are tested against the `capture` vectors in
+[`span-contract-vectors.json`](span-contract-vectors.json).
+
+**JSON bodies.** A body is JSON if it parses as one strict JSON document (RFC 8259), with
+whitespace allowed around it. The package copies the body and rewrites only what it redacts, so the
+output keeps the input's formatting and number text:
+
+- A member whose key matches a **redact key** has its whole value (string, number, object or array)
+  replaced by the string `"[REDACTED]"`. A key without a `.` matches the member's name at any depth. A
+  key with a `.` matches the full path of object keys from the root (`customer.name`); arrays add no
+  segment. Keys compare ASCII-case-insensitively. Each replaced value counts 1.
+- Any other string value whose text, after whitespace, starts with `{` or `[` and is itself JSON (an SNS
+  envelope's `Message`, for one) is redacted by these same rules. If that changed anything, it is
+  written back as a JSON string.
+- Any other string value gets the text rules below. A string that changes is written back as a JSON
+  string, with no `\u` escapes beyond the ones JSON requires.
+- Nesting deeper than 100 levels is a redaction failure.
+
+**Text bodies** (anything that is not JSON), and Lambda error messages, get the text rules:
+
+1. `key=value` and `key: value` pairs for the redact keys without a `.`: the value (to the next space,
+   tab, newline, `,`, `;` or `&`, or a whole `"..."` or `'...'`) is replaced by `[REDACTED]`.
+2. The built-in patterns, in this order, each match replaced by `[REDACTED]`:
+
+| Pattern | Matches |
+|---|---|
+| `aws_access_key` | `AKIA` or `ASIA` and 16 upper-case letters or digits |
+| `bearer` | `Bearer ` or `bearer ` and the token after it |
+| `email` | an email address |
+| `long_number` | 9 or more digits, single spaces or hyphens allowed between them: card numbers, phone numbers, US SSNs. It also hides AWS account IDs and long order numbers; turn it off if that is too much. |
+
+The regular expressions are in `_capture.py` and `capture.js`. They use ASCII classes only, so
+Python's `re` and JavaScript's `RegExp` match the same strings.
+
+Default redact keys: `password`, `passwd`, `secret`, `token`, `access_token`, `refresh_token`,
+`authorization`, `api_key`, `apikey`, `ssn`, `card_number`, `cardnumber`, `cvv`, `cvc`. A configured
+key may contain only `A-Z a-z 0-9 _ . -`; a package refuses anything else at install time, as it does
+an unknown pattern name.
+
+**Fail closed.** If redaction throws, or its result cannot be encoded as UTF-8 (a lone surrogate), the
+body is not exported (`redaction_failed`). Redaction is pattern matching. It removes what the keys and
+patterns describe, and nothing else; that is why capture is opt-in per queue.
+
+### 15.4 `trailbeam.body.capture_status`
+
+Set by a 3.2 package on every send and receive whose body it saw. Checked in this order:
+
+| Value | Meaning |
+|---|---|
+| `off` | the queue is not in the body queue list |
+| `md5_mismatch` | the MD5 of the body's UTF-8 bytes does not equal SQS's MD5 for the message, so the body the package holds is not the one SQS stored. Not exported. If there is no MD5 to check against, the check is skipped. |
+| `redaction_failed` | 15.3. Not exported. |
+| `exceeds_capture_limit` | the redacted body is longer than the capture limit in UTF-8 bytes. Not exported, not truncated. |
+| `offloaded_to_s3` | the body is an SQS Extended Client pointer: a JSON array of two items whose first is `"software.amazon.payloadoffloading.PayloadS3Pointer"`. The pointer is exported as the body; the payload in S3 is never fetched. |
+| `captured` | exported in `trailbeam.body` |
+
+Trailbeam **should** work out two more reasons itself, for a message with no captured body: **producer not
+instrumented** (no `trailbeam send`, and no receive captured it) and **package too old** (spans from
+before 3.2, with no status). It shows the reason instead of an empty body.
+
+**Which copy Trailbeam keeps.** With capture on, a body can arrive from the send and from each receive.
+Trailbeam keeps one body per message ID, preferring the send's, because the producer's copy is the
+payload before any delivery envelope. The receive copies are the fallback for producers that don't run
+a Trailbeam package. The packages don't try to avoid the duplicate: telling a receive that its producer
+was instrumented would mean adding a marker to the message, and the packages never change messages.
+
+The default limit of 16 KiB, and the hard limit of 256 KiB, are a judgment, not measured. A body
+travels as one span attribute in an OTLP export batch. The OpenTelemetry SDKs set no attribute length
+limit by default, but large spans mean large export requests, and many collectors and Trailbeam's
+ingest bound the request size [estimate: not measured]. SQS itself accepts bodies up to 1 MiB
+(1,048,576 bytes) since August 2025
+([announcement](https://aws.amazon.com/about-aws/whats-new/2025/08/amazon-sqs-max-payload-size-1mib),
+[quotas](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/quotas-messages.html)).
+
+### 15.5 Lambda error text
+
+When a handler throws, and the record's queue is in the error queue list, each record's
+`trailbeam outcome` carries `trailbeam.error_message`: the thrown error's message (`str(e)` in Python;
+`err.message` in Node.js, or the value itself if a string was thrown), after the text rules of 15.3,
+cut to its first 1,024 Unicode code points. If redaction fails, the attribute is omitted. Error text
+for other consumers is not in 3.2: they have no handler wrapper, so the packages never see the
+exception.
+
+### 15.6 Verified and not verified
+
+Verified:
+
+- The FIFO record fields (`MessageGroupId`, `SequenceNumber`, `md5OfBody`, `messageAttributes`, `body`) are
+  in the AWS sample events in
+  [Using Lambda with Amazon SQS](https://docs.aws.amazon.com/lambda/latest/dg/with-sqs.html) (checked
+  2026-11-16).
+- `messaging.message.body.size` (int, bytes) and the advice not to set `messaging.batch.message_count` on
+  single-message spans are from the
+  [messaging attribute registry](https://opentelemetry.io/docs/specs/semconv/registry/attributes/messaging/)
+  (checked 2026-11-16). The semantic conventions have no generic message group attribute, so the FIFO
+  names are ours.
+- The pointer class name `software.amazon.payloadoffloading.PayloadS3Pointer`, from
+  [payload-offloading-java-common-lib-for-aws](https://github.com/awslabs/payload-offloading-java-common-lib-for-aws/blob/master/src/main/java/software/amazon/payloadoffloading/PayloadS3Pointer.java).
+- Both packages produce identical redaction, tenant and error-text output for every vector.
+- Body, MD5 check, tenant attribute and message group against moto's SQS (Python tests).
+
+Not verified:
+
+- That the Extended Client writes the pointer as the two-item array above. That array comes from
+  Jackson's default typing, which the library's `JsonDataConverter` uses [estimate: not checked
+  against a real offloaded message].
+- `SequenceNumber` on a real FIFO queue: moto returns none, so the tests check it on canned responses.
+  ElasticMQ and AWS were not run for 3.2.
+- How large a span Trailbeam's ingest and common collectors accept (15.4).
+
+## 16. Changes in revision 3.2
+
+| 3.1 | 3.2 |
+|---|---|
+| no message contents: "the hooks must not request message attributes or read the body" | body size always; tenant, FIFO group and sequence number when present; body and Lambda error text opt-in per queue, redacted in the package (section 15) |
+| receive hooks asked for five system attributes | also `MessageGroupId` and `SequenceNumber`, and the configured tenant message attribute |
+| Lambda spans did not say where a record sat in its batch | `trailbeam.batch.size`, `trailbeam.batch.index`, and on outcomes `trailbeam.batch.reported_failure_count` |
+| exception class name only | plus `trailbeam.error_message`, opt-in and redacted |
+
+`trailbeam.schema_version` stays `3`: every new attribute is optional, Trailbeam requires none of them
+(section 4.5 is unchanged), and a Trailbeam built for 3.1 ignores them.

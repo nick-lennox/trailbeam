@@ -24,6 +24,7 @@ const {
 const { Emitter, makeProvider, nowMs, SERVICE_INSTANCE_ID } = require('./emitter');
 const { HandleMap } = require('./handles');
 const order = require('./order');
+const capture = require('./capture');
 
 const MIDDLEWARE_NAME = 'trailbeamSqsMiddleware';
 
@@ -34,6 +35,8 @@ const RECEIVE_SYSTEM_ATTRIBUTES = Object.freeze([
   'ApproximateFirstReceiveTimestamp',
   'AWSTraceHeader',
   'DeadLetterQueueSourceArn', // schema 3.1: SQS sets it only on a receive from a dead-letter queue
+  'MessageGroupId', // 3.2: FIFO queues (and fair standard queues)
+  'SequenceNumber', // 3.2: FIFO queues only
 ]);
 
 // operation -> [span name, is batch]
@@ -64,6 +67,17 @@ function addReceiveAttributeNames(input) {
   // A caller using only the deprecated AttributeNames keeps using it; otherwise use the current name.
   if (legacy.length && !cur.length) return { ...input, AttributeNames: [...legacy, ...missing] };
   return { ...input, MessageSystemAttributeNames: [...cur, ...missing] };
+}
+
+/**
+ * 3.2: a copy of a ReceiveMessage input that also asks for the one configured tenant message
+ * attribute; or `undefined` if nothing needs adding. The caller's object is never modified.
+ */
+function addMessageAttributeName(input, name) {
+  if (!name) return undefined;
+  const asked = Array.isArray(input.MessageAttributeNames) ? input.MessageAttributeNames : [];
+  if (asked.includes(name) || asked.includes('All') || asked.includes('.*')) return undefined;
+  return { ...input, MessageAttributeNames: [...asked, name] };
 }
 
 /**
@@ -100,9 +114,27 @@ function spanTimes({ startTime, endTime, issued, returned } = {}) {
  * version 3); every span of one call, batch entries included, gets them.
  */
 class SqsHooks {
-  constructor(emitter, handles = new HandleMap()) {
+  constructor(emitter, handles = new HandleMap(), config = new capture.Config()) {
     this.emitter = emitter;
     this.handles = handles;
+    this.config = config;
+  }
+
+  contents(queueName, body, attributes, md5) {
+    try {
+      return capture.contentAttrs(this.config, queueName, body, attributes, md5);
+    } catch (e) {
+      debug('content attributes', e); // a capture bug must not lose the span
+      return { 'trailbeam.body.capture_status': capture.STATUS_REDACTION_FAILED };
+    }
+  }
+
+  /** 3.2 attributes of one sent message: the body from the request, checked against the response's MD5. */
+  sent(queueName, request, response) {
+    return {
+      ...capture.fifoAttrs(request.MessageGroupId, response.SequenceNumber),
+      ...this.contents(queueName, request.MessageBody, request.MessageAttributes, response.MD5OfMessageBody),
+    };
   }
 
   onSend(operation, input, output, parentContext, times = {}) {
@@ -112,15 +144,18 @@ class SqsHooks {
     const t = spanTimes(times);
     if (operation === 'SendMessage') {
       if (output.MessageId) {
-        this.emitter.emit(SPAN_SEND, operation, name, url, { 'messaging.message.id': output.MessageId },
-          { parentContext, ...t });
+        const attrs = { 'messaging.message.id': output.MessageId, ...this.sent(name, input, output) };
+        this.emitter.emit(SPAN_SEND, operation, name, url, attrs, { parentContext, ...t });
       }
       return;
     }
+    const requests = new Map((Array.isArray(input.Entries) ? input.Entries : []).filter(Boolean).map((e) => [e.Id, e]));
     for (const entry of output.Successful || []) {
       if (!entry || !entry.MessageId) continue;
       const attrs = { 'messaging.message.id': entry.MessageId };
       put(attrs, 'trailbeam.batch_entry_id', entry.Id);
+      // The body comes from the request entry with the same Id.
+      if (requests.has(entry.Id)) Object.assign(attrs, this.sent(name, requests.get(entry.Id), entry));
       this.emitter.emit(SPAN_SEND, operation, name, url, attrs, { parentContext, ...t });
     }
   }
@@ -141,6 +176,8 @@ class SqsHooks {
       put(attrs, 'trailbeam.first_receive_timestamp_ms', intOrUndefined(a.ApproximateFirstReceiveTimestamp));
       put(attrs, 'trailbeam.aws_trace_header', a.AWSTraceHeader);
       put(attrs, 'trailbeam.dead_letter_queue_source_arn', a.DeadLetterQueueSourceArn);
+      Object.assign(attrs, capture.fifoAttrs(a.MessageGroupId, a.SequenceNumber));
+      Object.assign(attrs, this.contents(name, m.Body, m.MessageAttributes, m.MD5OfBody));
       this.emitter.emit(SPAN_RECEIVE, 'ReceiveMessage', name, url, attrs, { parentContext, ...t });
     }
   }
@@ -192,8 +229,9 @@ function sqsMiddleware(getHooks) {
     const input = args.input;
     if (operation === 'ReceiveMessage') {
       try {
-        const changed = addReceiveAttributeNames(input);
-        if (changed) args = { ...args, input: changed };
+        let changed = addReceiveAttributeNames(input) || input;
+        changed = addMessageAttributeName(changed, hooks.config && hooks.config.tenantAttribute) || changed;
+        if (changed !== input) args = { ...args, input: changed };
       } catch (e) {
         debug('receive request hook', e);
       }
@@ -240,13 +278,17 @@ let state = null;
  * @param {string} [options.receiptHashKey] takes precedence over $TRAILBEAM_RECEIPT_HASH_KEY
  * @param {import('@opentelemetry/sdk-trace-base').SpanExporter} [options.spanExporter]
  * @param {import('@opentelemetry/sdk-trace-base').SpanProcessor} [options.spanProcessor]
+ * @param {{messageAttribute?: string, bodyPath?: string}} [options.tenant] contract section 15
+ * @param {{bodyQueues?: string[], errorQueues?: string[], redactKeys?: string[], redactPatterns?: string[], maxBodyBytes?: number}} [options.capture]
+ *   contract section 15; body capture is off unless a queue is listed in `bodyQueues`
  */
 function install(options = {}) {
+  const config = capture.resolveConfig(options.tenant, options.capture);
   const previous = state;
   const { provider, resource } = makeProvider(options);
   const clientId = resource.attributes[SERVICE_INSTANCE_ID];
   const emitter = new Emitter(provider, resolveHasher(options.receiptHashKey), 'client', clientId);
-  state = { provider, hooks: new SqsHooks(emitter) };
+  state = { provider, hooks: new SqsHooks(emitter, new HandleMap(), config) };
   if (previous) previous.provider.shutdown().catch((e) => debug('provider shutdown', e));
   return provider;
 }
@@ -289,6 +331,7 @@ module.exports = {
   SqsHooks,
   sqsMiddleware,
   addReceiveAttributeNames,
+  addMessageAttributeName,
   errorCode,
   plainCode,
   RECEIVE_SYSTEM_ATTRIBUTES,

@@ -47,6 +47,9 @@ answers a narrower question: where did this one message go?
   carries `DeadLetterQueueSourceArn`. It is never guessed from settings.
 - **Lambda outcomes.** A handler wrapper records how each record ended: success, a reported batch
   item failure, or an exception.
+- **Tenants.** Name the message attribute or JSON body field that holds your customer, and
+  Trailbeam shows per tenant: messages sent, their share, p95 time in queue and dead-lettered
+  messages. You can also list one tenant's messages and search tenants by name.
 - **Works with the OpenTelemetry you already run.** The packages use their own tracer provider with
   an always-on sampler, so your sampling never drops a message's history.
 - **Hands off your queues.** Trailbeam makes no SQS calls of its own and never calls `ReceiveMessage`,
@@ -116,6 +119,31 @@ export OTEL_SERVICE_NAME=orders-worker
 
 Full guides: [Python](python/README.md), [Node.js](node/README.md), and the Lambda sections in each.
 
+### Tenants
+
+To see traffic per customer, tell the packages where the tenant is. Set the same value in every
+service that sends or receives on those queues:
+
+```sh
+export TRAILBEAM_TENANT_ATTRIBUTE=tenant        # a message attribute, tried first
+export TRAILBEAM_TENANT_BODY_PATH=customer.id   # else a dotted path in a JSON body
+```
+
+You can also pass `tenant={"message_attribute": ..., "body_path": ...}` to `trailbeam.boto.install()`
+or `tenant: { messageAttribute, bodyPath }` to `install()` in Node.js (and the same to the Lambda
+wrappers); an option given in code replaces both environment variables. Spans then carry
+`trailbeam.tenant` (span contract, section 15.2). Trailbeam has no setting of its own for this: it
+reads the tenant the packages recorded. Reading the body path parses the body in your process, but
+the body is not exported.
+
+The **Tenants** page (`/tenants`) shows, for the last hour, day or week: messages sent, share of all
+sends, p95 time in queue (send to first receive) and dead-lettered messages, per tenant. A tenant's
+name links to its messages (`/?tenant=acme`), and the search box in the header suggests tenants as
+you type. The same data is in the JSON API: `GET /api/tenants`, `GET /api/tenants/search?q=` and
+`GET /api/messages?tenant=`. How every number is counted is in
+[`contract/tenants.md`](contract/tenants.md). The hosted app counts them the same way and is tested
+against the same recorded spans.
+
 ## Self-hosting
 
 Trailbeam is one container. It receives OTLP on `/v1/traces` and serves the web screen and the JSON
@@ -132,6 +160,32 @@ There is no authentication in 0.1, so keep it on `127.0.0.1` or a trusted networ
 [Run Trailbeam](https://docs.trailbeam.app/setup/run) and, to forward spans through an OpenTelemetry Collector, the
 [Collector configuration](collector/README.md).
 
+### Message bodies
+
+Trailbeam stores no message body unless you opt queues in on the server as well as in the package:
+
+```sh
+docker run ... -e TRAILBEAM_STORE_BODIES=orders,payments trailbeam   # or trailbeam --store-bodies orders,payments
+```
+
+A package exports a body only for the queues in its own capture list, redacted
+([span contract 15](contract/span-contract.md#15-message-contents-revision-32)).
+`TRAILBEAM_STORE_BODIES` is the second gate: for any queue not in it (`*` means every queue), Trailbeam
+removes the body attributes before writing the span, and records that it did. The default is no queue.
+
+The bodies it keeps are on the message page's **Body** tab, one per message (the send's copy, else the
+first receive's). A message with no body says why: the package's capture status, a producer that isn't
+instrumented, a package from before 3.2, or a body this server dropped because its queue isn't in
+`TRAILBEAM_STORE_BODIES`. The Messages page searches them with `body.*` terms such as
+`body.order.sku:A-100` or `body.amount:>=100`, and so does `GET /api/messages?body=...`. The rules are in
+[`contract/body-view.md`](contract/body-view.md); the hosted app follows the same ones and draws the same view.
+
+**Access control is off-unless-on plus the network.** There are no logins and no roles: anyone who can
+reach Trailbeam can read every body it keeps, in the Body tab and from `/api/messages/{id}/body`, and
+anyone who can read its SQLite file can read them there. Trailbeam logs a warning at startup when the list
+is set. Keep it on a trusted network. Redaction happens in the packages, not in Trailbeam. Taking a queue
+off the list stops its bodies being shown or searched, but doesn't delete the ones already in the file.
+
 ## Open source and the hosted app
 
 Everything that tells you what happened to your messages is open source and runs on your own
@@ -142,6 +196,7 @@ It is not generally available yet.
 |---|---|---|
 | The packages for your services | yes | yes, the same packages with an ingest key |
 | A message's timeline, lookup by message ID | yes | yes |
+| Lambda error text on the timeline, errors grouped by cause | yes | yes |
 | Stuck messages and duplicate deliveries | yes | yes |
 | Overview of flows between services and queues | coming | yes |
 | Event explorer | coming | coming |
@@ -150,8 +205,9 @@ It is not generally available yet.
 | Dashboards | | yes |
 | Hosting, retention and backups | | yes |
 
-Both show the same timeline from the same rules: the hosted app's message pages are checked against
-this repository's code.
+Both show the same timeline from the same rules: the hosted app draws it with this repository's
+`@trailbeam/ui`, and its message pages are checked against this repository's code and the shared span
+fixtures in [`contract/fixtures/`](contract/fixtures/).
 
 ## How it works
 
@@ -169,7 +225,9 @@ Full explanation: [How Trailbeam works](https://docs.trailbeam.app/concepts/how-
 
 - It makes no SQS calls of its own, and never calls `ReceiveMessage` on your queues. Trailbeam makes
   no AWS calls.
-- It does not record message bodies or message attributes.
+- It does not store message bodies unless you opt the queue in, both in the package and on the server
+  ([Message bodies](#message-bodies)). It does not record message attributes, except the one you name
+  as the tenant attribute.
 - It does not export receipt handles, only a keyed hash of each one.
 
 ## Documentation
@@ -195,11 +253,11 @@ contract, the specification the packages and Trailbeam both follow, is
 |---|---|
 | [`python/`](python/) | Python package `trailbeam`: boto3 hooks, a Lambda handler wrapper, and Trailbeam itself (`trailbeam.server`, installed with the `server` extra) |
 | [`node/`](node/) | Node.js package `trailbeam`: AWS SDK v3 hooks and a Lambda handler wrapper |
-| [`ui/`](ui/) | `@trailbeam/ui`: the views Trailbeam's web screen and the hosted app share (the timeline so far) |
+| [`ui/`](ui/) | `@trailbeam/ui`: the views Trailbeam's web screen and the hosted app share (the timeline and the Tenants table so far) |
 | [`Dockerfile`](Dockerfile) | The Trailbeam container: `trailbeam[server]` with SQLite on a volume |
 | [`collector/`](collector/) | OpenTelemetry Collector configuration |
 | [`demo/`](demo/) | Local demo on ElasticMQ with Docker Compose, and the concurrency check (`demo/check.sh`) |
-| [`contract/`](contract/) | The span contract and the receipt-hash test vectors |
+| [`contract/`](contract/) | The span contract, the receipt-hash test vectors, the Tenants query ([`tenants.md`](contract/tenants.md)) and the recorded contract 3.2 spans both Trailbeam and the hosted app test against ([`fixtures/`](contract/fixtures/)) |
 
 ## Development
 

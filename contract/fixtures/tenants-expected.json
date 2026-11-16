@@ -1,0 +1,215 @@
+{
+ "about": "Expected outputs of contract/tenants.md for fixtures/contract-3.2-spans.json. Self-hosted Trailbeam (python/tests/server/test_tenants.py) and the hosted app check them; keep both in step.",
+ "lambda_timeout_s": 900,
+ "now_ns": "1794852397716000000",
+ "stats": [
+  {
+   "name": "whole fixture",
+   "from_ms": 0,
+   "to_ms": 1794852397716,
+   "total_sent": 7,
+   "untagged_sent": 1,
+   "capped": false,
+   "rows": [
+    {
+     "tenant": "globex",
+     "sent": 2,
+     "share": 0.2857142857142857,
+     "p95_in_queue_ms": 430,
+     "first_deliveries": 3,
+     "dead_lettered": 1
+    },
+    {
+     "tenant": "acme",
+     "sent": 2,
+     "share": 0.2857142857142857,
+     "p95_in_queue_ms": 430,
+     "first_deliveries": 3,
+     "dead_lettered": 0
+    },
+    {
+     "tenant": "initech",
+     "sent": 2,
+     "share": 0.2857142857142857,
+     "p95_in_queue_ms": 512,
+     "first_deliveries": 2,
+     "dead_lettered": 0
+    },
+    {
+     "tenant": "hooli",
+     "sent": 0,
+     "share": 0.0,
+     "p95_in_queue_ms": 2,
+     "first_deliveries": 1,
+     "dead_lettered": 0
+    }
+   ]
+  },
+  {
+   "name": "after the sends: the dead-letter move and later first deliveries",
+   "from_ms": 1794852337040,
+   "to_ms": 1794852397716,
+   "total_sent": 1,
+   "untagged_sent": 1,
+   "capped": false,
+   "rows": [
+    {
+     "tenant": "globex",
+     "sent": 0,
+     "share": 0.0,
+     "p95_in_queue_ms": 430,
+     "first_deliveries": 2,
+     "dead_lettered": 1
+    },
+    {
+     "tenant": "acme",
+     "sent": 0,
+     "share": 0.0,
+     "p95_in_queue_ms": 430,
+     "first_deliveries": 2,
+     "dead_lettered": 0
+    },
+    {
+     "tenant": "initech",
+     "sent": 0,
+     "share": 0.0,
+     "p95_in_queue_ms": 512,
+     "first_deliveries": 2,
+     "dead_lettered": 0
+    }
+   ]
+  },
+  {
+   "name": "up to and including the first receives at 1794852337039",
+   "from_ms": 0,
+   "to_ms": 1794852337039,
+   "total_sent": 6,
+   "untagged_sent": 0,
+   "capped": false,
+   "rows": [
+    {
+     "tenant": "acme",
+     "sent": 2,
+     "share": 0.3333333333333333,
+     "p95_in_queue_ms": 129,
+     "first_deliveries": 1,
+     "dead_lettered": 0
+    },
+    {
+     "tenant": "globex",
+     "sent": 2,
+     "share": 0.3333333333333333,
+     "p95_in_queue_ms": 126,
+     "first_deliveries": 1,
+     "dead_lettered": 0
+    },
+    {
+     "tenant": "initech",
+     "sent": 2,
+     "share": 0.3333333333333333,
+     "p95_in_queue_ms": null,
+     "first_deliveries": 0,
+     "dead_lettered": 0
+    },
+    {
+     "tenant": "hooli",
+     "sent": 0,
+     "share": 0.0,
+     "p95_in_queue_ms": 2,
+     "first_deliveries": 1,
+     "dead_lettered": 0
+    }
+   ]
+  },
+  {
+   "name": "empty",
+   "from_ms": 1794852397717,
+   "to_ms": 1794852397718,
+   "total_sent": 0,
+   "untagged_sent": 0,
+   "capped": false,
+   "rows": []
+  }
+ ],
+ "filter": [
+  {
+   "tenant": "acme",
+   "message_ids": [
+    "m-bill-1",
+    "m-orders-1",
+    "m-pay-1"
+   ]
+  },
+  {
+   "tenant": "globex",
+   "message_ids": [
+    "m-bill-2",
+    "m-orders-2",
+    "m-pay-2"
+   ]
+  },
+  {
+   "tenant": "hooli",
+   "message_ids": [
+    "m-orphan"
+   ]
+  },
+  {
+   "tenant": "initech",
+   "message_ids": [
+    "m-fifo-1",
+    "m-fifo-2"
+   ]
+  },
+  {
+   "tenant": "ACME",
+   "message_ids": []
+  },
+  {
+   "tenant": "nobody",
+   "message_ids": []
+  }
+ ],
+ "search": [
+  {
+   "text": "GL",
+   "tenants": [
+    "globex"
+   ]
+  },
+  {
+   "text": "a",
+   "tenants": [
+    "acme"
+   ]
+  },
+  {
+   "text": "INIT",
+   "tenants": [
+    "initech"
+   ]
+  },
+  {
+   "text": "acme",
+   "tenants": [
+    "acme"
+   ]
+  },
+  {
+   "text": "%",
+   "tenants": []
+  },
+  {
+   "text": "_",
+   "tenants": []
+  },
+  {
+   "text": "x",
+   "tenants": []
+  },
+  {
+   "text": "",
+   "tenants": []
+  }
+ ]
+}

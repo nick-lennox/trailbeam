@@ -69,8 +69,11 @@ export type VisibilityChangedEvent = Observed & {
 };
 export type LambdaOutcomeEvent = Observed & {
   type: "lambda_outcome";
-  outcome: "success" | "error";
+  /** contract 4.4: success, or how it failed (the handler threw; listed in batchItemFailures; an invalid batchItemFailures) */
+  outcome: "success" | "failed_exception" | "failed_reported" | "failed_invalid_response";
   error_type?: string;
+  /** contract 15.5 (3.2): the thrown error's message, redacted in the package, for queues with error text turned on */
+  error_message?: string;
   delivery?: number;
 };
 

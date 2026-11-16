@@ -23,5 +23,224 @@
       "hmac": "27aaac5fe832aeac21be5f24b4570432",
       "key_id": "2aee8344"
     }
-  ]
+  ],
+  "capture": {
+    "description": "Test vectors for contract/span-contract.md section 15 (revision 3.2): redaction of captured bodies, the tenant, and Lambda error text. 'capture' and 'tenant' are the options given to the package; defaults apply to everything not given. Both packages must produce exactly 'redacted', 'redacted_count' and 'format' for each body.",
+    "redaction": [
+      {
+        "name": "json key at any depth",
+        "capture": {},
+        "body": "{\"order\": {\"id\": \"o-1\", \"Password\": \"hunter2\"}, \"items\": [{\"token\": {\"a\": 1}}]}",
+        "redacted": "{\"order\": {\"id\": \"o-1\", \"Password\": \"[REDACTED]\"}, \"items\": [{\"token\": \"[REDACTED]\"}]}",
+        "redacted_count": 2,
+        "format": "json"
+      },
+      {
+        "name": "json dotted path only at that path",
+        "capture": {
+          "redact_keys": [
+            "customer.name"
+          ]
+        },
+        "body": "{\"customer\": {\"name\": \"Ada\", \"tier\": \"gold\"}, \"name\": \"kept\"}",
+        "redacted": "{\"customer\": {\"name\": \"[REDACTED]\", \"tier\": \"gold\"}, \"name\": \"kept\"}",
+        "redacted_count": 1,
+        "format": "json"
+      },
+      {
+        "name": "json formatting and number text kept",
+        "capture": {},
+        "body": "{\n  \"amount\": 1.0,\n  \"big\": 12345678901234567890,\n  \"ok\": true\n}",
+        "redacted": "{\n  \"amount\": 1.0,\n  \"big\": 12345678901234567890,\n  \"ok\": true\n}",
+        "redacted_count": 0,
+        "format": "json"
+      },
+      {
+        "name": "json string patterns",
+        "capture": {},
+        "body": "{\"note\": \"mail ada@example.com or call 555 123 4567\", \"id\": \"o-42\"}",
+        "redacted": "{\"note\": \"mail [REDACTED] or call [REDACTED]\", \"id\": \"o-42\"}",
+        "redacted_count": 2,
+        "format": "json"
+      },
+      {
+        "name": "json nested document in a string (SNS envelope)",
+        "capture": {},
+        "body": "{\"Type\": \"Notification\", \"TopicArn\": \"arn:aws:sns:us-east-1:123456789012:t\", \"Message\": \"{\\\"secret\\\": \\\"s3cr3t\\\", \\\"id\\\": 7}\"}",
+        "redacted": "{\"Type\": \"Notification\", \"TopicArn\": \"arn:aws:sns:us-east-1:[REDACTED]:t\", \"Message\": \"{\\\"secret\\\": \\\"[REDACTED]\\\", \\\"id\\\": 7}\"}",
+        "redacted_count": 2,
+        "format": "json"
+      },
+      {
+        "name": "json escapes survive",
+        "capture": {},
+        "body": "{\"msg\": \"line\\nbreak \\u00e9 email x@y.io\", \"k\": \"\\\"q\\\"\"}",
+        "redacted": "{\"msg\": \"line\\nbreak é email [REDACTED]\", \"k\": \"\\\"q\\\"\"}",
+        "redacted_count": 1,
+        "format": "json"
+      },
+      {
+        "name": "text key value pairs",
+        "capture": {},
+        "body": "user=ada password=hunter2 Token: \"abc def\" api_key='k-1'",
+        "redacted": "user=ada password=[REDACTED] Token: [REDACTED] api_key=[REDACTED]",
+        "redacted_count": 3,
+        "format": "text"
+      },
+      {
+        "name": "text built-in patterns",
+        "capture": {},
+        "body": "key AKIAABCDEFGHIJKLMNOP auth Bearer eyJ.abc-def card 4111-1111-1111-1111 id 12345678",
+        "redacted": "key [REDACTED] auth [REDACTED] card [REDACTED] id 12345678",
+        "redacted_count": 3,
+        "format": "text"
+      },
+      {
+        "name": "patterns can be turned off",
+        "capture": {
+          "redact_patterns": []
+        },
+        "body": "card 4111111111111111 mail a@b.co",
+        "redacted": "card 4111111111111111 mail a@b.co",
+        "redacted_count": 0,
+        "format": "text"
+      },
+      {
+        "name": "not json falls back to text",
+        "capture": {},
+        "body": "{\"broken\": \"ada@example.com\"",
+        "redacted": "{\"broken\": \"[REDACTED]\"",
+        "redacted_count": 1,
+        "format": "text"
+      },
+      {
+        "name": "non-ascii text",
+        "capture": {},
+        "body": "clé ünïcode ada@example.com",
+        "redacted": "clé ünïcode [REDACTED]",
+        "redacted_count": 1,
+        "format": "text"
+      }
+    ],
+    "tenant": [
+      {
+        "name": "message attribute (client)",
+        "tenant": {
+          "message_attribute": "tenant"
+        },
+        "body": "{}",
+        "message_attributes": {
+          "tenant": {
+            "DataType": "String",
+            "StringValue": "acme"
+          }
+        },
+        "lambda_record": false,
+        "expected": {
+          "tenant": "acme",
+          "source": "message_attribute"
+        }
+      },
+      {
+        "name": "message attribute (Lambda record)",
+        "tenant": {
+          "message_attribute": "tenant"
+        },
+        "body": "{}",
+        "message_attributes": {
+          "tenant": {
+            "dataType": "String",
+            "stringValue": "acme"
+          }
+        },
+        "lambda_record": true,
+        "expected": {
+          "tenant": "acme",
+          "source": "message_attribute"
+        }
+      },
+      {
+        "name": "attribute first, then body path",
+        "tenant": {
+          "message_attribute": "tenant",
+          "body_path": "customer.id"
+        },
+        "body": "{\"customer\": {\"id\": \"from-body\"}}",
+        "message_attributes": {},
+        "lambda_record": false,
+        "expected": {
+          "tenant": "from-body",
+          "source": "body_path"
+        }
+      },
+      {
+        "name": "body path number",
+        "tenant": {
+          "body_path": "account"
+        },
+        "body": "{\"account\": 42}",
+        "message_attributes": {},
+        "lambda_record": false,
+        "expected": {
+          "tenant": "42",
+          "source": "body_path"
+        }
+      },
+      {
+        "name": "body path missing",
+        "tenant": {
+          "body_path": "customer.id"
+        },
+        "body": "{\"customer\": \"flat\"}",
+        "message_attributes": {},
+        "lambda_record": false,
+        "expected": null
+      },
+      {
+        "name": "body not json",
+        "tenant": {
+          "body_path": "a"
+        },
+        "body": "plain text",
+        "message_attributes": {},
+        "lambda_record": false,
+        "expected": null
+      }
+    ],
+    "error_message": [
+      {
+        "name": "error text redacted",
+        "capture": {
+          "error_queues": [
+            "orders"
+          ]
+        },
+        "queue": "orders",
+        "message": "charge failed for ada@example.com card 4111 1111 1111 1111",
+        "expected": "charge failed for [REDACTED] card [REDACTED]"
+      },
+      {
+        "name": "error text off for queue",
+        "capture": {
+          "error_queues": [
+            "payments"
+          ]
+        },
+        "queue": "orders",
+        "message": "boom",
+        "expected": null
+      },
+      {
+        "name": "error text cut to 1024 characters",
+        "capture": {
+          "error_queues": [
+            "*"
+          ]
+        },
+        "queue": "orders",
+        "message": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "expected": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+      }
+    ]
+  }
 }

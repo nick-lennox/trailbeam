@@ -2,7 +2,8 @@
 
 Pages:
 
-- ``/``: look up a message by ID, and the most recent messages.
+- ``/``: look up a message by ID, and the most recent messages, or with ``body=`` those whose kept body
+  matches body.* terms (bodies.py).
 - ``/message?id=...``: one message's timeline. Each observed step shows its interval (request sent to
   response received) and, in plain words, the observed fact that puts it after the step before it
   (the clocks, the call order in one process, SQS's receive count or SQS's timestamps). Steps that no
@@ -14,6 +15,8 @@ Pages:
   and which attribute reported it; it is never inferred.
 - ``/duplicates``: duplicate deliveries.
 - ``/stuck``: stuck messages.
+- ``/tenants``: per tenant, sends, share, p95 time in queue and dead-lettered messages (contract/tenants.md).
+  ``/?tenant=...`` lists one tenant's messages.
 
 Each page calls the same ``App.api`` the JSON endpoints use, so the screen shows exactly what the API
 returns. No JavaScript, no external assets: everything is in one response.
@@ -111,7 +114,7 @@ footer{color:#6b7385;font-size:.8em;padding:1rem 1.2rem}
 
 def handle(api: Callable[[str, dict], object], api_error: type, path: str, query: dict) -> Optional[Response]:
     """Render the page for ``path``; None if ``path`` is not a page. ``api`` is ``App.api``."""
-    pages = {"/": _index, "/message": _message, "/duplicates": _duplicates, "/stuck": _stuck}
+    pages = {"/": _index, "/message": _message, "/duplicates": _duplicates, "/stuck": _stuck, "/tenants": _tenants}
     page = pages.get(path)
     if page is None:
         return None
@@ -127,10 +130,22 @@ def handle(api: Callable[[str, dict], object], api_error: type, path: str, query
 
 
 def _index(api, q: dict) -> Response:
-    data = api("messages", _pick(q, "limit", "queue"))
+    data = api("messages", _pick(q, "limit", "queue", "tenant", "body"))
+    searching = "body_search" in data
+    note = ""
+    if searching:
+        note = ('<p class="muted body-note">Searches only the bodies this server keeps: those of queues in '
+                "<code>TRAILBEAM_STORE_BODIES</code>, as the package redacted them. Trailbeam has no logins, so "
+                "anyone who can reach this server can read them.</p>")
+        if not data["body_search"]["stores_bodies"]:
+            note += ('<p class="notice">This server keeps no bodies: <code>TRAILBEAM_STORE_BODIES</code> is not '
+                     "set, so a body search finds nothing.</p>")
     body = ("<h1>Look up a message</h1>" + _lookup_form("")
-            + "<h2>Recent messages</h2>" + _filters("/", q, [("queue", "Queue", "text"), ("limit", "Limit", "number")])
-            + _summary_table(data["messages"], empty="No messages stored yet."))
+            + ("<h2>Messages whose body matches</h2>" if searching else "<h2>Recent messages</h2>")
+            + _filters("/", q, [("body", "Body", "text"), ("queue", "Queue", "text"),
+                                 ("tenant", "Tenant", "text"), ("limit", "Limit", "number")])
+            + note
+            + _summary_table(data["messages"], empty="No message body matches." if searching else "No messages stored yet."))
     return _page(200, "Trailbeam", body)
 
 
@@ -176,6 +191,9 @@ def _message(api, q: dict) -> Response:
     parts.append('<ol class="timeline">')
     parts.extend(_timeline_items(t))
     parts.append("</ol>")
+    body_url = "/api/messages/" + _quote_segment(t["message_id"]) + "/body"
+    parts.append(f'<p class="muted">The message body, or why there is none: <a href="{escape(body_url)}">'
+                 f"{escape(body_url)}</a> (the Body tab, with scripts on).</p>")
     return _page(200, f'Message {t["message_id"]}', "".join(parts))
 
 
@@ -205,6 +223,43 @@ def _stuck(api, q: dict) -> Response:
                         ("limit", "Limit", "number")])
             + _summary_table(data["messages"], extra=("Age", _stuck_age), empty="No stuck messages."))
     return _page(200, "Stuck messages", body)
+
+
+TENANT_RANGES = [("3600", "Last hour"), ("86400", "Last 24 hours"), ("604800", "Last 7 days")]
+TENANT_SETUP = ("A tenant comes from a Trailbeam package at contract revision 3.2 with a tenant field set: "
+                "<code>TRAILBEAM_TENANT_ATTRIBUTE</code> (a message attribute) or "
+                "<code>TRAILBEAM_TENANT_BODY_PATH</code> (a dotted path in a JSON body), or the package's "
+                "<code>tenant</code> option. Set it in each service that sends or receives. See the span "
+                "contract, section 15.1.")
+
+
+def _tenants(api, q: dict) -> Response:
+    since = q.get("since_s") if q.get("since_s") in dict(TENANT_RANGES) else "86400"
+    d = api("tenants", {"since_s": since})
+    label = dict(TENANT_RANGES)[since]
+    head = ("<h1>Tenants</h1><p class=\"muted\">Which of your customers are sending the traffic, and who is "
+            "waiting longest.</p>" + _filters("/tenants", {"since_s": since}, [("since_s", "Range", TENANT_RANGES)]))
+    if not d["rows"]:
+        seen = f'{d["total_sent"]:,} sends were seen, none with a tenant. ' if d["total_sent"] else ""
+        return _page(200, "Tenants", head + f'<p class="notice"><strong>No tenants in this range.</strong> {seen}'
+                     + TENANT_SETUP + "</p>")
+    rows = []
+    for r in d["rows"]:
+        share = "&lt;1" if 0 < r["share"] < 0.01 else str(round(r["share"] * 100))
+        p95 = ('<span class="muted">-</span>' if r["p95_in_queue_ms"] is None
+               else escape(_took(r["p95_in_queue_ms"] * 1_000_000)))
+        rows.append(f'<tr><td><a href="/?{escape(urlencode({"tenant": r["tenant"]}))}">{escape(r["tenant"])}</a></td>'
+                    f'<td class="mono">{r["sent"]:,}</td><td class="mono">{share}%</td>'
+                    f'<td class="mono" title="over {r["first_deliveries"]} first deliveries">{p95}</td>'
+                    f'<td class="mono">{r["dead_lettered"]:,}</td></tr>')
+    untagged = f', {d["untagged_sent"]:,} of them without a tenant' if d["untagged_sent"] else ""
+    note = (f'<p class="muted">{escape(label)}, from {"the most recent 2,000 messages" if d["capped"] else "every message"} '
+            f'in the range. Share is of all {d["total_sent"]:,} observed sends{untagged}. p95 in queue is from the '
+            "send to the first receive, over first deliveries only. Dead-lettered counts messages SQS was seen "
+            "moving to a dead-letter queue. " + TENANT_SETUP + "</p>")
+    table = ("<table><tr><th>Tenant</th><th>Messages sent</th><th>Share</th><th>p95 in queue</th>"
+             "<th>Dead-lettered</th></tr>" + "".join(rows) + "</table>")
+    return _page(200, "Tenants", head + table + note)
 
 
 # ---- pieces -----------------------------------------------------------------------------------
@@ -392,6 +447,7 @@ def _details(e: dict) -> list[str]:
     add("visibility timeout", "visibility_timeout_s", lambda v: f"{escape(str(v))} s")
     add("outcome", "outcome", lambda v: f"<strong>{escape(str(v))}</strong>")
     add("error type", "error_type", lambda v: f"<code>{escape(str(v))}</code>")
+    add("error text", "error_message", lambda v: f"<code>{escape(str(v))}</code>")
     add("batch entry", "batch_entry_id", lambda v: f"<code>{escape(str(v))}</code>")
     add("invocation", "faas_invocation_id", lambda v: f"<code>{escape(str(v))}</code>")
     c = e.get("consumer")
@@ -464,7 +520,7 @@ def _page(status: int, title: str, body: str) -> Response:
             "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
             f"<title>{escape(title)} - Trailbeam</title><style>{CSS}</style></head><body>"
             '<header><a class="brand" href="/">Trailbeam</a><a href="/">Messages</a>'
-            '<a href="/duplicates">Duplicates</a><a href="/stuck">Stuck</a>'
+            '<a href="/duplicates">Duplicates</a><a href="/stuck">Stuck</a><a href="/tenants">Tenants</a>'
             '<form method="get" action="/message"><input type="text" name="id" placeholder="Message ID">'
             "<button>Go</button></form></header>"
             f"<main>{body}</main><footer>Trailbeam {escape(__version__)} · "

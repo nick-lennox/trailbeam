@@ -114,6 +114,29 @@ The wrapped function has a `trailbeam_tracer_provider` attribute.
 | `OTEL_SERVICE_NAME` | `service.name` = `unknown_service` |
 | `OTEL_RESOURCE_ATTRIBUTES` | `service.instance.id`, which becomes `messaging.client.id`. Default: a random UUID v4 per tracer provider. |
 
+
+### Message contents (opt-in)
+
+Contract section 15. Body size is always recorded. The rest is off until you turn it on:
+
+```python
+trailbeam.boto.install(
+    tenant={"message_attribute": "tenant", "body_path": "customer.id"},  # or TRAILBEAM_TENANT_ATTRIBUTE / _BODY_PATH
+    capture={
+        "body_queues": ["orders"],        # bodies of these queues, redacted, or "*"  (TRAILBEAM_CAPTURE_BODY_QUEUES)
+        "error_queues": ["orders"],       # Lambda exception messages, redacted       (TRAILBEAM_CAPTURE_ERROR_QUEUES)
+        "redact_keys": ["customer.name"], # added to the default keys                 (TRAILBEAM_REDACT_KEYS)
+        "max_body_bytes": 16384,          #                                           (TRAILBEAM_CAPTURE_MAX_BYTES)
+    },
+)
+```
+
+`trailbeam.aws_lambda.wrap(tenant=..., capture=...)` takes the same options. Redaction runs in this
+process before export. A body that fails redaction, fails the MD5 check or is over the limit is not
+exported, and the span says why in `trailbeam.body.capture_status`. The package never makes an SQS
+call of its own. A self-hosted Trailbeam stores the body only if the queue is also in its own
+`TRAILBEAM_STORE_BODIES` ([Message bodies](../README.md#message-bodies)).
+
 ## Tests
 
 ```sh
