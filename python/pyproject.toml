@@ -37,5 +37,10 @@ trailbeam = "trailbeam.server.__main__:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# The shared UI's shell, when it has been built (npm run build in ui/). Without it, Trailbeam serves its
+# server-rendered pages only.
+[tool.setuptools.package-data]
+"trailbeam.server" = ["ui/*.html", "ui/assets/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

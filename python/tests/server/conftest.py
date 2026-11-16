@@ -34,7 +34,7 @@ def server(db):
 
     from trailbeam.server.server import make_server
 
-    httpd = make_server(db, "127.0.0.1", 0)
+    httpd = make_server(db, "127.0.0.1", 0, ui_dir=None)  # the server-rendered pages; test_ui.py covers the shell
     t = threading.Thread(target=httpd.serve_forever, daemon=True)
     t.start()
     yield f"http://127.0.0.1:{httpd.server_address[1]}"

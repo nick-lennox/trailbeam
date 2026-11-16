@@ -71,7 +71,12 @@ different keys never join. See [`db.py`](../python/src/trailbeam/server/db.py).
 
 ## Web screen
 
-Open `http://127.0.0.1:4318/` in a browser (plain server-rendered HTML, no JavaScript):
+Open `http://127.0.0.1:4318/` in a browser. The message list, duplicates and stuck pages are
+server-rendered HTML. A message's timeline is drawn by the shared UI ([`ui/`](../ui/), the same view the
+hosted app uses), which reads `/api/messages/{id}` in the browser; it comes with the container and with
+releases. A Trailbeam installed from a clone without building it (`cd ui && npm ci && npm run build`)
+serves an HTML timeline instead, with the same steps.
+
 
 - `/`: look up a message by ID, and the most recent messages (`?queue=`, `?limit=`).
 - `/message?id=<message ID>`: the message's timeline. Each step shows its interval, from when its SQS

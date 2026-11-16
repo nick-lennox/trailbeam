@@ -3,9 +3,10 @@
     python smoke_test.py http://127.0.0.1:4318
 
 Standard library only. Waits for ``/api/health``, posts ``recorded-spans.pb`` (real Trailbeam spans recorded
-by ``record_spans.py``) to ``/v1/traces``, then checks that the web screen shows each message's timeline
-in order, with the inferred step marked, and lists the duplicate and the stuck message. Exits non-zero
-with a message on the first failure.
+by ``record_spans.py``) to ``/v1/traces``, then checks each message's timeline through the API (in order,
+with the inferred step marked), that its timeline page loads (the shared UI's shell and its files when
+built, otherwise the server-rendered page, which must show the same steps), and that the duplicates and
+stuck pages list the right messages. Exits non-zero with a message on the first failure.
 """
 from __future__ import annotations
 
@@ -83,13 +84,24 @@ def run(base: str) -> None:
 
     for name in ("redelivered", "released", "never_received"):
         m = expected[name]
-        status, ctype, html = get(base, "/message?" + urllib.parse.urlencode({"id": m["message_id"]}))
-        check(status == 200 and ctype.startswith("text/html"), f"timeline page for {name} loads")
-        got = timeline_events(html)
+        mid = urllib.parse.quote(m["message_id"], safe="")
+        status, _, body = get(base, f"/api/messages/{mid}")
+        check(status == 200, f"timeline for {name} loads from the API")
+        got = [(e["type"], e["inferred"]) for e in json.loads(body)["events"]]
         check([t for t, _ in got] == m["events"], f"{name} timeline in order: {' > '.join(m['events'])}")
         for t, inferred in got:
             check(inferred == (t == "visibility_timeout_expired"),
                   f"{name}: {t} is {'marked inferred' if inferred else 'observed'}")
+
+        status, ctype, html = get(base, "/message?" + urllib.parse.urlencode({"id": m["message_id"]}))
+        check(status == 200 and ctype.startswith("text/html"), f"timeline page for {name} loads")
+        if 'id="root"' in html:  # the shared UI's shell: it draws the timeline from the API above in the browser
+            assets = re.findall(r'(?:src|href)="(/ui/assets/[^"]+)"', html)
+            check(any(a.endswith(".js") for a in assets) and all(get(base, a)[0] == 200 for a in assets),
+                  f"{name}: the timeline page's script and styles load")
+            continue
+        html_got = timeline_events(html)  # the server-rendered page
+        check(html_got == got, f"{name}: the page shows the API's steps in the API's order")
         inferred_items = re.findall(r'<li [^>]*data-inferred="true"[^>]*>(.*?)</li>', html)
         check(len(inferred_items) == sum(i for _, i in got)
               and all('<span class="badge">inferred</span>' in li for li in inferred_items),
@@ -100,7 +112,7 @@ def run(base: str) -> None:
     _, _, stuck = get(base, "/stuck?older_than_s=0")
     check(message_href(expected["never_received"]["message_id"]) in stuck, "stuck page lists the never-received message")
     check(message_href(expected["redelivered"]["message_id"]) not in stuck, "stuck page omits the deleted message")
-    status, _, _ = get(base, "/message?id=no-such-message")
+    status, _, _ = get(base, "/api/messages/no-such-message")
     check(status == 404, "unknown message gives 404")
 
 

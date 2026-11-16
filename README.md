@@ -177,6 +177,7 @@ Full explanation: [How Trailbeam works](docs/architecture.md).
 |---|---|
 | [`python/`](python/) | Python package `trailbeam`: boto3 hooks, a Lambda handler wrapper, and Trailbeam itself (`trailbeam.server`, installed with the `server` extra) |
 | [`node/`](node/) | Node.js package `trailbeam`: AWS SDK v3 hooks and a Lambda handler wrapper |
+| [`ui/`](ui/) | `@trailbeam/ui`: the views Trailbeam's web screen and the hosted app share (the timeline so far) |
 | [`Dockerfile`](Dockerfile) | The Trailbeam container: `trailbeam[server]` with SQLite on a volume |
 | [`collector/`](collector/) | OpenTelemetry Collector configuration |
 | [`demo/`](demo/) | Local demo on ElasticMQ with Docker Compose, and the concurrency check (`demo/check.sh`) |
@@ -189,6 +190,7 @@ Run each line from the repository root:
 ```sh
 (cd python && pip install -e '.[test]' && pytest)   # the Python package and Trailbeam itself
 (cd node && npm ci && npm test)
+(cd ui && npm ci && npm test && npm run build)   # the shared UI, built into the Python package
 pytest demo/check/tests
 ```
 

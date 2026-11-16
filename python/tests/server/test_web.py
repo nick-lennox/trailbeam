@@ -107,7 +107,7 @@ def test_not_seen_on_the_dead_letter_queue_yet(db):
 
     from trailbeam.server.server import make_server
 
-    httpd = make_server(db, "127.0.0.1", 0, max_receive_counts={"orders": 2})
+    httpd = make_server(db, "127.0.0.1", 0, max_receive_counts={"orders": 2}, ui_dir=None)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{httpd.server_address[1]}"
     try:

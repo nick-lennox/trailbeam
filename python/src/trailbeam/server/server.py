@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceResponse
 
 from . import __version__
-from . import queries, web
+from . import queries, ui_files, web
 from .db import Database
 from .otlp import DecodeError, decode
 from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
@@ -37,8 +37,10 @@ class App:
 
     def __init__(self, db: Database, *, stuck_after_s: int = 300,
                  lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S, now: Callable[[], int] = time.time_ns,
-                 max_receive_counts: Optional[dict] = None):
+                 max_receive_counts: Optional[dict] = None, ui_dir=ui_files.DEFAULT_UI_DIR):
         self.db = db
+        # the shared UI's build (ui_files.py); None serves only the server-rendered pages
+        self.ui_dir = ui_dir
         self.max_receive_counts = dict(max_receive_counts or {})
         self.stuck_after_s = stuck_after_s
         self.lambda_timeout_s = lambda_timeout_s
@@ -217,7 +219,7 @@ def make_handler(app: App):
 
         def _page(self, path: str, q: dict):
             try:
-                r = web.handle(app.api, ApiError, path, q)
+                r = ui_files.handle(app.ui_dir, path) or web.handle(app.api, ApiError, path, q)
             except Exception:
                 log.exception("page request failed")
                 r = 500, {"Content-Type": "text/plain"}, b"internal error"
