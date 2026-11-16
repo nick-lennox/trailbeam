@@ -48,7 +48,8 @@ class App:
         self.stats_lock = threading.Lock()
         self.stats = {"requests": 0, "inserted": 0, "duplicates": 0, "ignored": 0, "rejected": 0}
         self.routes: dict[str, Callable[[dict, list[str]], object]] = {
-            "health": self.health, "messages": self.messages, "duplicates": self.duplicates, "stuck": self.stuck}
+            "health": self.health, "messages": self.messages, "duplicates": self.duplicates, "stuck": self.stuck,
+            "tenants": self.tenants}
 
     # ---- OTLP ingest ----------------------------------------------------------------------
 
@@ -107,7 +108,7 @@ class App:
                 raise ApiError(404, f"no spans for message ID {rest[0]!r}")
             return t
         items = queries.recent(self.db, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"),
-                               mrc=self.max_receive_counts)
+                               mrc=self.max_receive_counts, tenant=q.get("tenant") or None)
         return {"messages": items}
 
     def duplicates(self, q: dict, rest: list[str]) -> dict:
@@ -127,6 +128,21 @@ class App:
         items = queries.stuck(self.db, self.now(), self._lambda_timeout(q), older, _limit(q), q.get("queue"),
                               mrc=self.max_receive_counts)
         return {"older_than_s": older, "messages": items}
+
+    def tenants(self, q: dict, rest: list[str]) -> dict:
+        """``/api/tenants``: the Tenants page (contract/tenants.md) for [from_ms, to_ms], or the last
+        ``since_s`` seconds (default a day). ``/api/tenants/search?q=``: tenant names for a search box."""
+        if rest == ["search"]:
+            return {"tenants": queries.find_tenants(self.db, q.get("q", "").strip(), _int(q, "limit", 8, 1, 100))}
+        if rest:
+            raise ApiError(404, "no such endpoint")
+        now = self.now()
+        to_ms = _int(q, "to_ms", now // 1_000_000, 0, 10 ** 15)
+        since = _int(q, "since_s", 86_400, 1, 400 * 86_400)
+        from_ms = _int(q, "from_ms", to_ms - since * 1000, 0, 10 ** 15)
+        if from_ms > to_ms:
+            raise ApiError(400, "from_ms must not be after to_ms")
+        return queries.tenants(self.db, now, self._lambda_timeout(q), from_ms, to_ms, self.max_receive_counts)
 
 
 def _int(q: dict, name: str, default: int, lo: int, hi: int) -> int:

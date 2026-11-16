@@ -1,4 +1,4 @@
-"""The shared UI's shell: served at /message when it is built, and the HTML pages otherwise."""
+"""The shared UI's shell: served at /message and /tenants when it is built, and the HTML pages otherwise."""
 import threading
 import urllib.error
 import urllib.request
@@ -37,6 +37,8 @@ def test_message_page_is_the_shell_when_built(db, built):
         status, headers, body = get(f"{base}/message?id=abc")
         assert status == 200 and headers["Content-Type"].startswith("text/html")
         assert b'<div id="root">' in body and headers["Cache-Control"] == "no-cache"
+        status, _, tenants = get(f"{base}/tenants?since_s=3600")
+        assert status == 200 and tenants == body  # one shell, which draws the page the path names
         status, headers, body = get(f"{base}/ui/assets/app-1a2b.js")
         assert (status, headers["Content-Type"], body) == (200, "text/javascript", b"console.log('timeline')")
         assert "immutable" in headers["Cache-Control"]
@@ -63,6 +65,8 @@ def test_without_a_build_the_message_page_is_html(db, tmp_path):
     try:
         status, headers, body = get(f"{base}/message?id=abc")
         assert status == 404 and b"Message not found" in body  # the HTML page, for an unknown message
+        status, _, body = get(f"{base}/tenants")
+        assert status == 200 and b"<h1>Tenants</h1>" in body
         assert get(f"{base}/ui/assets/app.js")[0] == 404
     finally:
         httpd.shutdown(); httpd.server_close()
