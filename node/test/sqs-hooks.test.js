@@ -76,7 +76,12 @@ test('SendMessage: one trailbeam send with the message ID', async (t) => {
   const [s, ...rest] = spans();
   assert.strictEqual(rest.length, 0);
   assert.strictEqual(s.name, 'trailbeam send');
-  assert.deepStrictEqual(withoutTicks(s.attributes), { ...COMMON('SendMessage', 'sqs.send', 'send'), 'messaging.message.id': 'mid-1' });
+  assert.deepStrictEqual(withoutTicks(s.attributes), {
+    ...COMMON('SendMessage', 'sqs.send', 'send'),
+    'messaging.message.id': 'mid-1',
+    'messaging.message.body.size': 5, // revision 3.2: always, from the request
+    'trailbeam.body.capture_status': 'off', // no queue opted in
+  });
 });
 
 test('every Trailbeam span: scope, kind, an interval, resource, no thread.name in Node.js', async (t) => {
@@ -264,6 +269,8 @@ test('ReceiveMessage: one trailbeam receive per message with the contract attrib
     'trailbeam.sent_timestamp_ms': 1763080000000,
     'trailbeam.first_receive_timestamp_ms': 1763080000500,
     'trailbeam.aws_trace_header': 'Root=1-abc',
+    'messaging.message.body.size': 8,
+    'trailbeam.body.capture_status': 'off',
   });
   assert.strictEqual(rs[1].attributes['messaging.message.id'], 'mid-2');
 });
@@ -289,7 +296,8 @@ test('ReceiveMessage request asks for the system attributes, without touching th
   const input = { QueueUrl: URL, MessageSystemAttributeNames: ['SenderId'], MessageAttributeNames: ['trace'] };
   await client.send(new S.ReceiveMessageCommand(input));
   assert.deepStrictEqual(calls[0].input.MessageSystemAttributeNames,
-    ['SenderId', 'ApproximateReceiveCount', 'SentTimestamp', 'ApproximateFirstReceiveTimestamp', 'AWSTraceHeader', 'DeadLetterQueueSourceArn']);
+    ['SenderId', 'ApproximateReceiveCount', 'SentTimestamp', 'ApproximateFirstReceiveTimestamp', 'AWSTraceHeader', 'DeadLetterQueueSourceArn',
+      'MessageGroupId', 'SequenceNumber']);
   assert.deepStrictEqual(calls[0].input.MessageAttributeNames, ['trace'], 'message attributes are left alone');
   assert.deepStrictEqual(input.MessageSystemAttributeNames, ['SenderId'], 'caller input not mutated');
 });
@@ -298,9 +306,11 @@ test('addReceiveAttributeNames: All, legacy AttributeNames, nothing missing, no 
   assert.strictEqual(addReceiveAttributeNames({ MessageSystemAttributeNames: ['All'] }), undefined);
   assert.strictEqual(addReceiveAttributeNames({ AttributeNames: ['All'] }), undefined);
   assert.deepStrictEqual(addReceiveAttributeNames({ AttributeNames: ['SentTimestamp'] }), {
-    AttributeNames: ['SentTimestamp', 'ApproximateReceiveCount', 'ApproximateFirstReceiveTimestamp', 'AWSTraceHeader', 'DeadLetterQueueSourceArn'],
+    AttributeNames: ['SentTimestamp', 'ApproximateReceiveCount', 'ApproximateFirstReceiveTimestamp', 'AWSTraceHeader', 'DeadLetterQueueSourceArn',
+      'MessageGroupId', 'SequenceNumber'],
   });
-  const all4 = ['ApproximateReceiveCount', 'SentTimestamp', 'ApproximateFirstReceiveTimestamp', 'AWSTraceHeader', 'DeadLetterQueueSourceArn'];
+  const all4 = ['ApproximateReceiveCount', 'SentTimestamp', 'ApproximateFirstReceiveTimestamp', 'AWSTraceHeader', 'DeadLetterQueueSourceArn',
+    'MessageGroupId', 'SequenceNumber'];
   assert.strictEqual(addReceiveAttributeNames({ MessageSystemAttributeNames: all4 }), undefined);
   const added = addReceiveAttributeNames({ QueueUrl: URL });
   assert.deepStrictEqual(added, { QueueUrl: URL, MessageSystemAttributeNames: all4 });

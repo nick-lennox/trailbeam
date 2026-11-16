@@ -151,6 +151,9 @@ def test_receive_and_outcome_attributes_for_the_aws_docs_event(exporter, monkeyp
         "trailbeam.receive_count": 1, "trailbeam.sent_timestamp_ms": 1545082649183,
         "trailbeam.first_receive_timestamp_ms": 1545082649185,
         "faas.name": "orders-fn", "faas.invocation_id": "req-1",
+        # revision 3.2 (section 15): always on, without any capture configured
+        "messaging.message.body.size": 13, "trailbeam.batch.size": 2, "trailbeam.batch.index": 0,
+        "trailbeam.body.capture_status": "off",
     }
     o = dict(out[0].attributes)
     assert "trailbeam.start_observed" not in o  # the outcome is decided by the wrapper: its time is known

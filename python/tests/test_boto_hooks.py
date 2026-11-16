@@ -199,7 +199,7 @@ def test_empty_receive_produces_no_span(trailbeam_spans, make_client, queue_url)
     ({"MessageSystemAttributeNames": ["SenderId", "SentTimestamp"]},
      {"MessageSystemAttributeNames": ["SenderId", "SentTimestamp", "ApproximateReceiveCount",
                                       "ApproximateFirstReceiveTimestamp", "AWSTraceHeader",
-                                      "DeadLetterQueueSourceArn"]}),
+                                      "DeadLetterQueueSourceArn", "MessageGroupId", "SequenceNumber"]}),
     ({"AttributeNames": ["SenderId"]},
      {"AttributeNames": ["SenderId"] + list(trailbeam.boto.RECEIVE_SYSTEM_ATTRIBUTES)}),
     ({"MessageAttributeNames": ["tenant"]},

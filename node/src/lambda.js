@@ -23,6 +23,7 @@ const {
 } = require('./contract');
 const { Emitter, makeProvider, nowMs, SERVICE_INSTANCE_ID } = require('./emitter');
 const order = require('./order');
+const capture = require('./capture');
 
 const OPERATION = 'LambdaEvent';
 const DEFAULT_FLUSH_TIMEOUT_MS = 2000;
@@ -65,6 +66,13 @@ function decideOutcomes(recordIds, result, reportBatchItemFailures = true) {
   return Object.fromEntries(recordIds.map((i) => [i, failed.has(i) ? OUTCOME_FAILED_REPORTED : OUTCOME_SUCCESS]));
 }
 
+/** 3.2: records listed in a valid `batchItemFailures` (0 if none); undefined if the list was invalid. */
+function reportedFailureCount(outcomes) {
+  const values = Object.values(outcomes);
+  if (values.includes(OUTCOME_FAILED_INVALID_RESPONSE)) return undefined;
+  return values.filter((v) => v === OUTCOME_FAILED_REPORTED).length;
+}
+
 /** The SQS records of a Lambda event, or [] if it is not an SQS event. */
 function sqsRecords(event) {
   if (!isObject(event) || !Array.isArray(event.Records)) return [];
@@ -80,7 +88,8 @@ function errorType(err) {
 
 /** Emits the wrapper's spans. One per wrapped handler; holds the Trailbeam tracer provider. */
 class LambdaRecorder {
-  constructor(provider, emitter, { flushTimeoutMs, reportBatchItemFailures }) {
+  constructor(provider, emitter, { flushTimeoutMs, reportBatchItemFailures, config = new capture.Config() }) {
+    this.config = config;
     this.provider = provider;
     this.emitter = emitter;
     this.defaultClientId = emitter.clientId;
@@ -120,7 +129,8 @@ class LambdaRecorder {
     // version 3): one "returned" tick for the moment the event arrived, and no "issued" tick.
     const t = nowMs();
     const returned = order.tick();
-    for (const r of records) {
+    const size = records.length;
+    for (const [index, r] of records.entries()) {
       const arn = r.eventSourceARN;
       const [name, url] = queueFromArn(arn);
       const a = isObject(r.attributes) ? r.attributes : {};
@@ -133,22 +143,39 @@ class LambdaRecorder {
       put(attrs, 'trailbeam.dead_letter_queue_source_arn', a.DeadLetterQueueSourceArn);
       put(attrs, 'trailbeam.queue.arn', arn);
       Object.assign(attrs, faas);
+      attrs['trailbeam.batch.size'] = size;
+      attrs['trailbeam.batch.index'] = index;
+      Object.assign(attrs, capture.fifoAttrs(a.MessageGroupId, a.SequenceNumber));
+      try {
+        Object.assign(attrs, capture.contentAttrs(this.config, name, r.body, r.messageAttributes, r.md5OfBody, true));
+      } catch (e) {
+        debug('content attributes', e);
+        attrs['trailbeam.body.capture_status'] = capture.STATUS_REDACTION_FAILED;
+      }
       this.emitter.emit(SPAN_RECEIVE, OPERATION, name, url, attrs, { parentContext, endTime: t, startObserved: false, order: { returned } });
     }
     await this.flush();
   }
 
-  async outcomes(records, context, outcomes, errType, parentContext) {
+  async outcomes(records, context, outcomes, errType, parentContext, err, threw = false) {
     const faas = LambdaRecorder.faas(context);
+    const size = records.length;
+    const reported = threw ? undefined : reportedFailureCount(outcomes);
     // The outcome is decided now, after the handler returned or threw: one moment, one tick.
     const t = nowMs();
     const tick = order.tick();
-    for (const r of records) {
+    for (const [index, r] of records.entries()) {
       const [name, url] = queueFromArn(r.eventSourceARN);
       const outcome = outcomes[r.messageId];
       const attrs = { 'messaging.message.id': r.messageId, 'trailbeam.outcome': outcome };
-      if (outcome === OUTCOME_FAILED_EXCEPTION) put(attrs, 'trailbeam.error_type', errType);
+      if (outcome === OUTCOME_FAILED_EXCEPTION) {
+        put(attrs, 'trailbeam.error_type', errType);
+        if (threw) put(attrs, 'trailbeam.error_message', capture.errorMessage(this.config, name, err));
+      }
       Object.assign(attrs, faas);
+      attrs['trailbeam.batch.size'] = size;
+      attrs['trailbeam.batch.index'] = index;
+      if (reported !== undefined) attrs['trailbeam.batch.reported_failure_count'] = reported;
       this.emitter.emit(SPAN_OUTCOME, OPERATION, name, url, attrs, { parentContext, startTime: t, endTime: t, order: { issued: tick, returned: tick } });
     }
     await this.flush();
@@ -168,7 +195,7 @@ class LambdaRecorder {
     try {
       result = await callHandler(handler, thisArg, event, context, rest);
     } catch (err) {
-      await this.safeOutcomes(records, context, Object.fromEntries(ids.map((i) => [i, OUTCOME_FAILED_EXCEPTION])), errorType(err), parentContext);
+      await this.safeOutcomes(records, context, Object.fromEntries(ids.map((i) => [i, OUTCOME_FAILED_EXCEPTION])), errorType(err), parentContext, err, true);
       throw err;
     }
     await this.safeOutcomes(records, context, decideOutcomes(ids, result, this.reportBatchItemFailures), undefined, parentContext);
@@ -221,6 +248,9 @@ function callHandler(handler, thisArg, event, context, rest) {
  * @param {import('@opentelemetry/sdk-trace-base').SpanProcessor} [options.spanProcessor]
  * @param {number} [options.flushTimeoutMs=2000] longest wait for each flush
  * @param {boolean} [options.reportBatchItemFailures=true]
+ * @param {object} [options.tenant] as in `install` (contract section 15)
+ * @param {object} [options.capture] as in `install`; with the record's queue in `errorQueues`, a thrown
+ *   error's message is recorded, redacted
  */
 function wrapHandler(handler, options = {}) {
   if (typeof handler !== 'function') throw new TypeError('trailbeam.wrapHandler expects a function');
@@ -229,6 +259,7 @@ function wrapHandler(handler, options = {}) {
   const recorder = new LambdaRecorder(provider, emitter, {
     flushTimeoutMs: options.flushTimeoutMs !== undefined ? options.flushTimeoutMs : DEFAULT_FLUSH_TIMEOUT_MS,
     reportBatchItemFailures: options.reportBatchItemFailures !== undefined ? options.reportBatchItemFailures : true,
+    config: capture.resolveConfig(options.tenant, options.capture),
   });
   // Two declared parameters, so the Lambda runtime treats the wrapper as an async handler.
   const wrapped = async function trailbeamWrappedHandler(event, context, ...rest) {
@@ -239,4 +270,4 @@ function wrapHandler(handler, options = {}) {
   return wrapped;
 }
 
-module.exports = { wrapHandler, decideOutcomes, queueFromArn, sqsRecords, errorType, OPERATION };
+module.exports = { wrapHandler, decideOutcomes, reportedFailureCount, queueFromArn, sqsRecords, errorType, OPERATION };

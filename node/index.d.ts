@@ -12,6 +12,38 @@ export interface InstallOptions {
   spanExporter?: SpanExporter;
   /** Replaces the default batch span processor (and exporter). */
   spanProcessor?: SpanProcessor;
+  /**
+   * Where the tenant comes from (contract section 15). Replaces $TRAILBEAM_TENANT_ATTRIBUTE and
+   * $TRAILBEAM_TENANT_BODY_PATH. The message attribute is tried first.
+   */
+  tenant?: TenantOptions;
+  /**
+   * Opt-in body capture and Lambda error text, with redaction (contract section 15). Replaces the
+   * $TRAILBEAM_CAPTURE_* and $TRAILBEAM_REDACT_* variables. Off unless a queue is listed.
+   */
+  capture?: CaptureOptions;
+}
+
+export interface TenantOptions {
+  /** Name of a String or Number message attribute that holds the tenant. */
+  messageAttribute?: string;
+  /** Dotted path to a string or number in a JSON body, such as `customer.id`. */
+  bodyPath?: string;
+}
+
+export type RedactPattern = 'aws_access_key' | 'bearer' | 'email' | 'long_number';
+
+export interface CaptureOptions {
+  /** Queue names whose bodies are captured, or `*` for every queue. */
+  bodyQueues?: string[];
+  /** Queue names whose Lambda exception messages are recorded, or `*`. */
+  errorQueues?: string[];
+  /** Keys whose values are replaced, added to the defaults. A name matches at any depth; `a.b` matches that path only. */
+  redactKeys?: string[];
+  /** Built-in text patterns to apply. Default: all of them. */
+  redactPatterns?: RedactPattern[];
+  /** Largest redacted body that is captured, in UTF-8 bytes. Default 16384, at most 262144. */
+  maxBodyBytes?: number;
 }
 
 /** Anything with an AWS SDK v3 middleware stack, normally an `SQSClient`. */

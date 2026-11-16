@@ -152,6 +152,11 @@ test('receive and outcome attributes for the AWS documentation event', async (t)
     'trailbeam.first_receive_timestamp_ms': 1545082649185,
     'faas.name': 'orders-fn',
     'faas.invocation_id': 'req-1',
+    // revision 3.2 (section 15): always on, without any capture configured
+    'messaging.message.body.size': 13,
+    'trailbeam.batch.size': 2,
+    'trailbeam.batch.index': 0,
+    'trailbeam.body.capture_status': 'off',
   });
   const o = out[0].attributes;
   assert.strictEqual(o['trailbeam.kind'], 'sqs.outcome');

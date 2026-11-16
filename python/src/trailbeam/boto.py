@@ -32,7 +32,7 @@ from ._contract import (
     queue_name_from_url,
     resolve_hasher,
 )
-from . import _order
+from . import _capture, _order
 from ._emitter import Emitter, make_provider
 from ._handles import HandleMap
 
@@ -45,6 +45,8 @@ RECEIVE_SYSTEM_ATTRIBUTES = (
     "ApproximateFirstReceiveTimestamp",
     "AWSTraceHeader",
     "DeadLetterQueueSourceArn",  # schema 3.1: SQS sets it only on a receive from a dead-letter queue
+    "MessageGroupId",  # 3.2: FIFO queues (and fair standard queues)
+    "SequenceNumber",  # 3.2: FIFO queues only
 )
 
 _SETTLE_OPS = {
@@ -71,6 +73,16 @@ def add_receive_attribute_names(params: dict) -> None:
     else:
         params["MessageSystemAttributeNames"] = new + missing
 
+def add_message_attribute_name(params: dict, name: Optional[str]) -> None:
+    """3.2: ask for the one configured tenant message attribute, keeping everything the caller asked for."""
+    if not name:
+        return
+    asked = list(params.get("MessageAttributeNames") or [])
+    if name in asked or "All" in asked or ".*" in asked:
+        return
+    params["MessageAttributeNames"] = asked + [name]
+
+
 _MAX_PENDING = 10_000
 _now = time.time_ns  # wall clock for span start and end (contract section 2); replaced in tests
 _TRACKED_OPS = frozenset(_SETTLE_OPS) | {"SendMessage", "SendMessageBatch", "ReceiveMessage"}
@@ -79,8 +91,10 @@ _TRACKED_OPS = frozenset(_SETTLE_OPS) | {"SendMessage", "SendMessageBatch", "Rec
 class SqsHooks:
     """request_hook / response_hook pair for BotocoreInstrumentor. Hooks never raise."""
 
-    def __init__(self, emitter: Emitter, handles: Optional[HandleMap] = None):
+    def __init__(self, emitter: Emitter, handles: Optional[HandleMap] = None,
+                 capture: Optional[_capture.Config] = None):
         self.emitter = emitter
+        self.capture = capture if capture is not None else _capture.Config()
         self.handles = handles if handles is not None else HandleMap()
         # Requests waiting for their response, keyed by the stock span object's id:
         # (params, start_ns, order scope, issued tick).
@@ -97,6 +111,7 @@ class SqsHooks:
                 return
             if operation == "ReceiveMessage":
                 add_receive_attribute_names(params)
+                add_message_attribute_name(params, self.capture.tenant_attribute)
             with self._lock:
                 if len(self._pending) >= _MAX_PENDING:  # only if responses were lost; stay bounded
                     self._pending.clear()
@@ -144,13 +159,19 @@ class SqsHooks:
         name, url = _queue(params)
         if operation == "SendMessage":
             if result.get("MessageId"):
-                self.emitter.emit(SPAN_SEND, operation, name, url, {"messaging.message.id": result["MessageId"]},
+                attrs = {"messaging.message.id": result["MessageId"]}
+                attrs.update(self._sent(name, params, result))
+                self.emitter.emit(SPAN_SEND, operation, name, url, attrs,
                                   parent=span, start_ns=t[0], end_ns=t[1], order=t[2])
             return
+        requests = {e.get("Id"): e for e in params.get("Entries") or [] if isinstance(e, dict)}
         for entry in result.get("Successful") or []:
             attrs: dict = {}
             put(attrs, "messaging.message.id", entry.get("MessageId"))
             put(attrs, "trailbeam.batch_entry_id", entry.get("Id"))
+            request = requests.get(entry.get("Id"))
+            if request is not None:  # the body comes from the request entry with the same Id
+                attrs.update(self._sent(name, request, entry))
             if "messaging.message.id" in attrs:
                 self.emitter.emit(SPAN_SEND, operation, name, url, attrs, parent=span, start_ns=t[0], end_ns=t[1], order=t[2])
 
@@ -172,7 +193,23 @@ class SqsHooks:
             put(attrs, "trailbeam.first_receive_timestamp_ms", int_or_none(a.get("ApproximateFirstReceiveTimestamp")))
             put(attrs, "trailbeam.aws_trace_header", a.get("AWSTraceHeader"))
             put(attrs, "trailbeam.dead_letter_queue_source_arn", a.get("DeadLetterQueueSourceArn"))
+            attrs.update(_capture.fifo_attrs(a.get("MessageGroupId"), a.get("SequenceNumber")))
+            attrs.update(self._contents(name, m.get("Body"), m.get("MessageAttributes"), m.get("MD5OfBody")))
             self.emitter.emit(SPAN_RECEIVE, "ReceiveMessage", name, url, attrs, parent=span, start_ns=t[0], end_ns=t[1], order=t[2])
+
+    def _contents(self, queue_name: str, body, attributes, md5) -> dict:
+        try:
+            return _capture.content_attrs(self.capture, queue_name, body, attributes, md5)
+        except Exception:  # pragma: no cover - defensive; a capture bug must not lose the span
+            log.debug("trailbeam content attributes failed", exc_info=True)
+            return {"trailbeam.body.capture_status": _capture.STATUS_REDACTION_FAILED}
+
+    def _sent(self, queue_name: str, request: dict, response: dict) -> dict:
+        """3.2 attributes of one sent message: the body from the request, checked against the response's MD5."""
+        attrs = _capture.fifo_attrs(request.get("MessageGroupId"), response.get("SequenceNumber"))
+        attrs.update(self._contents(queue_name, request.get("MessageBody"), request.get("MessageAttributes"),
+                                    response.get("MD5OfMessageBody")))
+        return attrs
 
     def _on_settle(self, span, operation: str, params: dict, result: Optional[dict], exc, t: tuple) -> None:
         span_name, batch = _SETTLE_OPS[operation]
@@ -247,17 +284,25 @@ def install(
     *,
     span_exporter: Optional[SpanExporter] = None,
     span_processor: Optional[SpanProcessor] = None,
+    tenant: Optional[dict] = None,
+    capture: Optional[dict] = None,
 ) -> TracerProvider:
     """Install the Trailbeam SQS hooks into botocore. Returns the Trailbeam tracer provider.
 
     ``receipt_hash_key`` takes precedence over $TRAILBEAM_RECEIPT_HASH_KEY. ``span_exporter`` /
     ``span_processor`` replace the default OTLP/HTTP export (used by the tests).
+
+    ``tenant`` (``{"message_attribute": ..., "body_path": ...}``) and ``capture`` (``{"body_queues":
+    [...], "error_queues": [...], "redact_keys": [...], "redact_patterns": [...], "max_body_bytes": n}``)
+    are contract section 15; each replaces its TRAILBEAM_* environment variables. Body capture is off
+    unless a queue is listed in ``body_queues``.
     Calling ``install`` again replaces the previous installation.
     """
     with _install_lock:
         _uninstall_locked()
+        config = _capture.resolve_config(tenant, capture)
         provider = make_provider(span_exporter, span_processor)
-        hooks = SqsHooks(Emitter(provider, resolve_hasher(receipt_hash_key), source="client"))
+        hooks = SqsHooks(Emitter(provider, resolve_hasher(receipt_hash_key), source="client"), capture=config)
         inst = BotocoreInstrumentor()  # a singleton
         if inst.is_instrumented_by_opentelemetry:
             prev = (inst.request_hook, inst.response_hook)

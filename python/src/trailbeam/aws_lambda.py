@@ -34,7 +34,7 @@ from ._contract import (
     put,
     resolve_hasher,
 )
-from . import _order
+from . import _capture, _order
 from ._emitter import Emitter, make_provider
 
 log = logging.getLogger("trailbeam")
@@ -49,6 +49,14 @@ def queue_from_arn(arn: str) -> tuple[str, str]:
         return (parts[-1] if parts else ""), ""
     region, account, name = parts[3], parts[4], ":".join(parts[5:])
     return name, f"https://sqs.{region}.amazonaws.com/{account}/{name}"
+
+
+def reported_failure_count(outcomes: dict[str, str]) -> Optional[int]:
+    """3.2: records the handler listed in a valid ``batchItemFailures`` (0 if none); None if the list was invalid."""
+    values = list(outcomes.values())
+    if any(v == OUTCOME_FAILED_INVALID_RESPONSE for v in values):
+        return None
+    return sum(1 for v in values if v == OUTCOME_FAILED_REPORTED)
 
 
 def decide_outcomes(record_ids: list[str], result: Any, report_batch_item_failures: bool = True) -> dict[str, str]:
@@ -78,7 +86,8 @@ class LambdaRecorder:
     """Emits the wrapper's spans. One per wrapped handler; holds the Trailbeam tracer provider."""
 
     def __init__(self, provider: TracerProvider, emitter: Emitter, flush_timeout_millis: int,
-                 report_batch_item_failures: bool):
+                 report_batch_item_failures: bool, capture: Optional[_capture.Config] = None):
+        self.capture = capture if capture is not None else _capture.Config()
         self.provider = provider
         self.emitter = emitter
         self.flush_timeout_millis = flush_timeout_millis
@@ -110,7 +119,8 @@ class LambdaRecorder:
         # version 3): one "returned" tick for the moment the event arrived, and no "issued" tick.
         t = time.time_ns()
         returned = _order.tick()
-        for r in records:
+        size = len(records)
+        for index, r in enumerate(records):
             arn = r.get("eventSourceARN") or ""
             name, url = queue_from_arn(arn)
             a = r.get("attributes") or {}
@@ -125,22 +135,39 @@ class LambdaRecorder:
             put(attrs, "trailbeam.dead_letter_queue_source_arn", a.get("DeadLetterQueueSourceArn"))
             put(attrs, "trailbeam.queue.arn", arn)
             attrs.update(faas)
+            attrs["trailbeam.batch.size"] = size
+            attrs["trailbeam.batch.index"] = index
+            attrs.update(_capture.fifo_attrs(a.get("MessageGroupId"), a.get("SequenceNumber")))
+            try:
+                attrs.update(_capture.content_attrs(self.capture, name, r.get("body"), r.get("messageAttributes"),
+                                                    r.get("md5OfBody"), lambda_record=True))
+            except Exception:  # pragma: no cover - defensive
+                attrs["trailbeam.body.capture_status"] = _capture.STATUS_REDACTION_FAILED
             self.emitter.emit(SPAN_RECEIVE, OPERATION, name, url, attrs, end_ns=t, start_observed=False,
                               order=(None, returned))
         self._flush()
 
-    def outcomes(self, records: list[dict], context, outcomes: dict[str, str], error_type: Optional[str]) -> None:
+    def outcomes(self, records: list[dict], context, outcomes: dict[str, str], error_type: Optional[str],
+                 error: Optional[BaseException] = None) -> None:
         faas = self._faas(context)
+        size = len(records)
+        reported = reported_failure_count(outcomes) if error is None else None
         # The outcome is decided now, after the handler returned or threw: one moment, one tick.
         t = time.time_ns()
         tick = _order.tick()
-        for r in records:
+        for index, r in enumerate(records):
             name, url = queue_from_arn(r.get("eventSourceARN") or "")
             mid = r["messageId"]
             attrs: dict = {"messaging.message.id": mid, "trailbeam.outcome": outcomes[mid]}
             if outcomes[mid] == OUTCOME_FAILED_EXCEPTION:
                 put(attrs, "trailbeam.error_type", error_type)
+                if error is not None:
+                    put(attrs, "trailbeam.error_message", _capture.error_message(self.capture, name, error))
             attrs.update(faas)
+            attrs["trailbeam.batch.size"] = size
+            attrs["trailbeam.batch.index"] = index
+            if reported is not None:
+                attrs["trailbeam.batch.reported_failure_count"] = reported
             self.emitter.emit(SPAN_OUTCOME, OPERATION, name, url, attrs, start_ns=t, end_ns=t, order=(tick, tick))
         self._flush()
 
@@ -158,14 +185,14 @@ class LambdaRecorder:
         except Exception as e:
             # BaseException (SystemExit, KeyboardInterrupt) is not caught: the process is going away,
             # like a timeout, and Trailbeam infers that from the receive with no outcome.
-            self._safe_outcomes(records, context, {i: OUTCOME_FAILED_EXCEPTION for i in ids}, type(e).__name__)
+            self._safe_outcomes(records, context, {i: OUTCOME_FAILED_EXCEPTION for i in ids}, type(e).__name__, e)
             raise
         self._safe_outcomes(records, context, decide_outcomes(ids, result, self.report_batch_item_failures), None)
         return result
 
-    def _safe_outcomes(self, records, context, outcomes, error_type) -> None:
+    def _safe_outcomes(self, records, context, outcomes, error_type, error=None) -> None:
         try:
-            self.outcomes(records, context, outcomes, error_type)
+            self.outcomes(records, context, outcomes, error_type, error)
         except Exception:  # pragma: no cover - defensive
             log.debug("trailbeam outcome spans failed", exc_info=True)
 
@@ -188,8 +215,13 @@ def wrap(
     span_processor: Optional[SpanProcessor] = None,
     flush_timeout_millis: int = DEFAULT_FLUSH_TIMEOUT_MILLIS,
     report_batch_item_failures: bool = True,
+    tenant: Optional[dict] = None,
+    capture: Optional[dict] = None,
 ):
     """Wrap a Lambda handler. Use as ``@wrap`` or ``@wrap(receipt_hash_key=...)``.
+
+    ``tenant`` and ``capture`` are as in ``trailbeam.boto.install`` (contract section 15). With the
+    record's queue in ``capture["error_queues"]``, a thrown exception's message is recorded, redacted.
 
     ``report_batch_item_failures`` should match the event source mapping's
     ``FunctionResponseTypes``: when it is off, Lambda ignores ``batchItemFailures``, and so does Trailbeam.
@@ -199,7 +231,8 @@ def wrap(
         provider = make_provider(span_exporter, span_processor)
         emitter = Emitter(provider, resolve_hasher(receipt_hash_key), source="lambda")
         emitter.default_client_id = emitter.client_id
-        recorder = LambdaRecorder(provider, emitter, flush_timeout_millis, report_batch_item_failures)
+        recorder = LambdaRecorder(provider, emitter, flush_timeout_millis, report_batch_item_failures,
+                                  _capture.resolve_config(tenant, capture))
 
         @functools.wraps(fn)
         def wrapped(event, context, *args, **kwargs):
