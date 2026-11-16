@@ -2,7 +2,7 @@
 
 The `trailbeam` package has two parts: hooks for boto3 SQS clients, and a wrapper for AWS Lambda handlers
 that consume SQS. Both emit the spans defined in
-[`docs/span-contract.md`](../docs/span-contract.md). Python 3.10 or later. Pre-release, not
+[`contract/span-contract.md`](../contract/span-contract.md). Python 3.10 or later. Pre-release, not
 published.
 
 ## Install

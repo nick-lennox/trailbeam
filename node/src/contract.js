@@ -1,5 +1,5 @@
 'use strict';
-// Names and values from docs/span-contract.md (schema version 3), and the receipt-handle hash.
+// Names and values from contract/span-contract.md (schema version 3), and the receipt-handle hash.
 
 const crypto = require('node:crypto');
 

@@ -4,7 +4,7 @@
 # With a tracing backend: otelcol-contrib --config trailbeam-collector.yaml --config backend.yaml
 #
 # Applications export OTLP to this Collector (4318 HTTP, 4317 gRPC). Spans whose instrumentation scope
-# is `trailbeam` (docs/span-contract.md) go to Trailbeam, with no sampling on the way. Nothing else goes to the
+# is `trailbeam` (contract/span-contract.md) go to Trailbeam, with no sampling on the way. Nothing else goes to the
 # Trailbeam. See README.md for the environment variables.
 receivers:
   otlp:

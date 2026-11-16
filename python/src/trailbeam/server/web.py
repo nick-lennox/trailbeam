@@ -1,4 +1,4 @@
-"""The web screen: server-rendered HTML pages built from the JSON API's responses (docs/api.md).
+"""The web screen: server-rendered HTML pages built from the JSON API's responses (https://docs.trailbeam.app/reference/api).
 
 Pages:
 

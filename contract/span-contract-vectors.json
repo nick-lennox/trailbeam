@@ -1,5 +1,5 @@
 {
-  "description": "Test vectors for docs/span-contract.md section 'Receipt-handle hash'. hmac = lowercase hex of HMAC-SHA256(key utf-8, receipt_handle utf-8), first 32 characters. key_id = lowercase hex of HMAC-SHA256(key utf-8, 'trailbeam key id'), first 8 characters.",
+  "description": "Test vectors for contract/span-contract.md section 'Receipt-handle hash'. hmac = lowercase hex of HMAC-SHA256(key utf-8, receipt_handle utf-8), first 32 characters. key_id = lowercase hex of HMAC-SHA256(key utf-8, 'trailbeam key id'), first 8 characters.",
   "default_key": "trailbeam-default-receipt-hash-key",
   "vectors": [
     {

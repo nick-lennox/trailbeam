@@ -1,4 +1,4 @@
-"""trailbeam.boto hooks against a local SQS emulator: one span per message, as docs/span-contract.md says."""
+"""trailbeam.boto hooks against a local SQS emulator: one span per message, as contract/span-contract.md says."""
 import hashlib
 import hmac
 import json
@@ -21,7 +21,7 @@ from trailbeam._handles import HandleMap
 
 from sdk_constants import TEST_KEY
 
-KEY_ID = "05769f58"  # key ID of TEST_KEY, from docs/span-contract-vectors.json
+KEY_ID = "05769f58"  # key ID of TEST_KEY, from contract/span-contract-vectors.json
 COMMON = {"trailbeam.schema_version", "trailbeam.kind", "trailbeam.source", "messaging.system.name", "messaging.operation.type",
           "messaging.operation.name", "messaging.destination.name", "aws.sqs.queue.url", "messaging.client.id",
           "process.pid", "thread.name", "trailbeam.order.scope", "trailbeam.order.issued", "trailbeam.order.returned"}
@@ -562,7 +562,7 @@ def test_generated_service_instance_id_is_a_uuid(trailbeam_spans, make_client, q
 
 # -- key and hash --------------------------------------------------------------------------------
 
-VECTORS = json.loads((Path(__file__).resolve().parents[2] / "docs" / "span-contract-vectors.json").read_text("utf-8"))
+VECTORS = json.loads((Path(__file__).resolve().parents[2] / "contract" / "span-contract-vectors.json").read_text("utf-8"))
 
 
 @pytest.mark.parametrize("v", VECTORS["vectors"], ids=lambda v: v["name"])

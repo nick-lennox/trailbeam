@@ -1,4 +1,4 @@
-"""Decode OTLP/HTTP trace requests (protobuf or JSON) into Trailbeam span records (docs/span-contract.md).
+"""Decode OTLP/HTTP trace requests (protobuf or JSON) into Trailbeam span records (contract/span-contract.md).
 
 Only spans with instrumentation scope ``trailbeam`` are read (contract section 1). They are classified by
 ``trailbeam.kind`` and ``messaging.operation.name``; span names are never parsed.

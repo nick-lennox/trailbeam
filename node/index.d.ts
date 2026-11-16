@@ -2,7 +2,7 @@
 import type { SpanExporter, SpanProcessor, BasicTracerProvider } from '@opentelemetry/sdk-trace-base';
 
 export declare const version: string;
-/** `trailbeam.schema_version` of the spans this package emits (docs/span-contract.md). */
+/** `trailbeam.schema_version` of the spans this package emits (contract/span-contract.md). */
 export declare const SCHEMA_VERSION: 3;
 
 export interface InstallOptions {

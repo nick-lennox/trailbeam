@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://trailbeam.app">
-    <img src="docs/assets/banner.gif" alt="Trailbeam: messages cross a pre-dawn sky as trails of light, watched by an observatory on a mountain peak" width="880">
+    <img src="assets/banner.gif" alt="Trailbeam: messages cross a pre-dawn sky as trails of light, watched by an observatory on a mountain peak" width="880">
   </a>
 </p>
 
@@ -11,8 +11,8 @@
 <p align="center">
   <a href="https://trailbeam.app">Website</a> |
   <a href="https://docs.trailbeam.app">Docs</a> |
-  <a href="docs/quickstart.md">Quickstart</a> |
-  <a href="docs/architecture.md">How it works</a>
+  <a href="https://docs.trailbeam.app/quickstart">Quickstart</a> |
+  <a href="https://docs.trailbeam.app/concepts/how-it-works">How it works</a>
 </p>
 
 <p align="center">
@@ -56,7 +56,7 @@ answers a narrower question: where did this one message go?
 
 ## Quickstart
 
-The [quickstart](docs/quickstart.md) runs Trailbeam on your laptop with Docker and an SQS emulator.
+The [quickstart](https://docs.trailbeam.app/quickstart) runs Trailbeam on your laptop with Docker and an SQS emulator.
 It needs no AWS account.
 
 ```sh
@@ -129,7 +129,7 @@ docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-data:/data tr
 Or without Docker: `pip install "trailbeam[server]"`, then run `trailbeam`.
 
 There is no authentication in 0.1, so keep it on `127.0.0.1` or a trusted network. See
-[Run Trailbeam](docs/running.md) and, to forward spans through an OpenTelemetry Collector, the
+[Run Trailbeam](https://docs.trailbeam.app/setup/run) and, to forward spans through an OpenTelemetry Collector, the
 [Collector configuration](collector/README.md).
 
 ## Open source and the hosted app
@@ -163,7 +163,7 @@ this repository's code.
    used, through a keyed hash of the handle.
 4. When you open a message, Trailbeam builds its timeline.
 
-Full explanation: [How Trailbeam works](docs/architecture.md).
+Full explanation: [How Trailbeam works](https://docs.trailbeam.app/concepts/how-it-works).
 
 ## What Trailbeam does not do
 
@@ -174,18 +174,20 @@ Full explanation: [How Trailbeam works](docs/architecture.md).
 
 ## Documentation
 
-| Page | Kind | Contents |
-|---|---|---|
-| [`docs/quickstart.md`](docs/quickstart.md) | tutorial | From a clone to one message's timeline, on the local demo |
-| [`docs/architecture.md`](docs/architecture.md) | explanation | Components, data flow, what is recorded and what is inferred, failure cases |
-| [`python/README.md`](python/README.md) | how-to | Add the hooks to boto3 code and Lambda handlers in Python |
-| [`node/README.md`](node/README.md) | how-to | Add the hooks to AWS SDK v3 code and Lambda handlers in Node.js |
-| [`docs/running.md`](docs/running.md) | how-to | Run Trailbeam, natively or in a container |
-| [`collector/README.md`](collector/README.md) | how-to | Run the Collector configuration |
-| [`demo/README.md`](demo/README.md) | how-to and results | The local demo, and the 0.1 concurrency check and its results |
-| [`docs/span-contract.md`](docs/span-contract.md) | reference | The spans the packages emit and Trailbeam reads |
-| [`docs/api.md`](docs/api.md) | reference | Trailbeam's HTTP API |
-| [`docs/glossary.md`](docs/glossary.md) | reference | Terms |
+The documentation is at [docs.trailbeam.app](https://docs.trailbeam.app).
+
+| Page | Contents |
+|---|---|
+| [Quickstart](https://docs.trailbeam.app/quickstart) | From a clone to one message's timeline, on the local demo |
+| [How Trailbeam works](https://docs.trailbeam.app/concepts/how-it-works) | Components, data flow, what is recorded and what is inferred |
+| [Run Trailbeam](https://docs.trailbeam.app/setup/run) | Run Trailbeam, natively or in a container |
+| [HTTP API](https://docs.trailbeam.app/reference/api) | Trailbeam's JSON API |
+| [Vocabulary](https://docs.trailbeam.app/concepts/vocabulary) | Terms |
+
+The reference for each part of this repository is next to its code: [`python/`](python/README.md),
+[`node/`](node/README.md), [`collector/`](collector/README.md) and [`demo/`](demo/README.md). The span
+contract, the specification the packages and Trailbeam both follow, is
+[`contract/span-contract.md`](contract/span-contract.md).
 
 ## Repository layout
 
@@ -197,7 +199,7 @@ Full explanation: [How Trailbeam works](docs/architecture.md).
 | [`Dockerfile`](Dockerfile) | The Trailbeam container: `trailbeam[server]` with SQLite on a volume |
 | [`collector/`](collector/) | OpenTelemetry Collector configuration |
 | [`demo/`](demo/) | Local demo on ElasticMQ with Docker Compose, and the concurrency check (`demo/check.sh`) |
-| [`docs/`](docs/) | The pages listed above, and the receipt-hash test vectors |
+| [`contract/`](contract/) | The span contract and the receipt-hash test vectors |
 
 ## Development
 
@@ -217,9 +219,8 @@ the Collector tests, the container smoke test, the demo and the concurrency chec
 ## Contributing
 
 Issues and pull requests are welcome. Before opening a pull request, run the tests above for the
-part you changed. If your change alters a span or Trailbeam's API, update
-[`docs/span-contract.md`](docs/span-contract.md) or [`docs/api.md`](docs/api.md) in the
-same pull request.
+part you changed. If your change alters a span, update
+[`contract/span-contract.md`](contract/span-contract.md) in the same pull request.
 
 ## License
 

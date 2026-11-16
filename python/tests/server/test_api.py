@@ -1,4 +1,4 @@
-"""The JSON API over HTTP (docs/api.md)."""
+"""The JSON API over HTTP (https://docs.trailbeam.app/reference/api)."""
 import json
 import urllib.error
 import urllib.parse

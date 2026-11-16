@@ -1,4 +1,4 @@
-"""Per-message timelines, built from the stored rows of one message (docs/api.md).
+"""Per-message timelines, built from the stored rows of one message (https://docs.trailbeam.app/reference/api).
 
 Observed events come from Trailbeam spans. Each is an interval (contract section 2): ``start`` just before the
 SQS request was sent (``None`` if not observed, as for a Lambda receive), ``end`` when the response came.

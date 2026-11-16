@@ -6,7 +6,7 @@ said. Every Trailbeam hook and wrapper in the process shares this one counter, *
 the scope is the process, not a thread. That is sound because the lock makes the ticks one sequence in
 real time, and an edge needs A's ``returned`` tick (after its response) before B's ``issued`` tick
 (before its request), so two calls in flight together are never ordered, whichever threads made them
-(docs/span-contract.md section 2a).
+(contract/span-contract.md section 2a).
 
 A forked child gets a new scope and a fresh counter: its ticks are not ordered against the
 parent's after the fork, so they must not share a scope.

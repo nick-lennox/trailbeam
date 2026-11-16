@@ -1,7 +1,7 @@
 # trailbeam (Node.js)
 
 OpenTelemetry hooks for AWS SDK v3 SQS clients, and a wrapper for Lambda handlers that consume
-SQS. They emit the spans defined in [`docs/span-contract.md`](../docs/span-contract.md):
+SQS. They emit the spans defined in [`contract/span-contract.md`](../contract/span-contract.md):
 `trailbeam send`, `trailbeam receive`, `trailbeam delete`, `trailbeam change_visibility` and `trailbeam outcome`, one per
 message, with a keyed hash of each receipt handle and never the handle itself or the message body.
 
@@ -43,7 +43,7 @@ const sqs = trailbeam.instrument(new SQSClient({}));
   counter (each worker thread has its own). A call whose `returned` is lower than another's
   `issued`, in the same scope, returned before the other was sent. The counter is shared by every
   async task in the realm, so calls from different tasks can be ordered too; why that is sound is in
-  [contract section 2a](../docs/span-contract.md#2a-call-order-inside-one-process-schema-version-3);
+  [contract section 2a](../contract/span-contract.md#2a-call-order-inside-one-process-schema-version-3);
 - never changes the result or error the caller sees.
 
 If the application uses `@opentelemetry/instrumentation-aws-sdk`, each Trailbeam span is a child of the
@@ -122,6 +122,6 @@ TRAILBEAM_TEST_SQS_ENDPOINT=http://localhost:9324 npm test  # plus end to end ag
 ```
 
 The receipt-hash tests use the shared vectors in
-[`docs/span-contract-vectors.json`](../docs/span-contract-vectors.json), and the wrapper tests replay
+[`contract/span-contract-vectors.json`](../contract/span-contract-vectors.json), and the wrapper tests replay
 the recorded QV-9 Lambda events in [`python/tests/fixtures`](../python/tests/fixtures); the Python
 tests use both too.

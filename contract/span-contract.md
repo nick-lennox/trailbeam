@@ -357,7 +357,7 @@ The move to a dead-letter queue is **not** inferred (3.1). It is shown only when
 ## 9a. Order of steps in Trailbeam
 
 Trailbeam shows step A before step B only when at least one observed fact, a **source**, proves it.
-Every ordered edge records its sources; Trailbeam's API and screen show them (`docs/api.md`).
+Every ordered edge records its sources; Trailbeam's API and screen show them ([API reference](https://docs.trailbeam.app/reference/api)).
 
 | Source | A before B when |
 |---|---|
@@ -402,7 +402,7 @@ same `MessageId` and the system attribute `DeadLetterQueueSourceArn` naming the 
   queue has reached the queue's `maxReceiveCount` and no receive carrying the attribute is stored,
   Trailbeam says "receive count exceeded `maxReceiveCount`; not seen on the DLQ yet" and shows no
   move. Trailbeam does not know `maxReceiveCount` from spans; it is configured
-  (`docs/api.md`). Trailbeam **must not** receive from the dead-letter queue to check: a receive
+  ([API reference](https://docs.trailbeam.app/reference/api)). Trailbeam **must not** receive from the dead-letter queue to check: a receive
   changes the message's state (receive count, visibility, receipt handle).
 - **Moves back** (redrive) are out of scope for 3.1: a receive on the source queue after the
   dead-letter queue shows no move step.

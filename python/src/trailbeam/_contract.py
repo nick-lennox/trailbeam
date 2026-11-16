@@ -1,4 +1,4 @@
-"""Names and values from docs/span-contract.md (schema version 3), and the receipt-handle hash."""
+"""Names and values from contract/span-contract.md (schema version 3), and the receipt-handle hash."""
 from __future__ import annotations
 
 import hashlib

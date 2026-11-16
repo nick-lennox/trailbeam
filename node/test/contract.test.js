@@ -9,7 +9,7 @@ const util = require('node:util');
 const contract = require('../src/contract');
 const sdk = require('../src/index');
 
-const VECTORS = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'span-contract-vectors.json'), 'utf8'));
+const VECTORS = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'contract', 'span-contract-vectors.json'), 'utf8'));
 
 test('hash functions match the shared test vectors (same as the Python package)', () => {
   assert.ok(VECTORS.vectors.length >= 3);

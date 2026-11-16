@@ -1,7 +1,7 @@
 # demo
 
 Trailbeam on your machine against an SQS emulator: no AWS account, no AWS credentials. Needs Docker with
-Compose v2. Step-by-step from a fresh clone: [`docs/quickstart.md`](../docs/quickstart.md).
+Compose v2. Step-by-step from a fresh clone: [quickstart](https://docs.trailbeam.app/quickstart).
 
 ```sh
 docker compose -f demo/compose.yaml up -d --build
@@ -37,7 +37,7 @@ are not the ones you set.
 |---|---|
 | `sqs` | [ElasticMQ](https://github.com/softwaremill/elasticmq) 1.6.15 (`softwaremill/elasticmq-native`), an SQS-compatible emulator. Not published to the host. |
 | `collector` | OpenTelemetry Collector contrib 0.165.0 with [`collector/trailbeam-collector.yaml`](../collector/trailbeam-collector.yaml) copied in ([`collector-image/Dockerfile`](collector-image/Dockerfile)). Receives OTLP from the services below and forwards the Trailbeam spans to Trailbeam. |
-| `trailbeam` | Trailbeam, with its web screen ([Run Trailbeam](../docs/running.md)), on `127.0.0.1:4318` (set `TRAILBEAM_DEMO_PORT` to change the host port). SQLite on the `trailbeam-data` volume. |
+| `trailbeam` | Trailbeam, with its web screen ([Run Trailbeam](https://docs.trailbeam.app/setup/run)), on `127.0.0.1:4318` (set `TRAILBEAM_DEMO_PORT` to change the host port). SQLite on the `trailbeam-data` volume. |
 | `producer` | Python, [`python/trailbeamdemo.py`](python/trailbeamdemo.py) with the `trailbeam` boto3 hooks: one message a second to the queue `orders`. |
 | `consumer-python` | Python, 4 consumer threads on `orders`, plus one thread that empties `orders-dlq`. |
 | `consumer-node` | Node.js, [`node/trailbeamdemo.js`](node/trailbeamdemo.js) with `trailbeam`: 4 concurrent consumers on `orders`. |
@@ -61,7 +61,7 @@ Every message body is `{"kind": ..., "n": ...}`, and the kind decides what the c
 | `poison` | 1 in 25 | always fails | three deliveries, a move to the dead-letter queue **reported by SQS** (`DeadLetterQueueSourceArn` on the `orders-dlq` receive, never inferred), a receive on `orders-dlq` |
 
 Pick a message on the start page, or look at `/duplicates` and `/stuck` (stuck after 60 s in the demo).
-The JSON API is under `/api/` ([`docs/api.md`](../docs/api.md)).
+The JSON API is under `/api/` ([API reference](https://docs.trailbeam.app/reference/api)).
 
 ## Notes
 
@@ -77,7 +77,7 @@ The JSON API is under `/api/` ([`docs/api.md`](../docs/api.md)).
   the demo that is most often a send and its first receive: idle consumers are already waiting in a long
   poll when the message is sent, and ElasticMQ stamps `SentTimestamp` and
   `ApproximateFirstReceiveTimestamp` in the same millisecond. See the
-  [quickstart](../docs/quickstart.md#read-the-timeline).
+  [quickstart](https://docs.trailbeam.app/concepts/timelines).
 - **One clock.** All demo containers run on one host and read one clock, so their intervals can be
   compared. Across hosts, Trailbeam relies on the hosts' clocks and does not correct for an offset
   between them (a known limit of 0.1).
@@ -129,7 +129,7 @@ ElasticMQ runs use `--dlq`. The real-SQS runs don't, because the move on real SQ
 
 **In order.** Trailbeam shows a step before another only when an observed fact proves it, and says which
 (`order.edges`, each with its sources: `clock`, `process_order`, `receive_count`, `sqs_timestamps`;
-[`docs/api.md`](../docs/api.md#events-and-their-order)). What no fact orders is "concurrent,
+[how steps are ordered](https://docs.trailbeam.app/concepts/ordering)). What no fact orders is "concurrent,
 order unknown". The checker takes the cause/effect pairs from the truth files: the send and each receive;
 receive *k* and receive *k*+1; receive *k* and each delete or visibility change that used its handle; an
 accepted `ChangeMessageVisibility` on delivery *k* and receive *k*+1. A pair is

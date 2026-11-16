@@ -1,4 +1,4 @@
-"""HTTP server: OTLP/HTTP trace ingest on /v1/traces, the JSON API under /api/ (docs/api.md), and the
+"""HTTP server: OTLP/HTTP trace ingest on /v1/traces, the JSON API under /api/ (https://docs.trailbeam.app/reference/api), and the
 web screen (web.py) on every other GET path."""
 from __future__ import annotations
 

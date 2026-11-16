@@ -19,7 +19,7 @@ const FIXTURES = path.join(__dirname, '..', '..', 'python', 'tests', 'fixtures')
 const QV9 = JSON.parse(fs.readFileSync(path.join(FIXTURES, 'qv9_lambda_events.json'), 'utf8'));
 const DOCS = JSON.parse(fs.readFileSync(path.join(FIXTURES, 'aws_docs_sqs_event.json'), 'utf8')).event;
 
-const KEY = 'example-key-0123456789abcdef'; // key ID 05769f58, from docs/span-contract-vectors.json
+const KEY = 'example-key-0123456789abcdef'; // key ID 05769f58, from contract/span-contract-vectors.json
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const ctx = (awsRequestId = 'req-1', functionName = 'orders-fn') => ({ awsRequestId, functionName, getRemainingTimeInMillis: () => 30000 });
 

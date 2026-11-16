@@ -33,7 +33,7 @@ never drops Trailbeam spans. This configuration makes sure the Collector doesn't
 
 Trailbeam listens on 4318 by default, so that the packages can export to it directly without a
 Collector. When the Collector and Trailbeam run on the same host, start Trailbeam on 4319
-(`trailbeam --port 4319`, see [Run Trailbeam](../docs/running.md)).
+(`trailbeam --port 4319`, see [Run Trailbeam](https://docs.trailbeam.app/setup/run)).
 
 ## Why it is built this way
 
