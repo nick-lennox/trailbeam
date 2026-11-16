@@ -21,7 +21,7 @@ def rec(op, t, rh=None, **kw):
 
 
 def ev(type_, t, group=None, start=None, **kw):
-    """An observed store event (contract v2): interval [start, end], in a group. By default the interval
+    """An observed timeline event (contract v2): interval [start, end], in a group. By default the interval
     is [10 t, 10 t + 5] and the group is t - 1, so events at t = 1, 2, ... are one per group, in order."""
     start = 10 * t if start is None else start
     end = kw.pop("end", 10 * t + 5)
@@ -166,7 +166,7 @@ def test_unknown_start_cannot_be_ordered_after_its_cause():
     tl["events"][1].update(delivery=1, receive_count=1)
     r = check.evaluate(truth, tl)
     assert r["passed"] and r["pairs"]["send->receive"]["concurrent"] == 1
-    tl["events"][1]["group"] = 1  # a store that ordered it after the send without a start to prove it
+    tl["events"][1]["group"] = 1  # a Trailbeam that ordered it after the send without a start to prove it
     tl["events"][2]["group"] = 2
     assert not check.evaluate(truth, tl)["in_order"]
 
@@ -303,7 +303,7 @@ def with_order(tl, edges, groups=None, facts=True):
     given as (from index, to index, sources) over the observed events. ``groups`` overrides their groups.
 
     With ``facts`` (the default), the events also get the facts that make each claimed source hold, as a
-    real store's would (the checker recomputes every source): a clock gap, call-order ticks in one scope
+    a real Trailbeam's would (the checker recomputes every source): a clock gap, call-order ticks in one scope
     (in listing order), or SQS timestamps a millisecond apart. ``facts=False`` claims the edges bare."""
     obs = [e for e in tl["events"] if not e["inferred"]]
     for i, e in enumerate(obs):
@@ -400,7 +400,7 @@ def test_groups_in_order_without_a_proof_are_a_violation():
 # -- every edge is checked, not trusted (QV-32 section 5, QV-34) --------------------------------------------
 
 def concurrent_cross_process_timeline():
-    """What the honest store gives on the emulator for a message deleted by another process: the receive's
+    """What an honest Trailbeam gives on the emulator for a message deleted by another process: the receive's
     long poll was open before the send (the clocks can't order them), SQS stamped SentTimestamp and
     ApproximateFirstReceiveTimestamp in the same millisecond, and the delete was made in the deleter process
     (another call-order scope), with its interval overlapping the receive's."""
@@ -416,7 +416,7 @@ def concurrent_cross_process_timeline():
 
 
 def test_a_store_that_orders_by_rule_fails_even_with_real_source_labels():
-    """The reviewer's fake store (QV-32 section 5): on the honest data, it adds 'send -> receive' labelled
+    """The reviewer's fake Trailbeam (QV-32 section 5): on the honest data, it adds 'send -> receive' labelled
     sqs_timestamps and 'receive -> its delete' labelled process_order, with no facts behind them. Before
     QV-34 the checker took the labels on trust and this passed 200/200 and the floor. Now neither recomputes."""
     honest = [with_order(concurrent_cross_process_timeline(), []) for _ in range(3)]
@@ -468,7 +468,7 @@ def xproc_summary(timelines):
 
 def test_fake2_with_made_up_facts_fails_against_the_truth():
     """QV-35 section 1: fake2 passed 200/200 and the gating floor, because every source recomputed from the
-    store's own (made-up) facts. Now the truth records SQS's facts and each call's process, so it fails."""
+    timeline's own (made-up) facts. Now the truth records SQS's facts and each call's process, so it fails."""
     honest = [with_order(concurrent_cross_process_timeline(), []) for _ in range(3)]
     s = xproc_summary(honest)
     assert (s["passed"], s["sqs_facts"], s["receives_sqs_facts_compared"]) == (3, 3, 3)
@@ -490,18 +490,18 @@ def test_fake2_with_made_up_facts_fails_against_the_truth():
     assert s["floor"]["result"] == "PASS"  # the floor alone would still pass: the labels resolve every pair
 
 
-@pytest.mark.parametrize("store", [{"first_receive_timestamp_ms": None}, {"sent_timestamp_ms": 4999},
+@pytest.mark.parametrize("shown", [{"first_receive_timestamp_ms": None}, {"sent_timestamp_ms": 4999},
                                    {"first_receive_timestamp_ms": 5000, "sent_timestamp_ms": 5000}])
-def test_a_receive_must_show_the_sqs_facts_the_driver_saw(store):
+def test_a_receive_must_show_the_sqs_facts_the_driver_saw(shown):
     tl = concurrent_cross_process_timeline()
     rcv = tl["events"][1]
-    for k, v in store.items():
+    for k, v in shown.items():
         if v is None:
             rcv.pop(k)
         else:
             rcv[k] = v
     r = check.evaluate(XPROC_TRUTH, tl)
-    ok = store == {"first_receive_timestamp_ms": 5000, "sent_timestamp_ms": 5000}
+    ok = shown == {"first_receive_timestamp_ms": 5000, "sent_timestamp_ms": 5000}
     assert r["sqs_facts"] is ok and r["passed"] is ok
 
 

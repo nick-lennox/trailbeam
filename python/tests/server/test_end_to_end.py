@@ -43,7 +43,7 @@ def install(server_url):
     return trailbeam.boto.install(KEY, span_processor=SimpleSpanProcessor(OTLPSpanExporter(endpoint=server_url + "/v1/traces")))
 
 
-def test_batch_delete_from_another_process_joins_by_hash(server, store, sqs):
+def test_batch_delete_from_another_process_joins_by_hash(server, db, sqs):
     import trailbeam.boto
 
     try:
@@ -63,11 +63,11 @@ def test_batch_delete_from_another_process_joins_by_hash(server, store, sqs):
         trailbeam.boto.uninstall()
 
     deadline = time.time() + 5
-    while time.time() < deadline and len(store.query("SELECT row FROM spans")) < 9:
+    while time.time() < deadline and len(db.query("SELECT row FROM spans")) < 9:
         time.sleep(0.05)
-    dels = store.query("SELECT * FROM spans WHERE kind = 'delete'")
+    dels = db.query("SELECT * FROM spans WHERE kind = 'delete'")
     assert len(dels) == 3
     assert all(d["message_id"] is None and d["mid_source"] == "receipt_hash" and d["result"] == "ok" for d in dels)
     assert sorted(d["mid"] for d in dels) == mids
     for m in mids:
-        assert [r["kind"] for r in store.message_rows(m)] == ["send", "receive", "delete"]
+        assert [r["kind"] for r in db.message_rows(m)] == ["send", "receive", "delete"]

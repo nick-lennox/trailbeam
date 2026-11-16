@@ -16,7 +16,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTrace
 
 from . import __version__
 from . import queries, web
-from .db import Store
+from .db import Database
 from .otlp import DecodeError, decode
 from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
 
@@ -35,10 +35,10 @@ class ApiError(Exception):
 class App:
     """Request handling, independent of the HTTP server so tests can call it directly."""
 
-    def __init__(self, store: Store, *, stuck_after_s: int = 300,
+    def __init__(self, db: Database, *, stuck_after_s: int = 300,
                  lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S, now: Callable[[], int] = time.time_ns,
                  max_receive_counts: Optional[dict] = None):
-        self.store = store
+        self.db = db
         self.max_receive_counts = dict(max_receive_counts or {})
         self.stuck_after_s = stuck_after_s
         self.lambda_timeout_s = lambda_timeout_s
@@ -56,7 +56,7 @@ class App:
             d = decode(body, content_type)
         except DecodeError as e:
             return 400, "text/plain; charset=utf-8", str(e).encode()
-        inserted, dupes = self.store.insert(d.records)
+        inserted, dupes = self.db.insert(d.records)
         with self.stats_lock:
             self.stats["requests"] += 1
             self.stats["inserted"] += inserted
@@ -89,7 +89,7 @@ class App:
             raise ApiError(404, "no such endpoint")
         with self.stats_lock:
             ingest = dict(self.stats)
-        return {"status": "ok", "version": __version__, "ingest": ingest, "data": self.store.counts(),
+        return {"status": "ok", "version": __version__, "ingest": ingest, "data": self.db.counts(),
                 "config": {"stuck_after_s": self.stuck_after_s, "lambda_timeout_s": self.lambda_timeout_s,
                            "max_receive_counts": self.max_receive_counts}}
 
@@ -100,11 +100,11 @@ class App:
         if len(rest) > 1:
             raise ApiError(404, "no such endpoint")
         if rest:
-            t = queries.message(self.store, rest[0], self.now(), self._lambda_timeout(q), self.max_receive_counts)
+            t = queries.message(self.db, rest[0], self.now(), self._lambda_timeout(q), self.max_receive_counts)
             if t is None:
                 raise ApiError(404, f"no spans for message ID {rest[0]!r}")
             return t
-        items = queries.recent(self.store, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"),
+        items = queries.recent(self.db, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"),
                                mrc=self.max_receive_counts)
         return {"messages": items}
 
@@ -114,7 +114,7 @@ class App:
         reason = q.get("reason")
         if reason not in (None, "received_more_than_once", "succeeded_more_than_once"):
             raise ApiError(400, "reason must be received_more_than_once or succeeded_more_than_once")
-        items = queries.duplicates(self.store, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"), reason,
+        items = queries.duplicates(self.db, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"), reason,
                                    mrc=self.max_receive_counts)
         return {"messages": items}
 
@@ -122,7 +122,7 @@ class App:
         if rest:
             raise ApiError(404, "no such endpoint")
         older = _int(q, "older_than_s", self.stuck_after_s, 0, 10 ** 9)
-        items = queries.stuck(self.store, self.now(), self._lambda_timeout(q), older, _limit(q), q.get("queue"),
+        items = queries.stuck(self.db, self.now(), self._lambda_timeout(q), older, _limit(q), q.get("queue"),
                               mrc=self.max_receive_counts)
         return {"older_than_s": older, "messages": items}
 
@@ -244,7 +244,7 @@ def _bounded(d, data: bytes) -> bytes:
     return out
 
 
-def make_server(store: Store, host: str = "127.0.0.1", port: int = 4318, **app_options) -> ThreadingHTTPServer:
-    httpd = ThreadingHTTPServer((host, port), make_handler(App(store, **app_options)))
+def make_server(db: Database, host: str = "127.0.0.1", port: int = 4318, **app_options) -> ThreadingHTTPServer:
+    httpd = ThreadingHTTPServer((host, port), make_handler(App(db, **app_options)))
     httpd.daemon_threads = True
     return httpd

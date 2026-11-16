@@ -12,7 +12,7 @@ from opentelemetry.proto.common.v1.common_pb2 import AnyValue, InstrumentationSc
 from opentelemetry.proto.resource.v1.resource_pb2 import Resource
 from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span
 
-KEY = "store-test-key-0123456789"
+KEY = "db-test-key-0123456789"
 T0 = 1_763_080_000_000_000_000  # ns
 SEC = 1_000_000_000
 

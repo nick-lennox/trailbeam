@@ -9,8 +9,8 @@ NOW = T0 + 3600 * SEC
 LT = 900
 
 
-def tl(store, mid, now=NOW, lambda_timeout=LT, mrc=None):
-    return queries.message(store, mid, now, lambda_timeout, mrc)
+def tl(db, mid, now=NOW, lambda_timeout=LT, mrc=None):
+    return queries.message(db, mid, now, lambda_timeout, mrc)
 
 
 def types(t):
@@ -30,10 +30,10 @@ def check_marking(t):
             assert e["time"] and e["span"]["span_id"] and "window" not in e
 
 
-def test_happy_path(store, ingest):
+def test_happy_path(db, ingest):
     p, c = Consumer("producer", service="orders-api"), Consumer()
     ingest(p.send(T0, "m1"), c.receive(T0 + SEC, "m1", "rh-1", sent_ms=T0 // 1_000_000), c.delete(T0 + 2 * SEC, "rh-1"))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     check_marking(t)
     assert types(t) == [("sent", False), ("received", False), ("deleted", False)]
     assert t["events"][2]["status"] == "final" and t["events"][2]["delivery"] == 1
@@ -42,7 +42,7 @@ def test_happy_path(store, ingest):
     assert t["events"][1]["time"] == "2025-11-14T00:26:41.000000Z"
 
 
-def test_visibility_timeout_expiry_is_inferred_and_late_delete_is_stale(store, ingest):
+def test_visibility_timeout_expiry_is_inferred_and_late_delete_is_stale(db, ingest):
     """Consumer A is too slow: the message is delivered to B, then both delete (double processing)."""
     a, b = Consumer("consumer-a"), Consumer("consumer-b")
     ingest(Consumer("producer").send(T0, "m1"),
@@ -50,7 +50,7 @@ def test_visibility_timeout_expiry_is_inferred_and_late_delete_is_stale(store, i
            b.receive(T0 + 32 * SEC, "m1", "rh-2", count=2),
            a.delete(T0 + 40 * SEC, "rh-1"),
            b.delete(T0 + 41 * SEC, "rh-2"))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     check_marking(t)
     assert types(t) == [("sent", False), ("received", False), ("visibility_timeout_expired", True),
                         ("received", False), ("deleted", False), ("deleted", False)]
@@ -60,29 +60,29 @@ def test_visibility_timeout_expiry_is_inferred_and_late_delete_is_stale(store, i
     assert [(e["delivery"], e["status"]) for e in t["events"][4:]] == [(1, "stale_handle"), (2, "final")]
     assert t["state"] == "deleted" and t["successful_deliveries"] == 2
 
-    dup = queries.duplicates(store, NOW, LT, 100)
+    dup = queries.duplicates(db, NOW, LT, 100)
     assert [d["message_id"] for d in dup] == ["m1"]
     assert dup[0]["reasons"] == ["received_more_than_once", "succeeded_more_than_once"]
     assert {c["client_id"] for c in dup[0]["consumers"]} == {"consumer-a", "consumer-b"}
 
 
-def test_delete_accepted_before_a_redelivery_is_stale(store, ingest):
+def test_delete_accepted_before_a_redelivery_is_stale(db, ingest):
     """The delete came after the visibility timeout: SQS accepted it, yet delivered the message again."""
     a, b = Consumer("consumer-a"), Consumer("consumer-b")
     ingest(a.receive(T0, "m1", "rh-1", count=1), a.delete(T0 + 31 * SEC, "rh-1"),
            b.receive(T0 + 32 * SEC, "m1", "rh-2", count=2))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     assert t["events"][1]["status"] == "stale_handle"
     assert "came too late" in next(e for e in t["events"] if e["type"] == "visibility_timeout_expired")["reason"]
     assert t["state"] == "not_deleted"
-    assert [s["message_id"] for s in queries.stuck(store, NOW, LT, 300, 100)] == ["m1"]
+    assert [s["message_id"] for s in queries.stuck(db, NOW, LT, 300, 100)] == ["m1"]
 
 
-def test_change_visibility_to_zero_is_the_reason_for_redelivery(store, ingest):
+def test_change_visibility_to_zero_is_the_reason_for_redelivery(db, ingest):
     c = Consumer()
     ingest(c.receive(T0, "m1", "rh-1", count=1), c.change_visibility(T0 + SEC, "rh-1", 0),
            c.receive(T0 + 2 * SEC, "m1", "rh-2", count=2), c.delete(T0 + 3 * SEC, "rh-2"))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     check_marking(t)
     assert types(t) == [("received", False), ("visibility_changed", False), ("visibility_timeout_expired", True),
                         ("received", False), ("deleted", False)]
@@ -98,11 +98,11 @@ def poison(c, d, dlq_count=4, dlq_source="orders"):
             d.delete(T0 + 201 * SEC, "rh-dlq"))
 
 
-def test_move_to_dead_letter_queue_is_observed_from_dead_letter_queue_source_arn(store, ingest):
+def test_move_to_dead_letter_queue_is_observed_from_dead_letter_queue_source_arn(db, ingest):
     """Contract 3.1, section 9b: the DLQ receive carries DeadLetterQueueSourceArn, so SQS reported the move."""
     c, d = Consumer(), Consumer("dlq-worker", queue="orders-dlq")
     ingest(*poison(c, d))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     check_marking(t)
     assert types(t) == [("sent", False), ("received", False), ("visibility_timeout_expired", True),
                         ("received", False), ("visibility_timeout_expired", True), ("received", False),
@@ -123,11 +123,11 @@ def test_move_to_dead_letter_queue_is_observed_from_dead_letter_queue_source_arn
     assert not [n for n in t["notices"] if n["code"] == "dlq_move_not_seen"]
 
 
-def test_receive_on_another_queue_without_the_attribute_shows_no_move(store, ingest):
+def test_receive_on_another_queue_without_the_attribute_shows_no_move(db, ingest):
     """No report from SQS, no move: the message ID on another queue is not enough (contract 3.1)."""
     c, d = Consumer(), Consumer("dlq-worker", queue="orders-dlq")
     ingest(*poison(c, d, dlq_source=None))
-    t = tl(store, "m1", mrc={"orders": 3})
+    t = tl(db, "m1", mrc={"orders": 3})
     check_marking(t)
     assert "moved_to_dead_letter_queue" not in [e["type"] for e in t["events"]]
     assert "moved_back_to_source_queue" not in [e["type"] for e in t["events"]]
@@ -135,11 +135,11 @@ def test_receive_on_another_queue_without_the_attribute_shows_no_move(store, ing
         ("orders-dlq", False, None)  # deleted, so not "not seen yet" either
 
 
-def test_receive_count_reached_max_but_not_seen_on_the_dead_letter_queue(store, ingest):
+def test_receive_count_reached_max_but_not_seen_on_the_dead_letter_queue(db, ingest):
     c = Consumer()
     ingest(Consumer("producer").send(T0, "m1"),
            *[c.receive(T0 + (1 + 31 * i) * SEC, "m1", f"rh-{i}", count=i + 1) for i in range(3)])
-    t = tl(store, "m1", mrc={"orders": 3})
+    t = tl(db, "m1", mrc={"orders": 3})
     check_marking(t)
     assert "moved_to_dead_letter_queue" not in [e["type"] for e in t["events"]]
     assert (t["dead_letter_queue_move"], t["in_dead_letter_queue"]) == ("not_seen_on_dlq_yet", False)
@@ -148,25 +148,25 @@ def test_receive_count_reached_max_but_not_seen_on_the_dead_letter_queue(store, 
     assert "receive count 3" in n["message"] and "maxReceiveCount is 3" in n["message"]
     assert "does not receive from the dead-letter queue" in n["message"]
     # Not configured, or below the limit: nothing to say.
-    assert tl(store, "m1")["dead_letter_queue_move"] is None
-    assert tl(store, "m1", mrc={"orders": 4})["dead_letter_queue_move"] is None
-    assert tl(store, "m1", mrc={"other": 1})["dead_letter_queue_move"] is None
+    assert tl(db, "m1")["dead_letter_queue_move"] is None
+    assert tl(db, "m1", mrc={"orders": 4})["dead_letter_queue_move"] is None
+    assert tl(db, "m1", mrc={"other": 1})["dead_letter_queue_move"] is None
 
 
-def test_deleted_at_max_receive_count_is_not_waiting_for_the_dead_letter_queue(store, ingest):
+def test_deleted_at_max_receive_count_is_not_waiting_for_the_dead_letter_queue(db, ingest):
     c = Consumer()
     ingest(c.send(T0, "m1"), c.receive(T0 + SEC, "m1", "rh-1"), c.delete(T0 + 2 * SEC, "rh-1"))
-    t = tl(store, "m1", mrc={"orders": 1})
+    t = tl(db, "m1", mrc={"orders": 1})
     assert (t["state"], t["dead_letter_queue_move"], t["notices"]) == ("deleted", None, [])
 
 
-def test_move_reported_by_the_first_of_several_dead_letter_receives(store, ingest):
+def test_move_reported_by_the_first_of_several_dead_letter_receives(db, ingest):
     """Every receive from the DLQ carries the attribute; the move is one step, before the first of them."""
     c, d = Consumer(), Consumer("dlq-worker", queue="orders-dlq")
     ingest(c.send(T0, "m1"), c.receive(T0 + SEC, "m1", "rh-1"),
            d.receive(T0 + 50 * SEC, "m1", "rh-d1", count=2, dlq_source="orders"),
            d.receive(T0 + 90 * SEC, "m1", "rh-d2", count=3, dlq_source="orders"))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     check_marking(t)
     assert [e["type"] for e in t["events"]] == ["sent", "received", "moved_to_dead_letter_queue", "received",
                                                 "visibility_timeout_expired", "received"]
@@ -174,116 +174,116 @@ def test_move_reported_by_the_first_of_several_dead_letter_receives(store, inges
     assert move["reported_on_delivery"] == 2 and move["before"]["event"] == t["events"][3]["id"]
 
 
-def test_move_when_no_receive_on_the_source_queue_was_observed(store, ingest):
+def test_move_when_no_receive_on_the_source_queue_was_observed(db, ingest):
     """The consumers of orders run without Trailbeam: the move is still reported, placed after the send."""
     p, d = Consumer("producer"), Consumer("dlq-worker", queue="orders-dlq")
     ingest(p.send(T0, "m1"), d.receive(T0 + 50 * SEC, "m1", "rh-d1", count=4, dlq_source="orders"))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     check_marking(t)
     assert [e["type"] for e in t["events"]] == ["sent", "moved_to_dead_letter_queue", "received"]
     assert t["events"][1]["after"][0]["event"] == t["events"][0]["id"]
     assert t["in_dead_letter_queue"] is True
 
 
-def test_move_is_ordered_against_other_steps_only_through_its_anchors(store, ingest):
+def test_move_is_ordered_against_other_steps_only_through_its_anchors(db, ingest):
     """A delete on orders that overlaps the last receive there is not placed against the move by any guess."""
     c, d = Consumer(), Consumer("dlq-worker", queue="orders-dlq")
     ingest(c.send(T0, "m1"), c.receive(T0 + SEC, "m1", "rh-1", start=T0 + SEC // 2),
            c.delete(T0 + SEC, "rh-1", start=T0 + SEC // 2),  # overlaps receive 1: not proven after it
            d.receive(T0 + 50 * SEC, "m1", "rh-d1", count=2, dlq_source="orders"))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     move = next(e for e in t["events"] if e["type"] == "moved_to_dead_letter_queue")
     assert [a["sources"] for a in move["after"]] == [["sqs_dlq_source"]]
     rcv1 = next(e for e in t["events"] if e["type"] == "received" and e["delivery"] == 1)
     assert move["after"][0]["event"] == rcv1["id"]
 
 
-def test_message_waiting_in_dead_letter_queue_is_stuck(store, ingest):
+def test_message_waiting_in_dead_letter_queue_is_stuck(db, ingest):
     c, d = Consumer(), Consumer("dlq-peek", queue="orders-dlq")
     ingest(c.send(T0, "m1"), c.receive(T0 + SEC, "m1", "rh-1"),
            d.receive(T0 + 100 * SEC, "m1", "rh-2", count=2, dlq_source="orders"))
-    s = queries.stuck(store, NOW, LT, 300, 100)
+    s = queries.stuck(db, NOW, LT, 300, 100)
     assert [(x["message_id"], x["current_queue"], x["in_dead_letter_queue"], x["dead_letter_queue_move"])
             for x in s] == [("m1", "orders-dlq", True, "observed")]
 
 
-def test_lambda_success_infers_the_delete(store, ingest):
+def test_lambda_success_infers_the_delete(db, ingest):
     fn = Consumer("2026/11/13/[$LATEST]abc", source="lambda")
     ingest(Consumer("producer").send(T0, "m1"), fn.receive(T0 + SEC, "m1", "rh-1", lambda_inv="inv-1"),
            fn.outcome(T0 + 2 * SEC, "m1", "success", "inv-1"))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     check_marking(t)
     assert types(t) == [("sent", False), ("received", False), ("lambda_outcome", False), ("deleted_by_lambda", True)]
     assert t["events"][2]["delivery"] == 1 and t["events"][3]["delivery"] == 1
     assert t["state"] == "deleted_inferred" and t["successful_deliveries"] == 1
-    assert queries.stuck(store, NOW, LT, 300, 100) == []
+    assert queries.stuck(db, NOW, LT, 300, 100) == []
 
 
-def test_lambda_failure_then_success(store, ingest):
+def test_lambda_failure_then_success(db, ingest):
     fn = Consumer("env-1", source="lambda")
     ingest(fn.receive(T0, "m1", "rh-1", count=1, lambda_inv="inv-1"),
            fn.outcome(T0 + SEC, "m1", "failed_exception", "inv-1", error_type="RuntimeError"),
            fn.receive(T0 + 40 * SEC, "m1", "rh-2", count=2, lambda_inv="inv-2"),
            fn.outcome(T0 + 41 * SEC, "m1", "success", "inv-2"))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     assert types(t) == [("received", False), ("lambda_outcome", False), ("visibility_timeout_expired", True),
                         ("received", False), ("lambda_outcome", False), ("deleted_by_lambda", True)]
     assert t["events"][1]["error_type"] == "RuntimeError"
     assert t["state"] == "deleted_inferred"
-    assert queries.duplicates(store, NOW, LT, 100, reason="succeeded_more_than_once") == []
-    assert [d["message_id"] for d in queries.duplicates(store, NOW, LT, 100, reason="received_more_than_once")] == ["m1"]
+    assert queries.duplicates(db, NOW, LT, 100, reason="succeeded_more_than_once") == []
+    assert [d["message_id"] for d in queries.duplicates(db, NOW, LT, 100, reason="received_more_than_once")] == ["m1"]
 
 
-def test_lambda_receive_without_outcome_is_inferred_killed_after_the_timeout(store, ingest):
+def test_lambda_receive_without_outcome_is_inferred_killed_after_the_timeout(db, ingest):
     fn = Consumer("env-1", source="lambda")
     ingest(fn.send(T0, "m1"), fn.receive(T0 + SEC, "m1", "rh-1", lambda_inv="inv-1"))
-    during = tl(store, "m1", now=T0 + 60 * SEC, lambda_timeout=900)
+    during = tl(db, "m1", now=T0 + 60 * SEC, lambda_timeout=900)
     assert types(during) == [("sent", False), ("received", False)] and during["state"] == "processing"
-    after = tl(store, "m1", now=T0 + 120 * SEC, lambda_timeout=60)
+    after = tl(db, "m1", now=T0 + 120 * SEC, lambda_timeout=60)
     check_marking(after)
     assert types(after) == [("sent", False), ("received", False), ("lambda_invocation_ended_without_outcome", True)]
     assert after["events"][2]["faas_invocation_id"] == "inv-1" and after["state"] == "not_deleted"
 
 
-def test_unobserved_deliveries_are_inferred_from_the_receive_count(store, ingest):
+def test_unobserved_deliveries_are_inferred_from_the_receive_count(db, ingest):
     c = Consumer()
     ingest(c.send(T0, "m1"), c.receive(T0 + 100 * SEC, "m1", "rh-3", count=3),
            c.receive(T0 + 200 * SEC, "m1", "rh-5", count=5), c.delete(T0 + 201 * SEC, "rh-5"))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     check_marking(t)
     gaps = [e for e in t["events"] if e["type"] == "deliveries_not_observed"]
     assert [g["count"] for g in gaps] == [2, 1]
     assert types(t)[:3] == [("sent", False), ("deliveries_not_observed", True), ("received", False)]
 
 
-def test_batch_delete_in_the_timeline_of_each_message(store, ingest):
+def test_batch_delete_in_the_timeline_of_each_message(db, ingest):
     c, other = Consumer(), Consumer("deleter")
     tr = b"\x07" * 16
     ingest(*[c.receive(T0, m, f"rh-{m}") for m in ("a", "b", "c")])
     ingest(*[other.delete(T0 + SEC, f"rh-{m}", batch_entry=str(i), trace_id=tr) for i, m in enumerate("abc")])
     for i, m in enumerate("abc"):
-        t = tl(store, m)
+        t = tl(db, m)
         d = t["events"][-1]
         assert (d["type"], d["status"], d["batch_entry_id"], d["span"]["trace_id"]) == ("deleted", "final", str(i), tr.hex())
         assert d["consumer"]["client_id"] == "deleter" and t["state"] == "deleted"
 
 
-def test_failed_delete_does_not_settle(store, ingest):
+def test_failed_delete_does_not_settle(db, ingest):
     c = Consumer()
     ingest(c.send(T0, "m1"), c.receive(T0 + SEC, "m1", "rh-1"), c.delete(T0 + 2 * SEC, "rh-1", ok=False))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     assert (t["events"][-1]["status"], t["events"][-1]["error_code"]) == ("failed", "ReceiptHandleIsInvalid")
     assert t["state"] == "not_deleted" and t["successful_deliveries"] == 0
-    assert [s["message_id"] for s in queries.stuck(store, NOW, LT, 300, 100)] == ["m1"]
+    assert [s["message_id"] for s in queries.stuck(db, NOW, LT, 300, 100)] == ["m1"]
 
 
-def test_observed_steps_are_never_reordered_by_cause(store, ingest):
+def test_observed_steps_are_never_reordered_by_cause(db, ingest):
     """Contract section 9a: the order shown is the order the clocks prove, nothing else. If b's clock is
     1 s behind, its delete is shown before the receive it settles; Trailbeam does not move it."""
     a, b = Consumer("a"), Consumer("b")
     ingest(a.receive(T0 + 5 * SEC, "m1", "rh-1", start=T0 + 5 * SEC - 1000),
            b.delete(T0 + 4 * SEC, "rh-1", start=T0 + 4 * SEC - 1000))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     assert [(e["type"], e["group"]) for e in t["events"]] == [("deleted", 0), ("received", 1)]
     assert t["events"][0]["delivery"] == 1 and t["events"][0]["status"] == "final"  # the join is unchanged
 
@@ -306,14 +306,14 @@ def groups(t):
     return [x if isinstance(x, str) else x[1] for x in out]
 
 
-def test_overlapping_send_and_receive_are_one_concurrent_group(store, ingest):
+def test_overlapping_send_and_receive_are_one_concurrent_group(db, ingest):
     """The QV-20 case: the receive's response came back before the send's, but SQS acted inside both
     intervals and they overlap, so Trailbeam cannot say which came first and does not pretend to."""
     p, c = Consumer("producer"), Consumer()
     ingest(p.send(T0 + 30 * MS, "m1", start=T0),                        # 0 to 30 ms
            c.receive(T0 + 20 * MS, "m1", "rh-1", start=T0 - 900 * MS),   # a long poll, ends at 20 ms
            c.delete(T0 + 50 * MS, "rh-1", start=T0 + 40 * MS))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     check_marking(t)
     assert groups(t) == [["received", "sent"], ["deleted"]]
     assert t["groups"][0] == {"group": 0, "concurrent": True, "label": "concurrent, order unknown",
@@ -327,17 +327,17 @@ def test_overlapping_send_and_receive_are_one_concurrent_group(store, ingest):
     assert (sent["start_unix_nano"], sent["end_unix_nano"]) == (str(T0), str(T0 + 30 * MS))
 
 
-def test_a_step_is_before_another_only_if_it_ended_before_the_other_started(store, ingest):
+def test_a_step_is_before_another_only_if_it_ended_before_the_other_started(db, ingest):
     c = Consumer()
     # ended before: ordered
     ingest(c.send(T0 + 10, "a", start=T0), c.receive(T0 + 20, "a", "rh-a", start=T0 + 11))
-    assert groups(tl(store, "a")) == [["sent"], ["received"]]
+    assert groups(tl(db, "a")) == [["sent"], ["received"]]
     # touching (end == start): not proven, so concurrent
     ingest(c.send(T0 + 10, "b", start=T0), c.receive(T0 + 20, "b", "rh-b", start=T0 + 10))
-    assert groups(tl(store, "b")) == [["sent", "received"]]
+    assert groups(tl(db, "b")) == [["sent", "received"]]
 
 
-def test_a_chain_of_overlaps_is_one_group(store, ingest):
+def test_a_chain_of_overlaps_is_one_group(db, ingest):
     """A overlaps B and B overlaps C: one group, even though A ended before C started. Splitting it
     would show A before B or B before C, which the clocks do not prove."""
     c = Consumer()
@@ -345,16 +345,16 @@ def test_a_chain_of_overlaps_is_one_group(store, ingest):
            c.receive(T0 + 30, "m1", "rh-1", start=T0 + 5),
            c.delete(T0 + 40, "rh-1", start=T0 + 20),
            c.delete(T0 + 60, "rh-1", start=T0 + 50, ok=False))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     assert groups(t) == [["sent", "received", "deleted"], ["deleted"]]
 
 
-def test_lambda_receive_has_no_start_so_it_is_concurrent_with_what_came_before(store, ingest):
+def test_lambda_receive_has_no_start_so_it_is_concurrent_with_what_came_before(db, ingest):
     fn = Consumer("env-1", source="lambda")
     ingest(Consumer("producer").send(T0, "m1", start=T0 - 5 * MS),
            fn.receive(T0 + SEC, "m1", "rh-1", lambda_inv="inv-1", start=T0 + SEC),
            fn.outcome(T0 + 2 * SEC, "m1", "success", "inv-1"))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     rcv = t["events"][1]
     assert (rcv["type"], rcv["start"], rcv["start_unix_nano"], rcv["start_observed"]) == ("received", None, None, False)
     assert rcv["end"] == "2025-11-14T00:26:41.000000Z"
@@ -362,14 +362,14 @@ def test_lambda_receive_has_no_start_so_it_is_concurrent_with_what_came_before(s
     assert t["groups"][0]["start"] is None  # one member's start is unknown
 
 
-def test_inferred_step_between_groups_is_placed_by_its_anchors_not_by_a_time(store, ingest):
+def test_inferred_step_between_groups_is_placed_by_its_anchors_not_by_a_time(db, ingest):
     c = Consumer()
     ingest(c.send(T0 + 10, "m1", start=T0),
            c.receive(T0 + SEC, "m1", "rh-1", start=T0 + 100),
            c.change_visibility(T0 + SEC + 20, "rh-1", 0, start=T0 + SEC + 10),
            c.receive(T0 + 2 * SEC, "m1", "rh-2", count=2, start=T0 + SEC + 5),  # overlaps the visibility change
            c.delete(T0 + 3 * SEC, "rh-2", start=T0 + 2 * SEC + 10))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     check_marking(t)
     assert groups(t) == [["sent"], ["received"], ["visibility_changed", "visibility_timeout_expired", "received"],
                          ["deleted"]]
@@ -381,11 +381,11 @@ def test_inferred_step_between_groups_is_placed_by_its_anchors_not_by_a_time(sto
     assert t["groups"][2]["inferred_events"] == 1 and t["groups"][2]["observed_events"] == 2
 
 
-def test_inferred_step_between_two_single_groups_has_no_group(store, ingest):
+def test_inferred_step_between_two_single_groups_has_no_group(db, ingest):
     c, d = Consumer("c"), Consumer("d")
     ingest(c.send(T0, "m1"), c.receive(T0 + SEC, "m1", "rh-1", start=T0 + SEC - 10),
            d.receive(T0 + 100 * SEC, "m1", "rh-2", count=2, start=T0 + 99 * SEC))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     assert groups(t) == [["sent"], ["received"], "visibility_timeout_expired", ["received"]]
     expiry = t["events"][2]
     assert expiry["group"] is None
@@ -393,22 +393,22 @@ def test_inferred_step_between_two_single_groups_has_no_group(store, ingest):
     assert expiry["window"]["from"] == iso(T0 + SEC - 10) and expiry["window"]["to"] == iso(T0 + 100 * SEC)
 
 
-def test_every_observed_event_has_start_end_and_group(store, ingest):
+def test_every_observed_event_has_start_end_and_group(db, ingest):
     c = Consumer()
     ingest(c.send(T0 + 5, "m1", start=T0), c.receive(T0 + SEC, "m1", "rh-1", start=T0 + 10))
-    for e in tl(store, "m1")["events"]:
+    for e in tl(db, "m1")["events"]:
         assert {"start", "end", "start_unix_nano", "end_unix_nano", "start_observed", "group"} <= set(e)
         assert e["time"] == e["end"]
 
 
-def test_notices(store, ingest):
+def test_notices(db, ingest):
     dflt = Consumer(key="trailbeam-default-receipt-hash-key")
     ingest(dflt.receive(T0, "m1", "rh-1"), dflt.delete(T0 + SEC, "rh-1"))
-    assert [n["code"] for n in tl(store, "m1")["notices"]] == ["default_key", "send_not_observed"]
+    assert [n["code"] for n in tl(db, "m1")["notices"]] == ["default_key", "send_not_observed"]
 
     c, wrong = Consumer(), Consumer("w", key="another-key-000000")
     ingest(c.send(T0, "m2"), c.receive(T0, "m2", "rh-2"), wrong.delete(T0 + SEC, "rh-2", mid="m2"))
-    t = tl(store, "m2")
+    t = tl(db, "m2")
     assert [n["code"] for n in t["notices"]] == ["key_mismatch"]
     assert t["events"][-1]["status"] == "unmatched_handle" and t["state"] == "not_deleted"
 
@@ -422,50 +422,50 @@ class TestStuck:
                c.receive(T0 + 10 * SEC, "no-send", "rh-n", sent_ms=(T0 + 5 * SEC) // 1_000_000),
                Consumer("o", queue="payments").send(T0, "other-queue"))
 
-    def test_lists_only_old_undeleted_messages(self, store, ingest):
+    def test_lists_only_old_undeleted_messages(self, db, ingest):
         self.setup(ingest)
-        s = queries.stuck(store, NOW, LT, 300, 100)
+        s = queries.stuck(db, NOW, LT, 300, 100)
         assert [x["message_id"] for x in s] == ["never-received", "other-queue", "no-send"]
         assert s[0]["age_s"] == 3600 and s[0]["deliveries"] == 0 and s[0]["state"] == "not_deleted"
         assert s[2]["age_s"] == 3595  # from SQS SentTimestamp, since the send was not observed
         assert [x["age_across_clocks"] for x in s] == [False, False, True]  # and it says so
         assert [x["first_seen_clock"] for x in s] == ["host", "host", "sqs"]
 
-    def test_an_observed_send_is_never_replaced_by_an_earlier_sqs_timestamp(self, store, ingest):
+    def test_an_observed_send_is_never_replaced_by_an_earlier_sqs_timestamp(self, db, ingest):
         """QV-32 section 4: first seen took the minimum of host send times and SQS SentTimestamps. With SQS's
         clock 2 s behind the producer's, that moved first seen (and the stuck age and cutoff) by 2 s."""
         p, c = Consumer("producer"), Consumer()
         ingest(p.send(NOW - 299 * SEC, "skew"),
                c.receive(NOW - 298 * SEC, "skew", "rh-k", sent_ms=(NOW - 301 * SEC) // 1_000_000))
-        t = tl(store, "skew")
+        t = tl(db, "skew")
         assert (t["first_seen"], t["first_seen_clock"]) == (iso(NOW - 299 * SEC), "host")
-        assert queries.stuck(store, NOW, LT, 300, 100) == []  # 299 s on the host's clock: not stuck yet
-        s = queries.stuck(store, NOW, LT, 290, 100)
+        assert queries.stuck(db, NOW, LT, 300, 100) == []  # 299 s on the host's clock: not stuck yet
+        s = queries.stuck(db, NOW, LT, 290, 100)
         assert [(x["message_id"], x["age_s"], x["age_across_clocks"]) for x in s] == [("skew", 299.0, False)]
 
-    def test_threshold_and_queue_filter(self, store, ingest):
+    def test_threshold_and_queue_filter(self, db, ingest):
         self.setup(ingest)
-        assert "recent" in [x["message_id"] for x in queries.stuck(store, NOW, LT, 30, 100)]
-        assert [x["message_id"] for x in queries.stuck(store, NOW, LT, 300, 100, queue="payments")] == ["other-queue"]
-        assert queries.stuck(store, NOW, LT, 7200, 100) == []
-        assert len(queries.stuck(store, NOW, LT, 300, 2)) == 2
+        assert "recent" in [x["message_id"] for x in queries.stuck(db, NOW, LT, 30, 100)]
+        assert [x["message_id"] for x in queries.stuck(db, NOW, LT, 300, 100, queue="payments")] == ["other-queue"]
+        assert queries.stuck(db, NOW, LT, 7200, 100) == []
+        assert len(queries.stuck(db, NOW, LT, 300, 2)) == 2
 
 
-def test_duplicates_excludes_single_deliveries(store, ingest):
+def test_duplicates_excludes_single_deliveries(db, ingest):
     c = Consumer()
     ingest(c.receive(T0, "once", "rh-1"), c.delete(T0 + SEC, "rh-1"),
            c.delete(T0 + 2 * SEC, "rh-1"))  # a retried delete of the same handle is one success
-    assert queries.duplicates(store, NOW, LT, 100) == []
-    assert tl(store, "once")["successful_deliveries"] == 1
+    assert queries.duplicates(db, NOW, LT, 100) == []
+    assert tl(db, "once")["successful_deliveries"] == 1
 
 
 @pytest.mark.parametrize("n", [3])
-def test_duplicate_delivery_with_the_same_receive_count(store, ingest, n):
+def test_duplicate_delivery_with_the_same_receive_count(db, ingest, n):
     """Standard queues deliver at least once: two consumers may get the same delivery number."""
     ingest(*[Consumer(f"c{i}").receive(T0 + i, "m1", f"rh-{i}") for i in range(n)])
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     assert t["deliveries"] == n and not any(e["inferred"] for e in t["events"])
-    assert queries.duplicates(store, NOW, LT, 100)[0]["reasons"] == ["received_more_than_once"]
+    assert queries.duplicates(db, NOW, LT, 100)[0]["reasons"] == ["received_more_than_once"]
 
 
 # -- inferred steps are never ordered against steps they were not inferred from (QV-29 report §3) --
@@ -479,13 +479,13 @@ def _redelivered(c, mid, *between):
             c.delete(T0 + 35 * SEC + 10 * MS, "rh-2", start=T0 + 35 * SEC + 5 * MS)]
 
 
-def test_expiry_is_not_shown_after_a_rejected_delete_it_was_not_inferred_from(store, ingest):
+def test_expiry_is_not_shown_after_a_rejected_delete_it_was_not_inferred_from(db, ingest):
     """The reviewer's case: visibility timeout 10 s, so the message expired at about 30.002 s; the
     delete of delivery 1 at 32.000 s was rejected because of that. Trailbeam cannot tell the expiry and
     the delete apart in time (it does not know the timeout), so they are one concurrent group."""
     c = Consumer()
     ingest(*_redelivered(c, "m1", c.delete(T0 + 32 * SEC, "rh-1", ok=False, start=T0 + 32 * SEC - 2 * MS)))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     check_marking(t)
     assert groups(t) == [["sent"], ["received"], ["deleted", "visibility_timeout_expired"], ["received"],
                          ["deleted"]]
@@ -495,37 +495,37 @@ def test_expiry_is_not_shown_after_a_rejected_delete_it_was_not_inferred_from(st
     assert t["concurrent_groups"] == 1
 
 
-def test_expiry_is_not_shown_after_an_unrelated_failed_visibility_change(store, ingest):
+def test_expiry_is_not_shown_after_an_unrelated_failed_visibility_change(db, ingest):
     c = Consumer()
     ingest(*_redelivered(c, "m1", c.change_visibility(T0 + 32 * SEC, "rh-1", 30, ok=False,
                                                      start=T0 + 32 * SEC - 2 * MS)))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     assert groups(t) == [["sent"], ["received"], ["visibility_changed", "visibility_timeout_expired"],
                          ["received"], ["deleted"]]
 
 
-def test_steps_in_several_groups_inside_the_window_are_merged_with_the_expiry(store, ingest):
+def test_steps_in_several_groups_inside_the_window_are_merged_with_the_expiry(db, ingest):
     """A failed visibility change and a rejected delete, ordered against each other, both inside the
     expiry's window: showing them in order would put the expiry before or after one of them."""
     c = Consumer()
     ingest(*_redelivered(c, "m1",
                          c.change_visibility(T0 + 25 * SEC, "rh-1", 30, ok=False, start=T0 + 25 * SEC - MS),
                          c.delete(T0 + 32 * SEC, "rh-1", ok=False, start=T0 + 32 * SEC - MS)))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     assert groups(t) == [["sent"], ["received"], ["visibility_changed", "deleted", "visibility_timeout_expired"],
                          ["received"], ["deleted"]]
     assert [e["group"] for e in t["events"]] == [0, 1, 2, 2, 2, 3, 4]
     assert len(t["groups"]) == 5
 
 
-def test_an_accepted_visibility_change_before_the_redelivery_is_an_anchor_of_the_expiry(store, ingest):
+def test_an_accepted_visibility_change_before_the_redelivery_is_an_anchor_of_the_expiry(db, ingest):
     """A slow consumer extends the timeout twice and then stops: the expiry came after the last accepted
     extension, so it is placed after it, not merged with the extensions."""
     c = Consumer()
     ingest(*_redelivered(c, "m1",
                          c.change_visibility(T0 + 25 * SEC, "rh-1", 5, start=T0 + 25 * SEC - MS),
                          c.change_visibility(T0 + 29 * SEC, "rh-1", 5, start=T0 + 29 * SEC - MS)))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     assert groups(t) == [["sent"], ["received"], ["visibility_changed"], ["visibility_changed"],
                          "visibility_timeout_expired", ["received"], ["deleted"]]
     expiry = next(e for e in t["events"] if e["type"] == "visibility_timeout_expired")
@@ -533,14 +533,14 @@ def test_an_accepted_visibility_change_before_the_redelivery_is_an_anchor_of_the
     assert expiry["reason"] == "The visibility timeout, last changed to 5 s, expired before the message was deleted."
 
 
-def test_expiry_is_not_shown_after_a_send_that_overlaps_the_first_receive(store, ingest):
+def test_expiry_is_not_shown_after_a_send_that_overlaps_the_first_receive(db, ingest):
     """The long-poll case: the send may have ended after the expiry as far as the clocks show, so the
     expiry is in the send's group, not after it."""
     p, c = Consumer("producer"), Consumer()
     ingest(p.send(T0 + 30 * MS, "m1", start=T0),
            c.receive(T0 + 20 * MS, "m1", "rh-1", start=T0 - 900 * MS),
            c.receive(T0 + 40 * SEC, "m1", "rh-2", count=2, start=T0 + 39 * SEC))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     assert groups(t) == [["received", "sent", "visibility_timeout_expired"], ["received"]]
     assert t["groups"][0]["inferred_events"] == 1
 
@@ -578,13 +578,13 @@ def long_poll(c, mid, rh="rh-1", **kw):
     return c.receive(T0 + 20 * MS, mid, rh, start=T0 - 900 * MS, **kw)
 
 
-def test_process_order_orders_a_delete_after_its_own_receive_when_the_clocks_tie(store, ingest):
+def test_process_order_orders_a_delete_after_its_own_receive_when_the_clocks_tie(db, ingest):
     """The delete was issued in the same millisecond the receive returned: the clocks can't order them,
     the process's call counter can."""
     c = Consumer(scope="proc-1")
     ingest(c.receive(T0 + 20 * MS, "m1", "rh-1", start=T0, order=(1, 2)),
            c.delete(T0 + 25 * MS, "rh-1", start=T0 + 20 * MS, order=(3, 4)))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     r, d = ev(t, "received"), ev(t, "deleted")
     assert edge(t, r, d) == ["process_order"]
     assert groups(t) == [["received"], ["deleted"]]
@@ -594,27 +594,27 @@ def test_process_order_orders_a_delete_after_its_own_receive_when_the_clocks_tie
     assert t["order"]["edges_by_source"] == {"clock": 0, "process_order": 1, "receive_count": 0, "sqs_timestamps": 0}
 
 
-def test_process_order_is_never_inferred_across_processes(store, ingest):
+def test_process_order_is_never_inferred_across_processes(db, ingest):
     a, b = Consumer("a", scope="proc-a"), Consumer("b", scope="proc-b")
     ingest(a.receive(T0 + 20 * MS, "m1", "rh-1", start=T0, order=(1, 2)),
            b.delete(T0 + 25 * MS, "rh-1", start=T0 + 20 * MS, order=(3, 4)))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     assert t["order"]["edges"] == [] and groups(t) == [["received", "deleted"]]
 
 
-def test_process_order_needs_the_call_to_have_returned_before_the_other_was_issued(store, ingest):
+def test_process_order_needs_the_call_to_have_returned_before_the_other_was_issued(db, ingest):
     """Two calls in flight at once in one process (issued 1, 2; returned 3, 4): no order."""
     c = Consumer(scope="proc-1")
     ingest(c.receive(T0 + 20 * MS, "m1", "rh-1", start=T0, order=(1, 3)),
            c.delete(T0 + 25 * MS, "rh-1", start=T0 + 10 * MS, order=(2, 4)))
-    assert tl(store, "m1")["order"]["edges"] == []
+    assert tl(db, "m1")["order"]["edges"] == []
 
 
-def test_receive_count_orders_deliveries_whose_intervals_overlap(store, ingest):
+def test_receive_count_orders_deliveries_whose_intervals_overlap(db, ingest):
     a, b = Consumer("a"), Consumer("b")
     ingest(a.receive(T0 + 20 * MS, "m1", "rh-1", start=T0),
            b.receive(T0 + 30 * MS, "m1", "rh-2", count=2, start=T0 + 10 * MS))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     r1, r2 = ev(t, "received"), ev(t, "received", 1)
     assert (r1["receive_count"], r2["receive_count"]) == (1, 2)
     assert edge(t, r1, r2) == ["receive_count"]
@@ -624,18 +624,18 @@ def test_receive_count_orders_deliveries_whose_intervals_overlap(store, ingest):
     assert groups(t) == [["received"], "visibility_timeout_expired", ["received"]]
 
 
-def test_equal_receive_counts_prove_nothing(store, ingest):
+def test_equal_receive_counts_prove_nothing(db, ingest):
     ingest(Consumer("a").receive(T0 + 20 * MS, "m1", "rh-1", start=T0),
            Consumer("b").receive(T0 + 30 * MS, "m1", "rh-2", start=T0 + 10 * MS))
-    assert tl(store, "m1")["order"]["edges"] == []
+    assert tl(db, "m1")["order"]["edges"] == []
 
 
-def test_sqs_timestamps_order_the_send_before_the_first_receive(store, ingest):
+def test_sqs_timestamps_order_the_send_before_the_first_receive(db, ingest):
     """The long-poll case: the clocks can't order the send and the receive, SQS's own clock can."""
     p, c = Consumer("producer"), Consumer()
     sent = T0 // MS
     ingest(p.send(T0 + 30 * MS, "m1", start=T0), long_poll(c, "m1", sent_ms=sent + 3, first_ms=sent + 5))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     s, r = ev(t, "sent"), ev(t, "received")
     assert edge(t, s, r) == ["sqs_timestamps"]
     assert groups(t) == [["sent"], ["received"]]
@@ -643,24 +643,24 @@ def test_sqs_timestamps_order_the_send_before_the_first_receive(store, ingest):
                                     "before its first receive (2025-11-14T00:26:40.005000Z).")
 
 
-def test_sqs_timestamps_in_the_same_millisecond_prove_nothing(store, ingest):
+def test_sqs_timestamps_in_the_same_millisecond_prove_nothing(db, ingest):
     p, c = Consumer("producer"), Consumer()
     sent = T0 // MS
     ingest(p.send(T0 + 30 * MS, "m1", start=T0), long_poll(c, "m1", sent_ms=sent + 3, first_ms=sent + 3))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     assert t["order"]["edges"] == [] and groups(t) == [["received", "sent"]]
 
 
-def test_sqs_timestamps_order_only_the_first_receive(store, ingest):
+def test_sqs_timestamps_order_only_the_first_receive(db, ingest):
     """Receive count 2 carries the same first-receive timestamp; it says nothing about receive 2 itself."""
     p, c = Consumer("producer"), Consumer()
     sent = T0 // MS
     ingest(p.send(T0 + 30 * MS, "m1", start=T0),
            long_poll(c, "m1", "rh-2", count=2, sent_ms=sent + 3, first_ms=sent + 5))
-    assert tl(store, "m1")["order"]["edges"] == []
+    assert tl(db, "m1")["order"]["edges"] == []
 
 
-def test_order_is_transitive_across_sources_and_the_chain_is_in_the_api(store, ingest):
+def test_order_is_transitive_across_sources_and_the_chain_is_in_the_api(db, ingest):
     """send -(SQS's timestamps)-> receive 1 -(receive count)-> receive 2 -(process order)-> delete, with
     every pair overlapping on the clocks."""
     p, a, b = Consumer("producer"), Consumer("a"), Consumer("b", scope="proc-b")
@@ -669,7 +669,7 @@ def test_order_is_transitive_across_sources_and_the_chain_is_in_the_api(store, i
            long_poll(a, "m1", sent_ms=sent + 3, first_ms=sent + 5),
            b.receive(T0 + 30 * MS, "m1", "rh-2", count=2, start=T0 + 10 * MS, order=(1, 2)),
            b.delete(T0 + 50 * MS, "rh-2", start=T0 + 30 * MS, order=(3, 4)))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     s, r1, r2, d = ev(t, "sent"), ev(t, "received"), ev(t, "received", 1), ev(t, "deleted")
     assert (edge(t, s, r1), edge(t, r1, r2), edge(t, r2, d)) == (["sqs_timestamps"], ["receive_count"],
                                                                  ["process_order"])
@@ -679,35 +679,35 @@ def test_order_is_transitive_across_sources_and_the_chain_is_in_the_api(store, i
     assert t["concurrent_groups"] == 0
 
 
-def test_sources_that_contradict_each_other_order_nothing(store, ingest):
+def test_sources_that_contradict_each_other_order_nothing(db, ingest):
     """The host clock jumped back 1 s between two calls of one process: the clocks put the delete first,
     the process's counter puts the receive first. Neither is shown; a notice says why."""
     c = Consumer(scope="proc-1")
     ingest(c.receive(T0 + 5 * SEC, "m1", "rh-1", start=T0 + 5 * SEC - MS, order=(1, 2)),
            c.delete(T0 + 4 * SEC, "rh-1", start=T0 + 4 * SEC - MS, order=(3, 4)))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     assert t["order"]["edges"] == [] and groups(t) == [["deleted", "received"]]
     assert {(x["sources"][0]) for x in t["order"]["conflicts"]} == {"clock", "process_order"}
     assert "order_conflict" in [n["code"] for n in t["notices"]]
 
 
-def test_spans_without_call_order_still_work(store, ingest):
+def test_spans_without_call_order_still_work(db, ingest):
     """Contract v2 spans carry no trailbeam.order.*: only the other sources apply."""
     c = Consumer()
     ingest(c.receive(T0 + 20 * MS, "m1", "rh-1", start=T0), c.delete(T0 + 25 * MS, "rh-1", start=T0 + 20 * MS))
-    assert tl(store, "m1")["order"]["edges"] == []
+    assert tl(db, "m1")["order"]["edges"] == []
 
 
-def test_every_event_has_an_id_and_its_after_list_is_proven(store, ingest):
+def test_every_event_has_an_id_and_its_after_list_is_proven(db, ingest):
     c = Consumer(scope="p")
     ingest(c.send(T0 + 5, "m1", start=T0, order=(1, 2)), c.receive(T0 + SEC, "m1", "rh-1", start=T0 + 10, order=(3, 4)))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     assert [e["id"] for e in t["events"]] == ["e1", "e2"]
     assert t["events"][1]["after"][0]["sources"] == ["clock", "process_order"]
     assert t["events"][1]["after"][0]["why"].startswith("The send ended (")
 
 
-def test_qv29_lambda_retry_is_ordered_by_what_the_event_carries(store, ingest):
+def test_qv29_lambda_retry_is_ordered_by_what_the_event_carries(db, ingest):
     """The QV-29 report's case, one "concurrent, order unknown" box of four before QV-31: send at 0 s,
     Lambda receive 1 by 1 s, failed outcome at 2 s, receive 2 by 40 s, success at 41 s. The records carry
     the receive count and SQS's timestamps; the wrapper records the call order in its process.
@@ -725,7 +725,7 @@ def test_qv29_lambda_retry_is_ordered_by_what_the_event_carries(store, ingest):
            fn.receive(T0 + 40 * SEC, "m1", "rh-2", count=2, lambda_inv="inv-2", sent_ms=sent, first_ms=sent + 40,
                       order=(None, 3)),
            fn.outcome(T0 + 41 * SEC, "m1", "success", "inv-2", order=(4, 4)))
-    t = tl(store, "m1")
+    t = tl(db, "m1")
     check_marking(t)
     assert groups(t) == [["sent"], ["received"], ["lambda_outcome", "visibility_timeout_expired", "received"],
                          ["lambda_outcome"], "deleted_by_lambda"]

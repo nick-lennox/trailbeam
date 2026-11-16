@@ -101,13 +101,13 @@ def test_dead_letter_queue_timeline(site):
     assert "moved, reported by SQS" in html
 
 
-def test_not_seen_on_the_dead_letter_queue_yet(store):
+def test_not_seen_on_the_dead_letter_queue_yet(db):
     """maxReceiveCount configured for orders; the receive count reached it, and no DLQ receive reported a move."""
     import threading
 
     from trailbeam.server.server import make_server
 
-    httpd = make_server(store, "127.0.0.1", 0, max_receive_counts={"orders": 2})
+    httpd = make_server(db, "127.0.0.1", 0, max_receive_counts={"orders": 2})
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{httpd.server_address[1]}"
     try:

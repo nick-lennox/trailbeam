@@ -34,14 +34,14 @@ JSON API (GET /api/messages/{id}) and checks, per message:
                  for it (QV-38): the drivers write both into the truth (``sent_ms``, ``first_receive_ms``),
                  and Trailbeam's ``sent_timestamp_ms`` / ``first_receive_timestamp_ms`` must equal them, a
                  missing value included. The ``sqs_timestamps`` source is recomputed from these fields, so
-                 a store that makes them up to resolve a send->receive pair fails here;
+                 a Trailbeam that makes them up to resolve a send->receive pair fails here;
 - in brackets:   where the truth says its brackets read the same clock as the spans (``same_clock_as_spans``:
                  both drivers; Python's truth and spans read ``time.time_ns()``, Node.js's both read
                  ``Date.now()``, whole milliseconds, node/src/emitter.js ``nowMs``), every observed event lies
                  within its call's truth bracket **and not far inside it** (QV-40): ``t_start_ns`` <= start
                  <= end <= ``t_end_ns``, start - ``t_start_ns`` <= :data:`BRACKET_BOUND_NS` (100 ms) and
                  ``t_end_ns`` - end <= the same. The ``clock`` source is recomputed from these times, so
-                 without a bound a store could move a receive's start to just after its send's end, anywhere
+                 without a bound Trailbeam could move a receive's start to just after its send's end, anywhere
                  inside a long poll's bracket, and claim a false clock order (QV-39 fake3). The bound is wide
                  because the gap between the hook's stamp and the driver's is scheduling, not clock: under 1
                  ms on an idle machine (Python), 0-2 ms in Node.js's whole ms, but up to 31 ms on a busy CI
@@ -71,7 +71,7 @@ can't pass by leaving things concurrent. ``resolution`` in the summary gives, pe
 receive->delete, release->redelivery, receive n->receive n+1), the pairs resolved and left concurrent and
 which sources resolved them; release->redelivery and receive n->receive n+1 are reported with no floor. Inferred events (such as the visibility-timeout expiry after a
 ChangeMessageVisibility to 0) are not compared, but are counted in the report. ``verify`` polls the
-store until every message passes or --timeout seconds pass (spans are exported in batches, every few
+Trailbeam until every message passes or --timeout seconds pass (spans are exported in batches, every few
 seconds), then reports what it has. It waits only for messages that still miss events; a message whose
 events are all there but wrong fails at once. Exit status 0 only if all --count messages pass. Standard library only.
 """
@@ -97,7 +97,7 @@ DLQ_SOURCE = "sqs_dlq_source"
 PAIR_KINDS = ("send->receive", "receive->receive", "receive->settle", "change_visibility->receive")
 PAIR_RESULTS = ("in_order", "concurrent", "violated")
 # Of the concurrent pairs, those whose own intervals do not overlap (cause ended before effect started): the
-# store's one-line grouping put them together only through a chain of other overlapping steps. A diagnostic.
+# Trailbeam's one-line grouping put them together only through a chain of other overlapping steps. A diagnostic.
 CHAINED = "concurrent_via_chain"
 # Of the concurrent pairs, those where the cause ended at exactly the time the effect started: a tie at the
 # clock's resolution (1 ms in Node.js), not an overlap SQS could have acted in. A diagnostic.
@@ -115,8 +115,8 @@ FLOOR_KINDS = ("send->receive", "receive->delete")
 # (QV-40). The hooks stamp a span inside the driver's own stamps; the gap between the two is scheduling (threads,
 # the GIL, the event loop), so it depends on load. Honest gaps seen: idle WSL2 machine, Python 0.04-0.38 ms and
 # Node.js 0-2 ms (whole ms); GitHub runners (CI runs 43662541852, 43663303311), up to 31 ms in Python and 26 ms in Node.js.
-# A 1 ms bound failed the honest store there, so 1 ms is reported, not gated (TIGHT_BOUND_NS), and the gate is
-# 100 ms: about 3x the worst honest gap seen. A store whose times lie further inside a bracket fails.
+# A 1 ms bound failed an honest Trailbeam there, so 1 ms is reported, not gated (TIGHT_BOUND_NS), and the gate is
+# 100 ms: about 3x the worst honest gap seen. A Trailbeam whose times lie further inside a bracket fails.
 BRACKET_BOUND_NS = 100_000_000
 TIGHT_BOUND_NS = 1_000_000
 
@@ -332,12 +332,12 @@ def same_process(ta, tb) -> bool:
 def check_facts(matched: list) -> dict:
     """SQS's own facts and the events' times, compared with the truth (QV-38; see the module docstring).
 
-    ``sqs_facts`` fails a receive whose store ``sent_timestamp_ms`` or ``first_receive_timestamp_ms`` differs
+    ``sqs_facts`` fails a receive whose timeline's ``sent_timestamp_ms`` or ``first_receive_timestamp_ms`` differs
     from what the driver saw in the same response (``sent_ms``, ``first_receive_ms`` in its truth line). A truth
     line from before QV-38 has neither, and is not compared. ``in_brackets`` fails an event whose start or end
     lies outside its call's truth bracket, or starts or ends more than :data:`BRACKET_BOUND_NS` inside it, where
     the truth reads the spans' clock (``same_clock_as_spans``).
-    ``matched`` is the (store event, truth call) pairs, matched by key (op, delivery, n) as in check_order, so
+    ``matched`` is the (timeline event, truth call) pairs, matched by key (op, delivery, n) as in check_order, so
     an event is compared whether or not Trailbeam gives it an ID."""
     facts_wrong, compared, outside, bracketed = [], 0, [], 0
     worst = {"start": None, "end": None}  # the largest start - t_start_ns and t_end_ns - end seen
@@ -391,7 +391,7 @@ def verify_edges(timeline: dict, details: list, truth_of: dict) -> dict:
       (``B.t_end_ns < A.t_start_ns``). That is the only thing one host's brackets can prove; it holds for any
       two calls, causally related or not, so an edge made up by a rule fails here when the rule is wrong.
 
-    ``truth_of`` maps a store event ID to its truth call (or is missing it). Returns the counts and the failing
+    ``truth_of`` maps a timeline event ID to its truth call (or is missing it). Returns the counts and the failing
     edges and orders."""
     by_id = {d["id"]: d for d in details if d.get("id") is not None}
     edges = (timeline.get("order") or {}).get("edges", [])
@@ -648,7 +648,7 @@ def summarize(truth_by_id: dict, results: dict, count: int, floor: float = FLOOR
                                           for m in sent),
         "events_outside_brackets": sum(len(results[m].get("facts", {}).get("outside_brackets", [])) for m in sent),
         # The largest offsets of an event's start after its call's truth start, and of its end before its truth
-        # end, over the run (ns; the gate is BRACKET_BOUND_NS), so the margin an honest store leaves shows.
+        # end, over the run (ns; the gate is BRACKET_BOUND_NS), so the margin an honest Trailbeam leaves shows.
         "bracket_offsets_max_ns": {k: max(offsets[k], default=None) for k in ("start", "end")},
         "bracket_bound_ns": BRACKET_BOUND_NS,
         "events_more_than_1ms_inside_brackets": sum(results[m].get("facts", {}).get("more_than_1ms_inside", 0)
@@ -672,8 +672,8 @@ def summarize(truth_by_id: dict, results: dict, count: int, floor: float = FLOOR
     }
 
 
-def fetch_timeline(store: str, mid: str):
-    url = f"{store.rstrip('/')}/api/messages/{urllib.parse.quote(mid, safe='')}"
+def fetch_timeline(base_url: str, mid: str):
+    url = f"{base_url.rstrip('/')}/api/messages/{urllib.parse.quote(mid, safe='')}"
     try:
         with urllib.request.urlopen(url, timeout=10) as r:
             return json.load(r)

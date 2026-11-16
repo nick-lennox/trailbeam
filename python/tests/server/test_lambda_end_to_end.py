@@ -60,32 +60,32 @@ def run(server, inv, monkeypatch):
     return fn
 
 
-def wait_rows(store, mid, n):
+def wait_rows(db, mid, n):
     deadline = time.time() + 5
-    while time.time() < deadline and len(store.message_rows(mid)) < n:
+    while time.time() < deadline and len(db.message_rows(mid)) < n:
         time.sleep(0.05)
-    return store.message_rows(mid)
+    return db.message_rows(mid)
 
 
 def types(t):
     return [(e["type"], e["inferred"]) for e in t["events"]]
 
 
-def test_recorded_killed_invocation_gets_an_inferred_outcome_in_the_store(server, store, monkeypatch):
+def test_recorded_killed_invocation_gets_an_inferred_outcome_in_the_store(server, db, monkeypatch):
     killed, redelivered = invocations_of(KILLED_MID)
     assert killed["behaviour"]["kind"] == "killed" and killed["expected"] == {KILLED_MID: None}
     assert redelivered["expected"] == {KILLED_MID: "success"}
 
     # The killed invocation: the provider is never shut down, as when the runtime kills the process.
     run(server, killed, monkeypatch)
-    rows = wait_rows(store, KILLED_MID, 1)
+    rows = wait_rows(db, KILLED_MID, 1)
     assert [r["kind"] for r in rows] == ["receive"]  # flushed before the handler; no outcome
     received_ns = rows[0]["time_ns"]
 
-    during = queries.message(store, KILLED_MID, received_ns + 60 * SEC, LT)
+    during = queries.message(db, KILLED_MID, received_ns + 60 * SEC, LT)
     assert types(during) == [("received", False)] and during["state"] == "processing"
 
-    after = queries.message(store, KILLED_MID, received_ns + (LT + 1) * SEC, LT)
+    after = queries.message(db, KILLED_MID, received_ns + (LT + 1) * SEC, LT)
     assert types(after) == [("received", False), ("lambda_invocation_ended_without_outcome", True)]
     inferred = after["events"][1]
     assert inferred["time"] is None and inferred["reason"] and "span" not in inferred
@@ -94,12 +94,12 @@ def test_recorded_killed_invocation_gets_an_inferred_outcome_in_the_store(server
 
     # The recorded redelivery succeeds: the killed delivery keeps its inferred outcome.
     fn = run(server, redelivered, monkeypatch)
-    rows = wait_rows(store, KILLED_MID, 3)
+    rows = wait_rows(db, KILLED_MID, 3)
     fn.trailbeam_tracer_provider.shutdown()
     assert [r["kind"] for r in rows] == ["receive", "receive", "outcome"]
     # Both invocations ran milliseconds apart here; on SQS the redelivery comes only after the visibility
     # timeout. Look once the killed receive is older than the Lambda timeout, as it is by then on SQS.
-    final = queries.message(store, KILLED_MID, received_ns + (LT + 1) * SEC, LT)
+    final = queries.message(db, KILLED_MID, received_ns + (LT + 1) * SEC, LT)
     got = types(final)
     assert ("lambda_invocation_ended_without_outcome", True) in got
     assert [t for t in got if not t[1]] == [("received", False), ("received", False), ("lambda_outcome", False)]
@@ -137,7 +137,7 @@ def _with_first_receive_timestamp(inv, delta_ms):
 
 
 @pytest.mark.parametrize("first_receive_ms", [None, 1])
-def test_recorded_timed_out_retry_is_ordered_by_what_the_records_carry(server, store, monkeypatch, first_receive_ms):
+def test_recorded_timed_out_retry_is_ordered_by_what_the_records_carry(server, db, monkeypatch, first_receive_ms):
     """The recorded QV-9 timeout: send, receive 1 (the function then timed out), receive 2, success.
     Before QV-31 the send and both receives were one "concurrent, order unknown" box, because a Lambda
     receive's start is not observed. Now the receive count puts receive 1 before receive 2, the wrapper's
@@ -150,12 +150,12 @@ def test_recorded_timed_out_retry_is_ordered_by_what_the_records_carry(server, s
         redelivered = _with_first_receive_timestamp(redelivered, first_receive_ms)
     _post_send(server, KILLED_MID, time.time_ns() - SEC)
     run(server, killed, monkeypatch)
-    received_ns = wait_rows(store, KILLED_MID, 2)[-1]["time_ns"]
+    received_ns = wait_rows(db, KILLED_MID, 2)[-1]["time_ns"]
     fn = run(server, redelivered, monkeypatch)
-    wait_rows(store, KILLED_MID, 4)
+    wait_rows(db, KILLED_MID, 4)
     fn.trailbeam_tracer_provider.shutdown()
 
-    t = queries.message(store, KILLED_MID, received_ns + (LT + 1) * SEC, LT)
+    t = queries.message(db, KILLED_MID, received_ns + (LT + 1) * SEC, LT)
     edges = _edges(t)
     assert edges[("received", 1, "received", 2)] == ["receive_count"]  # no start: only SQS's count orders them
     assert "process_order" in edges[("received", 2, "lambda_outcome", 2)]

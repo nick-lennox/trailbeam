@@ -4,20 +4,20 @@ from __future__ import annotations
 from typing import Optional
 
 from . import timeline
-from .db import Store
+from .db import Database
 
 MAX_LIMIT = 1000
 
 
-def message(store: Store, message_id: str, now_ns: int, lambda_timeout_s: int,
+def message(db: Database, message_id: str, now_ns: int, lambda_timeout_s: int,
             max_receive_counts: Optional[dict] = None) -> Optional[dict]:
     """``max_receive_counts``: queue name -> maxReceiveCount, as configured (``--max-receive-count``)."""
-    rows = store.message_rows(message_id)
+    rows = db.message_rows(message_id)
     return timeline.build(rows, now_ns, lambda_timeout_s, max_receive_counts) if rows else None
 
 
-def _summary(store: Store, mid: str, now_ns: int, lambda_timeout_s: int, mrc: Optional[dict] = None) -> dict:
-    t = message(store, mid, now_ns, lambda_timeout_s, mrc)
+def _summary(db: Database, mid: str, now_ns: int, lambda_timeout_s: int, mrc: Optional[dict] = None) -> dict:
+    t = message(db, mid, now_ns, lambda_timeout_s, mrc)
     consumers = sorted({(e["consumer"].get("service_name"), e["consumer"].get("client_id"))
                         for e in t["events"] if e["type"] == "received"}, key=str)
     return {
@@ -42,16 +42,16 @@ def _queue_filter(queue: Optional[str]) -> tuple[str, tuple]:
     return " AND EXISTS (SELECT 1 FROM spans q WHERE q.mid = s.mid AND q.queue = ?)", (queue,)
 
 
-def recent(store: Store, now_ns: int, lambda_timeout_s: int, limit: int, queue: Optional[str] = None,
+def recent(db: Database, now_ns: int, lambda_timeout_s: int, limit: int, queue: Optional[str] = None,
            mrc: Optional[dict] = None) -> list[dict]:
     qsql, qp = _queue_filter(queue)
-    mids = store.query(
+    mids = db.query(
         f"""SELECT s.mid, MAX(s.time_ns) AS last FROM spans s WHERE s.mid IS NOT NULL {qsql}
             GROUP BY s.mid ORDER BY last DESC LIMIT ?""", qp + (limit,))
-    return [_summary(store, r["mid"], now_ns, lambda_timeout_s, mrc) for r in mids]
+    return [_summary(db, r["mid"], now_ns, lambda_timeout_s, mrc) for r in mids]
 
 
-def duplicates(store: Store, now_ns: int, lambda_timeout_s: int, limit: int,
+def duplicates(db: Database, now_ns: int, lambda_timeout_s: int, limit: int,
                queue: Optional[str] = None, reason: Optional[str] = None, mrc: Optional[dict] = None) -> list[dict]:
     """Messages received more than once, or that succeeded more than once.
 
@@ -61,7 +61,7 @@ def duplicates(store: Store, now_ns: int, lambda_timeout_s: int, limit: int,
     qsql, qp = _queue_filter(queue)
     having = {"received_more_than_once": "receives > 1", "succeeded_more_than_once": "successes > 1",
               None: "receives > 1 OR successes > 1"}[reason]
-    mids = store.query(
+    mids = db.query(
         f"""SELECT s.mid,
                    SUM(s.kind = 'receive') AS receives,
                    COUNT(DISTINCT CASE WHEN s.kind = 'delete' AND s.result = 'ok' THEN s.receive_row END)
@@ -73,14 +73,14 @@ def duplicates(store: Store, now_ns: int, lambda_timeout_s: int, limit: int,
             ORDER BY last DESC LIMIT ?""", qp + (limit,))
     out = []
     for r in mids:
-        item = _summary(store, r["mid"], now_ns, lambda_timeout_s, mrc)
+        item = _summary(db, r["mid"], now_ns, lambda_timeout_s, mrc)
         item["reasons"] = ([ "received_more_than_once"] if item["deliveries"] > 1 else []) + \
                           (["succeeded_more_than_once"] if item["successful_deliveries"] > 1 else [])
         out.append(item)
     return out
 
 
-def stuck(store: Store, now_ns: int, lambda_timeout_s: int, older_than_s: int, limit: int,
+def stuck(db: Database, now_ns: int, lambda_timeout_s: int, older_than_s: int, limit: int,
           queue: Optional[str] = None, mrc: Optional[dict] = None) -> list[dict]:
     """Messages first seen more than ``older_than_s`` ago that have no final delete.
 
@@ -92,7 +92,7 @@ def stuck(store: Store, now_ns: int, lambda_timeout_s: int, older_than_s: int, l
     """
     cutoff = now_ns - older_than_s * 1_000_000_000
     qsql, qp = _queue_filter(queue)
-    rows = store.query(
+    rows = db.query(
         f"""WITH latest AS (
                 SELECT mid, row AS rrow, faas_invocation_id AS inv FROM (
                     SELECT mid, row, faas_invocation_id,
@@ -118,7 +118,7 @@ def stuck(store: Store, now_ns: int, lambda_timeout_s: int, older_than_s: int, l
             ORDER BY f.first_ns LIMIT ?""", qp + (cutoff, limit))
     out = []
     for r in rows:
-        item = _summary(store, r["mid"], now_ns, lambda_timeout_s, mrc)
+        item = _summary(db, r["mid"], now_ns, lambda_timeout_s, mrc)
         item["age_s"] = round((now_ns - r["first_ns"]) / 1e9, 3)
         # True when first seen is SQS's SentTimestamp: the age is this server's clock minus SQS's, so skew
         # between the two clocks is in it.
