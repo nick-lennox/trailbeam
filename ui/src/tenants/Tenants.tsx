@@ -2,6 +2,7 @@
   The Tenants table and the tenant search box, shared by self-hosted Trailbeam and the hosted app. They take
   the API's data as props (types.ts) and know nothing about where they run: links come from href(), and the
   page around them (range picker, footnote wording, where "set the tenant field" points) is the host's.
+  They are colored with role tokens (theme.css), not the sky, so they take the host page's theme.
 */
 import { useEffect, useId, useState, type ComponentType, type ReactNode } from "react";
 import type { TenantRow } from "./types.ts";
@@ -35,7 +36,7 @@ export function TenantsTable({ rows, href, Link = A, slowMs = 1000 }: TenantsTab
   return (
     <table className="w-full text-[15px]">
       <thead>
-        <tr className="border-b border-sky-line text-left font-mono text-caption text-sky-ink-3">
+        <tr className="border-b border-line text-left font-mono text-caption text-ink-3">
           <th className="px-5 py-2 font-medium">Tenant</th>
           <th className="px-3 py-2 font-medium">Messages sent</th>
           <th className="px-3 py-2 text-right font-medium">Share</th>
@@ -45,22 +46,22 @@ export function TenantsTable({ rows, href, Link = A, slowMs = 1000 }: TenantsTab
       </thead>
       <tbody>
         {rows.map((t) => (
-          <tr key={t.tenant} className="border-b border-sky-line/60 last:border-0">
-            <td className="px-5 py-3 text-sky-ink"><Link href={href(t.tenant)} className="hover:text-dawn">{t.tenant}</Link></td>
+          <tr key={t.tenant} className="border-b border-line/60 last:border-0">
+            <td className="px-5 py-3 text-ink"><Link href={href(t.tenant)} className="hover:text-brand">{t.tenant}</Link></td>
             <td className="px-3 py-3">
               <div className="flex items-center gap-3">
-                <div className="h-1.5 w-40 rounded-full bg-sky-line/70 md:w-56" aria-hidden>
-                  <div className="h-full rounded-full bg-wait" style={{ width: `${(t.sent / max) * 100}%` }} />
+                <div className="h-1.5 w-40 rounded-full bg-line/70 md:w-56" aria-hidden>
+                  <div className="h-full rounded-full bg-series-1" style={{ width: `${(t.sent / max) * 100}%` }} />
                 </div>
-                <span className="font-mono text-caption tabular-nums text-sky-ink-2">{fmtNum(t.sent)}</span>
+                <span className="font-mono text-caption tabular-nums text-ink-2">{fmtNum(t.sent)}</span>
               </div>
             </td>
-            <td className="px-3 py-3 text-right font-mono text-caption tabular-nums text-sky-ink-2">{fmtShare(t)}</td>
-            <td className={`px-3 py-3 text-right font-mono text-caption tabular-nums ${t.p95_in_queue_ms !== null && t.p95_in_queue_ms > slowMs ? "text-ember" : "text-sky-ink-2"}`}
+            <td className="px-3 py-3 text-right font-mono text-caption tabular-nums text-ink-2">{fmtShare(t)}</td>
+            <td className={`px-3 py-3 text-right font-mono text-caption tabular-nums ${t.p95_in_queue_ms !== null && t.p95_in_queue_ms > slowMs ? "text-warning-text" : "text-ink-2"}`}
               title={t.first_deliveries ? `over ${fmtNum(t.first_deliveries)} first ${t.first_deliveries === 1 ? "delivery" : "deliveries"}` : "No first delivery observed"}>
-              {t.p95_in_queue_ms === null ? <span className="text-sky-ink-3">-</span> : fmtWait(t.p95_in_queue_ms)}
+              {t.p95_in_queue_ms === null ? <span className="text-ink-3">-</span> : fmtWait(t.p95_in_queue_ms)}
             </td>
-            <td className={`px-5 py-3 text-right font-mono text-caption tabular-nums ${t.dead_lettered ? "text-lost" : "text-sky-ink-3"}`}>{fmtNum(t.dead_lettered)}</td>
+            <td className={`px-5 py-3 text-right font-mono text-caption tabular-nums ${t.dead_lettered ? "text-critical-text" : "text-ink-3"}`}>{fmtNum(t.dead_lettered)}</td>
           </tr>
         ))}
       </tbody>
@@ -101,7 +102,7 @@ export function TenantSearch({ suggest, href, defaultValue = "", placeholder = "
     <form role="search" className={className} onSubmit={(e) => { e.preventDefault(); const t = text.trim(); if (t) location.assign(href(t)); }}>
       <label className="sr-only" htmlFor={`${id}-q`}>Tenant</label>
       <input id={`${id}-q`} name="tenant" list={`${id}-list`} value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder} autoComplete="off"
-        className="w-full rounded-full border border-sky-line bg-sky-2 px-4 py-1.5 font-mono text-caption text-sky-ink placeholder:text-sky-ink-3" />
+        className="w-full rounded-full border border-line bg-surface px-4 py-1.5 font-mono text-caption text-ink placeholder:text-ink-3" />
       <datalist id={`${id}-list`}>{options.map((o) => <option key={o} value={o} />)}</datalist>
     </form>
   );

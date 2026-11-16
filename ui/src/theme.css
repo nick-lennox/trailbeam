@@ -8,6 +8,11 @@
 
   The sky is the night palette of the timeline. Fonts are named here and loaded by the page that uses
   them: self-hosted Trailbeam bundles them, the hosted app loads its own.
+
+  Views that sit on the host's own page (the Tenants table and the tenant search) use role tokens
+  instead of the sky: ink, line, surface, brand, series-1, warning-text and critical-text. Self-hosted
+  Trailbeam maps them to the sky below, so it stays dark; the hosted app defines the same names for its
+  light page (its globals.css), so one component draws in either.
 */
 @theme {
   --font-serif: "Newsreader", ui-serif, Georgia, serif;
@@ -29,4 +34,15 @@
   --color-ember: #ffb65e;
   --color-lost: #ff7667;
   --color-dawn: #ff9d7a;
+
+  /* role tokens, here mapped to the sky */
+  --color-ink: var(--color-sky-ink);           /* primary text */
+  --color-ink-2: var(--color-sky-ink-2);       /* secondary text, measured numbers */
+  --color-ink-3: var(--color-sky-ink-3);       /* tertiary text, column heads, zeros */
+  --color-line: var(--color-sky-line);         /* hairlines, bar tracks, input borders */
+  --color-surface: var(--color-sky-2);         /* inputs */
+  --color-brand: var(--color-dawn);            /* a link pointed at */
+  --color-series-1: var(--color-wait);         /* a measure's bar */
+  --color-warning-text: var(--color-ember);    /* a number over its threshold */
+  --color-critical-text: var(--color-lost);    /* dead-lettered */
 }

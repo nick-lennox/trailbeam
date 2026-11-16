@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { TenantsTable, fmtShare, fmtWait, tenantsFootnote } from "../src/tenants/Tenants.tsx";
+import { TenantSearch, TenantsTable, fmtShare, fmtWait, tenantsFootnote } from "../src/tenants/Tenants.tsx";
 import type { TenantStats } from "../src/tenants/types.ts";
 
 const expected = JSON.parse(readFileSync(new URL("../../contract/fixtures/tenants-expected.json", import.meta.url), "utf8")) as { stats: (TenantStats & { name: string })[] };
@@ -39,4 +39,20 @@ test("formats: share, p95 and the footnote", () => {
   const whole = expected.stats[0];
   assert.match(tenantsFootnote(whole, "Last 24 hours"), /^Last 24 hours, from every message in the range\. Share is of all 7 observed sends, 1 of them without a tenant\./);
   assert.match(tenantsFootnote({ ...whole, capped: true }, "Last hour"), /the most recent 2,000 messages/);
+});
+
+test("the tenants views use role tokens, which theme.css defines, so a light host page can define its own", () => {
+  const html = render(expected.stats[0]) + renderToStaticMarkup(createElement(TenantSearch, { suggest: async () => [], href: (t: string) => t }));
+  const classes = new Set([...html.matchAll(/class="([^"]*)"/g)].flatMap((m) => m[1].split(/\s+/)));
+  const used = new Set<string>();
+  for (const c of classes) {
+    const m = /^(?:[a-z]+:)*(?:text|bg|border)-((?:ink|line|surface|brand|series|warning|critical|sky|dawn|wait|ember|lost)[a-z0-9-]*?)(?:\/\d+)?$/.exec(c);
+    if (m) used.add(m[1]);
+  }
+  assert.ok(used.size >= 8, `role tokens found: ${[...used]}`);
+  const theme = readFileSync(new URL("../src/theme.css", import.meta.url), "utf8");
+  for (const t of used) {
+    assert.ok(!/^(sky|dawn|wait|ember|lost)/.test(t), `${t} is the night palette; use a role token`);
+    assert.match(theme, new RegExp(`--color-${t}:`), `theme.css defines --color-${t}`);
+  }
 });
