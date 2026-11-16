@@ -132,10 +132,26 @@ There is no authentication in 0.1, so keep it on `127.0.0.1` or a trusted networ
 [Run Trailbeam](docs/running.md) and, to forward spans through an OpenTelemetry Collector, the
 [Collector configuration](collector/README.md).
 
-## Trailbeam Cloud
+## Open source and the hosted app
 
-A hosted version is in development at [trailbeam.app](https://trailbeam.app). It is not generally
-available yet.
+Everything that tells you what happened to your messages is open source and runs on your own
+machine. The hosted app at [trailbeam.app](https://trailbeam.app) adds what needs hosting or a team.
+It is not generally available yet.
+
+| | Open source | Hosted app |
+|---|---|---|
+| The packages for your services | yes | yes, the same packages with an ingest key |
+| A message's timeline, lookup by message ID | yes | yes |
+| Stuck messages and duplicate deliveries | yes | yes |
+| Overview of flows between services and queues | coming | yes |
+| Event explorer | coming | coming |
+| JSON API | yes | |
+| Accounts, workspaces and teams | | yes |
+| Dashboards | | yes |
+| Hosting, retention and backups | | yes |
+
+Both show the same timeline from the same rules: the hosted app's message pages are checked against
+this repository's code.
 
 ## How it works
 
