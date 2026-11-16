@@ -1,4 +1,4 @@
-"""The JSON API over HTTP (docs/store-api.md)."""
+"""The JSON API over HTTP (docs/api.md)."""
 import json
 import urllib.error
 import urllib.parse

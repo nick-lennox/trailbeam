@@ -113,8 +113,8 @@ def by_type(tl):
 
 
 def test_effect_interval_ending_before_its_cause_starts_fails():
-    """The new rule fails: the receive's interval ends before the send's starts (and the store, following
-    the clocks, shows it first). The store did nothing wrong; the timeline still shows the impossible."""
+    """The new rule fails: the receive's interval ends before the send's starts (and Trailbeam, following
+    the clocks, shows it first). Trailbeam did nothing wrong; the timeline still shows the impossible."""
     tl = retry_timeline()
     sent, rcv = by_type(tl)["sent"][0], by_type(tl)["received"][0]
     sent.update(start_unix_nano="22", end_unix_nano="28", group=1)
@@ -126,7 +126,7 @@ def test_effect_interval_ending_before_its_cause_starts_fails():
 
 
 def test_overlap_passes_as_concurrent():
-    """The receive's response came back before the send's, but the intervals overlap and the store put
+    """The receive's response came back before the send's, but the intervals overlap and Trailbeam put
     them in one concurrent group: not shown out of order, so in order; and counted as concurrent."""
     tl = retry_timeline()
     sent, rcv = by_type(tl)["sent"][0], by_type(tl)["received"][0]
@@ -144,7 +144,7 @@ def test_effect_placed_in_an_earlier_group_fails_even_if_intervals_overlap():
     tl = retry_timeline()
     cv, rcv2 = by_type(tl)["visibility_changed"][0], by_type(tl)["received"][1]
     cv.update(start_unix_nano="30", end_unix_nano="45", group=3)   # overlaps the redelivery (40 to 45)
-    rcv2.update(group=2)                                            # but the store shows it first
+    rcv2.update(group=2)                                            # but Trailbeam shows it first
     r = check.evaluate(RETRY_TRUTH, tl)
     assert not r["in_order"]
     assert {"pair": "change_visibility->receive", "cause": ["change_visibility", 1, 0],
@@ -152,7 +152,7 @@ def test_effect_placed_in_an_earlier_group_fails_even_if_intervals_overlap():
 
 
 def test_order_the_clocks_do_not_prove_fails():
-    """The store must not claim an order the intervals do not show (cause ends after effect starts)."""
+    """Trailbeam must not claim an order the intervals do not show (cause ends after effect starts)."""
     tl = retry_timeline()
     by_type(tl)["sent"][0].update(end_unix_nano="22")  # send 10 to 22, receive 20 to 25, separate groups
     r = check.evaluate(RETRY_TRUTH, tl)
@@ -296,10 +296,10 @@ def test_a_tie_at_the_clock_resolution_is_concurrent_and_counted():
     assert r["pairs"]["send->receive"]["concurrent_tied"] == 1
 
 
-# -- the store's proven order (order.edges, QV-31) -------------------------------------------------
+# -- Trailbeam's proven order (order.edges, QV-31) -------------------------------------------------
 
 def with_order(tl, edges, groups=None, facts=True):
-    """Give the observed events IDs e1, e2, ... (in listing order) and the store's proven ``order.edges``,
+    """Give the observed events IDs e1, e2, ... (in listing order) and Trailbeam's proven ``order.edges``,
     given as (from index, to index, sources) over the observed events. ``groups`` overrides their groups.
 
     With ``facts`` (the default), the events also get the facts that make each claimed source hold, as a
@@ -346,7 +346,7 @@ def simple_timeline():
     ("clock", "receive->delete", 1, 2),
 ])
 def test_a_pair_resolved_by_each_source(source, kind, cause, effect):
-    """The intervals all overlap and every step is in one box, except the one edge the store proves by
+    """The intervals all overlap and every step is in one box, except the one edge Trailbeam proves by
     ``source``: that pair is resolved and attributed to it; the rest stay concurrent."""
     tl = with_order(one_group(simple_timeline()), [(cause, effect, [source])],
                     groups=[0, 1, 1] if cause == 0 else [0, 0, 1])
@@ -479,7 +479,7 @@ def test_fake2_with_made_up_facts_fails_against_the_truth():
     assert r["in_order"] and r["joined"] and r["receive_count"]  # the checks before QV-38 can't tell
     assert not r["sqs_facts"] and not r["passed"]
     assert r["facts"]["sqs_facts_wrong"] == [{"event": "e2", "delivery": 1,
-                                             "store": {"sent_ms": 5000, "first_receive_ms": 5001},
+                                             "trailbeam": {"sent_ms": 5000, "first_receive_ms": 5001},
                                              "truth": {"sent_ms": 5000, "first_receive_ms": 5000}}]
     # The made-up ticks recompute, but the truth shows the receive and the delete in two processes.
     assert not r["edges_verified"]
@@ -535,7 +535,7 @@ def test_python_events_must_lie_within_their_calls_brackets():
     tl["events"][1]["end_unix_nano"] = str(27)  # the receive "returned" 1 ns after the driver saw it return
     r = check.evaluate(bracketed(SIMPLE_TRUTH), tl)
     assert not r["in_brackets"] and not r["passed"]
-    assert r["facts"]["outside_brackets"] == [{"event": None, "op": "receive", "store": [20, 27], "truth": [19, 26]}]
+    assert r["facts"]["outside_brackets"] == [{"event": None, "op": "receive", "trailbeam": [20, 27], "truth": [19, 26]}]
 
 
 def test_truth_on_another_clock_than_the_spans_is_not_bracket_checked():
@@ -552,7 +552,7 @@ MS = 1_000_000
 
 
 def receive_offset_by(start_ns, end_ns):
-    """SIMPLE_TRUTH bracketed widely (a long poll), with the store's receive starting ``start_ns`` after its
+    """SIMPLE_TRUTH bracketed widely (a long poll), with Trailbeam's receive starting ``start_ns`` after its
     truth start and ending ``end_ns`` before its truth end; the other calls tightly bracketed."""
     truth = [dict(r, t_start_ns=10 * r["t_ns"], t_end_ns=10 * r["t_ns"] + 5, same_clock_as_spans=True)
              for r in SIMPLE_TRUTH]
@@ -580,7 +580,7 @@ def test_times_may_lie_at_most_100_ms_inside_their_brackets(start_ns, end_ns, ok
 
 def real_run(lang):
     """Nine messages (three of each kind) of a real ``demo/check.sh`` run on the emulator, unedited: their truth
-    lines and the store's timelines (tests/fixtures, QV-40)."""
+    lines and Trailbeam's timelines (tests/fixtures, QV-40)."""
     with open(os.path.join(os.path.dirname(__file__), "fixtures", f"real-{lang}.json"), encoding="utf-8") as f:
         return json.load(f)
 
@@ -588,7 +588,7 @@ def real_run(lang):
 def fake3(tl, b=False):
     """The reviewer's fake3 (QV-39 section 2) on one timeline: the receive of delivery 1 now starts 1 ns after the
     send's end, where that is later than its real start and still before its end (so inside its bracket), and
-    the store claims the clock edge send -> receive, which now recomputes. No rule labels, no SQS facts changed.
+    Trailbeam claims the clock edge send -> receive, which now recomputes. No rule labels, no SQS facts changed.
     fake3b (``b``) first pulls the send's end back to 2 ns before the receive's end where it was later, inside
     the send's bracket too. Returns (timeline, whether anything moved)."""
     tl = json.loads(json.dumps(tl))
@@ -694,7 +694,7 @@ def slow_timeline():
 
 def test_an_implied_order_that_contradicts_the_truth_fails():
     """No cause/effect pair joins the stale delete of delivery 1 and receive 2, so the pair checks can't see
-    this. The store's facts are made up to agree with each other (ticks in one scope), but the truth shows
+    this. Trailbeam's facts are made up to agree with each other (ticks in one scope), but the truth shows
     receive 2 returned before the delete of delivery 1 was made, so 'delete 1 -> receive 2' is false, and
     so is everything it implies."""
     tl = slow_timeline()

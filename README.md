@@ -51,7 +51,7 @@ answers a narrower question: where did this one message go?
   an always-on sampler, so your sampling never drops a message's history.
 - **Hands off your queues.** Trailbeam makes no SQS calls of its own and never calls `ReceiveMessage`,
   because a receive raises a message's receive count.
-- **One container to run.** The store takes OTLP/HTTP, keeps spans in SQLite, and serves a JSON API
+- **One container to run.** Trailbeam takes OTLP/HTTP, keeps spans in SQLite, and serves a JSON API
   and a web screen on one port.
 
 ## Quickstart
@@ -70,6 +70,13 @@ docker compose -f demo/compose.yaml up -d --build --wait
 Add the hooks to every service that sends, receives or deletes on the queues you care about. A
 service without them leaves gaps in a message's history.
 
+```sh
+pip install trailbeam      # Python
+npm install trailbeam      # Node.js
+```
+
+Neither is published yet. Until they are, install from a clone: `pip install ./python`, `npm install ./node`.
+
 **Python (boto3)**
 
 ```python
@@ -84,7 +91,7 @@ sqs = boto3.client("sqs")
 
 ```js
 const { SQSClient } = require("@aws-sdk/client-sqs");
-const trailbeam = require("@trailbeam/sdk");
+const trailbeam = require("trailbeam");
 
 const sqs = trailbeam.instrument(new SQSClient({}));
 ```
@@ -99,7 +106,7 @@ def handler(event, context):
     ...
 ```
 
-Point the packages at your store and give every service on the same queues the same hash key:
+Point the packages at Trailbeam and give every service on the same queues the same hash key:
 
 ```sh
 export TRAILBEAM_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces
@@ -115,12 +122,14 @@ Trailbeam is one container. It receives OTLP on `/v1/traces` and serves the web 
 API on the same port.
 
 ```sh
-docker build -t trailbeam-store server
-docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-data:/data trailbeam-store
+docker build -t trailbeam .
+docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-data:/data trailbeam
 ```
 
+Or without Docker: `pip install "trailbeam[server]"`, then run `trailbeam`.
+
 There is no authentication in 0.1, so keep it on `127.0.0.1` or a trusted network. See
-[Run the store](server/README.md) and, to forward spans through an OpenTelemetry Collector, the
+[Run Trailbeam](docs/running.md) and, to forward spans through an OpenTelemetry Collector, the
 [Collector configuration](collector/README.md).
 
 ## Trailbeam Cloud
@@ -133,16 +142,16 @@ available yet.
 1. OpenTelemetry hooks in your services emit one span per message for each SQS call your code makes:
    `SendMessage`, `ReceiveMessage`, `DeleteMessage`, `ChangeMessageVisibility` and their batch forms.
    A Lambda wrapper does the same for SQS events.
-2. The spans go over OTLP/HTTP to the Trailbeam store, directly or through an OpenTelemetry Collector.
-3. The store keeps the spans in SQLite. It joins each delete to the receive whose receipt handle it
+2. The spans go over OTLP/HTTP to Trailbeam, directly or through an OpenTelemetry Collector.
+3. Trailbeam keeps the spans in SQLite. It joins each delete to the receive whose receipt handle it
    used, through a keyed hash of the handle.
-4. When you open a message, the store builds its timeline.
+4. When you open a message, Trailbeam builds its timeline.
 
 Full explanation: [How Trailbeam works](docs/architecture.md).
 
 ## What Trailbeam does not do
 
-- It makes no SQS calls of its own, and never calls `ReceiveMessage` on your queues. The store makes
+- It makes no SQS calls of its own, and never calls `ReceiveMessage` on your queues. Trailbeam makes
   no AWS calls.
 - It does not record message bodies or message attributes.
 - It does not export receipt handles, only a keyed hash of each one.
@@ -155,20 +164,20 @@ Full explanation: [How Trailbeam works](docs/architecture.md).
 | [`docs/architecture.md`](docs/architecture.md) | explanation | Components, data flow, what is recorded and what is inferred, failure cases |
 | [`python/README.md`](python/README.md) | how-to | Add the hooks to boto3 code and Lambda handlers in Python |
 | [`node/README.md`](node/README.md) | how-to | Add the hooks to AWS SDK v3 code and Lambda handlers in Node.js |
-| [`server/README.md`](server/README.md) | how-to | Run the store, natively or in a container |
+| [`docs/running.md`](docs/running.md) | how-to | Run Trailbeam, natively or in a container |
 | [`collector/README.md`](collector/README.md) | how-to | Run the Collector configuration |
 | [`demo/README.md`](demo/README.md) | how-to and results | The local demo, and the 0.1 concurrency check and its results |
-| [`docs/span-contract.md`](docs/span-contract.md) | reference | The spans the packages emit and the store reads |
-| [`docs/store-api.md`](docs/store-api.md) | reference | The store's HTTP API |
+| [`docs/span-contract.md`](docs/span-contract.md) | reference | The spans the packages emit and Trailbeam reads |
+| [`docs/api.md`](docs/api.md) | reference | Trailbeam's HTTP API |
 | [`docs/glossary.md`](docs/glossary.md) | reference | Terms |
 
 ## Repository layout
 
 | Directory | Contents |
 |---|---|
-| [`python/`](python/) | Python package `trailbeam`: boto3 hooks and a Lambda handler wrapper |
-| [`node/`](node/) | Node.js package `@trailbeam/sdk`: AWS SDK v3 hooks and a Lambda handler wrapper |
-| [`server/`](server/) | The store (`trailbeam-store`): OTLP/HTTP ingest, SQLite, JSON API and web screen, and its Dockerfile |
+| [`python/`](python/) | Python package `trailbeam`: boto3 hooks, a Lambda handler wrapper, and Trailbeam itself (`trailbeam.server`, installed with the `server` extra) |
+| [`node/`](node/) | Node.js package `trailbeam`: AWS SDK v3 hooks and a Lambda handler wrapper |
+| [`Dockerfile`](Dockerfile) | The Trailbeam container: `trailbeam[server]` with SQLite on a volume |
 | [`collector/`](collector/) | OpenTelemetry Collector configuration |
 | [`demo/`](demo/) | Local demo on ElasticMQ with Docker Compose, and the concurrency check (`demo/check.sh`) |
 | [`docs/`](docs/) | The pages listed above, and the receipt-hash test vectors |
@@ -178,9 +187,8 @@ Full explanation: [How Trailbeam works](docs/architecture.md).
 Run each line from the repository root:
 
 ```sh
-(cd python && pip install -e '.[test]' && pytest)
+(cd python && pip install -e '.[test]' && pytest)   # the Python package and Trailbeam itself
 (cd node && npm ci && npm test)
-pip install -e './server[test]' -e './python[test]' && pytest server/tests
 pytest demo/check/tests
 ```
 
@@ -191,8 +199,8 @@ the Collector tests, the container smoke test, the demo and the concurrency chec
 ## Contributing
 
 Issues and pull requests are welcome. Before opening a pull request, run the tests above for the
-part you changed. If your change alters a span or the store's API, update
-[`docs/span-contract.md`](docs/span-contract.md) or [`docs/store-api.md`](docs/store-api.md) in the
+part you changed. If your change alters a span or Trailbeam's API, update
+[`docs/span-contract.md`](docs/span-contract.md) or [`docs/api.md`](docs/api.md) in the
 same pull request.
 
 ## License

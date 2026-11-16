@@ -1,12 +1,12 @@
 'use strict';
 // Trailbeam wrapper for AWS Lambda handlers invoked by an SQS event source mapping (contract 4.2, 4.4).
 //
-//     const trailbeam = require('@trailbeam/sdk');
+//     const trailbeam = require('trailbeam');
 //     exports.handler = trailbeam.wrapHandler(async (event, context) => { ... });
 //
 // For each SQS record the wrapper emits one `trailbeam receive` and flushes it before the handler runs,
 // so a timeout or out-of-memory kill cannot lose it. After the handler returns or throws it emits
-// one `trailbeam outcome` per record. A killed invocation has no outcome; the store infers it.
+// one `trailbeam outcome` per record. A killed invocation has no outcome; Trailbeam infers it.
 
 const api = require('@opentelemetry/api');
 

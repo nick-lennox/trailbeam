@@ -2,7 +2,7 @@
 
 Needs an otelcol-contrib binary: $TRAILBEAM_OTELCOL_BIN, or `otelcol-contrib` on PATH. Skipped otherwise.
 The test sends one OTLP request holding Trailbeam spans, stock SQS spans of several SDKs, and other spans,
-and checks which spans reach the store sink and the backend sink.
+and checks which spans reach Trailbeam sink and the backend sink.
 """
 from __future__ import annotations
 
@@ -147,7 +147,7 @@ def wait_for(fn, want, timeout=15.0):
 
 @pytest.fixture
 def sinks():
-    s = {"store": Sink(), "backend": Sink()}
+    s = {"trailbeam": Sink(), "backend": Sink()}
     yield s
     for x in s.values():
         x.close()
@@ -164,12 +164,12 @@ def stop(proc):
 
 
 def test_store_gets_every_trailbeam_span_and_nothing_else(sinks):
-    proc, url = run_collector(["trailbeam-collector.yaml"], {"TRAILBEAM_STORE_ENDPOINT": sinks["store"].url})
+    proc, url = run_collector(["trailbeam-collector.yaml"], {"TRAILBEAM_ENDPOINT": sinks["trailbeam"].url})
     try:
         post(url, request())
-        wait_for(sinks["store"].snapshot, TRAILBEAM)
+        wait_for(sinks["trailbeam"].snapshot, TRAILBEAM)
         time.sleep(1)  # nothing else arrives later
-        assert sinks["store"].snapshot() == TRAILBEAM
+        assert sinks["trailbeam"].snapshot() == TRAILBEAM
     finally:
         log = stop(proc)
     assert '"error"' not in log.lower() and "\terror\t" not in log, log
@@ -178,7 +178,7 @@ def test_store_gets_every_trailbeam_span_and_nothing_else(sinks):
 @pytest.mark.parametrize("percentage", [0, 100])
 def test_backend_keeps_every_sqs_span_while_the_rest_is_sampled(sinks, percentage):
     proc, url = run_collector(["trailbeam-collector.yaml", "backend.yaml"], {
-        "TRAILBEAM_STORE_ENDPOINT": sinks["store"].url,
+        "TRAILBEAM_ENDPOINT": sinks["trailbeam"].url,
         "TRAILBEAM_BACKEND_ENDPOINT": sinks["backend"].url,
         "TRAILBEAM_BACKEND_SAMPLING_PERCENTAGE": str(percentage),
     })
@@ -189,7 +189,7 @@ def test_backend_keeps_every_sqs_span_while_the_rest_is_sampled(sinks, percentag
         if percentage == 0:
             time.sleep(6)  # past decision_wait: the sampled-out spans must not arrive late
         assert sinks["backend"].snapshot() == want
-        assert sinks["store"].snapshot() == TRAILBEAM
+        assert sinks["trailbeam"].snapshot() == TRAILBEAM
     finally:
         log = stop(proc)
     assert "\terror\t" not in log, log

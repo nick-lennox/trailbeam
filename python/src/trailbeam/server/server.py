@@ -1,4 +1,4 @@
-"""HTTP server: OTLP/HTTP trace ingest on /v1/traces, the JSON API under /api/ (docs/store-api.md), and the
+"""HTTP server: OTLP/HTTP trace ingest on /v1/traces, the JSON API under /api/ (docs/api.md), and the
 web screen (web.py) on every other GET path."""
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from .db import Store
 from .otlp import DecodeError, decode
 from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
 
-log = logging.getLogger("trailbeam_store")
+log = logging.getLogger("trailbeam.server")
 
 MAX_BODY = 32 * 1024 * 1024  # bytes, after decompression
 
@@ -89,7 +89,7 @@ class App:
             raise ApiError(404, "no such endpoint")
         with self.stats_lock:
             ingest = dict(self.stats)
-        return {"status": "ok", "version": __version__, "ingest": ingest, "store": self.store.counts(),
+        return {"status": "ok", "version": __version__, "ingest": ingest, "data": self.store.counts(),
                 "config": {"stuck_after_s": self.stuck_after_s, "lambda_timeout_s": self.lambda_timeout_s,
                            "max_receive_counts": self.max_receive_counts}}
 
@@ -145,7 +145,7 @@ def _limit(q: dict) -> int:
 
 def make_handler(app: App):
     class Handler(BaseHTTPRequestHandler):
-        server_version = f"trailbeam-store/{__version__}"
+        server_version = f"trailbeam/{__version__}"
         protocol_version = "HTTP/1.1"
 
         def _send(self, status: int, ctype: str, body: bytes, headers: Optional[dict] = None):

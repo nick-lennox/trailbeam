@@ -122,7 +122,7 @@ def test_health(server, store):
     status, h = get(server, "/api/health")
     assert status == 200 and h["status"] == "ok"
     assert h["ingest"]["inserted"] == 2
-    assert h["store"] == {"spans": {"receive": 1, "delete": 1}, "messages": 1, "unjoined_settles": 1}
+    assert h["data"] == {"spans": {"receive": 1, "delete": 1}, "messages": 1, "unjoined_settles": 1}
 
 
 # -- contract v2 times (section 2) ----------------------------------------------------------------
@@ -152,7 +152,7 @@ def test_a_span_that_ends_before_it_starts_is_rejected(server, store):
 def test_a_schema_1_database_is_migrated_with_unknown_starts(tmp_path):
     import sqlite3
 
-    from trailbeam_store.db import Store
+    from trailbeam.server.db import Store
 
     path = str(tmp_path / "v1.sqlite")
     old = sqlite3.connect(path)

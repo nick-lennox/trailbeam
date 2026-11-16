@@ -1,4 +1,4 @@
-# @trailbeam/sdk (Node.js)
+# trailbeam (Node.js)
 
 OpenTelemetry hooks for AWS SDK v3 SQS clients, and a wrapper for Lambda handlers that consume
 SQS. They emit the spans defined in [`docs/span-contract.md`](../docs/span-contract.md):
@@ -22,7 +22,7 @@ or `npm pack ./trailbeam/node` and install the tarball.
 
 ```js
 const { SQSClient } = require('@aws-sdk/client-sqs');
-const trailbeam = require('@trailbeam/sdk');
+const trailbeam = require('trailbeam');
 
 trailbeam.install({ receiptHashKey: process.env.TRAILBEAM_RECEIPT_HASH_KEY }); // optional; defaults shown below
 const sqs = trailbeam.instrument(new SQSClient({}));
@@ -55,7 +55,7 @@ the application needs an OpenTelemetry context manager (any `NodeSDK` setup regi
 ## Lambda wrapper
 
 ```js
-const trailbeam = require('@trailbeam/sdk');
+const trailbeam = require('trailbeam');
 
 exports.handler = trailbeam.wrapHandler(async (event, context) => {
   // ...
@@ -77,7 +77,7 @@ with `trailbeam.order.issued` = `trailbeam.order.returned` (one tick, after the 
 | `failed_invalid_response` | `batchItemFailures` has an entry that is not a record ID in the batch (Lambda then fails the whole batch) |
 | `failed_exception` | the handler threw; `trailbeam.error_type` is the error's class name, never its message |
 
-A timeout or out-of-memory kill gets no outcome; the store infers it from the receive. Pass
+A timeout or out-of-memory kill gets no outcome; Trailbeam infers it from the receive. Pass
 `reportBatchItemFailures: false` if the event source mapping does not have `ReportBatchItemFailures`
 turned on, since Lambda then ignores `batchItemFailures`. Async, sync and callback-style handlers
 are accepted; the wrapper is always an async handler. Events without SQS records pass straight

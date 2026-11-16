@@ -135,8 +135,8 @@ def test_lambda_receive_and_outcome_belong_to_the_message(store, ingest):
 
 
 def test_rows_survive_a_restart(tmp_path):
-    from trailbeam_store.db import Store
-    from trailbeam_store.otlp import decode
+    from trailbeam.server.db import Store
+    from trailbeam.server.otlp import decode
     from spans import to_proto
 
     path = str(tmp_path / "trailbeam.sqlite")

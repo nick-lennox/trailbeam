@@ -7,6 +7,6 @@
   "engines": { "node": ">=20" },
   "dependencies": {
     "@aws-sdk/client-sqs": "^3.1169.0",
-    "@trailbeam/sdk": "file:../../node"
+    "trailbeam": "file:../../node"
   }
 }

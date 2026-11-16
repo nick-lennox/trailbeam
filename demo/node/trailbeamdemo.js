@@ -1,5 +1,5 @@
 'use strict';
-// Trailbeam demo driver for Node.js: a producer, a consumer and a deleter on an SQS emulator, with @trailbeam/sdk.
+// Trailbeam demo driver for Node.js: a producer, a consumer and a deleter on an SQS emulator, with trailbeam.
 //
 //   node trailbeamdemo.js produce --queue orders --count 200 --mix check
 //   node trailbeamdemo.js consume --queue orders --consumers 4 --deleter http://deleter:8080
@@ -21,7 +21,7 @@ const {
   SQSClient, CreateQueueCommand, GetQueueAttributesCommand, GetQueueUrlCommand, SendMessageCommand,
   ReceiveMessageCommand, DeleteMessageCommand, ChangeMessageVisibilityCommand,
 } = require('@aws-sdk/client-sqs');
-const trailbeam = require('@trailbeam/sdk');
+const trailbeam = require('trailbeam');
 
 // Unset: the local emulator. Set but empty: the AWS SDK's default endpoint, that is real SQS (demo/check.sh --aws).
 const ENDPOINT = process.env.TRAILBEAM_DEMO_SQS_ENDPOINT ?? 'http://localhost:9324';
@@ -43,7 +43,7 @@ const handleHash = (rh) => crypto.createHash('sha256').update(rh).digest('hex').
 // system clock steps or slews: up to ~70 ms apart in QV-35.) The resolution is 1 ms, rounded down.
 const nowNs = () => String(BigInt(Date.now()) * 1000000n);
 
-// The driver asks for SQS's facts itself rather than relying on @trailbeam/sdk to add them, so the truth doesn't
+// The driver asks for SQS's facts itself rather than relying on trailbeam to add them, so the truth doesn't
 // depend on the code under test. A receive's truth line records them (QV-38), null if SQS left one out.
 const RECEIVE_ATTRIBUTES = ['ApproximateReceiveCount', 'SentTimestamp', 'ApproximateFirstReceiveTimestamp'];
 const optInt = (v) => (v === undefined ? null : parseInt(v, 10));
@@ -166,7 +166,7 @@ async function consume(a) {
   };
 
   // Reads the dead-letter queue and deletes what it finds. It does not ask for DeadLetterQueueSourceArn:
-  // @trailbeam/sdk does, and the store shows the move SQS reports with it (contract 3.1).
+  // trailbeam does, and Trailbeam shows the move SQS reports with it (contract 3.1).
   const dlqLoop = async () => {
     const dlq = `${a.queue}-dlq`;
     const dlqUrl = (await sqs.send(new GetQueueUrlCommand({ QueueName: dlq }))).QueueUrl;

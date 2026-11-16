@@ -1,8 +1,8 @@
 """Timelines, inferred steps, duplicate deliveries and stuck messages."""
 import pytest
 
-from trailbeam_store import queries
-from trailbeam_store.timeline import iso
+from trailbeam.server import queries
+from trailbeam.server.timeline import iso
 from spans import KEY, SEC, T0, Consumer
 
 NOW = T0 + 3600 * SEC
@@ -279,7 +279,7 @@ def test_failed_delete_does_not_settle(store, ingest):
 
 def test_observed_steps_are_never_reordered_by_cause(store, ingest):
     """Contract section 9a: the order shown is the order the clocks prove, nothing else. If b's clock is
-    1 s behind, its delete is shown before the receive it settles; the store does not move it."""
+    1 s behind, its delete is shown before the receive it settles; Trailbeam does not move it."""
     a, b = Consumer("a"), Consumer("b")
     ingest(a.receive(T0 + 5 * SEC, "m1", "rh-1", start=T0 + 5 * SEC - 1000),
            b.delete(T0 + 4 * SEC, "rh-1", start=T0 + 4 * SEC - 1000))
@@ -308,7 +308,7 @@ def groups(t):
 
 def test_overlapping_send_and_receive_are_one_concurrent_group(store, ingest):
     """The QV-20 case: the receive's response came back before the send's, but SQS acted inside both
-    intervals and they overlap, so the store cannot say which came first and does not pretend to."""
+    intervals and they overlap, so Trailbeam cannot say which came first and does not pretend to."""
     p, c = Consumer("producer"), Consumer()
     ingest(p.send(T0 + 30 * MS, "m1", start=T0),                        # 0 to 30 ms
            c.receive(T0 + 20 * MS, "m1", "rh-1", start=T0 - 900 * MS),   # a long poll, ends at 20 ms
@@ -481,7 +481,7 @@ def _redelivered(c, mid, *between):
 
 def test_expiry_is_not_shown_after_a_rejected_delete_it_was_not_inferred_from(store, ingest):
     """The reviewer's case: visibility timeout 10 s, so the message expired at about 30.002 s; the
-    delete of delivery 1 at 32.000 s was rejected because of that. The store cannot tell the expiry and
+    delete of delivery 1 at 32.000 s was rejected because of that. Trailbeam cannot tell the expiry and
     the delete apart in time (it does not know the timeout), so they are one concurrent group."""
     c = Consumer()
     ingest(*_redelivered(c, "m1", c.delete(T0 + 32 * SEC, "rh-1", ok=False, start=T0 + 32 * SEC - 2 * MS)))

@@ -4,31 +4,31 @@
 #   demo/check.sh [--aws] [--dlq] python [count]
 #   demo/check.sh [--aws] [--dlq] node [count]
 #
-# --aws runs the same workload against real SQS instead of the emulator (the Collector and the store stay
+# --aws runs the same workload against real SQS instead of the emulator (the Collector and Trailbeam stay
 # local). It needs AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY (and AWS_SESSION_TOKEN if temporary) in the
 # environment; they are passed to the containers by name only, never on a command line. AWS_REGION defaults
 # to us-east-1. Queues are named qv2-measure-RUN and qv2-measure-RUN-dlq and are deleted when the run ends.
 #
 # --dlq adds a poison message every 20 (--mix check-dlq): it is released at once on every receive, so SQS
 # moves it to the dead-letter queue after maxReceiveCount (3) receives, and the consumers read and delete it
-# there. The check then needs the store to show each move as observed (DeadLetterQueueSourceArn, contract
+# there. The check then needs Trailbeam to show each move as observed (DeadLetterQueueSourceArn, contract
 # 3.1) and none inferred. CI uses it on the emulator only: on real SQS it is not approved yet (QV-33).
 #
-# Starts the emulator, the Collector and the store (demo/compose.yaml), creates a fresh queue for this run,
+# Starts the emulator, the Collector and Trailbeam (demo/compose.yaml), creates a fresh queue for this run,
 # starts one deleter process and three consumer processes (four consumers each) and a producer, waits until
 # every message is deleted, stops the processes (which flushes their spans), then compares every message's
-# timeline in the store with what the processes really did (demo/check/check.py). Exit status 0 only if
+# timeline in Trailbeam with what the processes really did (demo/check/check.py). Exit status 0 only if
 # every message passes. The summary and the full report are saved in demo/results/.
 #
 # Set DOCKER to another command if `docker` isn't the Docker CLI (for example DOCKER=docker.exe in WSL).
-# COMPOSE_PROJECT_NAME and TRAILBEAM_DEMO_PORT, if set, choose the Compose project and the store's host port, as for
+# COMPOSE_PROJECT_NAME and TRAILBEAM_DEMO_PORT, if set, choose the Compose project and Trailbeam's host port, as for
 # `docker compose` (demo/README.md#more-than-one-checkout-on-the-same-machine). They are added to WSLENV, so
 # they reach docker.exe too, and the project and port Compose resolved are printed before anything starts.
 #
 # The resolved-share floor (90% of send->receive and of receive->delete, demo/check/check.py) gates with
 # --aws. On the emulator it is reported but does not fail the run, as in CI's ElasticMQ job: ElasticMQ
 # stamps SentTimestamp and ApproximateFirstReceiveTimestamp in the same millisecond, so send->receive stays
-# near 5% there for a reason that is the emulator's, not the store's (demo/README.md#the-floor-in-ci).
+# near 5% there for a reason that is the emulator's, not Trailbeam's (demo/README.md#the-floor-in-ci).
 # Everything else gates in both. Set TRAILBEAM_CHECK_FLOOR to a share (e.g. 0.9) to make the floor gate at that
 # share on the emulator too.
 set -eu
@@ -60,7 +60,7 @@ export WSLENV="COMPOSE_PROJECT_NAME:TRAILBEAM_DEMO_PORT${WSLENV:+:$WSLENV}"
 resolved=$(dc config)
 project=$(printf '%s\n' "$resolved" | sed -n 's/^name: *//p' | tr -d '"\r')
 port=$(printf '%s\n' "$resolved" | sed -n 's/^ *published: *//p' | tr -d '"\r' | head -n 1)
-echo "== Compose project $project, store on 127.0.0.1:$port"
+echo "== Compose project $project, Trailbeam on 127.0.0.1:$port"
 # Stop rather than run on another project's stack if the variables didn't reach Compose.
 if [ "$project" != "${COMPOSE_PROJECT_NAME:-trailbeam-demo}" ] || [ "$port" != "${TRAILBEAM_DEMO_PORT:-4318}" ]; then
   echo "error: Compose resolved project $project and port $port, not ${COMPOSE_PROJECT_NAME:-trailbeam-demo} and ${TRAILBEAM_DEMO_PORT:-4318}" >&2
@@ -143,7 +143,7 @@ for n in $names; do
   [ "$code" = 0 ] || echo "warning: $n exited with status $code" >&2
 done
 
-echo "== comparing the store's timelines with what the processes did"
+echo "== comparing Trailbeam's timelines with what the processes did"
 status=0
 floor_arg=""
 if [ -n "${TRAILBEAM_CHECK_FLOOR:-}" ]; then
@@ -153,7 +153,7 @@ elif [ "$aws" = 0 ]; then
   echo "== the floor is reported, not gated, on the emulator (TRAILBEAM_CHECK_FLOOR=0.9 to gate it)"
 fi
 # shellcheck disable=SC2086
-dc run --rm -T --no-deps checker verify --truth "$truth" --count "$count" --store http://trailbeam:4318 \
+dc run --rm -T --no-deps checker verify --truth "$truth" --count "$count" --trailbeam http://trailbeam:4318 \
   --report "$truth/report.json" $floor_arg > "results/$run.txt" || status=$?
 cat "results/$run.txt"
 dc run --rm -T --no-deps --entrypoint cat checker "$truth/report.json" > "results/$run-report.json" || true

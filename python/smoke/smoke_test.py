@@ -1,4 +1,4 @@
-"""Smoke test for a running Trailbeam store (for example the container): send recorded spans, check the screen.
+"""Smoke test for a running Trailbeam (for example the container): send recorded spans, check the screen.
 
     python smoke_test.py http://127.0.0.1:4318
 
@@ -52,7 +52,7 @@ def wait_healthy(base: str, timeout_s: float = 60) -> dict:
         except (OSError, ValueError) as e:
             last = e
         time.sleep(0.5)
-    raise SmokeFailure(f"store at {base} not healthy after {timeout_s:.0f} s: {last}")
+    raise SmokeFailure(f"Trailbeam at {base} not healthy after {timeout_s:.0f} s: {last}")
 
 
 def timeline_events(html: str) -> list[tuple[str, bool]]:
@@ -68,7 +68,7 @@ def run(base: str) -> None:
     base = base.rstrip("/")
     expected = json.loads((HERE / "recorded-spans.json").read_text())
     before = wait_healthy(base)
-    check(before["status"] == "ok", f"store {before.get('version')} is healthy")
+    check(before["status"] == "ok", f"Trailbeam {before.get('version')} is healthy")
 
     req = urllib.request.Request(base + "/v1/traces", data=(HERE / "recorded-spans.pb").read_bytes(),
                                  method="POST", headers={"Content-Type": "application/x-protobuf"})

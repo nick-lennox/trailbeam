@@ -1,4 +1,4 @@
-"""Builders for contract v3 Trailbeam spans and OTLP requests, for the store tests."""
+"""Builders for contract v3 Trailbeam spans and OTLP requests, for Trailbeam tests."""
 from __future__ import annotations
 
 import hashlib
