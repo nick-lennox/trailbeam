@@ -145,8 +145,18 @@ A package exports a body only for the queues in its own capture list, redacted
 `TRAILBEAM_STORE_BODIES` is the second gate: for any queue not in it (`*` means every queue), Trailbeam
 removes the body attributes before writing the span, and records that it did. The default is no queue.
 
-With no logins, anyone who can reach Trailbeam, or read its SQLite file, can read the bodies it
-stores. Trailbeam logs a warning at startup when the list is set. Keep it on a trusted network.
+The bodies it keeps are on the message page's **Body** tab, one per message (the send's copy, else the
+first receive's). A message with no body says why: the package's capture status, a producer that isn't
+instrumented, a package from before 3.2, or a body this server dropped because its queue isn't in
+`TRAILBEAM_STORE_BODIES`. The Messages page searches them with `body.*` terms such as
+`body.order.sku:A-100` or `body.amount:>=100`, and so does `GET /api/messages?body=...`. The rules are in
+[`contract/body-view.md`](contract/body-view.md); the hosted app follows the same ones and draws the same view.
+
+**Access control is off-unless-on plus the network.** There are no logins and no roles: anyone who can
+reach Trailbeam can read every body it keeps, in the Body tab and from `/api/messages/{id}/body`, and
+anyone who can read its SQLite file can read them there. Trailbeam logs a warning at startup when the list
+is set. Keep it on a trusted network. Redaction happens in the packages, not in Trailbeam. Taking a queue
+off the list stops its bodies being shown or searched, but doesn't delete the ones already in the file.
 
 ## Open source and the hosted app
 

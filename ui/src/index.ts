@@ -6,3 +6,9 @@
 export { TimelineView, Node, SourceTag, ORDER_SOURCE, BLIND_SPOTS, clock } from "./timeline/Timeline.tsx";
 export { answerFor, consumersOf } from "./summary.ts";
 export type * from "./timeline/types.ts";
+export { BodyPanel, type BodyPanelProps } from "./body/BodyPanel.tsx";
+export { bodyView, NO_BODY_TEXT, noBodyNotes, type BodySpan } from "./body/rules.ts";
+export {
+  bodyHit, bodyMatches, bodyPath, bodyValues, isBodyField, numHit, parseBodyQuery, parsedBody, textHit, NUM, RANGE, type BodyTerm,
+} from "./body/search.ts";
+export type * from "./body/types.ts";

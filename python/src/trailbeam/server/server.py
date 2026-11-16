@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceResponse
 
 from . import __version__
-from . import queries, ui_files, web
+from . import bodies, queries, ui_files, web
 from .db import Database
 from .otlp import DecodeError, decode
 from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
@@ -100,13 +100,27 @@ class App:
         return _int(q, "lambda_timeout_s", self.lambda_timeout_s, 1, 86_400)
 
     def messages(self, q: dict, rest: list[str]) -> dict:
-        if len(rest) > 1:
+        if len(rest) > 2 or (len(rest) == 2 and rest[1] != "body"):
             raise ApiError(404, "no such endpoint")
+        if len(rest) == 2:
+            # the Body tab (contract/body-view.md): no logins, so anyone who can reach the server can read it
+            rows = self.db.message_rows(rest[0])
+            if not rows:
+                raise ApiError(404, f"no spans for message ID {rest[0]!r}")
+            return bodies.body_view(rest[0], rows, self.db.store_bodies)
         if rest:
             t = queries.message(self.db, rest[0], self.now(), self._lambda_timeout(q), self.max_receive_counts)
             if t is None:
                 raise ApiError(404, f"no spans for message ID {rest[0]!r}")
             return t
+        if q.get("body", "").strip():
+            try:
+                terms = bodies.parse_query(q["body"])
+            except bodies.QueryError as e:
+                raise ApiError(400, str(e)) from None
+            items = queries.body_search(self.db, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"), terms,
+                                        mrc=self.max_receive_counts)
+            return {"messages": items, "body_search": {"stores_bodies": bool(self.db.store_bodies)}}
         items = queries.recent(self.db, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"),
                                mrc=self.max_receive_counts)
         return {"messages": items}

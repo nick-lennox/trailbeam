@@ -581,8 +581,10 @@ stores spans. That gate belongs to the server, not to this contract:
   default). For other queues it removes `trailbeam.body`, `trailbeam.body.format`,
   `trailbeam.body.redacted_count` and `trailbeam.body.envelope` before writing, keeps
   `trailbeam.body.capture_status`, and marks the span as having had its body dropped.
-- The hosted Trailbeam app is to store a body only for queues an admin opted in under Settings, and
-  show bodies to admins only. That is not built yet.
+- The hosted Trailbeam app stores a body only for queues an admin opted in under Settings, and shows
+  bodies to owners and admins only.
+
+How both show a body, or the reason there is none, and search bodies is in [body-view.md](body-view.md).
 
 ### 15.2 Attributes
 
