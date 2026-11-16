@@ -142,6 +142,7 @@ It is not generally available yet.
 |---|---|---|
 | The packages for your services | yes | yes, the same packages with an ingest key |
 | A message's timeline, lookup by message ID | yes | yes |
+| Lambda error text on the timeline, errors grouped by cause | yes | yes |
 | Stuck messages and duplicate deliveries | yes | yes |
 | Overview of flows between services and queues | coming | yes |
 | Event explorer | coming | coming |
@@ -150,8 +151,9 @@ It is not generally available yet.
 | Dashboards | | yes |
 | Hosting, retention and backups | | yes |
 
-Both show the same timeline from the same rules: the hosted app's message pages are checked against
-this repository's code.
+Both show the same timeline from the same rules: the hosted app draws it with this repository's
+`@trailbeam/ui`, and its message pages are checked against this repository's code and the shared span
+fixtures in [`contract/fixtures/`](contract/fixtures/).
 
 ## How it works
 

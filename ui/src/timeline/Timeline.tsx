@@ -12,12 +12,15 @@
     scale, in no implied sequence.
   - Every proven order between steps shows what proved it (OrderLink), in the API's words.
   - AWS-side steps carry their blind spots in plain sight, not behind a click.
+  - A failed handler shows its error text on its step, and the failures are counted by cause at the foot.
 
   No client JS: details/summary does the expanding, so it works with scripts off.
 */
 import type {
   AfterEntry, AwsEvent, BlindSpot, Group, Timeline, TimelineEvent,
 } from "./types.ts";
+import { ErrorCauses } from "./ErrorCauses.tsx";
+import { errorCauses } from "../errors.ts";
 
 /* ── Words ──────────────────────────────────────────────────────────────── */
 
@@ -319,6 +322,7 @@ function Detail({ e }: { e: TimelineEvent }) {
 
 function reasonOf(e: TimelineEvent): string | null {
   if (e.type === "aws_step") return e.summary;
+  if (e.type === "lambda_outcome" && e.error_message) return e.error_message;
   if ("reason" in e) return e.reason;
   return null;
 }
@@ -514,7 +518,7 @@ export function TimelineView({ t, answer, openSteps = [] }: { t: Timeline; answe
         </p>
         {s && (
           <p className="mt-1.5 flex flex-wrap gap-x-2 font-mono text-micro text-sky-ink-3">
-            <span>{s.account_name}</span><span aria-hidden>/</span><span>{s.region}</span><span aria-hidden>/</span><span>{s.environment}</span>
+            {[s.account_name, s.region, s.environment].filter(Boolean).map((x, i) => (<span key={i} className="contents">{i > 0 && <span aria-hidden>/</span>}<span>{x}</span></span>))}
             {s.tenant && (<><span aria-hidden>/</span><span>tenant {s.tenant}</span></>)}
           </p>
         )}
@@ -541,6 +545,7 @@ export function TimelineView({ t, answer, openSteps = [] }: { t: Timeline; answe
       <ol className="px-3 pt-5 pb-2 md:px-8" aria-label="Steps, in proven order">
         {items}
       </ol>
+      <ErrorCauses causes={errorCauses(t)} />
     </article>
   );
 }

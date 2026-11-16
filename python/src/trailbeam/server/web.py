@@ -392,6 +392,7 @@ def _details(e: dict) -> list[str]:
     add("visibility timeout", "visibility_timeout_s", lambda v: f"{escape(str(v))} s")
     add("outcome", "outcome", lambda v: f"<strong>{escape(str(v))}</strong>")
     add("error type", "error_type", lambda v: f"<code>{escape(str(v))}</code>")
+    add("error text", "error_message", lambda v: f"<code>{escape(str(v))}</code>")
     add("batch entry", "batch_entry_id", lambda v: f"<code>{escape(str(v))}</code>")
     add("invocation", "faas_invocation_id", lambda v: f"<code>{escape(str(v))}</code>")
     c = e.get("consumer")

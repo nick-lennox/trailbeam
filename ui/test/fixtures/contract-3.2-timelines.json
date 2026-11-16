@@ -1,0 +1,2437 @@
+{
+ "note": "GET /api/messages/{id} for the messages in contract/fixtures/contract-3.2-spans.json, made by Trailbeam itself (ui/test/make-fixtures.py), one hour after the last span, with the default Lambda timeout of 900 s.",
+ "timelines": [
+  {
+   "message_id": "m-bill-1",
+   "state": "not_deleted",
+   "source_queue": "billing",
+   "current_queue": "billing",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": false,
+   "deliveries": 3,
+   "successful_deliveries": 0,
+   "first_seen": "2026-11-16T18:05:37.429000Z",
+   "first_seen_clock": "sqs",
+   "last_seen": "2026-11-16T18:05:37.528000Z",
+   "concurrent_groups": 1,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": null,
+     "end": "2026-11-16T18:05:37.459000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": true,
+     "label": "concurrent, order unknown",
+     "observed_events": 4,
+     "inferred_events": 2,
+     "ordered_inside": 4,
+     "start": null,
+     "end": "2026-11-16T18:05:37.527000Z"
+    },
+    {
+     "group": 2,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:37.528000Z",
+     "end": "2026-11-16T18:05:37.528000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "received",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.459000Z",
+     "time_unix_nano": "1794852337459000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2026-11-16T18:05:37.459000Z",
+     "end_unix_nano": "1794852337459000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "billing",
+     "consumer": {
+      "service_name": "billing-fn",
+      "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
+      "source": "lambda",
+      "pid": 104710,
+      "faas_name": "billing-fn",
+      "faas_invocation_id": "req-1"
+     },
+     "span": {
+      "trace_id": "afdd9da7ab9f6a2da661c34488706d0b",
+      "span_id": "4e224fac375bf9f0"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": null,
+      "returned": 35
+     },
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2026-11-16T18:05:37.429000Z",
+     "sent_timestamp_ms": 1794852337429,
+     "first_receive_timestamp": "2026-11-16T18:05:37.434000Z",
+     "first_receive_timestamp_ms": 1794852337434,
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "lambda_outcome",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.462000Z",
+     "time_unix_nano": "1794852337462000000",
+     "start": "2026-11-16T18:05:37.462000Z",
+     "start_unix_nano": "1794852337462000000",
+     "end": "2026-11-16T18:05:37.462000Z",
+     "end_unix_nano": "1794852337462000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "billing",
+     "consumer": {
+      "service_name": "billing-fn",
+      "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
+      "source": "lambda",
+      "pid": 104710,
+      "faas_name": "billing-fn",
+      "faas_invocation_id": "req-1"
+     },
+     "span": {
+      "trace_id": "fadabf9618f075ceef41ce1aae47aab3",
+      "span_id": "34cf7bd4052c9e71"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 36,
+      "returned": 36
+     },
+     "outcome": "failed_exception",
+     "error_type": "TypeError",
+     "error_message": "card declined for [REDACTED]",
+     "delivery": 1,
+     "after": [
+      {
+       "event": "e1",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Receive 1 ended (2026-11-16T18:05:37.459000Z) before this started (2026-11-16T18:05:37.462000Z), on the hosts' clocks. Same process: receive 1 returned before this call was issued."
+      }
+     ]
+    },
+    {
+     "id": "e3",
+     "type": "visibility_timeout_expired",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": null,
+      "to": "2026-11-16T18:05:37.493000Z"
+     },
+     "reason": "The visibility timeout expired before the message was deleted, so SQS delivered it again.",
+     "queue": "billing",
+     "after_delivery": 1,
+     "before_delivery": 2,
+     "group": 1,
+     "after": [
+      {
+       "event": "e1",
+       "type": "received",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from receive 1: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e4",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from receive 2: it came before it."
+     }
+    },
+    {
+     "id": "e4",
+     "type": "received",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.493000Z",
+     "time_unix_nano": "1794852337493000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2026-11-16T18:05:37.493000Z",
+     "end_unix_nano": "1794852337493000000",
+     "start_observed": false,
+     "group": 1,
+     "queue": "billing",
+     "consumer": {
+      "service_name": "billing-fn",
+      "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
+      "source": "lambda",
+      "pid": 104710,
+      "faas_name": "billing-fn",
+      "faas_invocation_id": "req-2"
+     },
+     "span": {
+      "trace_id": "3b8b20b58d2f14016bb381ba33c5a5aa",
+      "span_id": "d717dfd0b627148c"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": null,
+      "returned": 37
+     },
+     "delivery": 2,
+     "receive_count": 2,
+     "sent_timestamp": "2026-11-16T18:05:37.429000Z",
+     "sent_timestamp_ms": 1794852337429,
+     "first_receive_timestamp": "2026-11-16T18:05:37.434000Z",
+     "first_receive_timestamp_ms": 1794852337434,
+     "after": [
+      {
+       "event": "e1",
+       "type": "received",
+       "sources": [
+        "receive_count"
+       ],
+       "source": "receive_count",
+       "why": "SQS's receive count shows receive 1 (receive count 1) came before this one (receive count 2)."
+      }
+     ]
+    },
+    {
+     "id": "e5",
+     "type": "lambda_outcome",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.495000Z",
+     "time_unix_nano": "1794852337495000000",
+     "start": "2026-11-16T18:05:37.495000Z",
+     "start_unix_nano": "1794852337495000000",
+     "end": "2026-11-16T18:05:37.495000Z",
+     "end_unix_nano": "1794852337495000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "billing",
+     "consumer": {
+      "service_name": "billing-fn",
+      "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
+      "source": "lambda",
+      "pid": 104710,
+      "faas_name": "billing-fn",
+      "faas_invocation_id": "req-2"
+     },
+     "span": {
+      "trace_id": "f3929246e9651b5693ad7912aa10cfa1",
+      "span_id": "617e5872b1d0abc6"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 38,
+      "returned": 38
+     },
+     "outcome": "failed_exception",
+     "error_type": "Error",
+     "error_message": "Stripe timed out after 10000 ms",
+     "delivery": 2,
+     "after": [
+      {
+       "event": "e2",
+       "type": "lambda_outcome",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "The lambda outcome of delivery 1 ended (2026-11-16T18:05:37.462000Z) before this started (2026-11-16T18:05:37.495000Z), on the hosts' clocks. Same process: the Lambda outcome of delivery 1 returned before this call was issued."
+      },
+      {
+       "event": "e4",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Receive 2 ended (2026-11-16T18:05:37.493000Z) before this started (2026-11-16T18:05:37.495000Z), on the hosts' clocks. Same process: receive 2 returned before this call was issued."
+      }
+     ]
+    },
+    {
+     "id": "e6",
+     "type": "visibility_timeout_expired",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": null,
+      "to": "2026-11-16T18:05:37.527000Z"
+     },
+     "reason": "The visibility timeout expired before the message was deleted, so SQS delivered it again.",
+     "queue": "billing",
+     "after_delivery": 2,
+     "before_delivery": 3,
+     "group": 1,
+     "after": [
+      {
+       "event": "e4",
+       "type": "received",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from receive 2: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e7",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from receive 3: it came before it."
+     }
+    },
+    {
+     "id": "e7",
+     "type": "received",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.527000Z",
+     "time_unix_nano": "1794852337527000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2026-11-16T18:05:37.527000Z",
+     "end_unix_nano": "1794852337527000000",
+     "start_observed": false,
+     "group": 1,
+     "queue": "billing",
+     "consumer": {
+      "service_name": "billing-fn",
+      "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
+      "source": "lambda",
+      "pid": 104710,
+      "faas_name": "billing-fn",
+      "faas_invocation_id": "req-3"
+     },
+     "span": {
+      "trace_id": "48871cb8418ff9c89725493c18c4239c",
+      "span_id": "f9fe4f80ed77af7d"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": null,
+      "returned": 39
+     },
+     "delivery": 3,
+     "receive_count": 3,
+     "sent_timestamp": "2026-11-16T18:05:37.429000Z",
+     "sent_timestamp_ms": 1794852337429,
+     "first_receive_timestamp": "2026-11-16T18:05:37.434000Z",
+     "first_receive_timestamp_ms": 1794852337434,
+     "after": [
+      {
+       "event": "e4",
+       "type": "received",
+       "sources": [
+        "receive_count"
+       ],
+       "source": "receive_count",
+       "why": "SQS's receive count shows receive 2 (receive count 2) came before this one (receive count 3)."
+      }
+     ]
+    },
+    {
+     "id": "e8",
+     "type": "lambda_outcome",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.528000Z",
+     "time_unix_nano": "1794852337528000000",
+     "start": "2026-11-16T18:05:37.528000Z",
+     "start_unix_nano": "1794852337528000000",
+     "end": "2026-11-16T18:05:37.528000Z",
+     "end_unix_nano": "1794852337528000000",
+     "start_observed": true,
+     "group": 2,
+     "queue": "billing",
+     "consumer": {
+      "service_name": "billing-fn",
+      "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
+      "source": "lambda",
+      "pid": 104710,
+      "faas_name": "billing-fn",
+      "faas_invocation_id": "req-3"
+     },
+     "span": {
+      "trace_id": "b06e9564489bc2874a28db659b69db33",
+      "span_id": "b927ec6dbb2bd035"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 40,
+      "returned": 40
+     },
+     "outcome": "failed_exception",
+     "error_type": "TypeError",
+     "error_message": "card declined for [REDACTED]",
+     "delivery": 3,
+     "after": [
+      {
+       "event": "e5",
+       "type": "lambda_outcome",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "The lambda outcome of delivery 2 ended (2026-11-16T18:05:37.495000Z) before this started (2026-11-16T18:05:37.528000Z), on the hosts' clocks. Same process: the Lambda outcome of delivery 2 returned before this call was issued."
+      },
+      {
+       "event": "e7",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Receive 3 ended (2026-11-16T18:05:37.527000Z) before this started (2026-11-16T18:05:37.528000Z), on the hosts' clocks. Same process: receive 3 returned before this call was issued."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e4",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e5",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e7",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e8",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e2",
+      "to": "e5",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e2",
+      "to": "e8",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e4",
+      "to": "e5",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e4",
+      "to": "e7",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e4",
+      "to": "e8",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e5",
+      "to": "e8",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e7",
+      "to": "e8",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 9,
+     "process_order": 9,
+     "receive_count": 3,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": [
+    {
+     "code": "send_not_observed",
+     "message": "No trailbeam send span for this message: the producer is not instrumented, or the send is older than the stored data."
+    }
+   ]
+  },
+  {
+   "message_id": "m-bill-2",
+   "state": "not_deleted",
+   "source_queue": "billing",
+   "current_queue": "billing",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": false,
+   "deliveries": 1,
+   "successful_deliveries": 0,
+   "first_seen": "2026-11-16T18:05:37.429000Z",
+   "first_seen_clock": "sqs",
+   "last_seen": "2026-11-16T18:05:37.462000Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": null,
+     "end": "2026-11-16T18:05:37.459000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:37.462000Z",
+     "end": "2026-11-16T18:05:37.462000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "received",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.459000Z",
+     "time_unix_nano": "1794852337459000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2026-11-16T18:05:37.459000Z",
+     "end_unix_nano": "1794852337459000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "billing",
+     "consumer": {
+      "service_name": "billing-fn",
+      "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
+      "source": "lambda",
+      "pid": 104710,
+      "faas_name": "billing-fn",
+      "faas_invocation_id": "req-1"
+     },
+     "span": {
+      "trace_id": "523a0faa527b8681d7b62baf09004d19",
+      "span_id": "c7a259d34091ba1e"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": null,
+      "returned": 35
+     },
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2026-11-16T18:05:37.429000Z",
+     "sent_timestamp_ms": 1794852337429,
+     "first_receive_timestamp": "2026-11-16T18:05:37.434000Z",
+     "first_receive_timestamp_ms": 1794852337434,
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "lambda_outcome",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.462000Z",
+     "time_unix_nano": "1794852337462000000",
+     "start": "2026-11-16T18:05:37.462000Z",
+     "start_unix_nano": "1794852337462000000",
+     "end": "2026-11-16T18:05:37.462000Z",
+     "end_unix_nano": "1794852337462000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "billing",
+     "consumer": {
+      "service_name": "billing-fn",
+      "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
+      "source": "lambda",
+      "pid": 104710,
+      "faas_name": "billing-fn",
+      "faas_invocation_id": "req-1"
+     },
+     "span": {
+      "trace_id": "36da9a4762f832e0182d7098270492bb",
+      "span_id": "31212ee02432d576"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 36,
+      "returned": 36
+     },
+     "outcome": "failed_exception",
+     "error_type": "TypeError",
+     "error_message": "card declined for [REDACTED]",
+     "delivery": 1,
+     "after": [
+      {
+       "event": "e1",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Receive 1 ended (2026-11-16T18:05:37.459000Z) before this started (2026-11-16T18:05:37.462000Z), on the hosts' clocks. Same process: receive 1 returned before this call was issued."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 1,
+     "process_order": 1,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": [
+    {
+     "code": "send_not_observed",
+     "message": "No trailbeam send span for this message: the producer is not instrumented, or the send is older than the stored data."
+    }
+   ]
+  },
+  {
+   "message_id": "m-fifo-1",
+   "state": "deleted",
+   "source_queue": "orders.fifo",
+   "current_queue": "orders.fifo",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "deliveries": 1,
+   "successful_deliveries": 1,
+   "first_seen": "2026-11-16T18:05:36.914000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2026-11-16T18:05:37.427000Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:36.914000Z",
+     "end": "2026-11-16T18:05:36.914000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:37.426000Z",
+     "end": "2026-11-16T18:05:37.426000Z"
+    },
+    {
+     "group": 2,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:37.427000Z",
+     "end": "2026-11-16T18:05:37.427000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2026-11-16T18:05:36.914000Z",
+     "time_unix_nano": "1794852336914000000",
+     "start": "2026-11-16T18:05:36.914000Z",
+     "start_unix_nano": "1794852336914000000",
+     "end": "2026-11-16T18:05:36.914000Z",
+     "end_unix_nano": "1794852336914000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders.fifo",
+     "consumer": {
+      "service_name": "checkout-api",
+      "client_id": "eeadea1f-b60f-4f32-83e4-cb9c1b730b90",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "a790df2a0e4578b523f98114124c487f",
+      "span_id": "c1ce4b64f324b568"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 9,
+      "returned": 10
+     },
+     "batch_entry_id": "a",
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "received",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.426000Z",
+     "time_unix_nano": "1794852337426000000",
+     "start": "2026-11-16T18:05:37.426000Z",
+     "start_unix_nano": "1794852337426000000",
+     "end": "2026-11-16T18:05:37.426000Z",
+     "end_unix_nano": "1794852337426000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "orders.fifo",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "d41ea411549225589388d4260ae47b9b",
+      "span_id": "f077e0662cecae29"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 29,
+      "returned": 30
+     },
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2026-11-16T18:05:36.914000Z",
+     "sent_timestamp_ms": 1794852336914,
+     "first_receive_timestamp": "2026-11-16T18:05:36.919000Z",
+     "first_receive_timestamp_ms": 1794852336919,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "clock",
+        "process_order",
+        "sqs_timestamps"
+       ],
+       "source": "clock",
+       "why": "The send ended (2026-11-16T18:05:36.914000Z) before this started (2026-11-16T18:05:37.426000Z), on the hosts' clocks. Same process: the send returned before this call was issued. SQS's timestamps show this message was sent (2026-11-16T18:05:36.914000Z) before its first receive (2026-11-16T18:05:36.919000Z)."
+      }
+     ]
+    },
+    {
+     "id": "e3",
+     "type": "deleted",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.427000Z",
+     "time_unix_nano": "1794852337427000000",
+     "start": "2026-11-16T18:05:37.427000Z",
+     "start_unix_nano": "1794852337427000000",
+     "end": "2026-11-16T18:05:37.427000Z",
+     "end_unix_nano": "1794852337427000000",
+     "start_observed": true,
+     "group": 2,
+     "queue": "orders.fifo",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "7a75ddeb12eb4dfe81ab01d29c639a1e",
+      "span_id": "1823274397d317fa"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 31,
+      "returned": 32
+     },
+     "delivery": 1,
+     "result": "ok",
+     "status": "final",
+     "after": [
+      {
+       "event": "e2",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Receive 1 ended (2026-11-16T18:05:37.426000Z) before this started (2026-11-16T18:05:37.427000Z), on the hosts' clocks. Same process: receive 1 returned before this call was issued."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock",
+       "process_order",
+       "sqs_timestamps"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e3",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e2",
+      "to": "e3",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 3,
+     "process_order": 3,
+     "receive_count": 0,
+     "sqs_timestamps": 1
+    },
+    "conflicts": []
+   },
+   "notices": []
+  },
+  {
+   "message_id": "m-fifo-2",
+   "state": "deleted",
+   "source_queue": "orders.fifo",
+   "current_queue": "orders.fifo",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "deliveries": 1,
+   "successful_deliveries": 1,
+   "first_seen": "2026-11-16T18:05:36.914000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2026-11-16T18:05:37.427000Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:36.914000Z",
+     "end": "2026-11-16T18:05:36.914000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:37.426000Z",
+     "end": "2026-11-16T18:05:37.426000Z"
+    },
+    {
+     "group": 2,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:37.427000Z",
+     "end": "2026-11-16T18:05:37.427000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2026-11-16T18:05:36.914000Z",
+     "time_unix_nano": "1794852336914000000",
+     "start": "2026-11-16T18:05:36.914000Z",
+     "start_unix_nano": "1794852336914000000",
+     "end": "2026-11-16T18:05:36.914000Z",
+     "end_unix_nano": "1794852336914000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders.fifo",
+     "consumer": {
+      "service_name": "checkout-api",
+      "client_id": "eeadea1f-b60f-4f32-83e4-cb9c1b730b90",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "d1ca2d4efacf847811e35275d6c7927b",
+      "span_id": "619ca0a01728d8c9"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 9,
+      "returned": 10
+     },
+     "batch_entry_id": "b",
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "received",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.426000Z",
+     "time_unix_nano": "1794852337426000000",
+     "start": "2026-11-16T18:05:37.426000Z",
+     "start_unix_nano": "1794852337426000000",
+     "end": "2026-11-16T18:05:37.426000Z",
+     "end_unix_nano": "1794852337426000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "orders.fifo",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "851b6504c3cc75f4cb0f2f1b728ed2f4",
+      "span_id": "bbed1245bcfe561b"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 29,
+      "returned": 30
+     },
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2026-11-16T18:05:36.914000Z",
+     "sent_timestamp_ms": 1794852336914,
+     "first_receive_timestamp": "2026-11-16T18:05:36.919000Z",
+     "first_receive_timestamp_ms": 1794852336919,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "clock",
+        "process_order",
+        "sqs_timestamps"
+       ],
+       "source": "clock",
+       "why": "The send ended (2026-11-16T18:05:36.914000Z) before this started (2026-11-16T18:05:37.426000Z), on the hosts' clocks. Same process: the send returned before this call was issued. SQS's timestamps show this message was sent (2026-11-16T18:05:36.914000Z) before its first receive (2026-11-16T18:05:36.919000Z)."
+      }
+     ]
+    },
+    {
+     "id": "e3",
+     "type": "deleted",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.427000Z",
+     "time_unix_nano": "1794852337427000000",
+     "start": "2026-11-16T18:05:37.427000Z",
+     "start_unix_nano": "1794852337427000000",
+     "end": "2026-11-16T18:05:37.427000Z",
+     "end_unix_nano": "1794852337427000000",
+     "start_observed": true,
+     "group": 2,
+     "queue": "orders.fifo",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "f3f77ad9439ddbc819549752814743b7",
+      "span_id": "cb371fad546a5206"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 33,
+      "returned": 34
+     },
+     "delivery": 1,
+     "result": "ok",
+     "status": "final",
+     "after": [
+      {
+       "event": "e2",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Receive 1 ended (2026-11-16T18:05:37.426000Z) before this started (2026-11-16T18:05:37.427000Z), on the hosts' clocks. Same process: receive 1 returned before this call was issued."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock",
+       "process_order",
+       "sqs_timestamps"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e3",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e2",
+      "to": "e3",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 3,
+     "process_order": 3,
+     "receive_count": 0,
+     "sqs_timestamps": 1
+    },
+    "conflicts": []
+   },
+   "notices": []
+  },
+  {
+   "message_id": "m-legacy",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "deliveries": 1,
+   "successful_deliveries": 1,
+   "first_seen": "2026-11-16T18:05:37.664000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2026-11-16T18:05:37.716000Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:37.663000Z",
+     "end": "2026-11-16T18:05:37.664000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:37.715000Z",
+     "end": "2026-11-16T18:05:37.715000Z"
+    },
+    {
+     "group": 2,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:37.715000Z",
+     "end": "2026-11-16T18:05:37.716000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.664000Z",
+     "time_unix_nano": "1794852337664000000",
+     "start": "2026-11-16T18:05:37.663000Z",
+     "start_unix_nano": "1794852337663000000",
+     "end": "2026-11-16T18:05:37.664000Z",
+     "end_unix_nano": "1794852337664000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "legacy-svc",
+      "client_id": "aca66402-38fd-4b18-98ed-c1406876f92b",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "2eca365e41f0b1a58988d7cd2c742dc8",
+      "span_id": "bc27d4dabdb60135"
+     },
+     "process_order": {
+      "scope": "609317a3-bfc1-4a3f-be64-4893e91d501b",
+      "issued": 1,
+      "returned": 2
+     },
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "received",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.715000Z",
+     "time_unix_nano": "1794852337715000000",
+     "start": "2026-11-16T18:05:37.715000Z",
+     "start_unix_nano": "1794852337715000000",
+     "end": "2026-11-16T18:05:37.715000Z",
+     "end_unix_nano": "1794852337715000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "legacy-svc",
+      "client_id": "aca66402-38fd-4b18-98ed-c1406876f92b",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "1bc5ee2c9e02b11ab286d06e535a7cff",
+      "span_id": "052fd94108a28c43"
+     },
+     "process_order": {
+      "scope": "609317a3-bfc1-4a3f-be64-4893e91d501b",
+      "issued": 3,
+      "returned": 4
+     },
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2026-11-16T18:05:37.664000Z",
+     "sent_timestamp_ms": 1794852337664,
+     "first_receive_timestamp": "2026-11-16T18:05:37.669000Z",
+     "first_receive_timestamp_ms": 1794852337669,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "clock",
+        "process_order",
+        "sqs_timestamps"
+       ],
+       "source": "clock",
+       "why": "The send ended (2026-11-16T18:05:37.664000Z) before this started (2026-11-16T18:05:37.715000Z), on the hosts' clocks. Same process: the send returned before this call was issued. SQS's timestamps show this message was sent (2026-11-16T18:05:37.664000Z) before its first receive (2026-11-16T18:05:37.669000Z)."
+      }
+     ]
+    },
+    {
+     "id": "e3",
+     "type": "deleted",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.716000Z",
+     "time_unix_nano": "1794852337716000000",
+     "start": "2026-11-16T18:05:37.715000Z",
+     "start_unix_nano": "1794852337715000000",
+     "end": "2026-11-16T18:05:37.716000Z",
+     "end_unix_nano": "1794852337716000000",
+     "start_observed": true,
+     "group": 2,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "legacy-svc",
+      "client_id": "aca66402-38fd-4b18-98ed-c1406876f92b",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "bf3be8567ccb1400f14bfc650a51150f",
+      "span_id": "57dccf6cc3c7c18e"
+     },
+     "process_order": {
+      "scope": "609317a3-bfc1-4a3f-be64-4893e91d501b",
+      "issued": 5,
+      "returned": 6
+     },
+     "delivery": 1,
+     "result": "ok",
+     "status": "final",
+     "after": [
+      {
+       "event": "e2",
+       "type": "received",
+       "sources": [
+        "process_order"
+       ],
+       "source": "process_order",
+       "why": "Same process: receive 1 returned before this call was issued."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock",
+       "process_order",
+       "sqs_timestamps"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e3",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e2",
+      "to": "e3",
+      "sources": [
+       "process_order"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 2,
+     "process_order": 3,
+     "receive_count": 0,
+     "sqs_timestamps": 1
+    },
+    "conflicts": []
+   },
+   "notices": []
+  },
+  {
+   "message_id": "m-orders-1",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "deliveries": 1,
+   "successful_deliveries": 1,
+   "first_seen": "2026-11-16T18:05:36.910000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2026-11-16T18:05:37.041000Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:36.907000Z",
+     "end": "2026-11-16T18:05:36.910000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:37.038000Z",
+     "end": "2026-11-16T18:05:37.039000Z"
+    },
+    {
+     "group": 2,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:37.041000Z",
+     "end": "2026-11-16T18:05:37.041000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2026-11-16T18:05:36.910000Z",
+     "time_unix_nano": "1794852336910000000",
+     "start": "2026-11-16T18:05:36.907000Z",
+     "start_unix_nano": "1794852336907000000",
+     "end": "2026-11-16T18:05:36.910000Z",
+     "end_unix_nano": "1794852336910000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "checkout-api",
+      "client_id": "eeadea1f-b60f-4f32-83e4-cb9c1b730b90",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "004c175e11dc08356c306efbbb21258d",
+      "span_id": "a4080bba0b0d9b30"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 1,
+      "returned": 2
+     },
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "received",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.039000Z",
+     "time_unix_nano": "1794852337039000000",
+     "start": "2026-11-16T18:05:37.038000Z",
+     "start_unix_nano": "1794852337038000000",
+     "end": "2026-11-16T18:05:37.039000Z",
+     "end_unix_nano": "1794852337039000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "c31816695e531bd80e9c3d27d9e34b12",
+      "span_id": "86a2e4837150ce42"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 11,
+      "returned": 12
+     },
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2026-11-16T18:05:36.910000Z",
+     "sent_timestamp_ms": 1794852336910,
+     "first_receive_timestamp": "2026-11-16T18:05:36.915000Z",
+     "first_receive_timestamp_ms": 1794852336915,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "clock",
+        "process_order",
+        "sqs_timestamps"
+       ],
+       "source": "clock",
+       "why": "The send ended (2026-11-16T18:05:36.910000Z) before this started (2026-11-16T18:05:37.038000Z), on the hosts' clocks. Same process: the send returned before this call was issued. SQS's timestamps show this message was sent (2026-11-16T18:05:36.910000Z) before its first receive (2026-11-16T18:05:36.915000Z)."
+      }
+     ]
+    },
+    {
+     "id": "e3",
+     "type": "deleted",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.041000Z",
+     "time_unix_nano": "1794852337041000000",
+     "start": "2026-11-16T18:05:37.041000Z",
+     "start_unix_nano": "1794852337041000000",
+     "end": "2026-11-16T18:05:37.041000Z",
+     "end_unix_nano": "1794852337041000000",
+     "start_observed": true,
+     "group": 2,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "40ba3edc11bbf3f6fc36e95ae42d0413",
+      "span_id": "849948e1aa10948b"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 13,
+      "returned": 14
+     },
+     "delivery": 1,
+     "result": "ok",
+     "status": "final",
+     "after": [
+      {
+       "event": "e2",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Receive 1 ended (2026-11-16T18:05:37.039000Z) before this started (2026-11-16T18:05:37.041000Z), on the hosts' clocks. Same process: receive 1 returned before this call was issued."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock",
+       "process_order",
+       "sqs_timestamps"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e3",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e2",
+      "to": "e3",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 3,
+     "process_order": 3,
+     "receive_count": 0,
+     "sqs_timestamps": 1
+    },
+    "conflicts": []
+   },
+   "notices": []
+  },
+  {
+   "message_id": "m-orders-2",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "deliveries": 1,
+   "successful_deliveries": 1,
+   "first_seen": "2026-11-16T18:05:36.913000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2026-11-16T18:05:37.042000Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:36.912000Z",
+     "end": "2026-11-16T18:05:36.913000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:37.038000Z",
+     "end": "2026-11-16T18:05:37.039000Z"
+    },
+    {
+     "group": 2,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:37.042000Z",
+     "end": "2026-11-16T18:05:37.042000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2026-11-16T18:05:36.913000Z",
+     "time_unix_nano": "1794852336913000000",
+     "start": "2026-11-16T18:05:36.912000Z",
+     "start_unix_nano": "1794852336912000000",
+     "end": "2026-11-16T18:05:36.913000Z",
+     "end_unix_nano": "1794852336913000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "checkout-api",
+      "client_id": "eeadea1f-b60f-4f32-83e4-cb9c1b730b90",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "c31fa5cf44c1ae5b1b569b39e69b9d72",
+      "span_id": "8ee674b3aa1d533f"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 3,
+      "returned": 4
+     },
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "received",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.039000Z",
+     "time_unix_nano": "1794852337039000000",
+     "start": "2026-11-16T18:05:37.038000Z",
+     "start_unix_nano": "1794852337038000000",
+     "end": "2026-11-16T18:05:37.039000Z",
+     "end_unix_nano": "1794852337039000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "5dd27c6d09df97a3a9c46ffbd7dc8eef",
+      "span_id": "ee996073858e5d65"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 11,
+      "returned": 12
+     },
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2026-11-16T18:05:36.913000Z",
+     "sent_timestamp_ms": 1794852336913,
+     "first_receive_timestamp": "2026-11-16T18:05:36.918000Z",
+     "first_receive_timestamp_ms": 1794852336918,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "clock",
+        "process_order",
+        "sqs_timestamps"
+       ],
+       "source": "clock",
+       "why": "The send ended (2026-11-16T18:05:36.913000Z) before this started (2026-11-16T18:05:37.038000Z), on the hosts' clocks. Same process: the send returned before this call was issued. SQS's timestamps show this message was sent (2026-11-16T18:05:36.913000Z) before its first receive (2026-11-16T18:05:36.918000Z)."
+      }
+     ]
+    },
+    {
+     "id": "e3",
+     "type": "deleted",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.042000Z",
+     "time_unix_nano": "1794852337042000000",
+     "start": "2026-11-16T18:05:37.042000Z",
+     "start_unix_nano": "1794852337042000000",
+     "end": "2026-11-16T18:05:37.042000Z",
+     "end_unix_nano": "1794852337042000000",
+     "start_observed": true,
+     "group": 2,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "f483231363281ddd5958d544c0be3f27",
+      "span_id": "0463fa38791cc132"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 15,
+      "returned": 16
+     },
+     "delivery": 1,
+     "result": "ok",
+     "status": "final",
+     "after": [
+      {
+       "event": "e2",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Receive 1 ended (2026-11-16T18:05:37.039000Z) before this started (2026-11-16T18:05:37.042000Z), on the hosts' clocks. Same process: receive 1 returned before this call was issued."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock",
+       "process_order",
+       "sqs_timestamps"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e3",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e2",
+      "to": "e3",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 3,
+     "process_order": 3,
+     "receive_count": 0,
+     "sqs_timestamps": 1
+    },
+    "conflicts": []
+   },
+   "notices": []
+  },
+  {
+   "message_id": "m-orphan",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": false,
+   "deliveries": 1,
+   "successful_deliveries": 1,
+   "first_seen": "2026-11-16T18:05:37.037000Z",
+   "first_seen_clock": "sqs",
+   "last_seen": "2026-11-16T18:05:37.042000Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:37.038000Z",
+     "end": "2026-11-16T18:05:37.039000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:37.042000Z",
+     "end": "2026-11-16T18:05:37.042000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "received",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.039000Z",
+     "time_unix_nano": "1794852337039000000",
+     "start": "2026-11-16T18:05:37.038000Z",
+     "start_unix_nano": "1794852337038000000",
+     "end": "2026-11-16T18:05:37.039000Z",
+     "end_unix_nano": "1794852337039000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "0f2c1d2f02e0bde69f45ff256b5771ed",
+      "span_id": "661d4c30fedb4e9e"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 11,
+      "returned": 12
+     },
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2026-11-16T18:05:37.037000Z",
+     "sent_timestamp_ms": 1794852337037,
+     "first_receive_timestamp": "2026-11-16T18:05:37.042000Z",
+     "first_receive_timestamp_ms": 1794852337042,
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "deleted",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.042000Z",
+     "time_unix_nano": "1794852337042000000",
+     "start": "2026-11-16T18:05:37.042000Z",
+     "start_unix_nano": "1794852337042000000",
+     "end": "2026-11-16T18:05:37.042000Z",
+     "end_unix_nano": "1794852337042000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "f21cfacc231a7b877e76c95e7039c45a",
+      "span_id": "86975e3e12dfcca9"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 17,
+      "returned": 18
+     },
+     "delivery": 1,
+     "result": "ok",
+     "status": "final",
+     "after": [
+      {
+       "event": "e1",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Receive 1 ended (2026-11-16T18:05:37.039000Z) before this started (2026-11-16T18:05:37.042000Z), on the hosts' clocks. Same process: receive 1 returned before this call was issued."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 1,
+     "process_order": 1,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": [
+    {
+     "code": "send_not_observed",
+     "message": "No trailbeam send span for this message: the producer is not instrumented, or the send is older than the stored data."
+    }
+   ]
+  },
+  {
+   "message_id": "m-pay-1",
+   "state": "deleted",
+   "source_queue": "payments",
+   "current_queue": "payments",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "deliveries": 1,
+   "successful_deliveries": 1,
+   "first_seen": "2026-11-16T18:05:36.913000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2026-11-16T18:05:37.344000Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:36.913000Z",
+     "end": "2026-11-16T18:05:36.913000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:37.343000Z",
+     "end": "2026-11-16T18:05:37.343000Z"
+    },
+    {
+     "group": 2,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:37.344000Z",
+     "end": "2026-11-16T18:05:37.344000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2026-11-16T18:05:36.913000Z",
+     "time_unix_nano": "1794852336913000000",
+     "start": "2026-11-16T18:05:36.913000Z",
+     "start_unix_nano": "1794852336913000000",
+     "end": "2026-11-16T18:05:36.913000Z",
+     "end_unix_nano": "1794852336913000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "payments",
+     "consumer": {
+      "service_name": "checkout-api",
+      "client_id": "eeadea1f-b60f-4f32-83e4-cb9c1b730b90",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "be8c3697ab95e08bc7b519a58b1c7bce",
+      "span_id": "a5eb3ab0508bf027"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 5,
+      "returned": 6
+     },
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "received",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.343000Z",
+     "time_unix_nano": "1794852337343000000",
+     "start": "2026-11-16T18:05:37.343000Z",
+     "start_unix_nano": "1794852337343000000",
+     "end": "2026-11-16T18:05:37.343000Z",
+     "end_unix_nano": "1794852337343000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "payments",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "691c0fdf83db6134925a36f19a590917",
+      "span_id": "f60705f070b297ed"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 19,
+      "returned": 20
+     },
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2026-11-16T18:05:36.913000Z",
+     "sent_timestamp_ms": 1794852336913,
+     "first_receive_timestamp": "2026-11-16T18:05:36.918000Z",
+     "first_receive_timestamp_ms": 1794852336918,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "clock",
+        "process_order",
+        "sqs_timestamps"
+       ],
+       "source": "clock",
+       "why": "The send ended (2026-11-16T18:05:36.913000Z) before this started (2026-11-16T18:05:37.343000Z), on the hosts' clocks. Same process: the send returned before this call was issued. SQS's timestamps show this message was sent (2026-11-16T18:05:36.913000Z) before its first receive (2026-11-16T18:05:36.918000Z)."
+      }
+     ]
+    },
+    {
+     "id": "e3",
+     "type": "deleted",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.344000Z",
+     "time_unix_nano": "1794852337344000000",
+     "start": "2026-11-16T18:05:37.344000Z",
+     "start_unix_nano": "1794852337344000000",
+     "end": "2026-11-16T18:05:37.344000Z",
+     "end_unix_nano": "1794852337344000000",
+     "start_observed": true,
+     "group": 2,
+     "queue": "payments",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "c1fe1a054cfd6f60cd39428067d5c5cc",
+      "span_id": "fe4291ec3d02b6b2"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 21,
+      "returned": 22
+     },
+     "delivery": 1,
+     "result": "ok",
+     "status": "final",
+     "after": [
+      {
+       "event": "e2",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Receive 1 ended (2026-11-16T18:05:37.343000Z) before this started (2026-11-16T18:05:37.344000Z), on the hosts' clocks. Same process: receive 1 returned before this call was issued."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock",
+       "process_order",
+       "sqs_timestamps"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e3",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e2",
+      "to": "e3",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 3,
+     "process_order": 3,
+     "receive_count": 0,
+     "sqs_timestamps": 1
+    },
+    "conflicts": []
+   },
+   "notices": []
+  },
+  {
+   "message_id": "m-pay-2",
+   "state": "not_deleted",
+   "source_queue": "payments",
+   "current_queue": "payments-dlq",
+   "in_dead_letter_queue": true,
+   "dead_letter_queue_move": "observed",
+   "send_observed": true,
+   "deliveries": 3,
+   "successful_deliveries": 0,
+   "first_seen": "2026-11-16T18:05:36.914000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2026-11-16T18:05:37.425000Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:36.913000Z",
+     "end": "2026-11-16T18:05:36.914000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:37.344000Z",
+     "end": "2026-11-16T18:05:37.344000Z"
+    },
+    {
+     "group": 2,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:37.385000Z",
+     "end": "2026-11-16T18:05:37.385000Z"
+    },
+    {
+     "group": 3,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-16T18:05:37.425000Z",
+     "end": "2026-11-16T18:05:37.425000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2026-11-16T18:05:36.914000Z",
+     "time_unix_nano": "1794852336914000000",
+     "start": "2026-11-16T18:05:36.913000Z",
+     "start_unix_nano": "1794852336913000000",
+     "end": "2026-11-16T18:05:36.914000Z",
+     "end_unix_nano": "1794852336914000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "payments",
+     "consumer": {
+      "service_name": "checkout-api",
+      "client_id": "eeadea1f-b60f-4f32-83e4-cb9c1b730b90",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "a0e6d0dd05d0d9a4f54410a086d58aec",
+      "span_id": "b942bdeb7711cc8a"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 7,
+      "returned": 8
+     },
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "received",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.344000Z",
+     "time_unix_nano": "1794852337344000000",
+     "start": "2026-11-16T18:05:37.344000Z",
+     "start_unix_nano": "1794852337344000000",
+     "end": "2026-11-16T18:05:37.344000Z",
+     "end_unix_nano": "1794852337344000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "payments",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "36bf267d01fd9ec93d7686140c370061",
+      "span_id": "5bf1bbe253bc9cdf"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 23,
+      "returned": 24
+     },
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2026-11-16T18:05:36.914000Z",
+     "sent_timestamp_ms": 1794852336914,
+     "first_receive_timestamp": "2026-11-16T18:05:36.919000Z",
+     "first_receive_timestamp_ms": 1794852336919,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "clock",
+        "process_order",
+        "sqs_timestamps"
+       ],
+       "source": "clock",
+       "why": "The send ended (2026-11-16T18:05:36.914000Z) before this started (2026-11-16T18:05:37.344000Z), on the hosts' clocks. Same process: the send returned before this call was issued. SQS's timestamps show this message was sent (2026-11-16T18:05:36.914000Z) before its first receive (2026-11-16T18:05:36.919000Z)."
+      }
+     ]
+    },
+    {
+     "id": "e3",
+     "type": "visibility_timeout_expired",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": "2026-11-16T18:05:37.344000Z",
+      "to": "2026-11-16T18:05:37.385000Z"
+     },
+     "reason": "The visibility timeout expired before the message was deleted, so SQS delivered it again.",
+     "queue": "payments",
+     "after_delivery": 1,
+     "before_delivery": 2,
+     "group": null,
+     "after": [
+      {
+       "event": "e2",
+       "type": "received",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from receive 1: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e4",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from receive 2: it came before it."
+     }
+    },
+    {
+     "id": "e4",
+     "type": "received",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.385000Z",
+     "time_unix_nano": "1794852337385000000",
+     "start": "2026-11-16T18:05:37.385000Z",
+     "start_unix_nano": "1794852337385000000",
+     "end": "2026-11-16T18:05:37.385000Z",
+     "end_unix_nano": "1794852337385000000",
+     "start_observed": true,
+     "group": 2,
+     "queue": "payments",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "ac64ad4f9d80ea8fd338adc5d1711d3f",
+      "span_id": "7dd4e8997609f80f"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 25,
+      "returned": 26
+     },
+     "delivery": 2,
+     "receive_count": 2,
+     "sent_timestamp": "2026-11-16T18:05:36.914000Z",
+     "sent_timestamp_ms": 1794852336914,
+     "first_receive_timestamp": "2026-11-16T18:05:36.919000Z",
+     "first_receive_timestamp_ms": 1794852336919,
+     "after": [
+      {
+       "event": "e2",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order",
+        "receive_count"
+       ],
+       "source": "clock",
+       "why": "Receive 1 ended (2026-11-16T18:05:37.344000Z) before this started (2026-11-16T18:05:37.385000Z), on the hosts' clocks. Same process: receive 1 returned before this call was issued. SQS's receive count shows receive 1 (receive count 1) came before this one (receive count 2)."
+      }
+     ]
+    },
+    {
+     "id": "e5",
+     "type": "moved_to_dead_letter_queue",
+     "inferred": false,
+     "source": "sqs_dlq_source",
+     "time": null,
+     "window": {
+      "from": "2026-11-16T18:05:37.385000Z",
+      "to": "2026-11-16T18:05:37.425000Z"
+     },
+     "reported_by": "reported by SQS (DeadLetterQueueSourceArn on the DLQ receive)",
+     "source_arn": "arn:aws:sqs:us-east-1:123456789012:payments",
+     "reported_on_delivery": 3,
+     "from_queue": "payments",
+     "to_queue": "payments-dlq",
+     "reason": "SQS reported this move: the receive on payments-dlq carries DeadLetterQueueSourceArn naming payments. SQS gives no time for the move; it happened after the last receive on payments and before that receive.",
+     "group": null,
+     "after": [
+      {
+       "event": "e4",
+       "type": "received",
+       "sources": [
+        "sqs_dlq_source"
+       ],
+       "source": "sqs_dlq_source",
+       "why": "SQS moves a message off payments only after its receives there, and reported the move later, so it came after receive 2."
+      }
+     ],
+     "before": {
+      "event": "e6",
+      "type": "received",
+      "sources": [
+       "sqs_dlq_source"
+      ],
+      "source": "sqs_dlq_source",
+      "why": "SQS reported the move on receive 3: DeadLetterQueueSourceArn on that receive names payments."
+     }
+    },
+    {
+     "id": "e6",
+     "type": "received",
+     "inferred": false,
+     "time": "2026-11-16T18:05:37.425000Z",
+     "time_unix_nano": "1794852337425000000",
+     "start": "2026-11-16T18:05:37.425000Z",
+     "start_unix_nano": "1794852337425000000",
+     "end": "2026-11-16T18:05:37.425000Z",
+     "end_unix_nano": "1794852337425000000",
+     "start_observed": true,
+     "group": 3,
+     "queue": "payments-dlq",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
+      "source": "client",
+      "pid": 104710
+     },
+     "span": {
+      "trace_id": "b99cd9a1bc6651f60b10401dc876ccfe",
+      "span_id": "97bae72bfea5fb70"
+     },
+     "process_order": {
+      "scope": "28048693-a946-44c7-b08b-5076eb716e90",
+      "issued": 27,
+      "returned": 28
+     },
+     "delivery": 3,
+     "receive_count": 3,
+     "sent_timestamp": "2026-11-16T18:05:36.914000Z",
+     "sent_timestamp_ms": 1794852336914,
+     "first_receive_timestamp": "2026-11-16T18:05:36.919000Z",
+     "first_receive_timestamp_ms": 1794852336919,
+     "after": [
+      {
+       "event": "e4",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Receive 2 ended (2026-11-16T18:05:37.385000Z) before this started (2026-11-16T18:05:37.425000Z), on the hosts' clocks. Same process: receive 2 returned before this call was issued."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock",
+       "process_order",
+       "sqs_timestamps"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e4",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e6",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e2",
+      "to": "e4",
+      "sources": [
+       "clock",
+       "process_order",
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e2",
+      "to": "e6",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e4",
+      "to": "e6",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 6,
+     "process_order": 6,
+     "receive_count": 1,
+     "sqs_timestamps": 1
+    },
+    "conflicts": []
+   },
+   "notices": []
+  }
+ ]
+}
