@@ -113,6 +113,8 @@ trailbeam.install({
 `wrapHandler(fn, { tenant, capture })` takes the same options. Redaction runs in this process before
 export. A body that fails redaction, fails the MD5 check or is over the limit is not exported, and
 the span says why in `trailbeam.body.capture_status`. The package never makes an SQS call of its own.
+A self-hosted Trailbeam stores the body only if the queue is also in its own `TRAILBEAM_STORE_BODIES`
+([Message bodies](../README.md#message-bodies)).
 
 Call `await trailbeam.forceFlush()` before a short-lived process exits, or `await trailbeam.uninstall()`.
 Spans still in the batch span processor when the process exits are lost.

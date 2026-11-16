@@ -11,6 +11,12 @@ The join runs in both directions at insert time, because spans arrive in any ord
 exported before the receive it belongs to (different processes, different export batches). The span
 contract (section 8) makes the hash join the one that must work; the message ID on a settle span is
 an optimisation.
+
+Message bodies (contract section 15) are kept only for the queues named in ``store_bodies``
+(``TRAILBEAM_STORE_BODIES``), off by default. A package exports a body only for queues it was told to
+capture; this is the second gate, on the server, so turning capture on in a package does not by itself
+put bodies on disk. For any other queue the ``trailbeam.body*`` attributes that carry or describe the
+body are removed before the row is written, and ``body_dropped`` records why.
 """
 from __future__ import annotations
 
@@ -22,6 +28,12 @@ from typing import Iterable, Optional
 from .otlp import RECORD_FIELDS
 
 SETTLE_KINDS = ("delete", "change_visibility")
+
+# The body and the attributes that describe it (contract 15.2). trailbeam.body.capture_status is kept:
+# it is the package's reason, carries no message content, and the Body tab needs it either way.
+BODY_ATTRIBUTES = ("trailbeam.body", "trailbeam.body.format", "trailbeam.body.redacted_count",
+                   "trailbeam.body.envelope")
+BODY_DROPPED_NOT_OPTED_IN = "not_opted_in"  # spans.body_dropped: the queue is not in store_bodies
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS spans (
@@ -46,6 +58,7 @@ CREATE TABLE IF NOT EXISTS spans (
     mid TEXT,                        -- the message this row belongs to (see module docstring)
     mid_source TEXT,                 -- 'span' | 'receipt_hash' | NULL (settle span not joined yet)
     receive_row INTEGER REFERENCES spans(row),  -- settle spans: the delivery whose handle was used
+    body_dropped TEXT,               -- 'not_opted_in': the span carried a body, not stored (module docstring)
     UNIQUE (trace_id, span_id)
 );
 CREATE INDEX IF NOT EXISTS spans_mid ON spans (mid, time_ns);
@@ -53,24 +66,42 @@ CREATE INDEX IF NOT EXISTS spans_hash ON spans (receipt_hmac, key_id);
 CREATE INDEX IF NOT EXISTS spans_kind_time ON spans (kind, time_ns);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
-SCHEMA_VERSION = "4"
+SCHEMA_VERSION = "5"
 # Schema 1 had no start_ns. Its rows came from contract v1 spans, stamped only when the response arrived,
 # so their start is not known: they are migrated with start_ns NULL. Schema 2 had no call-order columns;
 # its rows came from contract v2 spans, which carry none, so they are migrated with NULLs. Schema 3 had no
 # dlq_source_arn; no package emitted the attribute before contract 3.1, so its rows are migrated with NULL.
+# Schema 4 had no body_dropped. Its rows were stored with every attribute, bodies included, so NULL
+# (nothing dropped) is true of them; a schema 4 file can hold bodies for any queue a package captured.
 _MIGRATIONS = {
     "1": ("2", ["ALTER TABLE spans ADD COLUMN start_ns INTEGER"]),
     "2": ("3", ["ALTER TABLE spans ADD COLUMN order_scope TEXT", "ALTER TABLE spans ADD COLUMN order_issued INTEGER",
                 "ALTER TABLE spans ADD COLUMN order_returned INTEGER"]),
     "3": ("4", ["ALTER TABLE spans ADD COLUMN dlq_source_arn TEXT"]),
+    "4": ("5", ["ALTER TABLE spans ADD COLUMN body_dropped TEXT"]),
 }
+
+
+def parse_queue_list(text: str) -> frozenset:
+    """``orders, payments`` -> {"orders", "payments"}. ``*`` stands for every queue, as in the packages."""
+    return frozenset(filter(None, (q.strip() for q in (text or "").split(","))))
+
+
+def gate_body(attributes: dict, queue: Optional[str], store_bodies: frozenset) -> tuple[dict, Optional[str]]:
+    """The attributes to store, and the body_dropped value: None if nothing was dropped."""
+    if "*" in store_bodies or queue in store_bodies:
+        return attributes, None
+    if not any(k in attributes for k in BODY_ATTRIBUTES):
+        return attributes, None
+    return {k: v for k, v in attributes.items() if k not in BODY_ATTRIBUTES}, BODY_DROPPED_NOT_OPTED_IN
 
 
 class Database:
     """Thread-safe: one connection, serialised by a lock. Enough for 0.1's single container."""
 
-    def __init__(self, path: str = ":memory:"):
+    def __init__(self, path: str = ":memory:", *, store_bodies: Iterable[str] = ()):
         self.path = path
+        self.store_bodies = frozenset(store_bodies)  # queues whose bodies are kept; empty = none (default)
         self.lock = threading.RLock()
         self.conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self.conn.row_factory = sqlite3.Row
@@ -104,7 +135,7 @@ class Database:
         A span already stored (same trace and span ID, e.g. an exporter retry) is skipped.
         """
         inserted = dupes = 0
-        cols = RECORD_FIELDS + ["attributes", "mid", "mid_source"]
+        cols = RECORD_FIELDS + ["attributes", "mid", "mid_source", "body_dropped"]
         sql = f"INSERT OR IGNORE INTO spans ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})"
         with self.lock:
             c = self.conn
@@ -112,9 +143,9 @@ class Database:
             try:
                 for r in records:
                     own = r.get("message_id")
+                    attrs, dropped = gate_body(r.get("attributes", {}), r.get("queue"), self.store_bodies)
                     values = [r.get(f) for f in RECORD_FIELDS] + [
-                        json.dumps(r.get("attributes", {}), sort_keys=True, default=str),
-                        own, "span" if own else None]
+                        json.dumps(attrs, sort_keys=True, default=str), own, "span" if own else None, dropped]
                     cur = c.execute(sql, values)
                     if cur.rowcount == 0:
                         dupes += 1

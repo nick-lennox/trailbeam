@@ -574,9 +574,15 @@ variables as a whole.
 | `capture.max_body_bytes` / `capture.maxBodyBytes` | `TRAILBEAM_CAPTURE_MAX_BYTES` | 16384; at most 262144 |
 
 A queue list holds queue names (`messaging.destination.name`), or `*` for every queue. Capture is
-**opt-in per queue**: a body is exported only for a listed queue. The hosted Trailbeam app is to add a second gate: it stores a body only for queues an admin opted in
-under Settings, and shows bodies to admins only. That gate belongs to the app, not to this contract,
-and is not built yet.
+**opt-in per queue**: a body is exported only for a listed queue. Trailbeam adds a second gate when it
+stores spans. That gate belongs to the server, not to this contract:
+
+- The open-source server stores a body only for the queues in `TRAILBEAM_STORE_BODIES` (none by
+  default). For other queues it removes `trailbeam.body`, `trailbeam.body.format`,
+  `trailbeam.body.redacted_count` and `trailbeam.body.envelope` before writing, keeps
+  `trailbeam.body.capture_status`, and marks the span as having had its body dropped.
+- The hosted Trailbeam app is to store a body only for queues an admin opted in under Settings, and
+  show bodies to admins only. That is not built yet.
 
 ### 15.2 Attributes
 

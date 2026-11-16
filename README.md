@@ -132,6 +132,22 @@ There is no authentication in 0.1, so keep it on `127.0.0.1` or a trusted networ
 [Run Trailbeam](https://docs.trailbeam.app/setup/run) and, to forward spans through an OpenTelemetry Collector, the
 [Collector configuration](collector/README.md).
 
+### Message bodies
+
+Trailbeam stores no message body unless you opt queues in on the server as well as in the package:
+
+```sh
+docker run ... -e TRAILBEAM_STORE_BODIES=orders,payments trailbeam   # or trailbeam --store-bodies orders,payments
+```
+
+A package exports a body only for the queues in its own capture list, redacted
+([span contract 15](contract/span-contract.md#15-message-contents-revision-32)).
+`TRAILBEAM_STORE_BODIES` is the second gate: for any queue not in it (`*` means every queue), Trailbeam
+removes the body attributes before writing the span, and records that it did. The default is no queue.
+
+With no logins, anyone who can reach Trailbeam, or read its SQLite file, can read the bodies it
+stores. Trailbeam logs a warning at startup when the list is set. Keep it on a trusted network.
+
 ## Open source and the hosted app
 
 Everything that tells you what happened to your messages is open source and runs on your own
@@ -169,7 +185,9 @@ Full explanation: [How Trailbeam works](https://docs.trailbeam.app/concepts/how-
 
 - It makes no SQS calls of its own, and never calls `ReceiveMessage` on your queues. Trailbeam makes
   no AWS calls.
-- It does not record message bodies or message attributes.
+- It does not store message bodies unless you opt the queue in, both in the package and on the server
+  ([Message bodies](#message-bodies)). It does not record message attributes, except the one you name
+  as the tenant attribute.
 - It does not export receipt handles, only a keyed hash of each one.
 
 ## Documentation

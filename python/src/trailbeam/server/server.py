@@ -93,7 +93,8 @@ class App:
             ingest = dict(self.stats)
         return {"status": "ok", "version": __version__, "ingest": ingest, "data": self.db.counts(),
                 "config": {"stuck_after_s": self.stuck_after_s, "lambda_timeout_s": self.lambda_timeout_s,
-                           "max_receive_counts": self.max_receive_counts}}
+                           "max_receive_counts": self.max_receive_counts,
+                           "store_bodies": sorted(self.db.store_bodies)}}
 
     def _lambda_timeout(self, q: dict) -> int:
         return _int(q, "lambda_timeout_s", self.lambda_timeout_s, 1, 86_400)
