@@ -8,10 +8,19 @@
 
 ARG PYTHON_VERSION=3.12
 
+# The shared UI's shell (ui/), built into the Python package. Node is needed only here, not at runtime.
+FROM node:22-slim AS ui
+WORKDIR /src/ui
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY ui/ ./
+RUN npm run build
+
 FROM python:${PYTHON_VERSION}-slim AS build
 WORKDIR /src
 COPY python/pyproject.toml python/README.md ./
 COPY python/src ./src
+COPY --from=ui /src/python/src/trailbeam/server/ui ./src/trailbeam/server/ui
 RUN pip wheel --no-cache-dir --wheel-dir /wheels ".[server]"
 
 FROM python:${PYTHON_VERSION}-slim

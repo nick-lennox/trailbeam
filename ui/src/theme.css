@@ -1,0 +1,32 @@
+/*
+  The design tokens Trailbeam's views use, for Tailwind v4. Import this after tailwindcss, and point
+  Tailwind at this package's source so it generates the classes the views use:
+
+    @import "tailwindcss";
+    @import "@trailbeam/ui/theme.css";
+    @source "../node_modules/@trailbeam/ui/src";
+
+  The sky is the night palette of the timeline. Fonts are named here and loaded by the page that uses
+  them: self-hosted Trailbeam bundles them, the hosted app loads its own.
+*/
+@theme {
+  --font-serif: "Newsreader", ui-serif, Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.4;
+  --text-micro: 0.6875rem;
+  --text-micro--line-height: 1.4;
+
+  --color-sky: #0a0c22;
+  --color-sky-2: #12153a;
+  --color-sky-line: #2b2f63;
+  --color-sky-ink: #f6f1e7;
+  --color-sky-ink-2: #c6c5e0;
+  --color-sky-ink-3: #9a99c2;
+  --color-trail: #fff3d9;
+  --color-wait: #93a5ff;
+  --color-ember: #ffb65e;
+  --color-lost: #ff7667;
+  --color-dawn: #ff9d7a;
+}

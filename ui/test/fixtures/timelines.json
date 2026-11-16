@@ -1,0 +1,759 @@
+{
+ "note": "GET /api/messages/{id} for the messages in python/smoke/recorded-spans.pb, made by Trailbeam itself (ui/test/make-fixtures.py).",
+ "timelines": [
+  {
+   "message_id": "062d98c1-0251-4a88-b4e3-3069ea19a169",
+   "state": "deleted",
+   "source_queue": "trailbeam-smoke",
+   "current_queue": "trailbeam-smoke",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "deliveries": 2,
+   "successful_deliveries": 1,
+   "first_seen": "2026-11-14T16:52:15.129553Z",
+   "first_seen_clock": "host",
+   "last_seen": "2026-11-14T16:52:16.641472Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-14T16:52:15.125188Z",
+     "end": "2026-11-14T16:52:15.129553Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-14T16:52:15.129698Z",
+     "end": "2026-11-14T16:52:15.133592Z"
+    },
+    {
+     "group": 2,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-14T16:52:16.633905Z",
+     "end": "2026-11-14T16:52:16.637931Z"
+    },
+    {
+     "group": 3,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-14T16:52:16.638112Z",
+     "end": "2026-11-14T16:52:16.641472Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2026-11-14T16:52:15.129553Z",
+     "time_unix_nano": "1794675135129553635",
+     "start": "2026-11-14T16:52:15.125188Z",
+     "start_unix_nano": "1794675135125188026",
+     "end": "2026-11-14T16:52:15.129553Z",
+     "end_unix_nano": "1794675135129553635",
+     "start_observed": true,
+     "group": 0,
+     "queue": "trailbeam-smoke",
+     "consumer": {
+      "service_name": "trailbeam-smoke-worker",
+      "client_id": "246acc55-8683-4817-9bde-58fc9a717c8b",
+      "source": "client",
+      "pid": 29165,
+      "thread_name": "MainThread"
+     },
+     "span": {
+      "trace_id": "fb60401a664ed82a837f20b8d5191592",
+      "span_id": "2980db770b06fb5e"
+     },
+     "process_order": null,
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "received",
+     "inferred": false,
+     "time": "2026-11-14T16:52:15.133592Z",
+     "time_unix_nano": "1794675135133592408",
+     "start": "2026-11-14T16:52:15.129698Z",
+     "start_unix_nano": "1794675135129698744",
+     "end": "2026-11-14T16:52:15.133592Z",
+     "end_unix_nano": "1794675135133592408",
+     "start_observed": true,
+     "group": 1,
+     "queue": "trailbeam-smoke",
+     "consumer": {
+      "service_name": "trailbeam-smoke-worker",
+      "client_id": "246acc55-8683-4817-9bde-58fc9a717c8b",
+      "source": "client",
+      "pid": 29165,
+      "thread_name": "MainThread"
+     },
+     "span": {
+      "trace_id": "2f192586313d457a25ea01e74b6909c3",
+      "span_id": "680f0da81cb5bb89"
+     },
+     "process_order": null,
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2026-11-14T16:52:15.128000Z",
+     "sent_timestamp_ms": 1794675135128,
+     "first_receive_timestamp": "2026-11-14T16:52:15.132000Z",
+     "first_receive_timestamp_ms": 1794675135132,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "clock",
+        "sqs_timestamps"
+       ],
+       "source": "clock",
+       "why": "The send ended (2026-11-14T16:52:15.129553Z) before this started (2026-11-14T16:52:15.129698Z), on the hosts' clocks. SQS's timestamps show this message was sent (2026-11-14T16:52:15.128000Z) before its first receive (2026-11-14T16:52:15.132000Z)."
+      }
+     ]
+    },
+    {
+     "id": "e3",
+     "type": "visibility_timeout_expired",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": "2026-11-14T16:52:15.129698Z",
+      "to": "2026-11-14T16:52:16.637931Z"
+     },
+     "reason": "The visibility timeout expired before the message was deleted, so SQS delivered it again.",
+     "queue": "trailbeam-smoke",
+     "after_delivery": 1,
+     "before_delivery": 2,
+     "group": null,
+     "after": [
+      {
+       "event": "e2",
+       "type": "received",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from receive 1: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e4",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from receive 2: it came before it."
+     }
+    },
+    {
+     "id": "e4",
+     "type": "received",
+     "inferred": false,
+     "time": "2026-11-14T16:52:16.637931Z",
+     "time_unix_nano": "1794675136637931900",
+     "start": "2026-11-14T16:52:16.633905Z",
+     "start_unix_nano": "1794675136633905753",
+     "end": "2026-11-14T16:52:16.637931Z",
+     "end_unix_nano": "1794675136637931900",
+     "start_observed": true,
+     "group": 2,
+     "queue": "trailbeam-smoke",
+     "consumer": {
+      "service_name": "trailbeam-smoke-worker",
+      "client_id": "246acc55-8683-4817-9bde-58fc9a717c8b",
+      "source": "client",
+      "pid": 29165,
+      "thread_name": "MainThread"
+     },
+     "span": {
+      "trace_id": "1e17a2202664b0a20e8a92e1254762a8",
+      "span_id": "7c3b677bf359075a"
+     },
+     "process_order": null,
+     "delivery": 2,
+     "receive_count": 2,
+     "sent_timestamp": "2026-11-14T16:52:15.128000Z",
+     "sent_timestamp_ms": 1794675135128,
+     "first_receive_timestamp": "2026-11-14T16:52:15.132000Z",
+     "first_receive_timestamp_ms": 1794675135132,
+     "after": [
+      {
+       "event": "e2",
+       "type": "received",
+       "sources": [
+        "clock",
+        "receive_count"
+       ],
+       "source": "clock",
+       "why": "Receive 1 ended (2026-11-14T16:52:15.133592Z) before this started (2026-11-14T16:52:16.633905Z), on the hosts' clocks. SQS's receive count shows receive 1 (receive count 1) came before this one (receive count 2)."
+      }
+     ]
+    },
+    {
+     "id": "e5",
+     "type": "deleted",
+     "inferred": false,
+     "time": "2026-11-14T16:52:16.641472Z",
+     "time_unix_nano": "1794675136641472116",
+     "start": "2026-11-14T16:52:16.638112Z",
+     "start_unix_nano": "1794675136638112267",
+     "end": "2026-11-14T16:52:16.641472Z",
+     "end_unix_nano": "1794675136641472116",
+     "start_observed": true,
+     "group": 3,
+     "queue": "trailbeam-smoke",
+     "consumer": {
+      "service_name": "trailbeam-smoke-worker",
+      "client_id": "246acc55-8683-4817-9bde-58fc9a717c8b",
+      "source": "client",
+      "pid": 29165,
+      "thread_name": "MainThread"
+     },
+     "span": {
+      "trace_id": "5740ec3eeef0fc0b6123d5db7d2a1d1b",
+      "span_id": "31197976a65b1826"
+     },
+     "process_order": null,
+     "delivery": 2,
+     "result": "ok",
+     "status": "final",
+     "after": [
+      {
+       "event": "e4",
+       "type": "received",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "Receive 2 ended (2026-11-14T16:52:16.637931Z) before this started (2026-11-14T16:52:16.638112Z), on the hosts' clocks."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock",
+       "sqs_timestamps"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e4",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e5",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e2",
+      "to": "e4",
+      "sources": [
+       "clock",
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e2",
+      "to": "e5",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e4",
+      "to": "e5",
+      "sources": [
+       "clock"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 6,
+     "process_order": 0,
+     "receive_count": 1,
+     "sqs_timestamps": 1
+    },
+    "conflicts": []
+   },
+   "notices": []
+  },
+  {
+   "message_id": "37b3c40d-b8b3-4a49-846b-cbde9b204c0b",
+   "state": "deleted",
+   "source_queue": "trailbeam-smoke",
+   "current_queue": "trailbeam-smoke",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "deliveries": 2,
+   "successful_deliveries": 1,
+   "first_seen": "2026-11-14T16:52:16.644363Z",
+   "first_seen_clock": "host",
+   "last_seen": "2026-11-14T16:52:16.655602Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-14T16:52:16.641606Z",
+     "end": "2026-11-14T16:52:16.644363Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-14T16:52:16.644491Z",
+     "end": "2026-11-14T16:52:16.647384Z"
+    },
+    {
+     "group": 2,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-14T16:52:16.647505Z",
+     "end": "2026-11-14T16:52:16.650095Z"
+    },
+    {
+     "group": 3,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-14T16:52:16.650214Z",
+     "end": "2026-11-14T16:52:16.653116Z"
+    },
+    {
+     "group": 4,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-14T16:52:16.653241Z",
+     "end": "2026-11-14T16:52:16.655602Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2026-11-14T16:52:16.644363Z",
+     "time_unix_nano": "1794675136644363128",
+     "start": "2026-11-14T16:52:16.641606Z",
+     "start_unix_nano": "1794675136641606735",
+     "end": "2026-11-14T16:52:16.644363Z",
+     "end_unix_nano": "1794675136644363128",
+     "start_observed": true,
+     "group": 0,
+     "queue": "trailbeam-smoke",
+     "consumer": {
+      "service_name": "trailbeam-smoke-worker",
+      "client_id": "246acc55-8683-4817-9bde-58fc9a717c8b",
+      "source": "client",
+      "pid": 29165,
+      "thread_name": "MainThread"
+     },
+     "span": {
+      "trace_id": "69587419261544edbd07c328825bcf4c",
+      "span_id": "6d71c45635eb4568"
+     },
+     "process_order": null,
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "received",
+     "inferred": false,
+     "time": "2026-11-14T16:52:16.647384Z",
+     "time_unix_nano": "1794675136647384681",
+     "start": "2026-11-14T16:52:16.644491Z",
+     "start_unix_nano": "1794675136644491920",
+     "end": "2026-11-14T16:52:16.647384Z",
+     "end_unix_nano": "1794675136647384681",
+     "start_observed": true,
+     "group": 1,
+     "queue": "trailbeam-smoke",
+     "consumer": {
+      "service_name": "trailbeam-smoke-worker",
+      "client_id": "246acc55-8683-4817-9bde-58fc9a717c8b",
+      "source": "client",
+      "pid": 29165,
+      "thread_name": "MainThread"
+     },
+     "span": {
+      "trace_id": "b78c52020ed9fc1f2a831d56deb40c55",
+      "span_id": "d4e453cf42bb9624"
+     },
+     "process_order": null,
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2026-11-14T16:52:16.643000Z",
+     "sent_timestamp_ms": 1794675136643,
+     "first_receive_timestamp": "2026-11-14T16:52:16.646000Z",
+     "first_receive_timestamp_ms": 1794675136646,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "clock",
+        "sqs_timestamps"
+       ],
+       "source": "clock",
+       "why": "The send ended (2026-11-14T16:52:16.644363Z) before this started (2026-11-14T16:52:16.644491Z), on the hosts' clocks. SQS's timestamps show this message was sent (2026-11-14T16:52:16.643000Z) before its first receive (2026-11-14T16:52:16.646000Z)."
+      }
+     ]
+    },
+    {
+     "id": "e3",
+     "type": "visibility_changed",
+     "inferred": false,
+     "time": "2026-11-14T16:52:16.650095Z",
+     "time_unix_nano": "1794675136650095327",
+     "start": "2026-11-14T16:52:16.647505Z",
+     "start_unix_nano": "1794675136647505119",
+     "end": "2026-11-14T16:52:16.650095Z",
+     "end_unix_nano": "1794675136650095327",
+     "start_observed": true,
+     "group": 2,
+     "queue": "trailbeam-smoke",
+     "consumer": {
+      "service_name": "trailbeam-smoke-worker",
+      "client_id": "246acc55-8683-4817-9bde-58fc9a717c8b",
+      "source": "client",
+      "pid": 29165,
+      "thread_name": "MainThread"
+     },
+     "span": {
+      "trace_id": "d6b4060d9e596df82ccdafda385da8f4",
+      "span_id": "dea1924d0b14db34"
+     },
+     "process_order": null,
+     "delivery": 1,
+     "result": "ok",
+     "visibility_timeout_s": 0,
+     "after": [
+      {
+       "event": "e2",
+       "type": "received",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "Receive 1 ended (2026-11-14T16:52:16.647384Z) before this started (2026-11-14T16:52:16.647505Z), on the hosts' clocks."
+      }
+     ]
+    },
+    {
+     "id": "e4",
+     "type": "visibility_timeout_expired",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": "2026-11-14T16:52:16.647505Z",
+      "to": "2026-11-14T16:52:16.653116Z"
+     },
+     "reason": "ChangeMessageVisibility set the visibility timeout to 0, which made the message visible again at once.",
+     "queue": "trailbeam-smoke",
+     "after_delivery": 1,
+     "before_delivery": 2,
+     "group": null,
+     "after": [
+      {
+       "event": "e3",
+       "type": "visibility_changed",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from the visibility change of delivery 1: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e5",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from receive 2: it came before it."
+     }
+    },
+    {
+     "id": "e5",
+     "type": "received",
+     "inferred": false,
+     "time": "2026-11-14T16:52:16.653116Z",
+     "time_unix_nano": "1794675136653116102",
+     "start": "2026-11-14T16:52:16.650214Z",
+     "start_unix_nano": "1794675136650214308",
+     "end": "2026-11-14T16:52:16.653116Z",
+     "end_unix_nano": "1794675136653116102",
+     "start_observed": true,
+     "group": 3,
+     "queue": "trailbeam-smoke",
+     "consumer": {
+      "service_name": "trailbeam-smoke-worker",
+      "client_id": "246acc55-8683-4817-9bde-58fc9a717c8b",
+      "source": "client",
+      "pid": 29165,
+      "thread_name": "MainThread"
+     },
+     "span": {
+      "trace_id": "3dc51ce667f8a2ea499bd9d590eda295",
+      "span_id": "4d71c38e3342b516"
+     },
+     "process_order": null,
+     "delivery": 2,
+     "receive_count": 2,
+     "sent_timestamp": "2026-11-14T16:52:16.643000Z",
+     "sent_timestamp_ms": 1794675136643,
+     "first_receive_timestamp": "2026-11-14T16:52:16.646000Z",
+     "first_receive_timestamp_ms": 1794675136646,
+     "after": [
+      {
+       "event": "e3",
+       "type": "visibility_changed",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "The visibility change of delivery 1 ended (2026-11-14T16:52:16.650095Z) before this started (2026-11-14T16:52:16.650214Z), on the hosts' clocks."
+      }
+     ]
+    },
+    {
+     "id": "e6",
+     "type": "deleted",
+     "inferred": false,
+     "time": "2026-11-14T16:52:16.655602Z",
+     "time_unix_nano": "1794675136655602674",
+     "start": "2026-11-14T16:52:16.653241Z",
+     "start_unix_nano": "1794675136653241689",
+     "end": "2026-11-14T16:52:16.655602Z",
+     "end_unix_nano": "1794675136655602674",
+     "start_observed": true,
+     "group": 4,
+     "queue": "trailbeam-smoke",
+     "consumer": {
+      "service_name": "trailbeam-smoke-worker",
+      "client_id": "246acc55-8683-4817-9bde-58fc9a717c8b",
+      "source": "client",
+      "pid": 29165,
+      "thread_name": "MainThread"
+     },
+     "span": {
+      "trace_id": "e520740b0329c468968de87c3e07c7da",
+      "span_id": "644b9b97ea6f3b2e"
+     },
+     "process_order": null,
+     "delivery": 2,
+     "result": "ok",
+     "status": "final",
+     "after": [
+      {
+       "event": "e5",
+       "type": "received",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "Receive 2 ended (2026-11-14T16:52:16.653116Z) before this started (2026-11-14T16:52:16.653241Z), on the hosts' clocks."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock",
+       "sqs_timestamps"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e3",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e5",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e6",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e2",
+      "to": "e3",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e2",
+      "to": "e5",
+      "sources": [
+       "clock",
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e2",
+      "to": "e6",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e5",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e6",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e5",
+      "to": "e6",
+      "sources": [
+       "clock"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 10,
+     "process_order": 0,
+     "receive_count": 1,
+     "sqs_timestamps": 1
+    },
+    "conflicts": []
+   },
+   "notices": []
+  },
+  {
+   "message_id": "48ef0e8f-8ba3-401c-a84d-56cff218c60b",
+   "state": "not_deleted",
+   "source_queue": "trailbeam-smoke",
+   "current_queue": "trailbeam-smoke",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "deliveries": 0,
+   "successful_deliveries": 0,
+   "first_seen": "2026-11-14T16:52:16.658043Z",
+   "first_seen_clock": "host",
+   "last_seen": "2026-11-14T16:52:16.658043Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2026-11-14T16:52:16.655704Z",
+     "end": "2026-11-14T16:52:16.658043Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2026-11-14T16:52:16.658043Z",
+     "time_unix_nano": "1794675136658043790",
+     "start": "2026-11-14T16:52:16.655704Z",
+     "start_unix_nano": "1794675136655704756",
+     "end": "2026-11-14T16:52:16.658043Z",
+     "end_unix_nano": "1794675136658043790",
+     "start_observed": true,
+     "group": 0,
+     "queue": "trailbeam-smoke",
+     "consumer": {
+      "service_name": "trailbeam-smoke-worker",
+      "client_id": "246acc55-8683-4817-9bde-58fc9a717c8b",
+      "source": "client",
+      "pid": 29165,
+      "thread_name": "MainThread"
+     },
+     "span": {
+      "trace_id": "b4ab78c53064316f625bbeaf50cc96bf",
+      "span_id": "48b3be42583d332b"
+     },
+     "process_order": null,
+     "after": []
+    }
+   ],
+   "order": {
+    "edges": [],
+    "edges_by_source": {
+     "clock": 0,
+     "process_order": 0,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": []
+  }
+ ]
+}

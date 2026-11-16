@@ -1,0 +1,15 @@
+@import "tailwindcss";
+@import "../src/theme.css";
+@source "../src";
+@source "./";
+
+/* Bundled, so a self-hosted Trailbeam makes no requests to outside services. */
+@import "@fontsource/newsreader/latin-400.css";
+@import "@fontsource/newsreader/latin-500.css";
+@import "@fontsource/newsreader/latin-400-italic.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+
+html { background: var(--color-sky); color-scheme: dark; }
+body { margin: 0; background: var(--color-sky); color: var(--color-sky-ink); font-family: var(--font-serif); }
+:focus-visible { outline: 2px solid var(--color-sky-ink); outline-offset: 2px; }
