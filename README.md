@@ -47,6 +47,9 @@ answers a narrower question: where did this one message go?
   carries `DeadLetterQueueSourceArn`. It is never guessed from settings.
 - **Lambda outcomes.** A handler wrapper records how each record ended: success, a reported batch
   item failure, or an exception.
+- **Tenants.** Name the message attribute or JSON body field that holds your customer, and
+  Trailbeam shows per tenant: messages sent, their share, p95 time in queue and dead-lettered
+  messages. You can also list one tenant's messages and search tenants by name.
 - **Works with the OpenTelemetry you already run.** The packages use their own tracer provider with
   an always-on sampler, so your sampling never drops a message's history.
 - **Hands off your queues.** Trailbeam makes no SQS calls of its own and never calls `ReceiveMessage`,
@@ -115,6 +118,31 @@ export OTEL_SERVICE_NAME=orders-worker
 ```
 
 Full guides: [Python](python/README.md), [Node.js](node/README.md), and the Lambda sections in each.
+
+### Tenants
+
+To see traffic per customer, tell the packages where the tenant is. Set the same value in every
+service that sends or receives on those queues:
+
+```sh
+export TRAILBEAM_TENANT_ATTRIBUTE=tenant        # a message attribute, tried first
+export TRAILBEAM_TENANT_BODY_PATH=customer.id   # else a dotted path in a JSON body
+```
+
+You can also pass `tenant={"message_attribute": ..., "body_path": ...}` to `trailbeam.boto.install()`
+or `tenant: { messageAttribute, bodyPath }` to `install()` in Node.js (and the same to the Lambda
+wrappers); an option given in code replaces both environment variables. Spans then carry
+`trailbeam.tenant` (span contract, section 15.2). Trailbeam has no setting of its own for this: it
+reads the tenant the packages recorded. Reading the body path parses the body in your process, but
+the body is not exported.
+
+The **Tenants** page (`/tenants`) shows, for the last hour, day or week: messages sent, share of all
+sends, p95 time in queue (send to first receive) and dead-lettered messages, per tenant. A tenant's
+name links to its messages (`/?tenant=acme`), and the search box in the header suggests tenants as
+you type. The same data is in the JSON API: `GET /api/tenants`, `GET /api/tenants/search?q=` and
+`GET /api/messages?tenant=`. How every number is counted is in
+[`contract/tenants.md`](contract/tenants.md). The hosted app counts them the same way and is tested
+against the same recorded spans.
 
 ## Self-hosting
 
@@ -215,11 +243,11 @@ contract, the specification the packages and Trailbeam both follow, is
 |---|---|
 | [`python/`](python/) | Python package `trailbeam`: boto3 hooks, a Lambda handler wrapper, and Trailbeam itself (`trailbeam.server`, installed with the `server` extra) |
 | [`node/`](node/) | Node.js package `trailbeam`: AWS SDK v3 hooks and a Lambda handler wrapper |
-| [`ui/`](ui/) | `@trailbeam/ui`: the views Trailbeam's web screen and the hosted app share (the timeline so far) |
+| [`ui/`](ui/) | `@trailbeam/ui`: the views Trailbeam's web screen and the hosted app share (the timeline and the Tenants table so far) |
 | [`Dockerfile`](Dockerfile) | The Trailbeam container: `trailbeam[server]` with SQLite on a volume |
 | [`collector/`](collector/) | OpenTelemetry Collector configuration |
 | [`demo/`](demo/) | Local demo on ElasticMQ with Docker Compose, and the concurrency check (`demo/check.sh`) |
-| [`contract/`](contract/) | The span contract and the receipt-hash test vectors |
+| [`contract/`](contract/) | The span contract, the receipt-hash test vectors, the Tenants query ([`tenants.md`](contract/tenants.md)) and the recorded contract 3.2 spans both Trailbeam and the hosted app test against ([`fixtures/`](contract/fixtures/)) |
 
 ## Development
 
