@@ -5,7 +5,7 @@
 #   open http://127.0.0.1:4318/
 #
 # Message flow: producer --SendMessage--> orders (ElasticMQ) --ReceiveMessage--> consumers / deleter
-# Span flow:    every driver --OTLP/HTTP--> collector:4318 --Trailbeam spans only--> trailbeam:4318 (store + web screen)
+# Span flow:    every driver --OTLP/HTTP--> collector:4318 --Trailbeam spans only--> trailbeam:4318 (Trailbeam and its web screen)
 #
 # See demo/README.md. The concurrency check (demo/check.sh) reuses these images with `docker compose run`.
 #
