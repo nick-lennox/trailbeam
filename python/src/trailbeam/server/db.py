@@ -66,7 +66,7 @@ _MIGRATIONS = {
 }
 
 
-class Store:
+class Database:
     """Thread-safe: one connection, serialised by a lock. Enough for 0.1's single container."""
 
     def __init__(self, path: str = ":memory:"):

@@ -6,7 +6,7 @@ import logging
 import os
 import signal
 
-from .db import Store
+from .db import Database
 from .server import make_server
 
 
@@ -31,8 +31,8 @@ def main(argv=None) -> None:
     p.add_argument("--log-level", default=os.environ.get("TRAILBEAM_LOG_LEVEL", "INFO"))
     a = p.parse_args(argv)
     logging.basicConfig(level=a.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    store = Store(a.db)
-    httpd = make_server(store, a.host, a.port, stuck_after_s=a.stuck_after,
+    db = Database(a.db)
+    httpd = make_server(db, a.host, a.port, stuck_after_s=a.stuck_after,
                         lambda_timeout_s=a.lambda_timeout, max_receive_counts=a.max_receive_count)
     logging.getLogger("trailbeam.server").info("listening on http://%s:%d (OTLP: /v1/traces, API: /api/), db %s",
                                         a.host, httpd.server_address[1], a.db)
@@ -45,7 +45,7 @@ def main(argv=None) -> None:
         pass
     finally:
         httpd.server_close()
-        store.close()
+        db.close()
 
 
 def _max_receive_counts(text: str) -> dict:
