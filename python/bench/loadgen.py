@@ -586,38 +586,34 @@ def run_sdk(url: str, profile: Profile, rate: float, duration: float, *, seed: O
             settle_s: float = 60.0,
             max_queue_size: Optional[int] = None) -> dict:
     """Emit the spans through a TracerProvider with a default BatchSpanProcessor and OTLPSpanExporter, as
-    the packages do (trailbeam._emitter), and count what the server received. Spans lost in the SDK (its
-    queue was full, or an export failed after its retries) are the difference."""
+    the packages do (trailbeam._emitter), and count where each span went. The exporter is wrapped, so the
+    SDK's own view needs no server: spans exported, spans in a failed export (the processor drops those),
+    and spans never exported (dropped because the queue was full, or not flushed in time). Against a
+    Trailbeam server, /api/health also gives the spans it received; if it can't answer (it counts the whole
+    table, behind the ingest lock), those fields are None."""
     from opentelemetry import trace as otrace
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExportResult
     from opentelemetry.sdk.trace.sampling import ALWAYS_ON
 
-    import logging
+    tally = {"ok": 0, "failed": 0, "calls": 0, "seconds": []}
 
-    class Count(logging.Handler):
-        def __init__(self):
-            super().__init__(logging.WARNING)
-            self.queue_full = self.export_failed = 0
+    class Counting(OTLPSpanExporter):
+        # Not the SDK's "Queue full" warnings: a DuplicateFilter on its logger suppresses most of them.
+        def export(self, spans):
+            t = time.monotonic()
+            result = super().export(spans)
+            tally["calls"] += 1
+            tally["seconds"].append(time.monotonic() - t)
+            tally["ok" if result == SpanExportResult.SUCCESS else "failed"] += len(spans)
+            return result
 
-        def emit(self, record):
-            m = record.getMessage()
-            if "Queue full" in m:
-                self.queue_full += 1  # one warning per span the BatchSpanProcessor dropped
-            elif "export" in m.lower() and ("fail" in m.lower() or "timeout" in m.lower()):
-                self.export_failed += 1
-
-    counter = Count()
-    otel_log = logging.getLogger("opentelemetry")
-    otel_log.addHandler(counter)
     before = health(url)
-    if before is None:
-        raise SystemExit("--sdk needs a Trailbeam server at the URL (it reads /api/health to count received spans)")
     provider = TracerProvider(resource=Resource.create({"service.name": "bench-sdk"}), sampler=ALWAYS_ON)
     kw = {"max_queue_size": max_queue_size} if max_queue_size else {}
-    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=url), **kw))
+    provider.add_span_processor(BatchSpanProcessor(Counting(endpoint=url), **kw))
     tracer = provider.get_tracer(SCOPE, SCOPE_VERSION)
     seed = new_seed() if seed is None else seed
     stream = Stream(profile, seed=seed)
@@ -638,15 +634,18 @@ def run_sdk(url: str, profile: Profile, rate: float, duration: float, *, seed: O
     emit_elapsed = time.monotonic() - t0
     flushed = provider.force_flush(int(settle_s * 1000))
     provider.shutdown()
-    otel_log.removeHandler(counter)
-    after = health(url)
-    received = (after["ingest"]["inserted"] + after["ingest"]["duplicates"]) - (
+    after = health(url) if before is not None else None
+    received = None if after is None else (after["ingest"]["inserted"] + after["ingest"]["duplicates"]) - (
         before["ingest"]["inserted"] + before["ingest"]["duplicates"])
+    lost = emitted - tally["ok"]
+    secs = sorted(tally["seconds"])
     return {"mode": "sdk", "seed": seed, "target_msgs_per_s": rate, "target_spans_per_s": round(span_rate, 1),
             "emitted_spans": emitted, "emit_spans_per_s": round(emitted / emit_elapsed, 1),
-            "received_spans": received, "dropped_spans": emitted - received,
-            "dropped_pct": round(100 * (emitted - received) / emitted, 2) if emitted else 0,
-            "dropped_queue_full": counter.queue_full, "failed_export_warnings": counter.export_failed,
+            "exported_spans": tally["ok"], "failed_export_spans": tally["failed"],
+            "never_exported_spans": emitted - tally["ok"] - tally["failed"],
+            "dropped_spans": lost, "dropped_pct": round(100 * lost / emitted, 2) if emitted else 0,
+            "received_spans": received, "export_calls": tally["calls"],
+            "export_max_s": round(secs[-1], 2) if secs else None,
             "flushed_in_time": flushed, "max_queue_size": max_queue_size or 2048, "profile": asdict(profile)}
 
 

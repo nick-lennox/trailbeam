@@ -134,3 +134,14 @@ def test_run_sdk_counts_drops(server):
     res = loadgen.run_sdk(url, loadgen.Profile(), rate=50, duration=1, settle_s=10)
     assert res["emitted_spans"] > 0
     assert res["dropped_spans"] == 0 and res["received_spans"] == res["emitted_spans"]
+    assert res["exported_spans"] == res["emitted_spans"] and res["never_exported_spans"] == 0
+
+
+def test_run_sdk_counts_failed_exports_without_server_counts(server):
+    url, db = server
+    # a 404 is not retried: every export fails, the processor drops those spans, the server stores none
+    res = loadgen.run_sdk(url.replace("/v1/traces", "/v1/nowhere"), loadgen.Profile(), rate=50, duration=1,
+                          settle_s=10)
+    assert res["emitted_spans"] > 0 and res["exported_spans"] == 0
+    assert res["failed_export_spans"] == res["dropped_spans"] == res["emitted_spans"]
+    assert res["received_spans"] == 0

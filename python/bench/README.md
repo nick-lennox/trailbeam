@@ -41,7 +41,7 @@ as a lower rate that looks fine.
 | `--batch-spans` | 512 | spans per export, as `BatchSpanProcessor`. At low rates an export goes every 5 s, so batches are smaller |
 | `--concurrency`, `--processes` | 4, 1 | concurrent exports per process, generator processes. One process makes about 30k spans/s without bodies, about 7k/s with 64 KB bodies |
 | `--seed` | new each run | fixes the trace and span IDs. The server skips a span it already stored, so two runs with the same seed against one server measure the second as duplicates, which are almost free. The result records the seed used |
-| `--sdk` | off | send through the OTel SDK's `BatchSpanProcessor` and `OTLPSpanExporter` with their defaults, and count the spans lost (needs a Trailbeam server at the URL: it reads `/api/health` before and after) |
+| `--sdk` | off | send through the OTel SDK's `BatchSpanProcessor` and `OTLPSpanExporter` with their defaults, and count the spans lost, from the SDK side: never exported (queue full) or in a failed export. Against a Trailbeam server it also reads `/api/health` before and after for the spans received |
 
 Extra request headers for another endpoint (for example an ingest key):
 `LOADGEN_HEADERS='Authorization=Bearer …' python python/bench/loadgen.py --url https://…/v1/traces`.

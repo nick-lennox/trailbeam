@@ -630,8 +630,9 @@ def summary(results: dict) -> str:
             s = sdk[-1]
             lines += ["", "## OTel SDK BatchSpanProcessor against the largest database", "",
                       f"{s['target_msgs_per_s']:g} msg/s ({s['target_spans_per_s']} spans/s): emitted {s['emitted_spans']}, "
-                      f"received {s['received_spans']}, **dropped {s['dropped_spans']} ({s['dropped_pct']}%)**; "
-                      f"{s['dropped_queue_full']} 'Queue full' drops, {s['failed_export_warnings']} failed-export warnings."]
+                      f"exported {s['exported_spans']}, server received {s['received_spans']}, "
+                      f"**dropped {s['dropped_spans']} ({s['dropped_pct']}%)**: {s['never_exported_spans']} never "
+                      f"exported (queue full), {s['failed_export_spans']} in failed exports."]
     if results.get("growth"):
         lines += ["", "## File growth", "", "| case | MB per million spans |", "|---|---|"]
         lines += [f"| {g['case']} | {g['mb_per_million_spans']:,} |" for g in results["growth"]]
