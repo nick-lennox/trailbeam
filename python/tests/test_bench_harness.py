@@ -68,3 +68,34 @@ def test_a_small_run(tmp_path):
     assert len(res["growth"]) == 5
     assert "## Ingest" in (out / "summary.md").read_text()
     assert (out / "results.csv").read_text().startswith("db_spans")
+
+
+def test_a_page_that_times_out_restarts_the_server_and_is_skipped_at_larger_sizes(tmp_path, monkeypatch):
+    out = tmp_path / "out"
+    real_get, real_init, started = harness.get, harness.Server.__init__, []
+
+    def slow_pages(port, path, timeout=300):  # every page times out; the start-up probe does not
+        if path == "/api/none":
+            return real_get(port, path, timeout)
+        raise TimeoutError
+
+    def counted(self, *a, **kw):
+        started.append(1)
+        real_init(self, *a, **kw)
+
+    monkeypatch.setattr(harness, "get", slow_pages)
+    monkeypatch.setattr(harness.Server, "__init__", counted)
+    harness.main(["--out", str(out), "--sizes", "1k,1500", "--rates", "2", "--step-seconds", "1",
+                  "--under-load-seconds", "1", "--page-repeats", "2", "--skip-pages", "tenants",
+                  "--growth-spans", "0", "--sdk-seconds", "0", "--processes", "1",
+                  "--queues", "3", "--tenants", "2", "--body-queues", "1"])
+    res = json.loads((out / "results.json").read_text())
+    first, second = res["sizes"]
+    assert "tenants" not in first["pages_idle"] and first["pages_skipped"] == {"tenants": "--skip-pages"}
+    assert all(v["timeouts"] == 1 and v["n"] == 1 for v in first["pages_idle"].values())
+    assert len(started) == 1 + 7 + 1  # first server, one restart per timed-out page, second size's server
+    assert first["ingest"][0]["errors"] == 0  # the ramp ran against a fresh server
+    assert second["pages_idle"] == {} and second["pages_under_ingest"] == {}
+    assert set(second["pages_skipped"]) == {"messages", "messages_one_queue", "message_detail", "duplicates",
+                                            "stuck", "tenants", "tenant_search", "body_search"}
+    assert "skipped" in (out / "summary.md").read_text()

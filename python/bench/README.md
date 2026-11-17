@@ -58,8 +58,14 @@ For each size, smallest first, growing the same SQLite file:
 2. **Pages, idle.** Start `python -m trailbeam.server` (unchanged) on the file. Time Messages, Messages for
    one queue, message detail (20 random messages), Duplicates, Stuck, Tenants, tenant search and body
    search, each `--page-repeats` times (fewer if a page uses up `--page-budget-s`).
+   A page that takes longer than `--page-timeout-s` (300) is recorded as a timeout. The harness then
+   restarts the server, because the server keeps running that query, and every other request and export
+   would wait behind it on the database lock. That page is skipped at larger sizes, which `summary.md`
+   shows as "skipped". `--skip-pages stuck,…` leaves pages out from the start.
 3. **Ingest ramp** at each of `--rates` messages/s for `--step-seconds`, until a step is not steady: errors,
    under 95% of the target, or export p99 above `--max-export-p99-ms` (2000). Records server CPU.
+   After the first step that is not steady, the server is restarted, so its backlog of exports does not
+   carry into the next measurement.
 4. **Pages under ingest.** The pages again, in a loop, while ingest runs at the highest steady rate. The
    export latency of that ingest is recorded too.
 5. **Breakdown.** Server stopped: where a 512-span export's time goes in-process. That covers decode,

@@ -259,8 +259,11 @@ def page_paths(db_path: str, profile: loadgen.Profile, n_messages: int = 20, see
     }
 
 
-def time_pages(port: int, pages: dict, *, repeats: int, budget_s: float, timeout_s: float) -> dict:
-    """p50/p95/max per page. Each page runs ``repeats`` times, or fewer if it uses up ``budget_s``."""
+def time_pages(port: int, pages: dict, *, repeats: int, budget_s: float, timeout_s: float, restart=None) -> dict:
+    """p50/p95/max per page. Each page runs ``repeats`` times, or fewer if it uses up ``budget_s``.
+
+    A page that times out is not repeated. The server is still running its query, holding the lock every
+    other request waits on, so ``restart()`` (if given) replaces the server and returns the new port."""
     out = {}
     for name, paths in pages.items():
         lat, errors, timeouts = [], 0, 0
@@ -275,6 +278,8 @@ def time_pages(port: int, pages: dict, *, repeats: int, budget_s: float, timeout
             except (TimeoutError, socket.timeout):
                 timeouts += 1
                 lat.append(timeout_s)
+                if restart:
+                    port = restart()
                 break
             except OSError:
                 errors += 1
@@ -458,6 +463,7 @@ def run(args) -> dict:
     def log(msg):
         print(msg, flush=True)
 
+    skipped = {name: "--skip-pages" for name in filter(None, args.skip_pages.split(","))}
     for size in [parse_size(s) for s in args.sizes.split(",")]:
         log(f"== {size:,} spans")
         sd = seed(db_path, size, profile, store_bodies=store, days=args.seed_days, log=log)
@@ -465,16 +471,29 @@ def run(args) -> dict:
                  "file_mb": round(file_bytes(db_path) / 1e6, 1)}
         results["sizes"].append(entry)
         log(f"  {entry['spans']:,} spans, {entry['file_mb']:,} MB")
-        pages = page_paths(db_path, profile)
-        srv = Server(db_path, store, str(out / "server.log"))
+        pages = {k: v for k, v in page_paths(db_path, profile).items() if k not in skipped}
+        if skipped:
+            entry["pages_skipped"] = dict(skipped)
+        box = {"srv": Server(db_path, store, str(out / "server.log"))}
+
+        def restart() -> int:
+            box["srv"].stop()
+            box["srv"] = Server(db_path, store, str(out / "server.log"))
+            return box["srv"].port
+
         try:
-            entry["pages_idle"] = time_pages(srv.port, pages, repeats=args.page_repeats, budget_s=args.page_budget_s,
-                                             timeout_s=args.page_timeout_s)
+            entry["pages_idle"] = time_pages(box["srv"].port, pages, repeats=args.page_repeats,
+                                             budget_s=args.page_budget_s, timeout_s=args.page_timeout_s,
+                                             restart=restart)
+            for name, v in entry["pages_idle"].items():
+                if v["timeouts"]:  # it would hold the lock through every later measurement
+                    skipped[name] = f"timed out ({args.page_timeout_s:g} s) at {entry['spans']:,} spans"
+            pages = {k: v for k, v in pages.items() if k not in skipped}
             log("  pages idle: " + ", ".join(f"{k} {v['p95_ms']}" for k, v in entry["pages_idle"].items()))
             save()
             ramp = []
             for rate in [float(r) for r in args.rates.split(",")]:
-                step = ingest_step(srv, profile, rate, args.step_seconds, args)
+                step = ingest_step(box["srv"], profile, rate, args.step_seconds, args)
                 ramp.append(step)
                 log(f"  ingest {rate:g} msg/s ({step['target_spans_per_s']:g} spans/s): achieved "
                     f"{step['achieved_spans_per_s']:g} spans/s, p99 {step['export_p99_ms']} ms, errors "
@@ -482,15 +501,16 @@ def run(args) -> dict:
                 entry["ingest"] = ramp
                 save()
                 if not step["steady"]:
+                    restart()  # drop the backlog of exports the server is still working through
                     break
             steady = [s for s in ramp if s["steady"]]
             best = steady[-1] if steady else None
             entry["max_steady_spans_per_s"] = best["achieved_spans_per_s"] if best else 0
             entry["max_steady_msgs_per_s"] = best["target_msgs_per_s"] if best else 0
             under_rate = best["target_msgs_per_s"] if best else ramp[0]["target_msgs_per_s"]
-            loop = PageLoop(srv.port, pages, args.page_timeout_s)
+            loop = PageLoop(box["srv"].port, pages, args.page_timeout_s)
             loop.start()
-            entry["ingest_under_pages"] = ingest_step(srv, profile, under_rate, args.under_load_seconds, args)
+            entry["ingest_under_pages"] = ingest_step(box["srv"], profile, under_rate, args.under_load_seconds, args)
             loop.halt.set()
             loop.join(args.page_timeout_s + 5)
             entry["pages_under_ingest"] = loop.result()
@@ -501,12 +521,12 @@ def run(args) -> dict:
             save()
             if args.sdk_seconds and size == max(parse_size(s) for s in args.sizes.split(",")):
                 sdk_rate = max(under_rate * 4, 5)
-                entry["sdk"] = loadgen.run_sdk(srv.otlp, profile, sdk_rate, args.sdk_seconds, settle_s=30)
+                entry["sdk"] = loadgen.run_sdk(box["srv"].otlp, profile, sdk_rate, args.sdk_seconds, settle_s=30)
                 entry["sdk"].pop("profile", None)
                 log(f"  SDK at {sdk_rate:g} msg/s: dropped {entry['sdk']['dropped_spans']} of "
                     f"{entry['sdk']['emitted_spans']} ({entry['sdk']['dropped_pct']}%)")
         finally:
-            srv.stop()
+            box["srv"].stop()
         entry["breakdown"] = breakdown(db_path, profile, store)
         log(f"  breakdown: {entry['breakdown']}")
         entry["file_mb_after"] = round(file_bytes(db_path) / 1e6, 1)
@@ -590,6 +610,9 @@ def summary(results: dict) -> str:
             for n in names:
                 a = idle.get(n, {}).get("p95_ms")
                 b = busy.get(n, {}).get("p95_ms")
+                if n in (e.get("pages_skipped") or {}):
+                    cells.append("skipped")
+                    continue
                 t = " (timeout)" if idle.get(n, {}).get("timeouts") or busy.get(n, {}).get("timeouts") else ""
                 cells.append(f"{a} / {b}{t}")
             lines.append(f"| {e['spans']:,} | " + " | ".join(cells) + " |")
@@ -629,7 +652,9 @@ def main(argv=None) -> None:
     p.add_argument("--processes", type=int, default=2)
     p.add_argument("--page-repeats", type=int, default=20)
     p.add_argument("--page-budget-s", type=float, default=60, help="stop repeating a page after this long")
-    p.add_argument("--page-timeout-s", type=float, default=300)
+    p.add_argument("--page-timeout-s", type=float, default=300,
+                   help="a page that takes longer restarts the server and is skipped at larger sizes")
+    p.add_argument("--skip-pages", default="", help="pages not to time, e.g. stuck,tenants")
     p.add_argument("--seed-days", type=float, default=7)
     p.add_argument("--growth-spans", type=int, default=200_000, help="0 skips the file growth measurement")
     p.add_argument("--sdk-seconds", type=float, default=30, help="0 skips the SDK drop measurement")
