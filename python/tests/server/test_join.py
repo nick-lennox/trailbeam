@@ -148,3 +148,30 @@ def test_rows_survive_a_restart(tmp_path):
     s.insert(decode(to_proto([c.delete(T0 + SEC, "rh-1")]).SerializeToString(), "").records)
     assert [(r["kind"], r["mid"]) for r in s.message_rows("m1")] == [("receive", "m1"), ("delete", "m1")]
     s.close()
+
+
+def test_join_queries_use_the_receipt_hash_index_whatever_the_statistics(tmp_path):
+    """QV-68: without ANALYZE, SQLite ran the settle join on spans_kind_time and scanned every receive.
+    The plan must be the spans_hash lookup on a new file, and stay so with statistics that favour another index."""
+    from trailbeam.server.db import RECEIVE_JOIN_SQL, SETTLE_JOIN_SQL, Database
+
+    db = Database(str(tmp_path / "t.sqlite"))
+
+    def plans():
+        return (" ".join(r[3] for r in db.conn.execute("EXPLAIN QUERY PLAN " + SETTLE_JOIN_SQL, ("h", "k", 0, 0))),
+                " ".join(r[3] for r in db.conn.execute("EXPLAIN QUERY PLAN " + RECEIVE_JOIN_SQL, ("m", 1, "h", "k"))))
+
+    settle, receive = plans()
+    assert "USING INDEX spans_hash (receipt_hmac=? AND key_id=?)" in settle and "kind_time" not in settle
+    assert "USING INDEX spans_hash (receipt_hmac=? AND key_id=?)" in receive
+    # statistics claiming every row has the same receipt hash, and kind is nearly unique
+    db.conn.execute("ANALYZE")
+    db.conn.execute("DELETE FROM sqlite_stat1")
+    db.conn.executemany("INSERT INTO sqlite_stat1 VALUES ('spans', ?, ?)",
+                        [("spans_hash", "10000000 10000000 10000000"), ("spans_kind_time", "10000000 1 1"),
+                         ("spans_mid", "10000000 3 1")])
+    db.close()
+    db = Database(str(tmp_path / "t.sqlite"))
+    settle, receive = plans()
+    assert "USING INDEX spans_hash" in settle and "USING INDEX spans_hash" in receive
+    db.close()

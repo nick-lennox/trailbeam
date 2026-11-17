@@ -50,7 +50,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import loadgen  # noqa: E402
 
-from trailbeam.server.db import RECORD_FIELDS, SETTLE_KINDS, Database, gate_body  # noqa: E402
+from trailbeam.server.db import (RECEIVE_JOIN_SQL, RECORD_FIELDS, SETTLE_JOIN_SQL, SETTLE_KINDS, Database,  # noqa: E402
+                                 gate_body)
 
 DAY_NS = 86_400 * 10 ** 9
 
@@ -365,10 +366,8 @@ def breakdown(db_path: str, profile, store_bodies, batches: int = 3) -> dict:
     stream = loadgen.Stream(profile, seed=4242 + span_count(db_path))
     dec = ins = 0.0
     spans = 0
-    plan = db.conn.execute(
-        "EXPLAIN QUERY PLAN SELECT row, message_id FROM spans WHERE kind = 'receive' AND receipt_hmac = ? "
-        "AND key_id = ? ORDER BY (time_ns <= ?) DESC, CASE WHEN time_ns <= ? THEN -time_ns ELSE time_ns END "
-        "LIMIT 1", ("x", "y", 0, 0)).fetchall()
+    plan = db.conn.execute("EXPLAIN QUERY PLAN " + SETTLE_JOIN_SQL, ("x", "y", 0, 0)).fetchall()
+    receive_plan = db.conn.execute("EXPLAIN QUERY PLAN " + RECEIVE_JOIN_SQL, ("m", 0, "x", "y")).fetchall()
     for _ in range(batches):
         body = loadgen.encode(stream.batch())
         s = time.perf_counter()
@@ -383,7 +382,8 @@ def breakdown(db_path: str, profile, store_bodies, batches: int = 3) -> dict:
     return {"spans_per_export": spans // batches, "decode_ms": per(dec), "insert_ms": per(ins),
             "join_settle_ms": per(timers["join_settle"]), "join_receive_ms": per(timers["join_receive"]),
             "insert_spans_per_s": round(spans / ins, 1) if ins else None,
-            "join_settle_plan": "; ".join(r[3] for r in plan)}
+            "join_settle_plan": "; ".join(r[3] for r in plan),
+            "join_receive_plan": "; ".join(r[3] for r in receive_plan)}
 
 
 # ---- growth and SDK drops -----------------------------------------------------------------
@@ -618,13 +618,15 @@ def summary(results: dict) -> str:
                 cells.append(f"{a} / {b}{t}")
             lines.append(f"| {e['spans']:,} | " + " | ".join(cells) + " |")
         lines += ["", "## Where an export's time goes (in-process, 512-span export)", "",
-                  "| DB spans | decode ms | insert ms | of which join_settle ms | join_receive ms | spans/s | settle join plan |",
-                  "|---|---|---|---|---|---|---|"]
+                  "| DB spans | decode ms | insert ms | of which join_settle ms | join_receive ms | spans/s | settle join plan "
+                  "| receive join plan |",
+                  "|---|---|---|---|---|---|---|---|"]
         for e in sizes:
             b = e.get("breakdown")
             if b:
                 lines.append(f"| {e['spans']:,} | {b['decode_ms']} | {b['insert_ms']} | {b['join_settle_ms']} | "
-                             f"{b['join_receive_ms']} | {b['insert_spans_per_s']} | {b['join_settle_plan']} |")
+                             f"{b['join_receive_ms']} | {b['insert_spans_per_s']} | {b['join_settle_plan']} | "
+                             f"{b.get('join_receive_plan', '-')} |")
         sdk = [e["sdk"] for e in sizes if e.get("sdk")]
         if sdk:
             s = sdk[-1]

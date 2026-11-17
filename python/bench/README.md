@@ -70,7 +70,8 @@ For each size, smallest first, growing the same SQLite file:
 4. **Pages under ingest.** The pages again, in a loop, while ingest runs at the highest steady rate. The
    export latency of that ingest is recorded too.
 5. **Breakdown.** Server stopped: where a 512-span export's time goes in-process. That covers decode,
-   `Database.insert` and its two join queries, plus the query plan of the settle join.
+   `Database.insert` and its two join queries, plus the query plans of both joins (the server's own SQL,
+   `db.SETTLE_JOIN_SQL` and `db.RECEIVE_JOIN_SQL`).
 
 Then the file growth per million spans with no bodies and with 1 KB (stored and not), 64 KB and 256 KB
 bodies (`--growth-spans`). The SDK drop count runs against the largest database (`--sdk-seconds`).
@@ -78,10 +79,10 @@ bodies (`--growth-spans`). The SDK drop count runs against the largest database 
 Output in `--out`: `results.json` (everything), `results.csv` (one row per measurement), `summary.md`, and
 `server.log`. Results are not committed.
 
-Seeding does the receipt-hash join in memory instead of through the server's `Database.insert`. The
-server's insert gets slower with every stored span, because the settle join's query does not use the
-receipt-hash index (QV-68), so it could not seed 1M spans in a reasonable time. The seeded rows are the
-same rows `insert` writes, column for column; `tests/test_bench_harness.py` checks that. The live ingest
+Seeding does the receipt-hash join in memory and writes rows in bulk instead of through the server's
+`Database.insert`, so it is faster than ingest (before QV-70 the settle join scanned every stored receive,
+and `insert` could not have seeded 1M spans at all). The seeded rows are the same rows `insert` writes,
+column for column; `tests/test_bench_harness.py` checks that. The live ingest
 in steps 3 and 4 goes through the real server.
 
 Disk: about 1 GB per million spans with 1 KB bodies on a tenth of the queues; `summary.md` has the measured

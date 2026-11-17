@@ -67,6 +67,7 @@ CREATE INDEX IF NOT EXISTS spans_kind_time ON spans (kind, time_ns);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
 SCHEMA_VERSION = "5"
+
 # Schema 1 had no start_ns. Its rows came from contract v1 spans, stamped only when the response arrived,
 # so their start is not known: they are migrated with start_ns NULL. Schema 2 had no call-order columns;
 # its rows came from contract v2 spans, which carry none, so they are migrated with NULLs. Schema 3 had no
@@ -80,6 +81,21 @@ _MIGRATIONS = {
     "3": ("4", ["ALTER TABLE spans ADD COLUMN dlq_source_arn TEXT"]),
     "4": ("5", ["ALTER TABLE spans ADD COLUMN body_dropped TEXT"]),
 }
+
+# The two receipt-hash joins run once per settle or receive span, inside the insert transaction, so they
+# must be index lookups at every size. INDEXED BY pins spans_hash: the server never runs ANALYZE, and without
+# statistics SQLite's planner picks spans_kind_time (kind=?) for the settle join, which scans every stored
+# receive (QV-68: 99.95% of insert time at 10M spans). With INDEXED BY the plan cannot change with the data,
+# the statistics or the SQLite version; if the index were ever missing the statement fails loudly instead of
+# scanning. A hash matches one delivery's receive and its settle spans, so the lookup returns a few rows.
+SETTLE_JOIN_SQL = """SELECT row, message_id FROM spans INDEXED BY spans_hash
+   WHERE kind = 'receive' AND receipt_hmac = ? AND key_id = ?
+   ORDER BY (time_ns <= ?) DESC,
+            CASE WHEN time_ns <= ? THEN -time_ns ELSE time_ns END
+   LIMIT 1"""
+RECEIVE_JOIN_SQL = """UPDATE spans INDEXED BY spans_hash SET mid = ?, mid_source = 'receipt_hash', receive_row = ?
+   WHERE kind IN ('delete', 'change_visibility') AND receive_row IS NULL
+     AND receipt_hmac = ? AND key_id = ?"""
 
 
 def parse_queue_list(text: str) -> frozenset:
@@ -166,24 +182,14 @@ class Database:
         """Join a new settle span to the receive that returned its receipt handle."""
         # SQS issues a new receipt handle for every delivery, so there is normally one match. If an
         # emulator reuses handles, take the latest receive at or before the settle, else the first.
-        rec = self.conn.execute(
-            """SELECT row, message_id FROM spans
-               WHERE kind = 'receive' AND receipt_hmac = ? AND key_id = ?
-               ORDER BY (time_ns <= ?) DESC,
-                        CASE WHEN time_ns <= ? THEN -time_ns ELSE time_ns END
-               LIMIT 1""",
-            (r["receipt_hmac"], r["key_id"], r["time_ns"], r["time_ns"])).fetchone()
+        rec = self.conn.execute(SETTLE_JOIN_SQL, (r["receipt_hmac"], r["key_id"], r["time_ns"], r["time_ns"])).fetchone()
         if rec is not None:
             self.conn.execute("UPDATE spans SET mid = ?, mid_source = 'receipt_hash', receive_row = ? WHERE row = ?",
                               (rec["message_id"], rec["row"], row))
 
     def _join_receive(self, row: int, r: dict) -> None:
         """Join settle spans that arrived before this receive."""
-        self.conn.execute(
-            """UPDATE spans SET mid = ?, mid_source = 'receipt_hash', receive_row = ?
-               WHERE kind IN ('delete', 'change_visibility') AND receive_row IS NULL
-                 AND receipt_hmac = ? AND key_id = ?""",
-            (r["message_id"], row, r["receipt_hmac"], r["key_id"]))
+        self.conn.execute(RECEIVE_JOIN_SQL, (r["message_id"], row, r["receipt_hmac"], r["key_id"]))
 
     # ---- reads ----------------------------------------------------------------------------
 
