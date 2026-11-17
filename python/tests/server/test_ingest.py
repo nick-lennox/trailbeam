@@ -1,5 +1,6 @@
 """OTLP/HTTP ingest: protobuf and JSON, gzip, and what is ignored or rejected."""
 import gzip
+import http.client
 import json
 import urllib.error
 import urllib.request
@@ -198,3 +199,61 @@ def test_a_schema_1_database_is_migrated_with_unknown_starts(tmp_path):
     assert s.query("SELECT value FROM meta WHERE key = 'schema_version'")[0][0] == "5"
     s.close()
     Database(path).close()  # opens again without migrating twice
+
+
+def post_chunked(url, chunks, encoding=None, conn=None):
+    """POST with Transfer-Encoding: chunked and no Content-Length, as the Node.js OTLP exporter does."""
+    host = url.split("//", 1)[1]
+    c = conn or http.client.HTTPConnection(host, timeout=5)
+    headers = {"Content-Type": "application/x-protobuf"}
+    if encoding:
+        headers["Content-Encoding"] = encoding
+    c.request("POST", "/v1/traces", body=iter(chunks), headers=headers, encode_chunked=True)
+    r = c.getresponse()
+    return r.status, r.read()
+
+
+def test_chunked_body_is_read(server, db):
+    """The Node.js exporter sends chunked bodies. They were read as empty and answered 200: every span lost."""
+    c = Consumer()
+    body = to_proto([c.receive(T0, "m1", "rh-1"), c.delete(T0 + SEC, "rh-1")]).SerializeToString()
+    assert post_chunked(server, [body[:7], body[7:20], body[20:]])[0] == 200
+    assert kinds(db) == [("receive", "m1"), ("delete", "m1")]
+    assert get(server, "/api/health")[1]["ingest"]["inserted"] == 2
+
+
+def test_chunked_gzip_and_keep_alive(server, db):
+    c = Consumer()
+    conn = http.client.HTTPConnection(server.split("//", 1)[1], timeout=5)
+    for i in range(3):  # one connection: each body must be read to its end, or the next request breaks
+        body = gzip.compress(to_proto([c.receive(T0 + i * SEC, f"m{i}", f"rh-{i}")]).SerializeToString())
+        assert post_chunked(server, [body[:5], body[5:]], encoding="gzip", conn=conn)[0] == 200
+    assert kinds(db) == [("receive", "m0"), ("receive", "m1"), ("receive", "m2")]
+
+
+@pytest.mark.parametrize("raw, status", [
+    (b"zz\r\nabc\r\n0\r\n\r\n", 400),         # not a hex size
+    (b"5\r\nabc\r\n0\r\n\r\n", 400),          # shorter than its size
+    (b"FFFFFFFF\r\n", 413),                     # over the body limit
+])
+def test_bad_chunked_bodies(server, raw, status):
+    import socket
+
+    host, port = server.split("//", 1)[1].split(":")
+    with socket.create_connection((host, int(port)), timeout=5) as s:
+        s.sendall(b"POST /v1/traces HTTP/1.1\r\nHost: x\r\nContent-Type: application/x-protobuf\r\n"
+                  b"Transfer-Encoding: chunked\r\n\r\n" + raw)
+        s.shutdown(socket.SHUT_WR)
+        reply = b""
+        while chunk := s.recv(4096):
+            reply += chunk
+    assert reply.split(b" ", 2)[1] == str(status).encode()
+
+
+def test_other_transfer_codings_are_refused(server):
+    import socket
+
+    host, port = server.split("//", 1)[1].split(":")
+    with socket.create_connection((host, int(port)), timeout=5) as s:
+        s.sendall(b"POST /v1/traces HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n")
+        assert s.recv(4096).split(b" ", 2)[1] == b"501"

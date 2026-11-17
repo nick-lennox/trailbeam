@@ -203,16 +203,53 @@ def make_handler(app: App):
         def _json(self, status: int, obj):
             self._send(status, "application/json", json.dumps(obj, indent=None).encode())
 
-        def _body(self) -> Optional[bytes]:
+        def _chunked(self) -> Optional[bytes]:
+            """A ``Transfer-Encoding: chunked`` body, as the Node.js OTLP exporter sends it (no Content-Length).
+            None after an error response. The connection is closed then: its stream position is lost."""
+            parts, total = [], 0
             try:
-                n = int(self.headers.get("Content-Length") or 0)
+                while True:
+                    size = int(self.rfile.readline(1024).split(b";", 1)[0].strip(), 16)
+                    if size < 0:
+                        raise ValueError
+                    total += size
+                    if total > MAX_BODY:
+                        self.close_connection = True
+                        self._send(413, "text/plain", b"request body too large")
+                        return None
+                    if size == 0:
+                        while self.rfile.readline(1024) not in (b"\r\n", b"\n", b""):
+                            pass  # trailer fields, ignored
+                        return b"".join(parts)
+                    chunk = self.rfile.read(size)
+                    if len(chunk) != size or self.rfile.readline(1024) not in (b"\r\n", b"\n"):
+                        raise ValueError
+                    parts.append(chunk)
             except ValueError:
-                n = -1
-            if n < 0 or n > MAX_BODY:
                 self.close_connection = True
-                self._send(413, "text/plain", b"request body too large or without a valid Content-Length")
+                self._send(400, "text/plain", b"malformed chunked request body")
                 return None
-            body = self.rfile.read(n)
+
+        def _body(self) -> Optional[bytes]:
+            te = (self.headers.get("Transfer-Encoding") or "").lower()
+            if te:
+                if te.strip() != "chunked":  # other transfer codings are not supported
+                    self.close_connection = True
+                    self._send(501, "text/plain", f"unsupported Transfer-Encoding {te}".encode())
+                    return None
+                body = self._chunked()  # takes precedence over any Content-Length (RFC 9112 6.3)
+                if body is None:
+                    return None
+            else:
+                try:
+                    n = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    n = -1
+                if n < 0 or n > MAX_BODY:
+                    self.close_connection = True
+                    self._send(413, "text/plain", b"request body too large or without a valid Content-Length")
+                    return None
+                body = self.rfile.read(n)
             enc = (self.headers.get("Content-Encoding") or "identity").lower()
             try:
                 if enc == "gzip":
