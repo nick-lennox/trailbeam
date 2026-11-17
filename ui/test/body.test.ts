@@ -59,3 +59,39 @@ test("the notes under producer not instrumented", () => {
   const odd: MessageBody = { ...legacy, reason: "unknown", sends: 1, send_status: "captured" };
   assert.ok(text(render(odd)).includes("The send's capture status is captured."));
 });
+
+const POINTER = '["software.amazon.payloadoffloading.PayloadS3Pointer",{"s3BucketName":"payloads-123456789012","s3Key":"61fc25e3-8ae5-4569-9189-43c27e5ba06f"}]';
+const keptPointer = {
+  body: POINTER, format: "json", redacted_count: 0, envelope: null, capture_status: "offloaded_to_s3",
+  from_kind: "send" as const, service: "checkout-api", queue: "orders", trace_id: "t1", span_id: "s1", time_unix_nano: "1",
+};
+const span = (kind: string, spanId: string, bodySize: number, offloadedSize?: number | null) => ({
+  kind, captureStatus: "offloaded_to_s3", bodySize, offloadedSize, tenant: null, tenantSource: null, bodyDropped: false, traceId: "t1", spanId,
+});
+
+test("bodyView: capture status and offloaded size of the kept span, else the first span with a size", async () => {
+  const { bodyView } = await import("../src/body/rules.ts");
+  const v = bodyView("m1", keptPointer, [span("send", "s1", 145, 300000), span("receive", "s2", 145, 7)], { sends: 1, receives: 1 });
+  assert.equal(v.kind, "body");
+  if (v.kind !== "body") return;
+  assert.equal(v.body.capture_status, "offloaded_to_s3");
+  assert.equal(v.offloaded_size, 300000);
+  const w = bodyView("m1", keptPointer, [span("receive", "s2", 145, 7), span("send", "s1", 145)], { sends: 1, receives: 1 });
+  assert.equal(w.kind === "body" && w.offloaded_size, 7);
+  const { capture_status: _, ...older } = keptPointer;
+  const x = bodyView("m1", older, [span("send", "s1", 145)], { sends: 1, receives: 0 });
+  assert.ok(x.kind === "body" && x.body.capture_status === null && x.offloaded_size === null);
+});
+
+test("an S3 pointer says the payload is in S3, with its size, and is not called redacted", () => {
+  const v: MessageBody = { message_id: "m1", kind: "body", body: keptPointer, size: 145, offloaded_size: 300000, tenant: null, tenant_source: null };
+  const t = text(render(v));
+  assert.ok(t.includes("The payload is in S3."), t);
+  assert.ok(t.includes("payload in S3: 300,000 bytes") && t.includes("pointer: 145 bytes"), t);
+  assert.ok(!t.includes("values redacted") && !t.includes("before redaction"), t);
+  assert.ok(t.includes("61fc25e3-8ae5-4569-9189-43c27e5ba06f"), "the pointer is drawn");
+  const unsized = text(render({ ...v, offloaded_size: null }));
+  assert.ok(unsized.includes("payload in S3") && !/null|undefined/.test(unsized));
+  const captured = text(render({ ...v, body: { ...keptPointer, capture_status: "captured" }, offloaded_size: null }));
+  assert.ok(!captured.includes("The payload is in S3.") && captured.includes("0 values redacted"));
+});

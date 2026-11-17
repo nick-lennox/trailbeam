@@ -81,6 +81,7 @@ def body_view(message_id: str, rows: list[sqlite3.Row], store_bodies: frozenset)
         return None, None
 
     size = first("messaging.message.body.size", _int)[1]
+    offloaded = first("trailbeam.body.offloaded_size", _int)[1]
     kept = kept_body(rows, store_bodies)
     if kept is not None:
         a = _attrs(kept)
@@ -93,6 +94,7 @@ def body_view(message_id: str, rows: list[sqlite3.Row], store_bodies: frozenset)
                 "format": _str(a.get("trailbeam.body.format")),
                 "redacted_count": _int(a.get("trailbeam.body.redacted_count")),
                 "envelope": _str(a.get("trailbeam.body.envelope")),
+                "capture_status": _str(a.get("trailbeam.body.capture_status")),
                 "from_kind": kept["kind"],
                 "service": kept["service_name"],
                 "queue": kept["queue"],
@@ -101,6 +103,8 @@ def body_view(message_id: str, rows: list[sqlite3.Row], store_bodies: frozenset)
                 "time_unix_nano": str(kept["time_ns"]),
             },
             "size": own if (own := _int(a.get("messaging.message.body.size"))) is not None else size,
+            "offloaded_size": (own_off if (own_off := _int(a.get("trailbeam.body.offloaded_size"))) is not None
+                               else offloaded),
             "tenant": tenant[:256] if tenant else None,
             "tenant_source": _str(_attrs(t_row).get("trailbeam.tenant.source")) if t_row is not None else None,
         }

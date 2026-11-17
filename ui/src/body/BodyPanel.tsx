@@ -19,6 +19,8 @@ export type BodyPanelProps = {
   hints?: Partial<Record<BodyReason, ReactNode>>;
 };
 
+const OFFLOADED = "offloaded_to_s3";
+
 const pretty = (b: string, format: string | null) => {
   if (format === "text") return b;
   try { return JSON.stringify(JSON.parse(b), null, 2); } catch { return b; }
@@ -40,11 +42,13 @@ export function BodyPanel({ view, access, hints = {} }: BodyPanelProps) {
     );
   }
   const b = view.body;
+  const offloaded = b.capture_status === OFFLOADED;
   const facts = [
     b.from_kind === "send" ? `From the send by ${b.service ?? "the producer"}` : `From a receive by ${b.service ?? "a consumer"}: the producer's copy was not captured`,
     b.format === "text" ? "Text" : "JSON",
-    view.size !== null ? `${bytes(view.size)} before redaction` : null,
-    b.redacted_count !== null ? `${b.redacted_count} ${b.redacted_count === 1 ? "value" : "values"} redacted` : null,
+    offloaded ? (view.offloaded_size !== null ? `payload in S3: ${bytes(view.offloaded_size)}` : "payload in S3") : null,
+    view.size !== null ? (offloaded ? `pointer: ${bytes(view.size)}` : `${bytes(view.size)} before redaction`) : null,
+    b.redacted_count !== null && !offloaded ? `${b.redacted_count} ${b.redacted_count === 1 ? "value" : "values"} redacted` : null,
     b.envelope ? `${b.envelope === "sns" ? "SNS" : b.envelope === "eventbridge" ? "EventBridge" : b.envelope} envelope` : null,
     view.tenant ? `tenant ${view.tenant}${view.tenant_source === "body_path" ? " (from the body)" : view.tenant_source === "message_attribute" ? " (from a message attribute)" : ""}` : null,
   ].filter(Boolean);
@@ -55,11 +59,19 @@ export function BodyPanel({ view, access, hints = {} }: BodyPanelProps) {
         <span className="text-sm text-sky-ink-3">{access}</span>
         <p className="w-full font-mono text-caption text-sky-ink-3">{facts.join(" · ")}</p>
       </div>
+      {offloaded && (
+        <p className="max-w-[72ch] px-5 pb-3 text-[15px] leading-[1.55] text-sky-ink-2 md:px-7" data-body-offloaded="">
+          The payload is in S3. This body is the SQS Extended Client's pointer to it: the bucket and the key.
+          Trailbeam and its packages never fetch the payload.
+        </p>
+      )}
       <pre className="max-h-[32rem] overflow-auto border-y border-sky-line bg-sky p-4 font-mono text-caption leading-5 whitespace-pre-wrap break-words text-sky-ink-2 md:px-7">
         {pretty(b.body, b.format)}
       </pre>
       <p className="px-5 py-3 text-sm text-sky-ink-3 md:px-7">
-        As stored, after the package redacted it. Redaction removes what its keys and patterns describe, and nothing else.
+        {offloaded
+          ? "As stored. The package does not redact a pointer: it holds no payload, and redaction would change the S3 key it names."
+          : "As stored, after the package redacted it. Redaction removes what its keys and patterns describe, and nothing else."}
       </p>
     </section>
   );

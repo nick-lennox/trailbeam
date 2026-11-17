@@ -221,6 +221,7 @@
       "format": "json",
       "redacted_count": 3,
       "envelope": null,
+      "capture_status": "captured",
       "from_kind": "send",
       "service": "checkout-api",
       "queue": "orders",
@@ -229,6 +230,7 @@
       "time_unix_nano": "1794852336910000000"
      },
      "size": 135,
+     "offloaded_size": null,
      "tenant": "acme",
      "tenant_source": "message_attribute"
     },
@@ -240,6 +242,7 @@
       "format": "json",
       "redacted_count": 1,
       "envelope": null,
+      "capture_status": "captured",
       "from_kind": "send",
       "service": "checkout-api",
       "queue": "orders",
@@ -248,6 +251,7 @@
       "time_unix_nano": "1794852336913000000"
      },
      "size": 85,
+     "offloaded_size": null,
      "tenant": "globex",
      "tenant_source": "body_path"
     },
@@ -259,6 +263,7 @@
       "format": "json",
       "redacted_count": 0,
       "envelope": null,
+      "capture_status": "captured",
       "from_kind": "receive",
       "service": "orders-worker",
       "queue": "orders",
@@ -267,6 +272,7 @@
       "time_unix_nano": "1794852337039000000"
      },
      "size": 57,
+     "offloaded_size": null,
      "tenant": "hooli",
      "tenant_source": "body_path"
     },
@@ -370,6 +376,7 @@
       "format": "json",
       "redacted_count": 0,
       "envelope": null,
+      "capture_status": "captured",
       "from_kind": "receive",
       "service": "billing-fn",
       "queue": "billing",
@@ -378,6 +385,7 @@
       "time_unix_nano": "1794852337459000000"
      },
      "size": 44,
+     "offloaded_size": null,
      "tenant": "acme",
      "tenant_source": "body_path"
     },
@@ -389,6 +397,7 @@
       "format": "json",
       "redacted_count": 0,
       "envelope": null,
+      "capture_status": "captured",
       "from_kind": "receive",
       "service": "billing-fn",
       "queue": "billing",
@@ -397,6 +406,7 @@
       "time_unix_nano": "1794852337459000000"
      },
      "size": 46,
+     "offloaded_size": null,
      "tenant": "globex",
      "tenant_source": "body_path"
     },
@@ -438,6 +448,7 @@
       "format": "json",
       "redacted_count": 3,
       "envelope": null,
+      "capture_status": "captured",
       "from_kind": "send",
       "service": "checkout-api",
       "queue": "orders",
@@ -446,6 +457,7 @@
       "time_unix_nano": "1794852336910000000"
      },
      "size": 135,
+     "offloaded_size": null,
      "tenant": "acme",
      "tenant_source": "message_attribute"
     },
@@ -457,6 +469,7 @@
       "format": "json",
       "redacted_count": 1,
       "envelope": null,
+      "capture_status": "captured",
       "from_kind": "send",
       "service": "checkout-api",
       "queue": "orders",
@@ -465,6 +478,7 @@
       "time_unix_nano": "1794852336913000000"
      },
      "size": 85,
+     "offloaded_size": null,
      "tenant": "globex",
      "tenant_source": "body_path"
     },
@@ -476,6 +490,7 @@
       "format": "json",
       "redacted_count": 0,
       "envelope": null,
+      "capture_status": "captured",
       "from_kind": "receive",
       "service": "orders-worker",
       "queue": "orders",
@@ -484,6 +499,7 @@
       "time_unix_nano": "1794852337039000000"
      },
      "size": 57,
+     "offloaded_size": null,
      "tenant": "hooli",
      "tenant_source": "body_path"
     },
@@ -619,6 +635,7 @@
       "format": "json",
       "redacted_count": 3,
       "envelope": null,
+      "capture_status": "captured",
       "from_kind": "receive",
       "service": "orders-worker",
       "queue": "orders",
@@ -627,6 +644,7 @@
       "time_unix_nano": "1794852337039000000"
      },
      "size": 135,
+     "offloaded_size": null,
      "tenant": "acme",
      "tenant_source": "message_attribute"
     },
@@ -638,6 +656,7 @@
       "format": "json",
       "redacted_count": 1,
       "envelope": null,
+      "capture_status": "captured",
       "from_kind": "receive",
       "service": "orders-worker",
       "queue": "orders",
@@ -646,6 +665,7 @@
       "time_unix_nano": "1794852337039000000"
      },
      "size": 85,
+     "offloaded_size": null,
      "tenant": "globex",
      "tenant_source": "body_path"
     },
@@ -657,6 +677,7 @@
       "format": "json",
       "redacted_count": 0,
       "envelope": null,
+      "capture_status": "captured",
       "from_kind": "receive",
       "service": "orders-worker",
       "queue": "orders",
@@ -665,6 +686,7 @@
       "time_unix_nano": "1794852337039000000"
      },
      "size": 57,
+     "offloaded_size": null,
      "tenant": "hooli",
      "tenant_source": "body_path"
     },

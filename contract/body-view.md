@@ -45,6 +45,7 @@ With a body:
     "format": "json",
     "redacted_count": 3,
     "envelope": null,
+    "capture_status": "captured",
     "from_kind": "send",
     "service": "checkout-api",
     "queue": "orders",
@@ -53,6 +54,7 @@ With a body:
     "time_unix_nano": "1763312345678901234"
   },
   "size": 135,
+  "offloaded_size": null,
   "tenant": "acme",
   "tenant_source": "message_attribute"
 }
@@ -61,8 +63,15 @@ With a body:
 - `body`: the body as stored, after the package redacted it. `format` is `json` or `text`,
   `envelope` is `sns`, `eventbridge` or null (contract 15.2). `from_kind`, `service`, `queue`, the
   IDs and `time_unix_nano` (the span's end) say which span it came from.
+- `capture_status`: `trailbeam.body.capture_status` of that span: `captured`, or `offloaded_to_s3`
+  when the body is an SQS Extended Client pointer (contract 15.4). Then `body` is the pointer, not
+  the payload: the payload is in S3, and neither the packages nor Trailbeam fetch it. The view says
+  so, and gives the payload's size. A pointer is not redacted (contract 15.3). Null if the span has
+  no status.
 - `size`: `messaging.message.body.size` from that span, the body's size **before** redaction; if
-  that span has none, the message's size as below.
+  that span has none, the message's size as below. For a pointer, this is the pointer's size.
+- `offloaded_size`: `trailbeam.body.offloaded_size` from that span, else from the first span that
+  has it, sends first: the size of the payload in S3. Null when the spans don't give one.
 - `tenant`, `tenant_source`: `trailbeam.tenant` and `trailbeam.tenant.source` from the first span
   that has a tenant, sends first.
 

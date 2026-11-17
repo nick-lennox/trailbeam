@@ -183,3 +183,29 @@ def test_messages_page_says_when_the_server_keeps_no_bodies():
         httpd.shutdown()
         httpd.server_close()
         db.close()
+
+
+POINTER = ('["software.amazon.payloadoffloading.PayloadS3Pointer",{"s3BucketName":"payloads-123456789012",'
+           '"s3Key":"61fc25e3-8ae5-4569-9189-43c27e5ba06f"}]')
+
+
+def _row(row, kind, attributes, span_id):
+    return {"row": row, "kind": kind, "attributes": json.dumps(attributes), "queue": "orders", "service_name": "svc",
+            "trace_id": "t1", "span_id": span_id, "time_ns": row, "body_dropped": None}
+
+
+def test_a_kept_s3_pointer_has_its_capture_status_and_offloaded_size():
+    pointer = {"trailbeam.body": POINTER, "trailbeam.body.format": "json", "trailbeam.body.redacted_count": 0,
+               "trailbeam.body.capture_status": "offloaded_to_s3", "messaging.message.body.size": 145}
+    rows = [_row(1, "send", {**pointer, "trailbeam.body.offloaded_size": 300000}, "s1"),
+            _row(2, "receive", {**pointer, "trailbeam.body.offloaded_size": 7}, "s2")]
+    v = bodies.body_view("m1", rows, frozenset(["orders"]))
+    assert (v["kind"], v["body"]["capture_status"], v["offloaded_size"], v["size"]) == (
+        "body", "offloaded_to_s3", 300000, 145)
+    # The kept span has no size: the first span with one, sends first.
+    rows = [_row(1, "send", pointer, "s1"), _row(2, "receive", {**pointer, "trailbeam.body.offloaded_size": 7}, "s2")]
+    assert bodies.body_view("m1", rows, frozenset(["orders"]))["offloaded_size"] == 7
+    # A span from a store with no status.
+    old = {k: v for k, v in pointer.items() if k != "trailbeam.body.capture_status"}
+    v = bodies.body_view("m1", [_row(1, "send", old, "s1")], frozenset(["orders"]))
+    assert (v["body"]["capture_status"], v["offloaded_size"]) == (None, None)
