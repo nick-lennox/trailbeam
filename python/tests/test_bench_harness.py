@@ -1,0 +1,70 @@
+"""The benchmark harness (bench/harness.py): its seeding writes the rows the server's insert writes, and a
+small run completes and writes its result files."""
+import json
+import sqlite3
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bench"))
+
+import harness  # noqa: E402
+import loadgen  # noqa: E402
+
+from trailbeam.server.db import Database  # noqa: E402
+
+PROFILE = loadgen.Profile(queues=6, tenants=4, body_size=300, body_queues=2, redelivery=0.2, visibility_change=0.2,
+                          dlq=0.1, stuck=0.1, lambda_consumer=0.3, late_join=0.4, batch_spans=40)
+
+
+def rows(path):
+    c = sqlite3.connect(path)
+    c.row_factory = sqlite3.Row
+    out = [dict(r) for r in c.execute("SELECT * FROM spans ORDER BY row")]
+    c.close()
+    return out
+
+
+def test_seeding_writes_the_rows_insert_writes(tmp_path):
+    store = loadgen.body_queue_names(PROFILE)
+    by_insert, by_seed = str(tmp_path / "insert.sqlite"), str(tmp_path / "seed.sqlite")
+    db = Database(by_insert, store_bodies=store)
+    s = harness.Seeder(by_seed, store)
+    for batch in loadgen.Stream(PROFILE, seed=9).batches_of_messages(400):
+        recs = loadgen.records(batch)
+        db.insert(recs)
+        s.write(loadgen.records(batch))
+    db.close()
+    s.close()
+    a, b = rows(by_insert), rows(by_seed)
+    assert len(a) > 1000
+    assert a == b
+    assert any(r["mid_source"] == "receipt_hash" for r in a) and any(r["body_dropped"] for r in a)
+
+
+def test_seed_grows_a_file_in_steps(tmp_path):
+    path = str(tmp_path / "grow.sqlite")
+    first = harness.seed(path, 3000, PROFILE, log=lambda *_: None)
+    assert first["spans"] >= 3000
+    second = harness.seed(path, 6000, PROFILE, log=lambda *_: None)
+    assert second["spans"] >= 6000 and second["added"] > 0
+    assert harness.span_count(path) == second["spans"]
+    assert Database(path).counts()["unjoined_settles"] == 0
+
+
+def test_a_small_run(tmp_path):
+    out = tmp_path / "out"
+    harness.main(["--out", str(out), "--sizes", "2k", "--rates", "2,5", "--step-seconds", "2",
+                  "--under-load-seconds", "2", "--page-repeats", "2", "--growth-spans", "2000",
+                  "--sdk-seconds", "1", "--processes", "1", "--queues", "5", "--tenants", "3", "--body-queues", "2"])
+    res = json.loads((out / "results.json").read_text())
+    size = res["sizes"][0]
+    assert size["spans"] >= 2000
+    assert set(size["pages_idle"]) == {"messages", "messages_one_queue", "message_detail", "duplicates", "stuck",
+                                       "tenants", "tenant_search", "body_search"}
+    assert all(v["errors"] == 0 for v in size["pages_idle"].values())
+    assert size["ingest"][0]["errors"] == 0
+    assert size["breakdown"]["insert_ms"] > 0
+    assert size["sdk"]["emitted_spans"] > 0
+    assert len(res["growth"]) == 5
+    assert "## Ingest" in (out / "summary.md").read_text()
+    assert (out / "results.csv").read_text().startswith("db_spans")

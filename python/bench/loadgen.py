@@ -63,6 +63,7 @@ class Profile:
     tenants: int = 20                # 0 = no trailbeam.tenant attribute; Zipf-like spread over the tenants
     services: int = 8                # producer/consumer processes (resource service.name, client IDs)
     body_size: int = 0               # bytes of trailbeam.body on send and receive spans; 0 = no body captured
+    body_queues: int = 0             # bodies only on the first N queues (the ones a package captures); 0 = all
     redelivery: float = 0.05         # a delivery's visibility timeout expires and SQS delivers it again
     visibility_change: float = 0.05  # a delivery is released early with ChangeMessageVisibility 0
     dlq: float = 0.01                # the message fails max_receive_count deliveries and moves to the DLQ
@@ -90,6 +91,16 @@ class GenSpan:
     late: bool = False  # a receive held back so its settle spans arrive first
 
 
+def queue_names(profile: Profile) -> list[str]:
+    return [f"bench-q{i:03d}" for i in range(max(1, profile.queues))]
+
+
+def body_queue_names(profile: Profile) -> list[str]:
+    """The queues whose messages carry a body: give these to the server's TRAILBEAM_STORE_BODIES."""
+    names = queue_names(profile)
+    return names[:profile.body_queues] if profile.body_queues else names
+
+
 def _arn(queue: str) -> str:
     return f"arn:aws:sqs:{REGION}:{ACCOUNT}:{queue}"
 
@@ -105,7 +116,7 @@ class MessageFactory:
         self.p = profile
         self.rng = random.Random(seed)
         self.worker = worker
-        self.queues = [f"bench-q{i:03d}" for i in range(max(1, profile.queues))]
+        self.queues = queue_names(profile)
         self.tenants = [f"tenant-{i:03d}" for i in range(profile.tenants)]
         # Zipf-like weights: a few big tenants and a long tail, as on a real multi-tenant queue
         self.tenant_weights = [1 / (i + 1) for i in range(profile.tenants)]
@@ -158,7 +169,8 @@ class MessageFactory:
         tenant = rng.choices(self.tenants, self.tenant_weights)[0] if self.tenants else None
         mid = f"{self._hex(4)}-{self._hex(2)}-{self._hex(2)}-{self._hex(2)}-{self._hex(6)}"
         trace = self._bytes(16)
-        body = self.body(tenant, p.body_size) if p.body_size else None
+        captured = p.body_size and (not p.body_queues or self.queues.index(queue) < p.body_queues)
+        body = self.body(tenant, p.body_size) if captured else None
         body_len = len(body) if body else 200 + rng.randrange(800)
         producer = rng.randrange(len(self.client_ids))
         spans: list[GenSpan] = []
@@ -497,7 +509,7 @@ def health(url: str) -> Optional[dict]:
     """The Trailbeam server's /api/health next to an OTLP URL, or None if it is not a Trailbeam server."""
     u = urlsplit(url)
     try:
-        c = http.client.HTTPConnection(u.hostname, u.port or 80, timeout=30)
+        c = http.client.HTTPConnection(u.hostname, u.port or 80, timeout=600)  # counts the whole table
         c.request("GET", "/api/health")
         r = c.getresponse()
         return json.loads(r.read()) if r.status == 200 else None
@@ -506,9 +518,15 @@ def health(url: str) -> Optional[dict]:
 
 
 def run(url: str, profile: Profile, rate: float, duration: float, *, concurrency: int = 4, processes: int = 1,
-        timeout: float = 10.0, seed: int = 1, grace: float = 30.0) -> dict:
-    """Send ``rate`` messages/s for ``duration`` s. Returns achieved rates and export latency percentiles."""
+        timeout: float = 10.0, seed: int = 1, grace: float = 30.0, schedule_delay: float = 5.0) -> dict:
+    """Send ``rate`` messages/s for ``duration`` s. Returns achieved rates and export latency percentiles.
+
+    Like BatchSpanProcessor, an export is sent when it has ``batch_spans`` spans or every
+    ``schedule_delay`` seconds, whichever comes first: at low rates the batches are smaller."""
     spm = profile.mean_spans_per_message()
+    per_process = rate * spm / processes
+    profile = Profile(**{**asdict(profile),
+                         "batch_spans": max(1, min(profile.batch_spans, round(per_process * schedule_delay)))})
     ctx = multiprocessing.get_context("spawn")
     q = ctx.Queue()
     procs = [ctx.Process(target=_worker, args=({"profile": asdict(profile), "worker": w, "rate": rate / processes,
@@ -540,7 +558,8 @@ def run(url: str, profile: Profile, rate: float, duration: float, *, concurrency
         "export_max_ms": _ms(max(lat) if lat else None),
         "behind_p99_s": round(percentile(behind, 0.99) or 0, 3), "behind_max_s": round(max(behind or [0]), 3),
         "mb_per_s": round(sum(p["bytes_ok"] for p in parts) / elapsed / 1e6, 2) if elapsed else 0,
-        "profile": asdict(profile), "concurrency": concurrency, "processes": processes,
+        "batch_spans": profile.batch_spans, "profile": asdict(profile), "concurrency": concurrency,
+        "processes": processes,
     }
 
 
@@ -562,6 +581,23 @@ def run_sdk(url: str, profile: Profile, rate: float, duration: float, *, seed: i
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
     from opentelemetry.sdk.trace.sampling import ALWAYS_ON
 
+    import logging
+
+    class Count(logging.Handler):
+        def __init__(self):
+            super().__init__(logging.WARNING)
+            self.queue_full = self.export_failed = 0
+
+        def emit(self, record):
+            m = record.getMessage()
+            if "Queue full" in m:
+                self.queue_full += 1  # one warning per span the BatchSpanProcessor dropped
+            elif "export" in m.lower() and ("fail" in m.lower() or "timeout" in m.lower()):
+                self.export_failed += 1
+
+    counter = Count()
+    otel_log = logging.getLogger("opentelemetry")
+    otel_log.addHandler(counter)
     before = health(url)
     if before is None:
         raise SystemExit("--sdk needs a Trailbeam server at the URL (it reads /api/health to count received spans)")
@@ -587,6 +623,7 @@ def run_sdk(url: str, profile: Profile, rate: float, duration: float, *, seed: i
     emit_elapsed = time.monotonic() - t0
     flushed = provider.force_flush(int(settle_s * 1000))
     provider.shutdown()
+    otel_log.removeHandler(counter)
     after = health(url)
     received = (after["ingest"]["inserted"] + after["ingest"]["duplicates"]) - (
         before["ingest"]["inserted"] + before["ingest"]["duplicates"])
@@ -594,6 +631,7 @@ def run_sdk(url: str, profile: Profile, rate: float, duration: float, *, seed: i
             "emitted_spans": emitted, "emit_spans_per_s": round(emitted / emit_elapsed, 1),
             "received_spans": received, "dropped_spans": emitted - received,
             "dropped_pct": round(100 * (emitted - received) / emitted, 2) if emitted else 0,
+            "dropped_queue_full": counter.queue_full, "failed_export_warnings": counter.export_failed,
             "flushed_in_time": flushed, "max_queue_size": max_queue_size or 2048, "profile": asdict(profile)}
 
 
@@ -620,6 +658,7 @@ def add_profile_args(p: argparse.ArgumentParser) -> None:
     for f in ("redelivery", "visibility_change", "dlq", "stuck", "lambda_consumer", "late_join"):
         p.add_argument("--" + f.replace("_", "-"), type=float, default=getattr(d, f),
                        help=f"fraction (default {getattr(d, f)})")
+    p.add_argument("--body-queues", type=int, default=0, help="bodies only on the first N queues (default: all)")
     p.add_argument("--max-receive-count", type=int, default=d.max_receive_count)
     p.add_argument("--late-by-batches", type=int, default=d.late_by_batches)
     p.add_argument("--batch-spans", type=int, default=d.batch_spans, help="spans per export (default 512)")
