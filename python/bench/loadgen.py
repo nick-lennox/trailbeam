@@ -513,7 +513,7 @@ def health(url: str) -> Optional[dict]:
     """The Trailbeam server's /api/health next to an OTLP URL, or None if it is not a Trailbeam server."""
     u = urlsplit(url)
     try:
-        c = http.client.HTTPConnection(u.hostname, u.port or 80, timeout=600)  # counts the whole table
+        c = http.client.HTTPConnection(u.hostname, u.port or 80, timeout=600)  # servers before QV-70 counted the table
         c.request("GET", "/api/health")
         r = c.getresponse()
         return json.loads(r.read()) if r.status == 200 else None
@@ -589,8 +589,8 @@ def run_sdk(url: str, profile: Profile, rate: float, duration: float, *, seed: O
     the packages do (trailbeam._emitter), and count where each span went. The exporter is wrapped, so the
     SDK's own view needs no server: spans exported, spans in a failed export (the processor drops those),
     and spans never exported (dropped because the queue was full, or not flushed in time). Against a
-    Trailbeam server, /api/health also gives the spans it received; if it can't answer (it counts the whole
-    table, behind the ingest lock), those fields are None."""
+    Trailbeam server, /api/health also gives the spans it received; if it can't answer (servers before QV-70
+    counted the whole table there, behind the ingest lock), those fields are None."""
     from opentelemetry import trace as otrace
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.sdk.resources import Resource

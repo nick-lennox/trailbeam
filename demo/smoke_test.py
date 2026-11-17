@@ -67,7 +67,7 @@ def main():
             break
         time.sleep(5)
     health = get(a.base, "/api/health")
-    print(json.dumps(health["data"]), json.dumps(health["ingest"]))
+    print(json.dumps(get(a.base, "/api/stats")["data"]), json.dumps(health["ingest"]))
     for w in sorted(WANT):
         print(("ok      " if w in found else "MISSING ") + w)
     ok = found >= WANT and health["ingest"]["rejected"] == 0

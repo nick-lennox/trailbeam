@@ -186,7 +186,7 @@ class Server:
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
             try:
-                get(self.port, "/api/none", timeout=5)  # a 404 straight away: no table scan, unlike /api/health
+                get(self.port, "/api/none", timeout=5)  # a 404 straight away, also from servers before QV-70, whose /api/health counted the table
                 return
             except OSError:
                 if self.proc.poll() is not None:

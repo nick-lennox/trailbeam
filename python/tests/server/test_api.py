@@ -79,7 +79,8 @@ def test_bad_parameters(server, path):
     assert status == 400 and body["error"]
 
 
-@pytest.mark.parametrize("path", ["/api/messages/a/b", "/api/stuck/x", "/api/duplicates/x", "/api/health/x", "/api/"])
+@pytest.mark.parametrize("path", ["/api/messages/a/b", "/api/stuck/x", "/api/duplicates/x", "/api/health/x",
+                                  "/api/stats/x", "/api/"])
 def test_unknown_endpoints(server, path):
     assert get(server, path)[0] == 404
 

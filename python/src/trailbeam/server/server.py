@@ -48,8 +48,8 @@ class App:
         self.stats_lock = threading.Lock()
         self.stats = {"requests": 0, "inserted": 0, "duplicates": 0, "ignored": 0, "rejected": 0}
         self.routes: dict[str, Callable[[dict, list[str]], object]] = {
-            "health": self.health, "messages": self.messages, "duplicates": self.duplicates, "stuck": self.stuck,
-            "tenants": self.tenants}
+            "health": self.health, "stats": self.stats_counts, "messages": self.messages, "duplicates": self.duplicates,
+            "stuck": self.stuck, "tenants": self.tenants}
 
     # ---- OTLP ingest ----------------------------------------------------------------------
 
@@ -88,14 +88,24 @@ class App:
         return self.routes[parts[0]](query, parts[1:])
 
     def health(self, query: dict, rest: list[str]) -> dict:
+        """Cheap at any size: the ingest counters since start, the configuration, and one indexed read on a
+        read connection (``last_row``), so it answers while an export is being written. The exact counts,
+        which read the whole table, are ``/api/stats``."""
         if rest:
             raise ApiError(404, "no such endpoint")
         with self.stats_lock:
             ingest = dict(self.stats)
-        return {"status": "ok", "version": __version__, "ingest": ingest, "data": self.db.counts(),
+        return {"status": "ok", "version": __version__, "ingest": ingest, "data": {"last_row": self.db.last_row()},
                 "config": {"stuck_after_s": self.stuck_after_s, "lambda_timeout_s": self.lambda_timeout_s,
                            "max_receive_counts": self.max_receive_counts,
                            "store_bodies": sorted(self.db.store_bodies)}}
+
+    def stats_counts(self, query: dict, rest: list[str]) -> dict:
+        """``/api/stats``: spans by kind, messages and settle spans not joined yet. Exact, so it reads the whole
+        table (seconds at 10M spans), on a read connection: ingest and pages don't wait for it."""
+        if rest:
+            raise ApiError(404, "no such endpoint")
+        return {"data": self.db.counts()}
 
     def _lambda_timeout(self, q: dict) -> int:
         return _int(q, "lambda_timeout_s", self.lambda_timeout_s, 1, 86_400)

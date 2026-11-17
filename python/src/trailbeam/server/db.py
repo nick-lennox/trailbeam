@@ -248,8 +248,14 @@ class Database:
         with self.reader() as c:
             return c.execute(sql, params).fetchall()
 
+    def last_row(self) -> int:
+        """The highest row ID stored, 0 if none: one step down the primary key. Rows are never deleted yet,
+        so it is also the number of spans stored."""
+        with self.reader() as c:
+            return c.execute("SELECT MAX(row) FROM spans").fetchone()[0] or 0
+
     def counts(self) -> dict:
-        """Exact counts. Each one reads the whole table: seconds at 10M spans."""
+        """Exact counts (``/api/stats``). Each one reads the whole table: seconds at 10M spans."""
         with self.reader() as c:
             kinds = {k: n for k, n in c.execute("SELECT kind, COUNT(*) FROM spans GROUP BY kind")}
             unjoined = c.execute(
