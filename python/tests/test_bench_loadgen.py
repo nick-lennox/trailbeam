@@ -145,3 +145,25 @@ def test_run_sdk_counts_failed_exports_without_server_counts(server):
     assert res["emitted_spans"] > 0 and res["exported_spans"] == 0
     assert res["failed_export_spans"] == res["dropped_spans"] == res["emitted_spans"]
     assert res["received_spans"] == 0
+
+
+@pytest.mark.parametrize("processor", ["trailbeam", "stock"])
+def test_run_sdk_processors_without_drops(server, processor):
+    url, db = server
+    res = loadgen.run_sdk(url, loadgen.Profile(), rate=50, duration=1, settle_s=10, processor=processor)
+    assert res["processor"] == processor and res["dropped_spans"] == 0
+    assert res["received_spans"] == res["emitted_spans"] > 0
+    if processor == "trailbeam":
+        assert res["max_queue_size"] == 16384
+        assert res["trailbeam_dropped"] == res["logged_dropped"] == res["drop_log_lines"] == 0
+
+
+def test_run_sdk_trailbeam_counter_and_log_match_real_drops(server):
+    url, db = server
+    # a 404 is not retried: every export fails. The counter and its log lines must say exactly how many.
+    res = loadgen.run_sdk(url.replace("/v1/traces", "/v1/nowhere"), loadgen.Profile(), rate=50, duration=1,
+                          settle_s=10)
+    assert res["dropped_spans"] == res["emitted_spans"] > 0
+    assert res["trailbeam_dropped"] == res["logged_dropped"] == res["dropped_spans"]
+    assert res["trailbeam_dropped_by_reason"]["export_failed"] == res["dropped_spans"]
+    assert res["drop_log_lines"] >= 1
