@@ -10,10 +10,11 @@ from typing import Optional
 from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import SpanProcessor, TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
+from opentelemetry.sdk.trace.export import SpanExporter
 from opentelemetry.sdk.trace.sampling import ALWAYS_ON
 
 from . import __version__, _order
+from ._export import CountingSpanProcessor
 from ._contract import (
     DEFAULT_ENDPOINT,
     ENDPOINT_ENV,
@@ -32,7 +33,9 @@ def make_provider(
 ) -> TracerProvider:
     """An always-on provider of our own, so the application's sampling never drops Trailbeam spans.
 
-    Exports OTLP/HTTP to $TRAILBEAM_OTLP_TRACES_ENDPOINT unless an exporter or processor is given.
+    Exports OTLP/HTTP to $TRAILBEAM_OTLP_TRACES_ENDPOINT unless an exporter or processor is given. Without
+    a processor, spans go through a ``CountingSpanProcessor``: a batch queue of $TRAILBEAM_MAX_QUEUE_SIZE
+    spans (default 16,384) that counts and logs every span it drops (``trailbeam.export_stats()``).
     ``service.instance.id`` comes from OTEL_RESOURCE_ATTRIBUTES if set, else a UUID v4 per provider.
     """
     resource = Resource.create({})  # reads OTEL_SERVICE_NAME and OTEL_RESOURCE_ATTRIBUTES
@@ -47,7 +50,7 @@ def make_provider(
             from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
             span_exporter = OTLPSpanExporter(endpoint=os.environ.get(ENDPOINT_ENV) or DEFAULT_ENDPOINT)
-        span_processor = BatchSpanProcessor(span_exporter)
+        span_processor = CountingSpanProcessor(span_exporter)
     provider.add_span_processor(span_processor)
     return provider
 
