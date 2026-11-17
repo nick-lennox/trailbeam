@@ -521,12 +521,21 @@ def health(url: str) -> Optional[dict]:
         return None
 
 
+def new_seed() -> int:
+    return random.SystemRandom().randrange(1, 2 ** 40)
+
+
 def run(url: str, profile: Profile, rate: float, duration: float, *, concurrency: int = 4, processes: int = 1,
-        timeout: float = 10.0, seed: int = 1, grace: float = 30.0, schedule_delay: float = 5.0) -> dict:
+        timeout: float = 10.0, seed: Optional[int] = None, grace: float = 30.0,
+        schedule_delay: float = 5.0) -> dict:
     """Send ``rate`` messages/s for ``duration`` s. Returns achieved rates and export latency percentiles.
+
+    ``seed`` fixes the span and trace IDs. Leave it unset for new IDs on every call: the server skips a
+    span it already stored, so a rerun with the same seed resends duplicates and measures almost nothing.
 
     Like BatchSpanProcessor, an export is sent when it has ``batch_spans`` spans or every
     ``schedule_delay`` seconds, whichever comes first: at low rates the batches are smaller."""
+    seed = new_seed() if seed is None else seed
     spm = profile.mean_spans_per_message()
     per_process = rate * spm / processes
     profile = Profile(**{**asdict(profile),
@@ -554,7 +563,7 @@ def run(url: str, profile: Profile, rate: float, duration: float, *, concurrency
     exports = sum(p["exports"] for p in parts)
     return {
         "target_msgs_per_s": rate, "target_spans_per_s": round(rate * spm, 1), "spans_per_message": round(spm, 3),
-        "duration_s": duration, "elapsed_s": round(elapsed, 2),
+        "seed": seed, "duration_s": duration, "elapsed_s": round(elapsed, 2),
         "achieved_spans_per_s": round(spans_ok / elapsed, 1) if elapsed else 0,
         "achieved_msgs_per_s": round(spans_ok / elapsed / spm, 1) if elapsed else 0,
         "exports": exports, "errors": exports - statuses.get("200", 0), "statuses": statuses,
@@ -573,7 +582,8 @@ def _ms(s: Optional[float]) -> Optional[float]:
 
 # ---- through the OpenTelemetry SDK --------------------------------------------------------
 
-def run_sdk(url: str, profile: Profile, rate: float, duration: float, *, seed: int = 1, settle_s: float = 60.0,
+def run_sdk(url: str, profile: Profile, rate: float, duration: float, *, seed: Optional[int] = None,
+            settle_s: float = 60.0,
             max_queue_size: Optional[int] = None) -> dict:
     """Emit the spans through a TracerProvider with a default BatchSpanProcessor and OTLPSpanExporter, as
     the packages do (trailbeam._emitter), and count what the server received. Spans lost in the SDK (its
@@ -609,6 +619,7 @@ def run_sdk(url: str, profile: Profile, rate: float, duration: float, *, seed: i
     kw = {"max_queue_size": max_queue_size} if max_queue_size else {}
     provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=url), **kw))
     tracer = provider.get_tracer(SCOPE, SCOPE_VERSION)
+    seed = new_seed() if seed is None else seed
     stream = Stream(profile, seed=seed)
     spm = profile.mean_spans_per_message()
     emitted = 0
@@ -631,7 +642,7 @@ def run_sdk(url: str, profile: Profile, rate: float, duration: float, *, seed: i
     after = health(url)
     received = (after["ingest"]["inserted"] + after["ingest"]["duplicates"]) - (
         before["ingest"]["inserted"] + before["ingest"]["duplicates"])
-    return {"mode": "sdk", "target_msgs_per_s": rate, "target_spans_per_s": round(span_rate, 1),
+    return {"mode": "sdk", "seed": seed, "target_msgs_per_s": rate, "target_spans_per_s": round(span_rate, 1),
             "emitted_spans": emitted, "emit_spans_per_s": round(emitted / emit_elapsed, 1),
             "received_spans": received, "dropped_spans": emitted - received,
             "dropped_pct": round(100 * (emitted - received) / emitted, 2) if emitted else 0,
@@ -684,7 +695,8 @@ def main(argv=None) -> None:
     p.add_argument("--concurrency", type=int, default=4, help="concurrent exports per process")
     p.add_argument("--processes", type=int, default=1, help="generator processes")
     p.add_argument("--timeout", type=float, default=10, help="export timeout, seconds (the OTLP exporter's default)")
-    p.add_argument("--seed", type=int, default=1)
+    p.add_argument("--seed", type=int, default=None,
+                   help="fixes the span IDs (default: new IDs each run; the server skips spans it already has)")
     p.add_argument("--sdk", action="store_true", help="send through the OTel SDK and count dropped spans")
     p.add_argument("--sdk-max-queue-size", type=int, default=None)
     add_profile_args(p)

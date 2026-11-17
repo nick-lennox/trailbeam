@@ -105,6 +105,19 @@ def test_run_reports_what_the_server_stored(server):
     assert res["export_p99_ms"] is not None
 
 
+def test_repeated_runs_send_new_spans(server):
+    # The server skips a span it already stored: a second run with the same IDs would measure nothing.
+    url, db = server
+    profile = loadgen.Profile(batch_spans=64)
+    first = loadgen.run(url, profile, rate=50, duration=1, concurrency=2)
+    second = loadgen.run(url, profile, rate=50, duration=1, concurrency=2)
+    assert first["seed"] != second["seed"]
+    assert sum(db.counts()["spans"].values()) == (first["exports"] + second["exports"]) * 64
+    again = loadgen.run(url, profile, rate=50, duration=1, concurrency=2, seed=second["seed"])
+    assert again["seed"] == second["seed"]
+    assert sum(db.counts()["spans"].values()) == (first["exports"] + second["exports"]) * 64  # all duplicates
+
+
 def test_run_achieved_rate_matches_the_offered_rate(server):
     # 100 spans/s offered in 1-second exports: the achieved rate is over the whole window, not to the last export
     url, db = server
