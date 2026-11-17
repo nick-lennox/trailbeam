@@ -116,6 +116,14 @@ class Seeder:
         self.conn.close()
 
 
+def restore_file(src: str, dst: str) -> None:
+    """Replace the SQLite file ``dst`` (no process may have it open) with a copy of ``src``."""
+    for p in (dst + "-wal", dst + "-shm"):
+        if os.path.exists(p):
+            os.remove(p)
+    shutil.copyfile(src, dst)
+
+
 def span_count(path: str) -> int:
     if not os.path.exists(path):
         return 0
@@ -345,7 +353,8 @@ def ingest_step(srv: Server, profile, rate: float, seconds: float, args) -> dict
 
 def breakdown(db_path: str, profile, store_bodies, batches: int = 3) -> dict:
     """Where one export's time goes, in-process on the database file: decode, insert, and the join queries.
-    Adds ``batches`` exports of spans to the file."""
+    Adds ``batches`` + 1 exports of spans to the file. The first, on a cold page cache, is reported on its own
+    (``cold_insert_ms``) and left out of the averages."""
     from trailbeam.server.otlp import decode
 
     db = Database(db_path, store_bodies=store_bodies)
@@ -368,6 +377,10 @@ def breakdown(db_path: str, profile, store_bodies, batches: int = 3) -> dict:
     spans = 0
     plan = db.conn.execute("EXPLAIN QUERY PLAN " + SETTLE_JOIN_SQL, ("x", "y", 0, 0)).fetchall()
     receive_plan = db.conn.execute("EXPLAIN QUERY PLAN " + RECEIVE_JOIN_SQL, ("m", 0, "x", "y")).fetchall()
+    s = time.perf_counter()
+    db.insert(decode(loadgen.encode(stream.batch()), "application/x-protobuf").records)
+    cold = time.perf_counter() - s
+    timers.update(join_settle=0.0, join_receive=0.0)
     for _ in range(batches):
         body = loadgen.encode(stream.batch())
         s = time.perf_counter()
@@ -381,7 +394,7 @@ def breakdown(db_path: str, profile, store_bodies, batches: int = 3) -> dict:
     per = lambda x: round(1000 * x / batches, 1)  # noqa: E731
     return {"spans_per_export": spans // batches, "decode_ms": per(dec), "insert_ms": per(ins),
             "join_settle_ms": per(timers["join_settle"]), "join_receive_ms": per(timers["join_receive"]),
-            "insert_spans_per_s": round(spans / ins, 1) if ins else None,
+            "insert_spans_per_s": round(spans / ins, 1) if ins else None, "cold_insert_ms": round(1000 * cold, 1),
             "join_settle_plan": "; ".join(r[3] for r in plan),
             "join_receive_plan": "; ".join(r[3] for r in receive_plan)}
 
@@ -474,12 +487,26 @@ def run(args) -> dict:
         pages = {k: v for k, v in page_paths(db_path, profile).items() if k not in skipped}
         if skipped:
             entry["pages_skipped"] = dict(skipped)
+        # Each ingest step writes spans: at a ceiling of thousands of spans/s one ramp adds far more than a
+        # 10k or 100k database holds. So every step starts from a copy of the seeded file, while copying is
+        # cheap. Above --restore-max-gb the steps run on the growing file and record its size instead.
+        snapshot = None
+        if file_bytes(db_path) <= args.restore_max_gb * 1e9:
+            snapshot = str(work / "bench.seeded.sqlite")
+            shutil.copyfile(db_path, snapshot)
+        entry["steps_restore_seeded_file"] = snapshot is not None
         box = {"srv": Server(db_path, store, str(out / "server.log"))}
 
         def restart() -> int:
             box["srv"].stop()
             box["srv"] = Server(db_path, store, str(out / "server.log"))
             return box["srv"].port
+
+        def restore_seeded() -> None:
+            box["srv"].stop()
+            if snapshot:
+                restore_file(snapshot, db_path)
+            box["srv"] = Server(db_path, store, str(out / "server.log"))
 
         try:
             entry["pages_idle"] = time_pages(box["srv"].port, pages, repeats=args.page_repeats,
@@ -493,7 +520,10 @@ def run(args) -> dict:
             save()
             ramp = []
             for rate in [float(r) for r in args.rates.split(",")]:
+                restore_seeded()
+                before = span_count(db_path)
                 step = ingest_step(box["srv"], profile, rate, args.step_seconds, args)
+                step["db_spans_before"] = before
                 ramp.append(step)
                 log(f"  ingest {rate:g} msg/s ({step['target_spans_per_s']:g} spans/s): achieved "
                     f"{step['achieved_spans_per_s']:g} spans/s, p99 {step['export_p99_ms']} ms, errors "
@@ -501,13 +531,14 @@ def run(args) -> dict:
                 entry["ingest"] = ramp
                 save()
                 if not step["steady"]:
-                    restart()  # drop the backlog of exports the server is still working through
-                    break
+                    break  # the next restore_seeded() also drops the backlog the server is still working through
             steady = [s for s in ramp if s["steady"]]
             best = steady[-1] if steady else None
             entry["max_steady_spans_per_s"] = best["achieved_spans_per_s"] if best else 0
             entry["max_steady_msgs_per_s"] = best["target_msgs_per_s"] if best else 0
             under_rate = best["target_msgs_per_s"] if best else ramp[0]["target_msgs_per_s"]
+            restore_seeded()
+            entry["ingest_under_pages_db_spans_before"] = span_count(db_path)
             loop = PageLoop(box["srv"].port, pages, args.page_timeout_s)
             loop.start()
             entry["ingest_under_pages"] = ingest_step(box["srv"], profile, under_rate, args.under_load_seconds, args)
@@ -527,8 +558,10 @@ def run(args) -> dict:
                     f"{entry['sdk']['emitted_spans']} ({entry['sdk']['dropped_pct']}%)")
         finally:
             box["srv"].stop()
-        # One export at 10M spans takes minutes in-process (the settle join scans every receive): fewer of them.
-        entry["breakdown"] = breakdown(db_path, profile, store, batches=3 if entry["spans"] < 2_000_000 else 1)
+            if snapshot:  # the next size grows from this size's seeded file, not from what the ramp added
+                restore_file(snapshot, db_path)
+                os.remove(snapshot)
+        entry["breakdown"] = breakdown(db_path, profile, store)
         log(f"  breakdown: {entry['breakdown']}")
         entry["file_mb_after"] = round(file_bytes(db_path) / 1e6, 1)
         save()
@@ -590,7 +623,7 @@ def summary(results: dict) -> str:
     sizes = results["sizes"]
     if sizes:
         lines += ["## Ingest", "", "| DB spans | file MB | max steady spans/s (msg/s) | export p99 at that rate | "
-                  "server CPU | first rate not steady |", "|---|---|---|---|---|---|"]
+                  "server CPU | first rate not steady | DB spans at that step's start |", "|---|---|---|---|---|---|---|"]
         for e in sizes:
             ramp = e.get("ingest") or []
             steady = [s for s in ramp if s["steady"]]
@@ -601,7 +634,9 @@ def summary(results: dict) -> str:
                          f"{b['export_p99_ms'] if b else '-'} ms | {b['server_cpu_pct'] if b else '-'}% | "
                          + (f"{bad['target_msgs_per_s']:g} msg/s: {bad['achieved_spans_per_s']} of "
                             f"{bad['target_spans_per_s']} spans/s, p99 {bad['export_p99_ms']} ms, {bad['errors']} errors"
-                            if bad else "-") + " |")
+                            if bad else "-") + " | "
+                         + (f"{(bad or b)['db_spans_before']:,}" if (bad or b) and (bad or b).get("db_spans_before") else "-")
+                         + ("" if e.get("steps_restore_seeded_file") else " (file not restored between steps)") + " |")
         names = list((sizes[0].get("pages_idle") or {}).keys())
         lines += ["", "## Page p95 (ms), idle / under ingest", "",
                   "| DB spans | " + " | ".join(names) + " |", "|---|" + "---|" * len(names)]
@@ -618,14 +653,14 @@ def summary(results: dict) -> str:
                 cells.append(f"{a} / {b}{t}")
             lines.append(f"| {e['spans']:,} | " + " | ".join(cells) + " |")
         lines += ["", "## Where an export's time goes (in-process, 512-span export)", "",
-                  "| DB spans | decode ms | insert ms | of which join_settle ms | join_receive ms | spans/s | settle join plan "
-                  "| receive join plan |",
-                  "|---|---|---|---|---|---|---|---|"]
+                  "| DB spans | decode ms | insert ms | of which join_settle ms | join_receive ms | spans/s | cold first insert ms "
+                  "| settle join plan | receive join plan |",
+                  "|---|---|---|---|---|---|---|---|---|"]
         for e in sizes:
             b = e.get("breakdown")
             if b:
                 lines.append(f"| {e['spans']:,} | {b['decode_ms']} | {b['insert_ms']} | {b['join_settle_ms']} | "
-                             f"{b['join_receive_ms']} | {b['insert_spans_per_s']} | {b['join_settle_plan']} | "
+                             f"{b['join_receive_ms']} | {b['insert_spans_per_s']} | {b.get('cold_insert_ms', '-')} | {b['join_settle_plan']} | "
                              f"{b.get('join_receive_plan', '-')} |")
         sdk = [e["sdk"] for e in sizes if e.get("sdk")]
         if sdk:
@@ -662,6 +697,8 @@ def main(argv=None) -> None:
     p.add_argument("--seed-days", type=float, default=7)
     p.add_argument("--growth-spans", type=int, default=200_000, help="0 skips the file growth measurement")
     p.add_argument("--sdk-seconds", type=float, default=30, help="0 skips the SDK drop measurement")
+    p.add_argument("--restore-max-gb", type=float, default=4,
+                   help="start every ingest step from a copy of the seeded file up to this size")
     p.add_argument("--fresh", action="store_true", help="delete the database file first")
     p.add_argument("--cleanup", action="store_true", help="delete the database file at the end")
     loadgen.add_profile_args(p)

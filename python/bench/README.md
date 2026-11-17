@@ -52,7 +52,7 @@ Extra request headers for another endpoint (for example an ingest key):
 python python/bench/harness.py --out bench-results --sizes 10k,100k,1M,10M --fresh
 ```
 
-For each size, smallest first, growing the same SQLite file:
+For each size, smallest first, growing the same SQLite file from the previous size's seeded file:
 
 1. **Seed** the file to the size, with messages spread over the last 7 days (`--seed-days`). By default:
    50 queues, 50 tenants, 1 KB bodies on 5 queues, which are the server's `--store-bodies`.
@@ -65,11 +65,15 @@ For each size, smallest first, growing the same SQLite file:
    shows as "skipped". `--skip-pages stuck,…` leaves pages out from the start.
 3. **Ingest ramp** at each of `--rates` messages/s for `--step-seconds`, until a step is not steady: errors,
    under 95% of the target, or export p99 above `--max-export-p99-ms` (2000). Records server CPU.
-   After the first step that is not steady, the server is restarted, so its backlog of exports does not
-   carry into the next measurement.
-4. **Pages under ingest.** The pages again, in a loop, while ingest runs at the highest steady rate. The
+   Every step starts a fresh server on a copy of the seeded file, so the size measured is the size seeded:
+   at a ceiling of thousands of spans/s one ramp writes more spans than a 10k or 100k file holds. That also
+   drops a backlog of exports a step that was not steady leaves behind. Files above `--restore-max-gb` (4)
+   are not copied (at 10M, 17.5 GB, a copy per step would also empty the page cache); their steps run on
+   the growing file. Each step records `db_spans_before`, and `summary.md` shows it.
+4. **Pages under ingest.** From the seeded file again, the pages in a loop, while ingest runs at the highest steady rate. The
    export latency of that ingest is recorded too.
-5. **Breakdown.** Server stopped: where a 512-span export's time goes in-process. That covers decode,
+5. **Breakdown.** Server stopped, the seeded file restored: where a 512-span export's time goes in-process,
+   averaged over 3 exports after one untimed warm-up export on a cold page cache (`cold_insert_ms`). That covers decode,
    `Database.insert` and its two join queries, plus the query plans of both joins (the server's own SQL,
    `db.SETTLE_JOIN_SQL` and `db.RECEIVE_JOIN_SQL`).
 
