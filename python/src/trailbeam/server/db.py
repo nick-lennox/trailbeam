@@ -20,10 +20,11 @@ body are removed before the row is written, and ``body_dropped`` records why.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 import threading
-from typing import Iterable, Optional
+from typing import Iterable, Iterator, Optional
 
 from .otlp import RECORD_FIELDS
 
@@ -113,7 +114,16 @@ def gate_body(attributes: dict, queue: Optional[str], store_bodies: frozenset) -
 
 
 class Database:
-    """Thread-safe: one connection, serialised by a lock. Enough for 0.1's single container."""
+    """Thread-safe. One writer connection, serialised by ``lock``; on a file, reads use separate read-only
+    connections and never take that lock.
+
+    The file is in WAL mode, so a reader works on the last committed snapshot while the writer appends to
+    the log: a page does not wait for an export's transaction, and an export does not wait for a page.
+    Read connections are pooled (``MAX_IDLE_READERS`` kept open), so a request does not open the file.
+    ``:memory:`` has no file to share, so there every read goes through the writer connection and its lock.
+    """
+
+    MAX_IDLE_READERS = 8
 
     def __init__(self, path: str = ":memory:", *, store_bodies: Iterable[str] = ()):
         self.path = path
@@ -121,9 +131,15 @@ class Database:
         self.lock = threading.RLock()
         self.conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self.conn.row_factory = sqlite3.Row
+        self.shared_reads = path != ":memory:"  # separate read connections (WAL); False: reads take self.lock
+        self._idle_readers: list[sqlite3.Connection] = []
+        self._readers_lock = threading.Lock()
+        self._closed = False
         with self.lock:
-            if path != ":memory:":
-                self.conn.execute("PRAGMA journal_mode=WAL")
+            if self.shared_reads:
+                mode = self.conn.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+                if mode.lower() != "wal":
+                    raise RuntimeError(f"{path}: SQLite could not switch the file to WAL mode (got {mode})")
             self.conn.execute("PRAGMA foreign_keys=ON")
             self.conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
             cur = self.conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
@@ -140,8 +156,37 @@ class Database:
                 self.conn.execute("INSERT INTO meta VALUES ('schema_version', ?)", (SCHEMA_VERSION,))
 
     def close(self) -> None:
+        with self._readers_lock:
+            self._closed = True
+            idle, self._idle_readers = self._idle_readers, []
+        for c in idle:
+            c.close()
         with self.lock:
             self.conn.close()
+
+    @contextlib.contextmanager
+    def reader(self) -> Iterator[sqlite3.Connection]:
+        """A connection for reads. On a file: a pooled read-only connection, without the writer lock."""
+        if not self.shared_reads:
+            with self.lock:
+                yield self.conn
+            return
+        with self._readers_lock:
+            c = self._idle_readers.pop() if self._idle_readers else None
+        if c is None:
+            c = sqlite3.connect(self.path, check_same_thread=False, isolation_level=None, timeout=30)
+            c.row_factory = sqlite3.Row
+            c.execute("PRAGMA query_only = ON")
+        try:
+            yield c
+        except BaseException:
+            c.close()  # it may be mid-statement; a new one is cheap
+            raise
+        with self._readers_lock:
+            if not self._closed and len(self._idle_readers) < self.MAX_IDLE_READERS:
+                self._idle_readers.append(c)
+                return
+        c.close()
 
     # ---- writes ---------------------------------------------------------------------------
 
@@ -195,19 +240,20 @@ class Database:
 
     def message_rows(self, message_id: str) -> list[sqlite3.Row]:
         """Every row of one message, in time order."""
-        with self.lock:
-            return self.conn.execute(
-                "SELECT * FROM spans WHERE mid = ? ORDER BY time_ns, row", (message_id,)).fetchall()
+        with self.reader() as c:
+            return c.execute("SELECT * FROM spans WHERE mid = ? ORDER BY time_ns, row", (message_id,)).fetchall()
 
     def query(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
-        with self.lock:
-            return self.conn.execute(sql, params).fetchall()
+        """A read-only query (on a file, a write fails: read connections are query_only)."""
+        with self.reader() as c:
+            return c.execute(sql, params).fetchall()
 
     def counts(self) -> dict:
-        with self.lock:
-            kinds = {k: n for k, n in self.conn.execute("SELECT kind, COUNT(*) FROM spans GROUP BY kind")}
-            unjoined = self.conn.execute(
+        """Exact counts. Each one reads the whole table: seconds at 10M spans."""
+        with self.reader() as c:
+            kinds = {k: n for k, n in c.execute("SELECT kind, COUNT(*) FROM spans GROUP BY kind")}
+            unjoined = c.execute(
                 "SELECT COUNT(*) FROM spans WHERE kind IN ('delete', 'change_visibility') AND receive_row IS NULL"
             ).fetchone()[0]
-            messages = self.conn.execute("SELECT COUNT(DISTINCT mid) FROM spans WHERE mid IS NOT NULL").fetchone()[0]
+            messages = c.execute("SELECT COUNT(DISTINCT mid) FROM spans WHERE mid IS NOT NULL").fetchone()[0]
         return {"spans": kinds, "messages": messages, "unjoined_settles": unjoined}

@@ -10,9 +10,11 @@ from trailbeam.server.otlp import decode  # noqa: E402
 from spans import to_proto  # noqa: E402
 
 
-@pytest.fixture
-def db():
-    s = Database(":memory:")
+@pytest.fixture(params=["memory", "file"])
+def db(request, tmp_path):
+    """Every server test runs on both: ``:memory:`` (reads share the writer connection) and a WAL file
+    (reads on separate read-only connections, as ``trailbeam --db``)."""
+    s = Database(":memory:" if request.param == "memory" else str(tmp_path / "trailbeam.sqlite"))
     yield s
     s.close()
 
