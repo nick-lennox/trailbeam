@@ -105,6 +105,17 @@ def test_run_reports_what_the_server_stored(server):
     assert res["export_p99_ms"] is not None
 
 
+def test_run_achieved_rate_matches_the_offered_rate(server):
+    # 100 spans/s offered in 1-second exports: the achieved rate is over the whole window, not to the last export
+    url, db = server
+    profile = loadgen.Profile()
+    rate = 100 / profile.mean_spans_per_message()
+    res = loadgen.run(url, profile, rate=rate, duration=3, concurrency=2, schedule_delay=1)
+    assert res["errors"] == 0
+    assert abs(sum(db.counts()["spans"].values()) - res["achieved_spans_per_s"] * res["elapsed_s"]) < 2
+    assert 0.85 * res["target_spans_per_s"] <= res["achieved_spans_per_s"] <= 1.05 * res["target_spans_per_s"]
+
+
 def test_run_sdk_counts_drops(server):
     url, db = server
     res = loadgen.run_sdk(url, loadgen.Profile(), rate=50, duration=1, settle_s=10)

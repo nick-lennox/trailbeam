@@ -454,11 +454,12 @@ def _worker(args: dict, out) -> None:
     def produce():
         for i in range(n_exports):
             due = t0 + i * interval
-            body = encode(stream.batch(), worker)
+            batch = stream.batch()
+            body = encode(batch, worker)
             with lock:
                 while len(todo) > 64 and not stop.is_set():  # do not build up gigabytes if the server stalls
                     lock.wait(0.1)
-                todo.append((due, body))
+                todo.append((due, body, len(batch)))
                 lock.notify()
         with lock:
             todo.append(None)
@@ -474,7 +475,7 @@ def _worker(args: dict, out) -> None:
                 lock.notify_all()
             if item is None or stop.is_set():
                 return
-            due, body = item
+            due, body, n_spans = item
             wait = due - time.monotonic()
             if wait > 0:
                 time.sleep(wait)
@@ -489,7 +490,7 @@ def _worker(args: dict, out) -> None:
                 behind.append(max(0.0, started - due))
                 statuses[str(status)] = statuses.get(str(status), 0) + 1
                 if status == 200:
-                    sent_spans[0] += p.batch_spans
+                    sent_spans[0] += n_spans
                     sent_bytes[0] += len(body)
             if started - t0 > duration + args["grace"]:
                 stop.set()
@@ -500,8 +501,11 @@ def _worker(args: dict, out) -> None:
         th.start()
     for th in threads[1:]:
         th.join()
+    # The offered load covers n_exports intervals: the last export is due one interval before the window
+    # ends, so measuring to the last completion alone would overstate the rate by an interval.
     out.put({"latencies": lat, "statuses": statuses, "behind": behind, "spans_ok": sent_spans[0],
-             "bytes_ok": sent_bytes[0], "exports": len(lat), "elapsed": time.monotonic() - t0,
+             "bytes_ok": sent_bytes[0], "exports": len(lat),
+             "elapsed": max(time.monotonic() - t0, n_exports * interval),
              "messages": stream.messages})
 
 
