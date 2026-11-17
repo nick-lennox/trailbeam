@@ -70,8 +70,8 @@ function addReceiveAttributeNames(input) {
 }
 
 /**
- * 3.2: a copy of a ReceiveMessage input that also asks for the one configured tenant message
- * attribute; or `undefined` if nothing needs adding. The caller's object is never modified.
+ * 3.2: a copy of a ReceiveMessage input that also asks for one message attribute (the configured
+ * tenant attribute, or an Extended Client size attribute); or `undefined` if nothing needs adding. The caller's object is never modified.
  */
 function addMessageAttributeName(input, name) {
   if (!name) return undefined;
@@ -231,6 +231,7 @@ function sqsMiddleware(getHooks) {
       try {
         let changed = addReceiveAttributeNames(input) || input;
         changed = addMessageAttributeName(changed, hooks.config && hooks.config.tenantAttribute) || changed;
+        for (const name of capture.OFFLOADED_SIZE_ATTRIBUTES) changed = addMessageAttributeName(changed, name) || changed;
         if (changed !== input) args = { ...args, input: changed };
       } catch (e) {
         debug('receive request hook', e);

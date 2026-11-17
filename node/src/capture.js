@@ -22,6 +22,10 @@ const MAX_ERROR_MESSAGE_CHARS = 1024;
 const MAX_TENANT_CHARS = 256;
 const MAX_JSON_DEPTH = 100;
 const S3_POINTER_CLASS = 'software.amazon.payloadoffloading.PayloadS3Pointer';
+// Message attributes in which the SQS Extended Client puts the offloaded payload's size, current name
+// first (section 15.2). The receive hooks ask for both.
+const OFFLOADED_SIZE_ATTRIBUTES = Object.freeze(['ExtendedPayloadSize', 'SQSLargePayloadSize']);
+const SIZE_RE = /^[0-9]{1,15}$/;
 
 const DEFAULT_REDACT_KEYS = Object.freeze([
   'password', 'passwd', 'secret', 'token', 'access_token', 'refresh_token', 'authorization',
@@ -280,7 +284,22 @@ class JsonScan {
 }
 
 /** [redacted body, number of values replaced, 'json' or 'text']. */
+/**
+ * An Extended Client pointer of exactly the shape the clients write holds no payload, only a bucket and
+ * a key, so it is not redacted (section 15.3): the patterns would rewrite uuid keys and account IDs in
+ * bucket names, and the pointer would then name an object that does not exist. It is written back in
+ * one compact form, so nothing in the input beyond the bucket and the key (a duplicate member, say) is
+ * exported.
+ */
 function redactBody(body, config) {
+  const pointer = s3Pointer(body);
+  if (pointer) {
+    return [
+      `["${S3_POINTER_CLASS}",{"s3BucketName":${encodeString(pointer.bucket)},"s3Key":${encodeString(pointer.key)}}]`,
+      0,
+      'json',
+    ];
+  }
   const scan = new JsonScan(body, config);
   try {
     return [scan.run(), scan.count, 'json'];
@@ -305,6 +324,32 @@ function parse(body) {
 }
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+const isPointerDoc = (doc) => Array.isArray(doc) && doc.length === 2 && doc[0] === S3_POINTER_CLASS;
+
+/**
+ * `{bucket, key}` if the body is exactly an Extended Client pointer: the two-item array whose second
+ * item is an object with only the string members `s3BucketName` and `s3Key`. Otherwise undefined.
+ */
+function s3Pointer(body) {
+  if (typeof body !== 'string' || !body.includes(S3_POINTER_CLASS)) return undefined;
+  const doc = parse(body);
+  if (!isPointerDoc(doc) || !isObject(doc[1])) return undefined;
+  const keys = Object.keys(doc[1]).sort();
+  if (keys.length !== 2 || keys[0] !== 's3BucketName' || keys[1] !== 's3Key') return undefined;
+  const { s3BucketName: bucket, s3Key: key } = doc[1];
+  return typeof bucket === 'string' && typeof key === 'string' ? { bucket, key } : undefined;
+}
+
+/** The offloaded payload's size from the Extended Client's message attribute, if it is a whole number. */
+function offloadedSize(attributes, lambdaRecord = false) {
+  if (!isObject(attributes)) return undefined;
+  for (const name of OFFLOADED_SIZE_ATTRIBUTES) {
+    const a = Object.prototype.hasOwnProperty.call(attributes, name) ? attributes[name] : undefined;
+    const v = isObject(a) ? a[lambdaRecord ? 'stringValue' : 'StringValue'] : undefined;
+    if (typeof v === 'string' && SIZE_RE.test(v)) return Number(v);
+  }
+  return undefined;
+}
 
 function envelope(doc) {
   if (isObject(doc)) {
@@ -345,6 +390,10 @@ function contentAttrs(config, queueName, body, attributes, md5, lambdaRecord = f
     out['trailbeam.tenant'] = t.tenant;
     out['trailbeam.tenant.source'] = t.source;
   }
+  const offloadedBytes = offloadedSize(attributes, lambdaRecord);
+  if (offloadedBytes !== undefined && typeof body === 'string' && isPointerDoc(parse(body))) {
+    out['trailbeam.body.offloaded_size'] = offloadedBytes;
+  }
   if (typeof body !== 'string') return out;
   if (!config.bodyOn(queueName)) {
     out['trailbeam.body.capture_status'] = STATUS_OFF;
@@ -369,8 +418,7 @@ function contentAttrs(config, queueName, body, attributes, md5, lambdaRecord = f
     return out;
   }
   const doc = format === 'json' ? parse(body) : undefined;
-  const offloaded = Array.isArray(doc) && doc.length === 2 && doc[0] === S3_POINTER_CLASS;
-  out['trailbeam.body.capture_status'] = offloaded ? STATUS_OFFLOADED : STATUS_CAPTURED;
+  out['trailbeam.body.capture_status'] = isPointerDoc(doc) ? STATUS_OFFLOADED : STATUS_CAPTURED;
   out['trailbeam.body'] = redacted;
   out['trailbeam.body.format'] = format;
   out['trailbeam.body.redacted_count'] = count;
@@ -412,6 +460,9 @@ module.exports = {
   resolveConfig,
   redactText,
   redactBody,
+  s3Pointer,
+  offloadedSize,
+  OFFLOADED_SIZE_ATTRIBUTES,
   tenantFrom,
   contentAttrs,
   errorMessage,

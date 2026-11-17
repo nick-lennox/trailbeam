@@ -74,7 +74,8 @@ def add_receive_attribute_names(params: dict) -> None:
         params["MessageSystemAttributeNames"] = new + missing
 
 def add_message_attribute_name(params: dict, name: Optional[str]) -> None:
-    """3.2: ask for the one configured tenant message attribute, keeping everything the caller asked for."""
+    """3.2: ask for one message attribute (the configured tenant attribute, or an Extended Client size
+    attribute), keeping everything the caller asked for."""
     if not name:
         return
     asked = list(params.get("MessageAttributeNames") or [])
@@ -112,6 +113,8 @@ class SqsHooks:
             if operation == "ReceiveMessage":
                 add_receive_attribute_names(params)
                 add_message_attribute_name(params, self.capture.tenant_attribute)
+                for name in _capture.OFFLOADED_SIZE_ATTRIBUTES:
+                    add_message_attribute_name(params, name)
             with self._lock:
                 if len(self._pending) >= _MAX_PENDING:  # only if responses were lost; stay bounded
                     self._pending.clear()

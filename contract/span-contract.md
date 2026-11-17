@@ -598,6 +598,7 @@ known:
 | `trailbeam.body` | string | when captured | the redacted body (15.3) |
 | `trailbeam.body.format` | string | when captured | `json` if the body is a JSON document, else `text` |
 | `trailbeam.body.redacted_count` | int | when captured | how many values redaction replaced; `0` is a real value |
+| `trailbeam.body.offloaded_size` | int | when the body is a pointer and the size attribute is there | the SQS Extended Client's payload size in bytes, from the message attribute `ExtendedPayloadSize`, else the legacy `SQSLargePayloadSize`: a `StringValue` of 1 to 15 digits. Set only when the body is a pointer (15.4, the class-name test), with or without capture. `messaging.message.body.size` stays the size of the pointer itself. |
 | `trailbeam.body.envelope` | string | may | `sns` (a JSON object with `"Type": "Notification"` and `TopicArn`) or `eventbridge` (with `detail-type`, `detail` and `source`): the body is a delivery envelope, not the producer's own payload |
 | `trailbeam.tenant` | string | when configured and found | the tenant, at most 256 characters |
 | `trailbeam.tenant.source` | string | with `trailbeam.tenant` | `message_attribute` or `body_path` |
@@ -611,6 +612,7 @@ Where each value comes from:
 | body | `MessageBody` of the request (`SendMessage`), or of the request entry whose `Id` equals the `Successful[]` entry's `Id` (`SendMessageBatch`) | `Messages[].Body` | `Records[].body` |
 | MD5 checked against | `MD5OfMessageBody` of the response or `Successful[]` entry | `MD5OfBody` | `md5OfBody` |
 | tenant attribute | `MessageAttributes[name].StringValue` of the request (entry) | `MessageAttributes[name].StringValue` | `messageAttributes[name].stringValue` |
+| offloaded size | `MessageAttributes[ExtendedPayloadSize or SQSLargePayloadSize].StringValue` of the request (entry) | the same, of `Messages[].MessageAttributes` | `messageAttributes[...].stringValue` |
 | sequence number | `SequenceNumber` of the response or entry | system attribute `SequenceNumber` | `attributes.SequenceNumber` |
 
 A failed batch entry produces no `trailbeam send` (section 4.1), so it has no body either.
@@ -620,7 +622,9 @@ object keys (`customer.id`) into a JSON body; the value must be a string or a nu
 written as the language prints it, so `42` becomes `"42"` (use string IDs if they can exceed 2^53).
 Reading the tenant from the body parses the body in the process. That does not export the body; only
 capture does. For a receive, the hooks add the tenant attribute name to `MessageAttributeNames` unless
-the caller already asked for it, `All` or `.*`. That changes what SQS returns, not the message's state.
+the caller already asked for it, `All` or `.*`, and do the same for `ExtendedPayloadSize` and
+`SQSLargePayloadSize`. That changes what SQS returns, not the message's state; a message without
+those attributes comes back as before.
 
 The Lambda wrapper also sets, on every `trailbeam receive` and `trailbeam outcome`:
 
@@ -653,6 +657,17 @@ output keeps the input's formatting and number text:
 - Any other string value gets the text rules below. A string that changes is written back as a JSON
   string, with no `\u` escapes beyond the ones JSON requires.
 - Nesting deeper than 100 levels is a redaction failure.
+
+**S3 pointers are not redacted.** A body that parses as exactly an SQS Extended Client pointer, a
+two-item array whose first item is `"software.amazon.payloadoffloading.PayloadS3Pointer"` and whose
+second is an object with exactly the members `s3BucketName` and `s3Key`, both strings, is exported
+without any redaction: `redacted_count` is `0`. It holds no payload, and the patterns would rewrite
+it (`long_number` matched 14,878 of 100,000 uuid4 keys, and every bucket name with a 12-digit
+account ID), so the stored pointer would name an S3 object that does not exist (QV-60). It is
+written back in one compact form, `["software.amazon.payloadoffloading.PayloadS3Pointer",{"s3BucketName":B,"s3Key":K}]`,
+with `B` and `K` encoded as JSON strings as above, so that nothing beyond the bucket and the key
+(the losing copy of a duplicate member, say) is exported. Any other shape, an extra member for one,
+is redacted as usual. This applies to the whole body only, not to a pointer inside a string.
 
 **Text bodies** (anything that is not JSON), and Lambda error messages, get the text rules:
 
@@ -689,7 +704,7 @@ Set by a 3.2 package on every send and receive whose body it saw. Checked in thi
 | `md5_mismatch` | the MD5 of the body's UTF-8 bytes does not equal SQS's MD5 for the message, so the body the package holds is not the one SQS stored. Not exported. If there is no MD5 to check against, the check is skipped. |
 | `redaction_failed` | 15.3. Not exported. |
 | `exceeds_capture_limit` | the redacted body is longer than the capture limit in UTF-8 bytes. Not exported, not truncated. |
-| `offloaded_to_s3` | the body is an SQS Extended Client pointer: a JSON array of two items whose first is `"software.amazon.payloadoffloading.PayloadS3Pointer"`. The pointer is exported as the body; the payload in S3 is never fetched. |
+| `offloaded_to_s3` | the body is an SQS Extended Client pointer: a JSON array of two items whose first is `"software.amazon.payloadoffloading.PayloadS3Pointer"`. The pointer is exported as the body, unredacted if it has exactly the shape in 15.3; the payload in S3 is never fetched. Its size is `trailbeam.body.offloaded_size` (15.2). |
 | `captured` | exported in `trailbeam.body` |
 
 Trailbeam **should** work out two more reasons itself, for a message with no captured body: **producer not
@@ -737,11 +752,14 @@ Verified:
 - Both packages produce identical redaction, tenant and error-text output for every vector.
 - Body, MD5 check, tenant attribute and message group against moto's SQS (Python tests).
 
+- The pointer as a two-item array with members `s3BucketName` and `s3Key`, and the
+  `ExtendedPayloadSize` message attribute on the send request and the receive response, on real SQS
+  and S3 with AWS's Python Extended Client (`amazon-sqs-extended-client` 1.0.1) (QV-60, 2026-11-16).
+
 Not verified:
 
-- That the Extended Client writes the pointer as the two-item array above. That array comes from
-  Jackson's default typing, which the library's `JsonDataConverter` uses [estimate: not checked
-  against a real offloaded message].
+- The Java and Node.js Extended Clients' pointer bytes. The Python client writes the same class name
+  and member names as the Java library.
 - `SequenceNumber` on a real FIFO queue: moto returns none, so the tests check it on canned responses.
   ElasticMQ and AWS were not run for 3.2.
 - How large a span Trailbeam's ingest and common collectors accept (15.4).
@@ -754,6 +772,7 @@ Not verified:
 | receive hooks asked for five system attributes | also `MessageGroupId` and `SequenceNumber`, and the configured tenant message attribute |
 | Lambda spans did not say where a record sat in its batch | `trailbeam.batch.size`, `trailbeam.batch.index`, and on outcomes `trailbeam.batch.reported_failure_count` |
 | exception class name only | plus `trailbeam.error_message`, opt-in and redacted |
+| | before release (QV-63): an exact S3 pointer is exported unredacted (15.3); `trailbeam.body.offloaded_size` from the Extended Client's size attribute, which the receive hooks ask for |
 
 `trailbeam.schema_version` stays `3`: every new attribute is optional, Trailbeam requires none of them
 (section 4.5 is unchanged), and a Trailbeam built for 3.1 ignores them.

@@ -42,6 +42,14 @@ def test_tenant_vectors(v):
     assert (None if got is None else {"tenant": got[0], "source": got[1]}) == v["expected"]
 
 
+@pytest.mark.parametrize("v", VECTORS["offloaded_size"], ids=lambda v: v["name"])
+def test_offloaded_size_vectors(v):
+    got = _capture.content_attrs(_capture.Config(), "orders", v["body"], v["message_attributes"], None,
+                                 v["lambda_record"])
+    assert got.get("trailbeam.body.offloaded_size") == v["expected"]
+    assert got["trailbeam.body.capture_status"] == "off"
+
+
 @pytest.mark.parametrize("v", VECTORS["error_message"], ids=lambda v: v["name"])
 def test_error_message_vectors(v):
     config = _capture.resolve_config({}, v["capture"])
@@ -112,6 +120,45 @@ def test_send_and_receive_capture_redacted_body_and_tenant(spans_with, make_clie
         assert (a["trailbeam.body.format"], a["trailbeam.body.redacted_count"]) == ("json", 1)
         assert a["messaging.message.body.size"] == len(body)
         assert (a["trailbeam.tenant"], a["trailbeam.tenant.source"]) == ("acme", "message_attribute")
+
+
+POINTER = ('["software.amazon.payloadoffloading.PayloadS3Pointer", {"s3BucketName": "payloads-123456789012", '
+           '"s3Key": "61fc25e3-8ae5-4569-9189-43c27e5ba06f"}]')
+POINTER_COMPACT = POINTER.replace('", ', '",').replace('": ', '":')
+
+
+def test_s3_pointer_unredacted_with_offloaded_size(spans_with, make_client, queue_url):
+    spans = spans_with(**ON)
+    c = make_client()
+    size = {"ExtendedPayloadSize": {"DataType": "Number", "StringValue": "300000"}}
+    c.send_message(QueueUrl=queue_url, MessageBody=POINTER, MessageAttributes=size)
+    got = c.receive_message(QueueUrl=queue_url, WaitTimeSeconds=0)["Messages"][0]
+    assert got["MessageAttributes"]["ExtendedPayloadSize"]["StringValue"] == "300000"  # the hook asked for it
+    for s in spans("trailbeam send") + spans("trailbeam receive"):
+        a = dict(s.attributes)
+        assert a["trailbeam.body.capture_status"] == "offloaded_to_s3", s.name
+        assert (a["trailbeam.body"], a["trailbeam.body.redacted_count"]) == (POINTER_COMPACT, 0), s.name
+        assert a["trailbeam.body.offloaded_size"] == 300000, s.name
+        assert a["messaging.message.body.size"] == len(POINTER), s.name
+
+
+def test_lambda_s3_pointer_offloaded_size_with_capture_off():
+    fn, spans = lam(lambda e, c: None)
+    fn({"Records": [record("r1", POINTER, message_attributes={
+        "SQSLargePayloadSize": {"stringValue": "300000", "dataType": "Number"}})]}, CTX)
+    a = dict(spans("trailbeam receive")[0].attributes)
+    assert (a["trailbeam.body.capture_status"], a["trailbeam.body.offloaded_size"]) == ("off", 300000)
+    assert "trailbeam.body" not in a
+
+
+def test_receive_asks_for_the_extended_client_size_attributes():
+    hooks = trailbeam.boto.SqsHooks(emitter=None, capture=_capture.Config())
+    for given, expected in [([], ["ExtendedPayloadSize", "SQSLargePayloadSize"]),
+                            (["trace"], ["trace", "ExtendedPayloadSize", "SQSLargePayloadSize"]),
+                            (["All"], ["All"]), ([".*"], [".*"])]:
+        params = {"QueueUrl": "u", "MessageAttributeNames": list(given)}
+        hooks.request_hook(object(), "sqs", "ReceiveMessage", params)
+        assert params["MessageAttributeNames"] == expected
 
 
 def test_md5_mismatch_drops_the_body():

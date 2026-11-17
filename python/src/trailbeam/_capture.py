@@ -30,6 +30,10 @@ MAX_ERROR_MESSAGE_CHARS = 1024
 MAX_TENANT_CHARS = 256
 MAX_JSON_DEPTH = 100
 S3_POINTER_CLASS = "software.amazon.payloadoffloading.PayloadS3Pointer"
+# Message attributes in which the SQS Extended Client puts the offloaded payload's size, current name first
+# (section 15.2). The receive hooks ask for both.
+OFFLOADED_SIZE_ATTRIBUTES = ("ExtendedPayloadSize", "SQSLargePayloadSize")
+_SIZE_RE = re.compile(r"^[0-9]{1,15}$")
 
 DEFAULT_REDACT_KEYS = (
     "password", "passwd", "secret", "token", "access_token", "refresh_token", "authorization",
@@ -305,7 +309,16 @@ _SCALAR = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true
 
 
 def redact_body(body: str, config: Config) -> tuple[str, int, str]:
-    """(redacted body, number of values replaced, "json" or "text")."""
+    """(redacted body, number of values replaced, "json" or "text").
+
+    An Extended Client pointer of exactly the shape the clients write holds no payload, only a bucket and a
+    key, so it is not redacted (section 15.3): the patterns would rewrite uuid keys and account IDs in bucket
+    names, and the pointer would then name an object that does not exist. It is written back in one compact
+    form, so nothing in the input beyond the bucket and the key (a duplicate member, say) is exported."""
+    pointer = s3_pointer(body)
+    if pointer is not None:
+        return ('["' + S3_POINTER_CLASS + '",{"s3BucketName":' + _encode_string(pointer[0])
+                + ',"s3Key":' + _encode_string(pointer[1]) + "}]"), 0, "json"
     try:
         scanner = _Json(body, config)
         return scanner.run(), scanner.count, "json"
@@ -329,6 +342,34 @@ def _parse(body: str):
         return json.loads(body)
     except (ValueError, RecursionError):
         return None
+
+
+def _is_pointer_doc(doc) -> bool:
+    return isinstance(doc, list) and len(doc) == 2 and doc[0] == S3_POINTER_CLASS
+
+
+def s3_pointer(body: Any) -> Optional[tuple[str, str]]:
+    """(bucket, key) if the body is exactly an Extended Client pointer: the two-item array whose second item
+    is an object with only the string members ``s3BucketName`` and ``s3Key``. Otherwise None."""
+    if not isinstance(body, str) or S3_POINTER_CLASS not in body:
+        return None
+    doc = _parse(body)
+    if not _is_pointer_doc(doc) or not isinstance(doc[1], dict) or set(doc[1]) != {"s3BucketName", "s3Key"}:
+        return None
+    bucket, key = doc[1]["s3BucketName"], doc[1]["s3Key"]
+    return (bucket, key) if isinstance(bucket, str) and isinstance(key, str) else None
+
+
+def offloaded_size(attributes: Any, lambda_record: bool = False) -> Optional[int]:
+    """The offloaded payload's size from the Extended Client's message attribute, if it is a whole number."""
+    if not isinstance(attributes, Mapping):
+        return None
+    for name in OFFLOADED_SIZE_ATTRIBUTES:
+        a = attributes.get(name)
+        v = a.get("stringValue" if lambda_record else "StringValue") if isinstance(a, Mapping) else None
+        if isinstance(v, str) and _SIZE_RE.match(v):
+            return int(v)
+    return None
 
 
 def _envelope(doc) -> Optional[str]:
@@ -377,6 +418,9 @@ def content_attrs(config: Config, queue_name: str, body: Any, attributes: Any, m
     t = tenant_from(config, attributes, body, lambda_record)
     if t:
         out["trailbeam.tenant"], out["trailbeam.tenant.source"] = t
+    offloaded_bytes = offloaded_size(attributes, lambda_record)
+    if offloaded_bytes is not None and isinstance(body, str) and _is_pointer_doc(_parse(body)):
+        out["trailbeam.body.offloaded_size"] = offloaded_bytes
     if not isinstance(body, str):
         return out
     if not config.body_on(queue_name):
@@ -395,8 +439,7 @@ def content_attrs(config: Config, queue_name: str, body: Any, attributes: Any, m
         out["trailbeam.body.capture_status"] = STATUS_EXCEEDS_LIMIT
         return out
     doc = _parse(body) if fmt == "json" else None
-    offloaded = isinstance(doc, list) and len(doc) == 2 and doc[0] == S3_POINTER_CLASS
-    out["trailbeam.body.capture_status"] = STATUS_OFFLOADED if offloaded else STATUS_CAPTURED
+    out["trailbeam.body.capture_status"] = STATUS_OFFLOADED if _is_pointer_doc(doc) else STATUS_CAPTURED
     out["trailbeam.body"] = redacted
     out["trailbeam.body.format"] = fmt
     out["trailbeam.body.redacted_count"] = count
