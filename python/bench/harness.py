@@ -527,7 +527,8 @@ def run(args) -> dict:
                     f"{entry['sdk']['emitted_spans']} ({entry['sdk']['dropped_pct']}%)")
         finally:
             box["srv"].stop()
-        entry["breakdown"] = breakdown(db_path, profile, store)
+        # One export at 10M spans takes minutes in-process (the settle join scans every receive): fewer of them.
+        entry["breakdown"] = breakdown(db_path, profile, store, batches=3 if entry["spans"] < 2_000_000 else 1)
         log(f"  breakdown: {entry['breakdown']}")
         entry["file_mb_after"] = round(file_bytes(db_path) / 1e6, 1)
         save()
