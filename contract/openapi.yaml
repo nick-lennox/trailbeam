@@ -3,6 +3,9 @@
 # Written from python/src/trailbeam/server/server.py. The server is a plain http.server handler, so this
 # file is not generated: when a route, a parameter or a response field changes there, change it here in
 # the same commit. docs.trailbeam.app builds its API reference from this file.
+#
+# x-example-request, on an operation, is the request that returned the operation's 200 example, from a
+# server holding contract/fixtures/contract-3.2-spans.json.
 openapi: 3.1.0
 info:
   title: Trailbeam server
@@ -41,6 +44,7 @@ paths:
   /api/messages:
     get:
       operationId: list-messages
+      x-example-request: /api/messages?limit=2
       tags: [Messages]
       summary: List messages
       description: |
@@ -126,6 +130,7 @@ paths:
   /api/messages/{message_id}:
     get:
       operationId: get-message
+      x-example-request: /api/messages/m-orders-1
       tags: [Messages]
       summary: Get a message's timeline
       description: |
@@ -313,6 +318,7 @@ paths:
   /api/messages/{message_id}/body:
     get:
       operationId: get-message-body
+      x-example-request: /api/messages/m-orders-1/body
       tags: [Messages]
       summary: Get a message's body
       description: |
@@ -376,6 +382,7 @@ paths:
   /api/duplicates:
     get:
       operationId: list-duplicates
+      x-example-request: /api/duplicates?limit=1
       tags: [Problems]
       summary: List duplicate deliveries
       description: |
@@ -425,12 +432,13 @@ paths:
                   last_seen: '2026-11-16T18:05:37.528000Z'
                   reasons:
                   - received_more_than_once
-                next_cursor: null
+                next_cursor: MTc5NDg1MjMzNzUyODAwMDAwMDptLWJpbGwtMQ
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
   /api/stuck:
     get:
       operationId: list-stuck-messages
+      x-example-request: /api/stuck?limit=1
       tags: [Problems]
       summary: List stuck messages
       description: |
@@ -473,14 +481,15 @@ paths:
                   first_seen: '2026-11-16T18:05:36.914000Z'
                   first_seen_clock: host
                   last_seen: '2026-11-16T18:05:37.425000Z'
-                  age_s: 173298.182
+                  age_s: 173764.996
                   age_across_clocks: false
-                next_cursor: null
+                next_cursor: MTc5NDg1MjMzNjkxNDAwMDAwMDptLXBheS0y
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
   /api/tenants:
     get:
       operationId: list-tenants
+      x-example-request: /api/tenants?from_ms=1794852000000&to_ms=1794855600000
       tags: [Tenants]
       summary: List tenants
       description: |
@@ -501,8 +510,8 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/TenantStats'}
               example:
-                from_ms: 1760465635097
-                to_ms: 1795025635097
+                from_ms: 1794852000000
+                to_ms: 1794855600000
                 total_sent: 7
                 untagged_sent: 1
                 capped: false
@@ -536,6 +545,7 @@ paths:
   /api/tenants/search:
     get:
       operationId: search-tenants
+      x-example-request: /api/tenants/search?q=ac&from_ms=1794852000000&to_ms=1794855600000
       tags: [Tenants]
       summary: Search tenant names
       description: |
@@ -565,12 +575,17 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/TenantSearch'}
-              example: {"tenants": ["acme"], "from_ms": 1794939235098, "to_ms": 1795025635098}
+              example:
+                tenants:
+                - acme
+                from_ms: 1794852000000
+                to_ms: 1794855600000
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
   /api/stats:
     get:
       operationId: get-stats
+      x-example-request: /api/stats
       tags: [Server]
       summary: Get exact counts
       description: |
@@ -583,11 +598,20 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Stats'}
-              example: {"data": {"spans": {"delete": 7, "outcome": 4, "receive": 14, "send": 7}, "messages": 10, "unjoined_settles": 0}}
+              example:
+                data:
+                  spans:
+                    delete: 7
+                    outcome: 4
+                    receive: 14
+                    send: 7
+                  messages: 10
+                  unjoined_settles: 0
         '401': {$ref: '#/components/responses/Unauthorized'}
   /api/health:
     get:
       operationId: get-health
+      x-example-request: /api/health
       tags: [Server]
       summary: Check liveness
       description: |
@@ -610,7 +634,7 @@ paths:
                     status: ok
                     version: 0.1.0.dev0
                     ingest:
-                      requests: 6
+                      requests: 4
                       inserted: 32
                       duplicates: 0
                       ignored: 0
@@ -635,12 +659,12 @@ paths:
                         passes: 1
                         running: null
                         last_pass:
-                          started_ms: 1795025634934
+                          started_ms: 1795026100313
                           deleted_spans: 0
                           examined: 0
                           steps: 2
                           reclaimed_pages: 0
-                          longest_step_ms: 0.3
+                          longest_step_ms: 0.4
                           longest_write_ms: 0.0
                           longest_reclaim_step_ms: 0.0
                           stopped: false
@@ -651,6 +675,7 @@ paths:
   /api/ready:
     get:
       operationId: get-ready
+      x-example-request: /api/ready
       tags: [Server]
       summary: Check readiness
       description: |
