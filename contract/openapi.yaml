@@ -3,6 +3,8 @@
 # Written from python/src/trailbeam/server/server.py. The server is a plain http.server handler, so this
 # file is not generated: when a route, a parameter or a response field changes there, change it here in
 # the same commit. docs.trailbeam.app builds its API reference from this file.
+# python/tests/server/test_openapi.py fails when the two disagree: routes, query parameters and their
+# bounds and defaults, and every response the server tests produce, validated against this file.
 #
 # x-example-request, on an operation, is the request that returned the operation's 200 example, from a
 # server holding contract/fixtures/contract-3.2-spans.json.
