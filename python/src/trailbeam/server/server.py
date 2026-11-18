@@ -362,6 +362,11 @@ def make_handler(app: App):
         protocol_version = "HTTP/1.1"
 
         def _send(self, status: int, ctype: str, body: bytes, headers: Optional[dict] = None):
+            if getattr(self, "_count_ingest_reject", False):
+                # count a rejected export before the client can see the answer, so a scrape
+                # that follows the response always includes it
+                self._count_ingest_reject = False
+                app.m_ingest_requests.inc(code=str(status))
             self.send_response(status)
             self.send_header("Content-Type", ctype)
             for k, v in (headers or {}).items():
@@ -449,15 +454,16 @@ def make_handler(app: App):
             if path != "/v1/traces":
                 self._send(404, "text/plain", b"not found")
                 return
+            self._count_ingest_reject = True  # a 401, 413, 415, 400 or 501 below is counted as it is sent
             if app.auth is not None and not app.auth.bearer_ok(self.headers.get("Authorization")):
                 self.close_connection = True  # the request body is not read
                 self._unauthorized("text/plain", b"this server needs Authorization: Bearer <TRAILBEAM_TOKEN>")
-                app.m_ingest_requests.inc(code="401")
                 return
             body = self._body()
-            if body is None:  # 413, 415 or 400, already sent
-                app.m_ingest_requests.inc(code=str(self._status))
+            if body is None:  # 413, 415, 400 or 501, already sent and counted
+                self._count_ingest_reject = False  # the handler is reused on a kept-alive connection
                 return
+            self._count_ingest_reject = False  # app.ingest counts the rest
             try:
                 status, ctype, out, headers = app.ingest(body, self.headers.get("Content-Type", ""),
                                                          abandoned=lambda: _client_gone(self.connection))
