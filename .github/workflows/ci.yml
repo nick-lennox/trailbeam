@@ -11,7 +11,7 @@ permissions:
 jobs:
   python:
     name: Python ${{ matrix.python }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     strategy:
       fail-fast: false
       matrix:
@@ -37,7 +37,7 @@ jobs:
   postgres:
     # The Postgres store (TRAILBEAM_STORE_URL) on the oldest supported version and the current one.
     name: Postgres ${{ matrix.postgres }} store
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     strategy:
       fail-fast: false
       matrix:
@@ -69,7 +69,7 @@ jobs:
 
   node:
     name: Node.js ${{ matrix.node }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     strategy:
       fail-fast: false
       matrix:
@@ -95,7 +95,7 @@ jobs:
 
   ui:
     name: Shared UI (@trailbeam/ui)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     defaults:
       run:
         working-directory: ui
@@ -112,7 +112,7 @@ jobs:
 
   collector:
     name: Collector configuration
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     env:
       OTELCOL_VERSION: "0.165.0"
     steps:
@@ -130,7 +130,7 @@ jobs:
 
   container:
     name: Container smoke test
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     steps:
       - uses: actions/checkout@v4
       - name: Build the image (local only, not pushed)
@@ -156,7 +156,7 @@ jobs:
 
   demo:
     name: Local demo (Docker Compose)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     steps:
       - uses: actions/checkout@v4
       - name: Build and start the demo (images local only, not pushed)
@@ -172,7 +172,7 @@ jobs:
 
   concurrency-check:
     name: Concurrency check (3 processes x 4 consumers, 200 messages)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -217,7 +217,7 @@ jobs:
     # gating unnoticed. Pull requests from forks get no secrets, so it runs on pushes and same-repo PRs only.
     name: Concurrency check on real SQS (floor gating)
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     concurrency:
       group: real-sqs
       cancel-in-progress: false
