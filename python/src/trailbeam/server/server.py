@@ -16,7 +16,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTrace
 
 from . import __version__
 from . import bodies, queries, ui_files, web
-from .db import Database
+from .store import Store
 from .otlp import DecodeError, decode
 from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
 
@@ -35,7 +35,7 @@ class ApiError(Exception):
 class App:
     """Request handling, independent of the HTTP server so tests can call it directly."""
 
-    def __init__(self, db: Database, *, stuck_after_s: int = 300,
+    def __init__(self, db: Store, *, stuck_after_s: int = 300,
                  lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S, now: Callable[[], int] = time.time_ns,
                  max_receive_counts: Optional[dict] = None, ui_dir=ui_files.DEFAULT_UI_DIR):
         self.db = db
@@ -287,7 +287,7 @@ def _bounded(d, data: bytes) -> bytes:
     return out
 
 
-def make_server(db: Database, host: str = "127.0.0.1", port: int = 4318, **app_options) -> ThreadingHTTPServer:
+def make_server(db: Store, host: str = "127.0.0.1", port: int = 4318, **app_options) -> ThreadingHTTPServer:
     httpd = ThreadingHTTPServer((host, port), make_handler(App(db, **app_options)))
     httpd.daemon_threads = True
     return httpd

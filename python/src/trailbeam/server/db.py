@@ -1,4 +1,5 @@
-"""SQLite storage for Trailbeam spans, and the receipt-hash join of settle spans to receives.
+"""SQLite storage for Trailbeam spans (``SqliteStore``, the default Store), and the receipt-hash join of
+settle spans to receives. The interface, and what each method must return, is store.py.
 
 Every Trailbeam span is one row in ``spans``. ``mid`` is the message the row belongs to:
 
@@ -28,8 +29,8 @@ from typing import Iterable, Iterator, Optional
 
 from . import migrations
 from .otlp import RECORD_FIELDS
-
-SETTLE_KINDS = ("delete", "change_visibility")
+from .store import (SETTLE_KINDS, TENANT_ATTR, TENANT_KINDS, TENANT_MAX_CHARS, Store,
+                    StuckCandidate)
 
 # The body and the attributes that describe it (contract 15.2). trailbeam.body.capture_status is kept:
 # it is the package's reason, carries no message content, and the Body tab needs it either way.
@@ -69,7 +70,7 @@ def gate_body(attributes: dict, queue: Optional[str], store_bodies: frozenset) -
     return {k: v for k, v in attributes.items() if k not in BODY_ATTRIBUTES}, BODY_DROPPED_NOT_OPTED_IN
 
 
-class Database:
+class SqliteStore(Store):
     """Thread-safe. One writer connection, serialised by ``lock``; on a file, reads use separate read-only
     connections and never take that lock.
 
@@ -184,6 +185,25 @@ class Database:
         """Join settle spans that arrived before this receive."""
         self.conn.execute(RECEIVE_JOIN_SQL, (r["message_id"], row, r["receipt_hmac"], r["key_id"]))
 
+    def delete_messages_before(self, cutoff_ns: int, queue: Optional[str] = None, limit: int = 10_000) -> int:
+        qsql, qp = _queue_filter(queue)
+        with self.lock:
+            c = self.conn
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                n = c.execute(
+                    f"""DELETE FROM spans WHERE mid IN (
+                            SELECT s.mid FROM spans s WHERE s.mid IS NOT NULL {qsql}
+                            GROUP BY s.mid HAVING MAX(s.time_ns) < ? LIMIT ?)""", qp + (cutoff_ns, limit)).rowcount
+                n += c.execute(
+                    f"""DELETE FROM spans WHERE mid IS NULL AND kind IN {SETTLE_KINDS!r} AND time_ns < ?
+                        {"AND queue = ?" if queue else ""}""", (cutoff_ns,) + ((queue,) if queue else ())).rowcount
+                c.execute("COMMIT")
+            except BaseException:
+                c.execute("ROLLBACK")
+                raise
+        return n
+
     # ---- reads ----------------------------------------------------------------------------
 
     def message_rows(self, message_id: str) -> list[sqlite3.Row]:
@@ -192,13 +212,96 @@ class Database:
             return c.execute("SELECT * FROM spans WHERE mid = ? ORDER BY time_ns, row", (message_id,)).fetchall()
 
     def query(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
-        """A read-only query (on a file, a write fails: read connections are query_only)."""
+        """A read-only query (on a file, a write fails: read connections are query_only). SQLite only: not
+        part of Store, so the server doesn't use it; tests and the benchmark do."""
         with self.reader() as c:
             return c.execute(sql, params).fetchall()
 
+    def recent_messages(self, limit: int, queue: Optional[str] = None, tenant: Optional[str] = None) -> list[str]:
+        qsql, qp = _queue_filter(queue)
+        tsql, tp = _tenant_filter(tenant)
+        rows = self.query(
+            f"""SELECT s.mid, MAX(s.time_ns) AS last FROM spans s WHERE s.mid IS NOT NULL {qsql}{tsql}
+                GROUP BY s.mid ORDER BY last DESC, s.mid LIMIT ?""", qp + tp + (limit,))
+        return [r["mid"] for r in rows]
+
+    def duplicate_messages(self, limit: int, queue: Optional[str] = None, reason: Optional[str] = None) -> list[str]:
+        qsql, qp = _queue_filter(queue)
+        having = {"received_more_than_once": "receives > 1", "succeeded_more_than_once": "successes > 1",
+                  None: "receives > 1 OR successes > 1"}[reason]
+        rows = self.query(
+            f"""SELECT s.mid,
+                       SUM(s.kind = 'receive') AS receives,
+                       COUNT(DISTINCT CASE WHEN s.kind = 'delete' AND s.result = 'ok' THEN s.receive_row END)
+                       + COUNT(DISTINCT CASE WHEN s.kind = 'outcome' AND s.outcome = 'success'
+                                             THEN s.faas_invocation_id END) AS successes,
+                       MAX(s.time_ns) AS last
+                FROM spans s WHERE s.mid IS NOT NULL {qsql}
+                GROUP BY s.mid HAVING {having}
+                ORDER BY last DESC, s.mid LIMIT ?""", qp + (limit,))
+        return [r["mid"] for r in rows]
+
+    def stuck_messages(self, cutoff_ns: int, limit: int, queue: Optional[str] = None) -> list[StuckCandidate]:
+        qsql, qp = _queue_filter(queue)
+        rows = self.query(
+            f"""WITH latest AS (
+                    SELECT mid, row AS rrow, faas_invocation_id AS inv FROM (
+                        SELECT mid, row, faas_invocation_id,
+                               ROW_NUMBER() OVER (PARTITION BY mid ORDER BY time_ns DESC, row DESC) AS rn
+                        FROM spans WHERE kind = 'receive')
+                    WHERE rn = 1),
+                seen AS (
+                    SELECT s.mid, MIN(CASE WHEN s.kind = 'send' THEN s.time_ns END) AS send_ns,
+                           MIN(CASE WHEN s.kind = 'receive' THEN s.sent_ts_ms END) * 1000000 AS sqs_ns,
+                           MIN(s.time_ns) AS any_ns
+                    FROM spans s WHERE s.mid IS NOT NULL AND s.kind IN ('send', 'receive') {qsql}
+                    GROUP BY s.mid),
+                first AS (
+                    SELECT mid, COALESCE(send_ns, sqs_ns, any_ns) AS first_ns,
+                           send_ns IS NULL AND sqs_ns IS NOT NULL AS on_sqs_clock
+                    FROM seen)
+                SELECT f.mid, f.first_ns, f.on_sqs_clock FROM first f LEFT JOIN latest l ON l.mid = f.mid
+                WHERE f.first_ns < ?
+                  AND NOT EXISTS (SELECT 1 FROM spans d WHERE d.kind = 'delete' AND d.result = 'ok'
+                                  AND d.receive_row = l.rrow)
+                  AND NOT EXISTS (SELECT 1 FROM spans o WHERE o.kind = 'outcome' AND o.outcome = 'success'
+                                  AND o.mid = f.mid AND o.faas_invocation_id = l.inv)
+                ORDER BY f.first_ns, f.mid LIMIT ?""", qp + (cutoff_ns, limit))
+        return [StuckCandidate(r["mid"], r["first_ns"], bool(r["on_sqs_clock"])) for r in rows]
+
+    def active_messages(self, from_ns: int, to_ns: int, limit: int) -> list[str]:
+        rows = self.query(
+            """SELECT mid, MAX(time_ns) AS last FROM spans WHERE mid IS NOT NULL AND time_ns >= ? AND time_ns < ?
+               GROUP BY mid ORDER BY last DESC, mid LIMIT ?""", (from_ns, to_ns, limit))
+        return [r["mid"] for r in rows]
+
+    def queue_messages(self, queue: str) -> set[str]:
+        return {r["mid"] for r in self.query("SELECT DISTINCT mid FROM spans WHERE queue = ? AND mid IS NOT NULL",
+                                             (queue,))}
+
+    def find_tenants(self, text: str, limit: int) -> list[str]:
+        if not text:
+            return []
+        like = "".join("\\" + c if c in "\\%_" else c for c in _ascii_lower(text)) + "%"
+        rows = self.query(
+            f"""SELECT tenant, MAX(time_ns) AS last FROM (
+                    SELECT {_TENANT_SQL} AS tenant, time_ns FROM spans WHERE kind IN {TENANT_KINDS!r})
+                WHERE tenant IS NOT NULL AND LOWER(tenant) LIKE ? ESCAPE '\\'
+                GROUP BY tenant ORDER BY LOWER(tenant) = ? DESC, last DESC, tenant LIMIT ?""",
+            (like, _ascii_lower(text), limit))
+        return [r["tenant"] for r in rows]
+
+    def body_rows(self) -> list[sqlite3.Row]:
+        return self.query(
+            """SELECT row, kind, mid, queue, attributes,
+                      (SELECT MAX(s2.time_ns) FROM spans s2 WHERE s2.mid = s.mid) AS last
+               FROM spans s
+               WHERE kind IN ('send', 'receive') AND mid IS NOT NULL
+                 AND json_type(attributes, '$."trailbeam.body"') = 'text'
+               ORDER BY mid, kind <> 'send', row""")
+
     def last_row(self) -> int:
-        """The highest row ID stored, 0 if none: one step down the primary key. Rows are never deleted yet,
-        so it is also the number of spans stored."""
+        """The highest row ID stored, 0 if none: one step down the primary key."""
         with self.reader() as c:
             return c.execute("SELECT MAX(row) FROM spans").fetchone()[0] or 0
 
@@ -211,3 +314,34 @@ class Database:
             ).fetchone()[0]
             messages = c.execute("SELECT COUNT(DISTINCT mid) FROM spans WHERE mid IS NOT NULL").fetchone()[0]
         return {"spans": kinds, "messages": messages, "unjoined_settles": unjoined}
+
+
+Database = SqliteStore  # the name everything used before store.py
+
+
+def _queue_filter(queue: Optional[str]) -> tuple[str, tuple]:
+    """A WHERE fragment for spans aliased s: the message has a span on the queue."""
+    if not queue:
+        return "", ()
+    return " AND EXISTS (SELECT 1 FROM spans q WHERE q.mid = s.mid AND q.queue = ?)", (queue,)
+
+
+# a span's tenant, in SQL: a non-empty string, cut to 256 characters
+_TENANT_SQL = (f"""CASE WHEN json_type(attributes, '$."{TENANT_ATTR}"') = 'text'
+                         AND json_extract(attributes, '$."{TENANT_ATTR}"') <> ''
+                       THEN substr(json_extract(attributes, '$."{TENANT_ATTR}"'), 1, {TENANT_MAX_CHARS}) END""")
+
+
+def _tenant_filter(tenant: Optional[str]) -> tuple[str, tuple]:
+    """A WHERE fragment for spans aliased s: the message has a span naming the tenant."""
+    if not tenant:
+        return "", ()
+    return (f" AND EXISTS (SELECT 1 FROM spans tn WHERE tn.mid = s.mid AND tn.kind IN {TENANT_KINDS!r}"
+            f" AND {_TENANT_SQL.replace('attributes', 'tn.attributes')} = ?)", (tenant[:TENANT_MAX_CHARS],))
+
+
+def _ascii_lower(s: str) -> str:
+    return s.translate(_ASCII_LOWER)
+
+
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")

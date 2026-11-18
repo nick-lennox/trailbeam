@@ -4,7 +4,7 @@ Both follow ``contract/body-view.md``. The hosted app implements the same rules 
 ``bodyView`` and ``bodyHit`` functions of ``@trailbeam/ui``), and both are checked against the same
 expected outputs in ``contract/fixtures/``.
 
-Bodies are only there for queues in ``TRAILBEAM_STORE_BODIES`` (db.py drops the rest before writing).
+Bodies are only there for queues in ``TRAILBEAM_STORE_BODIES`` (the Store drops the rest before writing).
 There are no logins: anyone who can reach the server can read what this module returns.
 """
 from __future__ import annotations
@@ -12,8 +12,9 @@ from __future__ import annotations
 import json
 import math
 import re
-import sqlite3
 from typing import Iterable, Optional
+
+from .store import Row
 
 # Capture statuses (contract 15.4) that are also a reason for no body. "captured" and "offloaded_to_s3"
 # come with a body, so they are not here.
@@ -23,7 +24,7 @@ REASONS = ("not_opted_in", "producer_not_instrumented", "package_too_old") + STA
 CARRIERS = ("send", "receive")  # the span kinds that carry a body (contract 15.2)
 
 
-def _attrs(r: sqlite3.Row) -> dict:
+def _attrs(r: Row) -> dict:
     return json.loads(r["attributes"])
 
 
@@ -43,7 +44,7 @@ def _int(v) -> Optional[int]:
     return None
 
 
-def _has_body(r: sqlite3.Row) -> bool:
+def _has_body(r: Row) -> bool:
     return r["kind"] in CARRIERS and isinstance(_attrs(r).get("trailbeam.body"), str)
 
 
@@ -53,7 +54,7 @@ def _served(queue: Optional[str], store_bodies: frozenset) -> bool:
     return "*" in store_bodies or queue in store_bodies
 
 
-def kept_body(rows: Iterable[sqlite3.Row], store_bodies: frozenset) -> Optional[sqlite3.Row]:
+def kept_body(rows: Iterable[Row], store_bodies: frozenset) -> Optional[Row]:
     """The one body kept for a message: the first send's that arrived, else the first receive's (contract 15.4)."""
     best = None
     for r in rows:
@@ -65,10 +66,10 @@ def kept_body(rows: Iterable[sqlite3.Row], store_bodies: frozenset) -> Optional[
     return best
 
 
-def body_view(message_id: str, rows: list[sqlite3.Row], store_bodies: frozenset) -> dict:
+def body_view(message_id: str, rows: list[Row], store_bodies: frozenset) -> dict:
     """The Body tab of one message (contract/body-view.md): its kept body, or the reason there is none.
 
-    ``rows``: every row of the message, in time order (Database.message_rows). ``store_bodies``: the
+    ``rows``: every row of the message, in time order (Store.message_rows). ``store_bodies``: the
     server's TRAILBEAM_STORE_BODIES."""
     carriers = [r for r in rows if r["kind"] in CARRIERS + ("outcome",)]
     ordered = [r for r in carriers if r["kind"] == "send"] + [r for r in carriers if r["kind"] != "send"]
@@ -255,16 +256,11 @@ def matches(body, terms: list[dict]) -> bool:
 
 
 def search(db, terms: list[dict], store_bodies: frozenset) -> list[str]:
-    """The message IDs whose kept body matches, most recently seen first. It reads every served body, so its
-    cost grows with the bodies stored: fine for one SQLite file, not an index."""
+    """The message IDs whose kept body matches, most recently seen first. ``db``: a Store. It reads every
+    served body, so its cost grows with the bodies stored: fine for one SQLite file, not an index."""
     if not store_bodies:
         return []
-    rows = db.query(
-        """SELECT row, kind, mid, queue, attributes, (SELECT MAX(s2.time_ns) FROM spans s2 WHERE s2.mid = s.mid) AS last
-           FROM spans s
-           WHERE kind IN ('send', 'receive') AND mid IS NOT NULL
-             AND json_type(attributes, '$."trailbeam.body"') = 'text'
-           ORDER BY mid, kind <> 'send', row""")
+    rows = db.body_rows()  # Store.body_rows: by message, its sends first
     hits, seen = [], set()
     for r in rows:
         if r["mid"] in seen or not _served(r["queue"], store_bodies):

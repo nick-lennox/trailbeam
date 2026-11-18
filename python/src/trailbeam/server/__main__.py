@@ -7,7 +7,7 @@ import os
 import signal
 import sys
 
-from .db import Database, parse_queue_list
+from .db import SqliteStore, parse_queue_list
 from .migrations import SchemaError
 from .server import make_server
 
@@ -42,7 +42,7 @@ def main(argv=None) -> None:
     if a.store_bodies:
         logging.getLogger("trailbeam.server").warning(body_warning(a.store_bodies, a.db))
     try:
-        db = Database(a.db, store_bodies=a.store_bodies)
+        db = SqliteStore(a.db, store_bodies=a.store_bodies)
     except SchemaError as e:
         logging.getLogger("trailbeam.server").error("%s", e)
         sys.exit(2)

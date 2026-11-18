@@ -1,9 +1,7 @@
 """Schema versions and upgrades (migrations.py): a file written by an older Trailbeam opens with every span
 kept and the same timelines, a file from a newer one is refused untouched, and a failed upgrade leaves the
 file at the last version that completed."""
-import base64
 import importlib.util
-import json
 import shutil
 import sqlite3
 from pathlib import Path
