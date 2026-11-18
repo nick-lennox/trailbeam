@@ -3101,23 +3101,6 @@
     "total_sent": 7,
     "untagged_sent": 1
    },
-   "capped at 2": {
-    "capped": true,
-    "from_ms": 0,
-    "rows": [
-     {
-      "dead_lettered": 0,
-      "first_deliveries": 1,
-      "p95_in_queue_ms": 30,
-      "sent": 0,
-      "share": 0.0,
-      "tenant": "acme"
-     }
-    ],
-    "to_ms": 1794852397716,
-    "total_sent": 1,
-    "untagged_sent": 1
-   },
    "first half": {
     "capped": false,
     "from_ms": 1794852336910,
@@ -6310,23 +6293,6 @@
     "total_sent": 7,
     "untagged_sent": 1
    },
-   "capped at 2": {
-    "capped": true,
-    "from_ms": 0,
-    "rows": [
-     {
-      "dead_lettered": 0,
-      "first_deliveries": 1,
-      "p95_in_queue_ms": 30,
-      "sent": 0,
-      "share": 0.0,
-      "tenant": "acme"
-     }
-    ],
-    "to_ms": 1794852397716,
-    "total_sent": 1,
-    "untagged_sent": 1
-   },
    "first half": {
     "capped": false,
     "from_ms": 1794852336910,
@@ -8700,31 +8666,6 @@
     ],
     "to_ms": 1763083600000,
     "total_sent": 5,
-    "untagged_sent": 0
-   },
-   "capped at 2": {
-    "capped": true,
-    "from_ms": 0,
-    "rows": [
-     {
-      "dead_lettered": 1,
-      "first_deliveries": 1,
-      "p95_in_queue_ms": 27000,
-      "sent": 1,
-      "share": 0.5,
-      "tenant": "initech"
-     },
-     {
-      "dead_lettered": 0,
-      "first_deliveries": 1,
-      "p95_in_queue_ms": 10000,
-      "sent": 1,
-      "share": 0.5,
-      "tenant": "acme"
-     }
-    ],
-    "to_ms": 1763083600000,
-    "total_sent": 2,
     "untagged_sent": 0
    },
    "first half": {

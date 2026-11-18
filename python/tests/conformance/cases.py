@@ -148,7 +148,6 @@ def snapshot(store, name: str) -> dict:
             "all": queries.tenants(store, now, lt, 0, now // 1_000_000),
             "first half": queries.tenants(store, now, lt, first_ms, mid_ms),
             "second half": queries.tenants(store, now, lt, mid_ms + 1, last_ms),
-            "capped at 2": queries.tenants(store, now, lt, 0, now // 1_000_000, max_messages=2),
         },
         "find_tenants": {t: queries.find_tenants(store, t) for t in ["", "a", "AC", "acme", "g", "z", "%", "_"]},
         "body_view": {m: bodies.body_view(m, rows[m], store.store_bodies) for m in mids},

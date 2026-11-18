@@ -1,16 +1,23 @@
 """The queries behind the screens: one message's timeline, duplicate deliveries, stuck messages, tenants.
 
-Storage is reached through the Store interface (store.py), which returns message IDs and rows; the timelines,
-summaries and the Tenants page are built here, the same for every backend."""
+Storage is reached through the Store interface (store.py), which returns message IDs, rows and per-message
+summaries (summary.py). List pages are built from the summaries; only ``message`` builds a full timeline. The
+pages and the Tenants page are built here, the same for every backend.
+
+Pagination: a list page returns at most ``limit`` items and, when there are more, ``next_cursor``, which
+gives the next page when passed back as ``cursor``. A cursor is the sort key of the page's last item, so a
+page costs the same however deep it is, and spans arriving meanwhile don't shift later pages."""
 from __future__ import annotations
 
-import json
+import base64
+import binascii
 import math
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import NamedTuple, Optional
 
-from . import bodies, timeline
-from .store import TENANT_ATTR, TENANT_KINDS, TENANT_MAX_CHARS, Store
+from . import bodies, summary, timeline
+from .store import Store
+from .summary import message_tenant, span_tenant  # noqa: F401  (part of this module's interface)
 
 MAX_LIMIT = 1000
 
@@ -22,30 +29,59 @@ def message(db: Store, message_id: str, now_ns: int, lambda_timeout_s: int,
     return timeline.build(rows, now_ns, lambda_timeout_s, max_receive_counts) if rows else None
 
 
-def _summary(db: Store, mid: str, now_ns: int, lambda_timeout_s: int, mrc: Optional[dict] = None) -> dict:
-    t = message(db, mid, now_ns, lambda_timeout_s, mrc)
-    consumers = sorted({(e["consumer"].get("service_name"), e["consumer"].get("client_id"))
-                        for e in t["events"] if e["type"] == "received"}, key=str)
-    return {
-        "message_id": mid,
-        "state": t["state"],
-        "source_queue": t["source_queue"],
-        "current_queue": t["current_queue"],
-        "in_dead_letter_queue": t["in_dead_letter_queue"],
-        "dead_letter_queue_move": t["dead_letter_queue_move"],
-        "deliveries": t["deliveries"],
-        "successful_deliveries": t["successful_deliveries"],
-        "consumers": [{"service_name": s, "client_id": c} for s, c in consumers],
-        "first_seen": t["first_seen"],
-        "first_seen_clock": t["first_seen_clock"],
-        "last_seen": t["last_seen"],
-    }
+class Page(NamedTuple):
+    items: list
+    next_cursor: Optional[str]  # None: this is the last page
+
+
+class CursorError(ValueError):
+    pass
+
+
+def encode_cursor(ns: int, mid: str) -> str:
+    return base64.urlsafe_b64encode(f"{ns}:{mid}".encode()).decode().rstrip("=")
+
+
+def decode_cursor(text: Optional[str]) -> Optional[tuple]:
+    if not text:
+        return None
+    try:
+        ns, _, mid = base64.urlsafe_b64decode(text + "=" * (-len(text) % 4)).decode().partition(":")
+        return int(ns), mid
+    except (ValueError, binascii.Error, UnicodeDecodeError):
+        raise CursorError("cursor is not one this server returned") from None
+
+
+def _items(db: Store, mids: list, now_ns: int, lambda_timeout_s: int, mrc: Optional[dict]) -> list[dict]:
+    return [summary.item(s, now_ns, lambda_timeout_s, mrc) for s in db.summaries(mids)]
+
+
+def _page(items: list, limit: int, key) -> Page:
+    """``items``: up to limit + 1 (one more tells whether there is a next page)."""
+    if len(items) <= limit:
+        return Page(items, None)
+    return Page(items[:limit], encode_cursor(*key(items[limit - 1])))
+
+
+def _newest_first(db: Store, mids: list, limit: int, now_ns: int, lambda_timeout_s: int, mrc) -> Page:
+    sums = db.summaries(mids)
+    page = _page(sums, limit, lambda s: (s["last_ns"], s["mid"]))
+    return Page([summary.item(s, now_ns, lambda_timeout_s, mrc) for s in page.items], page.next_cursor)
+
+
+def recent_page(db: Store, now_ns: int, lambda_timeout_s: int, limit: int, queue: Optional[str] = None,
+                mrc: Optional[dict] = None, tenant: Optional[str] = None, *, from_ns: Optional[int] = None,
+                to_ns: Optional[int] = None, cursor: Optional[str] = None) -> Page:
+    """The most recently active messages; ``tenant``: only those with a span naming it (contract/tenants.md).
+    ``from_ns``/``to_ns``: last seen in [from_ns, to_ns)."""
+    mids = db.recent_messages(limit + 1, queue, tenant, from_ns=from_ns, to_ns=to_ns, after=decode_cursor(cursor))
+    return _newest_first(db, mids, limit, now_ns, lambda_timeout_s, mrc)
 
 
 def recent(db: Store, now_ns: int, lambda_timeout_s: int, limit: int, queue: Optional[str] = None,
            mrc: Optional[dict] = None, tenant: Optional[str] = None) -> list[dict]:
-    """The most recently active messages; ``tenant``: only those with a span naming it (contract/tenants.md)."""
-    return [_summary(db, m, now_ns, lambda_timeout_s, mrc) for m in db.recent_messages(limit, queue, tenant)]
+    """The first page of ``recent_page``'s items."""
+    return recent_page(db, now_ns, lambda_timeout_s, limit, queue, mrc, tenant).items
 
 
 def body_search(db: Store, now_ns: int, lambda_timeout_s: int, limit: int, queue: Optional[str],
@@ -55,29 +91,38 @@ def body_search(db: Store, now_ns: int, lambda_timeout_s: int, limit: int, queue
     if queue:
         inq = db.queue_messages(queue)
         mids = [m for m in mids if m in inq]
-    return [_summary(db, m, now_ns, lambda_timeout_s, mrc) for m in mids[:limit]]
+    return _items(db, mids[:limit], now_ns, lambda_timeout_s, mrc)
 
 
-def duplicates(db: Store, now_ns: int, lambda_timeout_s: int, limit: int,
-               queue: Optional[str] = None, reason: Optional[str] = None, mrc: Optional[dict] = None) -> list[dict]:
-    """Messages received more than once, or that succeeded more than once.
+def _with_reasons(item: dict) -> dict:
+    item["reasons"] = (["received_more_than_once"] if item["deliveries"] > 1 else []) + \
+                      (["succeeded_more_than_once"] if item["successful_deliveries"] > 1 else [])
+    return item
+
+
+def duplicates_page(db: Store, now_ns: int, lambda_timeout_s: int, limit: int, queue: Optional[str] = None,
+                    reason: Optional[str] = None, mrc: Optional[dict] = None, *, from_ns: Optional[int] = None,
+                    to_ns: Optional[int] = None, cursor: Optional[str] = None) -> Page:
+    """Messages received more than once, or that succeeded more than once, most recently active first.
 
     A success is a delivery that ended in an accepted delete (counted once per delivery, however many
     times its handle was deleted) or a Lambda ``success`` outcome.
     """
-    mids = db.duplicate_messages(limit, queue, reason)
-    out = []
-    for m in mids:
-        item = _summary(db, m, now_ns, lambda_timeout_s, mrc)
-        item["reasons"] = ([ "received_more_than_once"] if item["deliveries"] > 1 else []) + \
-                          (["succeeded_more_than_once"] if item["successful_deliveries"] > 1 else [])
-        out.append(item)
-    return out
+    mids = db.duplicate_messages(limit + 1, queue, reason, from_ns=from_ns, to_ns=to_ns, after=decode_cursor(cursor))
+    page = _newest_first(db, mids, limit, now_ns, lambda_timeout_s, mrc)
+    return Page([_with_reasons(i) for i in page.items], page.next_cursor)
 
 
-def stuck(db: Store, now_ns: int, lambda_timeout_s: int, older_than_s: int, limit: int,
-          queue: Optional[str] = None, mrc: Optional[dict] = None) -> list[dict]:
-    """Messages first seen more than ``older_than_s`` ago that have no final delete.
+def duplicates(db: Store, now_ns: int, lambda_timeout_s: int, limit: int,
+               queue: Optional[str] = None, reason: Optional[str] = None, mrc: Optional[dict] = None) -> list[dict]:
+    return duplicates_page(db, now_ns, lambda_timeout_s, limit, queue, reason, mrc).items
+
+
+def stuck_page(db: Store, now_ns: int, lambda_timeout_s: int, older_than_s: int, limit: int,
+               queue: Optional[str] = None, mrc: Optional[dict] = None, *, from_ns: Optional[int] = None,
+               cursor: Optional[str] = None) -> Page:
+    """Messages first seen more than ``older_than_s`` ago (and at or after ``from_ns``) that have no final
+    delete, oldest first.
 
     Final means an accepted delete whose receipt handle is the one from the message's latest receive
     (span contract section 4.3), or a Lambda ``success`` outcome for the latest receive. First seen is
@@ -86,35 +131,31 @@ def stuck(db: Store, now_ns: int, lambda_timeout_s: int, older_than_s: int, limi
     ``age_s`` compare SQS's clock with this server's, and each such item says so (``age_across_clocks``).
     """
     cutoff = now_ns - older_than_s * 1_000_000_000
-    rows = db.stuck_messages(cutoff, limit, queue)
+    found = db.stuck_messages(cutoff, limit + 1, queue, from_ns=from_ns, after=decode_cursor(cursor))
+    sums = {s["mid"]: s for s in db.summaries([r.message_id for r in found])}
     out = []
-    for r in rows:
-        item = _summary(db, r.message_id, now_ns, lambda_timeout_s, mrc)
+    for r in found:
+        if r.message_id not in sums:
+            continue
+        item = summary.item(sums[r.message_id], now_ns, lambda_timeout_s, mrc)
         item["age_s"] = round((now_ns - r.first_ns) / 1e9, 3)
         # True when first seen is SQS's SentTimestamp: the age is this server's clock minus SQS's, so skew
         # between the two clocks is in it.
         item["age_across_clocks"] = r.on_sqs_clock
-        out.append(item)
-    return out
+        out.append((item, r))
+    page = _page(out, limit, lambda x: (x[1].first_ns, x[1].message_id))
+    return Page([i for i, _ in page.items], page.next_cursor)
+
+
+def stuck(db: Store, now_ns: int, lambda_timeout_s: int, older_than_s: int, limit: int,
+          queue: Optional[str] = None, mrc: Optional[dict] = None) -> list[dict]:
+    return stuck_page(db, now_ns, lambda_timeout_s, older_than_s, limit, queue, mrc).items
 
 
 # ---- tenants (contract/tenants.md) -------------------------------------------------------------
 
-TENANT_MESSAGES = 2000  # the most messages the Tenants page reads (contract/tenants.md)
 _NS_PER_MS = 1_000_000
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
-def span_tenant(row) -> Optional[str]:
-    """The tenant a stored span names, or None: only send, receive and outcome spans name one."""
-    if row["kind"] not in TENANT_KINDS:
-        return None
-    v = json.loads(row["attributes"]).get(TENANT_ATTR)
-    return v[:TENANT_MAX_CHARS] if isinstance(v, str) and v else None
-
-
-def message_tenant(rows) -> Optional[str]:
-    """A message's tenant: its earliest send's, else its earliest receive's or outcome's."""
-    ordered = sorted(rows, key=lambda r: (r["kind"] != "send", r["time_ns"], r["trace_id"], r["span_id"]))
-    return next((t for t in map(span_tenant, ordered) if t is not None), None)
 
 
 def _ms(ns) -> int:
@@ -160,7 +201,8 @@ def tenant_counts(timeline_events: list, tenant: Optional[str], from_ms: int, to
 
 
 def tenant_stats(per_message: list, capped: bool = False) -> dict:
-    """The Tenants page from each message's tenant_counts (contract/tenants.md)."""
+    """The Tenants page (contract/tenants.md) from each message's tenant_counts, or from totals per tenant
+    (Store.tenant_activity) in the same shape, with ``dead_lettered`` a count of messages."""
     by: dict = {}
     total = untagged = 0
     for m in per_message:
@@ -173,7 +215,7 @@ def tenant_stats(per_message: list, capped: bool = False) -> dict:
         g = by.setdefault(m["tenant"], {"sent": 0, "waits": [], "dead_lettered": 0})
         g["sent"] += m["sent"]
         g["waits"] += m["waits"]
-        g["dead_lettered"] += 1 if m["dead_lettered"] else 0
+        g["dead_lettered"] += int(m["dead_lettered"])  # a message's flag, or a count of messages
     rows = [{"tenant": t, "sent": g["sent"], "share": g["sent"] / total if total else 0,
              "p95_in_queue_ms": p95(g["waits"]), "first_deliveries": len(g["waits"]),
              "dead_lettered": g["dead_lettered"]} for t, g in by.items()]
@@ -182,18 +224,22 @@ def tenant_stats(per_message: list, capped: bool = False) -> dict:
 
 
 def tenants(db: Store, now_ns: int, lambda_timeout_s: int, from_ms: int, to_ms: int,
-            mrc: Optional[dict] = None, max_messages: int = TENANT_MESSAGES) -> dict:
-    """The Tenants page for [from_ms, to_ms], both included (contract/tenants.md)."""
-    mids = db.active_messages(from_ms * _NS_PER_MS, (to_ms + 1) * _NS_PER_MS, max_messages + 1)
-    per_message = []
-    for m in mids[:max_messages]:
-        rows = db.message_rows(m)
-        t = timeline.build(rows, now_ns, lambda_timeout_s, mrc)
-        per_message.append(tenant_counts(t["events"], message_tenant(rows), from_ms, to_ms))
-    out = tenant_stats(per_message, capped=len(mids) > max_messages)
+            mrc: Optional[dict] = None) -> dict:
+    """The Tenants page for [from_ms, to_ms], both included (contract/tenants.md), from every message: the
+    summaries' tenant events (summary.py), so no timeline is built and nothing is capped. ``capped`` is
+    always false; it stays in the response for clients of the capped page. ``now_ns``, the Lambda timeout
+    and ``mrc`` don't change what the page counts."""
+    per_tenant = [{"tenant": a.tenant, "sent": a.sent, "waits": a.waits, "dead_lettered": a.dead_lettered}
+                  for a in db.tenant_activity(from_ms, to_ms)]
+    out = tenant_stats(per_tenant, capped=False)
     return {"from_ms": from_ms, "to_ms": to_ms, **out}
 
 
-def find_tenants(db: Store, text: str, limit: int = 8) -> list[str]:
-    """Tenants whose name starts with the text, ignoring ASCII case; an exact match first (contract/tenants.md)."""
-    return db.find_tenants(text, limit) if text else []
+def find_tenants(db: Store, text: str, limit: int = 8, *, from_ms: Optional[int] = None, to_ms: Optional[int] = None,
+                 queue: Optional[str] = None) -> list[str]:
+    """Tenants whose name starts with the text, ignoring ASCII case; an exact match first (contract/tenants.md).
+    ``from_ms``/``to_ms``: named in [from_ms, to_ms], both included; ``queue``: by messages on that queue."""
+    if not text:
+        return []
+    return db.find_tenants(text, limit, from_ns=None if from_ms is None else from_ms * _NS_PER_MS,
+                           to_ns=None if to_ms is None else (to_ms + 1) * _NS_PER_MS, queue=queue)

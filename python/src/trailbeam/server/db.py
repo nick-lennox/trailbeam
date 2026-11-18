@@ -29,8 +29,8 @@ from typing import Iterable, Iterator, Optional
 
 from . import migrations, summary_table
 from .otlp import RECORD_FIELDS
-from .store import (SETTLE_KINDS, TENANT_ATTR, TENANT_KINDS, TENANT_MAX_CHARS, Store,
-                    StuckCandidate)
+from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Store,
+                    StuckCandidate, TenantActivity)
 
 # The body and the attributes that describe it (contract 15.2). trailbeam.body.capture_status is kept:
 # it is the package's reason, carries no message content, and the Body tab needs it either way.
@@ -238,79 +238,134 @@ class SqliteStore(Store):
         with self.reader() as c:
             return c.execute(sql, params).fetchall()
 
-    def recent_messages(self, limit: int, queue: Optional[str] = None, tenant: Optional[str] = None) -> list[str]:
-        qsql, qp = _queue_filter(queue)
-        tsql, tp = _tenant_filter(tenant)
-        rows = self.query(
-            f"""SELECT s.mid, MAX(s.time_ns) AS last FROM spans s WHERE s.mid IS NOT NULL {qsql}{tsql}
-                GROUP BY s.mid ORDER BY last DESC, s.mid LIMIT ?""", qp + tp + (limit,))
+    def recent_messages(self, limit: int, queue: Optional[str] = None, tenant: Optional[str] = None, *,
+                        from_ns: Optional[int] = None, to_ns: Optional[int] = None,
+                        after: Optional[tuple] = None) -> list[str]:
+        if tenant:
+            src, p = "message_tenants INDEXED BY message_tenants_last WHERE tenant = ?", [tenant[:TENANT_MAX_CHARS]]
+            if queue:
+                src += " AND EXISTS (SELECT 1 FROM message_queues q WHERE q.mid = s.mid AND q.queue = ?)"
+                p.append(queue)
+        elif queue:
+            src, p = "message_queues INDEXED BY message_queues_last WHERE queue = ?", [queue]
+        else:
+            src, p = "messages INDEXED BY messages_last WHERE 1", []
+        return self._newest_first(src, p, limit, from_ns, to_ns, after)
+
+    def duplicate_messages(self, limit: int, queue: Optional[str] = None, reason: Optional[str] = None, *,
+                           from_ns: Optional[int] = None, to_ns: Optional[int] = None,
+                           after: Optional[tuple] = None) -> list[str]:
+        src = "messages INDEXED BY messages_duplicates WHERE (dup_received OR dup_succeeded)"
+        src += {None: "", "received_more_than_once": " AND dup_received",
+                "succeeded_more_than_once": " AND dup_succeeded"}[reason]
+        p: list = []
+        if queue:
+            src += " AND EXISTS (SELECT 1 FROM message_queues q WHERE q.mid = s.mid AND q.queue = ?)"
+            p.append(queue)
+        return self._newest_first(src, p, limit, from_ns, to_ns, after)
+
+    def _newest_first(self, src: str, p: list, limit: int, from_ns, to_ns, after) -> list[str]:
+        """``src``: a summary table (alias s) with last_ns and mid, and its WHERE, indexed by (last_ns DESC, mid)."""
+        where, p = "", list(p)
+        if from_ns is not None:
+            where += " AND s.last_ns >= ?"
+            p.append(from_ns)
+        if to_ns is not None:
+            where += " AND s.last_ns < ?"
+            p.append(to_ns)
+        if after is not None:
+            where += " AND (s.last_ns < ? OR (s.last_ns = ? AND s.mid > ?))"
+            p += [after[0], after[0], after[1]]
+        table, _, rest = src.partition(" WHERE ")
+        rows = self.query(f"SELECT s.mid FROM {table.replace(' INDEXED', ' s INDEXED', 1)} WHERE {rest}{where} "
+                          "ORDER BY s.last_ns DESC, s.mid LIMIT ?", tuple(p) + (limit,))
         return [r["mid"] for r in rows]
 
-    def duplicate_messages(self, limit: int, queue: Optional[str] = None, reason: Optional[str] = None) -> list[str]:
-        qsql, qp = _queue_filter(queue)
-        having = {"received_more_than_once": "receives > 1", "succeeded_more_than_once": "successes > 1",
-                  None: "receives > 1 OR successes > 1"}[reason]
+    def stuck_messages(self, cutoff_ns: int, limit: int, queue: Optional[str] = None, *,
+                       from_ns: Optional[int] = None, after: Optional[tuple] = None) -> list[StuckCandidate]:
+        where, p = "", [cutoff_ns]
+        if from_ns is not None:
+            where += " AND s.stuck_first_ns >= ?"
+            p.append(from_ns)
+        if after is not None:
+            where += " AND (s.stuck_first_ns > ? OR (s.stuck_first_ns = ? AND s.mid > ?))"
+            p += [after[0], after[0], after[1]]
+        if queue:
+            where += " AND EXISTS (SELECT 1 FROM message_queues q WHERE q.mid = s.mid AND q.queue = ?)"
+            p.append(queue)
         rows = self.query(
-            f"""SELECT s.mid,
-                       SUM(s.kind = 'receive') AS receives,
-                       COUNT(DISTINCT CASE WHEN s.kind = 'delete' AND s.result = 'ok' THEN s.receive_row END)
-                       + COUNT(DISTINCT CASE WHEN s.kind = 'outcome' AND s.outcome = 'success'
-                                             THEN s.faas_invocation_id END) AS successes,
-                       MAX(s.time_ns) AS last
-                FROM spans s WHERE s.mid IS NOT NULL {qsql}
-                GROUP BY s.mid HAVING {having}
-                ORDER BY last DESC, s.mid LIMIT ?""", qp + (limit,))
-        return [r["mid"] for r in rows]
+            f"""SELECT s.mid, s.stuck_first_ns, s.stuck_sqs_clock FROM messages s INDEXED BY messages_stuck
+                WHERE s.stuck_open AND s.stuck_first_ns IS NOT NULL AND s.stuck_first_ns < ?{where}
+                ORDER BY s.stuck_first_ns, s.mid LIMIT ?""", tuple(p) + (limit,))
+        return [StuckCandidate(r["mid"], r["stuck_first_ns"], bool(r["stuck_sqs_clock"])) for r in rows]
 
-    def stuck_messages(self, cutoff_ns: int, limit: int, queue: Optional[str] = None) -> list[StuckCandidate]:
-        qsql, qp = _queue_filter(queue)
-        rows = self.query(
-            f"""WITH latest AS (
-                    SELECT mid, row AS rrow, faas_invocation_id AS inv FROM (
-                        SELECT mid, row, faas_invocation_id,
-                               ROW_NUMBER() OVER (PARTITION BY mid ORDER BY time_ns DESC, row DESC) AS rn
-                        FROM spans WHERE kind = 'receive')
-                    WHERE rn = 1),
-                seen AS (
-                    SELECT s.mid, MIN(CASE WHEN s.kind = 'send' THEN s.time_ns END) AS send_ns,
-                           MIN(CASE WHEN s.kind = 'receive' THEN s.sent_ts_ms END) * 1000000 AS sqs_ns,
-                           MIN(s.time_ns) AS any_ns
-                    FROM spans s WHERE s.mid IS NOT NULL AND s.kind IN ('send', 'receive') {qsql}
-                    GROUP BY s.mid),
-                first AS (
-                    SELECT mid, COALESCE(send_ns, sqs_ns, any_ns) AS first_ns,
-                           send_ns IS NULL AND sqs_ns IS NOT NULL AS on_sqs_clock
-                    FROM seen)
-                SELECT f.mid, f.first_ns, f.on_sqs_clock FROM first f LEFT JOIN latest l ON l.mid = f.mid
-                WHERE f.first_ns < ?
-                  AND NOT EXISTS (SELECT 1 FROM spans d WHERE d.kind = 'delete' AND d.result = 'ok'
-                                  AND d.receive_row = l.rrow)
-                  AND NOT EXISTS (SELECT 1 FROM spans o WHERE o.kind = 'outcome' AND o.outcome = 'success'
-                                  AND o.mid = f.mid AND o.faas_invocation_id = l.inv)
-                ORDER BY f.first_ns, f.mid LIMIT ?""", qp + (cutoff_ns, limit))
-        return [StuckCandidate(r["mid"], r["first_ns"], bool(r["on_sqs_clock"])) for r in rows]
-
-    def active_messages(self, from_ns: int, to_ns: int, limit: int) -> list[str]:
-        rows = self.query(
-            """SELECT mid, MAX(time_ns) AS last FROM spans WHERE mid IS NOT NULL AND time_ns >= ? AND time_ns < ?
-               GROUP BY mid ORDER BY last DESC, mid LIMIT ?""", (from_ns, to_ns, limit))
-        return [r["mid"] for r in rows]
+    def summaries(self, message_ids: list[str]) -> list[sqlite3.Row]:
+        if not message_ids:
+            return []
+        out: dict = {}
+        with self.reader() as c:
+            for i in range(0, len(message_ids), 500):
+                part = message_ids[i:i + 500]
+                for r in c.execute(f"SELECT * FROM messages WHERE mid IN ({', '.join('?' * len(part))})", part):
+                    out[r["mid"]] = r
+        return [out[m] for m in message_ids if m in out]
 
     def queue_messages(self, queue: str) -> set[str]:
-        return {r["mid"] for r in self.query("SELECT DISTINCT mid FROM spans WHERE queue = ? AND mid IS NOT NULL",
-                                             (queue,))}
+        return {r["mid"] for r in self.query("SELECT mid FROM message_queues INDEXED BY message_queues_last "
+                                             "WHERE queue = ?", (queue,))}
 
-    def find_tenants(self, text: str, limit: int) -> list[str]:
+    def tenant_activity(self, from_ms: int, to_ms: int) -> list[TenantActivity]:
+        with self.reader() as c:
+            totals = c.execute(
+                """SELECT tenant, SUM(kind = 'sent') AS sent,
+                          COUNT(DISTINCT CASE WHEN kind = 'dead_lettered' THEN mid END) AS dead_lettered
+                   FROM tenant_events INDEXED BY tenant_events_at WHERE at_ms BETWEEN ? AND ?
+                   GROUP BY tenant""", (from_ms, to_ms)).fetchall()
+            waits: dict = {}
+            for t, w in c.execute(
+                    """SELECT tenant, wait_ms FROM tenant_events INDEXED BY tenant_events_at
+                       WHERE at_ms BETWEEN ? AND ? AND kind = 'first_delivery'""", (from_ms, to_ms)):
+                waits.setdefault(t, []).append(w)
+        return [TenantActivity(r["tenant"], r["sent"], r["dead_lettered"], waits.get(r["tenant"], []))
+                for r in totals]
+
+    def find_tenants(self, text: str, limit: int, *, from_ns: Optional[int] = None, to_ns: Optional[int] = None,
+                     queue: Optional[str] = None) -> list[str]:
+        """Skips through the distinct tenants that start with the text (message_tenants_search), then one
+        index lookup each for the newest span naming it in the range: the cost is the number of tenants
+        matching, not of messages."""
         if not text:
             return []
-        like = "".join("\\" + c if c in "\\%_" else c for c in _ascii_lower(text)) + "%"
-        rows = self.query(
-            f"""SELECT tenant, MAX(time_ns) AS last FROM (
-                    SELECT {_TENANT_SQL} AS tenant, time_ns FROM spans WHERE kind IN {TENANT_KINDS!r})
-                WHERE tenant IS NOT NULL AND LOWER(tenant) LIKE ? ESCAPE '\\'
-                GROUP BY tenant ORDER BY LOWER(tenant) = ? DESC, last DESC, tenant LIMIT ?""",
-            (like, _ascii_lower(text), limit))
-        return [r["tenant"] for r in rows]
+        lo = _ascii_lower(text)
+        hi = lo[:-1] + chr(ord(lo[-1]) + 1) if ord(lo[-1]) < 0x10FFFF else None
+        where, p = "", []
+        if from_ns is not None:
+            where += " AND named_ns >= ?"
+            p.append(from_ns)
+        if to_ns is not None:
+            where += " AND named_ns < ?"
+            p.append(to_ns)
+        if queue:
+            where += " AND EXISTS (SELECT 1 FROM message_queues q WHERE q.mid = t.mid AND q.queue = ?)"
+            p.append(queue)
+        found = []
+        with self.reader() as c:
+            key = (lo, "")
+            while True:
+                nxt = c.execute(
+                    f"""SELECT tenant_lower, tenant FROM message_tenants INDEXED BY message_tenants_search
+                        WHERE (tenant_lower, tenant) > (?, ?) {"AND tenant_lower < ?" if hi else ""}
+                        ORDER BY tenant_lower, tenant LIMIT 1""", key + ((hi,) if hi else ())).fetchone()
+                if nxt is None or not nxt[0].startswith(lo):
+                    break
+                key = (nxt[0], nxt[1])
+                newest = c.execute(
+                    f"""SELECT named_ns FROM message_tenants t INDEXED BY message_tenants_search
+                        WHERE tenant_lower = ? AND tenant = ?{where} ORDER BY named_ns DESC LIMIT 1""",
+                    key + tuple(p)).fetchone()
+                if newest is not None:
+                    found.append((nxt[0] != lo, -newest[0], nxt[1]))
+        return [t for *_, t in sorted(found)[:limit]]
 
     def body_rows(self) -> list[sqlite3.Row]:
         return self.query(
@@ -340,29 +395,4 @@ class SqliteStore(Store):
 Database = SqliteStore  # the name everything used before store.py
 
 
-def _queue_filter(queue: Optional[str]) -> tuple[str, tuple]:
-    """A WHERE fragment for spans aliased s: the message has a span on the queue."""
-    if not queue:
-        return "", ()
-    return " AND EXISTS (SELECT 1 FROM spans q WHERE q.mid = s.mid AND q.queue = ?)", (queue,)
-
-
-# a span's tenant, in SQL: a non-empty string, cut to 256 characters
-_TENANT_SQL = (f"""CASE WHEN json_type(attributes, '$."{TENANT_ATTR}"') = 'text'
-                         AND json_extract(attributes, '$."{TENANT_ATTR}"') <> ''
-                       THEN substr(json_extract(attributes, '$."{TENANT_ATTR}"'), 1, {TENANT_MAX_CHARS}) END""")
-
-
-def _tenant_filter(tenant: Optional[str]) -> tuple[str, tuple]:
-    """A WHERE fragment for spans aliased s: the message has a span naming the tenant."""
-    if not tenant:
-        return "", ()
-    return (f" AND EXISTS (SELECT 1 FROM spans tn WHERE tn.mid = s.mid AND tn.kind IN {TENANT_KINDS!r}"
-            f" AND {_TENANT_SQL.replace('attributes', 'tn.attributes')} = ?)", (tenant[:TENANT_MAX_CHARS],))
-
-
-def _ascii_lower(s: str) -> str:
-    return s.translate(_ASCII_LOWER)
-
-
-_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+_ascii_lower = summary_table.ascii_lower

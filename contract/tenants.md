@@ -34,9 +34,13 @@ span ID. A message whose spans name no tenant has none.
 timelines (in nanoseconds, as everywhere else); the Lambda timeout and maxReceiveCounts settings the
 timeline uses.
 
-**Which messages:** those with at least one stored span whose end time is in [`from`, `to`], most
-recently active first, at most 2,000. `capped` is true when there were more. Each message is built
-into its timeline by the usual rules (`timeline.py`, and the app's port of it).
+**Which messages:** every message with at least one stored span whose end time is in [`from`, `to`].
+There is no cap: self-hosted Trailbeam read at most 2,000 messages until 0.2 and set `capped` when there
+were more; it now counts every message and `capped` is always false. An implementation that still caps
+must set `capped` when it left messages out, and the page says so. Each message counts as its timeline
+says, by the usual rules (`timeline.py`, and the app's port of it). Self-hosted Trailbeam doesn't build
+the timelines for this page: it keeps what each message adds to it (`summary.py`) as spans arrive, and
+its tests check that against the timelines.
 
 **Which events count**, from each message's timeline. An event's time is its end time in whole
 milliseconds (nanoseconds divided by 1,000,000, rounded down). Only events whose time is in [`from`,
@@ -62,7 +66,7 @@ time in queue and is not counted. A negative difference (clock skew) counts as 0
 |---|---|
 | `total_sent` | sends in the range, with or without a tenant |
 | `untagged_sent` | sends in the range whose message has no tenant |
-| `capped` | more than 2,000 messages had spans in the range |
+| `capped` | messages in the range were left out (always false in self-hosted Trailbeam, which has no cap) |
 | `rows` | one per tenant that has at least one send, first delivery with a time in queue, or dead-lettered message in the range |
 
 Each row:
@@ -94,6 +98,12 @@ For a search box with suggestions: the tenants named by any span whose name star
 ignoring case for the ASCII letters A to Z only. An exact match (ignoring case) comes first, then the
 rest by when a span last named them (most recent first), then in code-point order. At most `limit`
 (default 8). `%` and `_` are ordinary characters. Empty text gives no suggestions.
+
+The search can be bounded, so it costs the same however much history is kept: by a time range (only
+tenants a message names whose newest span naming them is in the range) and by a queue (only messages
+with a span on it). Self-hosted Trailbeam's `/api/tenants/search` bounds it by the Tenants page's
+range (`from_ms`, `to_ms`, `since_s`: default the last day) and takes `queue`. The expected outputs
+are unbounded.
 
 ## What the expected outputs cover
 
