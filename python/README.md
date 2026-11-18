@@ -175,3 +175,7 @@ cd python && pytest -q
 The hook tests use a local SQS emulator and never AWS: they remove every `AWS_*` variable and set
 dummy credentials. By default they start moto's server in-process. To use ElasticMQ or LocalStack,
 set `TRAILBEAM_TEST_SQS_ENDPOINT`, for example to `http://localhost:9324`.
+
+The Postgres store's tests, and the storage conformance suite on Postgres, run when
+`TRAILBEAM_TEST_POSTGRES_URL` names a database the tests may create schemas in, for example
+`postgresql://postgres:postgres@localhost:5432/postgres` (`pip install -e ".[test,postgres]"`).

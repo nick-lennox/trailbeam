@@ -5,14 +5,14 @@ Both follow ``contract/body-view.md``. The hosted app implements the same rules 
 expected outputs in ``contract/fixtures/``.
 
 Bodies are only there for queues in ``TRAILBEAM_STORE_BODIES`` (the Store drops the rest before writing).
-There are no logins: anyone who can reach the server can read what this module returns.
+Without an access token (auth.py) anyone who can reach the server can read what this module returns.
 """
 from __future__ import annotations
 
 import json
 import math
 import re
-from typing import Iterable, Optional
+from typing import Iterable, NamedTuple, Optional
 
 from .store import Row
 
@@ -255,18 +255,56 @@ def matches(body, terms: list[dict]) -> bool:
     return all(any(term_hit(body, t) for t in ts) for ts in by_field.values())
 
 
-def search(db, terms: list[dict], store_bodies: frozenset) -> list[str]:
-    """The message IDs whose kept body matches, most recently seen first. ``db``: a Store. It reads every
-    served body, so its cost grows with the bodies stored: fine for one SQLite file, not an index."""
-    if not store_bodies:
-        return []
-    rows = db.body_rows()  # Store.body_rows: by message, its sends first
-    hits, seen = [], set()
+class SearchResult(NamedTuple):
+    mids: list            # the matching messages, most recently seen first
+    after: Optional[tuple]  # (last_ns, mid) of the last message read, to go on from; None: nothing left to read
+    scanned: int          # messages read
+    oldest_ns: Optional[int]  # last_ns of the oldest message read: the search covered [oldest_ns, to_ns)
+
+
+SCAN = 5000  # messages a search reads at most; the next page goes on where it stopped
+_CHUNK = 500
+
+
+def _kept(rows: list, store_bodies: frozenset):
+    """kept_body over Store.body_spans rows: the first send's body that arrived, else the first receive's."""
+    best = None
     for r in rows:
-        if r["mid"] in seen or not _served(r["queue"], store_bodies):
+        if not _served(r["queue"], store_bodies):
             continue
-        seen.add(r["mid"])  # the first served row of each message is its kept body (kept_body's order)
-        a = _attrs(r)
-        if matches(parsed_body(a["trailbeam.body"], _str(a.get("trailbeam.body.format"))), terms):
-            hits.append((-r["last"], r["mid"]))
-    return [m for _, m in sorted(hits)]
+        if best is None or (best["kind"] != "send" and r["kind"] == "send") or (
+                best["kind"] == r["kind"] and r["row"] < best["row"]):
+            best = r
+    return best
+
+
+def search(db, terms: list[dict], store_bodies: frozenset, *, limit: int = 100, queue: Optional[str] = None,
+           from_ns: Optional[int] = None, to_ns: Optional[int] = None, after: Optional[tuple] = None,
+           scan: int = SCAN) -> SearchResult:
+    """The messages whose kept body matches, most recently seen first. ``db``: a Store.
+
+    There is no index of body contents, so a search reads bodies, and it is bounded: it walks the messages last
+    seen in [from_ns, to_ns) (on ``queue``, if given), newest first and from ``after`` on, the way the Messages
+    page lists them, and reads the kept body of each (Store.body_spans, an index lookup). It stops at ``limit``
+    matches or after ``scan`` messages, whichever comes first, and says where (``SearchResult.after``), so the
+    caller can go on from there. The cost is ``scan`` messages at most, however many bodies are stored."""
+    if not store_bodies:
+        return SearchResult([], None, 0, None)
+    hits: list = []
+    scanned, pos, oldest = 0, after, None
+    while scanned < scan:
+        want = min(_CHUNK, scan - scanned)
+        chunk = db.newest_messages(want, queue, from_ns=from_ns, to_ns=to_ns, after=pos)
+        by_mid: dict = {}
+        for r in db.body_spans([m for _, m in chunk]) if chunk else ():
+            by_mid.setdefault(r["mid"], []).append(r)
+        for last, mid in chunk:
+            scanned, pos, oldest = scanned + 1, (last, mid), last
+            kept = _kept(by_mid.get(mid, ()), store_bodies)
+            if kept is not None and matches(parsed_body(kept["body"], _str(kept["format"])), terms):
+                hits.append(mid)
+                if len(hits) == limit:
+                    return SearchResult(hits, pos, scanned, oldest)
+        if len(chunk) < want:
+            return SearchResult(hits, None, scanned, oldest)  # the window is read to its end
+    return SearchResult(hits, pos, scanned, oldest)

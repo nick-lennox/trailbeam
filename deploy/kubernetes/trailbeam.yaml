@@ -1,0 +1,61 @@
+# A minimal Kubernetes example (QV-81): Trailbeam as a Deployment of 2 stateless replicas behind a Service, on a
+# Postgres you already run. No Helm chart. Build the image yourself (no image is published):
+#
+#   docker build --build-arg TRAILBEAM_EXTRAS=server,postgres -t registry.example/trailbeam:0.1 .
+#   kubectl create secret generic trailbeam \
+#       --from-literal=store-url='postgresql://trailbeam:<password>@postgres.db.svc:5432/trailbeam' \
+#       --from-literal=token="$(openssl rand -hex 32)"
+#   kubectl apply -f deploy/kubernetes/trailbeam.yaml
+#
+# Send spans to http://trailbeam.<namespace>.svc:4318/v1/traces with Authorization: Bearer <token>. Any replica
+# takes any request: no session affinity is needed.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trailbeam
+  labels: { app: trailbeam }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: trailbeam }
+  strategy:
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  template:
+    metadata:
+      labels: { app: trailbeam }
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext: { runAsNonRoot: true, runAsUser: 10001 }
+      containers:
+        - name: trailbeam
+          image: registry.example/trailbeam:0.1
+          ports: [{ name: http, containerPort: 4318 }]
+          env:
+            - name: TRAILBEAM_STORE_URL
+              valueFrom: { secretKeyRef: { name: trailbeam, key: store-url } }
+            - name: TRAILBEAM_TOKEN
+              valueFrom: { secretKeyRef: { name: trailbeam, key: token } }
+            - name: TRAILBEAM_RETENTION
+              value: 7d
+          # Alive: the process answers, whatever the database does (a Postgres outage must not restart every pod).
+          livenessProbe:
+            httpGet: { path: /api/health, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 5
+          # Ready: the store answers. A replica that can't reach Postgres is taken out of the Service until it can.
+          readinessProbe:
+            httpGet: { path: /api/ready, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 4
+            failureThreshold: 2
+          resources:
+            requests: { cpu: 250m, memory: 256Mi }
+            limits: { memory: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trailbeam
+spec:
+  selector: { app: trailbeam }
+  ports: [{ name: http, port: 4318, targetPort: http }]

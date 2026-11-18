@@ -163,9 +163,73 @@ docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-data:/data tr
 
 Or without Docker: `pip install "trailbeam[server]"`, then run `trailbeam`.
 
-There is no authentication in 0.1, so keep it on `127.0.0.1` or a trusted network. See
+With no access token set (the default), anyone who can reach the port can send spans and read every
+timeline, so keep it on `127.0.0.1` or a trusted network, or set a token ([Access token](#access-token)). See
 [Run Trailbeam](https://docs.trailbeam.app/setup/run) and, to forward spans through an OpenTelemetry Collector, the
 [Collector configuration](collector/README.md).
+
+### Access token
+
+One shared token protects ingest, the API and the web screen. It is off by default for local use:
+
+```sh
+openssl rand -hex 32 > trailbeam.token
+docker run ... -v $PWD/trailbeam.token:/run/secrets/trailbeam-token:ro \
+  -e TRAILBEAM_TOKEN_FILE=/run/secrets/trailbeam-token trailbeam
+# or trailbeam --token-file trailbeam.token, or TRAILBEAM_TOKEN=<token> in the environment
+```
+
+When it is set:
+
+- **Ingest** (`POST /v1/traces`) needs `Authorization: Bearer <token>`, or it gets `401`. The packages
+  use the standard OpenTelemetry exporter, so set
+  `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<token>` in your services. A Collector sets it in its
+  `otlphttp` exporter's `headers`.
+- **The API** needs the same header. `GET /api/health` still answers without it, for health checks, but
+  then returns only `status` and `version`.
+- **The web screen** asks for the token once, on a sign-in page. It then sets a session cookie
+  (`HttpOnly`, `SameSite=Strict`, 30 days) that holds an HMAC of the token, not the token itself. The
+  cookie works for the pages and the API but not for ingest. Changing the token signs everyone out.
+  `/logout` removes the cookie.
+
+The token must be at least 16 printable ASCII characters, with no spaces; otherwise Trailbeam refuses
+to start. It travels in plain HTTP, so put Trailbeam behind a TLS proxy when it crosses a network you
+don't trust. The cookie gets `Secure` when the proxy sends `X-Forwarded-Proto: https`. There is one
+token for everyone: no users, roles or audit log (those are in the hosted app).
+
+### Configuration file
+
+Per-queue settings go in a TOML file, so a few hundred queues don't turn into a few hundred flags:
+
+```toml
+# trailbeam.toml
+[defaults]
+retention = "7d"            # every queue; a duration or "forever" (default 7d)
+store_bodies = false        # true: store every queue's bodies
+
+[queues.orders]
+max_receive_count = 5       # the redrive policy's maxReceiveCount (1 to 1000)
+store_bodies = true
+retention = "30d"
+
+[queues."orders-dlq"]       # quote names TOML keys can't hold
+retention = "forever"
+```
+
+```sh
+docker run ... -v $PWD/trailbeam.toml:/etc/trailbeam.toml:ro -e TRAILBEAM_CONFIG=/etc/trailbeam.toml trailbeam
+# or trailbeam --config trailbeam.toml
+```
+
+Trailbeam reads the file once, at start. It checks the whole file before it opens the database: an
+unknown table or setting (a typo), a wrong type or a bad value stops it with exit status 2. The error
+lists every problem with its place, for example `queues.orders.max_receive_count: expected a whole number
+from 1 to 1000, got 5000`.
+
+The flags and their environment variables still work and override the file. `--max-receive-count` and
+`--retention-queues` replace the file's value for the queues they name and leave the rest as they are.
+`--store-bodies` and `--retention` replace the file's list and default. An environment variable that is
+set but empty counts as not set. `GET /api/health` shows the result under `config`.
 
 ### Message bodies
 
@@ -175,10 +239,18 @@ Trailbeam stores no message body unless you opt queues in on the server as well 
 docker run ... -e TRAILBEAM_STORE_BODIES=orders,payments trailbeam   # or trailbeam --store-bodies orders,payments
 ```
 
+or `store_bodies = true` for those queues in the [configuration file](#configuration-file).
+
 A package exports a body only for the queues in its own capture list, redacted
 ([span contract 15](contract/span-contract.md#15-message-contents-revision-32)).
 `TRAILBEAM_STORE_BODIES` is the second gate: for any queue not in it (`*` means every queue), Trailbeam
 removes the body attributes before writing the span, and records that it did. The default is no queue.
+
+Each body is written to disk once per message, even though the send span and every receive span carry
+it; the spans point at that one copy. (A receive that carried a different text keeps its own.) With 1 KB
+bodies on every queue, that cut the space bodies take by 63% in our benchmark: 500 MB instead of 1,341 MB
+per million spans. A file from an earlier version is converted when this version first opens it (schema
+10, one pass over the stored bodies). Run `trailbeam --vacuum` once afterwards to give the space back.
 
 The bodies it keeps are on the message page's **Body** tab, one per message (the send's copy, else the
 first receive's). A message with no body says why: the package's capture status, a producer that isn't
@@ -187,10 +259,19 @@ instrumented, a package from before 3.2, or a body this server dropped because i
 `body.order.sku:A-100` or `body.amount:>=100`, and so does `GET /api/messages?body=...`. The rules are in
 [`contract/body-view.md`](contract/body-view.md); the hosted app follows the same ones and draws the same view.
 
-**Access control is off-unless-on plus the network.** There are no logins and no roles: anyone who can
-reach Trailbeam can read every body it keeps, in the Body tab and from `/api/messages/{id}/body`, and
-anyone who can read its SQLite file can read them there. Trailbeam logs a warning at startup when the list
-is set. Keep it on a trusted network. Redaction happens in the packages, not in Trailbeam. Taking a queue
+**A body search is bounded.** Bodies have no index, so a search reads them. It reads only the messages
+last seen in a time window: `from_ms`/`to_ms`, or the last `since_s` seconds, by default a day. Pass
+`queue` to search one queue's messages. It goes newest first and stops after `limit` matches or 5,000
+messages read, whichever comes first. `next_cursor` continues from where it stopped, so a page can have
+few matches, or none, and still have a next one. `body_search` in the response says what was covered:
+`scanned` (messages read), `searched_from_ms` to `to_ms`, and `complete` (the whole window was read). A
+search therefore costs about the same however many bodies are stored. Tenant search
+(`/api/tenants/search`) takes the same `from_ms`/`to_ms`/`since_s` and `queue`.
+
+**Who can read them.** Anyone Trailbeam lets in can read every body it keeps, in the Body tab and from
+`/api/messages/{id}/body`. Without an [access token](#access-token), that is anyone who can reach it.
+Anyone who can read its SQLite file can read them there too. Trailbeam logs a warning at startup when
+the list is set. Set a token, or keep it on a trusted network. Redaction happens in the packages, not in Trailbeam. Taking a queue
 off the list stops its bodies being shown or searched, but doesn't delete the ones already in the file;
 they go when retention deletes their messages ([Retention](#retention)).
 
@@ -203,6 +284,8 @@ retention for every queue, override it for some queues, or keep data forever:
 docker run ... -e TRAILBEAM_RETENTION=14d -e TRAILBEAM_RETENTION_QUEUES=orders-dlq=30d,audit=forever trailbeam
 # or trailbeam --retention 14d --retention-queues orders-dlq=30d,audit=forever
 ```
+
+or `retention` under `[defaults]` and `[queues.<name>]` in the [configuration file](#configuration-file).
 
 A retention is a duration in `s`, `m`, `h` or `d` (`90m`, `36h`, `7d`), or `forever`.
 `TRAILBEAM_RETENTION=forever` with no per-queue overrides turns the purge off.
@@ -253,6 +336,135 @@ file. Afterwards the file is larger by about that much free space, which new spa
 upgrade is stopped part way, the file stays at the version before, and the next start runs it again.
 A span the server already has is skipped when it arrives again with the same trace ID, span ID and end
 time, as an exporter retry sends it.
+
+### Postgres (bring your own)
+
+SQLite is the default and needs nothing else. When you outgrow one file, point Trailbeam at a Postgres you
+already run:
+
+```sh
+pip install "trailbeam[server,postgres]"
+TRAILBEAM_STORE_URL=postgres://trailbeam:<password>@db.internal:5432/trailbeam trailbeam
+# or trailbeam --store-url postgres://...
+```
+
+Trailbeam creates and upgrades its own tables in that database (schema version in `schema_version`). Installing,
+sizing, backing up and upgrading Postgres is up to you. **Supported: Postgres 14 and later**; CI runs the
+storage conformance suite on 14 and 16. The Postgres driver is an extra: a SQLite install doesn't get it, and it
+is loaded only when the URL is a Postgres one. Existing SQLite history is not copied over: a new Postgres store
+starts empty.
+
+Retention works as described above, with one difference: spans are kept in **daily partitions** per retention
+(a partition per day for each distinct retention you configure), and the purge drops whole partitions instead
+of deleting rows, so it costs about the same however much it removes. A message expires once the *day* of its
+newest span has ended more than its retention ago, so `7d` keeps a message for 7 to 8 days. Messages are still
+deleted whole: when a message's spans fall in two partitions (it crossed midnight, or moved to a dead-letter
+queue kept longer), the purge first moves its older spans in with the newer ones. If you change a queue's
+retention after its spans were stored, partitions holding queues with different retentions are cleaned by a
+bounded background delete, outside ingest.
+
+Ingest and pages use separate connection pools (4 and 8 connections). Each export is one transaction, and an
+export whose client hangs up or times out is cancelled in the database.
+
+### Several replicas on one Postgres
+
+With Postgres, Trailbeam servers are stateless: run as many replicas as you like behind a load balancer, for
+Kubernetes or for high availability. No sticky sessions are needed.
+
+- **Joins are correct across replicas.** A delete and its receive may reach different replicas, in either
+  order; the receipt-hash join and every message's summary are kept under Postgres locks, so the timelines are
+  exactly those of a single Trailbeam (the test suite sends each span to a random replica in a random order and
+  compares).
+- **Starting together is fine.** The schema is created or upgraded by one replica under a Postgres advisory
+  lock; the others wait for it.
+- **Retention runs on one replica at a time**, the one holding a lease (a Postgres advisory lock). When that
+  replica stops or dies, Postgres releases the lease and another replica takes over at its next pass. Give
+  every replica the same retention and per-queue configuration.
+- **Health checks.** `GET /api/health` is liveness: it answers while the process runs, even when the
+  database is unreachable, so a database outage doesn't restart every replica. `GET /api/ready` is readiness:
+  `503` while the store is unreachable, so the load balancer takes that replica out of rotation. Neither needs
+  the token. While the database can't be reached, exports are answered `503` with `Retry-After`; nothing is
+  stored and the exporter sends them again.
+- **The shared token** (`TRAILBEAM_TOKEN`) is set to the same value on every replica. Its session cookie is
+  derived from the token, so a sign-in on one replica works on all of them.
+- **A replica that dies loses nothing acknowledged.** An export is acknowledged (`200`) only once its
+  transaction has committed. One in flight on a replica that dies isn't acknowledged, so the exporter retries it
+  (the OpenTelemetry OTLP exporter retries connection errors and `503`), and the load balancer sends it to
+  another replica. A span stored twice is skipped by its key.
+- The ingest counters in `/api/health` are per replica: each counts what it received.
+
+Examples: [`deploy/replicas/compose.yaml`](deploy/replicas/compose.yaml), two replicas and Postgres behind
+nginx (`docker compose -f deploy/replicas/compose.yaml up -d --build --wait`). And
+[`deploy/kubernetes/trailbeam.yaml`](deploy/kubernetes/trailbeam.yaml), a Deployment of two replicas with liveness
+and readiness probes and a Service, on a Postgres you run. The image needs the Postgres driver:
+`docker build --build-arg TRAILBEAM_EXTRAS=server,postgres .`
+
+### When Trailbeam is overloaded: 429, 503 and Retry-After
+
+Trailbeam answers an export it can't take right away. It doesn't leave it hanging until the exporter
+times out. Both checks run before anything is written. A 429 or 503 means none of the export's spans
+were stored. A 200 means all of them were committed. Trailbeam never answers 200 and then drops a span.
+
+| Answer | When | Setting |
+|---|---|---|
+| `429 Too Many Requests` | This many exports are already in progress (decoding, waiting for the database writer, or writing). The export isn't decoded. | `TRAILBEAM_INGEST_MAX_PENDING` / `--ingest-max-pending`, default 16 |
+| `503 Service Unavailable` | The export waited this long for the SQLite writer, behind the exports ahead of it | `TRAILBEAM_INGEST_MAX_WAIT_S` / `--ingest-max-wait`, default 2 |
+
+Both answers carry `Retry-After` in whole seconds, from 1 to 3. The value is how long the exports
+already waiting should take to write. The body is an OTLP `google.rpc.Status`. OTLP exporters retry
+429 and 503 and wait the `Retry-After` time
+([OTLP/HTTP throttling](https://opentelemetry.io/docs/specs/otlp/#otlphttp-throttling)). That includes
+the OTel SDKs' `OTLPSpanExporter` and the Collector's `otlphttp` exporter. The Python exporter retries
+only within its 10 s export timeout, which is why the wait and `Retry-After` are kept short. If every
+retry is rejected too, the SDK drops that batch on its side. Trailbeam counts each rejection in
+`trailbeam_ingest_rejected_requests_total`, so the drop shows up there and isn't silent. To ride out
+longer overloads, send through a Collector with a sending queue ([`collector/`](collector/README.md)).
+
+### Metrics: `GET /metrics`
+
+Trailbeam serves Prometheus metrics on its own port, at `/metrics`. In 0.1 that endpoint has no
+authentication, like the rest of Trailbeam. Labels never hold span data: routes are templates such as
+`/api/messages/{id}`.
+
+| Metric | Type | What |
+|---|---|---|
+| `trailbeam_ingest_spans_total{result}` | counter | Spans in accepted exports: `inserted`, `duplicate` (already stored, e.g. a retry), `invalid` (rejected by the span contract), `ignored` (not Trailbeam spans). `rate()` gives spans/s |
+| `trailbeam_ingest_requests_total{code}` | counter | Exports to `/v1/traces` by response status |
+| `trailbeam_ingest_rejected_requests_total{reason}` | counter | 429s (`queue_full`) and 503s (`writer_behind`) |
+| `trailbeam_ingest_request_duration_seconds{outcome}` | histogram | Export latency, from body received to response: `accepted`, `rejected`, `error` |
+| `trailbeam_ingest_writer_wait_seconds` | histogram | Time an export waited for the SQLite writer |
+| `trailbeam_ingest_write_duration_seconds` | histogram | One export's write transaction |
+| `trailbeam_ingest_queue_depth`, `trailbeam_ingest_queue_capacity` | gauge | Exports in progress, and the most allowed before a 429 |
+| `trailbeam_ingest_max_wait_seconds`, `trailbeam_ingest_retry_after_seconds` | gauge | The 503 threshold, and the Retry-After a rejected export would get now |
+| `trailbeam_join_duration_seconds{join}` | histogram | One receipt-hash join at insert: `settle` or `receive` |
+| `trailbeam_http_request_duration_seconds{route}` | histogram | API and page latency by route |
+| `trailbeam_http_requests_total{route,code}` | counter | API and page requests by route and status |
+| `trailbeam_db_file_bytes{file}` | gauge | SQLite file (`main`) and write-ahead log (`wal`) size |
+| `trailbeam_db_last_row` | gauge | Highest span row ID (one index step, not a count) |
+| `trailbeam_build_info{version}`, `trailbeam_start_time_seconds` | gauge | Version and start time |
+
+Retention purge metrics come with the retention setting.
+
+A scrape config for Prometheus:
+
+```yaml
+scrape_configs:
+  - job_name: trailbeam
+    scrape_interval: 15s
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["trailbeam:4318"]   # host:port Trailbeam listens on
+```
+
+Useful alerts and queries:
+
+```promql
+sum(rate(trailbeam_ingest_spans_total{result="inserted"}[5m]))                      # spans/s stored
+sum by (reason) (rate(trailbeam_ingest_rejected_requests_total[5m])) > 0           # backpressure: alert
+histogram_quantile(0.99, sum by (le) (rate(trailbeam_ingest_request_duration_seconds_bucket{outcome="accepted"}[5m])))
+histogram_quantile(0.95, sum by (le, route) (rate(trailbeam_http_request_duration_seconds_bucket[5m])))
+trailbeam_ingest_queue_depth / trailbeam_ingest_queue_capacity > 0.8               # close to 429s
+```
 
 ## Open source and the hosted app
 

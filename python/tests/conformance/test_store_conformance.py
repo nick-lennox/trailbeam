@@ -46,6 +46,7 @@ def test_it_is_a_store(new_store):
     s = new_store()
     assert isinstance(s, Store)
     assert s.store_bodies == frozenset()
+    assert isinstance(s.retention_granularity_ns, int) and s.retention_granularity_ns >= 1
     assert (s.last_row(), s.counts()) == (0, {"spans": {}, "messages": 0, "unjoined_settles": 0})
     assert s.message_rows("m1") == []
     assert s.recent_messages(10) == [] and s.duplicate_messages(10) == [] and s.stuck_messages(FOREVER, 10) == []
@@ -114,6 +115,38 @@ def test_a_failed_insert_stores_nothing(new_store):
     assert s.insert(good) == (len(good), 0)  # and the store still works
 
 
+@pytest.mark.parametrize("name", DATASETS)
+def test_backpressure_options_change_no_answer(new_store, name):
+    """What the server's ingest gate passes to insert (backpressure.py): a bound on the wait, which an idle store
+    never reaches, and a dict that gets the wait and write times. The answers are the same as without them."""
+    s = new_store(cases.store_bodies(name))
+    for records, want in zip(cases.exports(name), EXPECTED[name]["ingest"]):
+        timings = {}
+        assert list(s.insert(records, wait_s=5.0, timings=timings)) == want
+        assert set(timings) == {"wait_s", "write_s"}
+        assert all(isinstance(v, float) and v >= 0 for v in timings.values())
+    assert_snapshot(s, name)
+
+
+def test_joins_are_reported_to_on_join(new_store):
+    """/metrics times every receipt-hash join through Store.on_join; a store that never calls it hides them."""
+    s = new_store()
+    seen = []
+    s.on_join = lambda join, seconds: seen.append((join, seconds))
+    for records in cases.exports("joins"):
+        s.insert(records)
+    kinds = [r["kind"] for records in cases.exports("joins") for r in records]
+    assert {j for j, _ in seen} <= {"settle", "receive"}
+    assert sum(j == "receive" for j, _ in seen) == kinds.count("receive")
+    assert sum(j == "settle" for j, _ in seen) == sum(k in ("delete", "change_visibility") for k in kinds)
+    assert all(sec >= 0 for _, sec in seen)
+
+
+def test_file_sizes_are_none_or_bytes(new_store):
+    sizes = new_store().file_sizes()
+    assert sizes is None or (sizes and all(isinstance(n, int) and n >= 0 for n in sizes.values()))
+
+
 def test_ingest_and_reads_at_once(new_store):
     """Four exporters and a reader on different threads, as the server runs them."""
     name = "joins"
@@ -178,7 +211,7 @@ def test_body_views_match_the_shared_expected_outputs(new_store, case):
     mids = sorted(s.recent_messages(1000))
     assert {m: bodies.body_view(m, s.message_rows(m), s.store_bodies) for m in mids} == case["views"]
     for q in case["searches"]:
-        assert sorted(bodies.search(s, bodies.parse_query(q["query"]), s.store_bodies)) == q["message_ids"], q["query"]
+        assert sorted(bodies.search(s, bodies.parse_query(q["query"]), s.store_bodies).mids) == q["message_ids"], q["query"]
 
 
 # ---- retention ---------------------------------------------------------------------------------------
@@ -192,6 +225,13 @@ def purge(s, cutoffs, limit=500) -> int:
         assert steps < 10_000, "the pass never ends"
         if resume is None:
             return deleted
+
+
+def expires(s, t: int) -> int:
+    """The earliest cutoff that expires a message whose newest span is at ``t``: ``t + 1`` on a store with
+    exact retention, the end of ``t``'s bucket on one that drops whole time buckets (Store.retention_granularity_ns)."""
+    g = s.retention_granularity_ns
+    return (t // g + 1) * g
 
 
 def _last_ns(s, m):
@@ -213,7 +253,7 @@ def test_retention_deletes_whole_messages_last_seen_before_the_cutoff(new_store)
     mids = s.recent_messages(1000)
     last = {m: _last_ns(s, m) for m in mids}
     cutoff = sorted(last.values())[len(last) // 2]
-    old = {m for m, t in last.items() if t < cutoff}
+    old = {m for m, t in last.items() if expires(s, t) <= cutoff}
     assert old and old != set(mids)
     spans_before = sum(s.counts()["spans"].values())
 
@@ -244,7 +284,9 @@ def test_a_message_that_straddles_the_cutoff_is_kept_whole_until_its_newest_span
     assert _timelines(s, [m], name) == _timelines(untouched, [m], name)
     purge(s, Cutoffs(times[-1]))  # the newest span is at the cutoff, not before it: still kept
     assert len(s.message_rows(m)) == len(before)
-    purge(s, Cutoffs(times[-1] + 1))
+    purge(s, Cutoffs(expires(s, times[-1]) - 1))  # exact retention: the same cutoff; buckets: its bucket's end - 1
+    assert len(s.message_rows(m)) == len(before)
+    purge(s, Cutoffs(expires(s, times[-1])))
     assert s.message_rows(m) == []
 
 
@@ -289,7 +331,7 @@ def test_the_longest_retention_of_a_message_s_queues_wins(new_store):
 
     s2 = load(new_store, "joins", store_name="b")
     newest = max(_last_ns(s2, m) for m in mids)
-    purge(s2, Cutoffs(FOREVER, {"orders-dlq": newest + 1}))  # both expired: deleted
+    purge(s2, Cutoffs(FOREVER, {"orders-dlq": expires(s2, newest)}))  # both expired: deleted
     assert s2.recent_messages(1000) == []
 
 

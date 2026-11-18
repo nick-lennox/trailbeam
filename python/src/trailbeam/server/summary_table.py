@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from typing import Iterable
+from typing import Iterable, Optional
 
 from . import summary
 from .summary import FIELDS
@@ -140,14 +140,16 @@ class Changes:
         return bool(self.added or self.removed)
 
 
-def rows_of(conn: sqlite3.Connection, mid: str) -> list:
-    """Every span of a message, from its summary's rows_json, in time order; [] if it has none."""
+def rows_of(conn: sqlite3.Connection, mid: str, select: Optional[str] = None) -> list:
+    """Every span of a message, from its summary's rows_json, in time order; [] if it has none. ``select``: a
+    SELECT of spans ``s`` to read them with (body_table.rows_sql, which puts each body back), else the rows."""
     got = conn.execute("SELECT rows_json FROM messages WHERE mid = ?", (mid,)).fetchone()
     if got is None:
         return []
     cur = conn.cursor()
     cur.row_factory = sqlite3.Row
-    return sorted(cur.execute(_ROWS, (got[0],)).fetchall(), key=lambda r: (r["time_ns"], r["row"]))
+    sql = _ROWS if select is None else f"{select} WHERE s.row IN (SELECT value FROM json_each(?))"
+    return sorted(cur.execute(sql, (got[0],)).fetchall(), key=lambda r: (r["time_ns"], r["row"]))
 
 
 def _lists(s) -> tuple:

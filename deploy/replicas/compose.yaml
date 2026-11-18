@@ -1,0 +1,62 @@
+# Two Trailbeam replicas on one Postgres, behind a load balancer (QV-81). An example of the layout, not a
+# production setup: in production the Postgres is one you already run (Trailbeam does not bundle or operate it).
+#
+#   TRAILBEAM_TOKEN=$(openssl rand -hex 32) docker compose -f deploy/replicas/compose.yaml up -d --build --wait
+#   open http://127.0.0.1:4318/
+#
+# Point the Trailbeam packages (or the Collector) at http://127.0.0.1:4318/v1/traces with
+# Authorization: Bearer $TRAILBEAM_TOKEN. Any replica takes any export and serves any page: the receipt-hash join
+# and the summaries are kept in Postgres under its locks, so a delete and its receive may reach different
+# replicas in either order. Stop one (docker compose stop trailbeam-1) and the other carries on; an export that
+# was in flight on it is not acknowledged, so the exporter sends it again and the load balancer picks the other.
+name: trailbeam-replicas
+
+x-trailbeam: &trailbeam
+  build:
+    context: ../..
+    dockerfile: Dockerfile
+    args: { TRAILBEAM_EXTRAS: "server,postgres" }
+  image: trailbeam-replicas-trailbeam:local
+  environment:
+    TRAILBEAM_STORE_URL: postgresql://trailbeam:trailbeam@postgres:5432/trailbeam
+    # One shared token for every replica (QV-76). Unset: no token, for a trusted network only.
+    TRAILBEAM_TOKEN: ${TRAILBEAM_TOKEN:-}
+    TRAILBEAM_RETENTION: 7d
+  depends_on:
+    postgres: { condition: service_healthy }
+  # Ready: the store answers (GET /api/ready). The image's own HEALTHCHECK is liveness (/api/health).
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4318/api/ready', timeout=4)"]
+    interval: 10s
+    timeout: 5s
+    start_period: 10s
+    retries: 3
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: trailbeam
+      POSTGRES_PASSWORD: trailbeam
+      POSTGRES_DB: trailbeam
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "trailbeam", "-d", "trailbeam"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Both start at once: the schema is created or upgraded by one of them, under a Postgres advisory lock, while
+  # the other waits for it.
+  trailbeam-1: *trailbeam
+  trailbeam-2: *trailbeam
+
+  lb:
+    image: nginx:1.27-alpine
+    volumes: ["./nginx.conf:/etc/nginx/nginx.conf:ro"]
+    ports: ["127.0.0.1:${TRAILBEAM_PORT:-4318}:4318"]
+    depends_on: [trailbeam-1, trailbeam-2]
+
+volumes:
+  postgres-data:

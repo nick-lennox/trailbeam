@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from .. import __version__
-from . import summary_table
+from . import body_table, summary_table
 
 
 class SchemaError(RuntimeError):
@@ -57,7 +57,7 @@ def statements(script: str) -> list[str]:
     return out
 
 
-# The spans table, under a name: migration 10 builds it as spans_new and renames it.
+# The spans table, under a name: migration 11 builds it as spans_new and renames it.
 SPANS_TABLE = """
 CREATE TABLE IF NOT EXISTS {name} (
     row INTEGER PRIMARY KEY,
@@ -81,10 +81,11 @@ CREATE TABLE IF NOT EXISTS {name} (
     mid TEXT,                        -- the message this row belongs to (see db.py)
     mid_source TEXT,                 -- 'span' | 'receipt_hash' | NULL (settle span not joined yet)
     receive_row INTEGER REFERENCES spans(row),  -- settle spans: the delivery whose handle was used
-    body_dropped TEXT                -- 'not_opted_in': the span carried a body, not stored (db.py)
+    body_dropped TEXT,               -- 'not_opted_in': the span carried a body, not stored (db.py)
+    body_id INTEGER                  -- its trailbeam.body, stored once in bodies (body_table.py)
 );
 """
-# The indexes of spans (schema 10). Each leads with time or is partial, so most of a new span's entries go where
+# The indexes of spans (schema 11). Each leads with time or is partial, so most of a new span's entries go where
 # the newest spans' are, at the right edge of the B-tree: an export of a few hundred spans changes a few pages
 # of it, not a page per span (QV-78). spans_identity is the duplicate check (an exporter retry sends the same
 # span again, end time included). The receipt hash is indexed only where a join looks for it: receives, and
@@ -102,7 +103,7 @@ SPANS_COLUMNS = ("row, trace_id, span_id, kind, time_ns, start_ns, service_name,
                  "message_id, receipt_hmac, key_id, receive_count, sent_ts_ms, first_receive_ts_ms, dlq_source_arn, "
                  "result, error_code, visibility_timeout, outcome, error_type, batch_entry_id, client_id, pid, "
                  "thread_name, faas_name, faas_invocation_id, order_scope, order_issued, order_returned, attributes, "
-                 "mid, mid_source, receive_row, body_dropped")
+                 "mid, mid_source, receive_row, body_dropped, body_id")
 
 # The schema a new file gets: the result of every migration below.
 CREATE = SPANS_TABLE.format(name="spans") + SPANS_INDEXES + """
@@ -114,7 +115,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
     name TEXT NOT NULL,              -- the migration's name; 'create' for a file made at this version
     trailbeam_version TEXT           -- the Trailbeam that ran it; NULL for versions reached before 6
 );
-""" + summary_table.CREATE
+""" + summary_table.CREATE + body_table.CREATE
 
 # Schema 1 was the first released (the CREATE of version 1 is in tests/server/test_migrations.py).
 # Schema 1 had no start_ns. Its rows came from contract v1 spans, stamped only when the response arrived,
@@ -134,22 +135,27 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # tenant_events: each was a B-tree with a random key per message, and together a third of the pages one export
 # wrote (QV-73). Their rows are found from the message's lists in messages (summary_table.py). The tables are
 # dropped and built again from the spans, as in 7 before.
-# Schema 10 (QV-78) cuts the pages an export writes: at 1M spans, a 512-span export wrote 2,318 pages at 9.
+# Schema 10 stores each body once (body_table.py): the bodies move out of the send and receive spans'
+# attributes into the bodies table, one row per distinct body of a message, and the spans point at it. One pass
+# over the stored bodies; the file only shrinks after a vacuum (trailbeam --vacuum), as with retention.
+# Schema 11 (QV-78) cuts the pages an export writes: at 1M spans, a 512-span export wrote 2,318 pages at 9.
 # - messages gets rows_json, its spans' row IDs, and spans loses spans_mid: the summary tables are dropped and
 #   built again from the spans (summary_table.backfill, by spans_mid, which is still there), as in 9 before.
 # - spans is rebuilt with indexes whose new entries go to the right edge of each B-tree (SPANS_INDEXES):
 #   UNIQUE (trace_id, span_id) becomes spans_identity (time_ns, trace_id, span_id), and spans_hash becomes two
 #   partial indexes, on receives and on unjoined settle spans. An inline UNIQUE can't be dropped, so the table
-#   is copied, row IDs and all, and every index built again. That needs free disk for a second copy of the table.
+#   is copied, row IDs and all, and every index built again (body_table's spans_body too). That needs free
+#   disk for a second copy of the table.
 # Freshly built indexes are full, so for a while after the upgrade an insert splits more pages than it will later.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new"))
                   + [f"INSERT INTO spans_new ({SPANS_COLUMNS}) SELECT {SPANS_COLUMNS} FROM spans ORDER BY row",
                      "DROP TABLE spans",
                      "ALTER TABLE spans_new RENAME TO spans"]
-                  + statements(SPANS_INDEXES))
+                  + statements(SPANS_INDEXES)
+                  + [q for q in statements(body_table.CREATE) if q.lstrip().upper().startswith("CREATE INDEX")])
 
 
-def _to_10(conn: sqlite3.Connection) -> None:
+def _to_11(conn: sqlite3.Connection) -> None:
     for t in summary_table.TABLES:
         conn.execute(f"DROP TABLE IF EXISTS {t}")
     for sql in statements(summary_table.CREATE):
@@ -157,7 +163,6 @@ def _to_10(conn: sqlite3.Connection) -> None:
     summary_table.backfill(conn)
     for sql in _REBUILD_SPANS:
         conn.execute(sql)
-
 
 
 MIGRATIONS = (
@@ -174,14 +179,17 @@ MIGRATIONS = (
         """INSERT INTO schema_version (version, applied_at_ms, name)
            SELECT CAST(value AS INTEGER), NULL, 'before schema_version' FROM meta WHERE key = 'schema_version'""",
     )),
-    # 7 and 9 create the tables, empty: 10 replaces them and builds them, so an upgrade builds them once. (9 built
-    # them until 10 was added; a file that ran it is rebuilt by 10 all the same.)
+    # 7 and 9 create the tables, empty: 11 replaces them and builds them, so an upgrade builds them once. (9 built
+    # them until 11 was added; a file that ran it is rebuilt by 11 all the same.)
     Migration(7, "message summary tables", tuple(statements(summary_table.CREATE))),
     Migration(8, "spans_receive_row index", (
         "CREATE INDEX spans_receive_row ON spans (receive_row) WHERE receive_row IS NOT NULL",)),
     Migration(9, "summary tables keyed for the pages", tuple(
         [f"DROP TABLE IF EXISTS {t}" for t in summary_table.TABLES] + statements(summary_table.CREATE))),
-    Migration(10, "spans indexes at the right edge", (), run=_to_10),
+    Migration(10, "bodies stored once", tuple(
+        ["ALTER TABLE spans ADD COLUMN body_id INTEGER"] + statements(body_table.CREATE)),
+        run=body_table.move_inline),
+    Migration(11, "spans indexes at the right edge", (), run=_to_11),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

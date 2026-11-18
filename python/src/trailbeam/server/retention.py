@@ -214,7 +214,9 @@ class Purger:
         with self._lock:
             running = dict(self._running) if self._running else None
             last = dict(self.last_pass) if self.last_pass else None
+        lease = getattr(self.store, "retention_lease_held", None)  # several replicas on one store: who purges
         return self.retention.config() | {"purge_interval_s": self.interval_s, "purge_duty": self.duty,
                                           "purge_batch": self.batch,
+                                          **({} if lease is None else {"runs_on_this_replica": lease}),
                                           "passes": self.passes,
                                           "running": running, "last_pass": last}

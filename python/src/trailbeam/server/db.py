@@ -17,22 +17,24 @@ Message bodies (contract section 15) are kept only for the queues named in ``sto
 (``TRAILBEAM_STORE_BODIES``), off by default. A package exports a body only for queues it was told to
 capture; this is the second gate, on the server, so turning capture on in a package does not by itself
 put bodies on disk. For any other queue the ``trailbeam.body*`` attributes that carry or describe the
-body are removed before the row is written, and ``body_dropped`` records why.
+body are removed before the row is written, and ``body_dropped`` records why. A body that is kept is
+written once per message, in ``bodies``, and the send and receive spans point at it (body_table.py).
 """
 from __future__ import annotations
 
 import contextlib
 import json
 import logging
+import os
 import sqlite3
 import threading
 import time
-from typing import Iterable, Iterator, Optional
+from typing import Callable, Iterable, Iterator, Optional
 
-from . import migrations, summary_table
+from . import body_table, migrations, summary_table
 from .otlp import RECORD_FIELDS
 from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store,
-                    StuckCandidate, TenantActivity)
+                    StuckCandidate, TenantActivity, WriterBusy)
 
 # The body and the attributes that describe it (contract 15.2). trailbeam.body.capture_status is kept:
 # it is the package's reason, carries no message content, and the Body tab needs it either way.
@@ -117,6 +119,7 @@ class SqliteStore(Store):
         self._queue: list = []  # exports waiting for the writer (insert: group commit)
         self._queue_lock = threading.Lock()
         self.write_stats = {"transactions": 0, "exports": 0}  # exports / transactions: the group commit's gain
+        self.on_join: Optional[Callable[[str, float], None]] = None  # Store.on_join
         try:
             # A new file is created with incremental vacuum, so retention can give space back (reclaim_space).
             # SQLite only takes this before the first table is created; on an existing file it does nothing.
@@ -133,6 +136,7 @@ class SqliteStore(Store):
         except BaseException:
             self.conn.close()
             raise
+        self._rows_sql = body_table.rows_sql(body_table.span_columns(self.conn))
         if self.shared_reads:
             self._checkpointer = threading.Thread(target=self._checkpoint_loop, name="trailbeam-checkpoint",
                                                   daemon=True)
@@ -195,7 +199,8 @@ class SqliteStore(Store):
 
     # ---- writes ---------------------------------------------------------------------------
 
-    def insert(self, records: Iterable[dict]) -> tuple[int, int]:
+    def insert(self, records: Iterable[dict], *, wait_s: Optional[float] = None,
+               timings: Optional[dict] = None) -> tuple[int, int]:
         """Insert records (from otlp.decode) atomically. Returns (inserted, duplicates).
 
         A span already stored (same trace ID, span ID and end time, e.g. an exporter retry) is skipped (the
@@ -208,13 +213,34 @@ class SqliteStore(Store):
         and only its caller gets the error. Every call returns only after the COMMIT that holds its spans, so an
         acknowledged export is on disk (``synchronous = FULL``), as before. One COMMIT, and one fsync, then
         serves several exports, and a message several of them touch has its summary rewritten once (QV-78).
+
+        ``wait_s`` bounds the wait for the writer: past it, if no writer has taken the export yet, it leaves the
+        queue and ``WriterBusy`` is raised with nothing written (the server answers 503, backpressure.py). If a
+        writer has taken it, the call waits for that writer's COMMIT instead, so the answer matches what is on
+        disk. ``timings``, if given, gets ``wait_s`` (until its group's write began) and ``write_s`` (that write,
+        to its COMMIT).
         """
         job = _Export(list(records))
+        t0 = time.perf_counter()
         with self._queue_lock:
             self._queue.append(job)
-        with self.lock:
-            if not job.done:  # else a writer before us took it, and committed it
-                self._write_group()
+        if self.lock.acquire(timeout=-1 if wait_s is None else wait_s):
+            try:
+                if not job.done:  # else a writer before us took it, and committed it
+                    self._write_group()
+            finally:
+                self.lock.release()
+        else:
+            with self._queue_lock:
+                queued = job in self._queue
+                if queued:
+                    self._queue.remove(job)
+            if queued:
+                raise WriterBusy(f"the writer was busy for {wait_s:g} s")
+            job.finished.wait()  # a writer has it: its COMMIT decides
+        if timings is not None:
+            timings["wait_s"] = job.started - t0
+            timings["write_s"] = job.ended - job.started
         if job.error is not None:
             raise job.error
         return job.result
@@ -226,6 +252,9 @@ class SqliteStore(Store):
             while self._queue and (not group or spans + len(self._queue[0].records) <= self.GROUP_MAX_SPANS):
                 group.append(self._queue.pop(0))
                 spans += len(group[-1].records)
+        started = time.perf_counter()
+        for job in group:
+            job.started = started
         c = self.conn
         changes = summary_table.Changes()
         try:
@@ -255,32 +284,45 @@ class SqliteStore(Store):
         finally:
             self.write_stats["transactions"] += 1
             self.write_stats["exports"] += len(group)
+            ended = time.perf_counter()
             for job in group:
-                job.done = True
+                job.ended, job.done = ended, True
+                job.finished.set()
 
     def _insert_rows(self, records: list, moves: list) -> tuple[int, int]:
         """One export's rows and joins, in the open transaction. Appends to ``moves`` each row that joined a
         message, as (row, message it was in or None, message it is in): summary_table.Changes.move."""
         inserted = dupes = 0
         c = self.conn
+        on_join = self.on_join
         for r in records:
-            own = r.get("message_id")
+            own, kind = r.get("message_id"), r["kind"]
             mid, mid_source, receive_row = own, "span" if own else None, None
-            if r["kind"] in SETTLE_KINDS:  # joined first, so the row is written once, joined
+            join_s = 0.0
+            if kind in SETTLE_KINDS:  # joined first, so the row is written once, joined
+                j0 = time.perf_counter()
                 rec = self._settle_receive(r)
+                join_s = time.perf_counter() - j0
                 if rec is not None:
                     mid, mid_source, receive_row = rec["message_id"], "receipt_hash", rec["row"]
             attrs, dropped = gate_body(r.get("attributes", {}), r.get("queue"), self.store_bodies)
+            attrs, body = body_table.split(kind, own, attrs)
+            # an exporter's retry carries the same body: put finds the row the first copy wrote
             values = [r.get(f) for f in RECORD_FIELDS] + [
-                json.dumps(attrs, sort_keys=True, default=str), mid, mid_source, receive_row, dropped]
+                body_table.attributes_json(attrs), mid, mid_source, receive_row, dropped,
+                None if body is None else body_table.put(c, own, body)]
             cur = c.execute(_INSERT_SQL, values)
             if cur.rowcount == 0:
                 dupes += 1
                 continue
             inserted += 1
             moves.append((cur.lastrowid, None, mid))
-            if r["kind"] == "receive":
+            if kind == "receive":
+                j0 = time.perf_counter()
                 moves.extend((row, was, mid) for row, was in self._join_receive(cur.lastrowid, r))
+                join_s = time.perf_counter() - j0
+            if on_join is not None and (kind == "receive" or kind in SETTLE_KINDS):
+                on_join("receive" if kind == "receive" else "settle", join_s)
         return inserted, dupes
 
     def _settle_receive(self, r: dict) -> Optional[sqlite3.Row]:
@@ -356,6 +398,7 @@ class SqliteStore(Store):
             # the spans first: their rows are in the summaries forget deletes
             n = c.execute(f"DELETE FROM spans WHERE row IN ({_ROWS_OF_SQL})", (json.dumps(gone),)).rowcount
             summary_table.forget(c, gone)
+            body_table.forget(c, gone)
             # joined since the read: it belongs to a message now, which goes by the message's time
             n += c.execute("DELETE FROM spans WHERE row IN (SELECT value FROM json_each(?)) AND mid IS NULL",
                            (json.dumps(unjoined),)).rowcount
@@ -399,9 +442,9 @@ class SqliteStore(Store):
     # ---- reads ----------------------------------------------------------------------------
 
     def message_rows(self, message_id: str) -> list[sqlite3.Row]:
-        """Every row of one message, in time order."""
+        """Every row of one message, in time order, each with its body back in ``attributes``."""
         with self.reader() as c:
-            return summary_table.rows_of(c, message_id)
+            return summary_table.rows_of(c, message_id, self._rows_sql)
 
     def query(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
         """A read-only query (on a file, a write fails: read connections are query_only). SQLite only: not
@@ -435,7 +478,7 @@ class SqliteStore(Store):
             p.append(queue)
         return self._newest_first(src, p, limit, from_ns, to_ns, after)
 
-    def _newest_first(self, src: str, p: list, limit: int, from_ns, to_ns, after) -> list[str]:
+    def _newest_first(self, src: str, p: list, limit: int, from_ns, to_ns, after, rows: bool = False) -> list:
         """``src``: a summary table, as s, with last_ns and mid, and its WHERE; read in (last_ns DESC, mid) order
         by the index or primary key it names (INDEXED BY, or NOT INDEXED for the primary key)."""
         where, p = "", list(p)
@@ -449,9 +492,9 @@ class SqliteStore(Store):
             where += " AND (s.last_ns < ? OR (s.last_ns = ? AND s.mid > ?))"
             p += [after[0], after[0], after[1]]
         table, _, rest = src.partition(" WHERE ")
-        rows = self.query(f"SELECT s.mid FROM {table} WHERE {rest}{where} "
-                          "ORDER BY s.last_ns DESC, s.mid LIMIT ?", tuple(p) + (limit,))
-        return [r["mid"] for r in rows]
+        found = self.query(f"SELECT s.last_ns, s.mid FROM {table} WHERE {rest}{where} "
+                           "ORDER BY s.last_ns DESC, s.mid LIMIT ?", tuple(p) + (limit,))
+        return found if rows else [r["mid"] for r in found]
 
     def stuck_messages(self, cutoff_ns: int, limit: int, queue: Optional[str] = None, *,
                        from_ns: Optional[int] = None, after: Optional[tuple] = None) -> list[StuckCandidate]:
@@ -538,14 +581,37 @@ class SqliteStore(Store):
                     found.append((nxt[0] != lo, -newest[0], nxt[1]))
         return [t for *_, t in sorted(found)[:limit]]
 
-    def body_rows(self) -> list[sqlite3.Row]:
-        return self.query(
-            """SELECT row, kind, mid, queue, attributes,
-                      (SELECT m.last_ns FROM messages m WHERE m.mid = s.mid) AS last
-               FROM spans s
-               WHERE kind IN ('send', 'receive') AND mid IS NOT NULL
-                 AND json_type(attributes, '$."trailbeam.body"') = 'text'
-               ORDER BY mid, kind <> 'send', row""")
+    def newest_messages(self, limit: int, queue: Optional[str] = None, *, from_ns: Optional[int] = None,
+                        to_ns: Optional[int] = None, after: Optional[tuple] = None) -> list[tuple[int, str]]:
+        if queue:
+            src, p = "message_queues s NOT INDEXED WHERE s.queue = ?", [queue]
+        else:
+            src, p = "messages s INDEXED BY messages_last WHERE 1", []
+        return [(r["last_ns"], r["mid"]) for r in self._newest_first(src, p, limit, from_ns, to_ns, after, rows=True)]
+
+    def body_spans(self, message_ids: list[str]) -> list[sqlite3.Row]:
+        """By spans_body, the partial index of the spans that point at a body: one short lookup per message."""
+        out: list = []
+        with self.reader() as c:
+            for i in range(0, len(message_ids), 500):
+                out += c.execute(
+                    """SELECT s.row, s.kind, s.mid, s.queue, b.body,
+                              json_extract(s.attributes, '$."trailbeam.body.format"') AS format
+                       FROM spans s INDEXED BY spans_body JOIN bodies b ON b.id = s.body_id
+                       WHERE s.mid IN (SELECT value FROM json_each(?)) AND s.body_id IS NOT NULL""",
+                    (json.dumps(message_ids[i:i + 500]),)).fetchall()
+        return out
+
+    def file_sizes(self) -> Optional[dict]:
+        if self.path == ":memory:":
+            return None
+        out = {}
+        for name, suffix in (("main", ""), ("wal", "-wal")):
+            try:
+                out[name] = os.path.getsize(self.path + suffix)
+            except FileNotFoundError:
+                out[name] = 0
+        return out
 
     def last_row(self) -> int:
         """The highest row ID stored, 0 if none: one step down the primary key."""
@@ -568,13 +634,15 @@ Database = SqliteStore  # the name everything used before store.py
 
 class _Export:
     """One insert call's export, queued for the writer (SqliteStore.insert)."""
-    __slots__ = ("records", "result", "error", "done")
+    __slots__ = ("records", "result", "error", "done", "finished", "started", "ended")
 
     def __init__(self, records: list):
         self.records, self.result, self.error, self.done = records, None, None, False
+        self.finished = threading.Event()  # set with done, after the group's COMMIT or ROLLBACK
+        self.started = self.ended = 0.0  # perf_counter: when its group's write began, and ended
 
 
-_INSERT_COLUMNS = RECORD_FIELDS + ["attributes", "mid", "mid_source", "receive_row", "body_dropped"]
+_INSERT_COLUMNS = RECORD_FIELDS + ["attributes", "mid", "mid_source", "receive_row", "body_dropped", "body_id"]
 _INSERT_SQL = f"INSERT OR IGNORE INTO spans ({', '.join(_INSERT_COLUMNS)}) VALUES ({', '.join('?' * len(_INSERT_COLUMNS))})"
 
 AUTO_VACUUM_INCREMENTAL = 2  # PRAGMA auto_vacuum
@@ -603,6 +671,7 @@ def _prefetch_delete(c: sqlite3.Connection, mids: list, rows: list) -> None:
         # the foreign key: deleting a row looks for settle spans that point at it
         c.execute("SELECT 1 FROM spans INDEXED BY spans_receive_row WHERE receive_row = ?", (r["row"],)).fetchall()
     summary_table.prefetch(c, mids)
+    body_table.prefetch(c, mids)
 
 
 PURGE_FIRST_WINDOW_NS = 60 * 10 ** 9  # the first window of a pass; later ones adapt (purge_step)

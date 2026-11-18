@@ -39,8 +39,9 @@ def test_seeding_writes_the_rows_insert_writes(tmp_path):
     a, b = rows(by_insert), rows(by_seed)
     assert len(a) > 1000
     assert a == b
-    for t in summary_table.TABLES:  # and the summary tables insert keeps
+    for t in summary_table.TABLES + ("bodies",):  # and the summary tables and the bodies insert keeps
         assert rows(by_insert, t) == rows(by_seed, t), t
+    assert rows(by_seed, "bodies") and any(r["body_id"] for r in a)
     assert any(r["mid_source"] == "receipt_hash" for r in a) and any(r["body_dropped"] for r in a)
 
 
@@ -58,16 +59,21 @@ def test_a_small_run(tmp_path):
     out = tmp_path / "out"
     harness.main(["--out", str(out), "--sizes", "2k", "--rates", "2,5", "--step-seconds", "2",
                   "--under-load-seconds", "2", "--page-repeats", "2", "--growth-spans", "2000",
-                  "--sdk-seconds", "1", "--processes", "1", "--queues", "5", "--tenants", "3", "--body-queues", "2"])
+                  "--sdk-seconds", "1", "--processes", "1", "--queues", "5", "--tenants", "3", "--body-queues", "2",
+                  "--overload-seconds", "6"])
     res = json.loads((out / "results.json").read_text())
     size = res["sizes"][0]
     assert size["spans"] >= 2000
     assert set(size["pages_idle"]) == {"messages", "messages_one_queue", "message_detail", "duplicates", "stuck",
-                                       "tenants", "tenant_search", "body_search"}
+                                       "tenants", "tenant_search", "body_search", "body_search_one_queue", "body_search_no_match"}
     assert all(v["errors"] == 0 for v in size["pages_idle"].values())
     assert size["ingest"][0]["errors"] == 0
     assert size["breakdown"]["insert_ms"] > 0
     assert size["sdk"]["emitted_spans"] > 0
+    ov = size["overload"]  # QV-74: every span the server answered 200 for is stored
+    assert ov["acked_not_stored"] == 0 and ov.get("server_inserted_not_stored") == 0
+    assert ov["sdk"]["http_attempts"] >= ov["sdk"]["export_calls"] > 0
+    assert "## Above the ceiling" in (out / "summary.md").read_text()
     assert len(res["growth"]) == 5
     assert "## Ingest" in (out / "summary.md").read_text()
     assert (out / "results.csv").read_text().startswith("db_spans")
@@ -90,7 +96,7 @@ def test_a_page_that_times_out_restarts_the_server_and_is_skipped_at_larger_size
     monkeypatch.setattr(harness.Server, "__init__", counted)
     harness.main(["--out", str(out), "--sizes", "1k,1500", "--rates", "2", "--step-seconds", "1",
                   "--under-load-seconds", "1", "--page-repeats", "2", "--skip-pages", "tenants",
-                  "--growth-spans", "0", "--sdk-seconds", "0", "--processes", "1",
+                  "--growth-spans", "0", "--sdk-seconds", "0", "--overload-seconds", "0", "--processes", "1",
                   "--queues", "3", "--tenants", "2", "--body-queues", "1"])
     res = json.loads((out / "results.json").read_text())
     first, second = res["sizes"]
@@ -98,11 +104,11 @@ def test_a_page_that_times_out_restarts_the_server_and_is_skipped_at_larger_size
     assert all(v["timeouts"] == 1 and v["n"] == 1 for v in first["pages_idle"].values())
     # Per size: its first server, one restart per timed-out page (first size only), then one server for each
     # ramp step and one for the run under pages, each on the restored seeded file.
-    assert len(started) == (1 + 7 + 2) + (1 + 2)
+    assert len(started) == (1 + 9 + 2) + (1 + 2)
     assert first["ingest"][0]["errors"] == 0  # the ramp ran against a fresh server
     assert second["pages_idle"] == {} and second["pages_under_ingest"] == {}
     assert set(second["pages_skipped"]) == {"messages", "messages_one_queue", "message_detail", "duplicates",
-                                            "stuck", "tenants", "tenant_search", "body_search"}
+                                            "stuck", "tenants", "tenant_search", "body_search", "body_search_one_queue", "body_search_no_match"}
     assert "skipped" in (out / "summary.md").read_text()
 
 
@@ -112,7 +118,8 @@ def test_every_ingest_step_starts_from_the_seeded_file(tmp_path):
     out = tmp_path / "out"
     harness.main(["--out", str(out), "--sizes", "2k,4k", "--rates", "20,40", "--step-seconds", "2",
                   "--under-load-seconds", "2", "--page-repeats", "1", "--growth-spans", "0",
-                  "--sdk-seconds", "0", "--processes", "1", "--queues", "5", "--tenants", "3", "--body-queues", "2"])
+                  "--sdk-seconds", "0", "--overload-seconds", "0", "--processes", "1", "--queues", "5", "--tenants", "3",
+                  "--body-queues", "2"])
     res = json.loads((out / "results.json").read_text())
     small, big = res["sizes"]
     assert small["steps_restore_seeded_file"]

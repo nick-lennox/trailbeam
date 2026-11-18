@@ -12,6 +12,7 @@ never joined (receive_row NULL), call-order attributes and a DLQ receive.
 """
 import base64
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -48,9 +49,13 @@ def main(out: str) -> None:
         for s in spans:
             s.span_id = (int.from_bytes(s.trace_id, "big") * 100 + s.t // SEC % 100).to_bytes(8, "big")
         db.insert(decode(to_proto(spans).SerializeToString(), "application/x-protobuf").records)
-    db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-    db.conn.execute("PRAGMA journal_mode=DELETE")  # one self-contained file, no -wal beside it
     db.close()
+    # one self-contained file, no -wal beside it. After close: the store's checkpoint thread has a connection
+    # open while it runs, and SQLite only leaves WAL mode with no other connection.
+    c = sqlite3.connect(str(path))
+    c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    c.execute("PRAGMA journal_mode=DELETE")
+    c.close()
 
 
 if __name__ == "__main__":

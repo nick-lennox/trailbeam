@@ -95,3 +95,69 @@ def test_a_group_is_capped_in_spans(db, monkeypatch):
     before = db.write_stats["transactions"]
     assert queued(db, [lambda e=e: db.insert(e) for e in exports]) == [(1, 0)] * 5
     assert db.write_stats["transactions"] - before == 3  # 2 + 2 + 1
+
+
+def test_a_wait_that_runs_out_while_queued_writes_nothing(db):
+    """Backpressure (QV-74): past ``wait_s`` an export no writer has taken leaves the queue: WriterBusy, nothing
+    written, and a later writer doesn't write it."""
+    from trailbeam.server.store import WriterBusy
+    c = Consumer()
+    late = records([c.send(T0, "m1")])
+    out = []
+    with db.lock:  # a long write
+        t = threading.Thread(target=lambda: out.append(_raised(lambda: db.insert(late, wait_s=0.05))))
+        t.start()
+        t.join(10)
+    assert isinstance(out[0], WriterBusy)
+    assert db._queue == []
+    assert db.insert(records([c.send(T0 + SEC, "m2")])) == (1, 0)
+    assert [r["mid"] for r in db.query("SELECT mid FROM spans")] == ["m2"]
+
+
+def test_a_wait_that_runs_out_after_a_writer_took_the_export_waits_for_its_commit(db, monkeypatch):
+    """An export a writer has taken is being written: it is answered by that COMMIT, not by WriterBusy, so the
+    answer matches what is on disk. ``timings`` covers the wait and the group's write."""
+    c = Consumer()
+    first = records([c.send(T0, "m1")])
+    second = records([c.send(T0 + SEC, "m2")])
+    entered, go, slow = threading.Event(), threading.Event(), threading.Event()
+    write_group, insert_rows = db._write_group, db._insert_rows
+
+    def held_write_group():
+        entered.set()
+        go.wait(10)  # the first writer holds the lock until the second export has queued
+        write_group()
+
+    def slow_insert_rows(recs, moves):
+        if not slow.is_set():
+            slow.set()
+            time.sleep(0.3)  # longer than the second export's wait_s, with it already taken
+        return insert_rows(recs, moves)
+
+    monkeypatch.setattr(db, "_write_group", held_write_group)
+    monkeypatch.setattr(db, "_insert_rows", slow_insert_rows)
+    timings: dict = {}
+    out = [None, None]
+    t1 = threading.Thread(target=lambda: out.__setitem__(0, db.insert(first)))
+    t2 = threading.Thread(target=lambda: out.__setitem__(1, _raised(lambda: db.insert(second, wait_s=0.1,
+                                                                                      timings=timings))))
+    t1.start()
+    assert entered.wait(10)  # the first export's thread is the writer, holding the lock
+    t2.start()
+    deadline = time.monotonic() + 10
+    while len(db._queue) < 2 and time.monotonic() < deadline:
+        time.sleep(0.005)
+    go.set()
+    t1.join(10)
+    t2.join(10)
+    assert out == [(1, 0), (1, 0)]
+    assert db.write_stats["exports"] - db.write_stats["transactions"] >= 1  # the two shared one transaction
+    assert sorted(r["mid"] for r in db.query("SELECT mid FROM spans")) == ["m1", "m2"]
+    assert timings["write_s"] >= 0.25 and timings["wait_s"] >= 0
+
+
+def _raised(fn):
+    try:
+        return fn()
+    except Exception as e:  # noqa: BLE001 - the test looks at it
+        return e

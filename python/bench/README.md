@@ -73,7 +73,19 @@ For each size, smallest first, growing the same SQLite file from the previous si
    the growing file. Each step records `db_spans_before`, and `summary.md` shows it.
 4. **Pages under ingest.** From the seeded file again, the pages in a loop, while ingest runs at the highest steady rate. The
    export latency of that ingest is recorded too.
-5. **Breakdown.** Server stopped, the seeded file restored: where a 512-span export's time goes in-process,
+5. **Above the ceiling** (`--overload-seconds`, 30; 0 skips it). From the seeded file again, the load
+   generator at `--overload-factor` (2) times the first rate that was not steady, and the OTel SDK
+   (`--sdk` mode, at the steady rate) alongside it, so its exporter meets a server that is already full.
+   The load generator runs `--overload-concurrency` (16) exports per process here, not the ramp's
+   `--concurrency`: a fleet of producers has more exports in flight than the server takes at once
+   (`TRAILBEAM_INGEST_MAX_PENDING`, 16). With only 8 in flight the clients just slow down, so the backlog
+   stays on the client side and the server is never full.
+   Records the HTTP statuses each saw, the SDK exporter's retries and the `Retry-After` values it got, and
+   the server's `/metrics` rejections. Then it checks every span: `acked_not_stored` is spans in a 200
+   response that are not in the file. That is silent loss on the server side, and it must be 0.
+   `stored_not_acked` is spans committed after the client gave up waiting. Their retry is a duplicate,
+   which the server skips.
+6. **Breakdown.** Server stopped, the seeded file restored: where a 512-span export's time goes in-process,
    averaged over 3 exports after one untimed warm-up export on a cold page cache (`cold_insert_ms`). That covers decode,
    `Database.insert` and its two join queries, plus the query plans of both joins (the server's own SQL,
    `db.SETTLE_JOIN_SQL` and `db.RECEIVE_JOIN_SQL`).
@@ -92,3 +104,27 @@ in steps 3 and 4 goes through the real server.
 
 Disk: about 1 GB per million spans with 1 KB bodies on a tenth of the queues; `summary.md` has the measured
 figure. Seeding runs at about 25k spans/s on one core.
+
+## Postgres smoke run: `pg_smoke.py`
+
+A short check of the Postgres store (QV-80), not the full harness: seed a database to a size through
+`PostgresStore.insert`, start the server with `--store-url`, time the pages idle, then run ingest at a rate while
+the pages are timed in a loop.
+
+```sh
+pip install -e 'python[test,postgres]'
+createdb bench
+python python/bench/pg_smoke.py --store-url postgresql://postgres@127.0.0.1:5432/bench --spans 1M --seed-only
+python python/bench/pg_smoke.py --store-url postgresql://postgres@127.0.0.1:5432/bench --spans 1M \
+    --spans-per-s 1000 --seconds 120 --out bench-results/pg-smoke
+```
+
+Seeding resumes where it stopped, so it can be split into runs. Same traffic as the harness (50 queues, 50
+tenants, 1 KB bodies on 5 queues). Seeding leaves Postgres a checkpoint and autovacuum to do: measure after
+they have finished, or the first minutes show their I/O as export latency.
+
+Result on the QV-70 machine (Ryzen 7 7700X, WSL2, Postgres 16.2 on the same box, `fsync` and
+`synchronous_commit` on, `shared_buffers=1GB`), 1.0 to 1.2M spans (2.6 to 3.1 GB), 120 s at 1,000 spans/s:
+export p50 297 ms, p99 456 ms, no errors. List pages p95 under that ingest: Messages 5.4 ms, one queue 5.0, Duplicates 5.0,
+Stuck 5.1, message detail 2.1, Tenants 298, tenant search 41, body search 124 (one queue 209). The first run
+straight after seeding, during a 125 s checkpoint, had an export p99 of 4.1 s.

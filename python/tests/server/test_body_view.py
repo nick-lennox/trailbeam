@@ -42,7 +42,7 @@ def test_views_and_searches_match_the_shared_fixture(name):
     mids = [r["mid"] for r in db.query("SELECT DISTINCT mid FROM spans WHERE mid IS NOT NULL ORDER BY mid")]
     assert {m: bodies.body_view(m, db.message_rows(m), db.store_bodies) for m in mids} == case["views"]
     for s in case["searches"]:
-        assert sorted(bodies.search(db, bodies.parse_query(s["query"]), db.store_bodies)) == s["message_ids"], s["query"]
+        assert sorted(bodies.search(db, bodies.parse_query(s["query"]), db.store_bodies).mids) == s["message_ids"], s["query"]
     db.close()
 
 
@@ -61,7 +61,7 @@ def test_the_fixture_is_current():
         db = load(case["store_bodies"], case["services"])
         mids = [r["mid"] for r in db.query("SELECT DISTINCT mid FROM spans WHERE mid IS NOT NULL ORDER BY mid")]
         cases.append({**case, "views": {m: bodies.body_view(m, db.message_rows(m), db.store_bodies) for m in mids},
-                      "searches": [{"query": q, "message_ids": sorted(bodies.search(db, bodies.parse_query(q), db.store_bodies))}
+                      "searches": [{"query": q, "message_ids": sorted(bodies.search(db, bodies.parse_query(q), db.store_bodies).mids)}
                                    for q in mod.SEARCHES]})
         db.close()
     assert cases == EXPECTED["cases"]
@@ -106,10 +106,10 @@ def test_a_queue_taken_off_the_list_is_no_longer_shown_or_searched(tmp_path):
     db = Database(path, store_bodies=frozenset({"billing"}))  # restarted with another list
     v = bodies.body_view("m-orders-1", db.message_rows("m-orders-1"), db.store_bodies)
     assert (v["kind"], v["reason"]) == ("none", "not_opted_in")
-    assert bodies.search(db, bodies.parse_query("body.order.sku:A-100"), db.store_bodies) == []
+    assert bodies.search(db, bodies.parse_query("body.order.sku:A-100"), db.store_bodies).mids == []
     # the file still holds it: nothing is deleted
-    assert db.query("""SELECT COUNT(*) AS n FROM spans WHERE mid = 'm-orders-1'
-                       AND json_type(attributes, '$."trailbeam.body"') = 'text'""")[0]["n"] == 2
+    assert db.query("SELECT COUNT(*) AS n FROM spans WHERE mid = 'm-orders-1' AND body_id IS NOT NULL")[0]["n"] == 2
+    assert db.query("SELECT COUNT(*) AS n FROM bodies WHERE mid = 'm-orders-1'")[0]["n"] == 1
     db.close()
 
 
@@ -149,25 +149,67 @@ def test_api_body(served):
     assert get(served, "/api/messages/m-orders-1/other")[0] == 404
 
 
+def search(served, **q):
+    """A body search over all history: the fixture's spans are older than the default window."""
+    status, text = get(served, "/api/messages?" + urllib.parse.urlencode({"from_ms": "0", **q}))
+    return status, json.loads(text)
+
+
 def test_api_search(served):
+    status, d = search(served, body="body.order.qty:>=2")
+    assert status == 200 and d["body_search"]["stores_bodies"] is True
+    assert sorted(m["message_id"] for m in d["messages"]) == ["m-orders-1", "m-orphan"]
+    assert d["next_cursor"] is None and d["body_search"]["complete"] is True
+    assert d["body_search"]["from_ms"] == 0 and d["body_search"]["scanned"] >= 3
+    one = search(served, body="body.order.qty:>=2", limit="1")[1]
+    assert [m["message_id"] for m in one["messages"]] == [d["messages"][0]["message_id"]]
+    rest = search(served, body="body.order.qty:>=2", limit="1", cursor=one["next_cursor"])[1]
+    assert [m["message_id"] for m in rest["messages"]] == [d["messages"][1]["message_id"]]
+    assert search(served, body="body.order.qty:>=2", queue="billing")[1]["messages"] == []
+    status, d = search(served, body="tenant:acme")
+    assert status == 400 and "body" in d["error"]
+
+
+def test_api_search_is_bounded_by_a_window_of_a_day_by_default(served):
     status, text = get(served, "/api/messages?" + urllib.parse.urlencode({"body": "body.order.qty:>=2"}))
     d = json.loads(text)
-    assert status == 200 and d["body_search"] == {"stores_bodies": True}
-    assert sorted(m["message_id"] for m in d["messages"]) == ["m-orders-1", "m-orphan"]
-    assert [m["message_id"] for m in json.loads(get(served, "/api/messages?" + urllib.parse.urlencode(
-        {"body": "body.order.qty:>=2", "limit": "1"}))[1])["messages"]] == [d["messages"][0]["message_id"]]
-    assert json.loads(get(served, "/api/messages?" + urllib.parse.urlencode(
-        {"body": "body.order.qty:>=2", "queue": "billing"}))[1])["messages"] == []
-    status, text = get(served, "/api/messages?" + urllib.parse.urlencode({"body": "tenant:acme"}))
-    assert status == 400 and "body" in json.loads(text)["error"]
+    assert status == 200 and d["messages"] == [] and d["body_search"]["scanned"] == 0  # the fixture is older
+    assert d["body_search"]["to_ms"] - d["body_search"]["from_ms"] == 86_400_000
+    d = search(served, body="body.order.qty:>=2", to_ms="1000")[1]  # a window before every span
+    assert (d["messages"], d["body_search"]["scanned"], d["body_search"]["complete"]) == ([], 0, True)
+    assert get(served, "/api/messages?" + urllib.parse.urlencode(
+        {"body": "body:x", "from_ms": "10", "to_ms": "5"}))[0] == 400
+
+
+def test_a_search_reads_at_most_scan_messages_and_goes_on_from_there():
+    db = load(["orders"])
+    terms = bodies.parse_query("body:order")
+    whole = bodies.search(db, terms, db.store_bodies)
+    assert whole.after is None and len(whole.mids) >= 3
+    got, after, pages = [], None, 0
+    while True:
+        r = bodies.search(db, terms, db.store_bodies, after=after, scan=1)
+        assert r.scanned <= 1
+        got += r.mids
+        pages += 1
+        if r.after is None:
+            break
+        after = r.after
+    assert got == whole.mids and pages >= whole.scanned
+    # a limit stops it at the match, and the next page starts after it
+    first = bodies.search(db, terms, db.store_bodies, limit=1)
+    assert first.mids == whole.mids[:1] and first.after is not None
+    assert bodies.search(db, terms, db.store_bodies, after=first.after).mids == whole.mids[1:]
+    db.close()
 
 
 def test_messages_page_searches_bodies_and_says_who_can_read_them(served):
-    status, html = get(served, "/?" + urllib.parse.urlencode({"body": "body.customer.id:globex"}))
+    status, html = get(served, "/?" + urllib.parse.urlencode({"body": "body.customer.id:globex", "from_ms": "0"}))
     assert status == 200
     text = unescape(html)
     assert "Messages whose body matches" in text and "m-orders-2" in text and "m-orders-1" not in text
-    assert "anyone who can reach this server can read them" in text
+    assert "Anyone who can open this page can read them" in text
+    assert "Read the bodies of" in text and "Last seen within" in text
     status, html = get(served, "/?" + urllib.parse.urlencode({"body": "queue:orders"}))
     assert status == 400
 

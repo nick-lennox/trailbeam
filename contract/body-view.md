@@ -11,10 +11,11 @@ is shared: `BodyPanel` in `@trailbeam/ui`. Both are tested against the same expe
 Bodies are **off unless the server is told to keep them**, per queue:
 
 - **Open-source Trailbeam** keeps bodies only for the queues in `TRAILBEAM_STORE_BODIES`
-  (`--store-bodies`), none by default. It has no logins and no roles. **Anyone who can reach the
-  server can read every stored body**, in the Body tab and from `/api/messages/{id}/body`, and anyone
-  who can read the SQLite file can read them there. The only access control is that setting plus
-  who can reach the server on the network, so run it on a trusted network.
+  (`--store-bodies`), none by default. It has no users and no roles, only an optional shared
+  access token (`TRAILBEAM_TOKEN`, off by default). **Anyone the server lets in can read every
+  stored body**, in the Body tab and from `/api/messages/{id}/body`: with no token that is anyone
+  who can reach it. Anyone who can read the SQLite file can read them there too. Set a token, or
+  run it on a trusted network.
 - **The hosted app** keeps bodies only for queues an admin opted in under Settings, and shows them to
   owners and admins only.
 
@@ -128,10 +129,13 @@ The body part of the explorer's query language, the same in both products:
 - Only kept bodies are searched, as stored, after redaction: a value the package redacted can't be
   found.
 
-Open-source Trailbeam takes the terms in `GET /api/messages?body=...` (with `queue` and `limit`)
-and on its Messages page. It lists the messages whose kept body matches, most recently seen first.
-Any other kind of term is a `400`. It reads every kept body on each search: there is no index, which
-is fine for one SQLite file and gets slower as bodies pile up [estimate: not measured].
+Open-source Trailbeam takes the terms in `GET /api/messages?body=...` (with `queue`, `limit`, a time
+window and `cursor`) and on its Messages page. It lists the messages whose kept body matches, most
+recently seen first. Any other kind of term is a `400`. There is no index of body contents, so a
+search is bounded instead: it reads the kept bodies of the messages last seen in the window
+(`from_ms`/`to_ms`, or `since_s`, default the last day), on `queue` if given, newest first, and stops
+after `limit` matches or 5,000 messages. `next_cursor` goes on from there. A page can have fewer than
+`limit` matches and still have a next page.
 
 The hosted app runs the same terms in its event explorer, where a match is the event that carried
 the body.
