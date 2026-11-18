@@ -404,9 +404,13 @@ def purge_under_ingest(db_path: str, snapshot: Optional[str], profile, store_bod
                 w = ingest_step(srv, profile, rate, args.purge_window_s, args)
                 h = health(srv) if case == "purge" else {}
                 w["pass_running"] = bool(h.get("running"))
+                if case == "purge":  # the pass so far: was a long step what held up the exports?
+                    so_far = h.get("running") or h.get("last_pass") or {}
+                    w["longest_step_ms"], w["longest_write_ms"] = so_far.get("longest_step_ms"), so_far.get("longest_write_ms")
                 windows.append(w)
                 log(f"  {case}: {w['achieved_spans_per_s']} spans/s, export p99 {w['export_p99_ms']} ms, errors "
-                    f"{w['errors']}" + (f", pass {'running' if w['pass_running'] else 'done'}" if case == "purge" else ""))
+                    f"{w['errors']}" + (f", pass {'running' if w['pass_running'] else 'done'}, longest step so far "
+                                       f"{w['longest_step_ms']} ms, of it under the writer lock {w['longest_write_ms']} ms" if case == "purge" else ""))
                 done = case == "baseline" or (h.get("passes", 0) >= 1 and not h.get("running"))
                 if done or time.monotonic() - t0 > args.purge_max_s:
                     break

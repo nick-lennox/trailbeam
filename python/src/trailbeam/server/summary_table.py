@@ -129,6 +129,32 @@ def forget(conn: sqlite3.Connection, mids: Iterable[str]) -> None:
             conn.execute("DELETE FROM messages WHERE mid = ?", (mid,))
 
 
+def prefetch(conn: sqlite3.Connection, mids: Iterable[str]) -> None:
+    """Read, and so bring into the page cache, every index entry ``forget`` would change for these messages.
+    For retention: it runs on a read connection without the writer lock, so that the write that follows finds
+    those pages in memory instead of reading them from disk while ingest waits (QV-72: steps of seconds at
+    1M spans, on pages of old messages no page had read for days). Changes nothing."""
+    cur = conn.cursor()
+    cur.row_factory = sqlite3.Row
+    for mid in mids:
+        old = cur.execute(_OLD, (mid,)).fetchone()
+        if old is None:
+            continue
+        queues, tenants, events = _keys(old)
+        last = old["last_ns"]
+        conn.execute("SELECT 1 FROM messages INDEXED BY messages_last WHERE last_ns = ? AND mid = ?", (last, mid)).fetchall()
+        conn.execute("SELECT 1 FROM messages INDEXED BY messages_stuck WHERE stuck_open AND stuck_first_ns IS NOT NULL "
+                     "AND stuck_first_ns = (SELECT stuck_first_ns FROM messages WHERE mid = ?) AND mid = ?", (mid, mid)).fetchall()
+        for q in queues:
+            conn.execute("SELECT 1 FROM message_queues WHERE queue = ? AND last_ns = ? AND mid = ?", q).fetchall()
+        for t, named in tenants.items():
+            conn.execute("SELECT 1 FROM message_tenants WHERE tenant = ? AND last_ns = ? AND mid = ?", (t, last, mid)).fetchall()
+            conn.execute("SELECT 1 FROM message_tenants INDEXED BY message_tenants_search "
+                         "WHERE tenant_lower = ? AND tenant = ? AND named_ns = ?", (ascii_lower(t), t, named)).fetchall()
+        for i, e in enumerate(events):
+            conn.execute("SELECT 1 FROM tenant_events WHERE at_ms = ? AND mid = ? AND seq = ?", (e[0], mid, i)).fetchall()
+
+
 def _drop(conn: sqlite3.Connection, old) -> None:
     queues, tenants, events = _keys(old)
     last, mid = old["last_ns"], old["mid"]

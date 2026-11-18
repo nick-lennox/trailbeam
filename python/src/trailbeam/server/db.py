@@ -26,6 +26,7 @@ import json
 import logging
 import sqlite3
 import threading
+import time
 from typing import Iterable, Iterator, Optional
 
 from . import migrations, summary_table
@@ -275,17 +276,21 @@ class SqliteStore(Store):
                     WHERE kind IN {SPAN_KINDS!r} AND time_ns >= ? AND time_ns < ?""", cut_p + (start, end)).fetchall()
             mids = sorted({r["mid"] for r in rows if r["mid"] is not None})
             expired = [r["mid"] for r in c.execute(_EXPIRED_SQL.format(cut=cut), (json.dumps(mids),) + cut_p)] if mids else []
-        unjoined = [r["row"] for r in rows if r["mid"] is None and r["kind"] in SETTLE_KINDS and r["old"]]
-        n = 0
+            unjoined = [r["row"] for r in rows if r["mid"] is None and r["kind"] in SETTLE_KINDS and r["old"]]
+            if self.shared_reads and (expired or unjoined):
+                _prefetch_delete(c, expired, unjoined)
+        n, write_ms = 0, 0.0
         if expired or unjoined:
             with self.lock:
+                w0 = time.monotonic()
                 n = self._delete(expired, unjoined, cut, cut_p)
+                write_ms = (time.monotonic() - w0) * 1000
         found = len(mids) + len(unjoined)
         if end >= latest:
-            return PurgeStep(n, found, None)
+            return PurgeStep(n, found, None, write_ms)
         # the next window: about ``limit`` messages, if they come at the rate this one had
         width = max(1, int(width * min(4.0, max(0.25, limit / max(found, 1)))))
-        return PurgeStep(n, found, f"t{end}:{width}")
+        return PurgeStep(n, found, f"t{end}:{width}", write_ms)
 
     def _delete(self, expired: list, unjoined: list, cut: str, cut_p: tuple) -> int:
         """purge_step's write, in one transaction; the caller holds ``lock``. Each message is checked again:
@@ -508,6 +513,27 @@ Database = SqliteStore  # the name everything used before store.py
 
 AUTO_VACUUM_INCREMENTAL = 2  # PRAGMA auto_vacuum
 SPAN_KINDS = ("send", "receive", "delete", "change_visibility", "outcome")  # every kind a row can have
+def _prefetch_delete(c: sqlite3.Connection, mids: list, rows: list) -> None:
+    """Read every page purge_step's delete of these messages and unjoined rows will change: the rows, an entry
+    in each index of spans (the UNIQUE one too), the foreign-key lookup of their settle spans, and the summary
+    rows (summary_table.prefetch). On a read connection, without the writer lock: the delete then finds them in
+    the page cache. Without it the first steps of a pass at 1M spans held the lock for 3 to 4.5 s each, reading
+    pages of week-old messages from disk, and exports waited behind them (QV-72 bench). Changes nothing."""
+    cols = "SELECT row, trace_id, span_id, kind, time_ns, receipt_hmac, key_id FROM spans"
+    found = (c.execute(f"{cols} WHERE mid IN (SELECT value FROM json_each(?))", (json.dumps(mids),)).fetchall()
+             + c.execute(f"{cols} WHERE row IN (SELECT value FROM json_each(?))", (json.dumps(rows),)).fetchall())
+    for r in found:
+        c.execute("SELECT 1 FROM spans WHERE trace_id = ? AND span_id = ?", (r["trace_id"], r["span_id"])).fetchall()
+        c.execute("SELECT 1 FROM spans INDEXED BY spans_kind_time WHERE kind = ? AND time_ns = ? AND row = ?",
+                  (r["kind"], r["time_ns"], r["row"])).fetchall()
+        if r["receipt_hmac"] is not None:
+            c.execute("SELECT 1 FROM spans INDEXED BY spans_hash WHERE receipt_hmac = ? AND key_id IS ? AND row = ?",
+                      (r["receipt_hmac"], r["key_id"], r["row"])).fetchall()
+        # the foreign key: deleting a row looks for settle spans that point at it
+        c.execute("SELECT 1 FROM spans INDEXED BY spans_receive_row WHERE receive_row = ?", (r["row"],)).fetchall()
+    summary_table.prefetch(c, mids)
+
+
 PURGE_FIRST_WINDOW_NS = 60 * 10 ** 9  # the first window of a pass; later ones adapt (purge_step)
 # The messages of a JSON list whose newest span is before the cutoff of every queue they have a span on.
 _EXPIRED_SQL = """SELECT mid FROM spans WHERE mid IN (SELECT value FROM json_each(?))

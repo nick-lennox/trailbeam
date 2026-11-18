@@ -75,6 +75,7 @@ class PurgeStep(NamedTuple):
     deleted: int             # spans deleted
     examined: int            # messages and unjoined settle spans looked at
     resume: Optional[str]    # for the next step; None: the pass is complete
+    write_ms: float = 0.0    # of which under the writer lock
 
 
 class Store(abc.ABC):

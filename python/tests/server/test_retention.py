@@ -98,6 +98,7 @@ def test_a_pass_deletes_what_is_older_than_the_retention(db, ingest):
     r = p.run_pass()
     assert mids(db) == {"new", "audit-old"}
     assert r["deleted_spans"] == 3 and r["steps"] >= 2 and not r["stopped"]
+    assert 0 <= r["longest_write_ms"] <= r["longest_step_ms"]  # the write is part of the step
     assert p.status()["last_pass"]["deleted_spans"] == 3
     assert p.status()["default"] == "7d" and p.status()["queues"] == {"audit": "forever"}
     assert p.run_pass()["deleted_spans"] == 0
@@ -198,6 +199,45 @@ def test_deleting_a_receive_uses_the_receive_row_index(tmp_path):
     db = Database(str(tmp_path / "t.sqlite"))
     [plan] = [r["detail"] for r in db.query("EXPLAIN QUERY PLAN SELECT 1 FROM spans WHERE receive_row = ?", (1,))]
     assert "spans_receive_row" in plan
+    db.close()
+
+
+def test_a_step_reads_what_it_deletes_before_it_takes_the_writer(tmp_path, monkeypatch):
+    """The pages a delete changes are read first, on the read connection (db._prefetch_delete): at 1M spans
+    reading them from disk inside the write held ingest up for seconds. The prefetch writes nothing, uses an
+    index for every lookup, and runs before the write, on the messages and settle spans the write deletes."""
+    from trailbeam.server import db as dbmod
+    from trailbeam.server.otlp import decode
+    from spans import to_proto
+
+    db = Database(str(tmp_path / "t.sqlite"))
+    db.insert(decode(to_proto(message("m1", T0) + message("m2", T0 + 3 * DAY * SEC) + [c.delete(T0, "rh-late")]
+                              ).SerializeToString(), "application/x-protobuf").records)
+    order, real_prefetch, real_delete = [], dbmod._prefetch_delete, db._delete
+
+    def prefetch(conn, mids, rows):
+        before = conn.total_changes
+        plans = []
+        conn.set_trace_callback(lambda sql: plans.append(sql) if sql.lstrip().upper().startswith("SELECT") else None)
+        try:
+            real_prefetch(conn, mids, rows)
+        finally:
+            conn.set_trace_callback(None)
+        assert conn.total_changes == before
+        for sql in set(plans):
+            detail = " ".join(r[-1] for r in conn.execute("EXPLAIN QUERY PLAN " + sql.replace("?", "NULL")))
+            assert "SCAN spans" not in detail and "SCAN messages" not in detail, (sql, detail)
+        order.append(("prefetch", sorted(mids), len(rows)))
+
+    def delete(expired, unjoined, *rest):
+        order.append(("delete", sorted(expired), len(unjoined)))
+        return real_delete(expired, unjoined, *rest)
+
+    monkeypatch.setattr(dbmod, "_prefetch_delete", prefetch)
+    db._delete = delete
+    Purger(db, Retention(DAY), now=lambda: T0 + 2 * DAY * SEC, pause_s=0).run_pass()
+    assert order == [("prefetch", ["m1"], 1), ("delete", ["m1"], 1)]
+    assert mids(db) == {"m2"}
     db.close()
 
 

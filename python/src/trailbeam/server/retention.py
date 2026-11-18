@@ -133,7 +133,7 @@ class Purger:
         t0, started_ms = time.monotonic(), time.time_ns() // 1_000_000
         cutoffs = self.retention.cutoffs(self.now())
         res = {"started_ms": started_ms, "deleted_spans": 0, "examined": 0, "steps": 0, "reclaimed_pages": 0,
-               "longest_step_ms": 0.0,
+               "longest_step_ms": 0.0, "longest_write_ms": 0.0,
                "longest_reclaim_step_ms": 0.0, "stopped": False}
         with self._lock:
             self._running = res
@@ -146,6 +146,7 @@ class Purger:
                     took = self._step_done(res, s0, "longest_step_ms")
                     res["deleted_spans"] += step.deleted
                     res["examined"] += step.examined
+                    res["longest_write_ms"] = max(res["longest_write_ms"], round(step.write_ms, 1))
                     resume = step.resume
                     if resume is None:
                         break
