@@ -20,8 +20,10 @@ info:
 
     Every API endpoint is a `GET` that returns `application/json`. The API never changes stored data.
 
-    A query parameter the endpoint does not list is ignored. When a parameter is repeated, the last
-    value is used.
+    A query parameter the endpoint does not list is ignored, with two exceptions: `/api/stuck`
+    checks `to_ms` and `/api/tenants` checks `lambda_timeout_s`, and each answers `400` to a value
+    it does not accept, although neither changes the answer. When a parameter is repeated, the last value
+    is used.
 servers:
   - url: http://127.0.0.1:4318
     description: A Trailbeam server started with its defaults.
@@ -127,6 +129,7 @@ paths:
                 next_cursor: MTc5NDg1MjMzNzUyODAwMDAwMDptLWJpbGwtMQ
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/messages/{message_id}:
     get:
       operationId: get-message
@@ -314,6 +317,7 @@ paths:
                 notices: []
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/InternalError'}
         '404': {$ref: '#/components/responses/NotFound'}
   /api/messages/{message_id}/body:
     get:
@@ -323,11 +327,13 @@ paths:
       summary: Get a message's body
       description: |
         Returns the message body the server stores for the message, or the reason it stores none.
-        A message has at most one stored body: the copy from the first send span that carried one,
-        otherwise from the first receive span that did. The packages redact the body before they
-        export it.
+        A message has at most one stored body: the copy from the first stored send span that carried
+        one, otherwise from the first stored receive span that did. The packages redact the body
+        before they export it.
 
-        The server stores bodies only for the queues named in `TRAILBEAM_STORE_BODIES`.
+        The server stores and shows bodies only for the queues in its store-bodies list
+        (`--store-bodies`, `TRAILBEAM_STORE_BODIES` or `store_bodies` in the configuration file). A
+        queue taken off the list keeps its stored bodies, but they are no longer shown or searched.
       parameters:
         - $ref: '#/components/parameters/message_id'
       responses:
@@ -378,6 +384,7 @@ paths:
                     send_status: 'off'
                     receive_status: 'off'
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/InternalError'}
         '404': {$ref: '#/components/responses/NotFound'}
   /api/duplicates:
     get:
@@ -435,6 +442,7 @@ paths:
                 next_cursor: MTc5NDg1MjMzNzUyODAwMDAwMDptLWJpbGwtMQ
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/stuck:
     get:
       operationId: list-stuck-messages
@@ -486,6 +494,7 @@ paths:
                 next_cursor: MTc5NDg1MjMzNjkxNDAwMDAwMDptLXBheS0y
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/tenants:
     get:
       operationId: list-tenants
@@ -542,6 +551,7 @@ paths:
                   dead_lettered: 0
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/tenants/search:
     get:
       operationId: search-tenants
@@ -582,6 +592,7 @@ paths:
                 to_ms: 1794855600000
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/stats:
     get:
       operationId: get-stats
@@ -608,6 +619,7 @@ paths:
                   messages: 10
                   unjoined_settles: 0
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/health:
     get:
       operationId: get-health
@@ -681,6 +693,8 @@ paths:
       description: |
         Returns `200` when the store answers and `503` when it does not. Use it as the readiness
         check of a load balancer or a Kubernetes probe. It never needs the access token.
+
+        While a Postgres store is unreachable, the other API endpoints answer `500`, not `503`.
       security:
         - {}
       responses:
@@ -723,6 +737,9 @@ paths:
 
         Trailbeam spans that break the span contract are rejected one by one: the response is still
         `200`, and its `partialSuccess` counts them.
+
+        On a Postgres store, when the client abandons an export before the server has stored it,
+        the server stores nothing and closes the connection without a response.
       security:
         - {}
         - accessToken: []
@@ -793,13 +810,13 @@ paths:
                   summary: One span was rejected
                   value: {"partialSuccess": {"rejectedSpans": "1", "errorMessage": "1 Trailbeam span(s) rejected: trailbeam.schema_version 1 is not one of 2, 3"}}
         '400':
-          description: The body is not valid protobuf or JSON, does not match its `Content-Encoding`, or has an unsupported `Content-Type`.
+          description: The body is not valid protobuf or JSON, does not match its `Content-Encoding`, or has an unsupported `Content-Type`, or a chunked body is malformed.
           content:
             text/plain:
               schema: {type: string}
               example: "invalid JSON: Expecting value: line 1 column 1 (char 0)"
         '401':
-          description: The server has an access token and the request does not carry it in `Authorization`. The session cookie is not accepted here.
+          description: The server has an access token and the request does not carry it, or carries a wrong one, in `Authorization`. The session cookie is not accepted here.
           headers:
             WWW-Authenticate:
               schema: {type: string, const: Bearer realm="trailbeam"}
@@ -808,7 +825,7 @@ paths:
               schema: {type: string}
               example: "this server needs Authorization: Bearer <TRAILBEAM_TOKEN>"
         '413':
-          description: The body is larger than 32 MiB, before or after decompression, or has no valid `Content-Length`.
+          description: The body is larger than 32 MiB, before or after decompression, or its `Content-Length` is not a non-negative integer. A request with neither `Content-Length` nor `Transfer-Encoding` is read as an empty body.
           content:
             text/plain:
               schema: {type: string}
@@ -818,7 +835,7 @@ paths:
             text/plain:
               schema: {type: string}
         '500':
-          description: The server failed to store the export.
+          description: The server failed to store the export. On a Postgres store, this includes a statement timeout.
           content:
             text/plain:
               schema: {type: string}
@@ -828,7 +845,7 @@ paths:
             text/plain:
               schema: {type: string}
         '503':
-          description: The store is unreachable. Nothing was stored. Send the export again.
+          description: The store is unreachable (Postgres store only). Nothing was stored. Send the export again.
           headers:
             Retry-After:
               description: Seconds to wait before the next attempt.
@@ -905,7 +922,7 @@ components:
           schema: {$ref: '#/components/schemas/Error'}
           example: {"error": "limit must be between 1 and 1000"}
     Unauthorized:
-      description: The server has an access token and the request carries neither the token nor the session cookie.
+      description: The server has an access token and the request carries neither a valid token nor a valid session cookie.
       headers:
         WWW-Authenticate:
           schema: {type: string, const: Bearer realm="trailbeam"}
@@ -913,6 +930,12 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}
           example: {"error": "this server needs Authorization: Bearer <TRAILBEAM_TOKEN>"}
+    InternalError:
+      description: The server failed to answer. On a Postgres store, this is the answer while the database is unreachable.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {"error": "internal error"}
     NotFound:
       description: No stored span names this message ID.
       content:
@@ -969,7 +992,7 @@ components:
               client_id: {type: [string, 'null'], description: The ID the package gives one SQS client.}
         first_seen:
           allOf: [{$ref: '#/components/schemas/Timestamp'}]
-          description: When the message was first seen. The send span's end when the send was recorded, otherwise the earliest `SentTimestamp` a receive carries.
+          description: When the message was first seen. The send span's end when the send was recorded, otherwise the earliest `SentTimestamp` a receive carries, otherwise the earliest span.
         first_seen_clock:
           type: string
           description: The clock `first_seen` is on. `host`, the clock of the host that made the call, or `sqs`, SQS's own clock.
@@ -1088,12 +1111,12 @@ components:
         group: {type: integer, description: 'The group''s number, from 0.'}
         concurrent: {type: boolean, description: Whether the group has more than one step. The order of its steps is then not fully proven.}
         label: {type: [string, 'null'], description: '`concurrent, order unknown` for a concurrent group, otherwise null.'}
-        observed_events: {type: integer, description: The recorded steps in the group.}
+        observed_events: {type: integer, description: 'The steps in the group that are not inferred: recorded steps and an observed move to a dead-letter queue.'}
         inferred_events: {type: integer, description: The inferred steps in the group.}
         ordered_inside: {type: integer, description: The proven edges between steps of this group.}
         start:
           oneOf: [{$ref: '#/components/schemas/Timestamp'}, {type: 'null'}]
-          description: The earliest start among the group's recorded steps. Null when one of them has no recorded start.
+          description: The earliest start among the group's recorded steps. Null when one of them has no recorded start, or when the group has none.
         end:
           oneOf: [{$ref: '#/components/schemas/Timestamp'}, {type: 'null'}]
           description: The latest end among the group's recorded steps. Null when the group has none.
@@ -1374,7 +1397,7 @@ components:
             sqs_timestamps: {type: integer}
         conflicts:
           type: array
-          description: Pairs of steps whose facts contradict each other. No order is shown between them.
+          description: Pairs of steps whose facts contradict each other. `from` and `to` give the direction their `sources` claim; the order is not shown.
           items: {$ref: '#/components/schemas/Edge'}
     Edge:
       type: object
@@ -1419,7 +1442,7 @@ components:
             redacted_count: {type: [integer, 'null'], description: The number of values the package redacted.}
             envelope: {type: [string, 'null'], description: '`sns` or `eventbridge` when the body is such an envelope, otherwise null.'}
             capture_status: {type: [string, 'null'], description: '`captured`, or `offloaded_to_s3` when `body` is an SQS Extended Client pointer and not the payload.'}
-            from_kind: {type: string, description: 'The kind of span the body came from., enum: [send, receive]'}
+            from_kind: {type: string, enum: [send, receive], description: The kind of span the body came from.}
             service: {type: [string, 'null'], description: The `service.name` of that span.}
             queue: {type: string}
             trace_id: {type: string}
@@ -1439,8 +1462,8 @@ components:
         reason:
           type: string
           description: |
-            `not_opted_in`: a span carried a body and the server did not keep it, because the queue
-            is not in `TRAILBEAM_STORE_BODIES`. `package_too_old`: the producer's package predates
+            `not_opted_in`: a span carried a body and the server did not keep or show it, because the
+            queue is not in the store-bodies list. `package_too_old`: the producer's package predates
             body capture. `off`, `md5_mismatch`, `redaction_failed`, `exceeds_capture_limit`: the
             producer's package did not capture the body, for this reason. `unknown`: the send has a
             capture status the server does not know. `producer_not_instrumented`: no send span was
@@ -1517,7 +1540,7 @@ components:
           additionalProperties: false
           required: [requests, inserted, duplicates, ignored, rejected]
           properties:
-            requests: {type: integer, description: Exports received.}
+            requests: {type: integer, description: 'Exports stored (answered `200`).'}
             inserted: {type: integer, description: Spans stored.}
             duplicates: {type: integer, description: Spans skipped because they were already stored.}
             ignored: {type: integer, description: Spans that are not Trailbeam spans.}
@@ -1559,7 +1582,7 @@ components:
         purge_interval_s: {type: number, description: Seconds between purge passes.}
         purge_duty: {type: number, description: The largest share of time the purge spends working.}
         purge_batch: {type: integer, description: Messages the purge examines per step.}
-        runs_on_this_replica: {type: boolean, description: Present only on a Postgres store. Whether this replica holds the lease to purge.}
+        runs_on_this_replica: {type: boolean, description: 'Present only on a Postgres store. Whether this replica held the retention lease at its last purge step, so whether it is the one purging. False on every replica when every queue is kept forever.'}
         passes: {type: integer, description: Purge passes completed since the server started.}
         running:
           oneOf: [{$ref: '#/components/schemas/PurgePass'}, {type: 'null'}]
@@ -1592,4 +1615,4 @@ components:
           required: [rejectedSpans, errorMessage]
           properties:
             rejectedSpans: {type: string, description: 'The number of rejected Trailbeam spans, as a string.'}
-            errorMessage: {type: string, description: The first five distinct reasons.}
+            errorMessage: {type: string, description: '`<n> Trailbeam span(s) rejected: ` followed by up to five distinct reasons, sorted and separated by `; `.'}
