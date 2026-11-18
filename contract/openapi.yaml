@@ -481,7 +481,7 @@ paths:
                   first_seen: '2026-11-16T18:05:36.914000Z'
                   first_seen_clock: host
                   last_seen: '2026-11-16T18:05:37.425000Z'
-                  age_s: 173764.996
+                  age_s: 173861.197
                   age_across_clocks: false
                 next_cursor: MTc5NDg1MjMzNjkxNDAwMDAwMDptLXBheS0y
         '400': {$ref: '#/components/responses/BadRequest'}
@@ -659,16 +659,16 @@ paths:
                         passes: 1
                         running: null
                         last_pass:
-                          started_ms: 1795026100313
+                          started_ms: 1795026196467
                           deleted_spans: 0
                           examined: 0
                           steps: 2
                           reclaimed_pages: 0
-                          longest_step_ms: 0.4
+                          longest_step_ms: 0.5
                           longest_write_ms: 0.0
                           longest_reclaim_step_ms: 0.0
                           stopped: false
-                          seconds: 0.0
+                          seconds: 0.001
                 short:
                   summary: Without the access token, on a server that has one
                   value: {"status": "ok", "version": "0.1.0.dev0"}
@@ -995,8 +995,8 @@ components:
           required: [stores_bodies, from_ms, to_ms, scanned, searched_from_ms, complete]
           properties:
             stores_bodies: {type: boolean, description: Whether the server stores bodies for any queue.}
-            from_ms: {type: integer, description: The start of the time window, in Unix milliseconds.}
-            to_ms: {type: integer, description: The end of the time window, in Unix milliseconds.}
+            from_ms: {type: integer, description: 'The start of the time window, in Unix milliseconds.'}
+            to_ms: {type: integer, description: 'The end of the time window, in Unix milliseconds.'}
             scanned: {type: integer, description: The number of messages whose body this page read.}
             searched_from_ms: {type: [integer, 'null'], description: 'The newest-span time of the oldest message read, in Unix milliseconds. Null when no message was read.'}
             complete: {type: boolean, description: Whether the search reached the start of the window. False when there is a `next_cursor`.}
@@ -1025,7 +1025,7 @@ components:
       additionalProperties: false
       required: [older_than_s, messages, next_cursor]
       properties:
-        older_than_s: {type: integer, description: The age threshold the request used, in seconds.}
+        older_than_s: {type: integer, description: 'The age threshold the request used, in seconds.'}
         messages:
           type: array
           items:
@@ -1255,7 +1255,7 @@ components:
         type: {const: visibility_changed}
         delivery: {type: [integer, 'null'], description: The delivery whose receipt handle the call used. Null when no stored receive has that handle.}
         result: {type: string, description: '`ok` when SQS accepted the call, `failed` when it did not.', enum: [ok, failed]}
-        visibility_timeout_s: {type: [integer, 'null'], description: The visibility timeout the call set, in seconds.}
+        visibility_timeout_s: {type: [integer, 'null'], description: 'The visibility timeout the call set, in seconds.'}
         error_code: {type: string, description: The SQS error code of a failed call.}
         batch_entry_id: {type: string, description: The entry's ID in a batch call.}
     LambdaOutcomeStep:
@@ -1288,7 +1288,7 @@ components:
           properties:
             from: {oneOf: [{$ref: '#/components/schemas/Timestamp'}, {type: 'null'}]}
             to: {oneOf: [{$ref: '#/components/schemas/Timestamp'}, {type: 'null'}]}
-        reason: {type: string, description: Why the step is shown, in words.}
+        reason: {type: string, description: 'Why the step is shown, in words.'}
         group: {type: [integer, 'null'], description: The number of the group the step is in. Null when it sits between two groups.}
         after:
           type: array
@@ -1414,12 +1414,12 @@ components:
           additionalProperties: false
           required: [body, format, redacted_count, envelope, capture_status, from_kind, service, queue, trace_id, span_id, time_unix_nano]
           properties:
-            body: {type: string, description: The body as stored, after the package redacted it.}
+            body: {type: string, description: 'The body as stored, after the package redacted it.'}
             format: {type: [string, 'null'], description: '`json` or `text`.'}
             redacted_count: {type: [integer, 'null'], description: The number of values the package redacted.}
             envelope: {type: [string, 'null'], description: '`sns` or `eventbridge` when the body is such an envelope, otherwise null.'}
             capture_status: {type: [string, 'null'], description: '`captured`, or `offloaded_to_s3` when `body` is an SQS Extended Client pointer and not the payload.'}
-            from_kind: {type: string, description: The kind of span the body came from., enum: [send, receive]}
+            from_kind: {type: string, description: 'The kind of span the body came from., enum: [send, receive]'}
             service: {type: [string, 'null'], description: The `service.name` of that span.}
             queue: {type: string}
             trace_id: {type: string}
@@ -1456,9 +1456,9 @@ components:
       additionalProperties: false
       required: [from_ms, to_ms, total_sent, untagged_sent, capped, rows]
       properties:
-        from_ms: {type: integer, description: The start of the time window, in Unix milliseconds.}
-        to_ms: {type: integer, description: The end of the time window, in Unix milliseconds.}
-        total_sent: {type: integer, description: Messages sent in the window, with or without a tenant.}
+        from_ms: {type: integer, description: 'The start of the time window, in Unix milliseconds.'}
+        to_ms: {type: integer, description: 'The end of the time window, in Unix milliseconds.'}
+        total_sent: {type: integer, description: 'Messages sent in the window, with or without a tenant.'}
         untagged_sent: {type: integer, description: Messages sent in the window with no tenant.}
         capped: {type: boolean, description: Always false.}
         rows:
@@ -1480,8 +1480,8 @@ components:
       required: [tenants, from_ms, to_ms]
       properties:
         tenants: {type: array, items: {type: string}}
-        from_ms: {type: integer, description: The start of the time window, in Unix milliseconds.}
-        to_ms: {type: integer, description: The end of the time window, in Unix milliseconds.}
+        from_ms: {type: integer, description: 'The start of the time window, in Unix milliseconds.'}
+        to_ms: {type: integer, description: 'The end of the time window, in Unix milliseconds.'}
     Stats:
       type: object
       additionalProperties: false
@@ -1571,7 +1571,7 @@ components:
       type: object
       required: [started_ms, deleted_spans, examined, steps, reclaimed_pages, stopped]
       properties:
-        started_ms: {type: integer, description: When the pass started, in Unix milliseconds.}
+        started_ms: {type: integer, description: 'When the pass started, in Unix milliseconds.'}
         deleted_spans: {type: integer}
         examined: {type: integer, description: Messages and unjoined spans examined.}
         steps: {type: integer}
@@ -1591,5 +1591,5 @@ components:
           additionalProperties: false
           required: [rejectedSpans, errorMessage]
           properties:
-            rejectedSpans: {type: string, description: The number of rejected Trailbeam spans, as a string.}
+            rejectedSpans: {type: string, description: 'The number of rejected Trailbeam spans, as a string.'}
             errorMessage: {type: string, description: The first five distinct reasons.}
