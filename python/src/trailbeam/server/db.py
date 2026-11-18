@@ -56,11 +56,11 @@ SETTLE_JOIN_SQL = """SELECT row, message_id FROM spans INDEXED BY spans_receive_
    ORDER BY (time_ns <= ?) DESC,
             CASE WHEN time_ns <= ? THEN -time_ns ELSE time_ns END
    LIMIT 1"""
-# The messages the receive join takes settle spans from (their own message ID, or none), so their summaries
-# are rewritten too. Same rows as RECEIVE_JOIN_SQL, by the same index.
-RECEIVE_JOIN_FROM_SQL = """SELECT DISTINCT mid FROM spans INDEXED BY spans_unjoined_hash
+# The settle spans the receive join takes, and the message each was in (its own message ID, or none), so the
+# summaries of both messages are rewritten. Same rows as RECEIVE_JOIN_SQL, by the same index.
+RECEIVE_JOIN_FROM_SQL = """SELECT row, mid FROM spans INDEXED BY spans_unjoined_hash
    WHERE kind IN ('delete', 'change_visibility') AND receive_row IS NULL
-     AND receipt_hmac = ? AND key_id = ? AND mid IS NOT NULL"""
+     AND receipt_hmac = ? AND key_id = ?"""
 RECEIVE_JOIN_SQL = """UPDATE spans INDEXED BY spans_unjoined_hash SET mid = ?, mid_source = 'receipt_hash', receive_row = ?
    WHERE kind IN ('delete', 'change_visibility') AND receive_row IS NULL
      AND receipt_hmac = ? AND key_id = ?"""
@@ -227,22 +227,23 @@ class SqliteStore(Store):
                 group.append(self._queue.pop(0))
                 spans += len(group[-1].records)
         c = self.conn
-        touched: set = set()
+        changes = summary_table.Changes()
         try:
             c.execute("BEGIN IMMEDIATE")
             try:
                 for job in group:
                     c.execute("SAVEPOINT export")
-                    mine: set = set()
+                    mine: list = []
                     try:
                         job.result = self._insert_rows(job.records, mine)
                     except Exception as e:  # this export only: the others in the group still commit
                         c.execute("ROLLBACK TO export")
                         job.error = e
                     else:
-                        touched |= mine
+                        for row, old, new in mine:
+                            changes.move(row, old, new)
                     c.execute("RELEASE export")
-                summary_table.refresh(c, touched)
+                summary_table.refresh(c, changes)
                 c.execute("COMMIT")
             except BaseException:
                 c.execute("ROLLBACK")
@@ -257,8 +258,9 @@ class SqliteStore(Store):
             for job in group:
                 job.done = True
 
-    def _insert_rows(self, records: list, touched: set) -> tuple[int, int]:
-        """One export's rows and joins, in the open transaction. Adds the messages they touch to ``touched``."""
+    def _insert_rows(self, records: list, moves: list) -> tuple[int, int]:
+        """One export's rows and joins, in the open transaction. Appends to ``moves`` each row that joined a
+        message, as (row, message it was in or None, message it is in): summary_table.Changes.move."""
         inserted = dupes = 0
         c = self.conn
         for r in records:
@@ -276,9 +278,9 @@ class SqliteStore(Store):
                 dupes += 1
                 continue
             inserted += 1
+            moves.append((cur.lastrowid, None, mid))
             if r["kind"] == "receive":
-                touched.update(self._join_receive(cur.lastrowid, r))
-            touched.add(mid)
+                moves.extend((row, was, mid) for row, was in self._join_receive(cur.lastrowid, r))
         return inserted, dupes
 
     def _settle_receive(self, r: dict) -> Optional[sqlite3.Row]:
@@ -288,11 +290,12 @@ class SqliteStore(Store):
         # emulator reuses handles, take the latest receive at or before the settle, else the first.
         return self.conn.execute(SETTLE_JOIN_SQL, (r["receipt_hmac"], r["key_id"], r["time_ns"], r["time_ns"])).fetchone()
 
-    def _join_receive(self, row: int, r: dict) -> list[str]:
-        """Join settle spans that arrived before this receive. Returns the messages they belonged to."""
+    def _join_receive(self, row: int, r: dict) -> list[tuple]:
+        """Join settle spans that arrived before this receive. Returns (row, message it was in) for each."""
         key = (r["receipt_hmac"], r["key_id"])
-        was = [m for (m,) in self.conn.execute(RECEIVE_JOIN_FROM_SQL, key)]
-        self.conn.execute(RECEIVE_JOIN_SQL, (r["message_id"], row) + key)
+        was = [(j, m) for j, m in self.conn.execute(RECEIVE_JOIN_FROM_SQL, key)]
+        if was:
+            self.conn.execute(RECEIVE_JOIN_SQL, (r["message_id"], row) + key)
         return was
 
     def purge_step(self, cutoffs: Cutoffs, resume: Optional[str] = None, limit: int = 100) -> PurgeStep:
@@ -307,6 +310,7 @@ class SqliteStore(Store):
         expired unjoined settle spans, each checked again in the write transaction."""
         latest = _latest(cutoffs)
         cut, cut_p = _cutoff_sql(cutoffs)
+        qcut, _ = _cutoff_sql(cutoffs, "value")  # the same cutoffs, of a queue in a message's queues_json
         if resume is None:
             with self.reader() as c:
                 firsts = [c.execute("SELECT MIN(time_ns) FROM spans INDEXED BY spans_kind_time WHERE kind = ?",
@@ -324,7 +328,7 @@ class SqliteStore(Store):
                 f"""SELECT row, mid, kind, time_ns < {cut} AS old FROM spans INDEXED BY spans_kind_time
                     WHERE kind IN {SPAN_KINDS!r} AND time_ns >= ? AND time_ns < ?""", cut_p + (start, end)).fetchall()
             mids = sorted({r["mid"] for r in rows if r["mid"] is not None})
-            expired = [r["mid"] for r in c.execute(_EXPIRED_SQL.format(cut=cut), (json.dumps(mids),) + cut_p)] if mids else []
+            expired = [r["mid"] for r in c.execute(_EXPIRED_SQL.format(cut=qcut), (json.dumps(mids),) + cut_p)] if mids else []
             unjoined = [r["row"] for r in rows if r["mid"] is None and r["kind"] in SETTLE_KINDS and r["old"]]
             if self.shared_reads and (expired or unjoined):
                 _prefetch_delete(c, expired, unjoined)
@@ -332,7 +336,7 @@ class SqliteStore(Store):
         if expired or unjoined:
             with self.lock:
                 w0 = time.monotonic()
-                n = self._delete(expired, unjoined, cut, cut_p)
+                n = self._delete(expired, unjoined, qcut, cut_p)
                 write_ms = (time.monotonic() - w0) * 1000
         found = len(mids) + len(unjoined)
         if end >= latest:
@@ -341,15 +345,16 @@ class SqliteStore(Store):
         width = max(1, int(width * min(4.0, max(0.25, limit / max(found, 1)))))
         return PurgeStep(n, found, f"t{end}:{width}", write_ms)
 
-    def _delete(self, expired: list, unjoined: list, cut: str, cut_p: tuple) -> int:
+    def _delete(self, expired: list, unjoined: list, qcut: str, cut_p: tuple) -> int:
         """purge_step's write, in one transaction; the caller holds ``lock``. Each message is checked again:
         a span that came in since the read can have made it newer. Its summary rows go with its spans
         (summary_table.forget), so the list pages never show a message that is gone. Returns spans deleted."""
         c = self.conn
         c.execute("BEGIN IMMEDIATE")
         try:
-            gone = [m for (m,) in c.execute(_EXPIRED_SQL.format(cut=cut), (json.dumps(expired),) + cut_p)] if expired else []
-            n = c.execute("DELETE FROM spans WHERE mid IN (SELECT value FROM json_each(?))", (json.dumps(gone),)).rowcount
+            gone = [m for (m,) in c.execute(_EXPIRED_SQL.format(cut=qcut), (json.dumps(expired),) + cut_p)] if expired else []
+            # the spans first: their rows are in the summaries forget deletes
+            n = c.execute(f"DELETE FROM spans WHERE row IN ({_ROWS_OF_SQL})", (json.dumps(gone),)).rowcount
             summary_table.forget(c, gone)
             # joined since the read: it belongs to a message now, which goes by the message's time
             n += c.execute("DELETE FROM spans WHERE row IN (SELECT value FROM json_each(?)) AND mid IS NULL",
@@ -396,7 +401,7 @@ class SqliteStore(Store):
     def message_rows(self, message_id: str) -> list[sqlite3.Row]:
         """Every row of one message, in time order."""
         with self.reader() as c:
-            return c.execute("SELECT * FROM spans WHERE mid = ? ORDER BY time_ns, row", (message_id,)).fetchall()
+            return summary_table.rows_of(c, message_id)
 
     def query(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
         """A read-only query (on a file, a write fails: read connections are query_only). SQLite only: not
@@ -536,7 +541,7 @@ class SqliteStore(Store):
     def body_rows(self) -> list[sqlite3.Row]:
         return self.query(
             """SELECT row, kind, mid, queue, attributes,
-                      (SELECT MAX(s2.time_ns) FROM spans s2 WHERE s2.mid = s.mid) AS last
+                      (SELECT m.last_ns FROM messages m WHERE m.mid = s.mid) AS last
                FROM spans s
                WHERE kind IN ('send', 'receive') AND mid IS NOT NULL
                  AND json_type(attributes, '$."trailbeam.body"') = 'text'
@@ -554,7 +559,7 @@ class SqliteStore(Store):
             unjoined = c.execute(
                 "SELECT COUNT(*) FROM spans WHERE kind IN ('delete', 'change_visibility') AND receive_row IS NULL"
             ).fetchone()[0]
-            messages = c.execute("SELECT COUNT(DISTINCT mid) FROM spans WHERE mid IS NOT NULL").fetchone()[0]
+            messages = c.execute("SELECT COUNT(*) FROM messages").fetchone()[0]  # one summary per message
         return {"spans": kinds, "messages": messages, "unjoined_settles": unjoined}
 
 
@@ -581,7 +586,7 @@ def _prefetch_delete(c: sqlite3.Connection, mids: list, rows: list) -> None:
     the page cache. Without it the first steps of a pass at 1M spans held the lock for 3 to 4.5 s each, reading
     pages of week-old messages from disk, and exports waited behind them (QV-72 bench). Changes nothing."""
     cols = "SELECT row, trace_id, span_id, kind, time_ns, receipt_hmac, key_id, receive_row FROM spans"
-    found = (c.execute(f"{cols} WHERE mid IN (SELECT value FROM json_each(?))", (json.dumps(mids),)).fetchall()
+    found = (c.execute(f"{cols} WHERE row IN ({_ROWS_OF_SQL})", (json.dumps(mids),)).fetchall()
              + c.execute(f"{cols} WHERE row IN (SELECT value FROM json_each(?))", (json.dumps(rows),)).fetchall())
     for r in found:
         c.execute("SELECT 1 FROM spans INDEXED BY spans_identity WHERE time_ns = ? AND trace_id = ? AND span_id = ?",
@@ -601,21 +606,25 @@ def _prefetch_delete(c: sqlite3.Connection, mids: list, rows: list) -> None:
 
 
 PURGE_FIRST_WINDOW_NS = 60 * 10 ** 9  # the first window of a pass; later ones adapt (purge_step)
-# The messages of a JSON list whose newest span is before the cutoff of every queue they have a span on.
-_EXPIRED_SQL = """SELECT mid FROM spans WHERE mid IN (SELECT value FROM json_each(?))
-                  GROUP BY mid HAVING MAX(time_ns) < MIN({cut})"""
+# The messages of a JSON list whose newest span is before the cutoff of every queue they have a span on, from
+# their summaries (last_ns, queues_json): spans has no index on mid (schema 10).
+_EXPIRED_SQL = """SELECT mid FROM messages WHERE mid IN (SELECT value FROM json_each(?))
+                  AND last_ns < (SELECT MIN({cut}) FROM json_each(messages.queues_json))"""
+# The span rows of the messages of a JSON list (their summaries' rows_json).
+_ROWS_OF_SQL = """SELECT r.value FROM messages m, json_each(m.rows_json) r
+                  WHERE m.mid IN (SELECT value FROM json_each(?))"""
 _KEPT = -(2 ** 63)  # the cutoff of a queue kept forever, in SQL: no span ends before it
 
 
-def _cutoff_sql(cutoffs: Cutoffs) -> tuple[str, tuple]:
-    """A SQL expression for the cutoff of a row's ``queue``, and its parameters."""
+def _cutoff_sql(cutoffs: Cutoffs, column: str = "queue") -> tuple[str, tuple]:
+    """A SQL expression for the cutoff of the queue in ``column`` (a row's ``queue``), and its parameters."""
     if not cutoffs.queues:
         return "?", (_KEPT if cutoffs.default is None else cutoffs.default,)
     params: list = []
     for q, c in cutoffs.queues.items():
         params += [q, _KEPT if c is None else c]
     params.append(_KEPT if cutoffs.default is None else cutoffs.default)
-    return f"(CASE queue {' '.join(['WHEN ? THEN ?'] * len(cutoffs.queues))} ELSE ? END)", tuple(params)
+    return f"(CASE {column} {' '.join(['WHEN ? THEN ?'] * len(cutoffs.queues))} ELSE ? END)", tuple(params)
 
 
 def _latest(cutoffs: Cutoffs) -> int:

@@ -56,7 +56,7 @@ def schema(path) -> dict:
             "indexes": sorted((r[0], r[1]) for r in c.execute(
                 "SELECT name, tbl_name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_autoindex%'")),
             "index_columns": {i: [r[2] for r in c.execute(f"PRAGMA index_info({i})")]
-                              for i in ("spans_identity", "spans_mid", "spans_receive_hash", "spans_unjoined_hash",
+                              for i in ("spans_identity", "spans_receive_hash", "spans_unjoined_hash",
                                         "spans_kind_time", "messages_last", "messages_stuck",
                                         "message_tenants_search",
                                         "spans_receive_row")},

@@ -97,21 +97,27 @@ class Seeder:
                 if hit is not None:
                     rrow, mid, src = hit[0], hit[1], "receipt_hash"
                 else:
-                    self.waiting.setdefault(h, []).append(row)
+                    self.waiting.setdefault(h, []).append((row, own))
             elif r["kind"] == "receive":
                 self.receives[h] = (row, own)
                 if len(self.receives) > self.KEEP_RECEIVES:
                     self.receives.pop(next(iter(self.receives)))
-                for srow in self.waiting.pop(h, ()):
-                    updates.append((own, row, srow))
+                for srow, was in self.waiting.pop(h, ()):
+                    updates.append((own, row, srow, was))
             rows.append([row] + [r.get(f) for f in RECORD_FIELDS]
                         + [json.dumps(attrs, sort_keys=True, default=str), mid, src, dropped, rrow])
         c = self.conn
         c.execute("BEGIN")
         c.executemany(self.sql, rows)
-        c.executemany("UPDATE spans SET mid = ?, mid_source = 'receipt_hash', receive_row = ? WHERE row = ?", updates)
-        # the summary tables, as insert keeps them (settle spans waiting for a receive carry no message ID here)
-        summary_table.refresh(c, {r[self.MID] for r in rows} | {u[0] for u in updates})
+        c.executemany("UPDATE spans SET mid = ?, mid_source = 'receipt_hash', receive_row = ? WHERE row = ?",
+                      [u[:3] for u in updates])
+        # the summary tables, as insert keeps them: each row's message, then the settle spans the joins moved
+        changes = summary_table.Changes()
+        for r in rows:
+            changes.add(r[self.MID], r[0])
+        for mid, _, srow, was in updates:
+            changes.move(srow, was, mid)
+        summary_table.refresh(c, changes)
         c.execute("COMMIT")
         return len(rows)
 
