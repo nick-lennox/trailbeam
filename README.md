@@ -220,9 +220,18 @@ the retention of its queue, so a timeline is either complete or gone. That has t
 Age is the span's end time, measured against the server's clock.
 
 **The purge runs in the background.** It starts when the server starts, then runs again every
-`TRAILBEAM_PURGE_INTERVAL_S` seconds (default 600). It deletes about 100 messages per short write
-transaction and pauses between them, so ingest and pages never wait behind a whole pass.
+`TRAILBEAM_PURGE_INTERVAL_S` seconds (default 600). It looks at up to `TRAILBEAM_PURGE_BATCH` messages
+(default 50) per short write transaction and pauses between them so it holds the writer for at most
+`TRAILBEAM_PURGE_DUTY` of the time (default 0.25). Ingest and pages never wait behind a whole pass.
 `GET /api/health` shows the settings and the last pass under `config.retention`.
+
+**How fast the purge deletes.** Deleting spans costs about as much disk work as writing them, and it
+shares SQLite's one writer with ingest. On our test machine (1M stored spans, 1 KB bodies, ingest at
+1,000 spans/s during the pass) the purge deleted about 220 spans/s at the default batch and about 80
+spans/s at `--purge-batch 15`. Exports stayed under 2 s p99 in both, with one 30 s window at 2.5 s at
+the default batch. So retention keeps up only while your *average* ingest is below the purge rate; above
+that the file keeps growing. Measured on one machine; your disk will give different numbers. Raising
+`TRAILBEAM_PURGE_DUTY` deletes faster but makes ingest wait longer.
 
 **Disk space.** A database file created by this version gives the deleted space back to the disk
 (SQLite incremental vacuum, a few pages at a time after each pass). A file created by an earlier version
