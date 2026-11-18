@@ -1,0 +1,1570 @@
+# The Trailbeam server's HTTP interface: the read-only API under /api/ and the ingest endpoint.
+#
+# Written from python/src/trailbeam/server/server.py. The server is a plain http.server handler, so this
+# file is not generated: when a route, a parameter or a response field changes there, change it here in
+# the same commit. docs.trailbeam.app builds its API reference from this file.
+openapi: 3.1.0
+info:
+  title: Trailbeam server
+  version: 0.1.0.dev0
+  summary: The read-only JSON API and the OTLP ingest endpoint of the open-source Trailbeam server.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+  description: |
+    One port serves the ingest endpoint (`POST /v1/traces`), the API (`GET /api/...`) and the web UI.
+    The default port is `4318`.
+
+    Every API endpoint is a `GET` that returns `application/json`. The API never changes stored data.
+
+    A query parameter the endpoint does not list is ignored. When a parameter is repeated, the last
+    value is used.
+servers:
+  - url: http://127.0.0.1:4318
+    description: A Trailbeam server started with its defaults.
+tags:
+  - name: Messages
+    description: One message's timeline and body, and the list of recent messages.
+  - name: Problems
+    description: Messages delivered more than once, and messages with no final delete.
+  - name: Tenants
+    description: Per-tenant counts and tenant name search.
+  - name: Server
+    description: Liveness, readiness and counts for the server itself.
+  - name: Ingest
+    description: Where the packages and the OpenTelemetry Collector send spans. Not part of the API.
+security:
+  - {}
+  - accessToken: []
+  - session: []
+paths:
+  /api/messages:
+    get:
+      operationId: list-messages
+      tags: [Messages]
+      summary: List messages
+      description: |
+        Returns messages ordered by their newest span, latest first.
+
+        With `body`, returns only messages whose stored body matches. A body search reads at most
+        5,000 messages per page, in the time window given by `from_ms` and `to_ms` or by `since_s`.
+        A page of a body search can hold fewer than `limit` messages and still have a `next_cursor`.
+        A body search ignores `tenant`.
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/queue'
+        - name: tenant
+          in: query
+          description: Only messages with a span that names this tenant.
+          schema: {type: string}
+          example: acme
+        - name: body
+          in: query
+          description: |
+            Body search terms, separated by spaces: `body:<text>` finds text anywhere in the body, and
+            `body.<path>:<value>` compares the values at a JSON path. Only bodies the server stores
+            are searched. Any other term is a `400`.
+          schema: {type: string}
+          example: body.order.sku:A-100
+        - name: from_ms
+          in: query
+          description: |
+            Only messages whose newest span ended at or after this time, in Unix milliseconds.
+            With `body`, defaults to `to_ms` minus `since_s`.
+          schema: {type: integer, minimum: 0, maximum: 1000000000000000}
+        - name: to_ms
+          in: query
+          description: |
+            Only messages whose newest span ended at or before this time, in Unix milliseconds.
+            With `body`, defaults to now.
+          schema: {type: integer, minimum: 0, maximum: 1000000000000000}
+        - name: since_s
+          in: query
+          description: With `body`, the length of the time window in seconds when `from_ms` is not given. Ignored without `body`.
+          schema: {type: integer, minimum: 1, maximum: 34560000, default: 86400}
+        - $ref: '#/components/parameters/lambda_timeout_s'
+      responses:
+        '200':
+          description: One page of messages.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessagePage'}
+              example:
+                messages:
+                - message_id: m-legacy
+                  state: deleted
+                  source_queue: orders
+                  current_queue: orders
+                  in_dead_letter_queue: false
+                  dead_letter_queue_move: null
+                  deliveries: 1
+                  successful_deliveries: 1
+                  consumers:
+                  - service_name: legacy-svc
+                    client_id: aca66402-38fd-4b18-98ed-c1406876f92b
+                  first_seen: '2026-11-16T18:05:37.664000Z'
+                  first_seen_clock: host
+                  last_seen: '2026-11-16T18:05:37.716000Z'
+                - message_id: m-bill-1
+                  state: not_deleted
+                  source_queue: billing
+                  current_queue: billing
+                  in_dead_letter_queue: false
+                  dead_letter_queue_move: null
+                  deliveries: 3
+                  successful_deliveries: 0
+                  consumers:
+                  - service_name: billing-fn
+                    client_id: 2b715bf1-05cc-4f28-a3d8-290faca812eb
+                  first_seen: '2026-11-16T18:05:37.429000Z'
+                  first_seen_clock: sqs
+                  last_seen: '2026-11-16T18:05:37.528000Z'
+                next_cursor: MTc5NDg1MjMzNzUyODAwMDAwMDptLWJpbGwtMQ
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/messages/{message_id}:
+    get:
+      operationId: get-message
+      tags: [Messages]
+      summary: Get a message's timeline
+      description: |
+        Returns everything the server stores about one SQS message ID: the recorded steps, the inferred
+        steps, the proven order between them, and notices.
+      parameters:
+        - $ref: '#/components/parameters/message_id'
+        - $ref: '#/components/parameters/lambda_timeout_s'
+      responses:
+        '200':
+          description: The timeline.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Timeline'}
+              example:
+                message_id: m-orders-1
+                state: deleted
+                source_queue: orders
+                current_queue: orders
+                in_dead_letter_queue: false
+                dead_letter_queue_move: null
+                send_observed: true
+                deliveries: 1
+                successful_deliveries: 1
+                first_seen: '2026-11-16T18:05:36.910000Z'
+                first_seen_clock: host
+                last_seen: '2026-11-16T18:05:37.041000Z'
+                concurrent_groups: 0
+                groups:
+                - group: 0
+                  concurrent: false
+                  label: null
+                  observed_events: 1
+                  inferred_events: 0
+                  ordered_inside: 0
+                  start: '2026-11-16T18:05:36.907000Z'
+                  end: '2026-11-16T18:05:36.910000Z'
+                - group: 1
+                  concurrent: false
+                  label: null
+                  observed_events: 1
+                  inferred_events: 0
+                  ordered_inside: 0
+                  start: '2026-11-16T18:05:37.038000Z'
+                  end: '2026-11-16T18:05:37.039000Z'
+                - group: 2
+                  concurrent: false
+                  label: null
+                  observed_events: 1
+                  inferred_events: 0
+                  ordered_inside: 0
+                  start: '2026-11-16T18:05:37.041000Z'
+                  end: '2026-11-16T18:05:37.041000Z'
+                events:
+                - id: e1
+                  type: sent
+                  inferred: false
+                  time: '2026-11-16T18:05:36.910000Z'
+                  time_unix_nano: '1794852336910000000'
+                  start: '2026-11-16T18:05:36.907000Z'
+                  start_unix_nano: '1794852336907000000'
+                  end: '2026-11-16T18:05:36.910000Z'
+                  end_unix_nano: '1794852336910000000'
+                  start_observed: true
+                  group: 0
+                  queue: orders
+                  consumer:
+                    service_name: checkout-api
+                    client_id: eeadea1f-b60f-4f32-83e4-cb9c1b730b90
+                    source: client
+                    pid: 104710
+                  span:
+                    trace_id: 004c175e11dc08356c306efbbb21258d
+                    span_id: a4080bba0b0d9b30
+                  process_order:
+                    scope: 28048693-a946-44c7-b08b-5076eb716e90
+                    issued: 1
+                    returned: 2
+                  after: []
+                - id: e2
+                  type: received
+                  inferred: false
+                  time: '2026-11-16T18:05:37.039000Z'
+                  time_unix_nano: '1794852337039000000'
+                  start: '2026-11-16T18:05:37.038000Z'
+                  start_unix_nano: '1794852337038000000'
+                  end: '2026-11-16T18:05:37.039000Z'
+                  end_unix_nano: '1794852337039000000'
+                  start_observed: true
+                  group: 1
+                  queue: orders
+                  consumer:
+                    service_name: orders-worker
+                    client_id: 999116e7-988b-43d2-89b1-06277f0766e4
+                    source: client
+                    pid: 104710
+                  span:
+                    trace_id: c31816695e531bd80e9c3d27d9e34b12
+                    span_id: 86a2e4837150ce42
+                  process_order:
+                    scope: 28048693-a946-44c7-b08b-5076eb716e90
+                    issued: 11
+                    returned: 12
+                  delivery: 1
+                  receive_count: 1
+                  sent_timestamp: '2026-11-16T18:05:36.910000Z'
+                  sent_timestamp_ms: 1794852336910
+                  first_receive_timestamp: '2026-11-16T18:05:36.915000Z'
+                  first_receive_timestamp_ms: 1794852336915
+                  after:
+                  - event: e1
+                    type: sent
+                    sources:
+                    - clock
+                    - process_order
+                    - sqs_timestamps
+                    source: clock
+                    why: 'The send ended (2026-11-16T18:05:36.910000Z) before this started (2026-11-16T18:05:37.038000Z), on the
+                      hosts'' clocks. Same process: the send returned before this call was issued. SQS''s timestamps show this message
+                      was sent (2026-11-16T18:05:36.910000Z) before its first receive (2026-11-16T18:05:36.915000Z).'
+                - id: e3
+                  type: deleted
+                  inferred: false
+                  time: '2026-11-16T18:05:37.041000Z'
+                  time_unix_nano: '1794852337041000000'
+                  start: '2026-11-16T18:05:37.041000Z'
+                  start_unix_nano: '1794852337041000000'
+                  end: '2026-11-16T18:05:37.041000Z'
+                  end_unix_nano: '1794852337041000000'
+                  start_observed: true
+                  group: 2
+                  queue: orders
+                  consumer:
+                    service_name: orders-worker
+                    client_id: 999116e7-988b-43d2-89b1-06277f0766e4
+                    source: client
+                    pid: 104710
+                  span:
+                    trace_id: 40ba3edc11bbf3f6fc36e95ae42d0413
+                    span_id: 849948e1aa10948b
+                  process_order:
+                    scope: 28048693-a946-44c7-b08b-5076eb716e90
+                    issued: 13
+                    returned: 14
+                  delivery: 1
+                  result: ok
+                  status: final
+                  after:
+                  - event: e2
+                    type: received
+                    sources:
+                    - clock
+                    - process_order
+                    source: clock
+                    why: 'Receive 1 ended (2026-11-16T18:05:37.039000Z) before this started (2026-11-16T18:05:37.041000Z), on the
+                      hosts'' clocks. Same process: receive 1 returned before this call was issued.'
+                order:
+                  edges:
+                  - from: e1
+                    to: e2
+                    sources:
+                    - clock
+                    - process_order
+                    - sqs_timestamps
+                  - from: e1
+                    to: e3
+                    sources:
+                    - clock
+                    - process_order
+                  - from: e2
+                    to: e3
+                    sources:
+                    - clock
+                    - process_order
+                  edges_by_source:
+                    clock: 3
+                    process_order: 3
+                    receive_count: 0
+                    sqs_timestamps: 1
+                  conflicts: []
+                notices: []
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/messages/{message_id}/body:
+    get:
+      operationId: get-message-body
+      tags: [Messages]
+      summary: Get a message's body
+      description: |
+        Returns the message body the server stores for the message, or the reason it stores none.
+        A message has at most one stored body: the copy from the first send span that carried one,
+        otherwise from the first receive span that did. The packages redact the body before they
+        export it.
+
+        The server stores bodies only for the queues named in `TRAILBEAM_STORE_BODIES`.
+      parameters:
+        - $ref: '#/components/parameters/message_id'
+      responses:
+        '200':
+          description: The stored body, or the reason there is none.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/StoredBody'
+                  - $ref: '#/components/schemas/NoBody'
+                discriminator:
+                  propertyName: kind
+                  mapping:
+                    body: '#/components/schemas/StoredBody'
+                    none: '#/components/schemas/NoBody'
+              examples:
+                body:
+                  summary: A stored body
+                  value:
+                    message_id: m-orders-1
+                    kind: body
+                    body:
+                      body: '{"customer":{"id":"acme","email":"[REDACTED]"},"order":{"sku":"A-100","qty":2},"card":"[REDACTED]","password":"[REDACTED]"}'
+                      format: json
+                      redacted_count: 3
+                      envelope: null
+                      capture_status: captured
+                      from_kind: send
+                      service: checkout-api
+                      queue: orders
+                      trace_id: 004c175e11dc08356c306efbbb21258d
+                      span_id: a4080bba0b0d9b30
+                      time_unix_nano: '1794852336910000000'
+                    size: 135
+                    offloaded_size: null
+                    tenant: acme
+                    tenant_source: message_attribute
+                none:
+                  summary: No stored body
+                  value:
+                    message_id: m-pay-1
+                    kind: none
+                    reason: 'off'
+                    size: 40
+                    sends: 1
+                    receives: 1
+                    send_status: 'off'
+                    receive_status: 'off'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/duplicates:
+    get:
+      operationId: list-duplicates
+      tags: [Problems]
+      summary: List duplicate deliveries
+      description: |
+        Returns messages that were received more than once or that succeeded more than once, ordered
+        by their newest span, latest first. A delivery succeeded when SQS accepted a delete for it,
+        or when its Lambda invocation reported `success`.
+      parameters:
+        - name: reason
+          in: query
+          description: Only messages with this reason. Without it, messages with either reason.
+          schema:
+            type: string
+            enum: [received_more_than_once, succeeded_more_than_once]
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/queue'
+        - name: from_ms
+          in: query
+          description: Only messages whose newest span ended at or after this time, in Unix milliseconds.
+          schema: {type: integer, minimum: 0, maximum: 1000000000000000}
+        - name: to_ms
+          in: query
+          description: Only messages whose newest span ended at or before this time, in Unix milliseconds.
+          schema: {type: integer, minimum: 0, maximum: 1000000000000000}
+        - $ref: '#/components/parameters/lambda_timeout_s'
+      responses:
+        '200':
+          description: One page of messages, each with its `reasons`.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DuplicatePage'}
+              example:
+                messages:
+                - message_id: m-bill-1
+                  state: not_deleted
+                  source_queue: billing
+                  current_queue: billing
+                  in_dead_letter_queue: false
+                  dead_letter_queue_move: null
+                  deliveries: 3
+                  successful_deliveries: 0
+                  consumers:
+                  - service_name: billing-fn
+                    client_id: 2b715bf1-05cc-4f28-a3d8-290faca812eb
+                  first_seen: '2026-11-16T18:05:37.429000Z'
+                  first_seen_clock: sqs
+                  last_seen: '2026-11-16T18:05:37.528000Z'
+                  reasons:
+                  - received_more_than_once
+                next_cursor: null
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/stuck:
+    get:
+      operationId: list-stuck-messages
+      tags: [Problems]
+      summary: List stuck messages
+      description: |
+        Returns messages first seen more than `older_than_s` seconds ago that have no final delete,
+        oldest first. A final delete is a delete SQS accepted with the receipt handle of the
+        message's latest receive, or a Lambda `success` outcome for that receive.
+      parameters:
+        - name: older_than_s
+          in: query
+          description: The age in seconds after which a message with no final delete is listed. Defaults to the server's `--stuck-after`, which defaults to 300.
+          schema: {type: integer, minimum: 0, maximum: 1000000000}
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/queue'
+        - name: from_ms
+          in: query
+          description: Only messages first seen at or after this time, in Unix milliseconds.
+          schema: {type: integer, minimum: 0, maximum: 1000000000000000}
+        - $ref: '#/components/parameters/lambda_timeout_s'
+      responses:
+        '200':
+          description: One page of stuck messages, each with its age.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StuckPage'}
+              example:
+                older_than_s: 300
+                messages:
+                - message_id: m-pay-2
+                  state: not_deleted
+                  source_queue: payments
+                  current_queue: payments-dlq
+                  in_dead_letter_queue: true
+                  dead_letter_queue_move: observed
+                  deliveries: 3
+                  successful_deliveries: 0
+                  consumers:
+                  - service_name: orders-worker
+                    client_id: 999116e7-988b-43d2-89b1-06277f0766e4
+                  first_seen: '2026-11-16T18:05:36.914000Z'
+                  first_seen_clock: host
+                  last_seen: '2026-11-16T18:05:37.425000Z'
+                  age_s: 173298.182
+                  age_across_clocks: false
+                next_cursor: null
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/tenants:
+    get:
+      operationId: list-tenants
+      tags: [Tenants]
+      summary: List tenants
+      description: |
+        Returns, for each tenant with activity in a time window, the messages sent, the share of all
+        sends, the 95th percentile of time in queue before the first delivery, and the messages moved
+        to a dead-letter queue. Rows are ordered by `sent`, largest first.
+
+        The window is `from_ms` to `to_ms`, both included. Without them it is the last `since_s`
+        seconds.
+      parameters:
+        - $ref: '#/components/parameters/window_from_ms'
+        - $ref: '#/components/parameters/window_to_ms'
+        - $ref: '#/components/parameters/since_s'
+      responses:
+        '200':
+          description: The tenants active in the window.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TenantStats'}
+              example:
+                from_ms: 1760465635097
+                to_ms: 1795025635097
+                total_sent: 7
+                untagged_sent: 1
+                capped: false
+                rows:
+                - tenant: globex
+                  sent: 2
+                  share: 0.2857142857142857
+                  p95_in_queue_ms: 430
+                  first_deliveries: 3
+                  dead_lettered: 1
+                - tenant: acme
+                  sent: 2
+                  share: 0.2857142857142857
+                  p95_in_queue_ms: 430
+                  first_deliveries: 3
+                  dead_lettered: 0
+                - tenant: initech
+                  sent: 2
+                  share: 0.2857142857142857
+                  p95_in_queue_ms: 512
+                  first_deliveries: 2
+                  dead_lettered: 0
+                - tenant: hooli
+                  sent: 0
+                  share: 0.0
+                  p95_in_queue_ms: 2
+                  first_deliveries: 1
+                  dead_lettered: 0
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/tenants/search:
+    get:
+      operationId: search-tenants
+      tags: [Tenants]
+      summary: Search tenant names
+      description: |
+        Returns the tenant names that start with `q`, ignoring ASCII case. An exact match comes
+        first, then the tenants most recently named by a span. Only tenants named in the time window
+        are returned. Without `q` the list is empty.
+      parameters:
+        - name: q
+          in: query
+          description: The start of a tenant name.
+          schema: {type: string}
+          example: ac
+        - name: limit
+          in: query
+          description: The largest number of names to return.
+          schema: {type: integer, minimum: 1, maximum: 100, default: 8}
+        - name: queue
+          in: query
+          description: Only tenants named by messages with a span on this queue.
+          schema: {type: string}
+        - $ref: '#/components/parameters/window_from_ms'
+        - $ref: '#/components/parameters/window_to_ms'
+        - $ref: '#/components/parameters/since_s'
+      responses:
+        '200':
+          description: The matching tenant names and the window that was searched.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TenantSearch'}
+              example: {"tenants": ["acme"], "from_ms": 1794939235098, "to_ms": 1795025635098}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/stats:
+    get:
+      operationId: get-stats
+      tags: [Server]
+      summary: Get exact counts
+      description: |
+        Returns the number of stored spans of each kind, the number of messages, and the number of
+        delete and visibility-change spans not joined to a receive. The counts are exact, so the
+        request reads every stored span and takes seconds on a large store.
+      responses:
+        '200':
+          description: The counts.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Stats'}
+              example: {"data": {"spans": {"delete": 7, "outcome": 4, "receive": 14, "send": 7}, "messages": 10, "unjoined_settles": 0}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/health:
+    get:
+      operationId: get-health
+      tags: [Server]
+      summary: Check liveness
+      description: |
+        Returns `200` while the server process is running, including while the store is unreachable.
+        Use it as a liveness check.
+
+        When the server has an access token and the request carries none, the response holds only
+        `status` and `version`. Otherwise it also holds the ingest counters since the server
+        started, the highest stored row, and the server's configuration.
+      responses:
+        '200':
+          description: The server is running.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Health'}
+              examples:
+                full:
+                  summary: With the access token, or on a server without one
+                  value:
+                    status: ok
+                    version: 0.1.0.dev0
+                    ingest:
+                      requests: 6
+                      inserted: 32
+                      duplicates: 0
+                      ignored: 0
+                      rejected: 0
+                    data:
+                      last_row: 32
+                    config:
+                      auth: 'off'
+                      stuck_after_s: 300
+                      lambda_timeout_s: 900
+                      max_receive_counts:
+                        orders: 3
+                      store_bodies:
+                      - billing
+                      - orders
+                      retention:
+                        default: 7d
+                        queues: {}
+                        purge_interval_s: 600.0
+                        purge_duty: 0.25
+                        purge_batch: 50
+                        passes: 1
+                        running: null
+                        last_pass:
+                          started_ms: 1795025634934
+                          deleted_spans: 0
+                          examined: 0
+                          steps: 2
+                          reclaimed_pages: 0
+                          longest_step_ms: 0.3
+                          longest_write_ms: 0.0
+                          longest_reclaim_step_ms: 0.0
+                          stopped: false
+                          seconds: 0.0
+                short:
+                  summary: Without the access token, on a server that has one
+                  value: {"status": "ok", "version": "0.1.0.dev0"}
+  /api/ready:
+    get:
+      operationId: get-ready
+      tags: [Server]
+      summary: Check readiness
+      description: |
+        Returns `200` when the store answers and `503` when it does not. Use it as the readiness
+        check of a load balancer or a Kubernetes probe. It never needs the access token.
+      security:
+        - {}
+      responses:
+        '200':
+          description: The store answers.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status, version]
+                properties:
+                  status: {type: string, const: ready}
+                  version: {type: string, description: The server's version.}
+              example: {"status": "ready", "version": "0.1.0.dev0"}
+        '503':
+          description: The store is unreachable.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status, error]
+                properties:
+                  status: {type: string, const: not ready}
+                  error: {type: string}
+              example: {"status": "not ready", "error": "the store is unreachable"}
+  /v1/traces:
+    post:
+      operationId: export-traces
+      tags: [Ingest]
+      summary: Send spans
+      description: |
+        Receives an OTLP/HTTP trace export, as protobuf or JSON. The server reads only spans whose
+        instrumentation scope is `trailbeam` and ignores every other span. A span already stored,
+        with the same trace ID and span ID, is skipped.
+
+        The body is at most 32 MiB after decompression. `Content-Encoding` is `gzip`, `deflate` or
+        `identity`. A body sent with `Transfer-Encoding: chunked` is accepted.
+
+        Trailbeam spans that break the span contract are rejected one by one: the response is still
+        `200`, and its `partialSuccess` counts them.
+      security:
+        - {}
+        - accessToken: []
+      requestBody:
+        required: true
+        description: An OTLP `ExportTraceServiceRequest`.
+        content:
+          application/x-protobuf:
+            schema: {type: string, format: binary}
+          application/json:
+            schema:
+              type: object
+              description: An `ExportTraceServiceRequest` in the OTLP JSON encoding.
+              properties:
+                resourceSpans: {type: array, items: {type: object}}
+            example:
+              resourceSpans:
+              - resource:
+                  attributes:
+                  - key: service.name
+                    value:
+                      stringValue: orders-api
+                scopeSpans:
+                - scope:
+                    name: trailbeam
+                    version: 0.1.0.dev0
+                  spans:
+                  - traceId: 5b8efff798038103d269b633813fc60c
+                    spanId: eee19b7ec3c1b174
+                    name: trailbeam send
+                    kind: 3
+                    startTimeUnixNano: '1763164800000000000'
+                    endTimeUnixNano: '1763164800027000000'
+                    attributes:
+                    - key: trailbeam.schema_version
+                      value:
+                        intValue: '3'
+                    - key: trailbeam.kind
+                      value:
+                        stringValue: sqs.send
+                    - key: messaging.system
+                      value:
+                        stringValue: aws_sqs
+                    - key: messaging.operation.name
+                      value:
+                        stringValue: SendMessage
+                    - key: messaging.destination.name
+                      value:
+                        stringValue: orders
+                    - key: messaging.message.id
+                      value:
+                        stringValue: 3150c7b8-65f2-44f1-8a1c-3e88df0a11bb
+      responses:
+        '200':
+          description: |
+            The export was stored. The response has the content type of the request: an OTLP
+            `ExportTraceServiceResponse`.
+          content:
+            application/x-protobuf:
+              schema: {type: string, format: binary}
+            application/json:
+              schema: {$ref: '#/components/schemas/ExportResponse'}
+              examples:
+                stored:
+                  summary: Every Trailbeam span was stored
+                  value: {}
+                rejected:
+                  summary: One span was rejected
+                  value: {"partialSuccess": {"rejectedSpans": "1", "errorMessage": "1 Trailbeam span(s) rejected: trailbeam.schema_version 1 is not one of 2, 3"}}
+        '400':
+          description: The body is not valid protobuf or JSON, does not match its `Content-Encoding`, or has an unsupported `Content-Type`.
+          content:
+            text/plain:
+              schema: {type: string}
+              example: "invalid JSON: Expecting value: line 1 column 1 (char 0)"
+        '401':
+          description: The server has an access token and the request does not carry it in `Authorization`. The session cookie is not accepted here.
+          headers:
+            WWW-Authenticate:
+              schema: {type: string, const: Bearer realm="trailbeam"}
+          content:
+            text/plain:
+              schema: {type: string}
+              example: "this server needs Authorization: Bearer <TRAILBEAM_TOKEN>"
+        '413':
+          description: The body is larger than 32 MiB, before or after decompression, or has no valid `Content-Length`.
+          content:
+            text/plain:
+              schema: {type: string}
+        '415':
+          description: The `Content-Encoding` is not `gzip`, `deflate` or `identity`.
+          content:
+            text/plain:
+              schema: {type: string}
+        '500':
+          description: The server failed to store the export.
+          content:
+            text/plain:
+              schema: {type: string}
+        '501':
+          description: The `Transfer-Encoding` is not `chunked`.
+          content:
+            text/plain:
+              schema: {type: string}
+        '503':
+          description: The store is unreachable. Nothing was stored. Send the export again.
+          headers:
+            Retry-After:
+              description: Seconds to wait before the next attempt.
+              schema: {type: string, const: '1'}
+          content:
+            text/plain:
+              schema: {type: string}
+              example: the store is unreachable, try again
+components:
+  securitySchemes:
+    accessToken:
+      type: http
+      scheme: bearer
+      description: |
+        The server's access token, set with `TRAILBEAM_TOKEN` or `--token-file`. A server started
+        without one serves every request.
+    session:
+      type: apiKey
+      in: cookie
+      name: trailbeam_session
+      description: The cookie the web UI's login page sets. The API accepts it. The ingest endpoint does not.
+  parameters:
+    message_id:
+      name: message_id
+      in: path
+      required: true
+      description: The SQS message ID.
+      schema: {type: string}
+      example: m-orders-1
+    limit:
+      name: limit
+      in: query
+      description: The largest number of messages in the page.
+      schema: {type: integer, minimum: 1, maximum: 1000, default: 100}
+    cursor:
+      name: cursor
+      in: query
+      description: The `next_cursor` of the previous page. Returns the page after it.
+      schema: {type: string}
+    queue:
+      name: queue
+      in: query
+      description: Only messages with a span on this queue. The value is the queue's name, not its URL.
+      schema: {type: string}
+      example: orders
+    lambda_timeout_s:
+      name: lambda_timeout_s
+      in: query
+      description: |
+        Seconds after which a Lambda receive with no outcome counts as ended. It changes `state`,
+        and in a timeline the inferred `lambda_invocation_ended_without_outcome` step. Defaults to
+        the server's `--lambda-timeout`, which defaults to 900.
+      schema: {type: integer, minimum: 1, maximum: 86400}
+    window_from_ms:
+      name: from_ms
+      in: query
+      description: The start of the time window, in Unix milliseconds. Defaults to `to_ms` minus `since_s`.
+      schema: {type: integer, minimum: 0, maximum: 1000000000000000}
+    window_to_ms:
+      name: to_ms
+      in: query
+      description: The end of the time window, in Unix milliseconds. Defaults to now.
+      schema: {type: integer, minimum: 0, maximum: 1000000000000000}
+    since_s:
+      name: since_s
+      in: query
+      description: The length of the time window in seconds, when `from_ms` is not given.
+      schema: {type: integer, minimum: 1, maximum: 34560000, default: 86400}
+  responses:
+    BadRequest:
+      description: A parameter has a value the endpoint does not accept. `error` names the parameter.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {"error": "limit must be between 1 and 1000"}
+    Unauthorized:
+      description: The server has an access token and the request carries neither the token nor the session cookie.
+      headers:
+        WWW-Authenticate:
+          schema: {type: string, const: Bearer realm="trailbeam"}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {"error": "this server needs Authorization: Bearer <TRAILBEAM_TOKEN>"}
+    NotFound:
+      description: No stored span names this message ID.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {"error": "no spans for message ID 'nope'"}
+  schemas:
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error: {type: string, description: What was wrong with the request.}
+    Timestamp:
+      type: string
+      description: A UTC time with microseconds, such as `2026-11-16T18:05:36.910000Z`.
+      pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$'
+    State:
+      type: string
+      description: |
+        Where the message stands. `deleted`: a final delete was recorded. `deleted_inferred`: the
+        Lambda invocation for the latest receive reported `success`, so Lambda deletes the message.
+        `processing`: the latest receive is a Lambda receive with no outcome yet, within the Lambda
+        timeout. `not_deleted`: none of these.
+      enum: [deleted, deleted_inferred, processing, not_deleted]
+    MessageSummary:
+      type: object
+      description: One message in a list.
+      required: [message_id, state, source_queue, current_queue, in_dead_letter_queue, dead_letter_queue_move, deliveries, successful_deliveries, consumers, first_seen, first_seen_clock, last_seen]
+      properties:
+        message_id: {type: string, description: The SQS message ID.}
+        state: {$ref: '#/components/schemas/State'}
+        source_queue: {type: string, description: The queue the message was first sent to or received from.}
+        current_queue: {type: string, description: The queue of the latest receive. The source queue when there is no receive.}
+        in_dead_letter_queue: {type: boolean, description: Whether the latest receive was on a dead-letter queue that SQS reported the message moved to.}
+        dead_letter_queue_move:
+          type: [string, 'null']
+          description: |
+            `observed`: a receive on a dead-letter queue reported the move. `not_seen_on_dlq_yet`:
+            the receive count reached the source queue's configured `maxReceiveCount`, the message
+            is not deleted, and no receive on a dead-letter queue has reported a move. Otherwise null.
+          enum: [observed, not_seen_on_dlq_yet, null]
+        deliveries: {type: integer, description: The number of receive spans.}
+        successful_deliveries: {type: integer, description: The deliveries that ended in a delete SQS accepted or a Lambda `success` outcome.}
+        consumers:
+          type: array
+          description: The services that received the message.
+          items:
+            type: object
+            additionalProperties: false
+            required: [service_name, client_id]
+            properties:
+              service_name: {type: [string, 'null'], description: The service's `service.name`.}
+              client_id: {type: [string, 'null'], description: The ID the package gives one SQS client.}
+        first_seen:
+          allOf: [{$ref: '#/components/schemas/Timestamp'}]
+          description: When the message was first seen. The send span's end when the send was recorded, otherwise the earliest `SentTimestamp` a receive carries.
+        first_seen_clock:
+          type: string
+          description: The clock `first_seen` is on. `host`, the clock of the host that made the call, or `sqs`, SQS's own clock.
+          enum: [host, sqs]
+        last_seen:
+          allOf: [{$ref: '#/components/schemas/Timestamp'}]
+          description: The end of the message's newest span.
+    MessagePage:
+      type: object
+      additionalProperties: false
+      required: [messages, next_cursor]
+      properties:
+        messages:
+          type: array
+          items:
+            allOf: [{$ref: '#/components/schemas/MessageSummary'}]
+            unevaluatedProperties: false
+        next_cursor: {$ref: '#/components/schemas/NextCursor'}
+        body_search:
+          type: object
+          description: Present only when the request has `body`. What the body search covered.
+          additionalProperties: false
+          required: [stores_bodies, from_ms, to_ms, scanned, searched_from_ms, complete]
+          properties:
+            stores_bodies: {type: boolean, description: Whether the server stores bodies for any queue.}
+            from_ms: {type: integer, description: The start of the time window, in Unix milliseconds.}
+            to_ms: {type: integer, description: The end of the time window, in Unix milliseconds.}
+            scanned: {type: integer, description: The number of messages whose body this page read.}
+            searched_from_ms: {type: [integer, 'null'], description: 'The newest-span time of the oldest message read, in Unix milliseconds. Null when no message was read.'}
+            complete: {type: boolean, description: Whether the search reached the start of the window. False when there is a `next_cursor`.}
+    NextCursor:
+      type: [string, 'null']
+      description: Pass it as `cursor` to get the next page. Null on the last page.
+    DuplicatePage:
+      type: object
+      additionalProperties: false
+      required: [messages, next_cursor]
+      properties:
+        messages:
+          type: array
+          items:
+            allOf: [{$ref: '#/components/schemas/MessageSummary'}]
+            unevaluatedProperties: false
+            required: [reasons]
+            properties:
+              reasons:
+                type: array
+                description: Why the message is listed.
+                items: {type: string, enum: [received_more_than_once, succeeded_more_than_once]}
+        next_cursor: {$ref: '#/components/schemas/NextCursor'}
+    StuckPage:
+      type: object
+      additionalProperties: false
+      required: [older_than_s, messages, next_cursor]
+      properties:
+        older_than_s: {type: integer, description: The age threshold the request used, in seconds.}
+        messages:
+          type: array
+          items:
+            allOf: [{$ref: '#/components/schemas/MessageSummary'}]
+            unevaluatedProperties: false
+            required: [age_s, age_across_clocks]
+            properties:
+              age_s: {type: number, description: Seconds since the message was first seen.}
+              age_across_clocks: {type: boolean, description: 'True when `first_seen` is on SQS''s clock. The age then compares SQS''s clock with the server''s, so it includes any skew between them.'}
+        next_cursor: {$ref: '#/components/schemas/NextCursor'}
+    Timeline:
+      type: object
+      additionalProperties: false
+      required: [message_id, state, source_queue, current_queue, in_dead_letter_queue, dead_letter_queue_move, send_observed, deliveries, successful_deliveries, first_seen, first_seen_clock, last_seen, concurrent_groups, groups, events, order, notices]
+      properties:
+        message_id: {type: string, description: The SQS message ID.}
+        state: {$ref: '#/components/schemas/State'}
+        source_queue: {type: string, description: The queue the message was first sent to or received from.}
+        current_queue: {type: string, description: The queue of the latest receive. The source queue when there is no receive.}
+        in_dead_letter_queue: {type: boolean, description: Whether the latest receive was on a dead-letter queue that SQS reported the message moved to.}
+        dead_letter_queue_move:
+          type: [string, 'null']
+          description: |
+            `observed`: a receive on a dead-letter queue reported the move. `not_seen_on_dlq_yet`:
+            the receive count reached the source queue's configured `maxReceiveCount`, the message
+            is not deleted, and no receive on a dead-letter queue has reported a move. Otherwise null.
+          enum: [observed, not_seen_on_dlq_yet, null]
+        send_observed: {type: boolean, description: Whether a send span was recorded.}
+        deliveries: {type: integer, description: The number of receive spans.}
+        successful_deliveries: {type: integer, description: The deliveries that ended in a delete SQS accepted or a Lambda `success` outcome.}
+        first_seen:
+          allOf: [{$ref: '#/components/schemas/Timestamp'}]
+          description: When the message was first seen. The send span's end when the send was recorded, otherwise the earliest `SentTimestamp` a receive carries, otherwise the earliest span.
+        first_seen_clock:
+          type: string
+          description: The clock `first_seen` is on. `host`, the clock of the host that made the call, or `sqs`, SQS's own clock.
+          enum: [host, sqs]
+        last_seen:
+          allOf: [{$ref: '#/components/schemas/Timestamp'}]
+          description: The end of the message's newest span.
+        concurrent_groups: {type: integer, description: The number of groups with more than one step.}
+        groups:
+          type: array
+          description: The timeline cut wherever every step before the cut is proven to come before every step after it.
+          items: {$ref: '#/components/schemas/Group'}
+        events:
+          type: array
+          description: The steps, in an order consistent with every proven edge.
+          items: {$ref: '#/components/schemas/Step'}
+        order: {$ref: '#/components/schemas/Order'}
+        notices:
+          type: array
+          description: Coded messages about the timeline as a whole.
+          items: {$ref: '#/components/schemas/Notice'}
+    Group:
+      type: object
+      additionalProperties: false
+      required: [group, concurrent, label, observed_events, inferred_events, ordered_inside, start, end]
+      properties:
+        group: {type: integer, description: 'The group''s number, from 0.'}
+        concurrent: {type: boolean, description: Whether the group has more than one step. The order of its steps is then not fully proven.}
+        label: {type: [string, 'null'], description: '`concurrent, order unknown` for a concurrent group, otherwise null.'}
+        observed_events: {type: integer, description: The recorded steps in the group.}
+        inferred_events: {type: integer, description: The inferred steps in the group.}
+        ordered_inside: {type: integer, description: The proven edges between steps of this group.}
+        start:
+          oneOf: [{$ref: '#/components/schemas/Timestamp'}, {type: 'null'}]
+          description: The earliest start among the group's recorded steps. Null when one of them has no recorded start.
+        end:
+          oneOf: [{$ref: '#/components/schemas/Timestamp'}, {type: 'null'}]
+          description: The latest end among the group's recorded steps. Null when the group has none.
+    Step:
+      description: One step of a timeline. `type` says which fields it has.
+      oneOf:
+        - $ref: '#/components/schemas/SentStep'
+        - $ref: '#/components/schemas/ReceivedStep'
+        - $ref: '#/components/schemas/DeletedStep'
+        - $ref: '#/components/schemas/VisibilityChangedStep'
+        - $ref: '#/components/schemas/LambdaOutcomeStep'
+        - $ref: '#/components/schemas/MovedToDeadLetterQueueStep'
+        - $ref: '#/components/schemas/VisibilityTimeoutExpiredStep'
+        - $ref: '#/components/schemas/DeliveriesNotObservedStep'
+        - $ref: '#/components/schemas/DeletedByLambdaStep'
+        - $ref: '#/components/schemas/LambdaEndedWithoutOutcomeStep'
+      discriminator:
+        propertyName: type
+        mapping:
+          sent: '#/components/schemas/SentStep'
+          received: '#/components/schemas/ReceivedStep'
+          deleted: '#/components/schemas/DeletedStep'
+          visibility_changed: '#/components/schemas/VisibilityChangedStep'
+          lambda_outcome: '#/components/schemas/LambdaOutcomeStep'
+          moved_to_dead_letter_queue: '#/components/schemas/MovedToDeadLetterQueueStep'
+          visibility_timeout_expired: '#/components/schemas/VisibilityTimeoutExpiredStep'
+          deliveries_not_observed: '#/components/schemas/DeliveriesNotObservedStep'
+          deleted_by_lambda: '#/components/schemas/DeletedByLambdaStep'
+          lambda_invocation_ended_without_outcome: '#/components/schemas/LambdaEndedWithoutOutcomeStep'
+    RecordedStep:
+      type: object
+      description: The fields of every step backed by one span.
+      required: [id, type, inferred, time, time_unix_nano, start, start_unix_nano, end, end_unix_nano, start_observed, group, queue, consumer, span, process_order, after]
+      properties:
+        id: {type: string, description: 'The step''s ID within this response, such as `e1`.'}
+        type: {type: string}
+        inferred: {type: boolean, const: false}
+        time:
+          allOf: [{$ref: '#/components/schemas/Timestamp'}]
+          description: The same as `end`.
+        time_unix_nano: {type: string, description: The same as `end_unix_nano`.}
+        start:
+          oneOf: [{$ref: '#/components/schemas/Timestamp'}, {type: 'null'}]
+          description: When the SQS request was sent. Null when the start was not recorded, as for a Lambda receive.
+        start_unix_nano: {type: [string, 'null'], description: '`start` in Unix nanoseconds, as a string.'}
+        end:
+          allOf: [{$ref: '#/components/schemas/Timestamp'}]
+          description: When the response arrived.
+        end_unix_nano: {type: string, description: '`end` in Unix nanoseconds, as a string.'}
+        start_observed: {type: boolean, description: Whether `start` was recorded.}
+        group: {type: integer, description: The number of the group the step is in.}
+        queue: {type: string, description: The queue's name.}
+        consumer: {$ref: '#/components/schemas/Caller'}
+        span:
+          type: object
+          description: The span behind the step.
+          additionalProperties: false
+          required: [trace_id, span_id]
+          properties:
+            trace_id: {type: string}
+            span_id: {type: string}
+        process_order:
+          type: [object, 'null']
+          description: The call order inside one process. Null for spans that carry none.
+          additionalProperties: false
+          required: [scope, issued, returned]
+          properties:
+            scope: {type: string, description: Calls with the same scope were counted by the same process.}
+            issued: {type: [integer, 'null'], description: 'The counter when the call was issued. Null for a Lambda receive: Lambda made the call.'}
+            returned: {type: [integer, 'null'], description: The counter when the call returned.}
+        after:
+          type: array
+          description: The steps proven to come directly before this one.
+          items: {$ref: '#/components/schemas/OrderLink'}
+    Caller:
+      type: object
+      description: The process that made the call. A field is left out when the span does not carry it.
+      additionalProperties: false
+      properties:
+        service_name: {type: string, description: The service's `service.name`.}
+        client_id: {type: string, description: The ID the package gives one SQS client.}
+        source: {type: string, description: '`client` for an SQS client call, `lambda` for a Lambda event source mapping.'}
+        pid: {type: integer}
+        thread_name: {type: string}
+        faas_name: {type: string, description: The Lambda function's name.}
+        faas_invocation_id: {type: string, description: The Lambda request ID.}
+    OrderLink:
+      type: object
+      additionalProperties: false
+      required: [event, type, sources, source, why]
+      properties:
+        event: {type: string, description: The `id` of the other step.}
+        type: {type: string, description: The `type` of the other step.}
+        sources:
+          type: array
+          description: Every fact that proves the order.
+          items: {$ref: '#/components/schemas/OrderSource'}
+        source:
+          allOf: [{$ref: '#/components/schemas/OrderSource'}]
+          description: The first of `sources`.
+        why: {type: string, description: The proof in words.}
+    OrderSource:
+      type: string
+      description: |
+        `clock`: one step ended before the other started, on the hosts' clocks. `process_order`: one
+        call returned before the other was issued in the same process. `receive_count`: SQS's receive
+        count. `sqs_timestamps`: SQS's own timestamps. `inferred_from`: an inferred step and the
+        recorded step it was inferred from. `sqs_dlq_source`: a move SQS reported on a dead-letter
+        queue receive.
+      enum: [clock, process_order, receive_count, sqs_timestamps, inferred_from, sqs_dlq_source]
+    SentStep:
+      allOf: [{$ref: '#/components/schemas/RecordedStep'}]
+      description: A `SendMessage` or one entry of a `SendMessageBatch`.
+      unevaluatedProperties: false
+      properties:
+        type: {const: sent}
+        batch_entry_id: {type: string, description: The entry's ID in a batch call.}
+    ReceivedStep:
+      allOf: [{$ref: '#/components/schemas/RecordedStep'}]
+      description: One delivery of the message, from `ReceiveMessage` or a Lambda event.
+      unevaluatedProperties: false
+      required: [delivery, receive_count]
+      properties:
+        type: {const: received}
+        delivery: {type: integer, description: 'The number of this delivery among the recorded ones, from 1.'}
+        receive_count: {type: integer, description: 'SQS''s `ApproximateReceiveCount` for this receive.'}
+        sent_timestamp:
+          allOf: [{$ref: '#/components/schemas/Timestamp'}]
+          description: 'SQS''s `SentTimestamp`.'
+        sent_timestamp_ms: {type: integer, description: '`SentTimestamp` in Unix milliseconds.'}
+        first_receive_timestamp:
+          allOf: [{$ref: '#/components/schemas/Timestamp'}]
+          description: 'SQS''s `ApproximateFirstReceiveTimestamp`.'
+        first_receive_timestamp_ms: {type: integer, description: '`ApproximateFirstReceiveTimestamp` in Unix milliseconds.'}
+    DeletedStep:
+      allOf: [{$ref: '#/components/schemas/RecordedStep'}]
+      description: A `DeleteMessage` or one entry of a `DeleteMessageBatch`.
+      unevaluatedProperties: false
+      required: [delivery, result, status]
+      properties:
+        type: {const: deleted}
+        delivery: {type: [integer, 'null'], description: The delivery whose receipt handle the call used. Null when no stored receive has that handle.}
+        result: {type: string, description: '`ok` when SQS accepted the call, `failed` when it did not.', enum: [ok, failed]}
+        status:
+          type: string
+          description: |
+            `final`: SQS accepted the delete and its handle is from the latest receive. `stale_handle`:
+            SQS accepted it, but the handle is from an earlier receive. `unmatched_handle`: no stored
+            receive has the handle. `failed`: SQS did not accept the call.
+          enum: [final, stale_handle, unmatched_handle, failed]
+        error_code: {type: string, description: The SQS error code of a failed call.}
+        batch_entry_id: {type: string, description: The entry's ID in a batch call.}
+    VisibilityChangedStep:
+      allOf: [{$ref: '#/components/schemas/RecordedStep'}]
+      description: A `ChangeMessageVisibility` or one entry of a `ChangeMessageVisibilityBatch`.
+      unevaluatedProperties: false
+      required: [delivery, result, visibility_timeout_s]
+      properties:
+        type: {const: visibility_changed}
+        delivery: {type: [integer, 'null'], description: The delivery whose receipt handle the call used. Null when no stored receive has that handle.}
+        result: {type: string, description: '`ok` when SQS accepted the call, `failed` when it did not.', enum: [ok, failed]}
+        visibility_timeout_s: {type: [integer, 'null'], description: The visibility timeout the call set, in seconds.}
+        error_code: {type: string, description: The SQS error code of a failed call.}
+        batch_entry_id: {type: string, description: The entry's ID in a batch call.}
+    LambdaOutcomeStep:
+      allOf: [{$ref: '#/components/schemas/RecordedStep'}]
+      description: How a Lambda invocation ended for this record.
+      unevaluatedProperties: false
+      required: [outcome]
+      properties:
+        type: {const: lambda_outcome}
+        outcome:
+          type: string
+          enum: [success, failed_reported, failed_invalid_response, failed_exception]
+        error_type: {type: string, description: The type of the error the handler raised.}
+        error_message: {type: string, description: 'The error''s message, redacted by the package. Present only for queues with error text turned on.'}
+        delivery: {type: integer, description: The delivery the invocation received. Left out when its receive is not stored.}
+    PlacedStep:
+      type: object
+      description: The fields of every step that has no span. It has a time window instead of a time.
+      required: [id, type, inferred, time, window, reason, group, after]
+      properties:
+        id: {type: string, description: 'The step''s ID within this response, such as `e3`.'}
+        type: {type: string}
+        inferred: {type: boolean}
+        time: {type: 'null', description: Always null.}
+        window:
+          type: object
+          description: The step happened between these two times.
+          additionalProperties: false
+          required: [from, to]
+          properties:
+            from: {oneOf: [{$ref: '#/components/schemas/Timestamp'}, {type: 'null'}]}
+            to: {oneOf: [{$ref: '#/components/schemas/Timestamp'}, {type: 'null'}]}
+        reason: {type: string, description: Why the step is shown, in words.}
+        group: {type: [integer, 'null'], description: The number of the group the step is in. Null when it sits between two groups.}
+        after:
+          type: array
+          description: The recorded step this one comes after. Empty when there is none.
+          items: {$ref: '#/components/schemas/OrderLink'}
+        before:
+          allOf: [{$ref: '#/components/schemas/OrderLink'}]
+          description: The recorded step this one comes before.
+    MovedToDeadLetterQueueStep:
+      allOf: [{$ref: '#/components/schemas/PlacedStep'}]
+      description: SQS moved the message to a dead-letter queue. Not inferred. SQS reports the move on the first receive from the dead-letter queue.
+      unevaluatedProperties: false
+      required: [source, reported_by, source_arn, reported_on_delivery, from_queue, to_queue]
+      properties:
+        type: {const: moved_to_dead_letter_queue}
+        inferred: {const: false}
+        source: {const: sqs_dlq_source}
+        reported_by: {type: string}
+        source_arn: {type: string, description: 'The `DeadLetterQueueSourceArn` of the reporting receive.'}
+        reported_on_delivery: {type: integer, description: The delivery that reported the move.}
+        from_queue: {type: string}
+        to_queue: {type: string}
+    VisibilityTimeoutExpiredStep:
+      allOf: [{$ref: '#/components/schemas/PlacedStep'}]
+      description: Inferred. The visibility timeout expired between two deliveries, so SQS delivered the message again.
+      unevaluatedProperties: false
+      required: [queue, after_delivery, before_delivery]
+      properties:
+        type: {const: visibility_timeout_expired}
+        inferred: {const: true}
+        queue: {type: string}
+        after_delivery: {type: integer}
+        before_delivery: {type: integer}
+    DeliveriesNotObservedStep:
+      allOf: [{$ref: '#/components/schemas/PlacedStep'}]
+      description: Inferred. The receive count skipped, so some receives were not recorded.
+      unevaluatedProperties: false
+      required: [queue, count]
+      properties:
+        type: {const: deliveries_not_observed}
+        inferred: {const: true}
+        queue: {type: string}
+        count: {type: integer, description: The number of receives not recorded.}
+    DeletedByLambdaStep:
+      allOf: [{$ref: '#/components/schemas/PlacedStep'}]
+      description: Inferred. The handler succeeded for this record, so Lambda deletes the message.
+      unevaluatedProperties: false
+      required: [queue, delivery]
+      properties:
+        type: {const: deleted_by_lambda}
+        inferred: {const: true}
+        queue: {type: string}
+        delivery: {type: [integer, 'null']}
+    LambdaEndedWithoutOutcomeStep:
+      allOf: [{$ref: '#/components/schemas/PlacedStep'}]
+      description: Inferred. A Lambda receive has had no outcome for longer than the Lambda timeout.
+      unevaluatedProperties: false
+      required: [queue, delivery, faas_invocation_id]
+      properties:
+        type: {const: lambda_invocation_ended_without_outcome}
+        inferred: {const: true}
+        queue: {type: string}
+        delivery: {type: integer}
+        faas_invocation_id: {type: [string, 'null'], description: The Lambda request ID.}
+    Order:
+      type: object
+      description: Every proven order between two recorded steps.
+      additionalProperties: false
+      required: [edges, edges_by_source, conflicts]
+      properties:
+        edges:
+          type: array
+          items: {$ref: '#/components/schemas/Edge'}
+        edges_by_source:
+          type: object
+          description: The number of edges each source proves.
+          additionalProperties: false
+          required: [clock, process_order, receive_count, sqs_timestamps]
+          properties:
+            clock: {type: integer}
+            process_order: {type: integer}
+            receive_count: {type: integer}
+            sqs_timestamps: {type: integer}
+        conflicts:
+          type: array
+          description: Pairs of steps whose facts contradict each other. No order is shown between them.
+          items: {$ref: '#/components/schemas/Edge'}
+    Edge:
+      type: object
+      additionalProperties: false
+      required: [from, to, sources]
+      properties:
+        from: {type: string, description: The `id` of the earlier step.}
+        to: {type: string, description: The `id` of the later step.}
+        sources:
+          type: array
+          items: {$ref: '#/components/schemas/OrderSource'}
+    Notice:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: |
+            `order_conflict`: recorded facts contradict each other about the order of some steps.
+            `default_key`: some spans hash receipt handles with the published default key.
+            `key_mismatch`: a delete or visibility change used a different receipt-hash key than the
+            receives. `unmatched_handle`: a delete or visibility change matches no stored receive.
+            `send_not_observed`: no send span was recorded. `dlq_move_not_seen`: the receive count
+            reached `maxReceiveCount` and no receive on a dead-letter queue has reported a move.
+          enum: [order_conflict, default_key, key_mismatch, unmatched_handle, send_not_observed, dlq_move_not_seen]
+        message: {type: string, description: The notice in words.}
+    StoredBody:
+      type: object
+      additionalProperties: false
+      required: [message_id, kind, body, size, offloaded_size, tenant, tenant_source]
+      properties:
+        message_id: {type: string}
+        kind: {type: string, const: body}
+        body:
+          type: object
+          additionalProperties: false
+          required: [body, format, redacted_count, envelope, capture_status, from_kind, service, queue, trace_id, span_id, time_unix_nano]
+          properties:
+            body: {type: string, description: The body as stored, after the package redacted it.}
+            format: {type: [string, 'null'], description: '`json` or `text`.'}
+            redacted_count: {type: [integer, 'null'], description: The number of values the package redacted.}
+            envelope: {type: [string, 'null'], description: '`sns` or `eventbridge` when the body is such an envelope, otherwise null.'}
+            capture_status: {type: [string, 'null'], description: '`captured`, or `offloaded_to_s3` when `body` is an SQS Extended Client pointer and not the payload.'}
+            from_kind: {type: string, description: The kind of span the body came from., enum: [send, receive]}
+            service: {type: [string, 'null'], description: The `service.name` of that span.}
+            queue: {type: string}
+            trace_id: {type: string}
+            span_id: {type: string}
+            time_unix_nano: {type: string, description: 'That span''s end in Unix nanoseconds, as a string.'}
+        size: {type: [integer, 'null'], description: The body's size in bytes before redaction.}
+        offloaded_size: {type: [integer, 'null'], description: The size in bytes of a payload kept in S3. Null when the spans give none.}
+        tenant: {type: [string, 'null'], description: The message's tenant.}
+        tenant_source: {type: [string, 'null'], description: Where the package read the tenant from.}
+    NoBody:
+      type: object
+      additionalProperties: false
+      required: [message_id, kind, reason, size, sends, receives, send_status, receive_status]
+      properties:
+        message_id: {type: string}
+        kind: {type: string, const: none}
+        reason:
+          type: string
+          description: |
+            `not_opted_in`: a span carried a body and the server did not keep it, because the queue
+            is not in `TRAILBEAM_STORE_BODIES`. `package_too_old`: the producer's package predates
+            body capture. `off`, `md5_mismatch`, `redaction_failed`, `exceeds_capture_limit`: the
+            producer's package did not capture the body, for this reason. `unknown`: the send has a
+            capture status the server does not know. `producer_not_instrumented`: no send span was
+            recorded and no receive carried a body.
+          enum: [not_opted_in, producer_not_instrumented, package_too_old, 'off', md5_mismatch, redaction_failed, exceeds_capture_limit, unknown]
+        size: {type: [integer, 'null'], description: The body's size in bytes.}
+        sends: {type: integer, description: The number of send spans.}
+        receives: {type: integer, description: The number of receive spans.}
+        send_status: {type: [string, 'null'], description: The capture status of the first send span that has one.}
+        receive_status: {type: [string, 'null'], description: The capture status of the last receive span that has one.}
+    TenantStats:
+      type: object
+      additionalProperties: false
+      required: [from_ms, to_ms, total_sent, untagged_sent, capped, rows]
+      properties:
+        from_ms: {type: integer, description: The start of the time window, in Unix milliseconds.}
+        to_ms: {type: integer, description: The end of the time window, in Unix milliseconds.}
+        total_sent: {type: integer, description: Messages sent in the window, with or without a tenant.}
+        untagged_sent: {type: integer, description: Messages sent in the window with no tenant.}
+        capped: {type: boolean, description: Always false.}
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [tenant, sent, share, p95_in_queue_ms, first_deliveries, dead_lettered]
+            properties:
+              tenant: {type: string}
+              sent: {type: integer, description: Messages the tenant sent in the window.}
+              share: {type: number, description: '`sent` divided by `total_sent`.'}
+              p95_in_queue_ms: {type: [integer, 'null'], description: 'The 95th percentile of the time from send to first delivery, in milliseconds. Null when there was no first delivery.'}
+              first_deliveries: {type: integer, description: The first deliveries the percentile is computed from.}
+              dead_lettered: {type: integer, description: Messages moved to a dead-letter queue in the window.}
+    TenantSearch:
+      type: object
+      additionalProperties: false
+      required: [tenants, from_ms, to_ms]
+      properties:
+        tenants: {type: array, items: {type: string}}
+        from_ms: {type: integer, description: The start of the time window, in Unix milliseconds.}
+        to_ms: {type: integer, description: The end of the time window, in Unix milliseconds.}
+    Stats:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [spans, messages, unjoined_settles]
+          properties:
+            spans:
+              type: object
+              description: Stored spans by kind. A kind with no spans is left out.
+              additionalProperties: false
+              properties:
+                send: {type: integer}
+                receive: {type: integer}
+                delete: {type: integer}
+                change_visibility: {type: integer}
+                outcome: {type: integer}
+            messages: {type: integer, description: Distinct message IDs.}
+            unjoined_settles: {type: integer, description: Delete and visibility-change spans not joined to a receive.}
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status, version]
+      properties:
+        status: {type: string, const: ok}
+        version: {type: string, description: The server's version.}
+        ingest:
+          type: object
+          description: Counters since this server process started.
+          additionalProperties: false
+          required: [requests, inserted, duplicates, ignored, rejected]
+          properties:
+            requests: {type: integer, description: Exports received.}
+            inserted: {type: integer, description: Spans stored.}
+            duplicates: {type: integer, description: Spans skipped because they were already stored.}
+            ignored: {type: integer, description: Spans that are not Trailbeam spans.}
+            rejected: {type: integer, description: Trailbeam spans that break the span contract.}
+        data:
+          type: object
+          additionalProperties: false
+          required: [last_row]
+          properties:
+            last_row: {type: [integer, 'null'], description: The highest row the store holds. 0 for an empty store. Null while the store is unreachable.}
+            store: {type: string, const: unreachable, description: Present only while the store is unreachable.}
+        config:
+          type: object
+          description: The configuration this server runs with.
+          additionalProperties: false
+          required: [auth, stuck_after_s, lambda_timeout_s, max_receive_counts, store_bodies, retention]
+          properties:
+            auth: {type: string, description: '`token` when the server has an access token, otherwise `off`.', enum: [token, 'off']}
+            stuck_after_s: {type: integer}
+            lambda_timeout_s: {type: integer}
+            max_receive_counts:
+              type: object
+              description: The configured `maxReceiveCount` of each queue.
+              additionalProperties: {type: integer}
+            store_bodies: {type: array, description: 'The queues whose bodies the server stores. `*` is every queue.', items: {type: string}}
+            retention:
+              oneOf: [{$ref: '#/components/schemas/Retention'}, {type: 'null'}]
+    Retention:
+      type: object
+      description: The retention settings and the state of the purge.
+      additionalProperties: false
+      required: [default, queues, purge_interval_s, purge_duty, purge_batch, passes, running, last_pass]
+      properties:
+        default: {type: string, description: 'How long spans are kept, such as `7d`, or `forever`.'}
+        queues:
+          type: object
+          description: Retention per queue, where it differs from `default`.
+          additionalProperties: {type: string}
+        purge_interval_s: {type: number, description: Seconds between purge passes.}
+        purge_duty: {type: number, description: The largest share of time the purge spends working.}
+        purge_batch: {type: integer, description: Messages the purge examines per step.}
+        runs_on_this_replica: {type: boolean, description: Present only on a Postgres store. Whether this replica holds the lease to purge.}
+        passes: {type: integer, description: Purge passes completed since the server started.}
+        running:
+          oneOf: [{$ref: '#/components/schemas/PurgePass'}, {type: 'null'}]
+          description: The pass in progress, or null.
+        last_pass:
+          oneOf: [{$ref: '#/components/schemas/PurgePass'}, {type: 'null'}]
+          description: The last completed pass, or null.
+    PurgePass:
+      type: object
+      required: [started_ms, deleted_spans, examined, steps, reclaimed_pages, stopped]
+      properties:
+        started_ms: {type: integer, description: When the pass started, in Unix milliseconds.}
+        deleted_spans: {type: integer}
+        examined: {type: integer, description: Messages and unjoined spans examined.}
+        steps: {type: integer}
+        reclaimed_pages: {type: integer}
+        longest_step_ms: {type: number}
+        longest_write_ms: {type: number}
+        longest_reclaim_step_ms: {type: number}
+        stopped: {type: boolean, description: Whether the pass was stopped before it finished.}
+        seconds: {type: number, description: How long the pass took. Present once the pass has ended.}
+    ExportResponse:
+      type: object
+      description: An OTLP `ExportTraceServiceResponse` in the JSON encoding. Empty when no span was rejected.
+      additionalProperties: false
+      properties:
+        partialSuccess:
+          type: object
+          additionalProperties: false
+          required: [rejectedSpans, errorMessage]
+          properties:
+            rejectedSpans: {type: string, description: The number of rejected Trailbeam spans, as a string.}
+            errorMessage: {type: string, description: The first five distinct reasons.}
