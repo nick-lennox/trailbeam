@@ -59,7 +59,7 @@ from . import body_table, pg_schema, summary
 from .db import gate_body
 from .otlp import RECORD_FIELDS
 from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Cutoffs, ExportAbandoned, PurgeStep, Store,
-                    StuckCandidate, TenantActivity)
+                    StoreUnavailable, StuckCandidate, TenantActivity)
 from .summary_table import COLUMNS, FIELDS, LISTS, ascii_lower
 
 log = logging.getLogger("trailbeam.server.postgres")
@@ -265,9 +265,27 @@ class PostgresStore(Store):
                         except Exception as e:  # noqa: BLE001
                             log.debug("cancel failed: %s", e)
 
+    INGEST_CONNECTION_WAIT_S = 10.0  # for a pooled connection, before an export is answered StoreUnavailable
+
+    def ping(self, timeout_s: float = 2.0) -> None:
+        try:
+            with self.reads.connection(timeout=timeout_s) as c:
+                c.execute("SELECT 1")
+        except (psycopg.OperationalError, psycopg_pool.PoolTimeout) as e:
+            raise StoreUnavailable(f"Postgres is unreachable: {e}") from None
+
     def insert(self, records: Iterable[dict], *, abandoned=None) -> tuple[int, int]:
         """Store.insert. ``abandoned``: see Store.cancels_abandoned_exports; checked every WATCH_INTERVAL_S
-        while the export's transaction runs, which is then cancelled (ExportAbandoned, nothing stored)."""
+        while the export's transaction runs, which is then cancelled (ExportAbandoned, nothing stored).
+        StoreUnavailable when the database can't be reached (nothing stored: the client sends it again)."""
+        try:
+            return self._insert_records(records, abandoned)
+        except (psycopg.OperationalError, psycopg_pool.PoolTimeout) as e:
+            if isinstance(e, errors.QueryCanceled):
+                raise  # a statement timeout: the database is there, the export is too slow
+            raise StoreUnavailable(f"Postgres is unreachable: {e}") from None
+
+    def _insert_records(self, records, abandoned) -> tuple[int, int]:
         records = list(records)  # an exporter's iterator that fails part way stores nothing
         if not records:
             return 0, 0
@@ -283,7 +301,7 @@ class PostgresStore(Store):
             if abandoned is not None and abandoned():
                 raise ExportAbandoned()
             try:
-                with self.ingest.connection() as conn:
+                with self.ingest.connection(timeout=self.INGEST_CONNECTION_WAIT_S) as conn:
                     watch = [conn, abandoned, False]
                     if abandoned is not None:
                         with self._watch_lock:

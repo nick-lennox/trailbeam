@@ -94,6 +94,8 @@ def test_api_needs_the_token_and_health_says_only_that_it_is_up(serve):
     assert json.loads(call(url, "/api/health")[2]) == {"status": "ok", "version": json.loads(
         call(url, "/api/health", headers=BEARER)[2])["version"]}
     assert json.loads(call(url, "/api/health", headers=BEARER)[2])["config"]["auth"] == "token"
+    status, _, body = call(url, "/api/ready")  # readiness probes carry no token either
+    assert status == 200 and json.loads(body)["status"] == "ready"
 
 
 def test_a_browser_signs_in_once_and_gets_a_session_cookie(serve):

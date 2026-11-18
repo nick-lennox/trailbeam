@@ -18,7 +18,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTrace
 
 from . import __version__
 from . import auth as auth_mod, bodies, queries, ui_files, web
-from .store import ExportAbandoned, Store
+from .store import ExportAbandoned, Store, StoreUnavailable
 from .otlp import DecodeError, decode
 from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
 
@@ -107,12 +107,31 @@ class App:
             raise ApiError(404, "no such endpoint")
         with self.stats_lock:
             ingest = dict(self.stats)
-        return {"status": "ok", "version": __version__, "ingest": ingest, "data": {"last_row": self.db.last_row()},
+        # Liveness: this answers while the store is unreachable (a database outage must not get every replica
+        # restarted); /api/ready is the check that fails then.
+        try:
+            self.db.ping()
+            data = {"last_row": self.db.last_row()}
+        except Exception as e:  # noqa: BLE001
+            data = {"last_row": None, "store": "unreachable"}
+            log.warning("health: the store is unreachable: %s", e)
+        return {"status": "ok", "version": __version__, "ingest": ingest, "data": data,
                 "config": {"auth": "token" if self.auth else "off",
                            "stuck_after_s": self.stuck_after_s, "lambda_timeout_s": self.lambda_timeout_s,
                            "max_receive_counts": self.max_receive_counts,
                            "store_bodies": sorted(self.db.store_bodies),
                            "retention": self.purger.status() if self.purger else None}}
+
+    def ready(self) -> tuple[int, dict]:
+        """``/api/ready``: 200 when the store answers, else 503. For a load balancer or a Kubernetes readiness
+        probe: a replica that can't reach its database is taken out of rotation, not restarted. Like
+        /api/health, answered without the token (it says nothing but ready or not)."""
+        try:
+            self.db.ping()
+        except Exception as e:  # noqa: BLE001
+            log.warning("ready: the store is unreachable: %s", e)
+            return 503, {"status": "not ready", "error": "the store is unreachable"}
+        return 200, {"status": "ready", "version": __version__}
 
     def stats_counts(self, query: dict, rest: list[str]) -> dict:
         """``/api/stats``: spans by kind, messages and settle spans not joined yet. Exact, so it reads the whole
@@ -335,6 +354,10 @@ def make_handler(app: App):
                 log.info("an export was abandoned by its client (it timed out or disconnected): not stored")
                 self.close_connection = True
                 return
+            except StoreUnavailable as e:
+                log.warning("ingest: %s; answered 503", e)
+                self._send(503, "text/plain", b"the store is unreachable, try again", {"Retry-After": "1"})
+                return
             except Exception:
                 log.exception("ingest failed")
                 status, ctype, out = 500, "text/plain", b"internal error"
@@ -343,6 +366,9 @@ def make_handler(app: App):
         def do_GET(self):
             u = urlsplit(self.path)
             q = {k: v[-1] for k, v in parse_qs(u.query).items()}
+            if u.path == "/api/ready":  # readiness probes: no token, and nothing but ready or not
+                self._json(*app.ready())
+                return
             if app.auth is not None and u.path in ("/login", "/logout"):
                 if u.path == "/logout":
                     self._send(303, "text/plain", b"", {"Location": "/login", "Set-Cookie": auth_mod.clear_cookie()})

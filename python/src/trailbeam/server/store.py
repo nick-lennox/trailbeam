@@ -49,6 +49,11 @@ class ExportAbandoned(Exception):
     """Store.insert stopped because the client that sent the export went away (``abandoned``): nothing stored."""
 
 
+class StoreUnavailable(Exception):
+    """The store can't be reached (its database is down, or no connection came in time): nothing was stored. The
+    server answers 503 with Retry-After, so the exporter (or a load balancer, on another replica) tries again."""
+
+
 class StuckCandidate(NamedTuple):
     message_id: str
     first_ns: int        # first seen (Store.stuck_messages)
@@ -201,6 +206,10 @@ class Store(abc.ABC):
     @abc.abstractmethod
     def last_row(self) -> int:
         """The highest ``row`` stored, 0 if none. Cheap at any size (the health check)."""
+
+    def ping(self, timeout_s: float = 2.0) -> None:
+        """Raise StoreUnavailable unless the store answers within about ``timeout_s`` (the readiness check,
+        ``/api/ready``). A local file is always there: by default, nothing to check."""
 
     # ---- bodies ------------------------------------------------------------------------------
 

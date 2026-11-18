@@ -256,3 +256,57 @@ def test_the_server_ingests_into_postgres(pg_store):
     t = queries.message(s, "m1", D0 + 10 * SEC, 900)
     assert t["state"] == "deleted" and len(t["events"]) == 3
     assert Cutoffs(None).keeps_everything()
+
+
+# ---- liveness, readiness and an unreachable database (QV-81) ------------------------------------------
+
+@needs_pg
+def test_ready_fails_and_ingest_answers_503_while_postgres_is_unreachable(pg_store):
+    """A replica cut off from its database stays alive (/api/health 200: not restarted), is not ready
+    (/api/ready 503: out of rotation), and answers exports 503 with Retry-After (the exporter, or the load
+    balancer on another replica, tries again), with nothing stored."""
+    import json
+    import urllib.error
+    import urllib.request
+
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+
+    from tcp_proxy import Proxy
+    from trailbeam.server.postgres import PostgresStore
+    from trailbeam.server.server import make_server
+
+    direct = pg_store()  # makes the schema
+    d = conninfo_to_dict(direct.url)
+    proxy = Proxy([(d.get("host") or "localhost", int(d.get("port") or 5432))])
+    s = PostgresStore(make_conninfo(direct.url, host="127.0.0.1", port=str(proxy.port)))
+    s.INGEST_CONNECTION_WAIT_S = 1.0
+    httpd = make_server(s, "127.0.0.1", 0, ui_dir=None)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+
+    def call(path, body=None):
+        req = urllib.request.Request(base + path, data=body, headers={"Content-Type": "application/x-protobuf"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return r.status, dict(r.headers), r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, dict(e.headers), e.read()
+
+    export = to_proto([Consumer().send(D0, "m-down")]).SerializeToString()
+    try:
+        assert call("/api/ready")[0] == 200
+        assert json.loads(call("/api/health")[2])["data"]["last_row"] == 0
+        proxy.cut()
+        t0 = time.monotonic()
+        status, _, body = call("/api/ready")
+        assert (status, json.loads(body)["status"]) == (503, "not ready")
+        assert time.monotonic() - t0 < 10
+        status, _, body = call("/api/health")
+        assert status == 200 and json.loads(body)["data"] == {"last_row": None, "store": "unreachable"}
+        status, headers, _ = call("/v1/traces", export)
+        assert status == 503 and headers["Retry-After"] == "1"
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        s.close()
+    assert direct.counts()["spans"] == {}
