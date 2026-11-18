@@ -248,3 +248,14 @@ def test_an_old_file_keeps_its_size_until_vacuum(tmp_path):
     assert db.storage()["auto_vacuum"] == "incremental" and db.storage()["free_pages"] == 0
     assert db.query("SELECT MAX(version) AS v FROM schema_version")[0]["v"] == migrations.LATEST
     db.close()
+
+
+def test_the_purge_holds_the_writer_for_at_most_its_duty():
+    """The pause after a step is long enough that steps fill at most ``duty`` of the time (QV-72: at 1M spans
+    an unpaced purge took two thirds of the writer and starved ingest)."""
+    p = Purger(Database(), Retention(DAY), pause_s=0.05, duty=0.25)
+    assert p.pause(0.1) == pytest.approx(0.3)  # 0.1 s of 0.4 s
+    assert p.pause(0.001) == 0.05  # never less than pause_s
+    assert Purger(Database(), Retention(DAY), pause_s=0, duty=1).pause(5) == 0
+    with pytest.raises(ValueError):
+        Purger(Database(), Retention(DAY), duty=0)

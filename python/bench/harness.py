@@ -411,6 +411,7 @@ def purge_under_ingest(db_path: str, snapshot: Optional[str], profile, store_bod
                 if done or time.monotonic() - t0 > args.purge_max_s:
                     break
             passed = h.get("last_pass") if case == "purge" else None
+            unfinished = h.get("running") if case == "purge" else None  # the pass so far, if --purge-max-s cut it
         finally:
             srv.stop()
         res = {"windows": windows, "before": before, "after": storage(),
@@ -419,6 +420,8 @@ def purge_under_ingest(db_path: str, snapshot: Optional[str], profile, store_bod
         if case == "purge":
             res["pass"] = passed
             res["pass_finished"] = passed is not None
+            if passed is None:
+                res["pass_so_far"] = unfinished
         out[case] = res
     p = out["purge"]
     out["gate_ok"] = bool(p["pass_finished"] and p["errors"] == 0 and p["worst_export_p99_ms"] <= args.max_export_p99_ms)
@@ -780,7 +783,7 @@ def summary(results: dict) -> str:
             lines.append(
                 f"| {e['spans']:,} | {pu['retention']} | {pu['target_spans_per_s']:g} | {b['worst_export_p99_ms']} / "
                 f"{q['worst_export_p99_ms']} ms | {q['errors']} | {ps.get('seconds', 'not finished')} | "
-                f"{ps.get('deleted_spans', '-'):,} | {ps.get('longest_step_ms', '-')} / {ps.get('longest_reclaim_step_ms', '-')} | "
+                f"{format(ps['deleted_spans'], ',') if 'deleted_spans' in ps else '-'} | {ps.get('longest_step_ms', '-')} / {ps.get('longest_reclaim_step_ms', '-')} | "
                 f"{round(ps.get('reclaimed_pages', 0) * 4096 / 1e6, 1)} | {q['before']['file_mb']:,} / {q['after']['file_mb']:,} "
                 f"({q['before']['auto_vacuum']}) | {'ok' if pu['gate_ok'] else 'FAILED'} |")
     if results.get("growth"):

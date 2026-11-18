@@ -14,7 +14,10 @@ the process that made it) against the server's clock.
 
 The purge (``Purger``) runs a pass at start and then every ``interval_s`` after the previous pass ended. A pass
 is many small steps, each a short write transaction with a pause after it, so ingest and pages wait at most one
-step (about 0.1 s for 100 messages at 1M spans, QV-72) and never the whole pass. After a pass it gives the
+step and never the whole pass. The pause is at least three times the step (``duty``, 0.25): the purge holds the
+writer lock at most a quarter of the time. Deleting costs about what inserting does (QV-72: about 0.9 ms per
+message at 1M spans, nearly all of it the commit writing index pages), so a purge without that limit took two
+thirds of the writer and ingest at 1,000 spans/s fell behind until exports timed out. After a pass it gives the
 freed space back to the file system in small pieces too (``Store.reclaim_space``; only on files with
 incremental vacuum, see db.py).
 """
@@ -98,16 +101,21 @@ class Retention(NamedTuple):
 class Purger:
     """Runs retention passes on a store, in a background thread (``start``) or one at a time (``run_pass``).
 
-    ``batch``: messages looked at per step. ``pause_s``: the wait after each step, so writes waiting for the
-    lock go first. ``reclaim_pages``: pages given back per reclaim step (4 KiB each)."""
+    ``batch``: messages looked at per step. After each step it waits ``pause_s`` or, if longer, as long as it
+    takes for the steps to fill at most ``duty`` of the time, so writes waiting for the lock go first.
+    ``reclaim_pages``: pages given back per reclaim step (4 KiB each)."""
 
-    def __init__(self, store: Store, retention: Retention, *, interval_s: float = 600, batch: int = 100,
-                 pause_s: float = 0.05, reclaim_pages: int = 256, now: Callable[[], int] = time.time_ns):
+    def __init__(self, store: Store, retention: Retention, *, interval_s: float = 600, batch: int = 50,
+                 pause_s: float = 0.05, duty: float = 0.25, reclaim_pages: int = 256,
+                 now: Callable[[], int] = time.time_ns):
+        if not 0 < duty <= 1:
+            raise ValueError(f"duty must be in (0, 1], got {duty}")
         self.store = store
         self.retention = retention
         self.interval_s = interval_s
         self.batch = batch
         self.pause_s = pause_s
+        self.duty = duty
         self.reclaim_pages = reclaim_pages
         self.now = now
         self._halt = threading.Event()
@@ -135,23 +143,23 @@ class Purger:
                 while True:
                     s0 = time.monotonic()
                     step = self.store.purge_step(cutoffs, resume, self.batch)
-                    self._step_done(res, s0, "longest_step_ms")
+                    took = self._step_done(res, s0, "longest_step_ms")
                     res["deleted_spans"] += step.deleted
                     res["examined"] += step.examined
                     resume = step.resume
                     if resume is None:
                         break
-                    if self._halt.wait(self.pause_s):
+                    if self._halt.wait(self.pause(took)):
                         res["stopped"] = True
                         break
                 while not res["stopped"]:
                     s0 = time.monotonic()
                     n = self.store.reclaim_space(self.reclaim_pages)
-                    self._step_done(res, s0, "longest_reclaim_step_ms")
+                    took = self._step_done(res, s0, "longest_reclaim_step_ms")
                     res["reclaimed_pages"] += n
                     if n < self.reclaim_pages:
                         break
-                    if self._halt.wait(self.pause_s):
+                    if self._halt.wait(self.pause(took)):
                         res["stopped"] = True
         finally:
             res["seconds"] = round(time.monotonic() - t0, 3)
@@ -161,10 +169,16 @@ class Purger:
                 self.passes += 1
         return res
 
+    def pause(self, step_s: float) -> float:
+        """The wait after a step of ``step_s`` seconds."""
+        return max(self.pause_s, step_s * (1 - self.duty) / self.duty)
+
     @staticmethod
-    def _step_done(res: dict, s0: float, longest: str) -> None:
+    def _step_done(res: dict, s0: float, longest: str) -> float:
+        took = time.monotonic() - s0
         res["steps"] += 1
-        res[longest] = max(res[longest], round((time.monotonic() - s0) * 1000, 1))
+        res[longest] = max(res[longest], round(took * 1000, 1))
+        return took
 
     # ---- in the background ---------------------------------------------------------------------
 
@@ -197,5 +211,6 @@ class Purger:
         with self._lock:
             running = dict(self._running) if self._running else None
             last = dict(self.last_pass) if self.last_pass else None
-        return self.retention.config() | {"purge_interval_s": self.interval_s, "passes": self.passes,
+        return self.retention.config() | {"purge_interval_s": self.interval_s, "purge_duty": self.duty,
+                                          "passes": self.passes,
                                           "running": running, "last_pass": last}
