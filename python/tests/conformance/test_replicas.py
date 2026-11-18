@@ -128,3 +128,37 @@ def test_a_joined_settle_and_its_message_s_own_span_at_the_same_moment(replicas)
         got = a.summaries([m])[0]
         assert {c: got[c] for c in ("last_ns", "deliveries", "final_delete")} == \
                {"last_ns": want["last_ns"], "deliveries": want["deliveries"], "final_delete": int(want["final_delete"])}, m
+
+
+# ---- retention: one replica at a time ---------------------------------------------------------------------
+
+def _purge(store, cutoffs):
+    resume, n = None, 0
+    while True:
+        st = store.purge_step(cutoffs, resume, 50)
+        n, resume = n + st.deleted, st.resume
+        if resume is None:
+            return n
+
+
+def test_one_replica_runs_retention_and_another_takes_over_when_it_dies(replicas):
+    import psycopg
+
+    from trailbeam.server.store import Cutoffs
+
+    a, b = replicas(cases.store_bodies("joins"), n=2)
+    for records in cases.exports("joins"):
+        a.insert(records)
+    everything = Cutoffs(2 ** 63 - 1)
+    assert _purge(a, Cutoffs(None)) == 0 and a.retention_lease_held  # a takes the lease at its first pass
+    assert _purge(b, everything) == 0 and not b.retention_lease_held  # b does nothing while a holds it
+    assert b.counts()["messages"] > 0
+    with psycopg.connect(a.url, autocommit=True) as c:  # a's lease connection dies (as when its replica is killed)
+        c.execute("SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype = 'advisory' AND objid = %s",
+                  (a._lease_key & 0xFFFFFFFF,))
+    stored = sum(b.counts()["spans"].values())
+    assert _purge(b, everything) == stored and b.retention_lease_held  # b takes over
+    assert b.counts() == {"spans": {}, "messages": 0, "unjoined_settles": 0}
+    assert _purge(a, everything) == 0 and not a.retention_lease_held  # a sees it lost the lease
+    b.close()  # closing gives the lease back
+    assert _purge(a, everything) == 0 and a.retention_lease_held

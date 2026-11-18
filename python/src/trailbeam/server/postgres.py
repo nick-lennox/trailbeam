@@ -37,7 +37,9 @@ with daily buckets, ``7d`` keeps a message 7 to 8 days. One step takes one place
    outside ingest. A place is swept again only when more of its queues have expired.
 
 With the retention given to the store (as the server does), every place has one retention class, so a pass is
-drops only.
+drops only. With several replicas on one database, one runs retention at a time: the one holding the retention
+lease, a session advisory lock that Postgres releases when that replica dies. Give every replica the same
+retention configuration.
 """
 from __future__ import annotations
 
@@ -132,6 +134,8 @@ class PostgresStore(Store):
         with psycopg.connect(url, autocommit=True) as c:
             self.migrated = pg_schema.open_schema(c)
             self.server_version = c.info.server_version
+            # the retention lease's advisory lock key: one per schema, so two Trailbeams in one database don't share it
+            self._lease_key = _key("retention lease:" + c.execute("SELECT current_schema()").fetchone()[0])
 
         def ingest_conf(conn):
             conn.execute(f"SET statement_timeout = {int(statement_timeout_ms)}")
@@ -152,6 +156,8 @@ class PostgresStore(Store):
         self._tx = threading.local()         # per export: place_queues rows written, cached after the commit
         self._watched: dict = {}             # exports whose client is checked: key -> [conn, abandoned, cancelled]
         self._watch_lock = threading.Lock()
+        self._lease = None                   # the connection holding the retention lease's lock, while this replica holds it
+        self._lease_lock = threading.Lock()
         self._stop = threading.Event()
         self._watcher = threading.Thread(target=self._watch_loop, name="trailbeam-pg-abandoned", daemon=True)
         self._watcher.start()
@@ -159,6 +165,7 @@ class PostgresStore(Store):
     def close(self) -> None:
         self._stop.set()
         self._watcher.join()
+        self._release_lease()
         self.ingest.close()
         self.reads.close()
 
@@ -556,9 +563,60 @@ class PostgresStore(Store):
 
     # ---- retention ------------------------------------------------------------------------
 
+    # Several replicas on one database: one runs retention at a time. The lease is a session advisory lock held on
+    # a connection of its own; this replica keeps it while it lives, and Postgres lets it go when the replica
+    # (or its connection) dies, so another takes over at its next pass. Every replica keeps calling purge_step:
+    # without the lease, a step does nothing.
+
+    def holds_retention_lease(self) -> bool:
+        """Take the retention lease if no replica holds it; True while this one does."""
+        with self._lease_lock:
+            if self._lease is not None:
+                try:
+                    self._lease.execute("SELECT 1")
+                    return True
+                except psycopg.Error:
+                    log.warning("lost the retention lease (its connection failed); another replica may take it")
+                    self._drop_lease_conn()
+            try:
+                c = psycopg.connect(self.url, autocommit=True)
+            except psycopg.Error as e:
+                log.warning("retention: could not connect for the lease: %s", e)
+                return False
+            try:
+                if c.execute("SELECT pg_try_advisory_lock(%s)", (self._lease_key,)).fetchone()[0]:
+                    self._lease = c
+                    log.info("retention: this replica runs retention (it holds the lease)")
+                    return True
+            except psycopg.Error as e:
+                log.warning("retention: could not take the lease: %s", e)
+            c.close()
+            return False
+
+    @property
+    def retention_lease_held(self) -> bool:
+        """This replica held the retention lease at its last purge step (for /api/health)."""
+        return self._lease is not None
+
+    def _drop_lease_conn(self) -> None:
+        try:
+            self._lease.close()
+        except Exception:  # noqa: BLE001
+            pass
+        self._lease = None
+
+    def _release_lease(self) -> None:
+        with self._lease_lock:
+            if self._lease is not None:
+                self._drop_lease_conn()  # closing the session releases the lock
+
     def purge_step(self, cutoffs: Cutoffs, resume: Optional[str] = None, limit: int = 100) -> PurgeStep:
         """Store.purge_step, by place (module docstring). ``resume``: ``<bucket>:<rclass>`` of the next place to
-        look at, and for a sweep in progress ``:<last_ns>:<mid>`` of the last message it looked at."""
+        look at, and for a sweep in progress ``:<last_ns>:<mid>`` of the last message it looked at. Only on the
+        replica holding the retention lease (holds_retention_lease); on another, a step does nothing and ends the
+        pass."""
+        if not self.holds_retention_lease():
+            return PurgeStep(0, 0, None)
         if resume is None:
             self._precreate()
             start, sweep_after = (-(2 ** 63), -(2 ** 63)), None
