@@ -97,15 +97,24 @@ class SqliteStore(Store):
     checkpointed, and that was most of its time. The thread runs a PASSIVE checkpoint every
     ``CHECKPOINT_INTERVAL_S``. That never waits for the writer or a reader, and it writes a page changed by
     many exports once. ``synchronous`` stays FULL, so a COMMIT is still on disk when ``insert`` returns.
+
+    ``durability="relaxed"`` (opt-in, ``--durability relaxed``) sets ``synchronous = NORMAL`` instead: a COMMIT
+    no longer waits for an fsync; the log is synced at checkpoints. A crash of the server process loses
+    nothing that was acknowledged, but an OS crash or power loss can lose the last exports acknowledged
+    before it. The file stays consistent either way (https://www.sqlite.org/pragma.html#pragma_synchronous).
     """
 
     MAX_IDLE_READERS = 8
     GROUP_MAX_SPANS = 4096  # spans one transaction takes from the queue (insert): 8 exports of 512
     CHECKPOINT_INTERVAL_S = 1.0
     WAL_SIZE_LIMIT = 64 * 1024 * 1024  # journal_size_limit: the log is cut back to this when it restarts
+    DURABILITY = {"full": "FULL", "relaxed": "NORMAL"}  # --durability -> PRAGMA synchronous
 
-    def __init__(self, path: str = ":memory:", *, store_bodies: Iterable[str] = ()):
+    def __init__(self, path: str = ":memory:", *, store_bodies: Iterable[str] = (), durability: str = "full"):
+        if durability not in self.DURABILITY:
+            raise ValueError(f"durability: expected one of {', '.join(self.DURABILITY)}, got {durability!r}")
         self.path = path
+        self.durability = durability
         self.store_bodies = frozenset(store_bodies)  # queues whose bodies are kept; empty = none (default)
         self.lock = threading.RLock()
         self.conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
@@ -132,6 +141,7 @@ class SqliteStore(Store):
                     raise RuntimeError(f"{path}: SQLite could not switch the file to WAL mode (got {mode})")
                 self.conn.execute("PRAGMA wal_autocheckpoint = 0")
                 self.conn.execute(f"PRAGMA journal_size_limit = {self.WAL_SIZE_LIMIT}")
+            self.conn.execute(f"PRAGMA synchronous = {self.DURABILITY[durability]}")
             self.conn.execute("PRAGMA foreign_keys=ON")
         except BaseException:
             self.conn.close()
@@ -211,7 +221,7 @@ class SqliteStore(Store):
         writer lock; whichever thread gets it writes every export queued by then (up to ``GROUP_MAX_SPANS``),
         each in a SAVEPOINT of its own, and commits once. An export that fails is rolled back to its savepoint
         and only its caller gets the error. Every call returns only after the COMMIT that holds its spans, so an
-        acknowledged export is on disk (``synchronous = FULL``), as before. One COMMIT, and one fsync, then
+        acknowledged export is on disk (``synchronous = FULL``, the default durability), as before. One COMMIT, and one fsync, then
         serves several exports, and a message several of them touch has its summary rewritten once (QV-78).
 
         ``wait_s`` bounds the wait for the writer: past it, if no writer has taken the export yet, it leaves the

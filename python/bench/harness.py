@@ -205,12 +205,16 @@ def free_port() -> int:
 class Server:
     """``python -m trailbeam.server`` on a file, as a subprocess, with its CPU time from /proc."""
 
+    durability = "full"  # --server-durability: every server the run starts gets it
+
     def __init__(self, db: str, store_bodies=(), log_path: Optional[str] = None, args=("--retention", "forever")):
         """``args``: more options. By default retention is off: the seeded spans go back ``--seed-days``, and
         the server's default (7d) would delete the oldest during the measurements."""
         self.port = free_port()
         cmd = [sys.executable, "-m", "trailbeam.server", "--db", db, "--port", str(self.port),
                "--log-level", "WARNING", *args]
+        if self.durability != "full":
+            cmd += ["--durability", self.durability]
         if store_bodies:
             cmd += ["--store-bodies", ",".join(store_bodies)]
         self.log = open(log_path or os.devnull, "ab")
@@ -900,7 +904,8 @@ def summary(results: dict) -> str:
              f"Commit `{m.get('commit')}`, {m.get('cpu')} ({m.get('cpus')} threads), {m.get('ram_gb')} GB RAM, "
              f"{m.get('os')}, Python {m.get('python')}, SQLite {m.get('sqlite')}. "
              f"{results['spans_per_message']} spans per message; queues {results['profile']['queues']}, "
-             f"tenants {results['profile']['tenants']}, body {results['profile']['body_size']} B.", ""]
+             f"tenants {results['profile']['tenants']}, body {results['profile']['body_size']} B. "
+             f"Server durability: {results['args'].get('server_durability', 'full')}.", ""]
     sizes = results["sizes"]
     if sizes:
         lines += ["## Ingest", "", "| DB spans | file MB | max steady spans/s (msg/s) | export p99 at that rate | "
@@ -1045,11 +1050,14 @@ def main(argv=None) -> None:
     p.add_argument("--breakdown-only", action="store_true",
                    help="seed and the in-process breakdown only (the writer's ceiling and WAL pages per export): no "
                         "server, pages or ramp")
+    p.add_argument("--server-durability", choices=("full", "relaxed"), default="full",
+                   help="the server's --durability (relaxed: no fsync per export; default full)")
     p.add_argument("--fresh", action="store_true", help="delete the database file first")
     p.add_argument("--cleanup", action="store_true", help="delete the database file at the end")
     loadgen.add_profile_args(p)
     p.set_defaults(queues=50, tenants=50, body_size=1024, body_queues=5)
     args = p.parse_args(argv)
+    Server.durability = args.server_durability
     run(args)
 
 

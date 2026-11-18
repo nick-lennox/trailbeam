@@ -399,6 +399,18 @@ nginx (`docker compose -f deploy/replicas/compose.yaml up -d --build --wait`). A
 and readiness probes and a Service, on a Postgres you run. The image needs the Postgres driver:
 `docker build --build-arg TRAILBEAM_EXTRAS=server,postgres .`
 
+### Durability: `--durability`
+
+By default (`full`), an export is answered 200 only after its spans are committed and synced to disk
+(SQLite `synchronous = FULL`). On a slow or shared disk that sync is most of an export's time: on the
+QV-78 benchmark machine, about 150–180 ms at p99 for one 512-span export.
+
+`--durability relaxed` (env `TRAILBEAM_DURABILITY=relaxed`) skips the sync per export (SQLite
+`synchronous = NORMAL`): the log is synced at checkpoints, about once a second. A crash of the
+Trailbeam process loses nothing that was answered 200. An OS crash or power loss can lose the exports
+answered 200 in the last moments before it, and the file stays consistent. The server logs a warning at
+start when it's set. It applies to the SQLite file only; with Postgres, use its `synchronous_commit`.
+
 ### When Trailbeam is overloaded: 429, 503 and Retry-After
 
 Trailbeam answers an export it can't take right away. It doesn't leave it hanging until the exporter

@@ -73,6 +73,11 @@ def main(argv=None) -> None:
     p.add_argument("--purge-duty", type=_duty, default=_env(_duty, "TRAILBEAM_PURGE_DUTY", 0.25),
                    help="the most of the time the purge holds the writer lock, in (0, 1] "
                         "(env TRAILBEAM_PURGE_DUTY, default 0.25)")
+    p.add_argument("--durability", type=_durability, default=_env(_durability, "TRAILBEAM_DURABILITY", "full"),
+                   help="full (default): an export is answered 200 only once its spans are synced to disk. relaxed: "
+                        "the SQLite file skips that sync per export, so exports are answered sooner, and an OS crash "
+                        "or power loss can lose the last exports answered 200 before it (a crash of the server "
+                        "alone loses none). SQLite only (env TRAILBEAM_DURABILITY)")
     p.add_argument("--vacuum", action="store_true",
                    help="rewrite the database file once so that retention gives deleted space back to the disk "
                         "(files created before retention, schema 8), then exit. Stop the server first; needs free disk "
@@ -117,10 +122,18 @@ def main(argv=None) -> None:
     retention = Retention(a.retention, a.retention_queues)
     where = redact_url(a.store_url) if a.store_url else a.db
     try:
-        db = open_store(a.store_url, a.db, store_bodies=a.store_bodies, retention=retention)
+        if a.store_url and a.durability != "full":
+            raise StoreUrlError("--durability relaxed is for the SQLite file; with Postgres, set its own "
+                                "synchronous_commit instead")
+        db = open_store(a.store_url, a.db, store_bodies=a.store_bodies, retention=retention,
+                        durability=a.durability)
     except (SchemaError, StoreUrlError) as e:
         logging.getLogger("trailbeam.server").error("%s", e)
         sys.exit(2)
+    if a.durability == "relaxed":
+        logging.getLogger("trailbeam.server").warning(
+            "durability relaxed: exports are answered before their spans are synced to disk; an OS crash or "
+            "power loss can lose the last ones answered 200")
     if db.migrated:
         logging.getLogger("trailbeam.server").info("upgraded %s to schema version %d", where, db.migrated[-1])
     if a.vacuum:
@@ -166,10 +179,10 @@ class StoreUrlError(ValueError):
     pass
 
 
-def open_store(url, db_path: str, *, store_bodies, retention):
+def open_store(url, db_path: str, *, store_bodies, retention, durability: str = "full"):
     """The Store: Postgres when ``url`` is a postgres:// one (its driver imported only then), else SQLite."""
     if not url:
-        return SqliteStore(db_path, store_bodies=store_bodies)
+        return SqliteStore(db_path, store_bodies=store_bodies, durability=durability)
     if not url.startswith(("postgres://", "postgresql://")):
         raise StoreUrlError(f"TRAILBEAM_STORE_URL: expected postgres://… or postgresql://…, got {redact_url(url)!r}")
     try:
@@ -283,6 +296,13 @@ def _duty(text: str) -> float:
     if not 0 < x <= 1:
         raise argparse.ArgumentTypeError(f"expected a fraction above 0 and at most 1, got {text!r}")
     return x
+
+
+def _durability(text: str) -> str:
+    t = text.strip().lower()
+    if t not in SqliteStore.DURABILITY:
+        raise argparse.ArgumentTypeError(f"expected full or relaxed, got {text!r}")
+    return t
 
 
 def _positive_float(text: str) -> float:
