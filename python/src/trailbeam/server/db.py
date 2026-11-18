@@ -384,6 +384,11 @@ class SqliteStore(Store):
     def recent_messages(self, limit: int, queue: Optional[str] = None, tenant: Optional[str] = None, *,
                         from_ns: Optional[int] = None, to_ns: Optional[int] = None,
                         after: Optional[tuple] = None) -> list[str]:
+        return self._newest_first(*self._recent_src(queue, tenant), limit, from_ns, to_ns, after)
+
+    @staticmethod
+    def _recent_src(queue: Optional[str], tenant: Optional[str]) -> tuple[str, list]:
+        """The summary table, and its WHERE, that recent_messages and newest_messages walk."""
         if tenant:
             src, p = "message_tenants s NOT INDEXED WHERE s.tenant = ?", [tenant[:TENANT_MAX_CHARS]]
             if queue:
@@ -393,7 +398,7 @@ class SqliteStore(Store):
             src, p = "message_queues s NOT INDEXED WHERE s.queue = ?", [queue]
         else:
             src, p = "messages s INDEXED BY messages_last WHERE 1", []
-        return self._newest_first(src, p, limit, from_ns, to_ns, after)
+        return src, p
 
     def duplicate_messages(self, limit: int, queue: Optional[str] = None, reason: Optional[str] = None, *,
                            from_ns: Optional[int] = None, to_ns: Optional[int] = None,
@@ -510,12 +515,10 @@ class SqliteStore(Store):
                     found.append((nxt[0] != lo, -newest[0], nxt[1]))
         return [t for *_, t in sorted(found)[:limit]]
 
-    def newest_messages(self, limit: int, queue: Optional[str] = None, *, from_ns: Optional[int] = None,
-                        to_ns: Optional[int] = None, after: Optional[tuple] = None) -> list[tuple[int, str]]:
-        if queue:
-            src, p = "message_queues s NOT INDEXED WHERE s.queue = ?", [queue]
-        else:
-            src, p = "messages s INDEXED BY messages_last WHERE 1", []
+    def newest_messages(self, limit: int, queue: Optional[str] = None, tenant: Optional[str] = None, *,
+                        from_ns: Optional[int] = None, to_ns: Optional[int] = None,
+                        after: Optional[tuple] = None) -> list[tuple[int, str]]:
+        src, p = self._recent_src(queue, tenant)
         return [(r["last_ns"], r["mid"]) for r in self._newest_first(src, p, limit, from_ns, to_ns, after, rows=True)]
 
     def body_spans(self, message_ids: list[str]) -> list[sqlite3.Row]:
