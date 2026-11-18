@@ -3,7 +3,7 @@
 - ``messages``: the summary, one row per message (``mid``), with the message's lists as JSON
   (``queues_json``, ``tenants_json``, ``events_json``). Those say which rows of the other tables are the
   message's, so they are found by key, not by ``mid``. ``rows_json`` lists the row IDs of the message's
-  spans: its spans are read by primary key, and spans has no index on ``mid`` (schema 10, QV-78). It is a
+  spans: its spans are read by primary key, and spans has no index on ``mid`` (schema 11, QV-78). It is a
   rowid table with a unique index on ``mid``, not keyed by ``mid``: a message's row is written again whenever
   it gains a span, nearly always within seconds of the last time, so rows in arrival order keep those writes
   on the last pages of the B-tree. Keyed by the random ``mid``, nearly every write was to a different page.
@@ -21,7 +21,7 @@ and a page of it rewritten for nearly every message an export touches: at 1M spa
 insert's transaction, for every message a stored span or a join touched, with the rows each gained and lost
 (``Changes``); retention calls ``forget``. So the tables always say what the spans say, whatever order spans
 arrive in: ``rows_json`` is every row whose ``mid`` is the message (tests/server/test_summary.py checks it).
-``backfill`` builds them for a file that has spans but no summaries (migration 10).
+``backfill`` builds them for a file that has spans but no summaries (migration 11).
 """
 from __future__ import annotations
 
@@ -278,7 +278,7 @@ def write(conn: sqlite3.Connection, sums: list) -> None:
 
 def backfill(conn: sqlite3.Connection, chunk: int = 5000) -> int:
     """Build the summary rows of every message, in the caller's transaction: one pass over the spans in
-    ``mid`` order: by the spans_mid index of schema 9 (migration 10 runs it before it rebuilds spans without that
+    ``mid`` order: by the spans_mid index of schema 9 (migration 11 runs it before it rebuilds spans without that
     index), or on a file without it by a sort of every span (tests). Returns the number of messages."""
     for t in TABLES:
         conn.execute(f"DELETE FROM {t}")

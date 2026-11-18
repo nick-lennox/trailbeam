@@ -676,7 +676,7 @@ def _prefetch_delete(c: sqlite3.Connection, mids: list, rows: list) -> None:
 
 PURGE_FIRST_WINDOW_NS = 60 * 10 ** 9  # the first window of a pass; later ones adapt (purge_step)
 # The messages of a JSON list whose newest span is before the cutoff of every queue they have a span on, from
-# their summaries (last_ns, queues_json): spans has no index on mid (schema 10).
+# their summaries (last_ns, queues_json): spans has no index on mid (schema 11).
 _EXPIRED_SQL = """SELECT mid FROM messages WHERE mid IN (SELECT value FROM json_each(?))
                   AND last_ns < (SELECT MIN({cut}) FROM json_each(messages.queues_json))"""
 # The span rows of the messages of a JSON list (their summaries' rows_json).
