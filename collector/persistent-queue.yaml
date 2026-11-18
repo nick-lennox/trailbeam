@@ -1,0 +1,45 @@
+# Optional overlay for trailbeam-collector.yaml: keep the spans bound for Trailbeam in a queue on disk, so
+# that they survive a Trailbeam outage, a slow Trailbeam and a Collector restart.
+#
+#   otelcol-contrib --config trailbeam-collector.yaml --config persistent-queue.yaml
+#   (add --config backend.yaml as well if you use it; the order of the overlays does not matter)
+#
+# The Collector answers the application as soon as a span is written to the queue, so the packages'
+# own in-memory queue stays nearly empty, however far behind Trailbeam is. Spans leave the
+# queue only when Trailbeam has accepted them. See "High volume" in README.md.
+extensions:
+  file_storage/trailbeam:
+    directory: "${env:TRAILBEAM_COLLECTOR_QUEUE_DIR:-/var/lib/otelcol/trailbeam}"
+    create_directory: true
+    # Write each change to disk before answering, so a crash or power loss doesn't lose acknowledged spans.
+    fsync: true
+    # The queue's file only grows; this gives the space back once the queue has drained.
+    compaction:
+      on_start: true
+      on_rebound: true
+      directory: "${env:TRAILBEAM_COLLECTOR_QUEUE_DIR:-/var/lib/otelcol/trailbeam}"
+
+exporters:
+  otlp_http/trailbeam:
+    sending_queue:
+      enabled: true
+      storage: file_storage/trailbeam
+      sizer: items  # spans
+      queue_size: ${env:TRAILBEAM_COLLECTOR_QUEUE_SPANS:-2000000}  # about 2 GB of disk
+      # When the queue is full, hold the application's export until there is room instead of dropping
+      # spans here. An export held longer than the package's timeout (10 s) fails, and the package
+      # counts and logs those spans as dropped.
+      block_on_overflow: true
+      num_consumers: 4
+      # Batches are made from the queue, after the spans are on disk (the batch processor is removed
+      # below: a batch processor holds spans in memory before the queue, where a restart loses them).
+      batch:
+        flush_timeout: 1s
+        min_size: 512
+        max_size: 2048
+
+service:
+  extensions: [file_storage/trailbeam]
+  pipelines:
+    traces/trailbeam:
+      processors: [filter/trailbeam_only]

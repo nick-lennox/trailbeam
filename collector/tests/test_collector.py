@@ -193,3 +193,30 @@ def test_backend_keeps_every_sqs_span_while_the_rest_is_sampled(sinks, percentag
     finally:
         log = stop(proc)
     assert "\terror\t" not in log, log
+
+
+def test_persistent_queue_keeps_spans_through_an_outage_and_a_crash(sinks, tmp_path):
+    """Trailbeam is down. The Collector still accepts the spans, writes them to its queue on disk, and is
+    killed (no clean shutdown). A new Collector on the same directory delivers all of them once Trailbeam
+    is back."""
+    env = {"TRAILBEAM_COLLECTOR_QUEUE_DIR": str(tmp_path / "queue")}
+    configs = ["trailbeam-collector.yaml", "persistent-queue.yaml"]
+    down = f"http://127.0.0.1:{free_port()}"  # nothing listens here
+    proc, url = run_collector(configs, {**env, "TRAILBEAM_ENDPOINT": down})
+    try:
+        for _ in range(20):
+            post(url, request())  # answered once on disk, although Trailbeam is down
+        time.sleep(1)
+    finally:
+        proc.kill()  # a crash: nothing is flushed
+        proc.communicate()
+    assert sinks["trailbeam"].snapshot() == []
+
+    proc, url = run_collector(configs, {**env, "TRAILBEAM_ENDPOINT": sinks["trailbeam"].url})
+    try:
+        wait_for(lambda: len(sinks["trailbeam"].snapshot()), 20 * len(TRAILBEAM), timeout=30)
+        time.sleep(1)  # and nothing twice
+        assert sinks["trailbeam"].snapshot() == sorted(TRAILBEAM * 20)
+    finally:
+        log = stop(proc)
+    assert "\terror\t" not in log, log
