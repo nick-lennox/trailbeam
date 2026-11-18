@@ -390,6 +390,73 @@ nginx (`docker compose -f deploy/replicas/compose.yaml up -d --build --wait`). A
 and readiness probes and a Service, on a Postgres you run. The image needs the Postgres driver:
 `docker build --build-arg TRAILBEAM_EXTRAS=server,postgres .`
 
+### When Trailbeam is overloaded: 429, 503 and Retry-After
+
+Trailbeam answers an export it can't take right away. It doesn't leave it hanging until the exporter
+times out. Both checks run before anything is written. A 429 or 503 means none of the export's spans
+were stored. A 200 means all of them were committed. Trailbeam never answers 200 and then drops a span.
+
+| Answer | When | Setting |
+|---|---|---|
+| `429 Too Many Requests` | This many exports are already in progress (decoding, waiting for the database writer, or writing). The export isn't decoded. | `TRAILBEAM_INGEST_MAX_PENDING` / `--ingest-max-pending`, default 16 |
+| `503 Service Unavailable` | The export waited this long for the SQLite writer, behind the exports ahead of it | `TRAILBEAM_INGEST_MAX_WAIT_S` / `--ingest-max-wait`, default 2 |
+
+Both answers carry `Retry-After` in whole seconds, from 1 to 3. The value is how long the exports
+already waiting should take to write. The body is an OTLP `google.rpc.Status`. OTLP exporters retry
+429 and 503 and wait the `Retry-After` time
+([OTLP/HTTP throttling](https://opentelemetry.io/docs/specs/otlp/#otlphttp-throttling)). That includes
+the OTel SDKs' `OTLPSpanExporter` and the Collector's `otlphttp` exporter. The Python exporter retries
+only within its 10 s export timeout, which is why the wait and `Retry-After` are kept short. If every
+retry is rejected too, the SDK drops that batch on its side. Trailbeam counts each rejection in
+`trailbeam_ingest_rejected_requests_total`, so the drop shows up there and isn't silent. To ride out
+longer overloads, send through a Collector with a sending queue ([`collector/`](collector/README.md)).
+
+### Metrics: `GET /metrics`
+
+Trailbeam serves Prometheus metrics on its own port, at `/metrics`. In 0.1 that endpoint has no
+authentication, like the rest of Trailbeam. Labels never hold span data: routes are templates such as
+`/api/messages/{id}`.
+
+| Metric | Type | What |
+|---|---|---|
+| `trailbeam_ingest_spans_total{result}` | counter | Spans in accepted exports: `inserted`, `duplicate` (already stored, e.g. a retry), `invalid` (rejected by the span contract), `ignored` (not Trailbeam spans). `rate()` gives spans/s |
+| `trailbeam_ingest_requests_total{code}` | counter | Exports to `/v1/traces` by response status |
+| `trailbeam_ingest_rejected_requests_total{reason}` | counter | 429s (`queue_full`) and 503s (`writer_behind`) |
+| `trailbeam_ingest_request_duration_seconds{outcome}` | histogram | Export latency, from body received to response: `accepted`, `rejected`, `error` |
+| `trailbeam_ingest_writer_wait_seconds` | histogram | Time an export waited for the SQLite writer |
+| `trailbeam_ingest_write_duration_seconds` | histogram | One export's write transaction |
+| `trailbeam_ingest_queue_depth`, `trailbeam_ingest_queue_capacity` | gauge | Exports in progress, and the most allowed before a 429 |
+| `trailbeam_ingest_max_wait_seconds`, `trailbeam_ingest_retry_after_seconds` | gauge | The 503 threshold, and the Retry-After a rejected export would get now |
+| `trailbeam_join_duration_seconds{join}` | histogram | One receipt-hash join at insert: `settle` or `receive` |
+| `trailbeam_http_request_duration_seconds{route}` | histogram | API and page latency by route |
+| `trailbeam_http_requests_total{route,code}` | counter | API and page requests by route and status |
+| `trailbeam_db_file_bytes{file}` | gauge | SQLite file (`main`) and write-ahead log (`wal`) size |
+| `trailbeam_db_last_row` | gauge | Highest span row ID (one index step, not a count) |
+| `trailbeam_build_info{version}`, `trailbeam_start_time_seconds` | gauge | Version and start time |
+
+Retention purge metrics come with the retention setting.
+
+A scrape config for Prometheus:
+
+```yaml
+scrape_configs:
+  - job_name: trailbeam
+    scrape_interval: 15s
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["trailbeam:4318"]   # host:port Trailbeam listens on
+```
+
+Useful alerts and queries:
+
+```promql
+sum(rate(trailbeam_ingest_spans_total{result="inserted"}[5m]))                      # spans/s stored
+sum by (reason) (rate(trailbeam_ingest_rejected_requests_total[5m])) > 0           # backpressure: alert
+histogram_quantile(0.99, sum by (le) (rate(trailbeam_ingest_request_duration_seconds_bucket{outcome="accepted"}[5m])))
+histogram_quantile(0.95, sum by (le, route) (rate(trailbeam_http_request_duration_seconds_bucket[5m])))
+trailbeam_ingest_queue_depth / trailbeam_ingest_queue_capacity > 0.8               # close to 429s
+```
+
 ## Open source and the hosted app
 
 Everything that tells you what happened to your messages is open source and runs on your own

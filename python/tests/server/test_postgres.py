@@ -251,11 +251,37 @@ def test_the_server_ingests_into_postgres(pg_store):
     s = pg_store()
     w = Consumer()
     body = to_proto([w.send(D0, "m1"), w.receive(D0 + SEC, "m1", "h1"), w.delete(D0 + 2 * SEC, "h1")]).SerializeToString()
-    status, _, _ = App(s).ingest(body, "application/x-protobuf", abandoned=lambda: False)
+    status, _, _, _ = App(s).ingest(body, "application/x-protobuf", abandoned=lambda: False)
     assert status == 200
     t = queries.message(s, "m1", D0 + 10 * SEC, 900)
     assert t["state"] == "deleted" and len(t["events"]) == 3
     assert Cutoffs(None).keeps_everything()
+
+
+@needs_pg
+def test_every_ingest_connection_busy_is_writer_busy_with_nothing_written(pg_store):
+    """QV-74: with all of a replica's ingest connections held by other exports, an export that can't get one
+    within wait_s raises WriterBusy (503 writer_behind, not store_unreachable) and stores nothing; once a
+    connection is free it goes through."""
+    from trailbeam.server.store import WriterBusy
+
+    s = pg_store(ingest_connections=2)
+    w = Consumer()
+    records = decode(to_proto([w.send(D0, "m1"), w.receive(D0 + SEC, "m1", "h1")]).SerializeToString(),
+                     "application/x-protobuf").records
+    held = [s.ingest.getconn() for _ in range(2)]
+    try:
+        t0 = time.monotonic()
+        with pytest.raises(WriterBusy):
+            s.insert(records, wait_s=0.3)
+        assert time.monotonic() - t0 < 5  # bounded by wait_s, not INGEST_CONNECTION_WAIT_S
+        assert s.last_row() == 0
+    finally:
+        for c in held:
+            s.ingest.putconn(c)
+    timings: dict = {}
+    assert s.insert(records, wait_s=0.3, timings=timings) == (2, 0)
+    assert timings["wait_s"] >= 0 and timings["write_s"] > 0
 
 
 # ---- liveness, readiness and an unreachable database (QV-81) ------------------------------------------

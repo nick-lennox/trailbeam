@@ -73,7 +73,19 @@ For each size, smallest first, growing the same SQLite file from the previous si
    the growing file. Each step records `db_spans_before`, and `summary.md` shows it.
 4. **Pages under ingest.** From the seeded file again, the pages in a loop, while ingest runs at the highest steady rate. The
    export latency of that ingest is recorded too.
-5. **Breakdown.** Server stopped, the seeded file restored: where a 512-span export's time goes in-process,
+5. **Above the ceiling** (`--overload-seconds`, 30; 0 skips it). From the seeded file again, the load
+   generator at `--overload-factor` (2) times the first rate that was not steady, and the OTel SDK
+   (`--sdk` mode, at the steady rate) alongside it, so its exporter meets a server that is already full.
+   The load generator runs `--overload-concurrency` (16) exports per process here, not the ramp's
+   `--concurrency`: a fleet of producers has more exports in flight than the server takes at once
+   (`TRAILBEAM_INGEST_MAX_PENDING`, 16). With only 8 in flight the clients just slow down, so the backlog
+   stays on the client side and the server is never full.
+   Records the HTTP statuses each saw, the SDK exporter's retries and the `Retry-After` values it got, and
+   the server's `/metrics` rejections. Then it checks every span: `acked_not_stored` is spans in a 200
+   response that are not in the file. That is silent loss on the server side, and it must be 0.
+   `stored_not_acked` is spans committed after the client gave up waiting. Their retry is a duplicate,
+   which the server skips.
+6. **Breakdown.** Server stopped, the seeded file restored: where a 512-span export's time goes in-process,
    averaged over 3 exports after one untimed warm-up export on a cold page cache (`cold_insert_ms`). That covers decode,
    `Database.insert` and its two join queries, plus the query plans of both joins (the server's own SQL,
    `db.SETTLE_JOIN_SQL` and `db.RECEIVE_JOIN_SQL`).

@@ -572,7 +572,7 @@ def run(url: str, profile: Profile, rate: float, duration: float, *, concurrency
         "seed": seed, "duration_s": duration, "elapsed_s": round(elapsed, 2),
         "achieved_spans_per_s": round(spans_ok / elapsed, 1) if elapsed else 0,
         "achieved_msgs_per_s": round(spans_ok / elapsed / spm, 1) if elapsed else 0,
-        "exports": exports, "errors": exports - statuses.get("200", 0), "statuses": statuses,
+        "exports": exports, "errors": exports - statuses.get("200", 0), "statuses": statuses, "spans_ok": spans_ok,
         "export_p50_ms": _ms(percentile(lat, 0.50)), "export_p99_ms": _ms(percentile(lat, 0.99)),
         "export_max_ms": _ms(max(lat) if lat else None),
         "behind_p99_s": round(percentile(behind, 0.99) or 0, 3), "behind_max_s": round(max(behind or [0]), 3),
@@ -610,7 +610,21 @@ def run_sdk(url: str, profile: Profile, rate: float, duration: float, *, seed: O
     from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExportResult
     from opentelemetry.sdk.trace.sampling import ALWAYS_ON
 
+    import requests
+
     tally = {"ok": 0, "failed": 0, "calls": 0, "seconds": []}
+    # Every HTTP attempt the exporter makes, retries included: it retries 429/502/503/504 within its timeout,
+    # waiting Retry-After when the server sends one (a backpressure-aware server, QV-74).
+    attempts: dict = {}
+    retry_after: list = []
+    session = requests.Session()
+
+    def on_response(r, *a, **kw):
+        attempts[str(r.status_code)] = attempts.get(str(r.status_code), 0) + 1
+        if r.headers.get("Retry-After"):
+            retry_after.append(r.headers["Retry-After"])
+
+    session.hooks["response"].append(on_response)
 
     class Counting(OTLPSpanExporter):
         # Not the SDK's "Queue full" warnings: a DuplicateFilter on its logger suppresses most of them.
@@ -641,10 +655,10 @@ def run_sdk(url: str, profile: Profile, rate: float, duration: float, *, seed: O
         handler = Lines(logging.WARNING)
         logging.getLogger("trailbeam").addHandler(handler)
         stats_before = trailbeam.export_stats()
-        proc = CountingSpanProcessor(Counting(endpoint=url), **kw)
+        proc = CountingSpanProcessor(Counting(endpoint=url, session=session), **kw)
         queue_size = proc.limit
     elif processor == "stock":
-        proc = BatchSpanProcessor(Counting(endpoint=url), **kw)
+        proc = BatchSpanProcessor(Counting(endpoint=url, session=session), **kw)
         queue_size = max_queue_size or 2048
     else:
         raise ValueError(f"processor must be trailbeam or stock, not {processor!r}")
@@ -687,6 +701,9 @@ def run_sdk(url: str, profile: Profile, rate: float, duration: float, *, seed: O
             "never_exported_spans": emitted - tally["ok"] - tally["failed"],
             "dropped_spans": lost, "dropped_pct": round(100 * lost / emitted, 2) if emitted else 0,
             "received_spans": received, "export_calls": tally["calls"],
+            "http_attempts": sum(attempts.values()), "http_statuses": attempts,
+            "exporter_retries": max(sum(attempts.values()) - tally["calls"], 0),
+            "retry_after_values": sorted(set(retry_after)),
             "export_max_s": round(secs[-1], 2) if secs else None,
             "flushed_in_time": flushed, "processor": processor, "max_queue_size": queue_size, **counter,
             "profile": asdict(profile)}
