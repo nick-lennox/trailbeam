@@ -83,6 +83,12 @@ class Store(abc.ABC):
 
     store_bodies: frozenset  # queues whose bodies are kept (``*``: every queue); empty: none
 
+    # Retention's granularity, in ns of span time (purge_step). 1: exact, a message expires as soon as its newest
+    # span is older than the cutoff (SQLite). G > 1: the store drops whole time buckets ``[k*G, (k+1)*G)``, and a
+    # message expires once the bucket of its newest span has ended before the cutoff, at ``(t // G + 1) * G``: with
+    # daily buckets a 7-day retention keeps a message 7 to 8 days. Never shorter than the retention asked for.
+    retention_granularity_ns: int = 1
+
     # ---- writes ------------------------------------------------------------------------------
 
     @abc.abstractmethod
@@ -97,10 +103,12 @@ class Store(abc.ABC):
         ``limit`` messages and deletes the expired ones in one short write, so ingest and pages never wait long
         behind it; between steps the caller pauses.
 
-        Expired, a message: its newest span ended before the cutoff of every queue it has a span on. So the
+        Expired, a message: its newest span ended before the cutoff of every queue it has a span on (with
+        ``retention_granularity_ns`` G > 1: the end of that span's bucket, ``(time_ns // G + 1) * G``, is at or
+        before it). So the
         longest retention among its queues wins, and one queue kept forever keeps the message. A message is
         deleted whole or not at all: no timeline is cut in half, and no settle span loses its receive. A settle
-        span that belongs to no message (no ``mid``): its own ``time_ns`` against its own queue's cutoff.
+        span that belongs to no message (no ``mid``): its own ``time_ns`` against its own queue's cutoff, the same way.
 
         Spans that change a message between steps are taken into account: a step deletes a message only if it
         is still expired in the write. ``resume`` is opaque to the caller."""
