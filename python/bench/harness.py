@@ -197,10 +197,12 @@ def free_port() -> int:
 class Server:
     """``python -m trailbeam.server`` on a file, as a subprocess, with its CPU time from /proc."""
 
-    def __init__(self, db: str, store_bodies=(), log_path: Optional[str] = None):
+    def __init__(self, db: str, store_bodies=(), log_path: Optional[str] = None, args=("--retention", "forever")):
+        """``args``: more options. By default retention is off: the seeded spans go back ``--seed-days``, and
+        the server's default (7d) would delete the oldest during the measurements."""
         self.port = free_port()
         cmd = [sys.executable, "-m", "trailbeam.server", "--db", db, "--port", str(self.port),
-               "--log-level", "WARNING"]
+               "--log-level", "WARNING", *args]
         if store_bodies:
             cmd += ["--store-bodies", ",".join(store_bodies)]
         self.log = open(log_path or os.devnull, "ab")
@@ -366,6 +368,63 @@ def ingest_step(srv: Server, profile, rate: float, seconds: float, args) -> dict
     return res
 
 
+def purge_under_ingest(db_path: str, snapshot: Optional[str], profile, store_bodies, args, log=print,
+                       log_path: Optional[str] = None) -> dict:
+    """A retention pass while ingest runs. Twice from the seeded file: ``baseline`` with retention off, then
+    ``purge`` with ``--purge-retention``, whose pass starts with the server. Ingest runs in windows of
+    ``--purge-window-s`` at ``--purge-spans-per-s`` until the pass has ended (or ``--purge-max-s``); the gate
+    is the worst window's export p99. Records the pass (from /api/health) and the file before and after."""
+    spm = profile.mean_spans_per_message()
+    rate = args.purge_spans_per_s / spm
+    out: dict = {"retention": args.purge_retention, "target_spans_per_s": args.purge_spans_per_s}
+
+    def storage() -> dict:
+        c = sqlite3.connect(db_path)
+        try:
+            ps, pages, free, av = (c.execute(f"PRAGMA {p}").fetchone()[0]
+                                   for p in ("page_size", "page_count", "freelist_count", "auto_vacuum"))
+            spans = c.execute("SELECT COUNT(*) FROM spans").fetchone()[0]
+        finally:
+            c.close()
+        return {"spans": spans, "file_mb": round(ps * pages / 1e6, 1), "free_mb": round(ps * free / 1e6, 1),
+                "auto_vacuum": {0: "none", 1: "full", 2: "incremental"}[av]}
+
+    def health(srv) -> dict:
+        return json.loads(get(srv.port, "/api/health", timeout=30)[1])["config"]["retention"] or {}
+
+    for case, extra in (("baseline", ("--retention", "forever")),
+                        ("purge", ("--retention", args.purge_retention, "--purge-interval", "86400"))):
+        if snapshot:
+            restore_file(snapshot, db_path)
+        before = storage()
+        srv = Server(db_path, store_bodies, log_path, args=extra)
+        windows, t0 = [], time.monotonic()
+        try:
+            while True:
+                w = ingest_step(srv, profile, rate, args.purge_window_s, args)
+                h = health(srv) if case == "purge" else {}
+                w["pass_running"] = bool(h.get("running"))
+                windows.append(w)
+                log(f"  {case}: {w['achieved_spans_per_s']} spans/s, export p99 {w['export_p99_ms']} ms, errors "
+                    f"{w['errors']}" + (f", pass {'running' if w['pass_running'] else 'done'}" if case == "purge" else ""))
+                done = case == "baseline" or (h.get("passes", 0) >= 1 and not h.get("running"))
+                if done or time.monotonic() - t0 > args.purge_max_s:
+                    break
+            passed = h.get("last_pass") if case == "purge" else None
+        finally:
+            srv.stop()
+        res = {"windows": windows, "before": before, "after": storage(),
+               "worst_export_p99_ms": max((w["export_p99_ms"] or 0) for w in windows),
+               "errors": sum(w["errors"] for w in windows)}
+        if case == "purge":
+            res["pass"] = passed
+            res["pass_finished"] = passed is not None
+        out[case] = res
+    p = out["purge"]
+    out["gate_ok"] = bool(p["pass_finished"] and p["errors"] == 0 and p["worst_export_p99_ms"] <= args.max_export_p99_ms)
+    return out
+
+
 def breakdown(db_path: str, profile, store_bodies, batches: int = 3) -> dict:
     """Where one export's time goes, in-process on the database file: decode, insert, and the join queries.
     Adds ``batches`` + 1 exports of spans to the file. The first, on a cold page cache, is reported on its own
@@ -499,83 +558,106 @@ def run(args) -> dict:
                  "file_mb": round(file_bytes(db_path) / 1e6, 1)}
         results["sizes"].append(entry)
         log(f"  {entry['spans']:,} spans, {entry['file_mb']:,} MB")
-        pages = {k: v for k, v in page_paths(db_path, profile).items() if k not in skipped}
+        if args.purge_only:
+            entry["purge_only"] = True
+            pages = {}
+        else:
+            pages = {k: v for k, v in page_paths(db_path, profile).items() if k not in skipped}
         if skipped:
             entry["pages_skipped"] = dict(skipped)
-        # Each ingest step writes spans: at a ceiling of thousands of spans/s one ramp adds far more than a
-        # 10k or 100k database holds. So every step starts from a copy of the seeded file, while copying is
-        # cheap. Above --restore-max-gb the steps run on the growing file and record its size instead.
-        snapshot = None
-        if file_bytes(db_path) <= args.restore_max_gb * 1e9:
-            snapshot = str(work / "bench.seeded.sqlite")
-            copy_synced(db_path, snapshot)
-        entry["steps_restore_seeded_file"] = snapshot is not None
-        box = {"srv": Server(db_path, store, str(out / "server.log"))}
+        if not args.purge_only:
+            # Each ingest step writes spans: at a ceiling of thousands of spans/s one ramp adds far more than a
+            # 10k or 100k database holds. So every step starts from a copy of the seeded file, while copying is
+            # cheap. Above --restore-max-gb the steps run on the growing file and record its size instead.
+            snapshot = None
+            if file_bytes(db_path) <= args.restore_max_gb * 1e9:
+                snapshot = str(work / "bench.seeded.sqlite")
+                copy_synced(db_path, snapshot)
+            entry["steps_restore_seeded_file"] = snapshot is not None
+            box = {"srv": Server(db_path, store, str(out / "server.log"))}
 
-        def restart() -> int:
-            box["srv"].stop()
-            box["srv"] = Server(db_path, store, str(out / "server.log"))
-            return box["srv"].port
+            def restart() -> int:
+                box["srv"].stop()
+                box["srv"] = Server(db_path, store, str(out / "server.log"))
+                return box["srv"].port
 
-        def restore_seeded() -> None:
-            box["srv"].stop()
-            if snapshot:
-                restore_file(snapshot, db_path)
-            box["srv"] = Server(db_path, store, str(out / "server.log"))
+            def restore_seeded() -> None:
+                box["srv"].stop()
+                if snapshot:
+                    restore_file(snapshot, db_path)
+                box["srv"] = Server(db_path, store, str(out / "server.log"))
 
-        try:
-            entry["pages_idle"] = time_pages(box["srv"].port, pages, repeats=args.page_repeats,
-                                             budget_s=args.page_budget_s, timeout_s=args.page_timeout_s,
-                                             restart=restart)
-            for name, v in entry["pages_idle"].items():
-                if v["timeouts"]:  # it would hold the lock through every later measurement
-                    skipped[name] = f"timed out ({args.page_timeout_s:g} s) at {entry['spans']:,} spans"
-            pages = {k: v for k, v in pages.items() if k not in skipped}
-            log("  pages idle: " + ", ".join(f"{k} {v['p95_ms']}" for k, v in entry["pages_idle"].items()))
-            save()
-            ramp = []
-            for rate in [float(r) for r in args.rates.split(",")]:
-                restore_seeded()
-                before = span_count(db_path)
-                step = ingest_step(box["srv"], profile, rate, args.step_seconds, args)
-                step["db_spans_before"] = before
-                ramp.append(step)
-                log(f"  ingest {rate:g} msg/s ({step['target_spans_per_s']:g} spans/s): achieved "
-                    f"{step['achieved_spans_per_s']:g} spans/s, p99 {step['export_p99_ms']} ms, errors "
-                    f"{step['errors']}, cpu {step['server_cpu_pct']}%{'' if step['steady'] else '  NOT STEADY'}")
-                entry["ingest"] = ramp
+            try:
+                entry["pages_idle"] = time_pages(box["srv"].port, pages, repeats=args.page_repeats,
+                                                 budget_s=args.page_budget_s, timeout_s=args.page_timeout_s,
+                                                 restart=restart)
+                for name, v in entry["pages_idle"].items():
+                    if v["timeouts"]:  # it would hold the lock through every later measurement
+                        skipped[name] = f"timed out ({args.page_timeout_s:g} s) at {entry['spans']:,} spans"
+                pages = {k: v for k, v in pages.items() if k not in skipped}
+                log("  pages idle: " + ", ".join(f"{k} {v['p95_ms']}" for k, v in entry["pages_idle"].items()))
                 save()
-                if not step["steady"]:
-                    break  # the next restore_seeded() also drops the backlog the server is still working through
-            steady = [s for s in ramp if s["steady"]]
-            best = steady[-1] if steady else None
-            entry["max_steady_spans_per_s"] = best["achieved_spans_per_s"] if best else 0
-            entry["max_steady_msgs_per_s"] = best["target_msgs_per_s"] if best else 0
-            under_rate = best["target_msgs_per_s"] if best else ramp[0]["target_msgs_per_s"]
-            restore_seeded()
-            entry["ingest_under_pages_db_spans_before"] = span_count(db_path)
-            loop = PageLoop(box["srv"].port, pages, args.page_timeout_s)
-            loop.start()
-            entry["ingest_under_pages"] = ingest_step(box["srv"], profile, under_rate, args.under_load_seconds, args)
-            loop.halt.set()
-            loop.join(args.page_timeout_s + 5)
-            entry["pages_under_ingest"] = loop.result()
-            entry["pages_under_ingest_rate_msgs_per_s"] = under_rate
-            log("  pages under ingest: " + ", ".join(f"{k} {v['p95_ms']}" for k, v in entry["pages_under_ingest"].items()))
-            log(f"  ingest while pages load: p99 {entry['ingest_under_pages']['export_p99_ms']} ms, achieved "
-                f"{entry['ingest_under_pages']['achieved_spans_per_s']} spans/s")
+                ramp = []
+                for rate in [float(r) for r in args.rates.split(",")]:
+                    restore_seeded()
+                    before = span_count(db_path)
+                    step = ingest_step(box["srv"], profile, rate, args.step_seconds, args)
+                    step["db_spans_before"] = before
+                    ramp.append(step)
+                    log(f"  ingest {rate:g} msg/s ({step['target_spans_per_s']:g} spans/s): achieved "
+                        f"{step['achieved_spans_per_s']:g} spans/s, p99 {step['export_p99_ms']} ms, errors "
+                        f"{step['errors']}, cpu {step['server_cpu_pct']}%{'' if step['steady'] else '  NOT STEADY'}")
+                    entry["ingest"] = ramp
+                    save()
+                    if not step["steady"]:
+                        break  # the next restore_seeded() also drops the backlog the server is still working through
+                steady = [s for s in ramp if s["steady"]]
+                best = steady[-1] if steady else None
+                entry["max_steady_spans_per_s"] = best["achieved_spans_per_s"] if best else 0
+                entry["max_steady_msgs_per_s"] = best["target_msgs_per_s"] if best else 0
+                under_rate = best["target_msgs_per_s"] if best else ramp[0]["target_msgs_per_s"]
+                restore_seeded()
+                entry["ingest_under_pages_db_spans_before"] = span_count(db_path)
+                loop = PageLoop(box["srv"].port, pages, args.page_timeout_s)
+                loop.start()
+                entry["ingest_under_pages"] = ingest_step(box["srv"], profile, under_rate, args.under_load_seconds, args)
+                loop.halt.set()
+                loop.join(args.page_timeout_s + 5)
+                entry["pages_under_ingest"] = loop.result()
+                entry["pages_under_ingest_rate_msgs_per_s"] = under_rate
+                log("  pages under ingest: " + ", ".join(f"{k} {v['p95_ms']}" for k, v in entry["pages_under_ingest"].items()))
+                log(f"  ingest while pages load: p99 {entry['ingest_under_pages']['export_p99_ms']} ms, achieved "
+                    f"{entry['ingest_under_pages']['achieved_spans_per_s']} spans/s")
+                save()
+                if args.sdk_seconds and size == max(parse_size(s) for s in args.sizes.split(",")):
+                    sdk_rate = max(under_rate * 4, 5)
+                    entry["sdk"] = loadgen.run_sdk(box["srv"].otlp, profile, sdk_rate, args.sdk_seconds, settle_s=30)
+                    entry["sdk"].pop("profile", None)
+                    log(f"  SDK at {sdk_rate:g} msg/s: dropped {entry['sdk']['dropped_spans']} of "
+                        f"{entry['sdk']['emitted_spans']} ({entry['sdk']['dropped_pct']}%)")
+            finally:
+                box["srv"].stop()
+                if snapshot:  # the next size grows from this size's seeded file, not from what the ramp added
+                    restore_file(snapshot, db_path)
+                    os.remove(snapshot)
+        if args.purge_retention:
+            snap = None
+            if file_bytes(db_path) <= args.restore_max_gb * 1e9:
+                snap = str(work / "bench.seeded.sqlite")
+                copy_synced(db_path, snap)
+            try:
+                entry["purge_under_ingest"] = purge_under_ingest(db_path, snap, profile, store, args, log,
+                                                                 str(out / "server.log"))
+            finally:
+                if snap:
+                    restore_file(snap, db_path)
+                    os.remove(snap)
+            pu = entry["purge_under_ingest"]
+            log(f"  purge under ingest: worst export p99 {pu['purge']['worst_export_p99_ms']} ms "
+                f"(baseline {pu['baseline']['worst_export_p99_ms']} ms), gate {'ok' if pu['gate_ok'] else 'FAILED'}")
             save()
-            if args.sdk_seconds and size == max(parse_size(s) for s in args.sizes.split(",")):
-                sdk_rate = max(under_rate * 4, 5)
-                entry["sdk"] = loadgen.run_sdk(box["srv"].otlp, profile, sdk_rate, args.sdk_seconds, settle_s=30)
-                entry["sdk"].pop("profile", None)
-                log(f"  SDK at {sdk_rate:g} msg/s: dropped {entry['sdk']['dropped_spans']} of "
-                    f"{entry['sdk']['emitted_spans']} ({entry['sdk']['dropped_pct']}%)")
-        finally:
-            box["srv"].stop()
-            if snapshot:  # the next size grows from this size's seeded file, not from what the ramp added
-                restore_file(snapshot, db_path)
-                os.remove(snapshot)
+        if args.purge_only:
+            continue
         entry["breakdown"] = breakdown(db_path, profile, store)
         log(f"  breakdown: {entry['breakdown']}")
         entry["file_mb_after"] = round(file_bytes(db_path) / 1e6, 1)
@@ -685,6 +767,22 @@ def summary(results: dict) -> str:
                       f"exported {s['exported_spans']}, server received {s['received_spans']}, "
                       f"**dropped {s['dropped_spans']} ({s['dropped_pct']}%)**: {s['never_exported_spans']} never "
                       f"exported (queue full), {s['failed_export_spans']} in failed exports."]
+    purges = [e for e in sizes if e.get("purge_under_ingest")]
+    if purges:
+        lines += ["", "## Retention pass under ingest", "",
+                  "| DB spans | retention | ingest spans/s | export p99, worst window: baseline / purge | errors | "
+                  "pass s | spans deleted | longest delete / reclaim step ms | space given back MB | file MB before / after | gate |",
+                  "|---|---|---|---|---|---|---|---|---|---|---|"]
+        for e in purges:
+            pu = e["purge_under_ingest"]
+            b, q = pu["baseline"], pu["purge"]
+            ps = q.get("pass") or {}
+            lines.append(
+                f"| {e['spans']:,} | {pu['retention']} | {pu['target_spans_per_s']:g} | {b['worst_export_p99_ms']} / "
+                f"{q['worst_export_p99_ms']} ms | {q['errors']} | {ps.get('seconds', 'not finished')} | "
+                f"{ps.get('deleted_spans', '-'):,} | {ps.get('longest_step_ms', '-')} / {ps.get('longest_reclaim_step_ms', '-')} | "
+                f"{round(ps.get('reclaimed_pages', 0) * 4096 / 1e6, 1)} | {q['before']['file_mb']:,} / {q['after']['file_mb']:,} "
+                f"({q['before']['auto_vacuum']}) | {'ok' if pu['gate_ok'] else 'FAILED'} |")
     if results.get("growth"):
         lines += ["", "## File growth", "", "| case | MB per million spans |", "|---|---|"]
         lines += [f"| {g['case']} | {g['mb_per_million_spans']:,} |" for g in results["growth"]]
@@ -714,6 +812,14 @@ def main(argv=None) -> None:
     p.add_argument("--sdk-seconds", type=float, default=30, help="0 skips the SDK drop measurement")
     p.add_argument("--restore-max-gb", type=float, default=4,
                    help="start every ingest step from a copy of the seeded file up to this size")
+    p.add_argument("--purge-retention", default="",
+                   help="also time a retention pass under ingest, with this --retention (e.g. 3d: with --seed-days 7, "
+                        "about half the file expires); default: skip")
+    p.add_argument("--purge-spans-per-s", type=float, default=1000, help="ingest rate during the purge measurement")
+    p.add_argument("--purge-window-s", type=float, default=30, help="export p99 is taken per window of this length")
+    p.add_argument("--purge-max-s", type=float, default=1800, help="stop ingest after this long even if the pass runs on")
+    p.add_argument("--purge-only", action="store_true",
+                   help="seed and the purge measurement only: no pages, ramp, breakdown")
     p.add_argument("--fresh", action="store_true", help="delete the database file first")
     p.add_argument("--cleanup", action="store_true", help="delete the database file at the end")
     loadgen.add_profile_args(p)

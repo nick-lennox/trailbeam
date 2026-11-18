@@ -58,6 +58,25 @@ class TenantActivity(NamedTuple):
     waits: list          # first deliveries' times in queue, ms
 
 
+class Cutoffs(NamedTuple):
+    """Retention cutoffs on span time (``time_ns``): a span that ended before its queue's cutoff has expired.
+    ``None``: kept forever."""
+    default: Optional[int]
+    queues: Mapping[str, Optional[int]] = {}
+
+    def of(self, queue: str) -> Optional[int]:
+        return self.queues[queue] if queue in self.queues else self.default
+
+    def keeps_everything(self) -> bool:
+        return self.default is None and all(c is None for c in self.queues.values())
+
+
+class PurgeStep(NamedTuple):
+    deleted: int             # spans deleted
+    examined: int            # messages and unjoined settle spans looked at
+    resume: Optional[str]    # for the next step; None: the pass is complete
+
+
 class Store(abc.ABC):
     """Thread-safe: the server calls it from one thread per request, ingest and reads at once."""
 
@@ -71,11 +90,24 @@ class Store(abc.ABC):
         same trace and span ID, is skipped. Returns (inserted, duplicates)."""
 
     @abc.abstractmethod
-    def delete_messages_before(self, cutoff_ns: int, queue: Optional[str] = None, limit: int = 10_000) -> int:
-        """Retention: delete every span of up to ``limit`` messages whose newest span is before ``cutoff_ns``,
-        and settle spans that belong to no message and ended before it. Whole messages, so no timeline is cut
-        in half. ``queue``: only messages with a span on that queue, and unjoined settle spans on it. Returns
-        the number of spans deleted; call again until it returns 0."""
+    def purge_step(self, cutoffs: "Cutoffs", resume: Optional[str] = None, limit: int = 100) -> "PurgeStep":
+        """Retention: one step of a pass that deletes expired spans. A pass is the steps from ``resume=None``,
+        each given the previous step's ``resume``, until one returns ``resume=None``. A step looks at about
+        ``limit`` messages and deletes the expired ones in one short write, so ingest and pages never wait long
+        behind it; between steps the caller pauses.
+
+        Expired, a message: its newest span ended before the cutoff of every queue it has a span on. So the
+        longest retention among its queues wins, and one queue kept forever keeps the message. A message is
+        deleted whole or not at all: no timeline is cut in half, and no settle span loses its receive. A settle
+        span that belongs to no message (no ``mid``): its own ``time_ns`` against its own queue's cutoff.
+
+        Spans that change a message between steps are taken into account: a step deletes a message only if it
+        is still expired in the write. ``resume`` is opaque to the caller."""
+
+    def reclaim_space(self, max_pages: int) -> int:
+        """Give up to ``max_pages`` of the space deleted spans left back to the file system. Returns the pages
+        given back; 0 when there are none, or the backend reclaims space by itself."""
+        return 0
 
     # ---- one message -------------------------------------------------------------------------
 

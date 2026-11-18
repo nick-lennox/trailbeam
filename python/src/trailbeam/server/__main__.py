@@ -5,10 +5,13 @@ import argparse
 import logging
 import os
 import signal
+import sqlite3
 import sys
+import time
 
 from .db import SqliteStore, parse_queue_list
 from .migrations import SchemaError
+from .retention import DEFAULT as DEFAULT_RETENTION, Purger, Retention, parse_duration, parse_queue_retentions
 from .server import make_server
 
 
@@ -36,6 +39,23 @@ def main(argv=None) -> None:
                         "capture them. Bodies of every other queue are dropped before they are written "
                         "(env TRAILBEAM_STORE_BODIES, default none: no body is stored). Trailbeam has no "
                         "logins: run it on a trusted network if you set this")
+    p.add_argument("--retention", type=_arg(parse_duration),
+                   default=_env(parse_duration, "TRAILBEAM_RETENTION", DEFAULT_RETENTION),
+                   help="how long spans are kept: a duration such as 7d, 36h or 90m, or forever "
+                        f"(env TRAILBEAM_RETENTION, default {DEFAULT_RETENTION}). Whole messages are deleted, once "
+                        "their newest span is older")
+    p.add_argument("--retention-queues", type=_arg(parse_queue_retentions),
+                   default=_env(parse_queue_retentions, "TRAILBEAM_RETENTION_QUEUES", ""),
+                   help="QUEUE=DURATION[,QUEUE=DURATION...]: per-queue retention, overriding --retention, e.g. "
+                        "orders-dlq=30d,audit=forever. A message on several queues is kept as long as the longest "
+                        "(env TRAILBEAM_RETENTION_QUEUES)")
+    p.add_argument("--purge-interval", type=float, default=float(os.environ.get("TRAILBEAM_PURGE_INTERVAL_S", "600")),
+                   help="seconds between retention passes; the first runs at start (env TRAILBEAM_PURGE_INTERVAL_S, "
+                        "default 600)")
+    p.add_argument("--vacuum", action="store_true",
+                   help="rewrite the database file once so that retention gives deleted space back to the disk "
+                        "(files created before retention, schema 8), then exit. Stop the server first; needs free disk "
+                        "for a second copy of the file")
     p.add_argument("--log-level", default=os.environ.get("TRAILBEAM_LOG_LEVEL", "INFO"))
     a = p.parse_args(argv)
     logging.basicConfig(level=a.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -48,20 +68,70 @@ def main(argv=None) -> None:
         sys.exit(2)
     if db.migrated:
         logging.getLogger("trailbeam.server").info("upgraded %s to schema version %d", a.db, db.migrated[-1])
+    if a.vacuum:
+        sys.exit(vacuum(db, a.db))
+    retention = Retention(a.retention, a.retention_queues)
+    purger = Purger(db, retention, interval_s=a.purge_interval)
+    if db.storage()["auto_vacuum"] != "incremental" and not retention.keeps_everything():
+        logging.getLogger("trailbeam.server").info(
+            "%s was created without incremental vacuum: retention deletes old spans and new spans reuse the "
+            "space, but the file does not shrink. To give the space back, stop the server and run trailbeam "
+            "--db %s --vacuum once (it rewrites the file)", a.db, a.db)
     httpd = make_server(db, a.host, a.port, stuck_after_s=a.stuck_after,
-                        lambda_timeout_s=a.lambda_timeout, max_receive_counts=a.max_receive_count)
+                        lambda_timeout_s=a.lambda_timeout, max_receive_counts=a.max_receive_count,
+                        purger=purger)
     logging.getLogger("trailbeam.server").info("listening on http://%s:%d (OTLP: /v1/traces, API: /api/), db %s",
                                         a.host, httpd.server_address[1], a.db)
     # docker stop and systemd send SIGTERM; Python ignores it as PID 1 unless a handler is set. Stop the
     # same way as on Ctrl-C, so the SQLite file is closed cleanly.
     signal.signal(signal.SIGTERM, _interrupt)
+    logging.getLogger("trailbeam.server").info("retention %s", retention.config())
+    purger.start()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        purger.stop()
         httpd.server_close()
         db.close()
+
+
+def vacuum(db: SqliteStore, path: str) -> int:
+    log = logging.getLogger("trailbeam.server")
+    before = db.storage()
+    log.info("vacuum: rewriting %s (%.1f MB, %.1f MB of it free), with incremental vacuum from now on", path,
+             before["pages"] * before["page_size"] / 1e6, before["free_pages"] * before["page_size"] / 1e6)
+    t0 = time.monotonic()
+    try:
+        db.vacuum()
+    except sqlite3.Error as e:
+        log.error("vacuum failed, the file is as it was: %s", e)
+        return 1
+    finally:
+        after = db.storage()
+        db.close()
+    log.info("vacuum: done in %.1f s, %.1f MB, auto_vacuum %s", time.monotonic() - t0,
+             after["pages"] * after["page_size"] / 1e6, after["auto_vacuum"])
+    return 0
+
+
+def _arg(parse):
+    """An argparse type from a parser that raises ValueError."""
+    def typ(text):
+        try:
+            return parse(text)
+        except ValueError as e:
+            raise argparse.ArgumentTypeError(str(e)) from None
+    typ.__name__ = parse.__name__
+    return typ
+
+
+def _env(parse, name: str, default: str):
+    try:
+        return parse(os.environ.get(name, default))
+    except ValueError as e:
+        raise SystemExit(f"trailbeam: {name}: {e}") from None
 
 
 def _max_receive_counts(text: str) -> dict:

@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS spans (
 CREATE INDEX IF NOT EXISTS spans_mid ON spans (mid, time_ns);
 CREATE INDEX IF NOT EXISTS spans_hash ON spans (receipt_hmac, key_id);
 CREATE INDEX IF NOT EXISTS spans_kind_time ON spans (kind, time_ns);
+CREATE INDEX IF NOT EXISTS spans_receive_row ON spans (receive_row) WHERE receive_row IS NOT NULL;
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """ + """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -107,6 +108,10 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # Schema 5 is Trailbeam 0.1. Schema 6 adds the schema_version table; it changes no span data.
 # Schema 7 adds the summary tables the list pages read (summary_table.py) and builds them from the spans: one
 # pass over the file in message order, about a minute per million messages (QV-73).
+# Schema 8 indexes receive_row, the foreign key from settle spans to their receive. SQLite checks a foreign key
+# on every delete of a parent row by looking the child up: without this index that is a scan of the whole
+# table per deleted receive (QV-72: 65 s to delete 20 messages at 1.6M spans), so retention could not delete.
+# Partial: most rows (sends, receives, outcomes, unjoined settles) have none. About 1 s to build per 1M spans.
 MIGRATIONS = (
     Migration(2, "spans.start_ns", ("ALTER TABLE spans ADD COLUMN start_ns INTEGER",)),
     Migration(3, "spans call order", ("ALTER TABLE spans ADD COLUMN order_scope TEXT",
@@ -122,6 +127,8 @@ MIGRATIONS = (
            SELECT CAST(value AS INTEGER), NULL, 'before schema_version' FROM meta WHERE key = 'schema_version'""",
     )),
     Migration(7, "message summary tables", tuple(statements(summary_table.CREATE)), run=summary_table.backfill),
+    Migration(8, "spans_receive_row index", (
+        "CREATE INDEX spans_receive_row ON spans (receive_row) WHERE receive_row IS NOT NULL",)),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

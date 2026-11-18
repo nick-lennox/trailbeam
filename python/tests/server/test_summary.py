@@ -17,6 +17,7 @@ import loadgen  # noqa: E402
 
 from trailbeam.server import queries, summary, summary_table, timeline  # noqa: E402
 from trailbeam.server.db import SqliteStore  # noqa: E402
+from trailbeam.server.store import Cutoffs  # noqa: E402
 
 PROFILE = loadgen.Profile(queues=6, tenants=4, body_size=0, body_queues=0, redelivery=0.2, visibility_change=0.2,
                           dlq=0.1, stuck=0.1, lambda_consumer=0.3, late_join=0.4, batch_spans=40)
@@ -219,8 +220,12 @@ def test_retention_removes_the_summaries_of_what_it_deletes():
     for e in _generated_exports():
         s.insert(e)
     lasts = sorted(r["last_ns"] for r in s.query("SELECT last_ns FROM messages"))
-    s.delete_messages_before(lasts[len(lasts) // 2])
-    s.delete_messages_before(lasts[-1] + 1, queue="bench-q001")
+    for cutoffs in (Cutoffs(lasts[len(lasts) // 2]), Cutoffs(None, {"bench-q001": lasts[-1] + 1})):
+        resume = None
+        while True:  # one whole pass, as retention.Purger runs it
+            resume = s.purge_step(cutoffs, resume, limit=50).resume
+            if resume is None:
+                break
     assert _tables(s) == _rebuilt(s)
     assert 0 < len(_tables(s)["messages"]) < len(lasts)
     s.close()

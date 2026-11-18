@@ -191,7 +191,50 @@ instrumented, a package from before 3.2, or a body this server dropped because i
 reach Trailbeam can read every body it keeps, in the Body tab and from `/api/messages/{id}/body`, and
 anyone who can read its SQLite file can read them there. Trailbeam logs a warning at startup when the list
 is set. Keep it on a trusted network. Redaction happens in the packages, not in Trailbeam. Taking a queue
-off the list stops its bodies being shown or searched, but doesn't delete the ones already in the file.
+off the list stops its bodies being shown or searched, but doesn't delete the ones already in the file;
+they go when retention deletes their messages ([Retention](#retention)).
+
+### Retention
+
+Trailbeam keeps spans for **7 days** by default, then deletes them, bodies included. Set a different
+retention for every queue, override it for some queues, or keep data forever:
+
+```sh
+docker run ... -e TRAILBEAM_RETENTION=14d -e TRAILBEAM_RETENTION_QUEUES=orders-dlq=30d,audit=forever trailbeam
+# or trailbeam --retention 14d --retention-queues orders-dlq=30d,audit=forever
+```
+
+A retention is a duration in `s`, `m`, `h` or `d` (`90m`, `36h`, `7d`), or `forever`.
+`TRAILBEAM_RETENTION=forever` with no per-queue overrides turns the purge off.
+
+**Messages are deleted whole, never in part.** A message is deleted once its *newest* span is older than
+the retention of its queue, so a timeline is either complete or gone. That has three consequences:
+
+- A message whose spans straddle the cutoff (for example, sent 8 days ago and received again yesterday)
+  keeps all of its spans, including the old ones, until its last span expires.
+- A message with spans on several queues, such as one moved to a dead-letter queue, is kept for as long
+  as the longest retention among those queues. `orders-dlq=forever` keeps those messages' spans on `orders` too.
+- A settle span that no receive has claimed yet (a delete or visibility change whose receipt handle
+  Trailbeam never saw) belongs to no message. It is deleted by its own time and queue.
+
+Age is the span's end time, measured against the server's clock.
+
+**The purge runs in the background.** It starts when the server starts, then runs again every
+`TRAILBEAM_PURGE_INTERVAL_S` seconds (default 600). It deletes about 100 messages per short write
+transaction and pauses between them, so ingest and pages never wait behind a whole pass.
+`GET /api/health` shows the settings and the last pass under `config.retention`.
+
+**Disk space.** A database file created by this version gives the deleted space back to the disk
+(SQLite incremental vacuum, a few pages at a time after each pass). A file created by an earlier version
+reuses the freed space for new spans, so it stops growing, but it does not shrink. To shrink it, run a
+one-time rewrite while the server is stopped:
+
+```sh
+trailbeam --db /data/trailbeam.sqlite --vacuum
+```
+
+This copies the whole file (SQLite `VACUUM`), so it needs enough free disk for a second copy. Run it
+once; after that the file gives space back like a new one.
 
 ## Open source and the hosted app
 
@@ -210,7 +253,8 @@ It is not generally available yet.
 | JSON API | yes | |
 | Accounts, workspaces and teams | | yes |
 | Dashboards | | yes |
-| Hosting, retention and backups | | yes |
+| Retention: global, per queue, or forever | yes | yes |
+| Hosting and backups | | yes |
 
 Both show the same timeline from the same rules: the hosted app draws it with this repository's
 `@trailbeam/ui`, and its message pages are checked against this repository's code and the shared span

@@ -4,7 +4,8 @@ Every backend gives the same answers as SQLite from the same spans: expected.jso
 makes (cases.snapshot) on three datasets built from contract/fixtures and from spans that exercise the joins.
 The shared expected outputs in contract/fixtures (tenants-expected.json, body-views.json) are checked too.
 Then what the snapshot can't show: arrival order doesn't matter, exporter retries change nothing, a failed
-insert stores nothing, ingest and reads run concurrently, and retention deletes whole messages.
+insert stores nothing, ingest and reads run concurrently, and retention deletes whole messages
+(global, per queue and forever cutoffs, and a message that straddles the cutoff).
 
 The backends are in conftest.py. A test here must not use SQL, ``query`` or anything else outside Store.
 """
@@ -17,7 +18,7 @@ import pytest
 import cases
 from trailbeam.server import bodies, queries
 from trailbeam.server.otlp import decode
-from trailbeam.server.store import Store
+from trailbeam.server.store import Cutoffs, Store
 
 EXPECTED = json.loads((cases.Path(__file__).resolve().parent / "expected.json").read_text())
 DATASETS = sorted(cases.DATASETS)
@@ -182,14 +183,33 @@ def test_body_views_match_the_shared_expected_outputs(new_store, case):
 
 # ---- retention ---------------------------------------------------------------------------------------
 
+def purge(s, cutoffs, limit=500) -> int:
+    """One whole retention pass, as the server runs it. Returns the spans deleted."""
+    deleted, resume, steps = 0, None, 0
+    while True:
+        step = s.purge_step(cutoffs, resume, limit)
+        deleted, resume, steps = deleted + step.deleted, step.resume, steps + 1
+        assert steps < 10_000, "the pass never ends"
+        if resume is None:
+            return deleted
+
+
 def _last_ns(s, m):
     return max(r["time_ns"] for r in s.message_rows(m))
+
+
+def _queues(s, m):
+    return {r["queue"] for r in s.message_rows(m)}
+
+
+def _timelines(s, mids, name):
+    now, lt = cases.DATASETS[name]["now_ns"], cases.LAMBDA_TIMEOUT_S
+    return {m: queries.message(s, m, now, lt) for m in mids}
 
 
 def test_retention_deletes_whole_messages_last_seen_before_the_cutoff(new_store):
     name = "joins"
     s, untouched = load(new_store, name), load(new_store, name, store_name="b")
-    now, lt = cases.DATASETS[name]["now_ns"], cases.LAMBDA_TIMEOUT_S
     mids = s.recent_messages(1000)
     last = {m: _last_ns(s, m) for m in mids}
     cutoff = sorted(last.values())[len(last) // 2]
@@ -197,50 +217,109 @@ def test_retention_deletes_whole_messages_last_seen_before_the_cutoff(new_store)
     assert old and old != set(mids)
     spans_before = sum(s.counts()["spans"].values())
 
-    deleted = s.delete_messages_before(cutoff)
+    deleted = purge(s, Cutoffs(cutoff))
     assert deleted > 0
-    assert s.delete_messages_before(cutoff) == 0
+    assert purge(s, Cutoffs(cutoff)) == 0
     assert set(s.recent_messages(1000)) == set(mids) - old
     for m in old:
         assert s.message_rows(m) == []
-    for m in set(mids) - old:  # every kept message is exactly as it was, timeline and all
-        assert queries.message(s, m, now, lt) == queries.message(untouched, m, now, lt), m
+    kept = set(mids) - old  # every kept message is exactly as it was, timeline and all
+    assert _timelines(s, kept, name) == _timelines(untouched, kept, name)
     assert sum(s.counts()["spans"].values()) == spans_before - deleted
-    assert s.counts()["messages"] == len(set(mids) - old)
+    assert s.counts()["messages"] == len(kept)
+
+
+def test_a_message_that_straddles_the_cutoff_is_kept_whole_until_its_newest_span_expires(new_store):
+    """The straddle rule: a message whose spans fall on both sides of the cutoff keeps every span, old ones
+    too, and goes all at once when its newest span is older than the cutoff."""
+    name = "joins"
+    s, untouched = load(new_store, name), load(new_store, name, store_name="b")
+    spread = {m: sorted({r["time_ns"] for r in s.message_rows(m)}) for m in s.recent_messages(1000)}
+    m, times = max(spread.items(), key=lambda kv: len(kv[1]))
+    assert len(times) >= 3
+    straddling = times[len(times) // 2]  # spans before it and at or after it
+    before = s.message_rows(m)
+    purge(s, Cutoffs(straddling))
+    assert [dict(r) for r in s.message_rows(m)] == [dict(r) for r in before]
+    assert _timelines(s, [m], name) == _timelines(untouched, [m], name)
+    purge(s, Cutoffs(times[-1]))  # the newest span is at the cutoff, not before it: still kept
+    assert len(s.message_rows(m)) == len(before)
+    purge(s, Cutoffs(times[-1] + 1))
+    assert s.message_rows(m) == []
 
 
 def test_retention_deletes_unjoined_settle_spans_by_their_own_time(new_store):
     s = load(new_store, "joins")
     assert s.counts()["unjoined_settles"] == 2  # two deletes whose handles no receive returned
     assert s.recent_messages(1000)  # the one with a message ID belongs to that message ("m-e")
-    s.delete_messages_before(FOREVER)
+    purge(s, Cutoffs(FOREVER))
     assert s.counts() == {"spans": {}, "messages": 0, "unjoined_settles": 0}
 
 
-def test_retention_on_one_queue_keeps_the_others(new_store):
+def test_forever_keeps_everything(new_store):
+    name = "joins"
+    s = load(new_store, name)
+    before = s.counts()
+    assert purge(s, Cutoffs(None)) == 0
+    assert purge(s, Cutoffs(None, {"billing": None, "orders": None})) == 0
+    assert s.counts() == before
+    assert_snapshot(s, name)
+
+
+def test_a_queue_retention_applies_to_messages_on_that_queue_only(new_store):
     s = load(new_store, "joins")
-    on_billing = s.queue_messages("billing")
-    others = set(s.recent_messages(1000)) - on_billing
-    assert on_billing and others
-    s.delete_messages_before(FOREVER, queue="billing")
+    only_billing = {m for m in s.recent_messages(1000) if _queues(s, m) == {"billing"}}
+    others = set(s.recent_messages(1000)) - only_billing
+    assert only_billing and others
+    purge(s, Cutoffs(None, {"billing": FOREVER}))  # billing: everything is old; the rest: kept forever
     assert set(s.recent_messages(1000)) == others
-    assert s.queue_messages("billing") == set()
+
+
+def test_the_longest_retention_of_a_message_s_queues_wins(new_store):
+    """A message that moved to a dead-letter queue has spans on both: a queue kept longer (here forever)
+    keeps the whole message, its spans on the other queue too."""
+    s = load(new_store, "joins")
+    mids = s.recent_messages(1000)
+    on_dlq = {m for m in mids if "orders-dlq" in _queues(s, m)}
+    assert on_dlq and any(len(_queues(s, m)) > 1 for m in on_dlq)
+    rows = {m: len(s.message_rows(m)) for m in on_dlq}
+    purge(s, Cutoffs(FOREVER, {"orders-dlq": None}))
+    assert set(s.recent_messages(1000)) == on_dlq
+    assert {m: len(s.message_rows(m)) for m in on_dlq} == rows
+
+    s2 = load(new_store, "joins", store_name="b")
+    newest = max(_last_ns(s2, m) for m in mids)
+    purge(s2, Cutoffs(FOREVER, {"orders-dlq": newest + 1}))  # both expired: deleted
+    assert s2.recent_messages(1000) == []
 
 
 def test_retention_works_in_batches(new_store):
     s = load(new_store, "joins")
     n = len(s.recent_messages(1000))
-    rounds = 0
-    while s.delete_messages_before(FOREVER, limit=2):
-        rounds += 1
-    assert rounds >= n // 2
+    steps = []
+    resume = None
+    while True:
+        step = s.purge_step(Cutoffs(FOREVER), resume, limit=2)
+        steps.append(step)
+        resume = step.resume
+        if resume is None:
+            break
+    assert len(steps) > 2 and sum(st.examined for st in steps) >= n
     assert s.counts()["spans"] == {}
 
 
 def test_a_store_takes_spans_again_after_retention(new_store):
     name = "joins"
     s = load(new_store, name)
-    s.delete_messages_before(FOREVER)
+    purge(s, Cutoffs(FOREVER))
     for records in cases.exports(name):
         s.insert(records)
     assert_snapshot(s, name)
+
+
+def test_reclaim_space_is_safe_to_call(new_store):
+    s = load(new_store, "joins")
+    purge(s, Cutoffs(FOREVER))
+    assert s.reclaim_space(1000) >= 0
+    assert s.reclaim_space(1000) == 0
+    assert s.counts()["spans"] == {}

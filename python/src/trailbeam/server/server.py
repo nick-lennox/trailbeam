@@ -37,8 +37,9 @@ class App:
 
     def __init__(self, db: Store, *, stuck_after_s: int = 300,
                  lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S, now: Callable[[], int] = time.time_ns,
-                 max_receive_counts: Optional[dict] = None, ui_dir=ui_files.DEFAULT_UI_DIR):
+                 max_receive_counts: Optional[dict] = None, ui_dir=ui_files.DEFAULT_UI_DIR, purger=None):
         self.db = db
+        self.purger = purger  # retention.Purger, for /api/health; None: no retention configured (tests)
         # the shared UI's build (ui_files.py); None serves only the server-rendered pages
         self.ui_dir = ui_dir
         self.max_receive_counts = dict(max_receive_counts or {})
@@ -101,7 +102,8 @@ class App:
         return {"status": "ok", "version": __version__, "ingest": ingest, "data": {"last_row": self.db.last_row()},
                 "config": {"stuck_after_s": self.stuck_after_s, "lambda_timeout_s": self.lambda_timeout_s,
                            "max_receive_counts": self.max_receive_counts,
-                           "store_bodies": sorted(self.db.store_bodies)}}
+                           "store_bodies": sorted(self.db.store_bodies),
+                           "retention": self.purger.status() if self.purger else None}}
 
     def stats_counts(self, query: dict, rest: list[str]) -> dict:
         """``/api/stats``: spans by kind, messages and settle spans not joined yet. Exact, so it reads the whole

@@ -29,7 +29,7 @@ from typing import Iterable, Iterator, Optional
 
 from . import migrations, summary_table
 from .otlp import RECORD_FIELDS
-from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Store,
+from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store,
                     StuckCandidate, TenantActivity)
 
 # The body and the attributes that describe it (contract 15.2). trailbeam.body.capture_status is kept:
@@ -98,6 +98,9 @@ class SqliteStore(Store):
         self._readers_lock = threading.Lock()
         self._closed = False
         try:
+            # A new file is created with incremental vacuum, so retention can give space back (reclaim_space).
+            # SQLite only takes this before the first table is created; on an existing file it does nothing.
+            self.conn.execute("PRAGMA auto_vacuum = INCREMENTAL")
             # First the schema: a file this version refuses (migrations.SchemaTooNew) is left as it was.
             self.migrated = migrations.open_schema(self.conn, path)  # the versions upgraded to on this open
             if self.shared_reads:
@@ -202,28 +205,97 @@ class SqliteStore(Store):
         self.conn.execute(RECEIVE_JOIN_SQL, (r["message_id"], row) + key)
         return was
 
-    def delete_messages_before(self, cutoff_ns: int, queue: Optional[str] = None, limit: int = 10_000) -> int:
+    def purge_step(self, cutoffs: Cutoffs, resume: Optional[str] = None, limit: int = 100) -> PurgeStep:
+        """Store.purge_step. A pass walks span time, oldest first, in windows of about ``limit`` messages, up
+        to the latest cutoff: ``resume`` is ``t<window start>:<window width>`` (ns). Walking time, not message
+        IDs, keeps one step's rows close together in the file (they were written at about the same time), so a
+        step changes few pages (QV-72: half the write time of a step over random messages, half the WAL). And a
+        span that arrived late with an old time is found by its time.
+
+        Each step reads on a read connection, without the writer lock: the spans in the window (spans_kind_time,
+        every kind), then which of their messages are expired. The write deletes those messages and the window's
+        expired unjoined settle spans, each checked again in the write transaction."""
+        latest = _latest(cutoffs)
+        cut, cut_p = _cutoff_sql(cutoffs)
+        if resume is None:
+            with self.reader() as c:
+                firsts = [c.execute("SELECT MIN(time_ns) FROM spans INDEXED BY spans_kind_time WHERE kind = ?",
+                                    (k,)).fetchone()[0] for k in SPAN_KINDS]
+            firsts = [t for t in firsts if t is not None]
+            if not firsts or min(firsts) >= latest:
+                return PurgeStep(0, 0, None)
+            start, width = min(firsts), PURGE_FIRST_WINDOW_NS
+        else:
+            start, width = (int(x) for x in resume[1:].split(":"))
+        end = min(start + width, latest)
+        with self.reader() as c:
+            # INDEXED BY: the time range on every kind is the walk; a plan that scanned would read the table.
+            rows = c.execute(
+                f"""SELECT row, mid, kind, time_ns < {cut} AS old FROM spans INDEXED BY spans_kind_time
+                    WHERE kind IN {SPAN_KINDS!r} AND time_ns >= ? AND time_ns < ?""", cut_p + (start, end)).fetchall()
+            mids = sorted({r["mid"] for r in rows if r["mid"] is not None})
+            expired = [r["mid"] for r in c.execute(_EXPIRED_SQL.format(cut=cut), (json.dumps(mids),) + cut_p)] if mids else []
+        unjoined = [r["row"] for r in rows if r["mid"] is None and r["kind"] in SETTLE_KINDS and r["old"]]
+        n = 0
+        if expired or unjoined:
+            with self.lock:
+                n = self._delete(expired, unjoined, cut, cut_p)
+        found = len(mids) + len(unjoined)
+        if end >= latest:
+            return PurgeStep(n, found, None)
+        # the next window: about ``limit`` messages, if they come at the rate this one had
+        width = max(1, int(width * min(4.0, max(0.25, limit / max(found, 1)))))
+        return PurgeStep(n, found, f"t{end}:{width}")
+
+    def _delete(self, expired: list, unjoined: list, cut: str, cut_p: tuple) -> int:
+        """purge_step's write, in one transaction; the caller holds ``lock``. Each message is checked again:
+        a span that came in since the read can have made it newer. Its summary rows go with its spans
+        (summary_table.forget), so the list pages never show a message that is gone. Returns spans deleted."""
+        c = self.conn
+        c.execute("BEGIN IMMEDIATE")
+        try:
+            gone = [m for (m,) in c.execute(_EXPIRED_SQL.format(cut=cut), (json.dumps(expired),) + cut_p)] if expired else []
+            n = c.execute("DELETE FROM spans WHERE mid IN (SELECT value FROM json_each(?))", (json.dumps(gone),)).rowcount
+            summary_table.forget(c, gone)
+            # joined since the read: it belongs to a message now, which goes by the message's time
+            n += c.execute("DELETE FROM spans WHERE row IN (SELECT value FROM json_each(?)) AND mid IS NULL",
+                           (json.dumps(unjoined),)).rowcount
+            c.execute("COMMIT")
+        except BaseException:
+            c.execute("ROLLBACK")
+            raise
+        return n
+
+    def reclaim_space(self, max_pages: int) -> int:
+        """``PRAGMA incremental_vacuum``: move up to ``max_pages`` free pages to the end of the file and cut
+        them off. Only on a file with ``auto_vacuum = INCREMENTAL``: every file created at schema 8 or later, and
+        older ones after ``vacuum()``. On any other file deleted spans' pages stay free inside it, and new spans
+        reuse them, so the file stops growing but does not shrink."""
         with self.lock:
             c = self.conn
-            c.execute("BEGIN IMMEDIATE")
-            try:
-                if queue:
-                    mids = [m for (m,) in c.execute(
-                        """SELECT q.mid FROM message_queues q JOIN messages m ON m.mid = q.mid
-                           WHERE q.queue = ? AND q.last_ns < ? LIMIT ?""", (queue, cutoff_ns, limit))]
-                else:
-                    mids = [m for (m,) in c.execute(
-                        "SELECT mid FROM messages WHERE last_ns < ? ORDER BY last_ns LIMIT ?", (cutoff_ns, limit))]
-                n = sum(c.execute("DELETE FROM spans WHERE mid = ?", (m,)).rowcount for m in mids)
-                summary_table.forget(c, mids)
-                n += c.execute(
-                    f"""DELETE FROM spans WHERE mid IS NULL AND kind IN {SETTLE_KINDS!r} AND time_ns < ?
-                        {"AND queue = ?" if queue else ""}""", (cutoff_ns,) + ((queue,) if queue else ())).rowcount
-                c.execute("COMMIT")
-            except BaseException:
-                c.execute("ROLLBACK")
-                raise
-        return n
+            if c.execute("PRAGMA auto_vacuum").fetchone()[0] != AUTO_VACUUM_INCREMENTAL:
+                return 0
+            before = c.execute("PRAGMA freelist_count").fetchone()[0]
+            if before:
+                c.execute(f"PRAGMA incremental_vacuum({int(max_pages)})").fetchall()  # it frees a page per step
+            return before - c.execute("PRAGMA freelist_count").fetchone()[0]
+
+    def vacuum(self) -> None:
+        """Rewrite the whole file (``VACUUM``) with ``auto_vacuum = INCREMENTAL``, so that retention can give
+        space back from then on. Needs free disk for a second copy of the file, and holds the writer lock until
+        it is done: run it with the server stopped (``trailbeam --vacuum``)."""
+        with self.lock:
+            self.conn.execute("PRAGMA auto_vacuum = INCREMENTAL")
+            self.conn.execute("VACUUM")
+
+    def storage(self) -> dict:
+        """The file's size and free space, in pages: SQLite only (the benchmark and ``--vacuum`` report it)."""
+        with self.lock:
+            c = self.conn
+            return {"page_size": c.execute("PRAGMA page_size").fetchone()[0],
+                    "pages": c.execute("PRAGMA page_count").fetchone()[0],
+                    "free_pages": c.execute("PRAGMA freelist_count").fetchone()[0],
+                    "auto_vacuum": {0: "none", 1: "full", 2: "incremental"}[c.execute("PRAGMA auto_vacuum").fetchone()[0]]}
 
     # ---- reads ----------------------------------------------------------------------------
 
@@ -393,6 +465,30 @@ class SqliteStore(Store):
 
 
 Database = SqliteStore  # the name everything used before store.py
+
+AUTO_VACUUM_INCREMENTAL = 2  # PRAGMA auto_vacuum
+SPAN_KINDS = ("send", "receive", "delete", "change_visibility", "outcome")  # every kind a row can have
+PURGE_FIRST_WINDOW_NS = 60 * 10 ** 9  # the first window of a pass; later ones adapt (purge_step)
+# The messages of a JSON list whose newest span is before the cutoff of every queue they have a span on.
+_EXPIRED_SQL = """SELECT mid FROM spans WHERE mid IN (SELECT value FROM json_each(?))
+                  GROUP BY mid HAVING MAX(time_ns) < MIN({cut})"""
+_KEPT = -(2 ** 63)  # the cutoff of a queue kept forever, in SQL: no span ends before it
+
+
+def _cutoff_sql(cutoffs: Cutoffs) -> tuple[str, tuple]:
+    """A SQL expression for the cutoff of a row's ``queue``, and its parameters."""
+    if not cutoffs.queues:
+        return "?", (_KEPT if cutoffs.default is None else cutoffs.default,)
+    params: list = []
+    for q, c in cutoffs.queues.items():
+        params += [q, _KEPT if c is None else c]
+    params.append(_KEPT if cutoffs.default is None else cutoffs.default)
+    return f"(CASE queue {' '.join(['WHEN ? THEN ?'] * len(cutoffs.queues))} ELSE ? END)", tuple(params)
+
+
+def _latest(cutoffs: Cutoffs) -> int:
+    """The latest cutoff of any queue: no span after it has expired."""
+    return max(_KEPT if c is None else c for c in (cutoffs.default, *cutoffs.queues.values()))
 
 
 _ascii_lower = summary_table.ascii_lower
