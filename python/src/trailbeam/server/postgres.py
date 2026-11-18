@@ -11,8 +11,11 @@ nothing new. The schema and its versions are pg_schema.py. Supported: Postgres 1
 exporter's retry skipped by the unique key), the receipt-hash join in both directions, and the summary rows of
 every message a span or a join touched (summary_table.py's tables, the same rules). Concurrent exports are
 serialised only where they meet: a transaction-scoped advisory lock per receipt hash and per message, taken in
-one sorted order, so the join and a message's summary see each other's spans. The join runs in this process;
-across several replicas it is QV-81's. Exports and reads use separate connection pools.
+one sorted order, so the join and a message's summary see each other's spans. A settle span carries no message
+ID, so the messages its join reaches are locked after the join (without waiting; when one is held, the export is
+retried with it locked from the start). The locks are the database's, so this holds across replicas: several
+Trailbeam servers on one Postgres join and summarise exactly as one does (QV-81). Exports and reads use
+separate connection pools.
 
 **Placement.** Every table is partitioned by place, ``(rclass, bucket)`` (pg_schema.py), with buckets of
 ``bucket_ns`` (G, a day by default). A span is placed by its own time and its queue's retention class. A
@@ -82,6 +85,14 @@ class _NeedPlaces(Exception):
     def __init__(self, places):
         super().__init__(f"{len(places)} place(s) to create")
         self.places = set(places)
+
+
+class _NeedLocks(Exception):
+    """The join touched messages whose lock the export does not hold, and another export holds one: retry with
+    them locked from the start (in the one sorted order)."""
+    def __init__(self, keys):
+        super().__init__(f"{len(keys)} more message lock(s)")
+        self.keys = set(keys)
 
 
 class _PlaceBusy(Exception):
@@ -260,6 +271,7 @@ class PostgresStore(Store):
             attrs, body = body_table.split(r["kind"], own, attrs)
             prepared.append((r, own, body_table.attributes_json(attrs), dropped, body))
         delay = 0.01
+        more_locks: set = set()  # message locks a previous attempt's join found it needs
         for attempt in range(self.INGEST_ATTEMPTS):
             if abandoned is not None and abandoned():
                 raise ExportAbandoned()
@@ -272,7 +284,7 @@ class PostgresStore(Store):
                     try:
                         self._tx.noted = []
                         with conn.transaction():
-                            result = self._insert(conn, prepared)
+                            result = self._insert(conn, prepared, more_locks)
                     except psycopg.Error:
                         if watch[2]:
                             raise ExportAbandoned() from None
@@ -288,6 +300,8 @@ class PostgresStore(Store):
                     return result
             except _NeedPlaces as e:
                 self._ensure_places(e.places)
+            except _NeedLocks as e:
+                more_locks |= e.keys
             except _PlaceBusy:
                 time.sleep(delay)
                 delay = min(delay * 2, 0.5)
@@ -297,8 +311,8 @@ class PostgresStore(Store):
                 pass  # "no partition of relation found for row": its place was dropped meanwhile; _resolve sees it
         raise RuntimeError(f"insert did not complete after {self.INGEST_ATTEMPTS} attempts")
 
-    def _insert(self, conn, prepared) -> tuple[int, int]:
-        keys = set()
+    def _insert(self, conn, prepared, more_locks=frozenset()) -> tuple[int, int]:
+        keys = set(more_locks)
         for r, own, *_ in prepared:
             if own:
                 keys.add(_key("m:" + own))
@@ -365,6 +379,15 @@ class PostgresStore(Store):
             return 0, dupes
 
         touched, updates = self._join(conn, prepared, places, order)
+        # A settle span joined by its receipt hash touches a message the export has no span of (a settle carries
+        # no message ID): lock it too before its summary is rewritten, or an export of that message's own spans,
+        # at the same moment on this or another replica, and this one each rewrite it without the other's span.
+        # Taken without waiting (waiting here, out of the sorted order, could deadlock): when another export
+        # holds one, this attempt is rolled back and the next takes it with the others, in order.
+        extra = sorted({_key("m:" + m) for m in touched} - keys)
+        if extra and not conn.execute("SELECT bool_and(pg_try_advisory_xact_lock(k)) AS ok FROM unnest(%s::bigint[]) AS k",
+                                      (extra,)).fetchone()["ok"]:
+            raise _NeedLocks(extra)
         if updates:
             conn.execute(
                 """UPDATE spans s SET mid = u.mid, mid_source = 'receipt_hash', receive_row = u.rr
