@@ -26,6 +26,7 @@ import sqlite3
 import threading
 from typing import Iterable, Iterator, Optional
 
+from . import migrations
 from .otlp import RECORD_FIELDS
 
 SETTLE_KINDS = ("delete", "change_visibility")
@@ -36,52 +37,7 @@ BODY_ATTRIBUTES = ("trailbeam.body", "trailbeam.body.format", "trailbeam.body.re
                    "trailbeam.body.envelope")
 BODY_DROPPED_NOT_OPTED_IN = "not_opted_in"  # spans.body_dropped: the queue is not in store_bodies
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS spans (
-    row INTEGER PRIMARY KEY,
-    trace_id TEXT NOT NULL,
-    span_id TEXT NOT NULL,
-    kind TEXT NOT NULL,              -- send | receive | delete | change_visibility | outcome
-    time_ns INTEGER NOT NULL,        -- span end: when the SQS response arrived (contract section 2)
-    start_ns INTEGER,                -- span start: just before the request was sent; NULL = not observed
-    service_name TEXT,
-    source TEXT, operation TEXT, queue TEXT NOT NULL, queue_url TEXT,
-    message_id TEXT,                 -- messaging.message.id as carried by the span
-    receipt_hmac TEXT, key_id TEXT,
-    receive_count INTEGER, sent_ts_ms INTEGER, first_receive_ts_ms INTEGER,
-    dlq_source_arn TEXT,             -- receives from a dead-letter queue: the queue SQS moved it from (3.1)
-    result TEXT, error_code TEXT, visibility_timeout INTEGER,
-    outcome TEXT, error_type TEXT, batch_entry_id TEXT,
-    client_id TEXT, pid INTEGER, thread_name TEXT,
-    faas_name TEXT, faas_invocation_id TEXT,
-    order_scope TEXT, order_issued INTEGER, order_returned INTEGER,  -- call order in one process (contract 3)
-    attributes TEXT NOT NULL,        -- every span attribute, as JSON
-    mid TEXT,                        -- the message this row belongs to (see module docstring)
-    mid_source TEXT,                 -- 'span' | 'receipt_hash' | NULL (settle span not joined yet)
-    receive_row INTEGER REFERENCES spans(row),  -- settle spans: the delivery whose handle was used
-    body_dropped TEXT,               -- 'not_opted_in': the span carried a body, not stored (module docstring)
-    UNIQUE (trace_id, span_id)
-);
-CREATE INDEX IF NOT EXISTS spans_mid ON spans (mid, time_ns);
-CREATE INDEX IF NOT EXISTS spans_hash ON spans (receipt_hmac, key_id);
-CREATE INDEX IF NOT EXISTS spans_kind_time ON spans (kind, time_ns);
-CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-"""
-SCHEMA_VERSION = "5"
-
-# Schema 1 had no start_ns. Its rows came from contract v1 spans, stamped only when the response arrived,
-# so their start is not known: they are migrated with start_ns NULL. Schema 2 had no call-order columns;
-# its rows came from contract v2 spans, which carry none, so they are migrated with NULLs. Schema 3 had no
-# dlq_source_arn; no package emitted the attribute before contract 3.1, so its rows are migrated with NULL.
-# Schema 4 had no body_dropped. Its rows were stored with every attribute, bodies included, so NULL
-# (nothing dropped) is true of them; a schema 4 file can hold bodies for any queue a package captured.
-_MIGRATIONS = {
-    "1": ("2", ["ALTER TABLE spans ADD COLUMN start_ns INTEGER"]),
-    "2": ("3", ["ALTER TABLE spans ADD COLUMN order_scope TEXT", "ALTER TABLE spans ADD COLUMN order_issued INTEGER",
-                "ALTER TABLE spans ADD COLUMN order_returned INTEGER"]),
-    "3": ("4", ["ALTER TABLE spans ADD COLUMN dlq_source_arn TEXT"]),
-    "4": ("5", ["ALTER TABLE spans ADD COLUMN body_dropped TEXT"]),
-}
+# The schema, its version and the upgrades from older files are in migrations.py.
 
 # The two receipt-hash joins run once per settle or receive span, inside the insert transaction, so they
 # must be index lookups at every size. INDEXED BY pins spans_hash: the server never runs ANALYZE, and without
@@ -135,25 +91,17 @@ class Database:
         self._idle_readers: list[sqlite3.Connection] = []
         self._readers_lock = threading.Lock()
         self._closed = False
-        with self.lock:
+        try:
+            # First the schema: a file this version refuses (migrations.SchemaTooNew) is left as it was.
+            self.migrated = migrations.open_schema(self.conn, path)  # the versions upgraded to on this open
             if self.shared_reads:
                 mode = self.conn.execute("PRAGMA journal_mode=WAL").fetchone()[0]
                 if mode.lower() != "wal":
                     raise RuntimeError(f"{path}: SQLite could not switch the file to WAL mode (got {mode})")
             self.conn.execute("PRAGMA foreign_keys=ON")
-            self.conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
-            cur = self.conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
-            version = cur[0] if cur is not None else None
-            while version is not None and version != SCHEMA_VERSION:
-                if version not in _MIGRATIONS:
-                    raise RuntimeError(f"{path}: database schema {version}, this version needs {SCHEMA_VERSION}")
-                version, statements = _MIGRATIONS[version]
-                for sql in statements:
-                    self.conn.execute(sql)
-                self.conn.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (version,))
-            self.conn.executescript(SCHEMA)
-            if cur is None:
-                self.conn.execute("INSERT INTO meta VALUES ('schema_version', ?)", (SCHEMA_VERSION,))
+        except BaseException:
+            self.conn.close()
+            raise
 
     def close(self) -> None:
         with self._readers_lock:
