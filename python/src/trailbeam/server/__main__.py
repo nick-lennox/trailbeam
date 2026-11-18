@@ -52,6 +52,12 @@ def main(argv=None) -> None:
     p.add_argument("--purge-interval", type=float, default=float(os.environ.get("TRAILBEAM_PURGE_INTERVAL_S", "600")),
                    help="seconds between retention passes; the first runs at start (env TRAILBEAM_PURGE_INTERVAL_S, "
                         "default 600)")
+    p.add_argument("--purge-batch", type=int, default=int(os.environ.get("TRAILBEAM_PURGE_BATCH", "50")),
+                   help="messages looked at per purge step, each one write transaction: smaller steps hold the "
+                        "writer lock for less time (env TRAILBEAM_PURGE_BATCH, default 50)")
+    p.add_argument("--purge-duty", type=float, default=float(os.environ.get("TRAILBEAM_PURGE_DUTY", "0.25")),
+                   help="the most of the time the purge holds the writer lock, in (0, 1] "
+                        "(env TRAILBEAM_PURGE_DUTY, default 0.25)")
     p.add_argument("--vacuum", action="store_true",
                    help="rewrite the database file once so that retention gives deleted space back to the disk "
                         "(files created before retention, schema 8), then exit. Stop the server first; needs free disk "
@@ -71,7 +77,7 @@ def main(argv=None) -> None:
     if a.vacuum:
         sys.exit(vacuum(db, a.db))
     retention = Retention(a.retention, a.retention_queues)
-    purger = Purger(db, retention, interval_s=a.purge_interval)
+    purger = Purger(db, retention, interval_s=a.purge_interval, batch=a.purge_batch, duty=a.purge_duty)
     if db.storage()["auto_vacuum"] != "incremental" and not retention.keeps_everything():
         logging.getLogger("trailbeam.server").info(
             "%s was created without incremental vacuum: retention deletes old spans and new spans reuse the "

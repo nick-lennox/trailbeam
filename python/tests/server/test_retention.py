@@ -299,3 +299,11 @@ def test_the_purge_holds_the_writer_for_at_most_its_duty():
     assert Purger(Database(), Retention(DAY), pause_s=0, duty=1).pause(5) == 0
     with pytest.raises(ValueError):
         Purger(Database(), Retention(DAY), duty=0)
+
+
+def test_the_purge_batch_and_duty_are_settable_and_shown_in_health():
+    """``trailbeam --purge-batch``/``--purge-duty`` (QV-79: the bench sets a smaller step than the default)."""
+    p = Purger(Database(), Retention(DAY), batch=10, duty=0.5)
+    assert p.status()["purge_batch"] == 10 and p.status()["purge_duty"] == 0.5
+    with pytest.raises(ValueError):
+        Purger(Database(), Retention(DAY), batch=0)

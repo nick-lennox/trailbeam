@@ -532,8 +532,9 @@ def new_seed() -> int:
 
 def run(url: str, profile: Profile, rate: float, duration: float, *, concurrency: int = 4, processes: int = 1,
         timeout: float = 10.0, seed: Optional[int] = None, grace: float = 30.0,
-        schedule_delay: float = 5.0) -> dict:
-    """Send ``rate`` messages/s for ``duration`` s. Returns achieved rates and export latency percentiles.
+        schedule_delay: float = 5.0, keep_latencies: bool = False) -> dict:
+    """Send ``rate`` messages/s for ``duration`` s. Returns achieved rates and export latency percentiles;
+    with ``keep_latencies``, also every export's latency in seconds (``latencies_s``), to pool runs.
 
     ``seed`` fixes the span and trace IDs. Leave it unset for new IDs on every call: the server skips a
     span it already stored, so a rerun with the same seed resends duplicates and measures almost nothing.
@@ -566,7 +567,7 @@ def run(url: str, profile: Profile, rate: float, duration: float, *, concurrency
     elapsed = max(p["elapsed"] for p in parts)
     spans_ok = sum(p["spans_ok"] for p in parts)
     exports = sum(p["exports"] for p in parts)
-    return {
+    res = {
         "target_msgs_per_s": rate, "target_spans_per_s": round(rate * spm, 1), "spans_per_message": round(spm, 3),
         "seed": seed, "duration_s": duration, "elapsed_s": round(elapsed, 2),
         "achieved_spans_per_s": round(spans_ok / elapsed, 1) if elapsed else 0,
@@ -579,6 +580,9 @@ def run(url: str, profile: Profile, rate: float, duration: float, *, concurrency
         "batch_spans": profile.batch_spans, "profile": asdict(profile), "concurrency": concurrency,
         "processes": processes,
     }
+    if keep_latencies:
+        res["latencies_s"] = lat
+    return res
 
 
 def _ms(s: Optional[float]) -> Optional[float]:

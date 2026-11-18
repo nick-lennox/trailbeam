@@ -354,10 +354,10 @@ class PageLoop(threading.Thread):
 
 # ---- ingest -------------------------------------------------------------------------------
 
-def ingest_step(srv: Server, profile, rate: float, seconds: float, args) -> dict:
+def ingest_step(srv: Server, profile, rate: float, seconds: float, args, keep_latencies: bool = False) -> dict:
     cpu0, t0 = srv.cpu_s(), time.monotonic()
     res = loadgen.run(srv.otlp, profile, rate, seconds, concurrency=args.concurrency, processes=args.processes,
-                      timeout=args.export_timeout, grace=args.export_timeout)
+                      timeout=args.export_timeout, grace=args.export_timeout, keep_latencies=keep_latencies)
     wall = time.monotonic() - t0
     res["server_cpu_pct"] = round(100 * (srv.cpu_s() - cpu0) / wall, 1)
     res["server_rss_mb"] = srv.rss_mb()
@@ -373,10 +373,15 @@ def purge_under_ingest(db_path: str, snapshot: Optional[str], profile, store_bod
     """A retention pass while ingest runs. Twice from the seeded file: ``baseline`` with retention off, then
     ``purge`` with ``--purge-retention``, whose pass starts with the server. Ingest runs in windows of
     ``--purge-window-s`` at ``--purge-spans-per-s`` until the pass has ended (or ``--purge-max-s``); the gate
-    is the worst window's export p99. Records the pass (from /api/health) and the file before and after."""
+    is the worst window's export p99. The export p99 over all of a case's exports is reported too
+    (``all_export_p99_ms``). ``--purge-batch`` and ``--purge-duty`` set the purge's step size and share of the
+    writer (the server's defaults if unset). Records the pass (from /api/health) and the file before and after."""
     spm = profile.mean_spans_per_message()
     rate = args.purge_spans_per_s / spm
-    out: dict = {"retention": args.purge_retention, "target_spans_per_s": args.purge_spans_per_s}
+    out: dict = {"retention": args.purge_retention, "target_spans_per_s": args.purge_spans_per_s,
+                 "purge_batch": args.purge_batch or None, "purge_duty": args.purge_duty or None}
+    tuning = ((("--purge-batch", str(args.purge_batch)) if args.purge_batch else ())
+              + (("--purge-duty", str(args.purge_duty)) if args.purge_duty else ()))
 
     def storage() -> dict:
         c = sqlite3.connect(db_path)
@@ -393,15 +398,16 @@ def purge_under_ingest(db_path: str, snapshot: Optional[str], profile, store_bod
         return json.loads(get(srv.port, "/api/health", timeout=30)[1])["config"]["retention"] or {}
 
     for case, extra in (("baseline", ("--retention", "forever")),
-                        ("purge", ("--retention", args.purge_retention, "--purge-interval", "86400"))):
+                        ("purge", ("--retention", args.purge_retention, "--purge-interval", "86400") + tuning)):
         if snapshot:
             restore_file(snapshot, db_path)
         before = storage()
         srv = Server(db_path, store_bodies, log_path, args=extra)
-        windows, t0 = [], time.monotonic()
+        windows, lat, t0 = [], [], time.monotonic()
         try:
             while True:
-                w = ingest_step(srv, profile, rate, args.purge_window_s, args)
+                w = ingest_step(srv, profile, rate, args.purge_window_s, args, keep_latencies=True)
+                lat += w.pop("latencies_s")
                 h = health(srv) if case == "purge" else {}
                 w["pass_running"] = bool(h.get("running"))
                 if case == "purge":  # the pass so far: was a long step what held up the exports?
@@ -420,6 +426,8 @@ def purge_under_ingest(db_path: str, snapshot: Optional[str], profile, store_bod
             srv.stop()
         res = {"windows": windows, "before": before, "after": storage(),
                "worst_export_p99_ms": max((w["export_p99_ms"] or 0) for w in windows),
+               "all_export_p99_ms": loadgen._ms(loadgen.percentile(lat, 0.99)), "exports": len(lat),
+               "windows_over_gate": sum((w["export_p99_ms"] or 0) > args.max_export_p99_ms for w in windows),
                "errors": sum(w["errors"] for w in windows)}
         if case == "purge":
             res["pass"] = passed
@@ -661,7 +669,8 @@ def run(args) -> dict:
                     os.remove(snap)
             pu = entry["purge_under_ingest"]
             log(f"  purge under ingest: worst export p99 {pu['purge']['worst_export_p99_ms']} ms "
-                f"(baseline {pu['baseline']['worst_export_p99_ms']} ms), gate {'ok' if pu['gate_ok'] else 'FAILED'}")
+                f"(baseline {pu['baseline']['worst_export_p99_ms']} ms); over all exports {pu['purge']['all_export_p99_ms']} ms "
+                f"(baseline {pu['baseline']['all_export_p99_ms']} ms), gate {'ok' if pu['gate_ok'] else 'FAILED'}")
             save()
         if args.purge_only:
             continue
@@ -777,17 +786,20 @@ def summary(results: dict) -> str:
     purges = [e for e in sizes if e.get("purge_under_ingest")]
     if purges:
         lines += ["", "## Retention pass under ingest", "",
-                  "| DB spans | retention | ingest spans/s | export p99, worst window: baseline / purge | errors | "
-                  "pass s | spans deleted | longest delete / reclaim step ms | space given back MB | file MB before / after | gate |",
-                  "|---|---|---|---|---|---|---|---|---|---|---|"]
+                  "| DB spans | retention | purge batch / duty | ingest spans/s | export p99, worst window: baseline / purge | "
+                  "export p99, all exports: baseline / purge | windows over gate | errors | "
+                  "pass s | spans deleted | longest delete step / of it locked / reclaim step ms | space given back MB | file MB before / after | gate |",
+                  "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
         for e in purges:
             pu = e["purge_under_ingest"]
             b, q = pu["baseline"], pu["purge"]
             ps = q.get("pass") or {}
             lines.append(
-                f"| {e['spans']:,} | {pu['retention']} | {pu['target_spans_per_s']:g} | {b['worst_export_p99_ms']} / "
-                f"{q['worst_export_p99_ms']} ms | {q['errors']} | {ps.get('seconds', 'not finished')} | "
-                f"{format(ps['deleted_spans'], ',') if 'deleted_spans' in ps else '-'} | {ps.get('longest_step_ms', '-')} / {ps.get('longest_reclaim_step_ms', '-')} | "
+                f"| {e['spans']:,} | {pu['retention']} | {pu.get('purge_batch') or 'default'} / {pu.get('purge_duty') or 'default'} | "
+                f"{pu['target_spans_per_s']:g} | {b['worst_export_p99_ms']} / "
+                f"{q['worst_export_p99_ms']} ms | {b.get('all_export_p99_ms')} / {q.get('all_export_p99_ms')} ms | "
+                f"{q.get('windows_over_gate')} of {len(q['windows'])} | {q['errors']} | {ps.get('seconds', 'not finished')} | "
+                f"{format(ps['deleted_spans'], ',') if 'deleted_spans' in ps else '-'} | {ps.get('longest_step_ms', '-')} / {ps.get('longest_write_ms', '-')} / {ps.get('longest_reclaim_step_ms', '-')} | "
                 f"{round(ps.get('reclaimed_pages', 0) * 4096 / 1e6, 1)} | {q['before']['file_mb']:,} / {q['after']['file_mb']:,} "
                 f"({q['before']['auto_vacuum']}) | {'ok' if pu['gate_ok'] else 'FAILED'} |")
     if results.get("growth"):
@@ -824,6 +836,10 @@ def main(argv=None) -> None:
                         "about half the file expires); default: skip")
     p.add_argument("--purge-spans-per-s", type=float, default=1000, help="ingest rate during the purge measurement")
     p.add_argument("--purge-window-s", type=float, default=30, help="export p99 is taken per window of this length")
+    p.add_argument("--purge-batch", type=int, default=0,
+                   help="messages per purge step (server --purge-batch; 0: the server's default)")
+    p.add_argument("--purge-duty", type=float, default=0,
+                   help="most of the writer's time the purge takes, in (0, 1] (server --purge-duty; 0: default)")
     p.add_argument("--purge-max-s", type=float, default=1800, help="stop ingest after this long even if the pass runs on")
     p.add_argument("--purge-only", action="store_true",
                    help="seed and the purge measurement only: no pages, ramp, breakdown")

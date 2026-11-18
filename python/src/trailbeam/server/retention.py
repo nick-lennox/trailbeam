@@ -108,6 +108,8 @@ class Purger:
     def __init__(self, store: Store, retention: Retention, *, interval_s: float = 600, batch: int = 50,
                  pause_s: float = 0.05, duty: float = 0.25, reclaim_pages: int = 256,
                  now: Callable[[], int] = time.time_ns):
+        if batch < 1:
+            raise ValueError(f"batch must be at least 1, got {batch}")
         if not 0 < duty <= 1:
             raise ValueError(f"duty must be in (0, 1], got {duty}")
         self.store = store
@@ -213,5 +215,6 @@ class Purger:
             running = dict(self._running) if self._running else None
             last = dict(self.last_pass) if self.last_pass else None
         return self.retention.config() | {"purge_interval_s": self.interval_s, "purge_duty": self.duty,
+                                          "purge_batch": self.batch,
                                           "passes": self.passes,
                                           "running": running, "last_pass": last}
