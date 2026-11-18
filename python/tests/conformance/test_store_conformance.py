@@ -212,6 +212,11 @@ def test_body_views_match_the_shared_expected_outputs(new_store, case):
     assert {m: bodies.body_view(m, s.message_rows(m), s.store_bodies) for m in mids} == case["views"]
     for q in case["searches"]:
         assert sorted(bodies.search(s, bodies.parse_query(q["query"]), s.store_bodies).mids) == q["message_ids"], q["query"]
+        # with a tenant: the same matches, only those naming it (QV-96), as the Messages page filters them
+        for tenant in ("acme", "hooli", "nobody-xyz"):
+            want = sorted(set(q["message_ids"]) & set(s.recent_messages(1000, tenant=tenant)))
+            got = bodies.search(s, bodies.parse_query(q["query"]), s.store_bodies, tenant=tenant).mids
+            assert sorted(got) == want, (q["query"], tenant)
 
 
 # ---- retention ---------------------------------------------------------------------------------------
