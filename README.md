@@ -355,8 +355,40 @@ retention after its spans were stored, partitions holding queues with different 
 bounded background delete, outside ingest.
 
 Ingest and pages use separate connection pools (4 and 8 connections). Each export is one transaction, and an
-export whose client hangs up or times out is cancelled in the database. The settle-to-receive join runs inside the
-server process: run one Trailbeam replica per database for now.
+export whose client hangs up or times out is cancelled in the database.
+
+### Several replicas on one Postgres
+
+With Postgres, Trailbeam servers are stateless: run as many replicas as you like behind a load balancer, for
+Kubernetes or for high availability. No sticky sessions are needed.
+
+- **Joins are correct across replicas.** A delete and its receive may reach different replicas, in either
+  order; the receipt-hash join and every message's summary are kept under Postgres locks, so the timelines are
+  exactly those of a single Trailbeam (the test suite sends each span to a random replica in a random order and
+  compares).
+- **Starting together is fine.** The schema is created or upgraded by one replica under a Postgres advisory
+  lock; the others wait for it.
+- **Retention runs on one replica at a time**, the one holding a lease (a Postgres advisory lock). When that
+  replica stops or dies, Postgres releases the lease and another replica takes over at its next pass. Give
+  every replica the same retention and per-queue configuration.
+- **Health checks.** `GET /api/health` is liveness: it answers while the process runs, even when the
+  database is unreachable, so a database outage doesn't restart every replica. `GET /api/ready` is readiness:
+  `503` while the store is unreachable, so the load balancer takes that replica out of rotation. Neither needs
+  the token. While the database can't be reached, exports are answered `503` with `Retry-After`; nothing is
+  stored and the exporter sends them again.
+- **The shared token** (`TRAILBEAM_TOKEN`) is set to the same value on every replica. Its session cookie is
+  derived from the token, so a sign-in on one replica works on all of them.
+- **A replica that dies loses nothing acknowledged.** An export is acknowledged (`200`) only once its
+  transaction has committed. One in flight on a replica that dies isn't acknowledged, so the exporter retries it
+  (the OpenTelemetry OTLP exporter retries connection errors and `503`), and the load balancer sends it to
+  another replica. A span stored twice is skipped by its key.
+- The ingest counters in `/api/health` are per replica: each counts what it received.
+
+Examples: [`deploy/replicas/compose.yaml`](deploy/replicas/compose.yaml), two replicas and Postgres behind
+nginx (`docker compose -f deploy/replicas/compose.yaml up -d --build --wait`). And
+[`deploy/kubernetes/trailbeam.yaml`](deploy/kubernetes/trailbeam.yaml), a Deployment of two replicas with liveness
+and readiness probes and a Service, on a Postgres you run. The image needs the Postgres driver:
+`docker build --build-arg TRAILBEAM_EXTRAS=server,postgres .`
 
 ## Open source and the hosted app
 
