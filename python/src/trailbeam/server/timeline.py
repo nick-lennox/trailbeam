@@ -91,7 +91,7 @@ def _inferred(type_: str, frm: Optional[int], to: Optional[int], reason: str, **
 
 def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S,
           max_receive_counts: Optional[dict] = None) -> dict:
-    """``rows``: every stored row of one message (Database.message_rows), any order. ``max_receive_counts``:
+    """``rows``: every stored row of one message (Store.message_rows), any order. ``max_receive_counts``:
     queue name -> the maxReceiveCount of its redrive policy, as configured (spans don't carry it)."""
     rows = sorted(rows, key=lambda r: (r["time_ns"], r["row"]))
     mid = rows[0]["mid"]

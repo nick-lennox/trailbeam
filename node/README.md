@@ -93,6 +93,34 @@ cannot use up the function's time.
 | `TRAILBEAM_OTLP_TRACES_ENDPOINT` | `http://localhost:4318/v1/traces` | OTLP/HTTP (protobuf). |
 | `OTEL_SERVICE_NAME` | `unknown_service` | `service.name` |
 | `OTEL_RESOURCE_ATTRIBUTES` | random UUID v4 | `service.instance.id` here becomes `messaging.client.id`. Without it, each `install` call and each `wrapHandler` call generates a random UUID v4. |
+| `TRAILBEAM_MAX_QUEUE_SIZE` | `16384` | Spans waiting for export, per tracer provider ([Dropped spans](#dropped-spans)). The other `OTEL_BSP_*` variables apply as usual. |
+
+### Dropped spans
+
+Spans wait in an in-memory queue until they are exported, in batches of 512. If Trailbeam (or the
+Collector) is down or slower than your traffic, the queue fills up, and from then on new spans are
+dropped. The messages they belong to then have gaps in their timelines. Drops are never silent:
+
+- **Log line.** `process.emitWarning` (code `TRAILBEAM_SPANS_DROPPED`) warns at the first drop, then at most once a minute with the
+  number dropped since the last line and the reason, and once more at shutdown:
+  `trailbeam: dropped 800 spans in the last 60 s (800 queue full); 812 dropped since start. ...`
+  The count is in the message, so the line can't be lost to duplicate filtering.
+- **Metric.** `trailbeam.sdk.spans.dropped` (unit `{span}`), a counter on the global OpenTelemetry
+  meter provider, with `error.type` = `queue_full`, `export_failed` or `shutdown`. It is a no-op unless
+  your application sets a meter provider. Alert on it.
+- **In code.** `trailbeam.exportStats()` returns `{ exported, queued, dropped, droppedByReason }`
+  for this process.
+
+`queue_full` means the queue was full. `export_failed` means an export failed after the OTLP exporter's
+own retries, or had not finished after `OTEL_BSP_EXPORT_TIMEOUT` (30 s); the batch is not tried again. `shutdown` means spans that were still queued when the
+provider shut down, or that ended after it shut down. Spans of a `spanProcessor` you pass in are not
+counted.
+
+The queue holds `TRAILBEAM_MAX_QUEUE_SIZE` spans, 16,384 by default (the SDK's default is 2,048). That is
+about 16 seconds of 1,000 spans/s, and about 50 MB of memory when full, more with captured bodies. A
+bigger queue only rides out a longer outage. For high volume, or to keep spans through a restart, send
+them through an OpenTelemetry Collector with a queue on disk
+([High volume](../collector/README.md#high-volume)).
 
 ### Message contents (opt-in)
 
@@ -130,6 +158,7 @@ The Node.js package does not set `thread.name` (contract section 3).
 | `uninstall()` | Turns the hooks off on every instrumented client, then flushes and shuts down the provider. Returns a promise. |
 | `forceFlush()` | Exports the client-hook spans that are waiting. Returns a promise. |
 | `wrapHandler(handler, { receiptHashKey, spanExporter, spanProcessor, flushTimeoutMs = 2000, reportBatchItemFailures = true })` | Returns an async Lambda handler with a `trailbeamTracerProvider` property. Throws `TypeError` if `handler` is not a function. |
+| `exportStats()` | `{ exported, queued, dropped, droppedByReason }` for this process ([Dropped spans](#dropped-spans)). |
 | `hashReceiptHandle(key, receiptHandle)`, `keyId(key)` | The two values of contract section 7. |
 | `version`, `SCHEMA_VERSION` | The package version and `3`. |
 

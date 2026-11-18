@@ -131,11 +131,13 @@ def test_search_orders_exact_then_recent_and_ignores_ascii_case_only(db):
     assert queries.find_tenants(db, "50%_") == ["50%_off"] and queries.find_tenants(db, "5_") == []
 
 
-def test_capped(db):
-    db.insert([_record(f"m{i}", "send", 1_000_000 * (i + 1), "t", i + 1) for i in range(5)])
-    s = queries.tenants(db, 10**12, 900, 0, 10**6, max_messages=3)
-    assert s["capped"] is True and s["rows"][0]["sent"] == 3 and s["total_sent"] == 3
-    assert queries.tenants(db, 10**12, 900, 0, 10**6)["capped"] is False
+def test_every_message_counts_with_no_cap(db):
+    """The page used to read at most 2,000 messages (QV-73): now every message in the range counts."""
+    db.insert([_record(f"m{i}", "send", 1_000_000 * (i + 1), "t" if i % 2 else "u", i + 1) for i in range(2500)])
+    s = queries.tenants(db, 10**12, 900, 0, 10**12)
+    assert s["capped"] is False and s["total_sent"] == 2500
+    assert [(r["tenant"], r["sent"]) for r in s["rows"]] == [("t", 1250), ("u", 1250)]
+    assert queries.tenants(db, 10**12, 900, 0, 1)["total_sent"] == 1  # still only the range
 
 
 # ---- the API ---------------------------------------------------------------------------------------

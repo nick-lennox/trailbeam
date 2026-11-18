@@ -5,8 +5,10 @@ import argparse
 import logging
 import os
 import signal
+import sys
 
-from .db import Database, parse_queue_list
+from .db import SqliteStore, parse_queue_list
+from .migrations import SchemaError
 from .server import make_server
 
 
@@ -39,7 +41,13 @@ def main(argv=None) -> None:
     logging.basicConfig(level=a.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
     if a.store_bodies:
         logging.getLogger("trailbeam.server").warning(body_warning(a.store_bodies, a.db))
-    db = Database(a.db, store_bodies=a.store_bodies)
+    try:
+        db = SqliteStore(a.db, store_bodies=a.store_bodies)
+    except SchemaError as e:
+        logging.getLogger("trailbeam.server").error("%s", e)
+        sys.exit(2)
+    if db.migrated:
+        logging.getLogger("trailbeam.server").info("upgraded %s to schema version %d", a.db, db.migrated[-1])
     httpd = make_server(db, a.host, a.port, stuck_after_s=a.stuck_after,
                         lambda_timeout_s=a.lambda_timeout, max_receive_counts=a.max_receive_count)
     logging.getLogger("trailbeam.server").info("listening on http://%s:%d (OTLP: /v1/traces, API: /api/), db %s",

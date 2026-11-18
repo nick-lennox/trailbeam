@@ -168,39 +168,6 @@ def test_a_span_that_ends_before_it_starts_is_rejected(server, db):
     assert get(server, "/api/health")[1]["ingest"]["rejected"] == 1
 
 
-def test_a_schema_1_database_is_migrated_with_unknown_starts(tmp_path):
-    import sqlite3
-
-    from trailbeam.server.db import Database
-
-    path = str(tmp_path / "v1.sqlite")
-    old = sqlite3.connect(path)
-    old.executescript("""
-        CREATE TABLE spans (row INTEGER PRIMARY KEY, trace_id TEXT NOT NULL, span_id TEXT NOT NULL,
-            kind TEXT NOT NULL, time_ns INTEGER NOT NULL, service_name TEXT, source TEXT, operation TEXT,
-            queue TEXT NOT NULL, queue_url TEXT, message_id TEXT, receipt_hmac TEXT, key_id TEXT,
-            receive_count INTEGER, sent_ts_ms INTEGER, first_receive_ts_ms INTEGER, result TEXT, error_code TEXT,
-            visibility_timeout INTEGER, outcome TEXT, error_type TEXT, batch_entry_id TEXT, client_id TEXT,
-            pid INTEGER, thread_name TEXT, faas_name TEXT, faas_invocation_id TEXT, attributes TEXT NOT NULL,
-            mid TEXT, mid_source TEXT, receive_row INTEGER REFERENCES spans(row), UNIQUE (trace_id, span_id));
-        CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-        INSERT INTO meta VALUES ('schema_version', '1');
-        INSERT INTO spans (trace_id, span_id, kind, time_ns, queue, message_id, attributes, mid)
-            VALUES ('t', 's', 'send', 5, 'orders', 'm1', '{}', 'm1');
-    """)
-    old.commit()
-    old.close()
-    s = Database(path)
-    [row] = s.message_rows("m1")
-    assert (row["time_ns"], row["start_ns"]) == (5, None)
-    assert (row["order_scope"], row["order_issued"], row["order_returned"]) == (None, None, None)
-    assert row["dlq_source_arn"] is None
-    assert row["body_dropped"] is None
-    assert s.query("SELECT value FROM meta WHERE key = 'schema_version'")[0][0] == "5"
-    s.close()
-    Database(path).close()  # opens again without migrating twice
-
-
 def post_chunked(url, chunks, encoding=None, conn=None):
     """POST with Transfer-Encoding: chunked and no Content-Length, as the Node.js OTLP exporter does."""
     host = url.split("//", 1)[1]

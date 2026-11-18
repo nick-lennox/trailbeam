@@ -2,7 +2,8 @@
 
     python bench/loadgen.py --url http://127.0.0.1:4318/v1/traces --rate 200 --duration 30
     python bench/loadgen.py --url ... --rate 200 --queues 500 --tenants 50 --body-size 64k --late-join 0.2
-    python bench/loadgen.py --url ... --rate 200 --sdk          # through the OTel SDK's BatchSpanProcessor
+    python bench/loadgen.py --url ... --rate 200 --sdk          # through the packages' export path
+    python bench/loadgen.py --url ... --rate 200 --sdk --sdk-processor stock   # the SDK's own defaults
 
 The spans are the ones the packages emit (contract/span-contract.md, schema version 3): the same span
 names, ``trailbeam.kind`` values, attributes and resource attributes as ``trailbeam._emitter`` and the
@@ -14,9 +15,11 @@ Lambda outcome) is drawn at random from the profile, then written out as spans.
 reports spans per second as well. Without ``--sdk`` the generator builds the OTLP protobuf itself and
 POSTs it from ``--concurrency`` threads per process, open loop: each export is due at a fixed time, and
 if the server is slower than the rate, exports fall behind (``behind_s``) instead of the rate silently
-dropping. With ``--sdk`` the spans go through ``BatchSpanProcessor`` and ``OTLPSpanExporter`` with their
-default settings, as in an application; the result then counts the spans the SDK dropped (the server's
-``/api/health`` counters before and after, so the URL must be a Trailbeam server for that count).
+dropping. With ``--sdk`` the spans go through the packages' export path (``trailbeam._export``'s
+``CountingSpanProcessor`` and ``OTLPSpanExporter``), as in an application, or with ``--sdk-processor stock``
+through the SDK's ``BatchSpanProcessor`` with its defaults; the result counts the spans that were dropped
+(from the exporter's side, and from the server's ``/api/health`` counters before and after when the URL
+is a Trailbeam server) and, for the packages' path, what the drop counter and its log lines said.
 
 The same message stories feed the benchmark harness's seeding (``records``), so a seeded database and
 live traffic have the same shape.
@@ -30,6 +33,7 @@ import math
 import multiprocessing
 import os
 import random
+import re
 import sys
 import threading
 import time
@@ -52,6 +56,7 @@ BODY_SIZES = {"none": 0, "0": 0, "1k": 1024, "64k": 64 * 1024, "256k": 256 * 102
 NS = 1_000_000_000
 MS = 1_000_000
 
+DROP_LINE = re.compile(r"trailbeam: dropped (\d+) spans")  # trailbeam._export's WARNING line
 SPAN_NAME = {"sqs.send": "trailbeam send", "sqs.receive": "trailbeam receive", "sqs.outcome": "trailbeam outcome",
              "delete": "trailbeam delete", "change_visibility": "trailbeam change_visibility"}
 
@@ -583,10 +588,13 @@ def _ms(s: Optional[float]) -> Optional[float]:
 # ---- through the OpenTelemetry SDK --------------------------------------------------------
 
 def run_sdk(url: str, profile: Profile, rate: float, duration: float, *, seed: Optional[int] = None,
-            settle_s: float = 60.0,
-            max_queue_size: Optional[int] = None) -> dict:
-    """Emit the spans through a TracerProvider with a default BatchSpanProcessor and OTLPSpanExporter, as
-    the packages do (trailbeam._emitter), and count where each span went. The exporter is wrapped, so the
+            settle_s: float = 60.0, max_queue_size: Optional[int] = None,
+            processor: str = "trailbeam") -> dict:
+    """Emit the spans through a TracerProvider and OTLPSpanExporter, as the packages do (trailbeam._emitter),
+    and count where each span went. ``processor`` is "trailbeam", the packages' CountingSpanProcessor (its
+    default queue unless ``max_queue_size``), or "stock", the SDK's BatchSpanProcessor with its defaults.
+    For "trailbeam" the result also has what its drop counter (``trailbeam_dropped*``) and its WARNING
+    lines (``logged_dropped``, the sum of their counts) said. The exporter is wrapped, so the
     SDK's own view needs no server: spans exported, spans in a failed export (the processor drops those),
     and spans never exported (dropped because the queue was full, or not flushed in time). Against a
     Trailbeam server, /api/health also gives the spans it received; if it can't answer (servers before QV-70
@@ -613,7 +621,30 @@ def run_sdk(url: str, profile: Profile, rate: float, duration: float, *, seed: O
     before = health(url)
     provider = TracerProvider(resource=Resource.create({"service.name": "bench-sdk"}), sampler=ALWAYS_ON)
     kw = {"max_queue_size": max_queue_size} if max_queue_size else {}
-    provider.add_span_processor(BatchSpanProcessor(Counting(endpoint=url), **kw))
+    lines = []
+    if processor == "trailbeam":
+        import logging
+
+        import trailbeam
+        from trailbeam._export import CountingSpanProcessor
+
+        class Lines(logging.Handler):
+            def emit(self, record):
+                m = DROP_LINE.search(record.getMessage())
+                if m:
+                    lines.append(int(m.group(1)))
+
+        handler = Lines(logging.WARNING)
+        logging.getLogger("trailbeam").addHandler(handler)
+        stats_before = trailbeam.export_stats()
+        proc = CountingSpanProcessor(Counting(endpoint=url), **kw)
+        queue_size = proc.limit
+    elif processor == "stock":
+        proc = BatchSpanProcessor(Counting(endpoint=url), **kw)
+        queue_size = max_queue_size or 2048
+    else:
+        raise ValueError(f"processor must be trailbeam or stock, not {processor!r}")
+    provider.add_span_processor(proc)
     tracer = provider.get_tracer(SCOPE, SCOPE_VERSION)
     seed = new_seed() if seed is None else seed
     stream = Stream(profile, seed=seed)
@@ -634,6 +665,13 @@ def run_sdk(url: str, profile: Profile, rate: float, duration: float, *, seed: O
     emit_elapsed = time.monotonic() - t0
     flushed = provider.force_flush(int(settle_s * 1000))
     provider.shutdown()
+    counter = {}
+    if processor == "trailbeam":
+        logging.getLogger("trailbeam").removeHandler(handler)
+        st = trailbeam.export_stats()
+        by = {r: st["dropped_by_reason"][r] - stats_before["dropped_by_reason"][r] for r in st["dropped_by_reason"]}
+        counter = {"trailbeam_dropped": sum(by.values()), "trailbeam_dropped_by_reason": by,
+                   "logged_dropped": sum(lines), "drop_log_lines": len(lines)}
     after = health(url) if before is not None else None
     received = None if after is None else (after["ingest"]["inserted"] + after["ingest"]["duplicates"]) - (
         before["ingest"]["inserted"] + before["ingest"]["duplicates"])
@@ -646,7 +684,8 @@ def run_sdk(url: str, profile: Profile, rate: float, duration: float, *, seed: O
             "dropped_spans": lost, "dropped_pct": round(100 * lost / emitted, 2) if emitted else 0,
             "received_spans": received, "export_calls": tally["calls"],
             "export_max_s": round(secs[-1], 2) if secs else None,
-            "flushed_in_time": flushed, "max_queue_size": max_queue_size or 2048, "profile": asdict(profile)}
+            "flushed_in_time": flushed, "processor": processor, "max_queue_size": queue_size, **counter,
+            "profile": asdict(profile)}
 
 
 # ---- command line -------------------------------------------------------------------------
@@ -698,11 +737,14 @@ def main(argv=None) -> None:
                    help="fixes the span IDs (default: new IDs each run; the server skips spans it already has)")
     p.add_argument("--sdk", action="store_true", help="send through the OTel SDK and count dropped spans")
     p.add_argument("--sdk-max-queue-size", type=int, default=None)
+    p.add_argument("--sdk-processor", choices=("trailbeam", "stock"), default="trailbeam",
+                   help="the packages' counting processor (default) or the SDK's BatchSpanProcessor defaults")
     add_profile_args(p)
     a = p.parse_args(argv)
     prof = profile_from(a)
     if a.sdk:
-        res = run_sdk(a.url, prof, a.rate, a.duration, seed=a.seed, max_queue_size=a.sdk_max_queue_size)
+        res = run_sdk(a.url, prof, a.rate, a.duration, seed=a.seed, max_queue_size=a.sdk_max_queue_size,
+                      processor=a.sdk_processor)
     else:
         res = run(a.url, prof, a.rate, a.duration, concurrency=a.concurrency, processes=a.processes,
                   timeout=a.timeout, seed=a.seed)

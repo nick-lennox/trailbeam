@@ -10,16 +10,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bench"))
 import harness  # noqa: E402
 import loadgen  # noqa: E402
 
+from trailbeam.server import summary_table  # noqa: E402
 from trailbeam.server.db import Database  # noqa: E402
 
 PROFILE = loadgen.Profile(queues=6, tenants=4, body_size=300, body_queues=2, redelivery=0.2, visibility_change=0.2,
                           dlq=0.1, stuck=0.1, lambda_consumer=0.3, late_join=0.4, batch_spans=40)
 
 
-def rows(path):
+def rows(path, table="spans"):
     c = sqlite3.connect(path)
     c.row_factory = sqlite3.Row
-    out = [dict(r) for r in c.execute("SELECT * FROM spans ORDER BY row")]
+    out = sorted((dict(r) for r in c.execute(f"SELECT * FROM {table}")), key=lambda r: [str(v) for v in r.values()])
     c.close()
     return out
 
@@ -38,6 +39,8 @@ def test_seeding_writes_the_rows_insert_writes(tmp_path):
     a, b = rows(by_insert), rows(by_seed)
     assert len(a) > 1000
     assert a == b
+    for t in summary_table.TABLES:  # and the summary tables insert keeps
+        assert rows(by_insert, t) == rows(by_seed, t), t
     assert any(r["mid_source"] == "receipt_hash" for r in a) and any(r["body_dropped"] for r in a)
 
 
@@ -93,9 +96,28 @@ def test_a_page_that_times_out_restarts_the_server_and_is_skipped_at_larger_size
     first, second = res["sizes"]
     assert "tenants" not in first["pages_idle"] and first["pages_skipped"] == {"tenants": "--skip-pages"}
     assert all(v["timeouts"] == 1 and v["n"] == 1 for v in first["pages_idle"].values())
-    assert len(started) == 1 + 7 + 1  # first server, one restart per timed-out page, second size's server
+    # Per size: its first server, one restart per timed-out page (first size only), then one server for each
+    # ramp step and one for the run under pages, each on the restored seeded file.
+    assert len(started) == (1 + 7 + 2) + (1 + 2)
     assert first["ingest"][0]["errors"] == 0  # the ramp ran against a fresh server
     assert second["pages_idle"] == {} and second["pages_under_ingest"] == {}
     assert set(second["pages_skipped"]) == {"messages", "messages_one_queue", "message_detail", "duplicates",
                                             "stuck", "tenants", "tenant_search", "body_search"}
     assert "skipped" in (out / "summary.md").read_text()
+
+
+def test_every_ingest_step_starts_from_the_seeded_file(tmp_path):
+    """At thousands of spans/s one ramp writes more spans than a small database holds: each step, the run
+    under pages and the next size must start from the seeded file, not from what earlier steps added."""
+    out = tmp_path / "out"
+    harness.main(["--out", str(out), "--sizes", "2k,4k", "--rates", "20,40", "--step-seconds", "2",
+                  "--under-load-seconds", "2", "--page-repeats", "1", "--growth-spans", "0",
+                  "--sdk-seconds", "0", "--processes", "1", "--queues", "5", "--tenants", "3", "--body-queues", "2"])
+    res = json.loads((out / "results.json").read_text())
+    small, big = res["sizes"]
+    assert small["steps_restore_seeded_file"]
+    assert [s["db_spans_before"] for s in small["ingest"]] == [small["spans"]] * len(small["ingest"])
+    assert small["ingest_under_pages_db_spans_before"] == small["spans"]
+    assert big["spans"] < small["spans"] + 4000 // 2 + 3 * 512 + 600  # seeded to 4k plus the breakdown's exports
+    assert small["breakdown"]["cold_insert_ms"] > 0
+    assert not (tmp_path / "out" / "bench.seeded.sqlite").exists()

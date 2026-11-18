@@ -5,6 +5,7 @@ const { version } = require('./version');
 const { hashReceiptHandle, keyId, SCHEMA_VERSION } = require('./contract');
 const { install, instrument, uninstall, forceFlush } = require('./sqs');
 const { wrapHandler } = require('./lambda');
+const { stats: exportStats } = require('./export');
 
 module.exports = {
   version,
@@ -14,6 +15,7 @@ module.exports = {
   uninstall,
   forceFlush,
   wrapHandler,
+  exportStats,
   hashReceiptHandle,
   keyId,
 };
