@@ -92,3 +92,27 @@ in steps 3 and 4 goes through the real server.
 
 Disk: about 1 GB per million spans with 1 KB bodies on a tenth of the queues; `summary.md` has the measured
 figure. Seeding runs at about 25k spans/s on one core.
+
+## Postgres smoke run: `pg_smoke.py`
+
+A short check of the Postgres store (QV-80), not the full harness: seed a database to a size through
+`PostgresStore.insert`, start the server with `--store-url`, time the pages idle, then run ingest at a rate while
+the pages are timed in a loop.
+
+```sh
+pip install -e 'python[test,postgres]'
+createdb bench
+python python/bench/pg_smoke.py --store-url postgresql://postgres@127.0.0.1:5432/bench --spans 1M --seed-only
+python python/bench/pg_smoke.py --store-url postgresql://postgres@127.0.0.1:5432/bench --spans 1M \
+    --spans-per-s 1000 --seconds 120 --out bench-results/pg-smoke
+```
+
+Seeding resumes where it stopped, so it can be split into runs. Same traffic as the harness (50 queues, 50
+tenants, 1 KB bodies on 5 queues). Seeding leaves Postgres a checkpoint and autovacuum to do: measure after
+they have finished, or the first minutes show their I/O as export latency.
+
+Result on the QV-70 machine (Ryzen 7 7700X, WSL2, Postgres 16.2 on the same box, `fsync` and
+`synchronous_commit` on, `shared_buffers=1GB`), 1.0 to 1.2M spans (2.6 to 3.1 GB), 120 s at 1,000 spans/s:
+export p50 297 ms, p99 456 ms, no errors. List pages p95 under that ingest: Messages 5.4 ms, one queue 5.0, Duplicates 5.0,
+Stuck 5.1, message detail 2.1, Tenants 298, tenant search 41, body search 124 (one queue 209). The first run
+straight after seeding, during a 125 s checkpoint, had an export p99 of 4.1 s.
