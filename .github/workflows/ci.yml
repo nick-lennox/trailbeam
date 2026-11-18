@@ -11,7 +11,7 @@ permissions:
 jobs:
   python:
     name: Python ${{ matrix.python }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     strategy:
       fail-fast: false
       matrix:
@@ -37,7 +37,7 @@ jobs:
   postgres:
     # The Postgres store (TRAILBEAM_STORE_URL) on the oldest supported version and the current one.
     name: Postgres ${{ matrix.postgres }} store
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     strategy:
       fail-fast: false
       matrix:
@@ -69,7 +69,7 @@ jobs:
 
   node:
     name: Node.js ${{ matrix.node }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     strategy:
       fail-fast: false
       matrix:
@@ -95,7 +95,7 @@ jobs:
 
   ui:
     name: Shared UI (@trailbeam/ui)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     defaults:
       run:
         working-directory: ui
@@ -112,7 +112,7 @@ jobs:
 
   collector:
     name: Collector configuration
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     env:
       OTELCOL_VERSION: "0.165.0"
     steps:
@@ -130,9 +130,16 @@ jobs:
 
   container:
     name: Container smoke test
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     steps:
       - uses: actions/checkout@v4
+      - name: Clear what an earlier job on this runner may have left
+        run: |
+          docker rm -f trailbeam 2>/dev/null || true
+          docker volume rm -f trailbeam-ci-data 2>/dev/null || true
+          docker compose -f demo/compose.yaml down -v --remove-orphans 2>/dev/null || true
+          for i in $(seq 30); do ss -ltn | grep -q ':4318 ' || exit 0; sleep 2; done
+          echo "port 4318 still in use:"; ss -ltnp | grep ':4318 '; exit 1
       - name: Build the image (local only, not pushed)
         run: docker build -t trailbeam:ci .
       - name: Run it with SQLite on a volume
@@ -153,12 +160,24 @@ jobs:
       - name: Container logs
         if: always()
         run: docker logs trailbeam || true
+      - name: Remove the container and volume (self-hosted runner)
+        if: always()
+        run: |
+          docker rm -f trailbeam || true
+          docker volume rm -f trailbeam-ci-data || true
 
   demo:
     name: Local demo (Docker Compose)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     steps:
       - uses: actions/checkout@v4
+      - name: Clear what an earlier job on this runner may have left
+        run: |
+          docker rm -f trailbeam 2>/dev/null || true
+          docker volume rm -f trailbeam-ci-data 2>/dev/null || true
+          docker compose -f demo/compose.yaml down -v --remove-orphans 2>/dev/null || true
+          for i in $(seq 30); do ss -ltn | grep -q ':4318 ' || exit 0; sleep 2; done
+          echo "port 4318 still in use:"; ss -ltnp | grep ':4318 '; exit 1
       - name: Build and start the demo (images local only, not pushed)
         run: docker compose -f demo/compose.yaml up -d --build --wait
       - name: Timelines from the Python and Node.js consumers reach Trailbeam
@@ -168,11 +187,11 @@ jobs:
         run: docker compose -f demo/compose.yaml logs --tail 50 || true
       - name: Stop
         if: always()
-        run: docker compose -f demo/compose.yaml down -v || true
+        run: docker compose -f demo/compose.yaml down -v --remove-orphans || true
 
   concurrency-check:
     name: Concurrency check (3 processes x 4 consumers, 200 messages)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -217,7 +236,7 @@ jobs:
     # gating unnoticed. Pull requests from forks get no secrets, so it runs on pushes and same-repo PRs only.
     name: Concurrency check on real SQS (floor gating)
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     concurrency:
       group: real-sqs
       cancel-in-progress: false

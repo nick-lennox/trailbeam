@@ -110,7 +110,9 @@ Lambda wrapper: a `trailbeam receive` carries `trailbeam.order.returned` (a tick
 with its end time) and **no** `trailbeam.order.issued`, because Lambda's poller made the call; a
 `trailbeam outcome` carries `trailbeam.order.issued` = `trailbeam.order.returned` = one tick when the outcome was
 decided, after the handler returned or threw. So a handler's outcome is ordered after its own receive,
-and nothing is ordered after a Lambda receive by this source.
+and nothing is ordered *before* a Lambda receive by this source: it has no `issued` tick. The clocks
+don't order anything before it either, because its start is not observed (`trailbeam.start_observed`
+= `false`). Its end time and `returned` tick can still order it before later steps.
 
 ## 3. Attributes on every Trailbeam span
 
@@ -733,6 +735,10 @@ When a handler throws, and the record's queue is in the error queue list, each r
 cut to its first 1,024 Unicode code points. If redaction fails, the attribute is omitted. Error text
 for other consumers is not in 3.2: they have no handler wrapper, so the packages never see the
 exception.
+
+Error text has one gate, the package's error queue list. Unlike bodies (15.1), the servers add no second
+gate: `TRAILBEAM_STORE_BODIES` does not cover `trailbeam.error_message`, and the open-source server
+stores it whenever a package sends it.
 
 ### 15.6 Verified and not verified
 

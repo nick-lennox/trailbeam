@@ -11,6 +11,7 @@ class Proxy:
     def __init__(self, backends: list[tuple[str, int]]):
         self.backends = list(backends)
         self._next = itertools.count()
+        self.opened = [0] * len(self.backends)  # connections made to each backend, in the order given
         self._listener = socket.create_server(("127.0.0.1", 0))
         self.port = self._listener.getsockname()[1]
         self._conns: set = set()
@@ -41,10 +42,14 @@ class Proxy:
         n = len(self.backends)
         start = next(self._next)
         for i in range(n):
+            k = (start + i) % n
             try:
-                return socket.create_connection(self.backends[(start + i) % n], timeout=2)
+                upstream = socket.create_connection(self.backends[k], timeout=2)
             except OSError:
                 continue
+            with self._lock:
+                self.opened[k] += 1
+            return upstream
         return None
 
     def _pipe(self, src, dst) -> None:

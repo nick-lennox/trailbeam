@@ -422,8 +422,9 @@ longer overloads, send through a Collector with a sending queue ([`collector/`](
 
 ### Metrics: `GET /metrics`
 
-Trailbeam serves Prometheus metrics on its own port, at `/metrics`. In 0.1 that endpoint has no
-authentication, like the rest of Trailbeam. Labels never hold span data: routes are templates such as
+Trailbeam serves Prometheus metrics on its own port, at `/metrics`. When an
+[access token](#access-token) is set, `/metrics` needs it too (in Prometheus, `authorization.credentials_file`);
+without one, anyone who can reach the port can read it. Labels never hold span data: routes are templates such as
 `/api/messages/{id}`.
 
 | Metric | Type | What |
@@ -443,7 +444,7 @@ authentication, like the rest of Trailbeam. Labels never hold span data: routes 
 | `trailbeam_db_last_row` | gauge | Highest span row ID (one index step, not a count) |
 | `trailbeam_build_info{version}`, `trailbeam_start_time_seconds` | gauge | Version and start time |
 
-Retention purge metrics come with the retention setting.
+There are no retention purge metrics yet: the server logs each purge pass that deletes spans, and any pass that fails.
 
 A scrape config for Prometheus:
 
@@ -507,8 +508,10 @@ Full explanation: [How Trailbeam works](https://docs.trailbeam.app/concepts/how-
 - It makes no SQS calls of its own, and never calls `ReceiveMessage` on your queues. Trailbeam makes
   no AWS calls.
 - It does not store message bodies unless you opt the queue in, both in the package and on the server
-  ([Message bodies](#message-bodies)). It does not record message attributes, except the one you name
-  as the tenant attribute.
+  ([Message bodies](#message-bodies)). It records no message attributes except the one you name as the
+  tenant attribute and the SQS Extended Client's payload size (`ExtendedPayloadSize`, else the legacy
+  `SQSLargePayloadSize`), which it records as `trailbeam.body.offloaded_size` when the body is an S3
+  pointer. To read them, the receive hooks add those names to `MessageAttributeNames`.
 - It does not export receipt handles, only a keyed hash of each one.
 
 ## Documentation
