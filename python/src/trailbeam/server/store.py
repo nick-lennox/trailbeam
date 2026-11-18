@@ -1,8 +1,10 @@
 """The storage interface: what the server needs from wherever spans are kept.
 
-The server reaches storage only through a ``Store``. SQLite (db.py, ``SqliteStore``) is the default and
-the only one today; Postgres and ClickHouse backends will implement this interface, and every backend must
-pass the conformance suite in ``python/tests/conformance`` (the same answers, from the same spans, as SQLite).
+The server reaches storage only through a ``Store``. Two backends implement it today: SQLite (db.py,
+``SqliteStore``), the default, and Postgres (postgres.py, ``PostgresStore``), selected by
+``TRAILBEAM_STORE_URL=postgres://…`` (``--store-url``). Every backend must pass the conformance suite in
+``python/tests/conformance`` (the same answers, from the same spans, as SQLite); Postgres runs in it when
+``TRAILBEAM_TEST_POSTGRES_URL`` is set.
 
 What a Store does, and what stays out of it: a Store keeps span rows, joins settle spans to their receives,
 keeps one summary per message (summary.summarize of its rows, rewritten whenever a span of it is stored,
