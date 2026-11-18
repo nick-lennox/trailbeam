@@ -3,7 +3,10 @@
 - ``messages``: the summary, one row per message (``mid``), with the message's lists as JSON
   (``queues_json``, ``tenants_json``, ``events_json``). Those say which rows of the other tables are the
   message's, so they are found by key, not by ``mid``. ``rows_json`` lists the row IDs of the message's
-  spans: its spans are read by primary key, and spans has no index on ``mid`` (schema 10, QV-78).
+  spans: its spans are read by primary key, and spans has no index on ``mid`` (schema 10, QV-78). It is a
+  rowid table with a unique index on ``mid``, not keyed by ``mid``: a message's row is written again whenever
+  it gains a span, nearly always within seconds of the last time, so rows in arrival order keep those writes
+  on the last pages of the B-tree. Keyed by the random ``mid``, nearly every write was to a different page.
 - ``message_queues``: (queue, last_ns, mid) for every queue the message has a span on, ``last_ns`` the
   message's newest span: one queue's messages, newest first, are a range of the primary key.
 - ``message_tenants``: (tenant, last_ns, mid) for every tenant a span of the message names, with the newest
@@ -31,7 +34,7 @@ from .summary import FIELDS
 
 CREATE = """
 CREATE TABLE IF NOT EXISTS messages (
-    mid TEXT PRIMARY KEY,
+    mid TEXT NOT NULL PRIMARY KEY,       -- a unique index: the rows themselves are in arrival order (rowid)
     first_ns INTEGER NOT NULL,           -- first seen (timeline.first_seen_ns), on first_clock
     first_clock TEXT NOT NULL,           -- host | sqs
     last_ns INTEGER NOT NULL,            -- the newest span's time_ns
@@ -56,7 +59,7 @@ CREATE TABLE IF NOT EXISTS messages (
     tenants_json TEXT NOT NULL,          -- JSON {tenant: named_ns}: its message_tenants rows
     events_json TEXT NOT NULL,           -- JSON [[at_ms, kind, wait_ms], ...]: its tenant_events rows, seq = index
     rows_json TEXT NOT NULL              -- JSON [row, ...]: its spans (spans.row, ascending)
-) WITHOUT ROWID;
+);
 CREATE INDEX IF NOT EXISTS messages_last ON messages (last_ns DESC, mid);
 CREATE INDEX IF NOT EXISTS messages_duplicates ON messages (last_ns DESC, mid) WHERE dup_received OR dup_succeeded;
 CREATE INDEX IF NOT EXISTS messages_stuck ON messages (stuck_first_ns, mid)
