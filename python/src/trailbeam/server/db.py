@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import sqlite3
 import threading
 from typing import Iterable, Iterator, Optional
@@ -83,9 +84,18 @@ class SqliteStore(Store):
     the log: a page does not wait for an export's transaction, and an export does not wait for a page.
     Read connections are pooled (``MAX_IDLE_READERS`` kept open), so a request does not open the file.
     ``:memory:`` has no file to share, so there every read goes through the writer connection and its lock.
+
+    Checkpoints (copying the log back into the file) run on a thread of their own (``_checkpoint_loop``),
+    not in the writer's COMMIT. SQLite's automatic checkpoint runs inside the COMMIT that takes the log past
+    1,000 pages, and with the summary tables one 512-span export writes about 2,600: every COMMIT
+    checkpointed, and that was most of its time. The thread runs a PASSIVE checkpoint every
+    ``CHECKPOINT_INTERVAL_S``. That never waits for the writer or a reader, and it writes a page changed by
+    many exports once. ``synchronous`` stays FULL, so a COMMIT is still on disk when ``insert`` returns.
     """
 
     MAX_IDLE_READERS = 8
+    CHECKPOINT_INTERVAL_S = 1.0
+    WAL_SIZE_LIMIT = 64 * 1024 * 1024  # journal_size_limit: the log is cut back to this when it restarts
 
     def __init__(self, path: str = ":memory:", *, store_bodies: Iterable[str] = ()):
         self.path = path
@@ -97,6 +107,8 @@ class SqliteStore(Store):
         self._idle_readers: list[sqlite3.Connection] = []
         self._readers_lock = threading.Lock()
         self._closed = False
+        self._stop = threading.Event()
+        self._checkpointer: Optional[threading.Thread] = None
         try:
             # A new file is created with incremental vacuum, so retention can give space back (reclaim_space).
             # SQLite only takes this before the first table is created; on an existing file it does nothing.
@@ -107,12 +119,40 @@ class SqliteStore(Store):
                 mode = self.conn.execute("PRAGMA journal_mode=WAL").fetchone()[0]
                 if mode.lower() != "wal":
                     raise RuntimeError(f"{path}: SQLite could not switch the file to WAL mode (got {mode})")
+                self.conn.execute("PRAGMA wal_autocheckpoint = 0")
+                self.conn.execute(f"PRAGMA journal_size_limit = {self.WAL_SIZE_LIMIT}")
             self.conn.execute("PRAGMA foreign_keys=ON")
         except BaseException:
             self.conn.close()
             raise
+        if self.shared_reads:
+            self._checkpointer = threading.Thread(target=self._checkpoint_loop, name="trailbeam-checkpoint",
+                                                  daemon=True)
+            self._checkpointer.start()
+
+    def _checkpoint_loop(self) -> None:
+        c = sqlite3.connect(self.path, check_same_thread=False, isolation_level=None)
+        try:
+            while not self._stop.wait(self.CHECKPOINT_INTERVAL_S):
+                self.checkpoint(c)
+        finally:
+            c.close()
+
+    def checkpoint(self, conn: Optional[sqlite3.Connection] = None) -> tuple:
+        """One PASSIVE checkpoint: (busy, frames in the log, frames checkpointed), as SQLite reports them."""
+        try:
+            if conn is not None:
+                return tuple(conn.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchone())
+            with self.lock:
+                return tuple(self.conn.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchone())
+        except sqlite3.Error as e:  # e.g. the file went away under a test; the next round tries again
+            logging.getLogger(__name__).warning("checkpoint failed: %s", e)
+            return (1, -1, -1)
 
     def close(self) -> None:
+        self._stop.set()
+        if self._checkpointer is not None:
+            self._checkpointer.join()
         with self._readers_lock:
             self._closed = True
             idle, self._idle_readers = self._idle_readers, []

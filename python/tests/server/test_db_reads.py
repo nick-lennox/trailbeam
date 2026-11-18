@@ -91,3 +91,38 @@ def test_memory_database_reads_through_the_writer():
     with db.reader() as c:
         assert c is db.conn
     db.close()
+
+
+def test_commits_do_not_checkpoint_a_thread_does(tmp_path, monkeypatch):
+    """QV-73: SQLite's automatic checkpoint ran inside nearly every export's COMMIT. On a file the writer
+    never checkpoints; the checkpoint thread copies the log back, with PASSIVE checkpoints."""
+    monkeypatch.setattr(Database, "CHECKPOINT_INTERVAL_S", 0.05)
+    seen = []
+    real = Database.checkpoint
+
+    def checkpoint(self, conn=None):
+        out = real(self, conn)
+        seen.append((threading.current_thread().name, out))
+        return out
+
+    monkeypatch.setattr(Database, "checkpoint", checkpoint)
+    d = Database(str(tmp_path / "t.sqlite"))
+    try:
+        assert d.conn.execute("PRAGMA wal_autocheckpoint").fetchone()[0] == 0
+        c = Consumer()
+        d.insert(records(*[c.receive(T0 + i * SEC, f"m{i}", f"rh-{i}") for i in range(50)]))
+        deadline = time.monotonic() + 5
+        while not any(log > 0 and done == log for _, (busy, log, done) in seen) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert {name for name, _ in seen} == {"trailbeam-checkpoint"}
+        assert any(busy == 0 and log > 0 and done == log for _, (busy, log, done) in seen)
+        assert len(d.message_rows("m7")) == 1
+    finally:
+        d.close()
+    assert not d._checkpointer.is_alive()
+
+
+def test_memory_database_has_no_checkpoint_thread():
+    d = Database(":memory:")
+    assert d._checkpointer is None
+    d.close()
