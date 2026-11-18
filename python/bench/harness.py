@@ -121,7 +121,18 @@ def restore_file(src: str, dst: str) -> None:
     for p in (dst + "-wal", dst + "-shm"):
         if os.path.exists(p):
             os.remove(p)
+    copy_synced(src, dst)
+
+
+def copy_synced(src: str, dst: str) -> None:
+    """Copy and fsync: otherwise the kernel writes a 1.75 GB copy back during the next measurement, and the
+    server's commits wait behind it (seconds-long stalls at 1M before this)."""
     shutil.copyfile(src, dst)
+    fd = os.open(dst, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def span_count(path: str) -> int:
@@ -493,7 +504,7 @@ def run(args) -> dict:
         snapshot = None
         if file_bytes(db_path) <= args.restore_max_gb * 1e9:
             snapshot = str(work / "bench.seeded.sqlite")
-            shutil.copyfile(db_path, snapshot)
+            copy_synced(db_path, snapshot)
         entry["steps_restore_seeded_file"] = snapshot is not None
         box = {"srv": Server(db_path, store, str(out / "server.log"))}
 
