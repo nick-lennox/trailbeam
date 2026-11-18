@@ -60,14 +60,14 @@ def test_lists(loaded):
     status, d = get(url, "/api/duplicates")
     assert status == 200 and [m["message_id"] for m in d["messages"]] == [mid]
     assert d["messages"][0]["reasons"] == ["received_more_than_once"]
-    assert get(url, "/api/duplicates?reason=succeeded_more_than_once")[1] == {"messages": []}
+    assert get(url, "/api/duplicates?reason=succeeded_more_than_once")[1] == {"messages": [], "next_cursor": None}
     status, s = get(url, "/api/stuck?older_than_s=60")
     assert status == 200 and s["older_than_s"] == 60
     assert [m["message_id"] for m in s["messages"]] == ["id/with spaces?&"]
     assert get(url, "/api/stuck")[1]["older_than_s"] == 300
     recent = get(url, "/api/messages?limit=1")[1]["messages"]
     assert [m["message_id"] for m in recent] == [mid]
-    assert get(url, "/api/messages?queue=payments")[1] == {"messages": []}
+    assert get(url, "/api/messages?queue=payments")[1] == {"messages": [], "next_cursor": None}
 
 
 @pytest.mark.parametrize("path", [

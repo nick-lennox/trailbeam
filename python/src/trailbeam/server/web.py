@@ -130,7 +130,7 @@ def handle(api: Callable[[str, dict], object], api_error: type, path: str, query
 
 
 def _index(api, q: dict) -> Response:
-    data = api("messages", _pick(q, "limit", "queue", "tenant", "body"))
+    data = api("messages", _pick(q, "limit", "queue", "tenant", "body", "cursor"))
     searching = "body_search" in data
     note = ""
     if searching:
@@ -145,7 +145,8 @@ def _index(api, q: dict) -> Response:
             + _filters("/", q, [("body", "Body", "text"), ("queue", "Queue", "text"),
                                  ("tenant", "Tenant", "text"), ("limit", "Limit", "number")])
             + note
-            + _summary_table(data["messages"], empty="No message body matches." if searching else "No messages stored yet."))
+            + _summary_table(data["messages"], empty="No message body matches." if searching else "No messages stored yet.")
+            + _next("/", q, data))
     return _page(200, "Trailbeam", body)
 
 
@@ -198,7 +199,7 @@ def _message(api, q: dict) -> Response:
 
 
 def _duplicates(api, q: dict) -> Response:
-    params = _pick(q, "limit", "queue", "reason")
+    params = _pick(q, "limit", "queue", "reason", "cursor")
     data = api("duplicates", params)
     reason_opts = [("", "any reason")] + list(DUPLICATE_REASONS.items())
     body = ("<h1>Duplicate deliveries</h1>"
@@ -207,12 +208,13 @@ def _duplicates(api, q: dict) -> Response:
                                           ("limit", "Limit", "number")])
             + _summary_table(data["messages"], extra=("Why", lambda m: ", ".join(
                 escape(DUPLICATE_REASONS.get(r, r)) for r in m.get("reasons", []))),
-                empty="No duplicate deliveries."))
+                empty="No duplicate deliveries.")
+            + _next("/duplicates", q, data))
     return _page(200, "Duplicate deliveries", body)
 
 
 def _stuck(api, q: dict) -> Response:
-    data = api("stuck", _pick(q, "older_than_s", "limit", "queue"))
+    data = api("stuck", _pick(q, "older_than_s", "limit", "queue", "cursor"))
     body = ("<h1>Stuck messages</h1>"
             f'<p class="muted">First seen more than {int(data["older_than_s"])} s ago, with no final delete. '
             "Oldest first. First seen is the send, on the producer host's clock. Only when the send was not "
@@ -221,7 +223,8 @@ def _stuck(api, q: dict) -> Response:
             + _filters("/stuck", {**q, "older_than_s": str(data["older_than_s"])},
                        [("older_than_s", "Older than (s)", "number"), ("queue", "Queue", "text"),
                         ("limit", "Limit", "number")])
-            + _summary_table(data["messages"], extra=("Age", _stuck_age), empty="No stuck messages."))
+            + _summary_table(data["messages"], extra=("Age", _stuck_age), empty="No stuck messages.")
+            + _next("/stuck", q, data))
     return _page(200, "Stuck messages", body)
 
 
@@ -493,6 +496,14 @@ def _summary_table(messages: list[dict], *, empty: str, extra: Optional[tuple] =
         rows.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
     return ("<table><thead><tr>" + "".join(f"<th>{escape(c)}</th>" for c in cols) + "</tr></thead><tbody>"
             + "".join(rows) + "</tbody></table>")
+
+
+def _next(action: str, q: dict, data: dict) -> str:
+    """A link to the next page, with the same filters, when the API returned a cursor for one."""
+    if not data.get("next_cursor"):
+        return ""
+    params = {**{k: v for k, v in q.items() if v != "" and k != "cursor"}, "cursor": data["next_cursor"]}
+    return f'<p class="pager"><a href="{escape(action)}?{escape(urlencode(params))}">Next page</a></p>'
 
 
 def _filters(action: str, q: dict, fields: Iterable[tuple]) -> str:

@@ -138,8 +138,9 @@ the body is not exported.
 
 The **Tenants** page (`/tenants`) shows, for the last hour, day or week: messages sent, share of all
 sends, p95 time in queue (send to first receive) and dead-lettered messages, per tenant. A tenant's
-name links to its messages (`/?tenant=acme`), and the search box in the header suggests tenants as
-you type. The same data is in the JSON API: `GET /api/tenants`, `GET /api/tenants/search?q=` and
+name links to its messages (`/?tenant=acme`), and the search box in the header suggests tenants
+named in the page's range (default the last day) as you type. The same data is in the JSON API:
+`GET /api/tenants`, `GET /api/tenants/search?q=` (with `since_s` or `from_ms`/`to_ms`, and `queue`) and
 `GET /api/messages?tenant=`. How every number is counted is in
 [`contract/tenants.md`](contract/tenants.md). The hosted app counts them the same way and is tested
 against the same recorded spans.
@@ -148,6 +149,12 @@ against the same recorded spans.
 
 Trailbeam is one container. It receives OTLP on `/v1/traces` and serves the web screen and the JSON
 API on the same port.
+
+The list endpoints (`/api/messages`, `/api/duplicates`, `/api/stuck`) return at most `limit` messages
+(default 100, at most 1,000) and a `next_cursor`: pass it back as `cursor` for the next page, `null`
+on the last one. `from_ms`/`to_ms` (milliseconds since the epoch, both included) keep messages last
+seen in that range (Stuck: `from_ms`, first seen). Lists read a per-message summary the server keeps
+up to date as spans arrive, so a page costs about the same however much history is stored.
 
 ```sh
 docker build -t trailbeam .

@@ -151,7 +151,7 @@ def test_api(fixture_db):
     day = app.api("tenants", {})
     assert (day["from_ms"], day["to_ms"]) == (NOW // 10**6 - 86_400_000, NOW // 10**6) and day["rows"] == whole["rows"]
     assert app.api("tenants", {"since_s": "1"})["rows"] == []  # the last second: 60 s after the spans
-    assert app.api("tenants/search", {"q": " gl "}) == {"tenants": ["globex"]}
+    assert app.api("tenants/search", {"q": " gl "})["tenants"] == ["globex"]
     assert {m["message_id"] for m in app.api("messages", {"tenant": "hooli"})["messages"]} == {"m-orphan"}
     assert len(app.api("messages", {"tenant": ""})["messages"]) == 10  # empty: no filter
 

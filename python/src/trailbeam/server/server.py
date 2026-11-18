@@ -85,7 +85,10 @@ class App:
         parts = [unquote(p) for p in path.split("/") if p]
         if not parts or parts[0] not in self.routes:
             raise ApiError(404, f"no such endpoint: /api/{'/'.join(parts)}")
-        return self.routes[parts[0]](query, parts[1:])
+        try:
+            return self.routes[parts[0]](query, parts[1:])
+        except queries.CursorError as e:
+            raise ApiError(400, str(e)) from None
 
     def health(self, query: dict, rest: list[str]) -> dict:
         """Cheap at any size: the ingest counters since start, the configuration, and one indexed read on a
@@ -132,9 +135,11 @@ class App:
             items = queries.body_search(self.db, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"), terms,
                                         mrc=self.max_receive_counts)
             return {"messages": items, "body_search": {"stores_bodies": bool(self.db.store_bodies)}}
-        items = queries.recent(self.db, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"),
-                               mrc=self.max_receive_counts, tenant=q.get("tenant") or None)
-        return {"messages": items}
+        frm, to = self._range(q)
+        page = queries.recent_page(self.db, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"),
+                                   mrc=self.max_receive_counts, tenant=q.get("tenant") or None,
+                                   from_ns=frm, to_ns=to, cursor=q.get("cursor"))
+        return {"messages": page.items, "next_cursor": page.next_cursor}
 
     def duplicates(self, q: dict, rest: list[str]) -> dict:
         if rest:
@@ -142,32 +147,45 @@ class App:
         reason = q.get("reason")
         if reason not in (None, "received_more_than_once", "succeeded_more_than_once"):
             raise ApiError(400, "reason must be received_more_than_once or succeeded_more_than_once")
-        items = queries.duplicates(self.db, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"), reason,
-                                   mrc=self.max_receive_counts)
-        return {"messages": items}
+        frm, to = self._range(q)
+        page = queries.duplicates_page(self.db, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"), reason,
+                                       mrc=self.max_receive_counts, from_ns=frm, to_ns=to, cursor=q.get("cursor"))
+        return {"messages": page.items, "next_cursor": page.next_cursor}
 
     def stuck(self, q: dict, rest: list[str]) -> dict:
         if rest:
             raise ApiError(404, "no such endpoint")
         older = _int(q, "older_than_s", self.stuck_after_s, 0, 10 ** 9)
-        items = queries.stuck(self.db, self.now(), self._lambda_timeout(q), older, _limit(q), q.get("queue"),
-                              mrc=self.max_receive_counts)
-        return {"older_than_s": older, "messages": items}
+        frm, _ = self._range(q)
+        page = queries.stuck_page(self.db, self.now(), self._lambda_timeout(q), older, _limit(q), q.get("queue"),
+                                  mrc=self.max_receive_counts, from_ns=frm, cursor=q.get("cursor"))
+        return {"older_than_s": older, "messages": page.items, "next_cursor": page.next_cursor}
 
     def tenants(self, q: dict, rest: list[str]) -> dict:
         """``/api/tenants``: the Tenants page (contract/tenants.md) for [from_ms, to_ms], or the last
         ``since_s`` seconds (default a day). ``/api/tenants/search?q=``: tenant names for a search box."""
-        if rest == ["search"]:
-            return {"tenants": queries.find_tenants(self.db, q.get("q", "").strip(), _int(q, "limit", 8, 1, 100))}
-        if rest:
+        if rest and rest != ["search"]:
             raise ApiError(404, "no such endpoint")
         now = self.now()
         to_ms = _int(q, "to_ms", now // 1_000_000, 0, 10 ** 15)
         since = _int(q, "since_s", 86_400, 1, 400 * 86_400)
-        from_ms = _int(q, "from_ms", to_ms - since * 1000, 0, 10 ** 15)
+        from_ms = _int(q, "from_ms", max(0, to_ms - since * 1000), 0, 10 ** 15)
         if from_ms > to_ms:
             raise ApiError(400, "from_ms must not be after to_ms")
+        if rest == ["search"]:
+            # bounded by the page's range, so a search costs the same however much history is kept
+            return {"tenants": queries.find_tenants(self.db, q.get("q", "").strip(), _int(q, "limit", 8, 1, 100),
+                                                    from_ms=from_ms, to_ms=to_ms, queue=q.get("queue") or None),
+                    "from_ms": from_ms, "to_ms": to_ms}
         return queries.tenants(self.db, now, self._lambda_timeout(q), from_ms, to_ms, self.max_receive_counts)
+
+    def _range(self, q: dict) -> tuple:
+        """``from_ms``/``to_ms``, both optional and included, as [from_ns, to_ns)."""
+        frm = _int(q, "from_ms", -1, 0, 10 ** 15) if "from_ms" in q else None
+        to = _int(q, "to_ms", -1, 0, 10 ** 15) if "to_ms" in q else None
+        if frm is not None and to is not None and frm > to:
+            raise ApiError(400, "from_ms must not be after to_ms")
+        return (None if frm is None else frm * 1_000_000), (None if to is None else (to + 1) * 1_000_000)
 
 
 def _int(q: dict, name: str, default: int, lo: int, hi: int) -> int:
