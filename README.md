@@ -167,6 +167,40 @@ There is no authentication in 0.1, so keep it on `127.0.0.1` or a trusted networ
 [Run Trailbeam](https://docs.trailbeam.app/setup/run) and, to forward spans through an OpenTelemetry Collector, the
 [Collector configuration](collector/README.md).
 
+### Configuration file
+
+Per-queue settings go in a TOML file, so a few hundred queues don't turn into a few hundred flags:
+
+```toml
+# trailbeam.toml
+[defaults]
+retention = "7d"            # every queue; a duration or "forever" (default 7d)
+store_bodies = false        # true: store every queue's bodies
+
+[queues.orders]
+max_receive_count = 5       # the redrive policy's maxReceiveCount (1 to 1000)
+store_bodies = true
+retention = "30d"
+
+[queues."orders-dlq"]       # quote names TOML keys can't hold
+retention = "forever"
+```
+
+```sh
+docker run ... -v $PWD/trailbeam.toml:/etc/trailbeam.toml:ro -e TRAILBEAM_CONFIG=/etc/trailbeam.toml trailbeam
+# or trailbeam --config trailbeam.toml
+```
+
+Trailbeam reads the file once, at start. It checks the whole file before it opens the database: an
+unknown table or setting (a typo), a wrong type or a bad value stops it with exit status 2. The error
+lists every problem with its place, for example `queues.orders.max_receive_count: expected a whole number
+from 1 to 1000, got 5000`.
+
+The flags and their environment variables still work and override the file. `--max-receive-count` and
+`--retention-queues` replace the file's value for the queues they name and leave the rest as they are.
+`--store-bodies` and `--retention` replace the file's list and default. An environment variable that is
+set but empty counts as not set. `GET /api/health` shows the result under `config`.
+
 ### Message bodies
 
 Trailbeam stores no message body unless you opt queues in on the server as well as in the package:
@@ -174,6 +208,8 @@ Trailbeam stores no message body unless you opt queues in on the server as well 
 ```sh
 docker run ... -e TRAILBEAM_STORE_BODIES=orders,payments trailbeam   # or trailbeam --store-bodies orders,payments
 ```
+
+or `store_bodies = true` for those queues in the [configuration file](#configuration-file).
 
 A package exports a body only for the queues in its own capture list, redacted
 ([span contract 15](contract/span-contract.md#15-message-contents-revision-32)).
@@ -203,6 +239,8 @@ retention for every queue, override it for some queues, or keep data forever:
 docker run ... -e TRAILBEAM_RETENTION=14d -e TRAILBEAM_RETENTION_QUEUES=orders-dlq=30d,audit=forever trailbeam
 # or trailbeam --retention 14d --retention-queues orders-dlq=30d,audit=forever
 ```
+
+or `retention` under `[defaults]` and `[queues.<name>]` in the [configuration file](#configuration-file).
 
 A retention is a duration in `s`, `m`, `h` or `d` (`90m`, `36h`, `7d`), or `forever`.
 `TRAILBEAM_RETENTION=forever` with no per-queue overrides turns the purge off.

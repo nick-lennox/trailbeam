@@ -9,6 +9,7 @@ import sqlite3
 import sys
 import time
 
+from . import config
 from .db import SqliteStore, parse_queue_list
 from .migrations import SchemaError
 from .retention import DEFAULT as DEFAULT_RETENTION, Purger, Retention, parse_duration, parse_queue_retentions
@@ -28,27 +29,32 @@ def main(argv=None) -> None:
     p.add_argument("--lambda-timeout", type=int, default=int(os.environ.get("TRAILBEAM_LAMBDA_TIMEOUT_S", "900")),
                    help="seconds after which a Lambda receive without an outcome is inferred killed "
                         "(env TRAILBEAM_LAMBDA_TIMEOUT_S, default 900, the Lambda maximum)")
+    p.add_argument("--config", default=os.environ.get("TRAILBEAM_CONFIG"),
+                   help="a TOML file of per-queue settings: max_receive_count, store_bodies and retention, for each "
+                        "queue under [queues.<name>], and the defaults under [defaults] (env TRAILBEAM_CONFIG; "
+                        "README \"Configuration file\"). Checked at start: any problem stops the server. The flags "
+                        "below, and their environment variables, override it")
     p.add_argument("--max-receive-count", type=_max_receive_counts,
-                   default=_max_receive_counts(os.environ.get("TRAILBEAM_MAX_RECEIVE_COUNT", "")),
+                   default=_env(_max_receive_counts, "TRAILBEAM_MAX_RECEIVE_COUNT", None),
                    help="QUEUE=N[,QUEUE=N...]: the maxReceiveCount of each queue's redrive policy, so a timeline "
                         "can say when a message should have moved to its dead-letter queue but no receive "
                         "there has reported it (env TRAILBEAM_MAX_RECEIVE_COUNT; spans don't carry it)")
     p.add_argument("--store-bodies", type=parse_queue_list,
-                   default=parse_queue_list(os.environ.get("TRAILBEAM_STORE_BODIES", "")),
+                   default=_env(parse_queue_list, "TRAILBEAM_STORE_BODIES", None),
                    help="QUEUE[,QUEUE...] or *: the queues whose message bodies are stored, for packages that "
                         "capture them. Bodies of every other queue are dropped before they are written "
-                        "(env TRAILBEAM_STORE_BODIES, default none: no body is stored). Trailbeam has no "
-                        "logins: run it on a trusted network if you set this")
-    p.add_argument("--retention", type=_arg(parse_duration),
-                   default=_env(parse_duration, "TRAILBEAM_RETENTION", DEFAULT_RETENTION),
+                        "(env TRAILBEAM_STORE_BODIES, default none: no body is stored). Replaces the config "
+                        "file's list")
+    p.add_argument("--retention", type=_arg(lambda t: (parse_duration(t),)),
+                   default=_env(lambda t: (parse_duration(t),), "TRAILBEAM_RETENTION", None),
                    help="how long spans are kept: a duration such as 7d, 36h or 90m, or forever "
                         f"(env TRAILBEAM_RETENTION, default {DEFAULT_RETENTION}). Whole messages are deleted, once "
                         "their newest span is older")
     p.add_argument("--retention-queues", type=_arg(parse_queue_retentions),
-                   default=_env(parse_queue_retentions, "TRAILBEAM_RETENTION_QUEUES", ""),
+                   default=_env(parse_queue_retentions, "TRAILBEAM_RETENTION_QUEUES", None),
                    help="QUEUE=DURATION[,QUEUE=DURATION...]: per-queue retention, overriding --retention, e.g. "
                         "orders-dlq=30d,audit=forever. A message on several queues is kept as long as the longest "
-                        "(env TRAILBEAM_RETENTION_QUEUES)")
+                        "(env TRAILBEAM_RETENTION_QUEUES). Overrides the config file for the queues it names")
     p.add_argument("--purge-interval", type=float, default=float(os.environ.get("TRAILBEAM_PURGE_INTERVAL_S", "600")),
                    help="seconds between retention passes; the first runs at start (env TRAILBEAM_PURGE_INTERVAL_S, "
                         "default 600)")
@@ -65,6 +71,19 @@ def main(argv=None) -> None:
     p.add_argument("--log-level", default=os.environ.get("TRAILBEAM_LOG_LEVEL", "INFO"))
     a = p.parse_args(argv)
     logging.basicConfig(level=a.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    try:
+        cfg = config.load(a.config) if a.config else config.Config()
+    except config.ConfigError as e:
+        logging.getLogger("trailbeam.server").error("configuration file %s", e)
+        sys.exit(2)
+    s = config.merge(cfg, retention=a.retention, retention_queues=a.retention_queues, store_bodies=a.store_bodies,
+                     max_receive_counts=a.max_receive_count, default_retention=parse_duration(DEFAULT_RETENTION))
+    a.retention, a.retention_queues = s["retention"], s["retention_queues"]
+    a.store_bodies, a.max_receive_count = s["store_bodies"], s["max_receive_counts"]
+    if a.config:
+        logging.getLogger("trailbeam.server").info(
+            "configuration file %s: %d queue(s) with settings", a.config,
+            len(set(cfg.max_receive_counts) | set(cfg.retention_queues) | (cfg.store_bodies - {"*"})))
     if a.store_bodies:
         logging.getLogger("trailbeam.server").warning(body_warning(a.store_bodies, a.db))
     try:
@@ -133,10 +152,14 @@ def _arg(parse):
     return typ
 
 
-def _env(parse, name: str, default: str):
+def _env(parse, name: str, default):
+    """The environment variable, parsed; ``default`` (not parsed) if it is not set or empty (compose files
+    often pass ``${NAME:-}``), so the config file's value stands."""
+    if not os.environ.get(name, "").strip():
+        return default
     try:
-        return parse(os.environ.get(name, default))
-    except ValueError as e:
+        return parse(os.environ[name])
+    except (ValueError, argparse.ArgumentTypeError) as e:
         raise SystemExit(f"trailbeam: {name}: {e}") from None
 
 
@@ -153,7 +176,7 @@ def _max_receive_counts(text: str) -> dict:
 
 def body_warning(store_bodies, db_path: str) -> str:
     queues = "every queue" if "*" in store_bodies else "queues " + ", ".join(sorted(store_bodies))
-    return (f"storing message bodies for {queues} (TRAILBEAM_STORE_BODIES) in {db_path}. Trailbeam has no "
+    return (f"storing message bodies for {queues} (TRAILBEAM_STORE_BODIES or the config file) in {db_path}. Trailbeam has no "
             "logins: anyone who can reach this server, or read that file, can read those bodies. Keep it on "
             "a trusted network.")
 
