@@ -28,6 +28,44 @@ jobs:
       - run: pytest -q --ignore=tests/conformance
       - name: Store conformance suite (SQLite)
         run: pytest -q tests/conformance
+      - name: A SQLite install gets no Postgres driver
+        run: |
+          python -m venv /tmp/plain && /tmp/plain/bin/pip install -q '.[server]'
+          ! /tmp/plain/bin/pip show psycopg psycopg-binary psycopg-pool 2>/dev/null | grep -q '^Name'
+          /tmp/plain/bin/python -c "import sys, trailbeam.server.__main__; assert not any(m.startswith('psycopg') for m in sys.modules)"
+
+  postgres:
+    # The Postgres store (TRAILBEAM_STORE_URL) on the oldest supported version and the current one.
+    name: Postgres ${{ matrix.postgres }} store
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ["14", "16"]
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      TRAILBEAM_TEST_POSTGRES_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[test,postgres]'
+      - name: Store conformance suite and contract fixtures (SQLite and Postgres)
+        run: pytest -q tests/conformance
+      - name: Postgres store tests
+        run: pytest -q tests/server/test_postgres.py
 
   node:
     name: Node.js ${{ matrix.node }}

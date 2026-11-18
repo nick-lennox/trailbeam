@@ -45,6 +45,10 @@ TENANT_MAX_CHARS = 256
 DUPLICATE_REASONS = ("received_more_than_once", "succeeded_more_than_once")
 
 
+class ExportAbandoned(Exception):
+    """Store.insert stopped because the client that sent the export went away (``abandoned``): nothing stored."""
+
+
 class StuckCandidate(NamedTuple):
     message_id: str
     first_ns: int        # first seen (Store.stuck_messages)
@@ -90,6 +94,10 @@ class Store(abc.ABC):
     retention_granularity_ns: int = 1
 
     # ---- writes ------------------------------------------------------------------------------
+
+    # True: insert takes ``abandoned``, a function saying whether the client that sent the export has gone, and
+    # stops the work in the database when it has, raising ExportAbandoned (the server passes it then).
+    cancels_abandoned_exports: bool = False
 
     @abc.abstractmethod
     def insert(self, records: Iterable[dict]) -> tuple[int, int]:

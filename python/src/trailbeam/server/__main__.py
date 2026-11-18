@@ -20,6 +20,10 @@ def main(argv=None) -> None:
     p = argparse.ArgumentParser(prog="trailbeam", description="Trailbeam: OTLP/HTTP ingest, JSON API and web screen on one port.")
     p.add_argument("--db", default=os.environ.get("TRAILBEAM_DB", "trailbeam.sqlite"),
                    help="SQLite file (env TRAILBEAM_DB, default trailbeam.sqlite)")
+    p.add_argument("--store-url", default=os.environ.get("TRAILBEAM_STORE_URL") or None,
+                   help="a Postgres you run, postgres://user:password@host:5432/db (env TRAILBEAM_STORE_URL), instead "
+                        "of the SQLite file: needs pip install \"trailbeam[postgres]\". Trailbeam creates and upgrades "
+                        "its tables there; installing, backing up and upgrading Postgres is yours. Default: SQLite")
     p.add_argument("--host", default=os.environ.get("TRAILBEAM_HOST", "127.0.0.1"),
                    help="listen address (env TRAILBEAM_HOST, default 127.0.0.1; use 0.0.0.0 in a container)")
     p.add_argument("--port", type=int, default=int(os.environ.get("TRAILBEAM_PORT", "4318")),
@@ -95,19 +99,24 @@ def main(argv=None) -> None:
         logging.getLogger("trailbeam.server").error("TRAILBEAM_TOKEN: %s", e)
         sys.exit(2)
     if a.store_bodies:
-        logging.getLogger("trailbeam.server").warning(body_warning(a.store_bodies, a.db, token is not None))
+        where = redact_url(a.store_url) if a.store_url else a.db
+        logging.getLogger("trailbeam.server").warning(body_warning(a.store_bodies, where, token is not None))
+    retention = Retention(a.retention, a.retention_queues)
+    where = redact_url(a.store_url) if a.store_url else a.db
     try:
-        db = SqliteStore(a.db, store_bodies=a.store_bodies)
-    except SchemaError as e:
+        db = open_store(a.store_url, a.db, store_bodies=a.store_bodies, retention=retention)
+    except (SchemaError, StoreUrlError) as e:
         logging.getLogger("trailbeam.server").error("%s", e)
         sys.exit(2)
     if db.migrated:
-        logging.getLogger("trailbeam.server").info("upgraded %s to schema version %d", a.db, db.migrated[-1])
+        logging.getLogger("trailbeam.server").info("upgraded %s to schema version %d", where, db.migrated[-1])
     if a.vacuum:
+        if not isinstance(db, SqliteStore):
+            logging.getLogger("trailbeam.server").error("--vacuum is for the SQLite file; Postgres reclaims space itself")
+            sys.exit(2)
         sys.exit(vacuum(db, a.db))
-    retention = Retention(a.retention, a.retention_queues)
     purger = Purger(db, retention, interval_s=a.purge_interval, batch=a.purge_batch, duty=a.purge_duty)
-    if db.storage()["auto_vacuum"] != "incremental" and not retention.keeps_everything():
+    if isinstance(db, SqliteStore) and db.storage()["auto_vacuum"] != "incremental" and not retention.keeps_everything():
         logging.getLogger("trailbeam.server").info(
             "%s was created without incremental vacuum: retention deletes old spans and new spans reuse the "
             "space, but the file does not shrink. To give the space back, stop the server and run trailbeam "
@@ -122,7 +131,7 @@ def main(argv=None) -> None:
             "no access token (TRAILBEAM_TOKEN) and listening on %s: anyone who can reach this port can send "
             "spans and read every timeline", a.host)
     logging.getLogger("trailbeam.server").info("listening on http://%s:%d (OTLP: /v1/traces, API: /api/), db %s",
-                                        a.host, httpd.server_address[1], a.db)
+                                        a.host, httpd.server_address[1], where)
     # docker stop and systemd send SIGTERM; Python ignores it as PID 1 unless a handler is set. Stop the
     # same way as on Ctrl-C, so the SQLite file is closed cleanly.
     signal.signal(signal.SIGTERM, _interrupt)
@@ -136,6 +145,37 @@ def main(argv=None) -> None:
         purger.stop()
         httpd.server_close()
         db.close()
+
+
+class StoreUrlError(ValueError):
+    pass
+
+
+def open_store(url, db_path: str, *, store_bodies, retention):
+    """The Store: Postgres when ``url`` is a postgres:// one (its driver imported only then), else SQLite."""
+    if not url:
+        return SqliteStore(db_path, store_bodies=store_bodies)
+    if not url.startswith(("postgres://", "postgresql://")):
+        raise StoreUrlError(f"TRAILBEAM_STORE_URL: expected postgres://… or postgresql://…, got {redact_url(url)!r}")
+    try:
+        from .postgres import PostgresStore
+    except ImportError as e:
+        raise StoreUrlError(f"TRAILBEAM_STORE_URL is a Postgres URL, but its driver is not installed ({e}): "
+                            "pip install \"trailbeam[postgres]\"") from None
+    import psycopg
+    try:
+        return PostgresStore(url, store_bodies=store_bodies, retention=retention)
+    except psycopg.Error as e:
+        raise StoreUrlError(f"{redact_url(url)}: {e}") from None
+
+
+def redact_url(url: str) -> str:
+    """The URL without its password, for logs."""
+    head, sep, rest = url.partition("://")
+    creds, at, host = rest.rpartition("@")
+    if not at or ":" not in creds:
+        return url
+    return f"{head}{sep}{creds.split(':', 1)[0]}:***@{host}"
 
 
 def vacuum(db: SqliteStore, path: str) -> int:

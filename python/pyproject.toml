@@ -24,6 +24,12 @@ server = [
     "opentelemetry-proto>=1.27",
     "tomli>=1.1; python_version < '3.11'",  # the config file; tomllib from 3.11
 ]
+# Postgres instead of SQLite (TRAILBEAM_STORE_URL=postgres://...): pip install "trailbeam[server,postgres]".
+# Imported only when the store URL is a Postgres one, so a SQLite install doesn't need it.
+postgres = [
+    "psycopg[binary]>=3.1",
+    "psycopg-pool>=3.2",
+]
 test = [
     "opentelemetry-proto>=1.27",
     "tomli>=1.1; python_version < '3.11'",

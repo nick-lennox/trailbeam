@@ -5,6 +5,8 @@ from __future__ import annotations
 import gzip
 import json
 import logging
+import select
+import socket
 import threading
 import time
 import zlib
@@ -16,7 +18,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTrace
 
 from . import __version__
 from . import auth as auth_mod, bodies, queries, ui_files, web
-from .store import Store
+from .store import ExportAbandoned, Store
 from .otlp import DecodeError, decode
 from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
 
@@ -57,13 +59,16 @@ class App:
 
     # ---- OTLP ingest ----------------------------------------------------------------------
 
-    def ingest(self, body: bytes, content_type: str) -> tuple[int, str, bytes]:
+    def ingest(self, body: bytes, content_type: str, abandoned: Optional[Callable[[], bool]] = None) -> tuple[int, str, bytes]:
         json_mode = (content_type or "").split(";")[0].strip().lower() == "application/json"
         try:
             d = decode(body, content_type)
         except DecodeError as e:
             return 400, "text/plain; charset=utf-8", str(e).encode()
-        inserted, dupes = self.db.insert(d.records)
+        if abandoned is not None and self.db.cancels_abandoned_exports:
+            inserted, dupes = self.db.insert(d.records, abandoned=abandoned)
+        else:
+            inserted, dupes = self.db.insert(d.records)
         with self.stats_lock:
             self.stats["requests"] += 1
             self.stats["inserted"] += inserted
@@ -324,7 +329,12 @@ def make_handler(app: App):
             if body is None:
                 return
             try:
-                status, ctype, out = app.ingest(body, self.headers.get("Content-Type", ""))
+                status, ctype, out = app.ingest(body, self.headers.get("Content-Type", ""),
+                                                abandoned=lambda: _client_gone(self.connection))
+            except ExportAbandoned:
+                log.info("an export was abandoned by its client (it timed out or disconnected): not stored")
+                self.close_connection = True
+                return
             except Exception:
                 log.exception("ingest failed")
                 status, ctype, out = 500, "text/plain", b"internal error"
@@ -408,6 +418,18 @@ def _bounded(d, data: bytes) -> bytes:
     if not d.eof:
         raise EOFError
     return out
+
+
+def _client_gone(sock) -> bool:
+    """The client closed its side of the connection (a peek reads end of file). Data waiting (a pipelined next
+    request) is not a close."""
+    try:
+        ready, _, _ = select.select([sock], [], [], 0)
+        if not ready:
+            return False
+        return sock.recv(1, socket.MSG_PEEK) == b""
+    except (OSError, ValueError):
+        return True
 
 
 def make_server(db: Store, host: str = "127.0.0.1", port: int = 4318, **app_options) -> ThreadingHTTPServer:

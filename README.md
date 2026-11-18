@@ -328,6 +328,36 @@ trailbeam --db /data/trailbeam.sqlite --vacuum
 This copies the whole file (SQLite `VACUUM`), so it needs enough free disk for a second copy. Run it
 once; after that the file gives space back like a new one.
 
+### Postgres (bring your own)
+
+SQLite is the default and needs nothing else. When you outgrow one file, point Trailbeam at a Postgres you
+already run:
+
+```sh
+pip install "trailbeam[server,postgres]"
+TRAILBEAM_STORE_URL=postgres://trailbeam:<password>@db.internal:5432/trailbeam trailbeam
+# or trailbeam --store-url postgres://...
+```
+
+Trailbeam creates and upgrades its own tables in that database (schema version in `schema_version`). Installing,
+sizing, backing up and upgrading Postgres is up to you. **Supported: Postgres 14 and later**; CI runs the
+storage conformance suite on 14 and 16. The Postgres driver is an extra: a SQLite install doesn't get it, and it
+is loaded only when the URL is a Postgres one. Existing SQLite history is not copied over: a new Postgres store
+starts empty.
+
+Retention works as described above, with one difference: spans are kept in **daily partitions** per retention
+(a partition per day for each distinct retention you configure), and the purge drops whole partitions instead
+of deleting rows, so it costs about the same however much it removes. A message expires once the *day* of its
+newest span has ended more than its retention ago, so `7d` keeps a message for 7 to 8 days. Messages are still
+deleted whole: when a message's spans fall in two partitions (it crossed midnight, or moved to a dead-letter
+queue kept longer), the purge first moves its older spans in with the newer ones. If you change a queue's
+retention after its spans were stored, partitions holding queues with different retentions are cleaned by a
+bounded background delete, outside ingest.
+
+Ingest and pages use separate connection pools (4 and 8 connections). Each export is one transaction, and an
+export whose client hangs up or times out is cancelled in the database. The settle-to-receive join runs inside the
+server process: run one Trailbeam replica per database for now.
+
 ## Open source and the hosted app
 
 Everything that tells you what happened to your messages is open source and runs on your own
