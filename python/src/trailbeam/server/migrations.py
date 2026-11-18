@@ -112,6 +112,10 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # on every delete of a parent row by looking the child up: without this index that is a scan of the whole
 # table per deleted receive (QV-72: 65 s to delete 20 messages at 1.6M spans), so retention could not delete.
 # Partial: most rows (sends, receives, outcomes, unjoined settles) have none. About 1 s to build per 1M spans.
+# Schema 9 rebuilds the summary tables without an index on mid in message_queues, message_tenants and
+# tenant_events: each was a B-tree with a random key per message, and together a third of the pages one export
+# wrote (QV-73). Their rows are found from the message's lists in messages (summary_table.py). The tables are
+# dropped and built again from the spans, as in 7 before.
 MIGRATIONS = (
     Migration(2, "spans.start_ns", ("ALTER TABLE spans ADD COLUMN start_ns INTEGER",)),
     Migration(3, "spans call order", ("ALTER TABLE spans ADD COLUMN order_scope TEXT",
@@ -126,9 +130,13 @@ MIGRATIONS = (
         """INSERT INTO schema_version (version, applied_at_ms, name)
            SELECT CAST(value AS INTEGER), NULL, 'before schema_version' FROM meta WHERE key = 'schema_version'""",
     )),
-    Migration(7, "message summary tables", tuple(statements(summary_table.CREATE)), run=summary_table.backfill),
+    # 7 creates the tables, empty: 9 replaces them and builds them, so an upgrade from 6 or older builds once.
+    Migration(7, "message summary tables", tuple(statements(summary_table.CREATE))),
     Migration(8, "spans_receive_row index", (
         "CREATE INDEX spans_receive_row ON spans (receive_row) WHERE receive_row IS NOT NULL",)),
+    Migration(9, "summary tables keyed for the pages", tuple(
+        [f"DROP TABLE IF EXISTS {t}" for t in summary_table.TABLES] + statements(summary_table.CREATE)),
+        run=summary_table.backfill),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

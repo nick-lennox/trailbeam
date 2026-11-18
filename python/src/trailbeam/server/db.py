@@ -354,30 +354,31 @@ class SqliteStore(Store):
                         from_ns: Optional[int] = None, to_ns: Optional[int] = None,
                         after: Optional[tuple] = None) -> list[str]:
         if tenant:
-            src, p = "message_tenants INDEXED BY message_tenants_last WHERE tenant = ?", [tenant[:TENANT_MAX_CHARS]]
+            src, p = "message_tenants s NOT INDEXED WHERE s.tenant = ?", [tenant[:TENANT_MAX_CHARS]]
             if queue:
-                src += " AND EXISTS (SELECT 1 FROM message_queues q WHERE q.mid = s.mid AND q.queue = ?)"
+                src += " AND EXISTS (SELECT 1 FROM messages m, json_each(m.queues_json) WHERE m.mid = s.mid AND value = ?)"
                 p.append(queue)
         elif queue:
-            src, p = "message_queues INDEXED BY message_queues_last WHERE queue = ?", [queue]
+            src, p = "message_queues s NOT INDEXED WHERE s.queue = ?", [queue]
         else:
-            src, p = "messages INDEXED BY messages_last WHERE 1", []
+            src, p = "messages s INDEXED BY messages_last WHERE 1", []
         return self._newest_first(src, p, limit, from_ns, to_ns, after)
 
     def duplicate_messages(self, limit: int, queue: Optional[str] = None, reason: Optional[str] = None, *,
                            from_ns: Optional[int] = None, to_ns: Optional[int] = None,
                            after: Optional[tuple] = None) -> list[str]:
-        src = "messages INDEXED BY messages_duplicates WHERE (dup_received OR dup_succeeded)"
+        src = "messages s INDEXED BY messages_duplicates WHERE (dup_received OR dup_succeeded)"
         src += {None: "", "received_more_than_once": " AND dup_received",
                 "succeeded_more_than_once": " AND dup_succeeded"}[reason]
         p: list = []
         if queue:
-            src += " AND EXISTS (SELECT 1 FROM message_queues q WHERE q.mid = s.mid AND q.queue = ?)"
+            src += " AND EXISTS (SELECT 1 FROM json_each(s.queues_json) WHERE value = ?)"
             p.append(queue)
         return self._newest_first(src, p, limit, from_ns, to_ns, after)
 
     def _newest_first(self, src: str, p: list, limit: int, from_ns, to_ns, after) -> list[str]:
-        """``src``: a summary table (alias s) with last_ns and mid, and its WHERE, indexed by (last_ns DESC, mid)."""
+        """``src``: a summary table, as s, with last_ns and mid, and its WHERE; read in (last_ns DESC, mid) order
+        by the index or primary key it names (INDEXED BY, or NOT INDEXED for the primary key)."""
         where, p = "", list(p)
         if from_ns is not None:
             where += " AND s.last_ns >= ?"
@@ -389,7 +390,7 @@ class SqliteStore(Store):
             where += " AND (s.last_ns < ? OR (s.last_ns = ? AND s.mid > ?))"
             p += [after[0], after[0], after[1]]
         table, _, rest = src.partition(" WHERE ")
-        rows = self.query(f"SELECT s.mid FROM {table.replace(' INDEXED', ' s INDEXED', 1)} WHERE {rest}{where} "
+        rows = self.query(f"SELECT s.mid FROM {table} WHERE {rest}{where} "
                           "ORDER BY s.last_ns DESC, s.mid LIMIT ?", tuple(p) + (limit,))
         return [r["mid"] for r in rows]
 
@@ -403,7 +404,7 @@ class SqliteStore(Store):
             where += " AND (s.stuck_first_ns > ? OR (s.stuck_first_ns = ? AND s.mid > ?))"
             p += [after[0], after[0], after[1]]
         if queue:
-            where += " AND EXISTS (SELECT 1 FROM message_queues q WHERE q.mid = s.mid AND q.queue = ?)"
+            where += " AND EXISTS (SELECT 1 FROM json_each(s.queues_json) WHERE value = ?)"
             p.append(queue)
         rows = self.query(
             f"""SELECT s.mid, s.stuck_first_ns, s.stuck_sqs_clock FROM messages s INDEXED BY messages_stuck
@@ -423,19 +424,18 @@ class SqliteStore(Store):
         return [out[m] for m in message_ids if m in out]
 
     def queue_messages(self, queue: str) -> set[str]:
-        return {r["mid"] for r in self.query("SELECT mid FROM message_queues INDEXED BY message_queues_last "
-                                             "WHERE queue = ?", (queue,))}
+        return {r["mid"] for r in self.query("SELECT mid FROM message_queues NOT INDEXED WHERE queue = ?", (queue,))}
 
     def tenant_activity(self, from_ms: int, to_ms: int) -> list[TenantActivity]:
         with self.reader() as c:
             totals = c.execute(
                 """SELECT tenant, SUM(kind = 'sent') AS sent,
                           COUNT(DISTINCT CASE WHEN kind = 'dead_lettered' THEN mid END) AS dead_lettered
-                   FROM tenant_events INDEXED BY tenant_events_at WHERE at_ms BETWEEN ? AND ?
+                   FROM tenant_events NOT INDEXED WHERE at_ms BETWEEN ? AND ?
                    GROUP BY tenant""", (from_ms, to_ms)).fetchall()
             waits: dict = {}
             for t, w in c.execute(
-                    """SELECT tenant, wait_ms FROM tenant_events INDEXED BY tenant_events_at
+                    """SELECT tenant, wait_ms FROM tenant_events NOT INDEXED
                        WHERE at_ms BETWEEN ? AND ? AND kind = 'first_delivery'""", (from_ms, to_ms)):
                 waits.setdefault(t, []).append(w)
         return [TenantActivity(r["tenant"], r["sent"], r["dead_lettered"], waits.get(r["tenant"], []))
@@ -458,7 +458,7 @@ class SqliteStore(Store):
             where += " AND named_ns < ?"
             p.append(to_ns)
         if queue:
-            where += " AND EXISTS (SELECT 1 FROM message_queues q WHERE q.mid = t.mid AND q.queue = ?)"
+            where += " AND EXISTS (SELECT 1 FROM messages m, json_each(m.queues_json) WHERE m.mid = t.mid AND value = ?)"
             p.append(queue)
         found = []
         with self.reader() as c:
