@@ -168,5 +168,6 @@ def test_command_reads_the_environment_and_warns(monkeypatch, tmp_path, caplog):
 
 def test_warning_text():
     w = body_warning(frozenset({"payments", "orders"}), "t.sqlite")
-    assert "queues orders, payments" in w and "no logins" in w and "trusted network" in w
+    assert "queues orders, payments" in w and "no access token" in w and "trusted network" in w
+    assert "anyone with the access token" in body_warning(frozenset({"orders"}), "t.sqlite", token=True)
     assert "every queue" in body_warning(frozenset({"*"}), "t.sqlite")

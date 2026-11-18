@@ -9,7 +9,7 @@ import sqlite3
 import sys
 import time
 
-from . import config
+from . import auth, config
 from .db import SqliteStore, parse_queue_list
 from .migrations import SchemaError
 from .retention import DEFAULT as DEFAULT_RETENTION, Purger, Retention, parse_duration, parse_queue_retentions
@@ -68,6 +68,10 @@ def main(argv=None) -> None:
                    help="rewrite the database file once so that retention gives deleted space back to the disk "
                         "(files created before retention, schema 8), then exit. Stop the server first; needs free disk "
                         "for a second copy of the file")
+    p.add_argument("--token-file", default=os.environ.get("TRAILBEAM_TOKEN_FILE"),
+                   help="a file holding the shared access token (env TRAILBEAM_TOKEN_FILE, or the token itself in "
+                        "TRAILBEAM_TOKEN). When set, ingest and the API need Authorization: Bearer <token>, and the "
+                        "web screen asks for it once. Default: no token, for local use")
     p.add_argument("--log-level", default=os.environ.get("TRAILBEAM_LOG_LEVEL", "INFO"))
     a = p.parse_args(argv)
     logging.basicConfig(level=a.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -84,8 +88,14 @@ def main(argv=None) -> None:
         logging.getLogger("trailbeam.server").info(
             "configuration file %s: %d queue(s) with settings", a.config,
             len(set(cfg.max_receive_counts) | set(cfg.retention_queues) | (cfg.store_bodies - {"*"})))
+    try:
+        token = auth.read_token_file(a.token_file) if a.token_file else (
+            auth.check_token(os.environ["TRAILBEAM_TOKEN"]) if os.environ.get("TRAILBEAM_TOKEN", "").strip() else None)
+    except auth.TokenError as e:
+        logging.getLogger("trailbeam.server").error("TRAILBEAM_TOKEN: %s", e)
+        sys.exit(2)
     if a.store_bodies:
-        logging.getLogger("trailbeam.server").warning(body_warning(a.store_bodies, a.db))
+        logging.getLogger("trailbeam.server").warning(body_warning(a.store_bodies, a.db, token is not None))
     try:
         db = SqliteStore(a.db, store_bodies=a.store_bodies)
     except SchemaError as e:
@@ -104,7 +114,13 @@ def main(argv=None) -> None:
             "--db %s --vacuum once (it rewrites the file)", a.db, a.db)
     httpd = make_server(db, a.host, a.port, stuck_after_s=a.stuck_after,
                         lambda_timeout_s=a.lambda_timeout, max_receive_counts=a.max_receive_count,
-                        purger=purger)
+                        purger=purger, auth=auth.Auth(token) if token else None)
+    if token:
+        logging.getLogger("trailbeam.server").info("access token set: ingest, the API and the web screen need it")
+    elif a.host not in ("127.0.0.1", "localhost", "::1"):
+        logging.getLogger("trailbeam.server").warning(
+            "no access token (TRAILBEAM_TOKEN) and listening on %s: anyone who can reach this port can send "
+            "spans and read every timeline", a.host)
     logging.getLogger("trailbeam.server").info("listening on http://%s:%d (OTLP: /v1/traces, API: /api/), db %s",
                                         a.host, httpd.server_address[1], a.db)
     # docker stop and systemd send SIGTERM; Python ignores it as PID 1 unless a handler is set. Stop the
@@ -174,11 +190,12 @@ def _max_receive_counts(text: str) -> dict:
     return out
 
 
-def body_warning(store_bodies, db_path: str) -> str:
+def body_warning(store_bodies, db_path: str, token: bool = False) -> str:
     queues = "every queue" if "*" in store_bodies else "queues " + ", ".join(sorted(store_bodies))
-    return (f"storing message bodies for {queues} (TRAILBEAM_STORE_BODIES or the config file) in {db_path}. Trailbeam has no "
-            "logins: anyone who can reach this server, or read that file, can read those bodies. Keep it on "
-            "a trusted network.")
+    who = ("anyone with the access token, or who can read that file, can read those bodies." if token else
+           "no access token is set (TRAILBEAM_TOKEN), so anyone who can reach this server, or read that file, can "
+           "read those bodies. Keep it on a trusted network, or set a token.")
+    return f"storing message bodies for {queues} (TRAILBEAM_STORE_BODIES or the config file) in {db_path}: {who}"
 
 
 def _interrupt(signum, frame):

@@ -11,10 +11,11 @@ is shared: `BodyPanel` in `@trailbeam/ui`. Both are tested against the same expe
 Bodies are **off unless the server is told to keep them**, per queue:
 
 - **Open-source Trailbeam** keeps bodies only for the queues in `TRAILBEAM_STORE_BODIES`
-  (`--store-bodies`), none by default. It has no logins and no roles. **Anyone who can reach the
-  server can read every stored body**, in the Body tab and from `/api/messages/{id}/body`, and anyone
-  who can read the SQLite file can read them there. The only access control is that setting plus
-  who can reach the server on the network, so run it on a trusted network.
+  (`--store-bodies`), none by default. It has no users and no roles, only an optional shared
+  access token (`TRAILBEAM_TOKEN`, off by default). **Anyone the server lets in can read every
+  stored body**, in the Body tab and from `/api/messages/{id}/body`: with no token that is anyone
+  who can reach it. Anyone who can read the SQLite file can read them there too. Set a token, or
+  run it on a trusted network.
 - **The hosted app** keeps bodies only for queues an admin opted in under Settings, and shows them to
   owners and admins only.
 

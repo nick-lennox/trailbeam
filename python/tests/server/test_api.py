@@ -86,5 +86,5 @@ def test_unknown_endpoints(server, path):
 
 
 def test_health_shows_configuration(server):
-    assert get(server, "/api/health")[1]["config"] == {"stuck_after_s": 300, "lambda_timeout_s": 900,
+    assert get(server, "/api/health")[1]["config"] == {"auth": "off", "stuck_after_s": 300, "lambda_timeout_s": 900,
                                                          "max_receive_counts": {}, "store_bodies": [], "retention": None}

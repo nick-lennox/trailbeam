@@ -558,6 +558,16 @@ def _page(status: int, title: str, body: str) -> Response:
     return status, {"Content-Type": "text/html; charset=utf-8"}, html.encode()
 
 
+def login_page(next_path: str, error: bool = False, status: int = 401) -> Response:
+    """The page a browser gets without the session cookie when the server has a token (auth.py)."""
+    body = ("<h1>Sign in</h1><p>This Trailbeam server needs its access token (<code>TRAILBEAM_TOKEN</code>).</p>"
+            + ('<p class="notice">That is not the token.</p>' if error else "")
+            + '<form method="post" action="/login"><input type="password" name="token" placeholder="Token" '
+            'autocomplete="current-password" required autofocus>'
+            f'<input type="hidden" name="next" value="{escape(next_path)}"> <button>Sign in</button></form>')
+    return _page(status, "Sign in", body)
+
+
 def _dd(name: str, value: str) -> str:
     return f"<dt>{escape(name)}</dt><dd>{value}</dd>"
 

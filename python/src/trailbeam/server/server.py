@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceResponse
 
 from . import __version__
-from . import bodies, queries, ui_files, web
+from . import auth as auth_mod, bodies, queries, ui_files, web
 from .store import Store
 from .otlp import DecodeError, decode
 from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
@@ -38,8 +38,10 @@ class App:
 
     def __init__(self, db: Store, *, stuck_after_s: int = 300,
                  lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S, now: Callable[[], int] = time.time_ns,
-                 max_receive_counts: Optional[dict] = None, ui_dir=ui_files.DEFAULT_UI_DIR, purger=None):
+                 max_receive_counts: Optional[dict] = None, ui_dir=ui_files.DEFAULT_UI_DIR, purger=None,
+                 auth: Optional[auth_mod.Auth] = None):
         self.db = db
+        self.auth = auth  # the shared token (auth.py); None: no token, every request is served (the default)
         self.purger = purger  # retention.Purger, for /api/health; None: no retention configured (tests)
         # the shared UI's build (ui_files.py); None serves only the server-rendered pages
         self.ui_dir = ui_dir
@@ -101,7 +103,8 @@ class App:
         with self.stats_lock:
             ingest = dict(self.stats)
         return {"status": "ok", "version": __version__, "ingest": ingest, "data": {"last_row": self.db.last_row()},
-                "config": {"stuck_after_s": self.stuck_after_s, "lambda_timeout_s": self.lambda_timeout_s,
+                "config": {"auth": "token" if self.auth else "off",
+                           "stuck_after_s": self.stuck_after_s, "lambda_timeout_s": self.lambda_timeout_s,
                            "max_receive_counts": self.max_receive_counts,
                            "store_bodies": sorted(self.db.store_bodies),
                            "retention": self.purger.status() if self.purger else None}}
@@ -120,7 +123,7 @@ class App:
         if len(rest) > 2 or (len(rest) == 2 and rest[1] != "body"):
             raise ApiError(404, "no such endpoint")
         if len(rest) == 2:
-            # the Body tab (contract/body-view.md): no logins, so anyone who can reach the server can read it
+            # the Body tab (contract/body-view.md): anyone the server lets in (auth.py) can read it
             rows = self.db.message_rows(rest[0])
             if not rows:
                 raise ApiError(404, f"no spans for message ID {rest[0]!r}")
@@ -302,9 +305,20 @@ def make_handler(app: App):
                 return None
             return body
 
+        def _unauthorized(self, ctype: str, body: bytes):
+            self._send(401, ctype, body, {"WWW-Authenticate": 'Bearer realm="trailbeam"'})
+
         def do_POST(self):
-            if urlsplit(self.path).path != "/v1/traces":
+            path = urlsplit(self.path).path
+            if path == "/login" and app.auth is not None:
+                self._login()
+                return
+            if path != "/v1/traces":
                 self._send(404, "text/plain", b"not found")
+                return
+            if app.auth is not None and not app.auth.bearer_ok(self.headers.get("Authorization")):
+                self.close_connection = True  # the request body is not read
+                self._unauthorized("text/plain", b"this server needs Authorization: Bearer <TRAILBEAM_TOKEN>")
                 return
             body = self._body()
             if body is None:
@@ -319,6 +333,21 @@ def make_handler(app: App):
         def do_GET(self):
             u = urlsplit(self.path)
             q = {k: v[-1] for k, v in parse_qs(u.query).items()}
+            if app.auth is not None and u.path in ("/login", "/logout"):
+                if u.path == "/logout":
+                    self._send(303, "text/plain", b"", {"Location": "/login", "Set-Cookie": auth_mod.clear_cookie()})
+                else:
+                    self._send_page(web.login_page(auth_mod.safe_next(q.get("next")), status=200))
+                return
+            if app.auth is not None and not app.auth.request_ok(self.headers):
+                if u.path == "/api/health":  # health checks: alive, nothing more
+                    self._json(200, {"status": "ok", "version": __version__})
+                elif u.path.startswith("/api/"):
+                    self._unauthorized("application/json", json.dumps(
+                        {"error": "this server needs Authorization: Bearer <TRAILBEAM_TOKEN>"}).encode())
+                else:
+                    self._send_page(web.login_page(auth_mod.safe_next(self.path)))
+                return
             if not u.path.startswith("/api/"):
                 self._page(u.path, q)
                 return
@@ -329,6 +358,28 @@ def make_handler(app: App):
             except Exception:
                 log.exception("API request failed")
                 self._json(500, {"error": "internal error"})
+
+        def _login(self):
+            """POST /login: the token from the form; right, the session cookie and back to the page."""
+            n = self.headers.get("Content-Length") or ""
+            if not n.isdigit() or int(n) > 8192:
+                self.close_connection = True
+                self._send(413, "text/plain", b"login form too large")
+                return
+            form = {k: v[-1] for k, v in parse_qs(self.rfile.read(int(n)).decode("utf-8", "replace")).items()}
+            nxt = auth_mod.safe_next(form.get("next"))
+            if not app.auth.token_ok(form.get("token", "")):
+                log.warning("login with a wrong token from %s", self.address_string())
+                self._send_page(web.login_page(nxt, error=True))
+                return
+            secure = (self.headers.get("X-Forwarded-Proto") or "").lower() == "https"
+            self._send(303, "text/plain", b"", {"Location": nxt, "Set-Cookie": app.auth.set_cookie(secure)})
+
+        def _send_page(self, r):
+            status, headers, body = r
+            headers = dict(headers)
+            ctype = headers.pop("Content-Type", "text/plain")
+            self._send(status, ctype, body, headers)
 
         def _page(self, path: str, q: dict):
             try:

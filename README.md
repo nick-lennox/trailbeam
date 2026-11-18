@@ -163,9 +163,39 @@ docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-data:/data tr
 
 Or without Docker: `pip install "trailbeam[server]"`, then run `trailbeam`.
 
-There is no authentication in 0.1, so keep it on `127.0.0.1` or a trusted network. See
+With no access token set (the default), anyone who can reach the port can send spans and read every
+timeline, so keep it on `127.0.0.1` or a trusted network, or set a token ([Access token](#access-token)). See
 [Run Trailbeam](https://docs.trailbeam.app/setup/run) and, to forward spans through an OpenTelemetry Collector, the
 [Collector configuration](collector/README.md).
+
+### Access token
+
+One shared token protects ingest, the API and the web screen. It is off by default for local use:
+
+```sh
+openssl rand -hex 32 > trailbeam.token
+docker run ... -v $PWD/trailbeam.token:/run/secrets/trailbeam-token:ro \
+  -e TRAILBEAM_TOKEN_FILE=/run/secrets/trailbeam-token trailbeam
+# or trailbeam --token-file trailbeam.token, or TRAILBEAM_TOKEN=<token> in the environment
+```
+
+When it is set:
+
+- **Ingest** (`POST /v1/traces`) needs `Authorization: Bearer <token>`, or it gets `401`. The packages
+  use the standard OpenTelemetry exporter, so set
+  `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<token>` in your services. A Collector sets it in its
+  `otlphttp` exporter's `headers`.
+- **The API** needs the same header. `GET /api/health` still answers without it, for health checks, but
+  then returns only `status` and `version`.
+- **The web screen** asks for the token once, on a sign-in page. It then sets a session cookie
+  (`HttpOnly`, `SameSite=Strict`, 30 days) that holds an HMAC of the token, not the token itself. The
+  cookie works for the pages and the API but not for ingest. Changing the token signs everyone out.
+  `/logout` removes the cookie.
+
+The token must be at least 16 printable ASCII characters, with no spaces; otherwise Trailbeam refuses
+to start. It travels in plain HTTP, so put Trailbeam behind a TLS proxy when it crosses a network you
+don't trust. The cookie gets `Secure` when the proxy sends `X-Forwarded-Proto: https`. There is one
+token for everyone: no users, roles or audit log (those are in the hosted app).
 
 ### Configuration file
 
@@ -238,10 +268,10 @@ few matches, or none, and still have a next one. `body_search` in the response s
 search therefore costs about the same however many bodies are stored. Tenant search
 (`/api/tenants/search`) takes the same `from_ms`/`to_ms`/`since_s` and `queue`.
 
-**Access control is off-unless-on plus the network.** There are no logins and no roles: anyone who can
-reach Trailbeam can read every body it keeps, in the Body tab and from `/api/messages/{id}/body`, and
-anyone who can read its SQLite file can read them there. Trailbeam logs a warning at startup when the list
-is set. Keep it on a trusted network. Redaction happens in the packages, not in Trailbeam. Taking a queue
+**Who can read them.** Anyone Trailbeam lets in can read every body it keeps, in the Body tab and from
+`/api/messages/{id}/body`. Without an [access token](#access-token), that is anyone who can reach it.
+Anyone who can read its SQLite file can read them there too. Trailbeam logs a warning at startup when
+the list is set. Set a token, or keep it on a trusted network. Redaction happens in the packages, not in Trailbeam. Taking a queue
 off the list stops its bodies being shown or searched, but doesn't delete the ones already in the file;
 they go when retention deletes their messages ([Retention](#retention)).
 

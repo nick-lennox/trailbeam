@@ -5,7 +5,7 @@ Both follow ``contract/body-view.md``. The hosted app implements the same rules 
 expected outputs in ``contract/fixtures/``.
 
 Bodies are only there for queues in ``TRAILBEAM_STORE_BODIES`` (the Store drops the rest before writing).
-There are no logins: anyone who can reach the server can read what this module returns.
+Without an access token (auth.py) anyone who can reach the server can read what this module returns.
 """
 from __future__ import annotations
 
