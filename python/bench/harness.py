@@ -50,7 +50,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import loadgen  # noqa: E402
 
-from trailbeam.server import summary_table  # noqa: E402
+from trailbeam.server import body_table, summary_table  # noqa: E402
 from trailbeam.server.db import (RECEIVE_JOIN_SQL, RECORD_FIELDS, SETTLE_JOIN_SQL, SETTLE_KINDS, Database,  # noqa: E402
                                  gate_body)
 
@@ -62,13 +62,13 @@ DAY_NS = 86_400 * 10 ** 9
 class Seeder:
     """Writes generated spans the way ``Database.insert`` would, with the receipt-hash join in memory.
 
-    Same rows as the server: the columns, the body gate (``gate_body``), ``mid``/``mid_source`` and
+    Same rows as the server: the columns, the body gate (``gate_body``), each body once in ``bodies``, ``mid``/``mid_source`` and
     ``receive_row`` in both join directions. A settle span joins the receive with its hash seen earlier
     in this seeding run; generated handles are unique, so there is one candidate. Checked against
     ``Database.insert`` in tests/test_bench_harness.py.
     """
 
-    COLS = ["row"] + RECORD_FIELDS + ["attributes", "mid", "mid_source", "body_dropped", "receive_row"]
+    COLS = ["row"] + RECORD_FIELDS + ["attributes", "mid", "mid_source", "body_dropped", "receive_row", "body_id"]
     MID = COLS.index("mid")
     KEEP_RECEIVES = 2_000_000  # receive hashes kept for joins; late settles come within a few batches
 
@@ -85,9 +85,12 @@ class Seeder:
 
     def write(self, records: list[dict]) -> int:
         rows, updates = [], []
+        c = self.conn
+        c.execute("BEGIN")
         for r in records:
             own = r.get("message_id")
             attrs, dropped = gate_body(r.get("attributes", {}), r.get("queue"), self.store_bodies)
+            attrs, body = body_table.split(r["kind"], own, attrs)  # each body once, as insert stores it
             row = self.next_row
             self.next_row += 1
             mid, src, rrow = own, ("span" if own else None), None
@@ -105,9 +108,8 @@ class Seeder:
                 for srow in self.waiting.pop(h, ()):
                     updates.append((own, row, srow))
             rows.append([row] + [r.get(f) for f in RECORD_FIELDS]
-                        + [json.dumps(attrs, sort_keys=True, default=str), mid, src, dropped, rrow])
-        c = self.conn
-        c.execute("BEGIN")
+                        + [body_table.attributes_json(attrs), mid, src, dropped, rrow,
+                           None if body is None else body_table.put(c, own, body)])
         c.executemany(self.sql, rows)
         c.executemany("UPDATE spans SET mid = ?, mid_source = 'receipt_hash', receive_row = ? WHERE row = ?", updates)
         # the summary tables, as insert keeps them (settle spans waiting for a receive carry no message ID here)

@@ -2,13 +2,14 @@
 kept and the same timelines, a file from a newer one is refused untouched, and a failed upgrade leaves the
 file at the last version that completed."""
 import importlib.util
+import json
 import shutil
 import sqlite3
 from pathlib import Path
 
 import pytest
 
-from trailbeam.server import migrations, queries
+from trailbeam.server import body_table, migrations, queries
 from trailbeam.server.db import Database
 from trailbeam.server.migrations import LATEST, Migration, SchemaError, SchemaTooNew
 from trailbeam.server.otlp import decode
@@ -37,10 +38,17 @@ INSERT INTO spans (trace_id, span_id, kind, time_ns, queue, message_id, attribut
 
 
 def raw(path) -> list[dict]:
+    """Every span as it arrived: from schema 10 its body is back in ``attributes`` (body_table.py), which are
+    compared parsed, and ``body_id``, where the body is kept, is left out."""
     c = sqlite3.connect(path)
     c.row_factory = sqlite3.Row
     try:
-        return [dict(r) for r in c.execute("SELECT * FROM spans ORDER BY row")]
+        if c.execute("SELECT 1 FROM sqlite_master WHERE name = 'bodies'").fetchone():
+            sql = body_table.rows_sql(body_table.span_columns(c)) + " ORDER BY s.row"
+        else:
+            sql = "SELECT * FROM spans ORDER BY row"
+        return [{k: json.loads(r[k]) if k == "attributes" else r[k] for k in r.keys() if k != "body_id"}
+                for r in c.execute(sql)]
     finally:
         c.close()
 
@@ -135,14 +143,35 @@ def test_the_fixture_is_a_schema_5_file():
 def test_a_file_from_main_upgrades_in_place_and_keeps_every_span(from_main):
     before = raw(from_main)
     db = Database(from_main, store_bodies=frozenset({"orders"}))
-    assert db.migrated == [6, 7, 8, 9]
+    assert db.migrated == [6, 7, 8, 9, 10]
     db.close()
     assert raw(from_main) == before  # every row, every column, same row IDs
     assert meta_version(from_main) == str(LATEST)
     assert version_rows(from_main) == [(5, "before schema_version", False), (6, "schema_version table", True),
                                        (7, "message summary tables", True), (8, "spans_receive_row index", True),
-                                       (9, "summary tables keyed for the pages", True)]
+                                       (9, "summary tables keyed for the pages", True),
+                                       (10, "bodies stored once", True)]
     assert schema(from_main) == schema_new_file(from_main + ".new")
+
+
+def test_schema_10_takes_the_bodies_out_of_the_spans_and_keeps_each_once(from_main):
+    before = {r["row"]: r["attributes"].get("trailbeam.body") for r in raw(from_main)}
+    assert sum(b is not None for b in before.values()) >= 4  # the 0.1 file has bodies on sends and receives
+    Database(from_main, store_bodies=frozenset({"orders"})).close()
+    c = sqlite3.connect(from_main)
+    try:
+        assert c.execute("""SELECT COUNT(*) FROM spans
+                            WHERE json_type(attributes, '$."trailbeam.body"') IS NOT NULL""").fetchone()[0] == 0
+        carried = c.execute("SELECT row, mid, body_id FROM spans WHERE body_id IS NOT NULL").fetchall()
+        stored = c.execute("SELECT id, mid, body FROM bodies").fetchall()
+    finally:
+        c.close()
+    assert {row for row, *_ in carried} == {row for row, b in before.items() if b is not None}
+    by_id = {i: (m, b) for i, m, b in stored}
+    for row, mid, body_id in carried:
+        assert by_id[body_id] == (mid, before[row])
+    # the send and the receive of a message carried the same text: one row
+    assert len(stored) == len({(m, b) for m, b in by_id.values()}) < len(carried)
 
 
 def schema_new_file(path) -> dict:

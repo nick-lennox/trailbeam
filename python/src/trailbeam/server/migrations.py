@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from .. import __version__
-from . import summary_table
+from . import body_table, summary_table
 
 
 class SchemaError(RuntimeError):
@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS spans (
     mid_source TEXT,                 -- 'span' | 'receipt_hash' | NULL (settle span not joined yet)
     receive_row INTEGER REFERENCES spans(row),  -- settle spans: the delivery whose handle was used
     body_dropped TEXT,               -- 'not_opted_in': the span carried a body, not stored (db.py)
+    body_id INTEGER,                 -- its trailbeam.body, stored once in bodies (body_table.py)
     UNIQUE (trace_id, span_id)
 );
 CREATE INDEX IF NOT EXISTS spans_mid ON spans (mid, time_ns);
@@ -96,7 +97,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
     name TEXT NOT NULL,              -- the migration's name; 'create' for a file made at this version
     trailbeam_version TEXT           -- the Trailbeam that ran it; NULL for versions reached before 6
 );
-""" + summary_table.CREATE
+""" + summary_table.CREATE + body_table.CREATE
 
 # Schema 1 was the first released (the CREATE of version 1 is in tests/server/test_migrations.py).
 # Schema 1 had no start_ns. Its rows came from contract v1 spans, stamped only when the response arrived,
@@ -116,6 +117,9 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # tenant_events: each was a B-tree with a random key per message, and together a third of the pages one export
 # wrote (QV-73). Their rows are found from the message's lists in messages (summary_table.py). The tables are
 # dropped and built again from the spans, as in 7 before.
+# Schema 10 stores each body once (body_table.py): the bodies move out of the send and receive spans'
+# attributes into the bodies table, one row per distinct body of a message, and the spans point at it. One pass
+# over the stored bodies; the file only shrinks after a vacuum (trailbeam --vacuum), as with retention.
 MIGRATIONS = (
     Migration(2, "spans.start_ns", ("ALTER TABLE spans ADD COLUMN start_ns INTEGER",)),
     Migration(3, "spans call order", ("ALTER TABLE spans ADD COLUMN order_scope TEXT",
@@ -137,6 +141,9 @@ MIGRATIONS = (
     Migration(9, "summary tables keyed for the pages", tuple(
         [f"DROP TABLE IF EXISTS {t}" for t in summary_table.TABLES] + statements(summary_table.CREATE)),
         run=summary_table.backfill),
+    Migration(10, "bodies stored once", tuple(
+        ["ALTER TABLE spans ADD COLUMN body_id INTEGER"] + statements(body_table.CREATE)),
+        run=body_table.move_inline),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

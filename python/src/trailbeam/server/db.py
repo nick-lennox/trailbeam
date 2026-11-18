@@ -17,7 +17,8 @@ Message bodies (contract section 15) are kept only for the queues named in ``sto
 (``TRAILBEAM_STORE_BODIES``), off by default. A package exports a body only for queues it was told to
 capture; this is the second gate, on the server, so turning capture on in a package does not by itself
 put bodies on disk. For any other queue the ``trailbeam.body*`` attributes that carry or describe the
-body are removed before the row is written, and ``body_dropped`` records why.
+body are removed before the row is written, and ``body_dropped`` records why. A body that is kept is
+written once per message, in ``bodies``, and the send and receive spans point at it (body_table.py).
 """
 from __future__ import annotations
 
@@ -29,7 +30,7 @@ import threading
 import time
 from typing import Iterable, Iterator, Optional
 
-from . import migrations, summary_table
+from . import body_table, migrations, summary_table
 from .otlp import RECORD_FIELDS
 from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store,
                     StuckCandidate, TenantActivity)
@@ -126,6 +127,7 @@ class SqliteStore(Store):
         except BaseException:
             self.conn.close()
             raise
+        self._rows_sql = body_table.rows_sql(body_table.span_columns(self.conn))
         if self.shared_reads:
             self._checkpointer = threading.Thread(target=self._checkpoint_loop, name="trailbeam-checkpoint",
                                                   daemon=True)
@@ -196,7 +198,7 @@ class SqliteStore(Store):
         """
         inserted = dupes = 0
         touched: set = set()
-        cols = RECORD_FIELDS + ["attributes", "mid", "mid_source", "body_dropped"]
+        cols = RECORD_FIELDS + ["attributes", "mid", "mid_source", "body_dropped", "body_id"]
         sql = f"INSERT OR IGNORE INTO spans ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})"
         with self.lock:
             c = self.conn
@@ -205,8 +207,11 @@ class SqliteStore(Store):
                 for r in records:
                     own = r.get("message_id")
                     attrs, dropped = gate_body(r.get("attributes", {}), r.get("queue"), self.store_bodies)
+                    attrs, body = body_table.split(r["kind"], own, attrs)
+                    # an exporter's retry carries the same body: put finds the row the first copy wrote
                     values = [r.get(f) for f in RECORD_FIELDS] + [
-                        json.dumps(attrs, sort_keys=True, default=str), own, "span" if own else None, dropped]
+                        body_table.attributes_json(attrs), own, "span" if own else None, dropped,
+                        None if body is None else body_table.put(c, own, body)]
                     cur = c.execute(sql, values)
                     if cur.rowcount == 0:
                         dupes += 1
@@ -302,6 +307,7 @@ class SqliteStore(Store):
             gone = [m for (m,) in c.execute(_EXPIRED_SQL.format(cut=cut), (json.dumps(expired),) + cut_p)] if expired else []
             n = c.execute("DELETE FROM spans WHERE mid IN (SELECT value FROM json_each(?))", (json.dumps(gone),)).rowcount
             summary_table.forget(c, gone)
+            body_table.forget(c, gone)
             # joined since the read: it belongs to a message now, which goes by the message's time
             n += c.execute("DELETE FROM spans WHERE row IN (SELECT value FROM json_each(?)) AND mid IS NULL",
                            (json.dumps(unjoined),)).rowcount
@@ -345,9 +351,9 @@ class SqliteStore(Store):
     # ---- reads ----------------------------------------------------------------------------
 
     def message_rows(self, message_id: str) -> list[sqlite3.Row]:
-        """Every row of one message, in time order."""
+        """Every row of one message, in time order, each with its body back in ``attributes``."""
         with self.reader() as c:
-            return c.execute("SELECT * FROM spans WHERE mid = ? ORDER BY time_ns, row", (message_id,)).fetchall()
+            return c.execute(f"{self._rows_sql} WHERE s.mid = ? ORDER BY s.time_ns, s.row", (message_id,)).fetchall()
 
     def query(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
         """A read-only query (on a file, a write fails: read connections are query_only). SQLite only: not
@@ -486,12 +492,12 @@ class SqliteStore(Store):
 
     def body_rows(self) -> list[sqlite3.Row]:
         return self.query(
-            """SELECT row, kind, mid, queue, attributes,
+            """SELECT s.row, s.kind, s.mid, s.queue,
+                      json_set(s.attributes, '$."trailbeam.body"', b.body) AS attributes,
                       (SELECT MAX(s2.time_ns) FROM spans s2 WHERE s2.mid = s.mid) AS last
-               FROM spans s
-               WHERE kind IN ('send', 'receive') AND mid IS NOT NULL
-                 AND json_type(attributes, '$."trailbeam.body"') = 'text'
-               ORDER BY mid, kind <> 'send', row""")
+               FROM spans s JOIN bodies b ON b.id = s.body_id
+               WHERE s.body_id IS NOT NULL
+               ORDER BY s.mid, s.kind <> 'send', s.row""")
 
     def last_row(self) -> int:
         """The highest row ID stored, 0 if none: one step down the primary key."""
@@ -532,6 +538,7 @@ def _prefetch_delete(c: sqlite3.Connection, mids: list, rows: list) -> None:
         # the foreign key: deleting a row looks for settle spans that point at it
         c.execute("SELECT 1 FROM spans INDEXED BY spans_receive_row WHERE receive_row = ?", (r["row"],)).fetchall()
     summary_table.prefetch(c, mids)
+    body_table.prefetch(c, mids)
 
 
 PURGE_FIRST_WINDOW_NS = 60 * 10 ** 9  # the first window of a pass; later ones adapt (purge_step)

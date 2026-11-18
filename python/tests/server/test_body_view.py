@@ -108,8 +108,8 @@ def test_a_queue_taken_off_the_list_is_no_longer_shown_or_searched(tmp_path):
     assert (v["kind"], v["reason"]) == ("none", "not_opted_in")
     assert bodies.search(db, bodies.parse_query("body.order.sku:A-100"), db.store_bodies) == []
     # the file still holds it: nothing is deleted
-    assert db.query("""SELECT COUNT(*) AS n FROM spans WHERE mid = 'm-orders-1'
-                       AND json_type(attributes, '$."trailbeam.body"') = 'text'""")[0]["n"] == 2
+    assert db.query("SELECT COUNT(*) AS n FROM spans WHERE mid = 'm-orders-1' AND body_id IS NOT NULL")[0]["n"] == 2
+    assert db.query("SELECT COUNT(*) AS n FROM bodies WHERE mid = 'm-orders-1'")[0]["n"] == 1
     db.close()
 
 

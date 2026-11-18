@@ -216,6 +216,12 @@ A package exports a body only for the queues in its own capture list, redacted
 `TRAILBEAM_STORE_BODIES` is the second gate: for any queue not in it (`*` means every queue), Trailbeam
 removes the body attributes before writing the span, and records that it did. The default is no queue.
 
+Each body is written to disk once per message, even though the send span and every receive span carry
+it; the spans point at that one copy. (A receive that carried a different text keeps its own.) With 1 KB
+bodies on every queue, that cut the space bodies take by 63% in our benchmark: 500 MB instead of 1,341 MB
+per million spans. A file from an earlier version is converted when this version first opens it (schema
+10, one pass over the stored bodies). Run `trailbeam --vacuum` once afterwards to give the space back.
+
 The bodies it keeps are on the message page's **Body** tab, one per message (the send's copy, else the
 first receive's). A message with no body says why: the package's capture status, a producer that isn't
 instrumented, a package from before 3.2, or a body this server dropped because its queue isn't in

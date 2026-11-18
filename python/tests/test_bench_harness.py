@@ -39,8 +39,9 @@ def test_seeding_writes_the_rows_insert_writes(tmp_path):
     a, b = rows(by_insert), rows(by_seed)
     assert len(a) > 1000
     assert a == b
-    for t in summary_table.TABLES:  # and the summary tables insert keeps
+    for t in summary_table.TABLES + ("bodies",):  # and the summary tables and the bodies insert keeps
         assert rows(by_insert, t) == rows(by_seed, t), t
+    assert rows(by_seed, "bodies") and any(r["body_id"] for r in a)
     assert any(r["mid_source"] == "receipt_hash" for r in a) and any(r["body_dropped"] for r in a)
 
 
