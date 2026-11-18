@@ -113,9 +113,12 @@ def test_repeated_runs_send_new_spans(server):
     second = loadgen.run(url, profile, rate=50, duration=1, concurrency=2)
     assert first["seed"] != second["seed"]
     assert sum(db.counts()["spans"].values()) == (first["exports"] + second["exports"]) * 64
+    # The same seed gives the same trace and span IDs, but each span's end time is the time it is generated.
+    # A duplicate is the same span again, end time included (an exporter retry: schema 10, QV-78), so these
+    # are stored: a rerun with a seed does not measure duplicates.
     again = loadgen.run(url, profile, rate=50, duration=1, concurrency=2, seed=second["seed"])
     assert again["seed"] == second["seed"]
-    assert sum(db.counts()["spans"].values()) == (first["exports"] + second["exports"]) * 64  # all duplicates
+    assert sum(db.counts()["spans"].values()) == (first["exports"] + second["exports"] + again["exports"]) * 64
 
 
 def test_run_achieved_rate_matches_the_offered_rate(server):

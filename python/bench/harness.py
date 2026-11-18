@@ -459,7 +459,7 @@ def breakdown(db_path: str, profile, store_bodies, batches: int = 3) -> dict:
         return wrapper
 
     # Measurement only: the same methods, wrapped on this one instance to time them.
-    db._join_settle = timed("join_settle", db._join_settle)
+    db._settle_receive = timed("join_settle", db._settle_receive)
     db._join_receive = timed("join_receive", db._join_receive)
     stream = loadgen.Stream(profile, seed=4242 + span_count(db_path))
     dec = ins = 0.0
@@ -481,11 +481,79 @@ def breakdown(db_path: str, profile, store_bodies, batches: int = 3) -> dict:
         spans += len(d.records)
     db.close()
     per = lambda x: round(1000 * x / batches, 1)  # noqa: E731
-    return {"spans_per_export": spans // batches, "decode_ms": per(dec), "insert_ms": per(ins),
+    return {**wal_pages(db_path, profile, store_bodies, stream, batches),
+            "spans_per_export": spans // batches, "decode_ms": per(dec), "insert_ms": per(ins),
             "join_settle_ms": per(timers["join_settle"]), "join_receive_ms": per(timers["join_receive"]),
             "insert_spans_per_s": round(spans / ins, 1) if ins else None, "cold_insert_ms": round(1000 * cold, 1),
             "join_settle_plan": "; ".join(r[3] for r in plan),
             "join_receive_plan": "; ".join(r[3] for r in receive_plan)}
+
+
+def wal_pages(db_path: str, profile, store_bodies, stream, batches: int = 3) -> dict:
+    """The pages one export writes, and its COMMIT time. The checkpoint thread is stopped, and the log is
+    emptied (TRUNCATE) before each export, so the log holds that export's frames only: every page it changed,
+    once. Then they are counted by the B-tree each belongs to (``dbstat``; "ptrmap" is auto-vacuum's pointer
+    map, which a page split in any B-tree also writes). A COMMIT writes and fsyncs these pages, so their number
+    is most of an export's time (QV-70, QV-78). Adds ``batches`` exports to the file."""
+    from trailbeam.server.otlp import decode
+
+    db = Database(db_path, store_bodies=store_bodies)
+    if db._checkpointer is None:  # :memory: has no log
+        db.close()
+        return {}
+    db._stop.set()  # measurement only: no checkpoint between COMMIT and the count
+    db._checkpointer.join()
+    page_size = db.conn.execute("PRAGMA page_size").fetchone()[0]
+    usable = page_size - db.conn.execute("SELECT 0").fetchone()[0]  # no reserved bytes in a Trailbeam file
+    ptrmap_every = usable // 5 + 1  # a pointer-map page, then the pages it maps
+    commit_ms, spans, by_tree, frames = [], 0, {}, 0
+    real = db.conn
+
+    class Timed:  # measurement only: times the COMMIT insert runs on this connection
+        def execute(self, sql, *a):
+            if sql == "COMMIT":
+                s = time.perf_counter()
+                try:
+                    return real.execute(sql)
+                finally:
+                    commit_ms.append(1000 * (time.perf_counter() - s))
+            return real.execute(sql, *a)
+
+        def __getattr__(self, k):
+            return getattr(real, k)
+
+    try:
+        for _ in range(batches):
+            records = decode(loadgen.encode(stream.batch()), "application/x-protobuf").records
+            real.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            db.conn = Timed()
+            try:
+                db.insert(records)
+            finally:
+                db.conn = real
+            spans += len(records)
+            pages = set()
+            with open(db_path + "-wal", "rb") as f:
+                f.seek(32)  # the log header; then frames of a 24-byte header and a page
+                while len(h := f.read(24)) == 24:
+                    pages.add(int.from_bytes(h[:4], "big"))
+                    f.seek(page_size, 1)
+            frames += len(pages)
+            owner = {}
+            try:
+                for name, pg in real.execute("SELECT name, pageno FROM dbstat"):
+                    if pg in pages:
+                        owner[pg] = name
+            except sqlite3.OperationalError:  # SQLite built without dbstat: totals only
+                pass
+            for pg in pages:
+                name = owner.get(pg) or ("ptrmap" if pg >= 2 and (pg - 2) % ptrmap_every == 0 else "other")
+                by_tree[name] = by_tree.get(name, 0) + 1
+    finally:
+        db.close()
+    return {"wal_pages_per_export": round(frames / batches), "wal_pages_per_span": round(frames / spans, 2),
+            "commit_ms": round(sum(commit_ms) / batches, 1),
+            "wal_pages_by_btree": {k: round(v / spans, 3) for k, v in sorted(by_tree.items(), key=lambda kv: -kv[1])}}
 
 
 # ---- growth and SDK drops -----------------------------------------------------------------
@@ -534,6 +602,16 @@ def machine() -> dict:
     return info
 
 
+def parse_rates(text: str, spans_per_message: float) -> list[float]:
+    """``--rates``: messages/s, or spans/s with an ``sp`` suffix (``1000sp`` at 3.2 spans per message is
+    312.5 msg/s), so a step can sit on an SLO stated in spans/s. Sorted, smallest first: the ramp stops at the
+    first step that is not steady."""
+    out = []
+    for r in filter(None, (x.strip() for x in text.split(","))):
+        out.append(float(r[:-2]) / spans_per_message if r.endswith("sp") else float(r))
+    return sorted(set(out))
+
+
 def parse_size(text: str) -> int:
     t = text.strip().upper()
     mult = {"K": 1_000, "M": 1_000_000, "B": 1_000_000_000}.get(t[-1:], 1)
@@ -573,14 +651,14 @@ def run(args) -> dict:
                  "file_mb": round(file_bytes(db_path) / 1e6, 1)}
         results["sizes"].append(entry)
         log(f"  {entry['spans']:,} spans, {entry['file_mb']:,} MB")
-        if args.purge_only:
-            entry["purge_only"] = True
+        if args.purge_only or args.breakdown_only:
+            entry["purge_only" if args.purge_only else "breakdown_only"] = True
             pages = {}
         else:
             pages = {k: v for k, v in page_paths(db_path, profile).items() if k not in skipped}
         if skipped:
             entry["pages_skipped"] = dict(skipped)
-        if not args.purge_only:
+        if not (args.purge_only or args.breakdown_only):
             # Each ingest step writes spans: at a ceiling of thousands of spans/s one ramp adds far more than a
             # 10k or 100k database holds. So every step starts from a copy of the seeded file, while copying is
             # cheap. Above --restore-max-gb the steps run on the growing file and record its size instead.
@@ -613,7 +691,7 @@ def run(args) -> dict:
                 log("  pages idle: " + ", ".join(f"{k} {v['p95_ms']}" for k, v in entry["pages_idle"].items()))
                 save()
                 ramp = []
-                for rate in [float(r) for r in args.rates.split(",")]:
+                for rate in parse_rates(args.rates, profile.mean_spans_per_message()):
                     restore_seeded()
                     before = span_count(db_path)
                     step = ingest_step(box["srv"], profile, rate, args.step_seconds, args)
@@ -767,14 +845,21 @@ def summary(results: dict) -> str:
             lines.append(f"| {e['spans']:,} | " + " | ".join(cells) + " |")
         lines += ["", "## Where an export's time goes (in-process, 512-span export)", "",
                   "| DB spans | decode ms | insert ms | of which join_settle ms | join_receive ms | spans/s | cold first insert ms "
-                  "| settle join plan | receive join plan |",
-                  "|---|---|---|---|---|---|---|---|---|"]
+                  "| WAL pages per export (per span) | COMMIT ms | settle join plan | receive join plan |",
+                  "|---|---|---|---|---|---|---|---|---|---|---|"]
         for e in sizes:
             b = e.get("breakdown")
             if b:
                 lines.append(f"| {e['spans']:,} | {b['decode_ms']} | {b['insert_ms']} | {b['join_settle_ms']} | "
-                             f"{b['join_receive_ms']} | {b['insert_spans_per_s']} | {b.get('cold_insert_ms', '-')} | {b['join_settle_plan']} | "
+                             f"{b['join_receive_ms']} | {b['insert_spans_per_s']} | {b.get('cold_insert_ms', '-')} | "
+                             f"{b.get('wal_pages_per_export', '-')} ({b.get('wal_pages_per_span', '-')}) | {b.get('commit_ms', '-')} | "
+                             f"{b['join_settle_plan']} | "
                              f"{b.get('join_receive_plan', '-')} |")
+        trees = [e for e in sizes if (e.get("breakdown") or {}).get("wal_pages_by_btree")]
+        if trees:
+            lines += ["", "WAL pages per span, by B-tree:", ""]
+            lines += [f"- {e['spans']:,} spans: " + ", ".join(f"{k} {v}" for k, v in e["breakdown"]["wal_pages_by_btree"].items())
+                      for e in trees]
         sdk = [e["sdk"] for e in sizes if e.get("sdk")]
         if sdk:
             s = sdk[-1]
@@ -813,8 +898,8 @@ def main(argv=None) -> None:
     p.add_argument("--out", default="bench-results", help="directory for results.json, results.csv, summary.md")
     p.add_argument("--workdir", default=None, help="directory for the SQLite file (default: --out)")
     p.add_argument("--sizes", default="100k,1M", help="database sizes in spans, e.g. 100k,1M,10M,100M")
-    p.add_argument("--rates", default="1,2,5,10,20,50,100,200,500,1000,2000",
-                   help="ingest ramp, messages/s")
+    p.add_argument("--rates", default="1,2,5,10,20,50,100,200,1000sp,500,1000,2000",
+                   help="ingest ramp, messages/s; NNNsp is NNN spans/s (1000sp: the small-tier SLO rate)")
     p.add_argument("--step-seconds", type=float, default=30)
     p.add_argument("--under-load-seconds", type=float, default=60, help="ingest while the pages are timed")
     p.add_argument("--max-export-p99-ms", type=float, default=2000, help="a ramp step above this is not steady")
@@ -843,6 +928,9 @@ def main(argv=None) -> None:
     p.add_argument("--purge-max-s", type=float, default=1800, help="stop ingest after this long even if the pass runs on")
     p.add_argument("--purge-only", action="store_true",
                    help="seed and the purge measurement only: no pages, ramp, breakdown")
+    p.add_argument("--breakdown-only", action="store_true",
+                   help="seed and the in-process breakdown only (the writer's ceiling and WAL pages per export): no "
+                        "server, pages or ramp")
     p.add_argument("--fresh", action="store_true", help="delete the database file first")
     p.add_argument("--cleanup", action="store_true", help="delete the database file at the end")
     loadgen.add_profile_args(p)
