@@ -15,7 +15,7 @@ sys.path[:0] = [str(ROOT / "tests" / "conformance"), str(ROOT / "bench")]
 import cases  # noqa: E402
 import loadgen  # noqa: E402
 
-from trailbeam.server import queries, summary, timeline  # noqa: E402
+from trailbeam.server import queries, summary, summary_table, timeline  # noqa: E402
 from trailbeam.server.db import SqliteStore  # noqa: E402
 
 PROFILE = loadgen.Profile(queues=6, tenants=4, body_size=0, body_queues=0, redelivery=0.2, visibility_change=0.2,
@@ -164,3 +164,63 @@ def _old_stuck(s, cutoff_ns):
               AND NOT EXISTS (SELECT 1 FROM spans o WHERE o.kind = 'outcome' AND o.outcome = 'success'
                               AND o.mid = f.mid AND o.faas_invocation_id = l.inv)
             ORDER BY f.first_ns, f.mid""", (cutoff_ns,))]
+
+
+# ---- the summary tables (summary_table.py) ---------------------------------------------------------------
+
+def _tables(s) -> dict:
+    return {t: sorted(tuple(r) for r in s.query(f"SELECT * FROM {t}")) for t in summary_table.TABLES}
+
+
+def _rebuilt(s) -> dict:
+    """The tables as a backfill from the stored spans builds them."""
+    with s.lock:
+        s.conn.execute("BEGIN IMMEDIATE")
+        try:
+            before = _tables(s)
+            summary_table.backfill(s.conn)
+            after = _tables(s)
+        finally:
+            s.conn.execute("ROLLBACK")
+    assert _tables(s) == before
+    return after
+
+
+def _generated_exports():
+    return [[r for r in loadgen.records(b) if not _drop(r)]
+            for b in loadgen.Stream(PROFILE, seed=11).batches_of_messages(400)]
+
+
+@pytest.mark.parametrize("order", ["as exported", "reversed", "shuffled spans", "one span at a time, reversed"])
+def test_insert_keeps_the_tables_what_a_backfill_builds(order):
+    exports = _generated_exports()
+    spans = [r for e in exports for r in e]
+    if order == "reversed":
+        exports = exports[::-1]
+    elif order == "shuffled spans":
+        import random
+        random.Random(5).shuffle(spans)
+        exports = [spans[i:i + 37] for i in range(0, len(spans), 37)]
+    elif order == "one span at a time, reversed":
+        exports = [[r] for r in spans[::-1]]
+    s = SqliteStore()
+    for e in exports:
+        s.insert(e)
+        s.insert(e[: len(e) // 2])  # an exporter retry changes nothing
+    tables = _tables(s)
+    assert len(tables["messages"]) == len(s.recent_messages(10 ** 6)) > 300
+    assert all(tables[t] for t in summary_table.TABLES)
+    assert tables == _rebuilt(s)
+    s.close()
+
+
+def test_retention_removes_the_summaries_of_what_it_deletes():
+    s = SqliteStore()
+    for e in _generated_exports():
+        s.insert(e)
+    lasts = sorted(r["last_ns"] for r in s.query("SELECT last_ns FROM messages"))
+    s.delete_messages_before(lasts[len(lasts) // 2])
+    s.delete_messages_before(lasts[-1] + 1, queue="bench-q001")
+    assert _tables(s) == _rebuilt(s)
+    assert 0 < len(_tables(s)["messages"]) < len(lasts)
+    s.close()

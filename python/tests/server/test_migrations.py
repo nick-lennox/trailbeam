@@ -56,7 +56,8 @@ def schema(path) -> dict:
             "indexes": sorted((r[0], r[1]) for r in c.execute(
                 "SELECT name, tbl_name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_autoindex%'")),
             "index_columns": {i: [r[2] for r in c.execute(f"PRAGMA index_info({i})")]
-                              for i in ("spans_mid", "spans_hash", "spans_kind_time")},
+                              for i in ("spans_mid", "spans_hash", "spans_kind_time", "messages_last", "messages_stuck",
+                                        "message_queues_last", "message_tenants_search", "tenant_events_at")},
         }
     finally:
         c.close()
@@ -87,7 +88,9 @@ def file_at(tmp_path, version: int) -> str:
         if m.version <= version:
             for sql in m.statements:
                 c.execute(sql)
-    c.execute("UPDATE meta SET value = ?", (str(version),))
+            if m.run is not None:
+                m.run(c)
+            migrations._record(c, m.version, m.name)  # as open_schema does: meta, and schema_version from 6
     c.commit()
     c.close()
     return path
@@ -96,6 +99,12 @@ def file_at(tmp_path, version: int) -> str:
 def timelines(db: Database) -> dict:
     mids = [r["mid"] for r in db.query("SELECT DISTINCT mid FROM spans WHERE mid IS NOT NULL ORDER BY mid")]
     return {m: queries.message(db, m, NOW, 900) for m in mids}
+
+
+def summaries(db: Database) -> dict:
+    """Every row of the summary tables (summary_table.py), sorted."""
+    from trailbeam.server.summary_table import TABLES
+    return {t: sorted(tuple(r) for r in db.query(f"SELECT * FROM {t}")) for t in TABLES}
 
 
 def _generator():
@@ -125,11 +134,12 @@ def test_the_fixture_is_a_schema_5_file():
 def test_a_file_from_main_upgrades_in_place_and_keeps_every_span(from_main):
     before = raw(from_main)
     db = Database(from_main, store_bodies=frozenset({"orders"}))
-    assert db.migrated == [6]
+    assert db.migrated == [6, 7]
     db.close()
     assert raw(from_main) == before  # every row, every column, same row IDs
     assert meta_version(from_main) == str(LATEST)
-    assert version_rows(from_main) == [(5, "before schema_version", False), (6, "schema_version table", True)]
+    assert version_rows(from_main) == [(5, "before schema_version", False), (6, "schema_version table", True),
+                                       (7, "message summary tables", True)]
     assert schema(from_main) == schema_new_file(from_main + ".new")
 
 
@@ -148,6 +158,8 @@ def test_an_upgraded_file_gives_the_timelines_a_new_file_gives(from_main, tmp_pa
     try:
         assert len(timelines(upgraded)) > 10
         assert timelines(upgraded) == timelines(new)
+        assert summaries(upgraded) == summaries(new)  # the backfill built what insert builds
+        assert len(summaries(new)["messages"]) == len(timelines(new))
         from trailbeam.server import bodies
         for m in timelines(new):
             assert (bodies.body_view(m, upgraded.message_rows(m), upgraded.store_bodies)
@@ -178,7 +190,7 @@ def test_opening_again_does_not_migrate_again(from_main):
     db = Database(from_main)
     assert db.migrated == []
     db.close()
-    assert [v for v, *_ in version_rows(from_main)] == [5, 6]
+    assert [v for v, *_ in version_rows(from_main)] == list(range(5, LATEST + 1))
 
 
 # ---- every older version ---------------------------------------------------------------------------
@@ -294,14 +306,14 @@ def test_a_failed_migration_leaves_the_file_at_the_last_version_that_completed(f
     monkeypatch.setattr(migrations, "LATEST", LATEST + 1)
     with pytest.raises(SchemaError, match=f"at schema version {LATEST}.*no such table: missing"):
         Database(from_main)
-    assert meta_version(from_main) == str(LATEST)  # 5 -> 6 completed, 6 -> 7 rolled back
-    assert [v for v, *_ in version_rows(from_main)] == [5, 6]
+    assert meta_version(from_main) == str(LATEST)  # 5 -> LATEST completed, the broken one rolled back
+    assert [v for v, *_ in version_rows(from_main)] == list(range(5, LATEST + 1))
     assert "half_done" not in raw(from_main)[0]
     assert raw(from_main) == before
 
     fixed = Migration(LATEST + 1, "fixed", ("ALTER TABLE spans ADD COLUMN half_done TEXT",))
     monkeypatch.setattr(migrations, "MIGRATIONS", migrations.MIGRATIONS[:-1] + (fixed,))
-    db = Database(from_main)  # the next start carries on from 6
+    db = Database(from_main)  # the next start carries on from LATEST
     assert db.migrated == [LATEST + 1]
     db.close()
     assert [r["half_done"] for r in raw(from_main)] == [None] * len(before)

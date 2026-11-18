@@ -27,7 +27,7 @@ import sqlite3
 import threading
 from typing import Iterable, Iterator, Optional
 
-from . import migrations
+from . import migrations, summary_table
 from .otlp import RECORD_FIELDS
 from .store import (SETTLE_KINDS, TENANT_ATTR, TENANT_KINDS, TENANT_MAX_CHARS, Store,
                     StuckCandidate)
@@ -51,6 +51,11 @@ SETTLE_JOIN_SQL = """SELECT row, message_id FROM spans INDEXED BY spans_hash
    ORDER BY (time_ns <= ?) DESC,
             CASE WHEN time_ns <= ? THEN -time_ns ELSE time_ns END
    LIMIT 1"""
+# The messages the receive join takes settle spans from (their own message ID, or none), so their summaries
+# are rewritten too. Same rows as RECEIVE_JOIN_SQL, by the same index.
+RECEIVE_JOIN_FROM_SQL = """SELECT DISTINCT mid FROM spans INDEXED BY spans_hash
+   WHERE kind IN ('delete', 'change_visibility') AND receive_row IS NULL
+     AND receipt_hmac = ? AND key_id = ? AND mid IS NOT NULL"""
 RECEIVE_JOIN_SQL = """UPDATE spans INDEXED BY spans_hash SET mid = ?, mid_source = 'receipt_hash', receive_row = ?
    WHERE kind IN ('delete', 'change_visibility') AND receive_row IS NULL
      AND receipt_hmac = ? AND key_id = ?"""
@@ -142,9 +147,11 @@ class SqliteStore(Store):
     def insert(self, records: Iterable[dict]) -> tuple[int, int]:
         """Insert records (from otlp.decode) in one transaction. Returns (inserted, duplicates).
 
-        A span already stored (same trace and span ID, e.g. an exporter retry) is skipped.
+        A span already stored (same trace and span ID, e.g. an exporter retry) is skipped. In the same
+        transaction, the summary of every message a new span or a join touched is rewritten (summary_table.py).
         """
         inserted = dupes = 0
+        touched: set = set()
         cols = RECORD_FIELDS + ["attributes", "mid", "mid_source", "body_dropped"]
         sql = f"INSERT OR IGNORE INTO spans ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})"
         with self.lock:
@@ -163,38 +170,52 @@ class SqliteStore(Store):
                     inserted += 1
                     row = cur.lastrowid
                     if r["kind"] in SETTLE_KINDS:
-                        self._join_settle(row, r)
+                        touched.add(self._join_settle(row, r) or own)
                     elif r["kind"] == "receive":
-                        self._join_receive(row, r)
+                        touched.update(self._join_receive(row, r))
+                        touched.add(own)
+                    else:
+                        touched.add(own)
+                summary_table.refresh(c, touched)
                 c.execute("COMMIT")
             except BaseException:
                 c.execute("ROLLBACK")
                 raise
         return inserted, dupes
 
-    def _join_settle(self, row: int, r: dict) -> None:
-        """Join a new settle span to the receive that returned its receipt handle."""
+    def _join_settle(self, row: int, r: dict) -> Optional[str]:
+        """Join a new settle span to the receive that returned its receipt handle. Returns the message joined
+        to, None if no receive has the hash yet."""
         # SQS issues a new receipt handle for every delivery, so there is normally one match. If an
         # emulator reuses handles, take the latest receive at or before the settle, else the first.
         rec = self.conn.execute(SETTLE_JOIN_SQL, (r["receipt_hmac"], r["key_id"], r["time_ns"], r["time_ns"])).fetchone()
         if rec is not None:
             self.conn.execute("UPDATE spans SET mid = ?, mid_source = 'receipt_hash', receive_row = ? WHERE row = ?",
                               (rec["message_id"], rec["row"], row))
+            return rec["message_id"]
+        return None
 
-    def _join_receive(self, row: int, r: dict) -> None:
-        """Join settle spans that arrived before this receive."""
-        self.conn.execute(RECEIVE_JOIN_SQL, (r["message_id"], row, r["receipt_hmac"], r["key_id"]))
+    def _join_receive(self, row: int, r: dict) -> list[str]:
+        """Join settle spans that arrived before this receive. Returns the messages they belonged to."""
+        key = (r["receipt_hmac"], r["key_id"])
+        was = [m for (m,) in self.conn.execute(RECEIVE_JOIN_FROM_SQL, key)]
+        self.conn.execute(RECEIVE_JOIN_SQL, (r["message_id"], row) + key)
+        return was
 
     def delete_messages_before(self, cutoff_ns: int, queue: Optional[str] = None, limit: int = 10_000) -> int:
-        qsql, qp = _queue_filter(queue)
         with self.lock:
             c = self.conn
             c.execute("BEGIN IMMEDIATE")
             try:
-                n = c.execute(
-                    f"""DELETE FROM spans WHERE mid IN (
-                            SELECT s.mid FROM spans s WHERE s.mid IS NOT NULL {qsql}
-                            GROUP BY s.mid HAVING MAX(s.time_ns) < ? LIMIT ?)""", qp + (cutoff_ns, limit)).rowcount
+                if queue:
+                    mids = [m for (m,) in c.execute(
+                        """SELECT q.mid FROM message_queues q JOIN messages m ON m.mid = q.mid
+                           WHERE q.queue = ? AND q.last_ns < ? LIMIT ?""", (queue, cutoff_ns, limit))]
+                else:
+                    mids = [m for (m,) in c.execute(
+                        "SELECT mid FROM messages WHERE last_ns < ? ORDER BY last_ns LIMIT ?", (cutoff_ns, limit))]
+                n = sum(c.execute("DELETE FROM spans WHERE mid = ?", (m,)).rowcount for m in mids)
+                summary_table.forget(c, mids)
                 n += c.execute(
                     f"""DELETE FROM spans WHERE mid IS NULL AND kind IN {SETTLE_KINDS!r} AND time_ns < ?
                         {"AND queue = ?" if queue else ""}""", (cutoff_ns,) + ((queue,) if queue else ())).rowcount

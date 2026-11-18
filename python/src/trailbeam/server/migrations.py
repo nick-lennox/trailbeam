@@ -22,9 +22,10 @@ from __future__ import annotations
 import sqlite3
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 from .. import __version__
+from . import summary_table
 
 
 class SchemaError(RuntimeError):
@@ -40,6 +41,20 @@ class Migration:
     version: int       # the version the file is at after this migration
     name: str
     statements: tuple  # SQL statements, run in order in one transaction
+    run: Optional[Callable[[sqlite3.Connection], object]] = None  # then this, in the same transaction
+
+
+def statements(script: str) -> list[str]:
+    """A script as single statements. ``executescript`` is not used: before Python 3.12 it commits first."""
+    out, buf = [], ""
+    for line in script.splitlines(keepends=True):
+        buf += line
+        if sqlite3.complete_statement(buf):
+            out.append(buf.strip())
+            buf = ""
+    if buf.strip():
+        raise ValueError(f"incomplete SQL statement: {buf.strip()[:80]!r}")
+    return out
 
 
 # The schema a new file gets: the result of every migration below.
@@ -80,7 +95,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
     name TEXT NOT NULL,              -- the migration's name; 'create' for a file made at this version
     trailbeam_version TEXT           -- the Trailbeam that ran it; NULL for versions reached before 6
 );
-"""
+""" + summary_table.CREATE
 
 # Schema 1 was the first released (the CREATE of version 1 is in tests/server/test_migrations.py).
 # Schema 1 had no start_ns. Its rows came from contract v1 spans, stamped only when the response arrived,
@@ -90,6 +105,8 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # Schema 4 had no body_dropped. Its rows were stored with every attribute, bodies included, so NULL
 # (nothing dropped) is true of them; a schema 4 file can hold bodies for any queue a package captured.
 # Schema 5 is Trailbeam 0.1. Schema 6 adds the schema_version table; it changes no span data.
+# Schema 7 adds the summary tables the list pages read (summary_table.py) and builds them from the spans: one
+# pass over the file in message order, about a minute per million messages (QV-73).
 MIGRATIONS = (
     Migration(2, "spans.start_ns", ("ALTER TABLE spans ADD COLUMN start_ns INTEGER",)),
     Migration(3, "spans call order", ("ALTER TABLE spans ADD COLUMN order_scope TEXT",
@@ -104,6 +121,7 @@ MIGRATIONS = (
         """INSERT INTO schema_version (version, applied_at_ms, name)
            SELECT CAST(value AS INTEGER), NULL, 'before schema_version' FROM meta WHERE key = 'schema_version'""",
     )),
+    Migration(7, "message summary tables", tuple(statements(summary_table.CREATE)), run=summary_table.backfill),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table
@@ -157,6 +175,8 @@ def open_schema(conn: sqlite3.Connection, path: str = "") -> list[int]:
                     m = MIGRATIONS[version - FIRST]  # the one to version + 1
                     for sql in m.statements:
                         conn.execute(sql)
+                    if m.run is not None:
+                        m.run(conn)
                     _record(conn, m.version, m.name)
                     done.append(m.version)
                 conn.execute("COMMIT")
@@ -190,19 +210,6 @@ def _check(version: int) -> None:
                            "the file from before it was upgraded. Refusing to start, so nothing is lost")
     if version < FIRST:
         raise SchemaError(f"schema version {version} is older than any Trailbeam release ({FIRST})")
-
-
-def statements(script: str) -> list[str]:
-    """A script as single statements. ``executescript`` is not used: before Python 3.12 it commits first."""
-    out, buf = [], ""
-    for line in script.splitlines(keepends=True):
-        buf += line
-        if sqlite3.complete_statement(buf):
-            out.append(buf.strip())
-            buf = ""
-    if buf.strip():
-        raise ValueError(f"incomplete SQL statement: {buf.strip()[:80]!r}")
-    return out
 
 
 def _record(conn: sqlite3.Connection, version: int, name: str) -> None:

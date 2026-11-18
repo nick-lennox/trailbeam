@@ -50,6 +50,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import loadgen  # noqa: E402
 
+from trailbeam.server import summary_table  # noqa: E402
 from trailbeam.server.db import (RECEIVE_JOIN_SQL, RECORD_FIELDS, SETTLE_JOIN_SQL, SETTLE_KINDS, Database,  # noqa: E402
                                  gate_body)
 
@@ -68,6 +69,7 @@ class Seeder:
     """
 
     COLS = ["row"] + RECORD_FIELDS + ["attributes", "mid", "mid_source", "body_dropped", "receive_row"]
+    MID = COLS.index("mid")
     KEEP_RECEIVES = 2_000_000  # receive hashes kept for joins; late settles come within a few batches
 
     def __init__(self, path: str, store_bodies=()):
@@ -108,6 +110,8 @@ class Seeder:
         c.execute("BEGIN")
         c.executemany(self.sql, rows)
         c.executemany("UPDATE spans SET mid = ?, mid_source = 'receipt_hash', receive_row = ? WHERE row = ?", updates)
+        # the summary tables, as insert keeps them (settle spans waiting for a receive carry no message ID here)
+        summary_table.refresh(c, {r[self.MID] for r in rows} | {u[0] for u in updates})
         c.execute("COMMIT")
         return len(rows)
 

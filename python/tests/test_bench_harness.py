@@ -10,16 +10,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bench"))
 import harness  # noqa: E402
 import loadgen  # noqa: E402
 
+from trailbeam.server import summary_table  # noqa: E402
 from trailbeam.server.db import Database  # noqa: E402
 
 PROFILE = loadgen.Profile(queues=6, tenants=4, body_size=300, body_queues=2, redelivery=0.2, visibility_change=0.2,
                           dlq=0.1, stuck=0.1, lambda_consumer=0.3, late_join=0.4, batch_spans=40)
 
 
-def rows(path):
+def rows(path, table="spans"):
     c = sqlite3.connect(path)
     c.row_factory = sqlite3.Row
-    out = [dict(r) for r in c.execute("SELECT * FROM spans ORDER BY row")]
+    out = sorted((dict(r) for r in c.execute(f"SELECT * FROM {table}")), key=lambda r: [str(v) for v in r.values()])
     c.close()
     return out
 
@@ -38,6 +39,8 @@ def test_seeding_writes_the_rows_insert_writes(tmp_path):
     a, b = rows(by_insert), rows(by_seed)
     assert len(a) > 1000
     assert a == b
+    for t in summary_table.TABLES:  # and the summary tables insert keeps
+        assert rows(by_insert, t) == rows(by_seed, t), t
     assert any(r["mid_source"] == "receipt_hash" for r in a) and any(r["body_dropped"] for r in a)
 
 
