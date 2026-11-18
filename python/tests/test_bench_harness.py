@@ -64,7 +64,7 @@ def test_a_small_run(tmp_path):
     size = res["sizes"][0]
     assert size["spans"] >= 2000
     assert set(size["pages_idle"]) == {"messages", "messages_one_queue", "message_detail", "duplicates", "stuck",
-                                       "tenants", "tenant_search", "body_search"}
+                                       "tenants", "tenant_search", "body_search", "body_search_one_queue", "body_search_no_match"}
     assert all(v["errors"] == 0 for v in size["pages_idle"].values())
     assert size["ingest"][0]["errors"] == 0
     assert size["breakdown"]["insert_ms"] > 0
@@ -99,11 +99,11 @@ def test_a_page_that_times_out_restarts_the_server_and_is_skipped_at_larger_size
     assert all(v["timeouts"] == 1 and v["n"] == 1 for v in first["pages_idle"].values())
     # Per size: its first server, one restart per timed-out page (first size only), then one server for each
     # ramp step and one for the run under pages, each on the restored seeded file.
-    assert len(started) == (1 + 7 + 2) + (1 + 2)
+    assert len(started) == (1 + 9 + 2) + (1 + 2)
     assert first["ingest"][0]["errors"] == 0  # the ramp ran against a fresh server
     assert second["pages_idle"] == {} and second["pages_under_ingest"] == {}
     assert set(second["pages_skipped"]) == {"messages", "messages_one_queue", "message_detail", "duplicates",
-                                            "stuck", "tenants", "tenant_search", "body_search"}
+                                            "stuck", "tenants", "tenant_search", "body_search", "body_search_one_queue", "body_search_no_match"}
     assert "skipped" in (out / "summary.md").read_text()
 
 

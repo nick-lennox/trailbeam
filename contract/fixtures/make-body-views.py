@@ -103,7 +103,7 @@ def main() -> None:
         out_cases.append({
             **case,
             "views": {m: bodies.body_view(m, db.message_rows(m), db.store_bodies) for m in mids},
-            "searches": [{"query": q, "message_ids": sorted(bodies.search(db, bodies.parse_query(q), db.store_bodies))}
+            "searches": [{"query": q, "message_ids": sorted(bodies.search(db, bodies.parse_query(q), db.store_bodies).mids)}
                          for q in SEARCHES],
         })
         db.close()

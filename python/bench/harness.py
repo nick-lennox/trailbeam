@@ -275,6 +275,7 @@ def page_paths(db_path: str, profile: loadgen.Profile, n_messages: int = 20, see
             mids.append(r[0])
     c.close()
     queue = loadgen.queue_names(profile)[min(3, profile.queues - 1)]
+    body_queue = loadgen.body_queue_names(profile)[0]
     return {
         "messages": ["/api/messages"],
         "messages_one_queue": [f"/api/messages?queue={queue}"],
@@ -283,7 +284,10 @@ def page_paths(db_path: str, profile: loadgen.Profile, n_messages: int = 20, see
         "stuck": ["/api/stuck"],
         "tenants": ["/api/tenants"],
         "tenant_search": ["/api/tenants/search?q=tenant-00"],
+        # bounded (QV-76): the last day by default, at most bodies.SCAN messages per page
         "body_search": ["/api/messages?body=" + quote("body.order.status:failed")],
+        "body_search_one_queue": [f"/api/messages?queue={body_queue}&body=" + quote("body.order.status:failed")],
+        "body_search_no_match": ["/api/messages?body=" + quote("body.order.sku:NO-SUCH-SKU")],
     }
 
 

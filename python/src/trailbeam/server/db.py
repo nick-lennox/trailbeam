@@ -387,7 +387,7 @@ class SqliteStore(Store):
             p.append(queue)
         return self._newest_first(src, p, limit, from_ns, to_ns, after)
 
-    def _newest_first(self, src: str, p: list, limit: int, from_ns, to_ns, after) -> list[str]:
+    def _newest_first(self, src: str, p: list, limit: int, from_ns, to_ns, after, rows: bool = False) -> list:
         """``src``: a summary table, as s, with last_ns and mid, and its WHERE; read in (last_ns DESC, mid) order
         by the index or primary key it names (INDEXED BY, or NOT INDEXED for the primary key)."""
         where, p = "", list(p)
@@ -401,9 +401,9 @@ class SqliteStore(Store):
             where += " AND (s.last_ns < ? OR (s.last_ns = ? AND s.mid > ?))"
             p += [after[0], after[0], after[1]]
         table, _, rest = src.partition(" WHERE ")
-        rows = self.query(f"SELECT s.mid FROM {table} WHERE {rest}{where} "
-                          "ORDER BY s.last_ns DESC, s.mid LIMIT ?", tuple(p) + (limit,))
-        return [r["mid"] for r in rows]
+        found = self.query(f"SELECT s.last_ns, s.mid FROM {table} WHERE {rest}{where} "
+                           "ORDER BY s.last_ns DESC, s.mid LIMIT ?", tuple(p) + (limit,))
+        return found if rows else [r["mid"] for r in found]
 
     def stuck_messages(self, cutoff_ns: int, limit: int, queue: Optional[str] = None, *,
                        from_ns: Optional[int] = None, after: Optional[tuple] = None) -> list[StuckCandidate]:
@@ -490,14 +490,26 @@ class SqliteStore(Store):
                     found.append((nxt[0] != lo, -newest[0], nxt[1]))
         return [t for *_, t in sorted(found)[:limit]]
 
-    def body_rows(self) -> list[sqlite3.Row]:
-        return self.query(
-            """SELECT s.row, s.kind, s.mid, s.queue,
-                      json_set(s.attributes, '$."trailbeam.body"', b.body) AS attributes,
-                      (SELECT MAX(s2.time_ns) FROM spans s2 WHERE s2.mid = s.mid) AS last
-               FROM spans s JOIN bodies b ON b.id = s.body_id
-               WHERE s.body_id IS NOT NULL
-               ORDER BY s.mid, s.kind <> 'send', s.row""")
+    def newest_messages(self, limit: int, queue: Optional[str] = None, *, from_ns: Optional[int] = None,
+                        to_ns: Optional[int] = None, after: Optional[tuple] = None) -> list[tuple[int, str]]:
+        if queue:
+            src, p = "message_queues s NOT INDEXED WHERE s.queue = ?", [queue]
+        else:
+            src, p = "messages s INDEXED BY messages_last WHERE 1", []
+        return [(r["last_ns"], r["mid"]) for r in self._newest_first(src, p, limit, from_ns, to_ns, after, rows=True)]
+
+    def body_spans(self, message_ids: list[str]) -> list[sqlite3.Row]:
+        """By spans_body, the partial index of the spans that point at a body: one short lookup per message."""
+        out: list = []
+        with self.reader() as c:
+            for i in range(0, len(message_ids), 500):
+                out += c.execute(
+                    """SELECT s.row, s.kind, s.mid, s.queue, b.body,
+                              json_extract(s.attributes, '$."trailbeam.body.format"') AS format
+                       FROM spans s INDEXED BY spans_body JOIN bodies b ON b.id = s.body_id
+                       WHERE s.mid IN (SELECT value FROM json_each(?)) AND s.body_id IS NOT NULL""",
+                    (json.dumps(message_ids[i:i + 500]),)).fetchall()
+        return out
 
     def last_row(self) -> int:
         """The highest row ID stored, 0 if none: one step down the primary key."""

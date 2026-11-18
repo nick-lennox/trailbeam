@@ -128,10 +128,13 @@ The body part of the explorer's query language, the same in both products:
 - Only kept bodies are searched, as stored, after redaction: a value the package redacted can't be
   found.
 
-Open-source Trailbeam takes the terms in `GET /api/messages?body=...` (with `queue` and `limit`)
-and on its Messages page. It lists the messages whose kept body matches, most recently seen first.
-Any other kind of term is a `400`. It reads every kept body on each search: there is no index, which
-is fine for one SQLite file and gets slower as bodies pile up [estimate: not measured].
+Open-source Trailbeam takes the terms in `GET /api/messages?body=...` (with `queue`, `limit`, a time
+window and `cursor`) and on its Messages page. It lists the messages whose kept body matches, most
+recently seen first. Any other kind of term is a `400`. There is no index of body contents, so a
+search is bounded instead: it reads the kept bodies of the messages last seen in the window
+(`from_ms`/`to_ms`, or `since_s`, default the last day), on `queue` if given, newest first, and stops
+after `limit` matches or 5,000 messages. `next_cursor` goes on from there. A page can have fewer than
+`limit` matches and still have a next page.
 
 The hosted app runs the same terms in its event explorer, where a match is the event that carried
 the body.

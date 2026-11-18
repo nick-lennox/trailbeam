@@ -23,6 +23,7 @@ from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
 log = logging.getLogger("trailbeam.server")
 
 MAX_BODY = 32 * 1024 * 1024  # bytes, after decompression
+DEFAULT_WINDOW_S = 86_400  # the time window of the Tenants page and the searches, unless given
 
 
 class ApiError(Exception):
@@ -134,9 +135,17 @@ class App:
                 terms = bodies.parse_query(q["body"])
             except bodies.QueryError as e:
                 raise ApiError(400, str(e)) from None
-            items = queries.body_search(self.db, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"), terms,
-                                        mrc=self.max_receive_counts)
-            return {"messages": items, "body_search": {"stores_bodies": bool(self.db.store_bodies)}}
+            # bounded: the messages last seen in a window (default the last day), on a queue if given, and at most
+            # bodies.SCAN of them per page; next_cursor goes on from where this page stopped
+            from_ms, to_ms = self._window(q)
+            r = queries.body_search_page(self.db, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue") or None,
+                                         terms, mrc=self.max_receive_counts, from_ns=from_ms * 1_000_000,
+                                         to_ns=(to_ms + 1) * 1_000_000, cursor=q.get("cursor"))
+            return {"messages": r.page.items, "next_cursor": r.page.next_cursor,
+                    "body_search": {"stores_bodies": bool(self.db.store_bodies), "from_ms": from_ms, "to_ms": to_ms,
+                                    "scanned": r.scanned,
+                                    "searched_from_ms": None if r.oldest_ns is None else r.oldest_ns // 1_000_000,
+                                    "complete": r.page.next_cursor is None}}
         frm, to = self._range(q)
         page = queries.recent_page(self.db, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"),
                                    mrc=self.max_receive_counts, tenant=q.get("tenant") or None,
@@ -169,17 +178,23 @@ class App:
         if rest and rest != ["search"]:
             raise ApiError(404, "no such endpoint")
         now = self.now()
-        to_ms = _int(q, "to_ms", now // 1_000_000, 0, 10 ** 15)
-        since = _int(q, "since_s", 86_400, 1, 400 * 86_400)
-        from_ms = _int(q, "from_ms", max(0, to_ms - since * 1000), 0, 10 ** 15)
-        if from_ms > to_ms:
-            raise ApiError(400, "from_ms must not be after to_ms")
+        from_ms, to_ms = self._window(q)
         if rest == ["search"]:
             # bounded by the page's range, so a search costs the same however much history is kept
             return {"tenants": queries.find_tenants(self.db, q.get("q", "").strip(), _int(q, "limit", 8, 1, 100),
                                                     from_ms=from_ms, to_ms=to_ms, queue=q.get("queue") or None),
                     "from_ms": from_ms, "to_ms": to_ms}
         return queries.tenants(self.db, now, self._lambda_timeout(q), from_ms, to_ms, self.max_receive_counts)
+
+    def _window(self, q: dict) -> tuple:
+        """[from_ms, to_ms], both included: given, or the last ``since_s`` seconds (default a day) to now. The
+        Tenants page, tenant search and body search, which must not read all history, take this."""
+        to_ms = _int(q, "to_ms", self.now() // 1_000_000, 0, 10 ** 15)
+        since = _int(q, "since_s", DEFAULT_WINDOW_S, 1, 400 * 86_400)
+        from_ms = _int(q, "from_ms", max(0, to_ms - since * 1000), 0, 10 ** 15)
+        if from_ms > to_ms:
+            raise ApiError(400, "from_ms must not be after to_ms")
+        return from_ms, to_ms
 
     def _range(self, q: dict) -> tuple:
         """``from_ms``/``to_ms``, both optional and included, as [from_ns, to_ns)."""

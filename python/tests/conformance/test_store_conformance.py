@@ -178,7 +178,7 @@ def test_body_views_match_the_shared_expected_outputs(new_store, case):
     mids = sorted(s.recent_messages(1000))
     assert {m: bodies.body_view(m, s.message_rows(m), s.store_bodies) for m in mids} == case["views"]
     for q in case["searches"]:
-        assert sorted(bodies.search(s, bodies.parse_query(q["query"]), s.store_bodies)) == q["message_ids"], q["query"]
+        assert sorted(bodies.search(s, bodies.parse_query(q["query"]), s.store_bodies).mids) == q["message_ids"], q["query"]
 
 
 # ---- retention ---------------------------------------------------------------------------------------

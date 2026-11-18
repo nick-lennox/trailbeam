@@ -229,6 +229,15 @@ instrumented, a package from before 3.2, or a body this server dropped because i
 `body.order.sku:A-100` or `body.amount:>=100`, and so does `GET /api/messages?body=...`. The rules are in
 [`contract/body-view.md`](contract/body-view.md); the hosted app follows the same ones and draws the same view.
 
+**A body search is bounded.** Bodies have no index, so a search reads them. It reads only the messages
+last seen in a time window: `from_ms`/`to_ms`, or the last `since_s` seconds, by default a day. Pass
+`queue` to search one queue's messages. It goes newest first and stops after `limit` matches or 5,000
+messages read, whichever comes first. `next_cursor` continues from where it stopped, so a page can have
+few matches, or none, and still have a next one. `body_search` in the response says what was covered:
+`scanned` (messages read), `searched_from_ms` to `to_ms`, and `complete` (the whole window was read). A
+search therefore costs about the same however many bodies are stored. Tenant search
+(`/api/tenants/search`) takes the same `from_ms`/`to_ms`/`since_s` and `queue`.
+
 **Access control is off-unless-on plus the network.** There are no logins and no roles: anyone who can
 reach Trailbeam can read every body it keeps, in the Body tab and from `/api/messages/{id}/body`, and
 anyone who can read its SQLite file can read them there. Trailbeam logs a warning at startup when the list

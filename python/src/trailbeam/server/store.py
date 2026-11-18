@@ -189,10 +189,16 @@ class Store(abc.ABC):
     # ---- bodies ------------------------------------------------------------------------------
 
     @abc.abstractmethod
-    def body_rows(self) -> list[Row]:
-        """Send and receive rows of a message whose ``attributes`` hold a text ``trailbeam.body``, with the
-        columns row, kind, mid, queue, attributes and ``last`` (the message's newest time_ns); by mid, sends
-        first, then row. bodies.search filters and matches them."""
+    def newest_messages(self, limit: int, queue: Optional[str] = None, *, from_ns: Optional[int] = None,
+                        to_ns: Optional[int] = None, after: Optional[tuple] = None) -> list[tuple[int, str]]:
+        """(last_ns, mid) of up to ``limit`` messages, as recent_messages orders and filters them: the walk body
+        search reads bodies along (bodies.search)."""
+
+    @abc.abstractmethod
+    def body_spans(self, message_ids: list[str]) -> list[Row]:
+        """The send and receive rows of these messages that carry a stored body, with the columns row, kind,
+        mid, queue, ``body`` (the text) and ``format`` (trailbeam.body.format, or None). Any order. Indexed:
+        the cost is the messages asked for, not the bodies stored."""
 
     # ---- lifecycle ---------------------------------------------------------------------------
 

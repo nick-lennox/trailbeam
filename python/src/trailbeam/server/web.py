@@ -23,7 +23,7 @@ returns. No JavaScript, no external assets: everything is in one response.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from html import escape
 from typing import Callable, Iterable, Optional
 from urllib.parse import quote, urlencode
@@ -130,23 +130,35 @@ def handle(api: Callable[[str, dict], object], api_error: type, path: str, query
 
 
 def _index(api, q: dict) -> Response:
-    data = api("messages", _pick(q, "limit", "queue", "tenant", "body", "cursor"))
-    searching = "body_search" in data
-    note = ""
+    searching = bool(q.get("body", "").strip())
+    data = api("messages", _pick(q, "limit", "queue", "tenant", "body", "cursor",
+                                 *(("since_s", "from_ms", "to_ms") if searching else ())))
+    note, nxt = "", q
     if searching:
+        bs = data["body_search"]
         note = ('<p class="muted body-note">Searches only the bodies this server keeps: those of queues in '
-                "<code>TRAILBEAM_STORE_BODIES</code>, as the package redacted them. Trailbeam has no logins, so "
-                "anyone who can reach this server can read them.</p>")
-        if not data["body_search"]["stores_bodies"]:
+                "<code>TRAILBEAM_STORE_BODIES</code>, as the package redacted them. Anyone who can open this "
+                "page can read them.</p>")
+        if not bs["stores_bodies"]:
             note += ('<p class="notice">This server keeps no bodies: <code>TRAILBEAM_STORE_BODIES</code> is not '
                      "set, so a body search finds nothing.</p>")
+        elif bs["scanned"]:
+            note += (f'<p class="muted">Read the bodies of {bs["scanned"]:,} messages last seen between '
+                     f'{escape(_ms(bs["searched_from_ms"]))} and {escape(_ms(bs["to_ms"]))}'
+                     + ("." if bs["complete"] else f'; the next page reads older ones, back to {escape(_ms(bs["from_ms"]))}.')
+                     + "</p>")
+        nxt = {**q, "from_ms": str(bs["from_ms"]), "to_ms": str(bs["to_ms"])}
+        nxt.pop("since_s", None)
+    fields = [("body", "Body", "text"), ("queue", "Queue", "text"), ("tenant", "Tenant", "text"),
+              ("limit", "Limit", "number")]
+    if searching:
+        fields.insert(2, ("since_s", "Last seen within", WINDOWS))
     body = ("<h1>Look up a message</h1>" + _lookup_form("")
             + ("<h2>Messages whose body matches</h2>" if searching else "<h2>Recent messages</h2>")
-            + _filters("/", q, [("body", "Body", "text"), ("queue", "Queue", "text"),
-                                 ("tenant", "Tenant", "text"), ("limit", "Limit", "number")])
+            + _filters("/", {"since_s": "86400", **q} if searching else q, fields)
             + note
             + _summary_table(data["messages"], empty="No message body matches." if searching else "No messages stored yet.")
-            + _next("/", q, data))
+            + _next("/", nxt, data))
     return _page(200, "Trailbeam", body)
 
 
@@ -496,6 +508,13 @@ def _summary_table(messages: list[dict], *, empty: str, extra: Optional[tuple] =
         rows.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
     return ("<table><thead><tr>" + "".join(f"<th>{escape(c)}</th>" for c in cols) + "</tr></thead><tbody>"
             + "".join(rows) + "</tbody></table>")
+
+
+WINDOWS = [("3600", "an hour"), ("86400", "a day"), ("604800", "a week"), ("2592000", "30 days")]  # body search
+
+
+def _ms(ms: Optional[int]) -> str:
+    return "-" if ms is None else datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
 def _next(action: str, q: dict, data: dict) -> str:

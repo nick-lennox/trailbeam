@@ -84,14 +84,29 @@ def recent(db: Store, now_ns: int, lambda_timeout_s: int, limit: int, queue: Opt
     return recent_page(db, now_ns, lambda_timeout_s, limit, queue, mrc, tenant).items
 
 
+class BodySearch(NamedTuple):
+    page: Page
+    scanned: int               # messages whose body was read
+    oldest_ns: Optional[int]   # last seen of the oldest of them: the search covered from there to to_ns
+
+
+def body_search_page(db: Store, now_ns: int, lambda_timeout_s: int, limit: int, queue: Optional[str],
+                     terms: list[dict], mrc: Optional[dict] = None, *, from_ns: Optional[int] = None,
+                     to_ns: Optional[int] = None, cursor: Optional[str] = None,
+                     scan: int = bodies.SCAN) -> BodySearch:
+    """Messages last seen in [from_ns, to_ns) whose kept body matches the body.* terms (bodies.py), most recently
+    seen first. A page reads at most ``scan`` messages: ``next_cursor`` goes on from the last one read, so a page
+    can have fewer than ``limit`` items, or none, and still a next one. None: the range is searched to its end."""
+    r = bodies.search(db, terms, db.store_bodies, limit=limit, queue=queue, from_ns=from_ns, to_ns=to_ns,
+                      after=decode_cursor(cursor), scan=scan)
+    return BodySearch(Page(_items(db, r.mids, now_ns, lambda_timeout_s, mrc),
+                           encode_cursor(*r.after) if r.after else None), r.scanned, r.oldest_ns)
+
+
 def body_search(db: Store, now_ns: int, lambda_timeout_s: int, limit: int, queue: Optional[str],
                 terms: list[dict], mrc: Optional[dict] = None) -> list[dict]:
-    """Messages whose kept body matches the body.* terms (bodies.py), most recently seen first."""
-    mids = bodies.search(db, terms, db.store_bodies)
-    if queue:
-        inq = db.queue_messages(queue)
-        mids = [m for m in mids if m in inq]
-    return _items(db, mids[:limit], now_ns, lambda_timeout_s, mrc)
+    """The first page of ``body_search_page``, over all history."""
+    return body_search_page(db, now_ns, lambda_timeout_s, limit, queue, terms, mrc).page.items
 
 
 def _with_reasons(item: dict) -> dict:
