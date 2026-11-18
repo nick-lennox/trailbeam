@@ -435,7 +435,7 @@ without one, anyone who can reach the port can read it. Labels never hold span d
 | `trailbeam_db_last_row` | gauge | Highest span row ID (one index step, not a count) |
 | `trailbeam_build_info{version}`, `trailbeam_start_time_seconds` | gauge | Version and start time |
 
-Retention purge metrics come with the retention setting.
+There are no retention purge metrics yet: the server logs each purge pass that deletes spans, and any pass that fails.
 
 A scrape config for Prometheus:
 
