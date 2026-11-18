@@ -245,6 +245,15 @@ trailbeam --db /data/trailbeam.sqlite --vacuum
 This copies the whole file (SQLite `VACUUM`), so it needs enough free disk for a second copy. Run it
 once; after that the file gives space back like a new one.
 
+**Upgrading a database file.** The server upgrades an older file when it starts, keeping every span.
+One upgrade in this version rewrites the spans table and its summaries. That cuts the disk writes per
+span by about a third. It takes a while on a large file: about 5 minutes per million spans on our test
+machine. While it runs, the server doesn't accept spans, and it needs free disk about the size of the
+file. Afterwards the file is larger by about that much free space, which new spans reuse. If the
+upgrade is stopped part way, the file stays at the version before, and the next start runs it again.
+A span the server already has is skipped when it arrives again with the same trace ID, span ID and end
+time, as an exporter retry sends it.
+
 ## Open source and the hosted app
 
 Everything that tells you what happened to your messages is open source and runs on your own
