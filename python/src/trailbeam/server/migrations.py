@@ -57,9 +57,9 @@ def statements(script: str) -> list[str]:
     return out
 
 
-# The schema a new file gets: the result of every migration below.
-CREATE = """
-CREATE TABLE IF NOT EXISTS spans (
+# The spans table, under a name: migration 10 builds it as spans_new and renames it.
+SPANS_TABLE = """
+CREATE TABLE IF NOT EXISTS {name} (
     row INTEGER PRIMARY KEY,
     trace_id TEXT NOT NULL,
     span_id TEXT NOT NULL,
@@ -81,13 +81,31 @@ CREATE TABLE IF NOT EXISTS spans (
     mid TEXT,                        -- the message this row belongs to (see db.py)
     mid_source TEXT,                 -- 'span' | 'receipt_hash' | NULL (settle span not joined yet)
     receive_row INTEGER REFERENCES spans(row),  -- settle spans: the delivery whose handle was used
-    body_dropped TEXT,               -- 'not_opted_in': the span carried a body, not stored (db.py)
-    UNIQUE (trace_id, span_id)
+    body_dropped TEXT                -- 'not_opted_in': the span carried a body, not stored (db.py)
 );
+"""
+# The indexes of spans (schema 10). Every one but spans_mid leads with time or is partial, so a new span's
+# entries go where the newest spans' are, at the right edge of each B-tree: an export of a few hundred spans
+# changes a few pages of each, not a page per span (QV-78). spans_identity is the duplicate check (an exporter
+# retry sends the same span again, end time included). The receipt hash is indexed only where a join looks
+# for it: receives, and settle spans not joined yet (db.py joins a settle span before it is inserted).
+SPANS_INDEXES = """
+CREATE UNIQUE INDEX IF NOT EXISTS spans_identity ON spans (time_ns, trace_id, span_id);
 CREATE INDEX IF NOT EXISTS spans_mid ON spans (mid, time_ns);
-CREATE INDEX IF NOT EXISTS spans_hash ON spans (receipt_hmac, key_id);
+CREATE INDEX IF NOT EXISTS spans_receive_hash ON spans (receipt_hmac, key_id) WHERE kind = 'receive';
+CREATE INDEX IF NOT EXISTS spans_unjoined_hash ON spans (receipt_hmac, key_id)
+    WHERE kind IN ('delete', 'change_visibility') AND receive_row IS NULL;
 CREATE INDEX IF NOT EXISTS spans_kind_time ON spans (kind, time_ns);
 CREATE INDEX IF NOT EXISTS spans_receive_row ON spans (receive_row) WHERE receive_row IS NOT NULL;
+"""
+SPANS_COLUMNS = ("row, trace_id, span_id, kind, time_ns, start_ns, service_name, source, operation, queue, queue_url, "
+                 "message_id, receipt_hmac, key_id, receive_count, sent_ts_ms, first_receive_ts_ms, dlq_source_arn, "
+                 "result, error_code, visibility_timeout, outcome, error_type, batch_entry_id, client_id, pid, "
+                 "thread_name, faas_name, faas_invocation_id, order_scope, order_issued, order_returned, attributes, "
+                 "mid, mid_source, receive_row, body_dropped")
+
+# The schema a new file gets: the result of every migration below.
+CREATE = SPANS_TABLE.format(name="spans") + SPANS_INDEXES + """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """ + """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -116,6 +134,17 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # tenant_events: each was a B-tree with a random key per message, and together a third of the pages one export
 # wrote (QV-73). Their rows are found from the message's lists in messages (summary_table.py). The tables are
 # dropped and built again from the spans, as in 7 before.
+# Schema 10 rebuilds spans with indexes whose new entries go to the right edge of each B-tree (SPANS_INDEXES):
+# UNIQUE (trace_id, span_id) becomes spans_identity (time_ns, trace_id, span_id), and spans_hash becomes two
+# partial indexes, on receives and on unjoined settle spans. At 1M spans a 512-span export wrote 2,318 pages
+# before and 1,866 after (QV-78). An inline UNIQUE can't be dropped, so the table is copied, row IDs and all, and
+# every index built again: about 3 minutes per 1M spans, with free disk for a second copy of the table. Freshly
+# built indexes are full, so for a while after the upgrade an insert splits more pages than it will later.
+_REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new"))
+                  + [f"INSERT INTO spans_new ({SPANS_COLUMNS}) SELECT {SPANS_COLUMNS} FROM spans ORDER BY row",
+                     "DROP TABLE spans",
+                     "ALTER TABLE spans_new RENAME TO spans"]
+                  + statements(SPANS_INDEXES))
 MIGRATIONS = (
     Migration(2, "spans.start_ns", ("ALTER TABLE spans ADD COLUMN start_ns INTEGER",)),
     Migration(3, "spans call order", ("ALTER TABLE spans ADD COLUMN order_scope TEXT",
@@ -137,6 +166,7 @@ MIGRATIONS = (
     Migration(9, "summary tables keyed for the pages", tuple(
         [f"DROP TABLE IF EXISTS {t}" for t in summary_table.TABLES] + statements(summary_table.CREATE)),
         run=summary_table.backfill),
+    Migration(10, "spans indexes at the right edge", tuple(_REBUILD_SPANS)),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

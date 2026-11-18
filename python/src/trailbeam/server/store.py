@@ -88,7 +88,8 @@ class Store(abc.ABC):
     @abc.abstractmethod
     def insert(self, records: Iterable[dict]) -> tuple[int, int]:
         """Store records (otlp.decode) atomically and join them (module docstring). A span already stored,
-        same trace and span ID, is skipped. Returns (inserted, duplicates)."""
+        same trace ID, span ID and end time (``time_ns``), is skipped: an exporter retry sends the span again
+        as it was. Returns (inserted, duplicates)."""
 
     @abc.abstractmethod
     def purge_step(self, cutoffs: "Cutoffs", resume: Optional[str] = None, limit: int = 100) -> "PurgeStep":

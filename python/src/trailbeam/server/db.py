@@ -43,22 +43,25 @@ BODY_DROPPED_NOT_OPTED_IN = "not_opted_in"  # spans.body_dropped: the queue is n
 # The schema, its version and the upgrades from older files are in migrations.py.
 
 # The two receipt-hash joins run once per settle or receive span, inside the insert transaction, so they
-# must be index lookups at every size. INDEXED BY pins spans_hash: the server never runs ANALYZE, and without
+# must be index lookups at every size. INDEXED BY pins the hash index: the server never runs ANALYZE, and without
 # statistics SQLite's planner picks spans_kind_time (kind=?) for the settle join, which scans every stored
 # receive (QV-68: 99.95% of insert time at 10M spans). With INDEXED BY the plan cannot change with the data,
 # the statistics or the SQLite version; if the index were ever missing the statement fails loudly instead of
 # scanning. A hash matches one delivery's receive and its settle spans, so the lookup returns a few rows.
-SETTLE_JOIN_SQL = """SELECT row, message_id FROM spans INDEXED BY spans_hash
+# The two hash indexes are partial (migrations.SPANS_INDEXES): spans_receive_hash holds receives only, and
+# spans_unjoined_hash settle spans with no receive yet. A settle span is joined before its row is inserted, so
+# one that finds its receive never has an entry in spans_unjoined_hash (QV-78: a page fewer per span).
+SETTLE_JOIN_SQL = """SELECT row, message_id FROM spans INDEXED BY spans_receive_hash
    WHERE kind = 'receive' AND receipt_hmac = ? AND key_id = ?
    ORDER BY (time_ns <= ?) DESC,
             CASE WHEN time_ns <= ? THEN -time_ns ELSE time_ns END
    LIMIT 1"""
 # The messages the receive join takes settle spans from (their own message ID, or none), so their summaries
 # are rewritten too. Same rows as RECEIVE_JOIN_SQL, by the same index.
-RECEIVE_JOIN_FROM_SQL = """SELECT DISTINCT mid FROM spans INDEXED BY spans_hash
+RECEIVE_JOIN_FROM_SQL = """SELECT DISTINCT mid FROM spans INDEXED BY spans_unjoined_hash
    WHERE kind IN ('delete', 'change_visibility') AND receive_row IS NULL
      AND receipt_hmac = ? AND key_id = ? AND mid IS NOT NULL"""
-RECEIVE_JOIN_SQL = """UPDATE spans INDEXED BY spans_hash SET mid = ?, mid_source = 'receipt_hash', receive_row = ?
+RECEIVE_JOIN_SQL = """UPDATE spans INDEXED BY spans_unjoined_hash SET mid = ?, mid_source = 'receipt_hash', receive_row = ?
    WHERE kind IN ('delete', 'change_visibility') AND receive_row IS NULL
      AND receipt_hmac = ? AND key_id = ?"""
 
@@ -95,6 +98,7 @@ class SqliteStore(Store):
     """
 
     MAX_IDLE_READERS = 8
+    GROUP_MAX_SPANS = 4096  # spans one transaction takes from the queue (insert): 8 exports of 512
     CHECKPOINT_INTERVAL_S = 1.0
     WAL_SIZE_LIMIT = 64 * 1024 * 1024  # journal_size_limit: the log is cut back to this when it restarts
 
@@ -110,6 +114,9 @@ class SqliteStore(Store):
         self._closed = False
         self._stop = threading.Event()
         self._checkpointer: Optional[threading.Thread] = None
+        self._queue: list = []  # exports waiting for the writer (insert: group commit)
+        self._queue_lock = threading.Lock()
+        self.write_stats = {"transactions": 0, "exports": 0}  # exports / transactions: the group commit's gain
         try:
             # A new file is created with incremental vacuum, so retention can give space back (reclaim_space).
             # SQLite only takes this before the first table is created; on an existing file it does nothing.
@@ -189,55 +196,97 @@ class SqliteStore(Store):
     # ---- writes ---------------------------------------------------------------------------
 
     def insert(self, records: Iterable[dict]) -> tuple[int, int]:
-        """Insert records (from otlp.decode) in one transaction. Returns (inserted, duplicates).
+        """Insert records (from otlp.decode) atomically. Returns (inserted, duplicates).
 
-        A span already stored (same trace and span ID, e.g. an exporter retry) is skipped. In the same
+        A span already stored (same trace ID, span ID and end time, e.g. an exporter retry) is skipped (the
+        spans_identity index). A settle span is joined to its receive before it is inserted. In the same
         transaction, the summary of every message a new span or a join touched is rewritten (summary_table.py).
+
+        Group commit: concurrent calls share one transaction. Each call queues its export, then waits for the
+        writer lock; whichever thread gets it writes every export queued by then (up to ``GROUP_MAX_SPANS``),
+        each in a SAVEPOINT of its own, and commits once. An export that fails is rolled back to its savepoint
+        and only its caller gets the error. Every call returns only after the COMMIT that holds its spans, so an
+        acknowledged export is on disk (``synchronous = FULL``), as before. One COMMIT, and one fsync, then
+        serves several exports, and a message several of them touch has its summary rewritten once (QV-78).
         """
-        inserted = dupes = 0
-        touched: set = set()
-        cols = RECORD_FIELDS + ["attributes", "mid", "mid_source", "body_dropped"]
-        sql = f"INSERT OR IGNORE INTO spans ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})"
+        job = _Export(list(records))
+        with self._queue_lock:
+            self._queue.append(job)
         with self.lock:
-            c = self.conn
+            if not job.done:  # else a writer before us took it, and committed it
+                self._write_group()
+        if job.error is not None:
+            raise job.error
+        return job.result
+
+    def _write_group(self) -> None:
+        """Write the queued exports in one transaction; the caller holds ``lock``."""
+        with self._queue_lock:
+            group, spans = [], 0
+            while self._queue and (not group or spans + len(self._queue[0].records) <= self.GROUP_MAX_SPANS):
+                group.append(self._queue.pop(0))
+                spans += len(group[-1].records)
+        c = self.conn
+        touched: set = set()
+        try:
             c.execute("BEGIN IMMEDIATE")
             try:
-                for r in records:
-                    own = r.get("message_id")
-                    attrs, dropped = gate_body(r.get("attributes", {}), r.get("queue"), self.store_bodies)
-                    values = [r.get(f) for f in RECORD_FIELDS] + [
-                        json.dumps(attrs, sort_keys=True, default=str), own, "span" if own else None, dropped]
-                    cur = c.execute(sql, values)
-                    if cur.rowcount == 0:
-                        dupes += 1
-                        continue
-                    inserted += 1
-                    row = cur.lastrowid
-                    if r["kind"] in SETTLE_KINDS:
-                        touched.add(self._join_settle(row, r) or own)
-                    elif r["kind"] == "receive":
-                        touched.update(self._join_receive(row, r))
-                        touched.add(own)
+                for job in group:
+                    c.execute("SAVEPOINT export")
+                    mine: set = set()
+                    try:
+                        job.result = self._insert_rows(job.records, mine)
+                    except Exception as e:  # this export only: the others in the group still commit
+                        c.execute("ROLLBACK TO export")
+                        job.error = e
                     else:
-                        touched.add(own)
+                        touched |= mine
+                    c.execute("RELEASE export")
                 summary_table.refresh(c, touched)
                 c.execute("COMMIT")
             except BaseException:
                 c.execute("ROLLBACK")
                 raise
+        except BaseException as e:  # nothing of the group was stored: every export in it fails
+            for job in group:
+                job.result, job.error = None, e
+            raise
+        finally:
+            self.write_stats["transactions"] += 1
+            self.write_stats["exports"] += len(group)
+            for job in group:
+                job.done = True
+
+    def _insert_rows(self, records: list, touched: set) -> tuple[int, int]:
+        """One export's rows and joins, in the open transaction. Adds the messages they touch to ``touched``."""
+        inserted = dupes = 0
+        c = self.conn
+        for r in records:
+            own = r.get("message_id")
+            mid, mid_source, receive_row = own, "span" if own else None, None
+            if r["kind"] in SETTLE_KINDS:  # joined first, so the row is written once, joined
+                rec = self._settle_receive(r)
+                if rec is not None:
+                    mid, mid_source, receive_row = rec["message_id"], "receipt_hash", rec["row"]
+            attrs, dropped = gate_body(r.get("attributes", {}), r.get("queue"), self.store_bodies)
+            values = [r.get(f) for f in RECORD_FIELDS] + [
+                json.dumps(attrs, sort_keys=True, default=str), mid, mid_source, receive_row, dropped]
+            cur = c.execute(_INSERT_SQL, values)
+            if cur.rowcount == 0:
+                dupes += 1
+                continue
+            inserted += 1
+            if r["kind"] == "receive":
+                touched.update(self._join_receive(cur.lastrowid, r))
+            touched.add(mid)
         return inserted, dupes
 
-    def _join_settle(self, row: int, r: dict) -> Optional[str]:
-        """Join a new settle span to the receive that returned its receipt handle. Returns the message joined
-        to, None if no receive has the hash yet."""
+    def _settle_receive(self, r: dict) -> Optional[sqlite3.Row]:
+        """The receive that returned a settle span's receipt handle (its row and message ID), None if no receive
+        has the hash yet. Looked up before the settle span is inserted."""
         # SQS issues a new receipt handle for every delivery, so there is normally one match. If an
         # emulator reuses handles, take the latest receive at or before the settle, else the first.
-        rec = self.conn.execute(SETTLE_JOIN_SQL, (r["receipt_hmac"], r["key_id"], r["time_ns"], r["time_ns"])).fetchone()
-        if rec is not None:
-            self.conn.execute("UPDATE spans SET mid = ?, mid_source = 'receipt_hash', receive_row = ? WHERE row = ?",
-                              (rec["message_id"], rec["row"], row))
-            return rec["message_id"]
-        return None
+        return self.conn.execute(SETTLE_JOIN_SQL, (r["receipt_hmac"], r["key_id"], r["time_ns"], r["time_ns"])).fetchone()
 
     def _join_receive(self, row: int, r: dict) -> list[str]:
         """Join settle spans that arrived before this receive. Returns the messages they belonged to."""
@@ -511,6 +560,18 @@ class SqliteStore(Store):
 
 Database = SqliteStore  # the name everything used before store.py
 
+
+class _Export:
+    """One insert call's export, queued for the writer (SqliteStore.insert)."""
+    __slots__ = ("records", "result", "error", "done")
+
+    def __init__(self, records: list):
+        self.records, self.result, self.error, self.done = records, None, None, False
+
+
+_INSERT_COLUMNS = RECORD_FIELDS + ["attributes", "mid", "mid_source", "receive_row", "body_dropped"]
+_INSERT_SQL = f"INSERT OR IGNORE INTO spans ({', '.join(_INSERT_COLUMNS)}) VALUES ({', '.join('?' * len(_INSERT_COLUMNS))})"
+
 AUTO_VACUUM_INCREMENTAL = 2  # PRAGMA auto_vacuum
 SPAN_KINDS = ("send", "receive", "delete", "change_visibility", "outcome")  # every kind a row can have
 def _prefetch_delete(c: sqlite3.Connection, mids: list, rows: list) -> None:
@@ -519,15 +580,20 @@ def _prefetch_delete(c: sqlite3.Connection, mids: list, rows: list) -> None:
     rows (summary_table.prefetch). On a read connection, without the writer lock: the delete then finds them in
     the page cache. Without it the first steps of a pass at 1M spans held the lock for 3 to 4.5 s each, reading
     pages of week-old messages from disk, and exports waited behind them (QV-72 bench). Changes nothing."""
-    cols = "SELECT row, trace_id, span_id, kind, time_ns, receipt_hmac, key_id FROM spans"
+    cols = "SELECT row, trace_id, span_id, kind, time_ns, receipt_hmac, key_id, receive_row FROM spans"
     found = (c.execute(f"{cols} WHERE mid IN (SELECT value FROM json_each(?))", (json.dumps(mids),)).fetchall()
              + c.execute(f"{cols} WHERE row IN (SELECT value FROM json_each(?))", (json.dumps(rows),)).fetchall())
     for r in found:
-        c.execute("SELECT 1 FROM spans WHERE trace_id = ? AND span_id = ?", (r["trace_id"], r["span_id"])).fetchall()
+        c.execute("SELECT 1 FROM spans INDEXED BY spans_identity WHERE time_ns = ? AND trace_id = ? AND span_id = ?",
+                  (r["time_ns"], r["trace_id"], r["span_id"])).fetchall()
         c.execute("SELECT 1 FROM spans INDEXED BY spans_kind_time WHERE kind = ? AND time_ns = ? AND row = ?",
                   (r["kind"], r["time_ns"], r["row"])).fetchall()
-        if r["receipt_hmac"] is not None:
-            c.execute("SELECT 1 FROM spans INDEXED BY spans_hash WHERE receipt_hmac = ? AND key_id IS ? AND row = ?",
+        if r["receipt_hmac"] is not None and r["kind"] == "receive":
+            c.execute("SELECT 1 FROM spans INDEXED BY spans_receive_hash WHERE kind = 'receive' AND receipt_hmac = ? "
+                      "AND key_id IS ? AND row = ?", (r["receipt_hmac"], r["key_id"], r["row"])).fetchall()
+        elif r["receipt_hmac"] is not None and r["receive_row"] is None:
+            c.execute("SELECT 1 FROM spans INDEXED BY spans_unjoined_hash WHERE kind IN ('delete', 'change_visibility') "
+                      "AND receive_row IS NULL AND receipt_hmac = ? AND key_id IS ? AND row = ?",
                       (r["receipt_hmac"], r["key_id"], r["row"])).fetchall()
         # the foreign key: deleting a row looks for settle spans that point at it
         c.execute("SELECT 1 FROM spans INDEXED BY spans_receive_row WHERE receive_row = ?", (r["row"],)).fetchall()
