@@ -64,7 +64,8 @@ def schema(path) -> dict:
             "indexes": sorted((r[0], r[1]) for r in c.execute(
                 "SELECT name, tbl_name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_autoindex%'")),
             "index_columns": {i: [r[2] for r in c.execute(f"PRAGMA index_info({i})")]
-                              for i in ("spans_mid", "spans_hash", "spans_kind_time", "messages_last", "messages_stuck",
+                              for i in ("spans_identity", "spans_receive_hash", "spans_unjoined_hash",
+                                        "spans_kind_time", "messages_last", "messages_stuck",
                                         "message_tenants_search",
                                         "spans_receive_row")},
         }
@@ -143,14 +144,15 @@ def test_the_fixture_is_a_schema_5_file():
 def test_a_file_from_main_upgrades_in_place_and_keeps_every_span(from_main):
     before = raw(from_main)
     db = Database(from_main, store_bodies=frozenset({"orders"}))
-    assert db.migrated == [6, 7, 8, 9, 10]
+    assert db.migrated == [6, 7, 8, 9, 10, 11]
     db.close()
     assert raw(from_main) == before  # every row, every column, same row IDs
     assert meta_version(from_main) == str(LATEST)
     assert version_rows(from_main) == [(5, "before schema_version", False), (6, "schema_version table", True),
                                        (7, "message summary tables", True), (8, "spans_receive_row index", True),
                                        (9, "summary tables keyed for the pages", True),
-                                       (10, "bodies stored once", True)]
+                                       (10, "bodies stored once", True),
+                                       (11, "spans indexes at the right edge", True)]
     assert schema(from_main) == schema_new_file(from_main + ".new")
 
 

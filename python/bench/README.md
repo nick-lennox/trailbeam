@@ -40,7 +40,7 @@ as a lower rate that looks fine.
 | `--late-join` | 0 | per delivery: its settle spans are exported `--late-by-batches` (2) exports before its receive, by another process, with no message ID, so only the receipt-hash join links them |
 | `--batch-spans` | 512 | spans per export, as `BatchSpanProcessor`. At low rates an export goes every 5 s, so batches are smaller |
 | `--concurrency`, `--processes` | 4, 1 | concurrent exports per process, generator processes. One process makes about 30k spans/s without bodies, about 7k/s with 64 KB bodies |
-| `--seed` | new each run | fixes the trace and span IDs. The server skips a span it already stored, so two runs with the same seed against one server measure the second as duplicates, which are almost free. The result records the seed used |
+| `--seed` | new each run | fixes the trace and span IDs. Span times are the time each span is generated, so a second run with the same seed is stored again: the server skips only the same span again (trace ID, span ID and end time, as an exporter retry sends it). The result records the seed used |
 | `--sdk` | off | send through the packages' export path (`trailbeam._export.CountingSpanProcessor`, queue `TRAILBEAM_MAX_QUEUE_SIZE` or `--sdk-max-queue-size`) and `OTLPSpanExporter`, and count the spans lost, from the exporter's side: never exported (queue full) or in a failed export. It also reports what the drop counter (`trailbeam_dropped`) and its log lines (`logged_dropped`) said, which must equal `dropped_spans`. Against a Trailbeam server it also reads `/api/health` before and after for the spans received |
 | `--sdk-processor` | `trailbeam` | `stock`: the SDK's `BatchSpanProcessor` with its defaults (queue 2,048) instead, as QV-68 measured |
 

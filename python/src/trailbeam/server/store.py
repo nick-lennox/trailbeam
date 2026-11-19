@@ -117,7 +117,9 @@ class Store(abc.ABC):
     def insert(self, records: Iterable[dict], *, wait_s: Optional[float] = None,
                timings: Optional[dict] = None) -> tuple[int, int]:
         """Store records (otlp.decode) atomically and join them (module docstring). A span already stored,
-        same trace and span ID, is skipped. Returns (inserted, duplicates).
+        resent as it was, is skipped: that is an exporter retry, end time included. What else counts as the same
+        span is the store's (SQLite: same trace ID, span ID and end time; Postgres: same trace and span ID in
+        the same day bucket). Returns (inserted, duplicates).
 
         Backpressure (backpressure.py): ``wait_s`` bounds how long to wait before the write starts (SQLite: the
         writer lock; Postgres: a pooled ingest connection); past it raise ``WriterBusy`` with nothing written
