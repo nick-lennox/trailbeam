@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+- **Postgres: an export no longer locks every day's partitions.** Before, each export locked about 25
+  partitions and indexes per day partition of history until it committed, so a store with months of history
+  could fill Postgres's lock table ("out of shared memory", `max_locks_per_transaction`). Now an export locks
+  only the partitions its own messages are in: 85 lock entries for a typical export, with 10 day partitions or
+  400. Reading one message's timeline is bounded the same way. List pages still lock every partition. Two small
+  lookup tables make this possible: one row per message ID and one per receipt handle. On our test machine,
+  seeding 205,000 spans wrote 29% more WAL (852 MB against 658 MB), the database grew 6% (33 MB), and the
+  seed took 48 s instead of 90 s.
+- **Postgres: the server says when `max_locks_per_transaction` is too low.** List pages, `/api/health` and the
+  counts still lock every day partition, so with enough partitions concurrent pages fill Postgres's lock table.
+  At start and as partitions are added, the server works out the value it needs and logs a warning with it
+  (on a stock Postgres, from about 80 partitions). A request that fails on a full lock table is logged as that,
+  and an export gets 503 with `Retry-After`, not "Postgres is unreachable". README: Postgres lock table.
+
+### Upgrading from 0.2.0 (Postgres)
+
+**Stop every 0.2.0 replica, then start the new version.** At start the server upgrades the database to
+Postgres schema 2, filling the lookup tables from the stored spans, one day partition at a time. On our test
+machine that took 1 second for 205,000 spans. Don't run 0.2.0 and this version against one database at
+the same time. A 0.2.0 replica doesn't write the lookup tables, so the spans it stores are missing from
+joins and timelines. Once the database is upgraded, a 0.2.0 server refuses to start on it. If the upgrade
+is stopped part way, the database stays at schema 1, and the next start runs it again.
+
 ## 0.2.0: production single-node
 
 The first tagged release. One Trailbeam server on SQLite, sized and documented for production: retention,

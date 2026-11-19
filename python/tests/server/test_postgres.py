@@ -5,6 +5,7 @@ and abandoned exports.
 The tests that need a database run when TRAILBEAM_TEST_POSTGRES_URL names one the tests may create schemas in
 (CI: Postgres 14 and 16 service containers); the conformance suite runs on it too (tests/conformance).
 """
+import contextlib
 import os
 import subprocess
 import sys
@@ -344,80 +345,101 @@ STOCK = {"max_locks_per_transaction": 64, "max_connections": 100, "autovacuum_ma
          "max_worker_processes": 8, "max_wal_senders": 10, "max_prepared_transactions": 0}
 
 
-def test_lock_need_is_what_the_places_and_pools_can_lock_against_the_lock_table():
+def test_lock_need_is_what_the_places_and_pages_can_lock_against_the_lock_table():
     """lock.c's NLOCKENTS: max_locks_per_transaction x server processes objects, twice that (object, backend)
-    pairs. A stock Postgres 14 has 122 processes: 7,808 objects, 15,616 pairs."""
+    pairs. A stock Postgres 14 has 122 processes: 7,808 objects, 15,616 pairs. The connections that count are
+    the read pool's (8 by default): pages are what locks every place."""
     from trailbeam.server.pg_schema import LockNeed
 
-    few = LockNeed(places=10, relations_per_place=25, connections=13, settings=STOCK)
-    assert (few.backends, few.objects, few.holders) == (122, 250, 3_250)
-    assert few.required == 14 and not few.short  # ceil(3,250 / 244)
-    many = LockNeed(places=400, relations_per_place=25, connections=13, settings=STOCK)
-    assert many.required == 533 and many.short  # ceil(130,000 / 244)
-    assert "max_locks_per_transaction to at least 533" in many.message()
-    one = LockNeed(places=400, relations_per_place=25, connections=1, settings=STOCK)
-    assert one.required == 82  # a single connection: the objects themselves bind, ceil(10,000 / 122)
-    assert not LockNeed(400, 25, 13, {**STOCK, "max_locks_per_transaction": 533}).short
+    few = LockNeed(places=10, relations_per_place=24, connections=8, settings=STOCK)
+    assert (few.backends, few.objects, few.holders) == (122, 240, 1_920)
+    assert few.required == 8 and not few.short  # ceil(1,920 / 244)
+    many = LockNeed(places=400, relations_per_place=24, connections=8, settings=STOCK)
+    assert many.required == 315 and many.short  # ceil(76,800 / 244)
+    assert "max_locks_per_transaction to at least 315" in many.message()
+    one = LockNeed(places=400, relations_per_place=24, connections=1, settings=STOCK)
+    assert one.required == 79  # a single connection: the objects themselves bind, ceil(9,600 / 122)
+    assert not LockNeed(400, 24, 8, {**STOCK, "max_locks_per_transaction": 315}).short
 
 
-def _held_exports(s, n, bucket0, t_bucket):
-    """``n`` exports at once, each held at the end of its transaction (every lock it took still held) until all
-    are there or one has failed. Returns the exceptions (None for a stored export)."""
-    import concurrent.futures
+@contextlib.contextmanager
+def _held_pages(s, n):
+    """``n`` pages (recent_messages) at once, each held at the end of its transaction (every lock it took still
+    held) until the block ends. Yields, once every page has run or failed, what each gave: None, or the error."""
+    out = [None] * n
+    ran = threading.Semaphore(0)
+    release = threading.Event()
 
-    from trailbeam.server.postgres import PostgresStore
+    def held_all(query, params=()):
+        with s._reading() as c, c.transaction():
+            rows = c.execute(query, params).fetchall()
+            ran.release()
+            release.wait(120)
+            return rows
+    s._all = held_all
 
-    # first one export there, not held: the place's place_queues row is then written (held exports writing it
-    # at once would each wait for the first, held, one)
-    w = Consumer(client_id="first")
-    s.insert(records([w.send(t_bucket * DAY, f"first-{t_bucket}")]))
-    both = threading.Barrier(n, timeout=60)
-    refresh = PostgresStore._refresh
-
-    def held(conn, mids):
-        refresh(s, conn, mids)
+    def page(i):
         try:
-            both.wait()
-        except threading.BrokenBarrierError:
-            pass
-    s._refresh = held
-
-    def export(i):
-        w, t = Consumer(client_id=f"c{i}"), t_bucket * DAY + (i + 1) * 10 * SEC
-        try:
-            s.insert(records([w.send(t, f"held-{i}"), w.receive(t + SEC, f"held-{i}", f"hh{i}"),
-                              w.delete(t + 2 * SEC, f"hh{i}")]))
-            return None
+            s.recent_messages(50)
         except Exception as e:
-            both.abort()
-            return e
+            out[i] = e
+            ran.release()
+    threads = [threading.Thread(target=page, args=(i,)) for i in range(n)]
     try:
-        with concurrent.futures.ThreadPoolExecutor(n) as pool:
-            return list(pool.map(export, range(n)))
+        for t in threads:
+            t.start()
+        for _ in range(n):
+            assert ran.acquire(timeout=120), "a page neither ran nor failed"
+        yield out
     finally:
-        del s._refresh
+        release.set()
+        for t in threads:
+            t.join(120)
+        del s._all
+
+
+def _fill_the_lock_table(url) -> "psycopg.Connection":
+    """A connection holding session advisory locks until the lock table has no room left (one more lock: "out of
+    shared memory"). Session advisory locks outlive the statement that failed, so the table stays full until
+    the connection is closed."""
+    import psycopg
+
+    c = psycopg.connect(url, autocommit=True)
+    k = 0
+    try:
+        while k < 10_000_000:
+            c.execute("SELECT pg_advisory_lock(k) FROM generate_series(%s::bigint, %s::bigint) k", (k, k + 999))
+            k += 1000
+    except psycopg.errors.OutOfMemory:
+        return c
+    c.close()
+    raise AssertionError("the lock table never filled")
 
 
 @needs_pg
 def test_many_places_fill_a_default_postgres_lock_table_and_the_store_says_so(pg_store, caplog):
-    """QV-107: a statement that can't prune by place locks every place's partitions and indexes, so what an
-    export locks grows with the places. On a stock Postgres (max_locks_per_transaction = 64) 150 daily places
-    and 16 exports at once fill the lock table: "out of shared memory". The store warns at start and as places
-    are added, with the setting to use, and reports the failure as a full lock table, not as an unreachable
-    database. The places are empty: their partitions are locked all the same."""
+    """QV-107: a page (a walk across all of time) locks every place's partitions and indexes, so what pages lock
+    grows with the places (since QV-113 exports don't: they lock their own places only). On a stock Postgres
+    (max_locks_per_transaction = 64), 150 daily places and 32 pages at once fill the lock table: "out of shared
+    memory". The store warns at start and as places are added, with the setting to use, and reports the
+    failure as a full lock table, not as an unreachable database: a page in the log, an export (the table is
+    shared) as that in its error. The places are empty: their partitions are locked all the same."""
+    import psycopg
+
     from trailbeam.server.postgres import PostgresStore
     from trailbeam.server.store import StoreUnavailable
 
-    s = pg_store(ingest_connections=16)
+    s = pg_store(read_connections=32)
     if s.lock_need.settings != STOCK:
         pytest.skip(f"needs a Postgres with stock lock settings, not {s.lock_need.settings}")
     assert not s.lock_need.short  # a new store: nothing to warn about
     day0 = D0 // DAY
 
-    # a few places: 16 exports at once are stored
+    # a few places: 32 pages at once run
     s._ensure_places({(0, day0 + d) for d in range(10)})
     assert not s.lock_need.short
-    assert _held_exports(s, 16, day0, day0 + 9) == [None] * 16
+    with _held_pages(s, 32) as out:
+        assert out == [None] * 32
 
     caplog.set_level("WARNING", logger="trailbeam.server.postgres")
     s._ensure_places({(0, day0 + d) for d in range(150)})
@@ -425,16 +447,137 @@ def test_many_places_fill_a_default_postgres_lock_table_and_the_store_says_so(pg
     assert need.places == 150 and need.short and need.required > 64
     assert f"max_locks_per_transaction to at least {need.required}" in caplog.text
 
-    failed = [e for e in _held_exports(s, 16, day0, day0 + 149) if e is not None]
-    assert failed, "16 exports over 150 places did not fill a stock lock table"
-    for e in failed:
-        assert isinstance(e, StoreUnavailable), repr(e)
-        assert "lock table is full" in str(e) and "unreachable" not in str(e), str(e)
-        assert f"at least {need.required}" in str(e)
+    caplog.clear()
+    w = Consumer()
+    export = records([w.send((day0 + 149) * DAY + SEC, "full"), w.receive((day0 + 149) * DAY + 2 * SEC, "full", "hf")])
+    with _held_pages(s, 32) as out:
+        failed = [e for e in out if e is not None]
+        assert failed, "32 pages over 150 places did not fill a stock lock table"
+        for e in failed:
+            assert isinstance(e, psycopg.errors.OutOfMemory), repr(e)
+        assert "read failed: Postgres's lock table is full" in caplog.text
+        assert f"at least {need.required}" in caplog.text
+        # top the table up to full (the failed pages let go of theirs): an export finds no room either
+        filler = _fill_the_lock_table(s.url)
+        try:
+            with pytest.raises(StoreUnavailable) as e:
+                s.insert(export)
+            assert "lock table is full" in str(e.value) and "unreachable" not in str(e.value), str(e.value)
+            assert f"at least {need.required}" in str(e.value)
+        finally:
+            filler.close()
+    assert s.insert(export)[0] == 2  # room again: the same export is stored
 
     caplog.clear()  # a replica starting on these places says so at start
-    other = PostgresStore(s.url, ingest_connections=16)
+    other = PostgresStore(s.url, read_connections=32)
     try:
         assert f"max_locks_per_transaction to at least {need.required}" in caplog.text
     finally:
         other.close()
+
+
+# ---- what one export locks (QV-113) -----------------------------------------------------------------------
+
+T0 = D0  # one-second buckets from here: a place a second
+
+
+def _history(s, places: int) -> None:
+    """``places`` one-second places, each with a message sent, received and deleted; place 0 also has "late",
+    received and not yet deleted. Written 20 places an export."""
+    w = Consumer()
+    s.insert(records([w.send(T0, "late"), w.receive(T0 + 1, "late", "h-late")]))
+    for k0 in range(0, places, 20):
+        spans = []
+        for k in range(k0, min(places, k0 + 20)):
+            t = T0 + k * SEC + 10
+            spans += [w.send(t, f"old-{k}"), w.receive(t + 1, f"old-{k}", f"h-old-{k}"), w.delete(t + 2, f"h-old-{k}")]
+        s.insert(records(spans))
+
+
+def _export_locks(s, spans) -> list:
+    """The relations one export holds locks on at the end of its transaction (it holds every lock it took until
+    then): one name per lock entry, sorted."""
+    from trailbeam.server.postgres import PostgresStore
+
+    held = []
+    refresh = PostgresStore._refresh
+
+    def counting(conn, mids):
+        refresh(s, conn, mids)
+        held[:] = sorted(r["relname"] or f"<{r['locktype']}>" for r in conn.execute(
+            """SELECT l.locktype, c.relname FROM pg_locks l LEFT JOIN pg_class c ON c.oid = l.relation
+               WHERE l.pid = pg_backend_pid() AND l.locktype <> 'advisory'""").fetchall())
+    s._refresh = counting
+    try:
+        assert s.insert(records(spans))[0] == len(spans)
+    finally:
+        del s._refresh
+    return held
+
+
+def _the_export(places: int) -> list:
+    """A new message sent (with a body), received and deleted in the place after the history, and the delete of
+    "late", whose receive is in place 0: a join across places that moves "late" to the new place."""
+    w = Consumer()
+    t = T0 + places * SEC + 10
+    send = w.send(t, "new")
+    send.attrs["trailbeam.body"] = "hello"
+    return [send, w.receive(t + 1, "new", "h-new"), w.delete(t + 2, "h-new"), w.delete(t + 3, "h-late")]
+
+
+@needs_pg
+@pytest.mark.parametrize("places", [10, 400])
+def test_what_one_export_locks_does_not_grow_with_the_places(pg_store, places):
+    """QV-113: an export locks the partitions of the places it writes and reads (here the new place, and place 0
+    for the late delete's join), and the store's lookup tables; never one of the other places. So the same export
+    takes as many locks with 400 places of history as with 10."""
+    import re
+
+    s = pg_store(bucket_ns=SEC, store_bodies={"orders"})
+    _history(s, places)
+    held = _export_locks(s, _the_export(places))
+    buckets = {int(m.group(1)) for n in held for m in [re.search(r"_p0_(\d+)", n)] if m}
+    assert buckets == {T0 // SEC, T0 // SEC + places}, buckets
+    _EXPORT_LOCKS[places] = len(held)
+    if len(_EXPORT_LOCKS) == 2:
+        assert _EXPORT_LOCKS[400] == _EXPORT_LOCKS[10], _EXPORT_LOCKS
+    rows = s.message_rows("late")
+    assert [r["kind"] for r in rows] == ["send", "receive", "delete"] and rows[2]["mid"] == "late"
+    assert rows[2]["receive_row"] == rows[1]["row"] and s.summaries(["late"])[0]["final_delete"]
+    assert s.body_spans(["new"])[0]["body"] == "hello"
+
+
+_EXPORT_LOCKS: dict = {}
+
+
+@needs_pg
+def test_version_2_fills_the_lookup_tables_place_by_place(pg_store):
+    """A version-1 database (no lookup tables) is brought to version 2: the lookups are filled from the rows,
+    one place a transaction, as ingest would have written them; then a late delete joins a receive stored
+    before the upgrade, and a message stored before it reads whole."""
+    from trailbeam.server.postgres import PostgresStore
+
+    s = pg_store(bucket_ns=SEC, store_bodies={"orders"})
+    _history(s, 30)
+    w = Consumer()
+    send = w.send(T0 + 5 * SEC, "with-body")
+    send.attrs["trailbeam.body"] = "kept"
+    s.insert(records([send, w.receive(T0 + 40 * SEC, "with-body", "h-wb")]))  # its body moves to place 40
+    with s.ingest.connection() as c:
+        lookups = {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in ("mid_places", "hash_places")}
+        assert len(lookups["mid_places"]) == 30 + 3 and len(lookups["hash_places"]) == 30 + 2
+        c.execute("DROP TABLE mid_places, hash_places")
+        c.execute("UPDATE schema_version SET version = 1")
+    again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
+    try:
+        assert again.migrated == [2]
+        with again.ingest.connection() as c:
+            assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
+            assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == [1, 2]
+        again.insert(records([w.delete(T0 + 50 * SEC, "h-late")]))
+        rows = again.message_rows("late")
+        assert [r["kind"] for r in rows] == ["send", "receive", "delete"] and rows[2]["receive_row"] == rows[1]["row"]
+        assert again.body_spans(["with-body"])[0]["body"] == "kept"
+        assert len(again.message_rows("old-7")) == 3
+    finally:
+        again.close()

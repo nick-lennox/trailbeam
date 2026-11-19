@@ -354,6 +354,10 @@ storage conformance suite on 14 and 16. The Postgres driver is an extra: a SQLit
 is loaded only when the URL is a Postgres one. Existing SQLite history is not copied over: a new Postgres store
 starts empty.
 
+**Upgrading with several replicas.** When a new version changes the Postgres schema, stop every replica of the
+older version before starting the new one ([CHANGELOG](CHANGELOG.md) says which versions do). The first one to
+start upgrades the database. An older replica still running would store spans the new schema doesn't index.
+
 Retention works as described above, with one difference: spans are kept in **daily partitions** per retention
 (a partition per day for each distinct retention you configure), and the purge drops whole partitions instead
 of deleting rows, so it costs about the same however much it removes. A message expires once the *day* of its
@@ -368,30 +372,32 @@ export whose client hangs up or times out is cancelled in the database.
 
 #### Postgres lock table (`max_locks_per_transaction`)
 
-Many statements (finding a message's spans, the receipt-hash join, a page across all of time) can't be narrowed
-to one partition, so they lock every partition and its indexes, about 25 tables and indexes per partition day
-and retention. The locks are held until the statement's transaction ends, in Postgres's shared lock table,
-whose size is set at server start: `max_locks_per_transaction` × (`max_connections` + `autovacuum_max_workers` +
-1 + `max_worker_processes` + `max_wal_senders` + `max_prepared_transactions`) objects, and twice that
-(object, connection) pairs. When it is full, statements fail with `out of shared memory` / `You might need to
-increase max_locks_per_transaction`.
+Exports and reads of one message lock only the partitions that hold its spans. Pages (the lists of messages,
+which walk across all of time), `/api/health` and the counts can't be narrowed that way: each locks every
+partition and its indexes (7 to 15 tables and indexes per partition day and retention, depending on the
+statement). The locks are held until the statement's transaction ends, in Postgres's shared lock table, whose size
+is set at server start: `max_locks_per_transaction` × (`max_connections` + `autovacuum_max_workers` + 1 +
+`max_worker_processes` + `max_wal_senders` + `max_prepared_transactions`) objects, and twice that (object,
+connection) pairs. When it is full, statements fail with `out of shared memory` / `You might need to increase
+max_locks_per_transaction`. The table is shared, so pages filling it make exports fail too.
 
 So the setting this store needs is not a fixed minimum. It grows with the number of partitions (one per day for
 each retention you configure, kept for that retention; for a queue kept forever, one more every day) and with the
-connections that can run at once (13 per replica: 4 ingest, 8 pages and 1 for partitions). Trailbeam works it
-out: at start, and as partitions are added (at most once an hour), it logs a warning when the server is short,
-with the value to set:
+read connections that can run a page at once (8 per replica). Trailbeam works it out, counting every table and
+index of a partition (24), so the value is an upper bound. At start, and as partitions are added (at most once
+an hour), it logs a warning when the server is short, with the value to set:
 
 ```
-WARNING trailbeam.server.postgres Postgres lock table: ... Set max_locks_per_transaction to at least 533 (and restart Postgres) ...
+WARNING trailbeam.server.postgres Postgres lock table: ... Set max_locks_per_transaction to at least 315 (and restart Postgres) ...
 ```
 
 An export that fails on a full lock table is answered 503 with `Retry-After` (nothing stored; the client sends
-it again), and logged as a full lock table, not as an unreachable database. On a stock Postgres (64), the
-warning starts at about 50 partitions: for example 7 days' retention on up to 6 distinct retentions, or 30 days
-on one. With several replicas on one database, multiply by their number. `max_locks_per_transaction` needs a
-Postgres restart; on managed Postgres it is a parameter-group setting. It costs shared memory: on a stock Postgres 16,
-`max_locks_per_transaction = 640` instead of 64 makes it 170 MB instead of 143 MB.
+it again), and logged as a full lock table, not as an unreachable database; so is a page that fails. On a stock
+Postgres (64), the warning starts at about 80 partitions: for example 7 days' retention on up to 11 distinct
+retentions, or 80 days on one. With several replicas on one database, multiply by their number.
+`max_locks_per_transaction` needs a Postgres restart; on managed Postgres it is a parameter-group setting. It
+costs shared memory: on a stock Postgres 16, `max_locks_per_transaction = 640` instead of 64 makes it 170 MB
+instead of 143 MB.
 
 ### Several replicas on one Postgres
 

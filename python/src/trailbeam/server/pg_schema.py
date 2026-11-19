@@ -15,6 +15,13 @@ partition of each of ``spans``, ``messages``, ``message_queues``, ``message_tena
 ``places`` lists them; ``place_queues`` the queues each holds; ``strays`` the messages with rows in a place
 other than their own (postgres.py, "Placement").
 
+**Lookups** (version 2, QV-113). ``mid_places`` and ``hash_places`` are not partitioned: they say which places
+may hold rows of a message ID, and spans of a receipt hash. A statement that names its places is pruned when it
+is planned, and locks those places' partitions only; one that doesn't (a message ID or a hash across all places)
+locks every place's partitions and indexes until its transaction ends (postgres.py, "Locks"). They are written
+with the rows, may name a place that no longer holds any (a message moved on, a sweep deleted it), and lose a
+place's entries when retention drops it.
+
 Text keys that pages sort or compare by are ``COLLATE "C"``: byte order, as SQLite compares, so ties and
 cursors come out the same on both.
 """
@@ -161,6 +168,21 @@ CREATE TABLE IF NOT EXISTS bodies (
     body BYTEA NOT NULL                  -- trailbeam.body as the span carried it, UTF-8 (surrogatepass)
 ) PARTITION BY RANGE (rclass, bucket);
 CREATE INDEX IF NOT EXISTS bodies_mid ON bodies (mid, sha);
+CREATE TABLE IF NOT EXISTS mid_places (
+    mid TEXT COLLATE "C" NOT NULL,       -- a message with rows (spans, summary rows, bodies) in the place
+    rclass BIGINT NOT NULL,
+    bucket BIGINT NOT NULL,
+    PRIMARY KEY (mid, rclass, bucket)
+);
+CREATE INDEX IF NOT EXISTS mid_places_place ON mid_places (rclass, bucket);
+CREATE TABLE IF NOT EXISTS hash_places (
+    receipt_hmac TEXT NOT NULL,          -- a receive or settle span with this receipt hash is in the place
+    key_id TEXT NOT NULL,
+    rclass BIGINT NOT NULL,
+    bucket BIGINT NOT NULL,
+    PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
+);
+CREATE INDEX IF NOT EXISTS hash_places_place ON hash_places (rclass, bucket);
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
@@ -172,14 +194,40 @@ CREATE TABLE IF NOT EXISTS schema_version (
 
 @dataclass(frozen=True)
 class Migration:
+    """``statements`` run in one transaction. ``per_place``, when given, then run once for every place, each place
+    in a transaction of its own (``%(rclass)s``, ``%(bucket)s``: the place), so that the migration locks one
+    place's partitions at a time; the version is recorded after the last. Both must be safe to run again: a
+    migration stopped part way is run again from the start."""
     version: int
     name: str
     statements: tuple
+    per_place: tuple = ()
 
 
 # Version 1 is the first Postgres schema. Later versions go here, one at a time.
-MIGRATIONS: tuple = ()
-LATEST = 1
+MIGRATIONS: tuple = (
+    Migration(2, "lookup tables: the places of a message ID and of a receipt hash (QV-113)", (
+        """CREATE TABLE IF NOT EXISTS mid_places (mid TEXT COLLATE "C" NOT NULL, rclass BIGINT NOT NULL,
+           bucket BIGINT NOT NULL, PRIMARY KEY (mid, rclass, bucket))""",
+        "CREATE INDEX IF NOT EXISTS mid_places_place ON mid_places (rclass, bucket)",
+        """CREATE TABLE IF NOT EXISTS hash_places (receipt_hmac TEXT NOT NULL, key_id TEXT NOT NULL,
+           rclass BIGINT NOT NULL, bucket BIGINT NOT NULL, PRIMARY KEY (receipt_hmac, key_id, rclass, bucket))""",
+        "CREATE INDEX IF NOT EXISTS hash_places_place ON hash_places (rclass, bucket)",
+    ), per_place=(
+        """INSERT INTO mid_places (mid, rclass, bucket)
+           SELECT mid, %(rclass)s, %(bucket)s FROM spans
+               WHERE rclass = %(rclass)s AND bucket = %(bucket)s AND mid IS NOT NULL
+           UNION SELECT mid, %(rclass)s, %(bucket)s FROM messages WHERE rclass = %(rclass)s AND bucket = %(bucket)s
+           UNION SELECT mid, %(rclass)s, %(bucket)s FROM bodies WHERE rclass = %(rclass)s AND bucket = %(bucket)s
+           ON CONFLICT DO NOTHING""",
+        """INSERT INTO hash_places (receipt_hmac, key_id, rclass, bucket)
+           SELECT DISTINCT receipt_hmac, key_id, %(rclass)s, %(bucket)s FROM spans
+               WHERE rclass = %(rclass)s AND bucket = %(bucket)s AND receipt_hmac IS NOT NULL AND key_id IS NOT NULL
+                 AND kind IN ('receive', 'delete', 'change_visibility')
+           ON CONFLICT DO NOTHING""",
+    )),
+)
+LATEST = 2
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 
@@ -214,8 +262,19 @@ def open_schema(conn) -> list[int]:
                 m = MIGRATIONS[version - 1]
                 for sql in m.statements:
                     conn.execute(sql)
-                _record(conn, m.version, m.name)
-                done.append(m.version)
+                if not m.per_place:
+                    _record(conn, m.version, m.name)
+                    done.append(m.version)
+                    continue
+            places = conn.execute("SELECT rclass, bucket FROM places ORDER BY bucket, rclass").fetchall()
+            for rclass, bucket in places:
+                with conn.transaction():
+                    for sql in m.per_place:
+                        conn.execute(sql, {"rclass": rclass, "bucket": bucket})
+            with conn.transaction():
+                if current_version(conn) == m.version - 1:
+                    _record(conn, m.version, m.name)
+            done.append(m.version)
     finally:
         conn.execute("SELECT pg_advisory_unlock(%s)", (MIGRATION_LOCK,))
 
@@ -270,7 +329,8 @@ LOCK_SETTINGS = ("max_locks_per_transaction", "max_connections", "autovacuum_max
 class LockNeed:
     """What one replica can lock at once, against what the server has room for. ``settings``: LOCK_SETTINGS,
     as ints; ``relations_per_place``: the partitioned tables and indexes (one partition of each per place);
-    ``connections``: this replica's connections that run statements on them."""
+    ``connections``: this replica's connections that can run a page at once (the read pool: since
+    QV-113 pages are the only statements that lock every place)."""
     places: int
     relations_per_place: int
     connections: int
@@ -284,12 +344,12 @@ class LockNeed:
 
     @property
     def objects(self) -> int:
-        """Relations one connection may hold a lock on at once: every table and index of every place."""
+        """Relations one page may hold a lock on at once: every table and index of every place."""
         return self.places * self.relations_per_place
 
     @property
     def holders(self) -> int:
-        """(relation, connection) pairs, with every connection of the replica in such a statement at once."""
+        """(relation, connection) pairs, with every read connection of the replica in a page at once."""
         return self.objects * self.connections
 
     @property
@@ -306,9 +366,9 @@ class LockNeed:
         have = self.settings["max_locks_per_transaction"]
         return (f"Postgres lock table: this replica's statements can lock up to {self.holders:,} tables and indexes "
                 f"at once ({self.places} places x {self.relations_per_place} tables and indexes x "
-                f"{self.connections} connections), but max_locks_per_transaction = {have} leaves room for "
+                f"{self.connections} read connections), but max_locks_per_transaction = {have} leaves room for "
                 f"{2 * have * self.backends:,} ({2 * have} x {self.backends} server processes). Under concurrent "
-                f"exports and pages, statements fail with \"out of shared memory\". Set max_locks_per_transaction to "
+                f"pages, statements (exports too) fail with \"out of shared memory\". Set max_locks_per_transaction to "
                 f"at least {self.required} (and restart Postgres); with more replicas on this database, multiply by "
                 f"their number; it grows as places are added (README: Postgres lock table)")
 
