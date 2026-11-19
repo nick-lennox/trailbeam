@@ -154,8 +154,11 @@ def test_one_replica_runs_retention_and_another_takes_over_when_it_dies(replicas
     assert _purge(b, everything) == 0 and not b.retention_lease_held  # b does nothing while a holds it
     assert b.counts()["messages"] > 0
     with psycopg.connect(a.url, autocommit=True) as c:  # a's lease connection dies (as when its replica is killed)
-        c.execute("SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype = 'advisory' AND objid = %s",
-                  (a._lease_key & 0xFFFFFFFF,))
+        # with a timeout, pg_terminate_backend waits for the backend to exit (and so release the lock); without one it
+        # returns once the signal is sent, and b's try-lock can still find the lock held (Postgres 14+)
+        killed = c.execute("SELECT pg_terminate_backend(pid, 10000) FROM pg_locks"
+                           " WHERE locktype = 'advisory' AND objid = %s", (a._lease_key & 0xFFFFFFFF,)).fetchall()
+        assert killed == [(True,)]
     stored = sum(b.counts()["spans"].values())
     assert _purge(b, everything) == stored and b.retention_lease_held  # b takes over
     assert b.counts() == {"spans": {}, "messages": 0, "unjoined_settles": 0}

@@ -5,6 +5,7 @@ and abandoned exports.
 The tests that need a database run when TRAILBEAM_TEST_POSTGRES_URL names one the tests may create schemas in
 (CI: Postgres 14 and 16 service containers); the conformance suite runs on it too (tests/conformance).
 """
+import contextlib
 import os
 import subprocess
 import sys
@@ -338,6 +339,113 @@ def test_ready_fails_and_ingest_answers_503_while_postgres_is_unreachable(pg_sto
     assert direct.counts()["spans"] == {}
 
 
+# ---- the lock table (QV-107) ------------------------------------------------------------------------------
+
+STOCK = {"max_locks_per_transaction": 64, "max_connections": 100, "autovacuum_max_workers": 3,
+         "max_worker_processes": 8, "max_wal_senders": 10, "max_prepared_transactions": 0}
+
+
+def test_lock_need_is_what_a_page_batch_can_lock_against_the_lock_table():
+    """lock.c's NLOCKENTS: max_locks_per_transaction x server processes objects, twice that (object, backend)
+    pairs. A stock Postgres 14 has 122 processes: 7,808 objects, 15,616 pairs. The connections that count are
+    the read pool's (8 by default). Since QV-116 a page statement names at most PAGE_PLACES places (8), so the
+    need is the same with 10 places or 400."""
+    from trailbeam.server.pg_schema import LockNeed
+
+    few = LockNeed(places=10, relations_per_place=24, connections=8, settings=STOCK)
+    assert (few.backends, few.objects, few.holders) == (122, 192, 1_536)
+    assert few.required == 7 and not few.short  # ceil(1,536 / 244)
+    many = LockNeed(places=400, relations_per_place=24, connections=8, settings=STOCK)
+    assert (many.objects, many.holders, many.required) == (192, 1_536, 7) and not many.short
+    tiny = LockNeed(places=3, relations_per_place=24, connections=8, settings=STOCK)
+    assert tiny.objects == 72  # fewer places than a batch
+    pool = LockNeed(places=400, relations_per_place=24, connections=200, settings=STOCK)
+    assert pool.required == 158 and pool.short  # ceil(38,400 / 244): a read pool far past the stock one
+    assert "max_locks_per_transaction to at least 158" in pool.message()
+    assert "8 places a statement" in pool.message()
+    assert not LockNeed(400, 24, 200, {**STOCK, "max_locks_per_transaction": 158}).short
+
+
+def _fill_the_lock_table(url) -> "psycopg.Connection":
+    """A connection holding session advisory locks until the lock table has no room left (one more lock: "out of
+    shared memory"). Session advisory locks outlive the statement that failed, so the table stays full until
+    the connection is closed."""
+    import psycopg
+
+    c = psycopg.connect(url, autocommit=True)
+    k = 0
+    try:
+        while k < 10_000_000:
+            c.execute("SELECT pg_advisory_lock(k) FROM generate_series(%s::bigint, %s::bigint) k", (k, k + 999))
+            k += 1000
+    except psycopg.errors.OutOfMemory:
+        return c
+    c.close()
+    raise AssertionError("the lock table never filled")
+
+
+@needs_pg
+def test_many_places_dont_need_a_bigger_lock_table_and_a_full_one_is_reported(pg_store, caplog):
+    """QV-107, after QV-116: what a page locks no longer grows with the places, so a stock Postgres
+    (max_locks_per_transaction = 64) with 150 daily places and a 32-connection read pool needs no warning, and 32
+    pages at once all run. When the lock table is full all the same (here: session advisory locks), the store
+    reports it as that, not as an unreachable database: a page in the log, an export in its error. The places
+    are empty: their partitions are locked all the same."""
+    import psycopg
+
+    from trailbeam.server.store import StoreUnavailable
+
+    s = pg_store(read_connections=32)
+    if s.lock_need.settings != STOCK:
+        pytest.skip(f"needs a Postgres with stock lock settings, not {s.lock_need.settings}")
+    day0 = D0 // DAY
+    caplog.set_level("WARNING", logger="trailbeam.server.postgres")
+    s._ensure_places({(0, day0 + d) for d in range(150)})
+    need = s.lock_need
+    assert need.places == 150 and not need.short and need.required <= 64
+    assert "max_locks_per_transaction" not in caplog.text
+
+    failed: list = []
+
+    def page():
+        try:
+            s.recent_messages(50)
+            s.stuck_messages(D0, 50)
+            s.counts()
+        except Exception as e:
+            failed.append(e)
+    threads = [threading.Thread(target=page) for _ in range(32)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(120)
+    assert failed == []
+
+    caplog.clear()
+    w = Consumer()
+    export = records([w.send((day0 + 149) * DAY + SEC, "full"), w.receive((day0 + 149) * DAY + 2 * SEC, "full", "hf")])
+    filler = _fill_the_lock_table(s.url)
+    try:
+        with pytest.raises(psycopg.errors.OutOfMemory):
+            s.recent_messages(50)
+        assert "read failed: Postgres's lock table is full" in caplog.text
+        with pytest.raises(StoreUnavailable) as e:
+            s.insert(export)
+        assert "lock table is full" in str(e.value) and "unreachable" not in str(e.value), str(e.value)
+        assert "Raise max_locks_per_transaction" in str(e.value)
+    finally:
+        pid = filler.info.backend_pid
+        filler.close()
+    # its locks go when its backend exits, a moment after the connection closes
+    with psycopg.connect(s.url, autocommit=True) as c:
+        deadline = time.monotonic() + 30
+        while c.execute("SELECT 1 FROM pg_stat_activity WHERE pid = %s", (pid,)).fetchone():
+            assert time.monotonic() < deadline, "the filler's backend never exited"
+            time.sleep(0.05)
+    assert s.insert(export)[0] == 2  # room again: the same export is stored
+    assert s.recent_messages(50) == ["full"]
+
+
 # ---- what one export locks (QV-113) -----------------------------------------------------------------------
 
 T0 = D0  # one-second buckets from here: a place a second
@@ -540,7 +648,8 @@ def _read_locks(s, call) -> list:
 @pytest.mark.parametrize("places", [10, 400])
 def test_what_one_page_locks_does_not_grow_with_the_places(pg_store, places, tmp_path):
     """QV-116: a page walks the places a batch a statement, so no statement locks the partitions of more than
-    PAGE_PLACES places, and the most lock entries a page holds at once are as many with 400 places as with 10.
+    PAGE_PLACES places, and the most lock entries a page holds at once (system catalogs aside) are as many with
+    400 places as with 10.
     The pages are those of a SQLite store given the same spans."""
     import re
 
@@ -560,7 +669,9 @@ def test_what_one_page_locks_does_not_grow_with_the_places(pg_store, places, tmp
         for held in _read_locks(s, call):
             buckets = {int(m.group(1)) for n in held for m in [re.search(r"_p0_(\d+)", n)] if m}
             assert len(buckets) <= s.PAGE_PLACES, (name, sorted(buckets))
-            most = max(most, len(held))
+            # system catalogs are left out: which of them a statement locks depends on Postgres's relation
+            # cache (a cache miss reads pg_attribute and more), not on the places
+            most = max(most, len([n for n in held if not n.startswith("pg_")]))
     _PAGE_LOCKS[places] = most
     if len(_PAGE_LOCKS) == 2:
         assert _PAGE_LOCKS[400] == _PAGE_LOCKS[10], _PAGE_LOCKS

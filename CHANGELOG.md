@@ -14,10 +14,14 @@
   in its own transaction, so it releases its locks before the next one starts. Newest-first lists start with
   the newest day and stop once the page is full. With 400 day partitions, the most lock entries any page held
   at once fell from 3,586 to 124. With 10 it is about the same as before (124 against 103). The answers are
-  unchanged. With 400
-  partitions, the first page of messages takes 1.6 ms instead of 24 ms and tenant search 151 ms instead of
-  490 ms. The lists that must read every partition got slower: stuck messages take 62 ms instead of 32 ms,
+  unchanged. With 400 partitions, the first page of messages takes 1.6 ms instead of 24 ms and tenant search
+  151 ms instead of 490 ms. The lists that must read every partition got slower: stuck messages take 62 ms instead of 32 ms,
   and `/api/health` 55 ms instead of 48 ms.
+- **Postgres: the server says when `max_locks_per_transaction` is too low.** At start and as partitions are
+  added, the server works out the value it needs and logs a warning with it. Since list pages read 8 day
+  partitions a query, that value no longer grows with the partitions: a stock Postgres is enough for one replica
+  with up to about 80 read connections. A request that fails on a full lock table is logged as that, and an
+  export gets 503 with `Retry-After`, not "Postgres is unreachable". README: Postgres lock table.
 
 ### Upgrading from 0.2.0 (Postgres)
 
