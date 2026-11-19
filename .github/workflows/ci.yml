@@ -54,11 +54,11 @@ jobs:
         env:
           POSTGRES_PASSWORD: postgres
         ports:
-          - 5432:5432
+          - 5432   # random host port: several runners share one machine
         options: >-
           --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
     env:
-      TRAILBEAM_TEST_POSTGRES_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      TRAILBEAM_TEST_POSTGRES_URL: postgresql://postgres:postgres@localhost:${{ job.services.postgres.ports['5432'] }}/postgres
     defaults:
       run:
         working-directory: python
@@ -84,9 +84,9 @@ jobs:
       elasticmq:
         image: softwaremill/elasticmq-native:1.6.15
         ports:
-          - 9324:9324
+          - 9324   # random host port: several runners share one machine
     env:
-      TRAILBEAM_TEST_SQS_ENDPOINT: http://localhost:9324
+      TRAILBEAM_TEST_SQS_ENDPOINT: http://localhost:${{ job.services.elasticmq.ports['9324'] }}
     defaults:
       run:
         working-directory: node
@@ -139,67 +139,66 @@ jobs:
     runs-on: [self-hosted, trailbeam]
     steps:
       - uses: actions/checkout@v4
-      - name: Clear what an earlier job on this runner may have left
+      - name: Pick a free port and names of its own (runners share one machine)
         run: |
-          docker rm -f trailbeam 2>/dev/null || true
-          docker volume rm -f trailbeam-ci-data 2>/dev/null || true
-          docker compose -f demo/compose.yaml down -v --remove-orphans 2>/dev/null || true
-          for i in $(seq 30); do ss -ltn | grep -q ':4318 ' || exit 0; sleep 2; done
-          echo "port 4318 still in use:"; ss -ltnp | grep ':4318 '; exit 1
+          echo "TB_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')" >> "$GITHUB_ENV"
+          echo "TB_NAME=tbci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}" >> "$GITHUB_ENV"
       - name: Build the image (local only, not pushed)
-        run: docker build -t trailbeam:ci .
+        run: docker build -t "$TB_NAME:ci" .
       - name: Run it with SQLite on a volume
         run: |
-          docker volume create trailbeam-ci-data
-          docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-ci-data:/data trailbeam:ci
+          docker volume create "$TB_NAME-data"
+          docker run -d --name "$TB_NAME" -p "127.0.0.1:$TB_PORT:4318" -v "$TB_NAME-data:/data" "$TB_NAME:ci"
       - name: Send recorded spans, check the timeline page
-        run: python3 python/smoke/smoke_test.py http://127.0.0.1:4318
+        run: python3 python/smoke/smoke_test.py "http://127.0.0.1:$TB_PORT"
       - name: Stops cleanly and keeps the data on the volume
         run: |
-          time docker stop -t 5 trailbeam
-          test "$(docker inspect -f '{{.State.ExitCode}}' trailbeam)" = 0
-          docker run --rm -v trailbeam-ci-data:/data --entrypoint ls trailbeam:ci -l /data
-          docker rm trailbeam
-          docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-ci-data:/data trailbeam:ci
-          python3 python/smoke/smoke_test.py http://127.0.0.1:4318
-          test "$(docker inspect -f '{{.State.Health.Status}}' trailbeam)" != unhealthy
+          time docker stop -t 5 "$TB_NAME"
+          test "$(docker inspect -f '{{.State.ExitCode}}' "$TB_NAME")" = 0
+          docker run --rm -v "$TB_NAME-data:/data" --entrypoint ls "$TB_NAME:ci" -l /data
+          docker rm "$TB_NAME"
+          docker run -d --name "$TB_NAME" -p "127.0.0.1:$TB_PORT:4318" -v "$TB_NAME-data:/data" "$TB_NAME:ci"
+          python3 python/smoke/smoke_test.py "http://127.0.0.1:$TB_PORT"
+          test "$(docker inspect -f '{{.State.Health.Status}}' "$TB_NAME")" != unhealthy
       - name: Container logs
         if: always()
-        run: docker logs trailbeam || true
-      - name: Remove the container and volume (self-hosted runner)
+        run: docker logs "$TB_NAME" || true
+      - name: Remove this job's container, volume and image
         if: always()
         run: |
-          docker rm -f trailbeam || true
-          docker volume rm -f trailbeam-ci-data || true
+          docker rm -f "$TB_NAME" || true
+          docker volume rm -f "$TB_NAME-data" || true
+          docker image rm -f "$TB_NAME:ci" || true
 
   demo:
     name: Local demo (Docker Compose)
     runs-on: [self-hosted, trailbeam]
     steps:
       - uses: actions/checkout@v4
-      - name: Clear what an earlier job on this runner may have left
+      - name: Pick a free port and names of its own (runners share one machine)
         run: |
-          docker rm -f trailbeam 2>/dev/null || true
-          docker volume rm -f trailbeam-ci-data 2>/dev/null || true
-          docker compose -f demo/compose.yaml down -v --remove-orphans 2>/dev/null || true
-          for i in $(seq 30); do ss -ltn | grep -q ':4318 ' || exit 0; sleep 2; done
-          echo "port 4318 still in use:"; ss -ltnp | grep ':4318 '; exit 1
+          echo "TB_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')" >> "$GITHUB_ENV"
+          echo "TB_NAME=tbci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}" >> "$GITHUB_ENV"
       - name: Build and start the demo (images local only, not pushed)
-        run: docker compose -f demo/compose.yaml up -d --build --wait
+        run: COMPOSE_PROJECT_NAME="$TB_NAME" TRAILBEAM_DEMO_PORT="$TB_PORT" docker compose -f demo/compose.yaml up -d --build --wait
       - name: Timelines from the Python and Node.js consumers reach Trailbeam
-        run: python3 demo/smoke_test.py http://127.0.0.1:4318 --timeout 180
+        run: python3 demo/smoke_test.py "http://127.0.0.1:$TB_PORT" --timeout 180
       - name: Logs
         if: always()
-        run: docker compose -f demo/compose.yaml logs --tail 50 || true
+        run: COMPOSE_PROJECT_NAME="$TB_NAME" docker compose -f demo/compose.yaml logs --tail 50 || true
       - name: Stop
         if: always()
-        run: docker compose -f demo/compose.yaml down -v --remove-orphans || true
+        run: COMPOSE_PROJECT_NAME="$TB_NAME" docker compose -f demo/compose.yaml down -v --remove-orphans || true
 
   concurrency-check:
     name: Concurrency check (3 processes x 4 consumers, 200 messages)
     runs-on: [self-hosted, trailbeam]
     steps:
       - uses: actions/checkout@v4
+      - name: Pick a free port and names of its own (runners share one machine)
+        run: |
+          echo "TRAILBEAM_DEMO_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')" >> "$GITHUB_ENV"
+          echo "COMPOSE_PROJECT_NAME=tbci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -253,6 +252,10 @@ jobs:
       AWS_REGION: us-east-1
     steps:
       - uses: actions/checkout@v4
+      - name: Pick a free port and names of its own (runners share one machine)
+        run: |
+          echo "TRAILBEAM_DEMO_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')" >> "$GITHUB_ENV"
+          echo "COMPOSE_PROJECT_NAME=tbci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}" >> "$GITHUB_ENV"
       - name: The AWS secrets are set
         run: |
           if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
