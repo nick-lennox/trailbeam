@@ -361,9 +361,9 @@ need the old timelines.
 - **You need more than one server**, for high availability or several replicas on Kubernetes. SQLite is one file
   on one server's disk. With Postgres the servers are stateless ([Several replicas](#several-replicas-on-one-postgres)).
 - **Retention can't keep up.** SQLite deletes expired spans row by row and shares its one writer with ingest:
-  about 220 spans/s on our test machine ([Retention](#retention)). When your average ingest is above that, the
-  file keeps growing. Postgres drops a whole day at once (at 1M stored spans: 4 ms to detach the partition,
-  12 ms per table to drop it), however much it holds.
+  about 1,530 spans/s on our test machine ([Retention](#retention)). When your average ingest is above what
+  the purge deletes on your disk, the file keeps growing. Postgres drops a whole day at once (at 1M stored
+  spans: 4 ms to detach the partition, 12 ms per table to drop it), however much it holds.
 - **The history doesn't fit one server.** Export latency rises once the SQLite file is larger than RAM
   ([Sizing one SQLite server](#sizing-one-sqlite-server)).
 - **You already run and back up Postgres**, and you'd rather keep Trailbeam's data there.
