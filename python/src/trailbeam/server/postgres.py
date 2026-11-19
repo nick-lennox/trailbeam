@@ -52,6 +52,20 @@ it would lock every partition. What an export locks is then the partitions of th
 hashes are in, however many places the store has (85 lock entries for a four-span export joining across two
 places, with 10 places or 400). Pages (walks across all of time) still lock every place.
 
+**New places** (QV-118). ``CREATE TABLE … PARTITION OF`` locks the parent ACCESS EXCLUSIVE: it waits for every
+open transaction that has read it (a ``pg_dump`` for its whole run, and every running export), and every export
+queues behind the request, which with the exports' message locks can form a cycle. So a place's partitions are
+made as tables of their own and then attached (``pg_schema.place_ddl``), which locks the parent SHARE UPDATE
+EXCLUSIVE, conflicting only with other DDL and ANALYZE of the parent. That still waits at most
+``DDL_LOCK_TIMEOUT_MS``. Retention's pass creates the places of today and the next ``PRECREATE_AHEAD``
+buckets, so a pass that can't is retried at the next one long before the place is needed; an export that needs
+a place that isn't there (a span more than that late or early) and can't create it in ``DDL_ATTEMPTS`` tries
+is answered busy (WriterBusy: 503 with Retry-After), nothing stored. A new place's partitions also have no planner statistics
+until autoanalyze reaches them, and with none Postgres estimates ``rclass = c AND bucket = b`` at 1 row of
+the partition, whatever it holds, so the export's statements pick plans for an empty table (a hash of the
+whole partition for the settle UPDATE). Once this replica has written ``ANALYZE_AFTER_SPANS`` spans to a place
+whose partitions have never been analysed, it analyses them, after that export commits.
+
 **Locks** (QV-107). The locks a page takes on every place's partitions and indexes are held in Postgres's
 shared lock table, whose size is fixed by ``max_locks_per_transaction``. So what that setting must be grows with
 the places and the read pool: ``lock_need`` (pg_schema.py) works it out, checked at start and as places are
@@ -66,6 +80,7 @@ import json
 import logging
 import threading
 import time
+from collections import Counter
 from typing import Iterable, Optional
 
 import psycopg
@@ -170,6 +185,10 @@ class PostgresStore(Store):
     different cutoffs instead of dropping them. ``bucket_ns``: the bucket width G (the granularity)."""
 
     INGEST_ATTEMPTS = 50
+    DDL_LOCK_TIMEOUT_MS = 1_000  # the longest a partition's DDL waits for its lock ("New places")
+    DDL_ATTEMPTS = 3             # tries an export makes at a missing place's DDL before it is answered busy
+    PRECREATE_AHEAD = 2          # buckets after the current one that a retention pass creates
+    ANALYZE_AFTER_SPANS = 1_000  # spans this replica writes to a never-analysed place before it analyses it
     cancels_abandoned_exports = True
     WATCH_INTERVAL_S = 0.2  # how often an export's client is checked (``insert(abandoned=...)``)
 
@@ -209,6 +228,9 @@ class PostgresStore(Store):
                                                  configure=read_conf, name="trailbeam-read", open=True)
         self._admin_lock = threading.Lock()
         self._known_queues: set = set()      # (rclass, bucket, queue) rows of place_queues written
+        self._written: Counter = Counter()   # place -> spans written, until it is analysed or known to be
+        self._analysed: set = set()          # places whose partitions have statistics (or were just analysed)
+        self._to_analyse: set = set()        # places due for ANALYZE, after the export that made them due
         self._cache_lock = threading.Lock()
         self._tx = threading.local()         # per export: place_queues rows written, cached after the commit
         self._watched: dict = {}             # exports whose client is checked: key -> [conn, abandoned, cancelled]
@@ -239,18 +261,44 @@ class PostgresStore(Store):
     def bucket(self, time_ns: int) -> int:
         return int(time_ns) // self.bucket_ns
 
-    def _ensure_places(self, places) -> None:
-        """Create the partitions of these places, outside any export's transaction (DDL locks the parent)."""
-        with self._admin_lock, psycopg.connect(self.url, autocommit=True) as c:
+    def _ensure_places(self, places, wait_s: Optional[float] = None) -> None:
+        """Create the partitions of these places, outside any export's transaction (DDL locks the parent). Each
+        statement waits at most DDL_LOCK_TIMEOUT_MS for its locks: errors.LockNotAvailable past it, with the
+        places made so far kept. ``wait_s``: the longest to wait for this replica's other place creation
+        (TimeoutError past it); None, as long as it takes."""
+        if not self._admin_lock.acquire(timeout=-1 if wait_s is None else wait_s):
+            raise TimeoutError("another export of this replica is creating places")
+        try:
+            self._create_places(places)
+        finally:
+            self._admin_lock.release()
+
+    def _create_places(self, places) -> None:
+        with psycopg.connect(self.url, autocommit=True) as c:
+            c.execute(f"SET lock_timeout = {int(self.DDL_LOCK_TIMEOUT_MS)}")
             for rclass, bucket in sorted(places):
-                for ddl in pg_schema.place_ddl(rclass, bucket):
+                for table, name, create, attach in pg_schema.place_ddl(rclass, bucket):
+                    if self._is_partition(c, table, name):
+                        continue
                     try:
-                        c.execute(ddl)
+                        c.execute(create)
                     except (errors.UniqueViolation, errors.DuplicateTable):
                         pass  # another server made it at the same moment
+                    try:
+                        c.execute(attach)
+                    except errors.WrongObjectType:
+                        pass  # another server attached it at the same moment ("is already a partition")
                 c.execute("INSERT INTO places (rclass, bucket) VALUES (%s, %s) ON CONFLICT DO NOTHING",
                           (rclass, bucket))
             self._check_locks(c, throttle_s=self.LOCK_WARNING_INTERVAL_S)
+
+    @staticmethod
+    def _is_partition(c, table: str, name: str) -> bool:
+        return c.execute(
+            """SELECT 1 FROM pg_inherits i JOIN pg_class ch ON ch.oid = i.inhrelid JOIN pg_class pa ON pa.oid = i.inhparent
+               WHERE ch.relname = %s AND pa.relname = %s
+                 AND ch.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())""",
+            (name, table)).fetchone() is not None
 
     LOCK_WARNING_INTERVAL_S = 3600.0  # a shortfall found as places are added is logged at most this often
 
@@ -378,7 +426,7 @@ class PostgresStore(Store):
         database is unreachable: StoreUnavailable. Only the first connection is bounded: an export retried
         after a lock conflict has nothing committed either way, but is already this replica's turn."""
         try:
-            return self._insert_records(records, abandoned, wait_s, timings)
+            result = self._insert_records(records, abandoned, wait_s, timings)
         except (psycopg.OperationalError, psycopg_pool.PoolTimeout) as e:
             if isinstance(e, errors.QueryCanceled):
                 raise  # a statement timeout: the database is there, the export is too slow
@@ -387,6 +435,9 @@ class PostgresStore(Store):
                 log.error("export not stored: %s", full)
                 raise StoreUnavailable(full) from None
             raise StoreUnavailable(f"Postgres is unreachable: {e}") from None
+        if self._to_analyse:
+            self._analyse_due()
+        return result
 
     def _insert_records(self, records, abandoned, wait_s=None, timings=None) -> tuple[int, int]:
         t0 = time.perf_counter()
@@ -418,7 +469,7 @@ class PostgresStore(Store):
                         with self._watch_lock:
                             self._watched[id(watch)] = watch
                     try:
-                        self._tx.noted = []
+                        self._tx.noted, self._tx.written = [], Counter()
                         with conn.transaction():
                             result = self._insert(conn, prepared, more_locks)
                     except psycopg.Error:
@@ -433,6 +484,13 @@ class PostgresStore(Store):
                                 conn.close()  # a cancel may still be on its way: never reuse the connection
                     with self._cache_lock:
                         self._known_queues.update(self._tx.noted)
+                        for p, n in self._tx.written.items():
+                            if p not in self._analysed:
+                                self._written[p] += n
+                                if self._written[p] >= self.ANALYZE_AFTER_SPANS:
+                                    del self._written[p]
+                                    self._analysed.add(p)
+                                    self._to_analyse.add(p)
                     if timings is not None:
                         timings["wait_s"] = t1 - t0
                         timings["write_s"] = time.perf_counter() - t1
@@ -442,7 +500,7 @@ class PostgresStore(Store):
                     raise WriterBusy(f"every ingest connection was busy for {wait_s:g} s") from None
                 raise
             except _NeedPlaces as e:
-                self._ensure_places(e.places)
+                self._ensure_places_for_ingest(e.places)
             except _NeedLocks as e:
                 more_locks |= e.keys
             except _PlaceBusy:
@@ -523,6 +581,7 @@ class PostgresStore(Store):
                 dupes += 1
         if not order:
             return 0, dupes
+        self._tx.written.update(places[i] for i, _ in order)
         _note_mids(conn, [(prepared[i][1], places[i][0], places[i][1]) for i, _ in order])
         hashed = sorted({(prepared[i][0].get("receipt_hmac"), prepared[i][0].get("key_id")) + places[i] for i, _ in order
                          if (prepared[i][0]["kind"] == "receive" or prepared[i][0]["kind"] in SETTLE_KINDS)
@@ -565,6 +624,45 @@ class PostgresStore(Store):
         self._note_queues(conn, {(places[i][0], places[i][1], prepared[i][0]["queue"]) for i, _ in order})
         self._refresh(conn, touched)
         return inserted, dupes
+
+    def _ensure_places_for_ingest(self, places) -> None:
+        """An export's missing places, tried DDL_ATTEMPTS times ("New places"). Still not made: other DDL (or
+        an ANALYZE of a parent) holds a lock that attaching needs. Answer busy (WriterBusy: 503), nothing
+        stored; the exporter sends it again."""
+        for attempt in range(self.DDL_ATTEMPTS):
+            try:
+                self._ensure_places(places, wait_s=2 * self.DDL_LOCK_TIMEOUT_MS / 1000)
+                return
+            except (errors.LockNotAvailable, TimeoutError):
+                pass
+        log.warning("ingest: could not create the partitions of %d new place(s) in %d tries of %d ms: another "
+                    "transaction (a schema change?) holds a lock on the tables; answering busy",
+                    len(places), self.DDL_ATTEMPTS, self.DDL_LOCK_TIMEOUT_MS)
+        raise WriterBusy("could not create a new day's partitions now: another transaction holds a lock on "
+                         "the tables")
+
+    def _analyse_due(self) -> None:
+        """ANALYZE the partitions of the places due ("New places"), unless they have statistics already (autoanalyze,
+        or another replica). Outside every export's transaction; a failure is logged, and autoanalyze does it."""
+        with self._cache_lock:
+            due, self._to_analyse = sorted(self._to_analyse), set()
+        try:
+            with psycopg.connect(self.url, autocommit=True) as c:
+                c.execute(f"SET lock_timeout = {int(self.DDL_LOCK_TIMEOUT_MS)}")
+                for rclass, bucket in due:
+                    names = [pg_schema.partition_name(t, rclass, bucket) for t in pg_schema.PARTITIONED]
+                    if c.execute("""SELECT 1 FROM pg_stats WHERE schemaname = current_schema() AND tablename = %s
+                                    AND attname = 'bucket'""", (names[0],)).fetchone() is not None:
+                        continue
+                    t0 = time.perf_counter()
+                    try:
+                        c.execute("ANALYZE " + ", ".join(names))
+                    except (errors.LockNotAvailable, errors.UndefinedTable):
+                        continue  # being analysed (or dropped) already
+                    log.info("analysed the new partitions of place (%d, %d) in %.0f ms", rclass, bucket,
+                             (time.perf_counter() - t0) * 1000)
+        except psycopg.Error as e:
+            log.warning("could not analyse new partitions (autoanalyze will): %s", e)
 
     def _join(self, conn, prepared, places, order):
         """The receipt-hash join, in the export's order, exactly as SQLite runs it span by span (db.py). Returns
@@ -824,15 +922,19 @@ class PostgresStore(Store):
         return PurgeStep(0, 0, None)
 
     def _precreate(self) -> None:
-        """Places for now and the next bucket, for every class the configuration names, made ahead of the spans
-        so that ingest rarely creates a partition (DDL takes a lock on the parent table)."""
+        """Places for now and the next PRECREATE_AHEAD buckets, for every class the configuration names, made
+        ahead of the spans so that ingest rarely creates a partition ("New places"). Places it can't create now
+        are tried again at the next pass, days before ingest needs them."""
         now = self.bucket(time.time_ns())
         classes = {self.queue_class(None)}
         r = self.retention
         if r is not None:
             classes |= {self.queue_class(q) for q in (getattr(r, "queues", None) or {})}
         try:
-            self._ensure_places({(c, b) for c in classes for b in (now, now + 1)})
+            self._ensure_places({(c, b) for c in classes for b in range(now, now + self.PRECREATE_AHEAD + 1)})
+        except errors.LockNotAvailable:
+            log.info("retention: another transaction (a schema change?) held the tables for %d ms; the next places will "
+                     "be created at the next pass", self.DDL_LOCK_TIMEOUT_MS)
         except psycopg.Error as e:  # e.g. no CREATE privilege: ingest makes them when spans come
             log.warning("could not create the next places ahead of time: %s", e)
 
@@ -908,6 +1010,8 @@ class PostgresStore(Store):
                 c.execute("DELETE FROM places WHERE rclass = %s AND bucket = %s", (pc, pb))
         with self._cache_lock:
             self._known_queues = {k for k in self._known_queues if (k[0], k[1]) != (pc, pb)}
+            self._analysed.discard((pc, pb))
+            self._written.pop((pc, pb), None)
         return n, examined, (time.monotonic() - t0) * 1000
 
     LOOKUP_DELETE_BATCH = 10_000  # lookup rows deleted a transaction when a place is dropped
