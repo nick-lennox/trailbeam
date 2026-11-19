@@ -29,21 +29,19 @@ from openapi_spec_validator import validate as validate_openapi
 from openapi_contract import Contract, contract, pointer
 from spans import SEC, T0, Consumer, to_json, to_proto
 from trailbeam.server import auth as auth_mod, server
-from trailbeam.server.store import StoreUnavailable
+from trailbeam.server.backpressure import IngestGate
+from trailbeam.server.store import StoreUnavailable, WriterBusy
 
 FIXTURE = Path(__file__).resolve().parents[3] / "contract" / "fixtures" / "contract-3.2-spans.json"
 EXPORTS = json.loads(FIXTURE.read_text())["exports"]
 TOKEN = "openapi-test-token-0123456789abcdef"
 MID = "m-bill-1"  # a message in the fixture
 
-# Read and checked by the server, yet not in the file, which says so in info.description: the server answers
-# 400 to a bad value and ignores a good one. The Queue Systems Architect is deciding whether the server stops
-# reading them or the file lists them (QV-95). Until then they are allowed here, and only here; a test below
-# fails when either is no longer read, or is added to the file, so this list does not go stale.
-READ_BUT_NOT_LISTED = {
-    ("GET /api/stuck", "to_ms"),
-    ("GET /api/tenants", "lambda_timeout_s"),
-}
+# Paths the server matches by name that are not part of the API the file describes, so not in it: the
+# Prometheus text on /metrics, and the token login pages. Every other GET path outside /api/ is the web
+# screen. A new literal path in server.py fails test_every_literal_path_in_the_server_is_probed until it is
+# added to the file or here.
+NOT_IN_THE_FILE = {"/metrics", "/login", "/logout"}
 
 # A server bug, found by this test (reported on QV-95, not fixed here: the server is not changed in this pull
 # request). These accept from_ms/to_ms up to 10^15, as the file says, but convert them to nanoseconds and pass
@@ -194,8 +192,10 @@ def test_the_check_fails_a_status_a_content_type_or_a_header_the_file_does_not_h
     assert "text/html" in c.check("GET", "/api/stats", 200, "text/html", {}, b"<p>")[1][0]
     [p] = c.check("POST", "/v1/traces", 401, "text/plain", {}, b"no")[1]
     assert "WWW-Authenticate" in p
-    assert c.check("POST", "/v1/traces", 503, "text/plain", {"Retry-After": "1"}, b"x")[1] == []
-    assert "Retry-After" in c.check("POST", "/v1/traces", 503, "text/plain", {"Retry-After": "5"}, b"x")[1][0]
+    status = {"code": 14, "message": "x"}
+    assert c.check("POST", "/v1/traces", 503, "application/json", {"Retry-After": "1"}, status)[1] == []
+    assert "Retry-After" in c.check("POST", "/v1/traces", 503, "application/json", {"Retry-After": "5"}, status)[1][0]
+    assert "text/plain" in c.check("POST", "/v1/traces", 503, "text/plain", {"Retry-After": "1"}, b"x")[1][0]
     assert "no such operation" in c.check("GET", "/api/new", 200, "application/json", {}, {})[1][0]
 
 
@@ -218,12 +218,12 @@ def test_every_route_in_the_file_is_served(fixture_server):
         assert status == 200, (op.key, status, body[:200])
 
 
-def _server_paths():
-    """Candidate paths, from the server's own routes: App.routes, every "/api/..." or "/v1/..." literal in
+def _server_paths(app):
+    """Candidate paths, from the server's own routes: ``app.routes``, every "/api/..." or "/v1/..." literal in
     server.py (/api/ready and /api/health are matched there, before App.api), and each of those with one or
     two more segments, a message ID or a word, as a handler that reads ``rest`` would take."""
     source = Path(server.__file__).read_text()
-    firsts = set(server.App(_NoStore()).routes) | {
+    firsts = set(app.routes) | {
         m.split("/")[2] for m in re.findall(r'"(/api/[a-z_]+)', source)}
     roots = {f"/api/{k}" for k in firsts} | set(re.findall(r'"(/v1/[a-z_/]+)"', source))
     extra = [MID, "body", "search", "x"]
@@ -236,15 +236,22 @@ def _server_paths():
     return sorted(out)
 
 
-class _NoStore:
-    store_bodies = frozenset()
+def test_every_literal_path_in_the_server_is_probed():
+    """Each path server.py compares a request path with is under /api/ or /v1/ (probed below) or named in
+    NOT_IN_THE_FILE."""
+    source = Path(server.__file__).read_text()
+    literals = set(re.findall(r'"(/[a-z][a-z0-9_/]*)"', source))
+    assert literals, "found no path literal in server.py"
+    other = {p for p in literals if not p.startswith(("/api/", "/v1/"))}
+    assert other == NOT_IN_THE_FILE, (f"new: {sorted(other - NOT_IN_THE_FILE)}; "
+                                      f"no longer matched: {sorted(NOT_IN_THE_FILE - other)}")
 
 
-def test_every_route_the_server_serves_is_in_the_file(fixture_server):
+def test_every_route_the_server_serves_is_in_the_file(app, fixture_server):
     """A path the server answers with anything but 404, for GET or POST, is an operation in the file."""
     c = contract()
     served, missing = [], []
-    for path in _server_paths():
+    for path in _server_paths(app):
         for method in ("GET", "POST"):
             body = base64.b64decode(EXPORTS[0]["base64"]) if method == "POST" else None
             status, _, out = request(fixture_server, method, quote(path, safe="/"), body,
@@ -366,21 +373,11 @@ def test_each_endpoint_reads_the_query_parameters_the_file_lists(loaded_app, mon
     for op in _api_ops():
         read, _, _ = _explore(loaded_app, op, ints)
         listed = set(_query_params(op))
-        allowed = {n for k, n in READ_BUT_NOT_LISTED if k == op.key}
-        for n in sorted(read - listed - allowed):
+        for n in sorted(read - listed):
             wrong.append(f"{op.key} reads {n!r}, the file does not list it")
         for n in sorted(listed - read):
             wrong.append(f"{op.key}: the file lists {n!r}, the server never reads it")
     assert not wrong, "\n".join(wrong)
-
-
-def test_the_allow_list_of_unlisted_parameters_is_still_needed(loaded_app, monkeypatch):
-    ints = Ints(monkeypatch)
-    ops = {o.key: o for o in _api_ops()}
-    for key, name in sorted(READ_BUT_NOT_LISTED):
-        read, _, _ = _explore(loaded_app, ops[key], ints)
-        assert name in read, f"{key} no longer reads {name}: drop it from READ_BUT_NOT_LISTED"
-        assert name not in _query_params(ops[key]), f"the file now lists {name} for {key}: drop it from READ_BUT_NOT_LISTED"
 
 
 def _bounds(app, op, ints):
@@ -412,8 +409,6 @@ def test_integer_parameters_have_the_servers_minimum_and_maximum(loaded_app, mon
         params = _query_params(op)
         bounds = _bounds(loaded_app, op, ints)
         for name, (lo, hi) in sorted(bounds.items()):
-            if (op.key, name) in READ_BUT_NOT_LISTED:
-                continue
             s = params.get(name, {}).get("schema", {})
             if s.get("type") != "integer":
                 wrong.append(f"{op.key} {name}: the server reads an integer, the file says {s.get('type')!r}")
@@ -439,8 +434,6 @@ def test_integer_parameters_have_the_servers_default(db, monkeypatch, fixture_se
         _, contexts, _ = _explore(a, op, ints)
         da, dbb = _defaults(a, op, ints, contexts), _defaults(b, op, ints, contexts)
         for name in sorted(set(da) | set(dbb)):
-            if (op.key, name) in READ_BUT_NOT_LISTED:
-                continue
             fixed = da.get(name) == dbb.get(name)
             in_file = params.get(name, {}).get("schema", {}).get("default")
             if fixed and in_file != da[name]:
@@ -549,13 +542,33 @@ def test_every_status_the_file_lists_is_answered_and_matches_it(db, record_api_r
     def unavailable(*a, **kw):
         raise StoreUnavailable("a test's unreachable store")
 
+    def busy(*a, **kw):
+        raise WriterBusy()
+
+    export_proto = to_proto([Consumer().send(T0, "m")]).SerializeToString()
+    export_json = json.dumps(to_json([Consumer().send(T0, "m")])).encode()
+
+    def both_encodings(base):
+        request(base, "POST", "/v1/traces", export_proto, {"Content-Type": "application/x-protobuf"})
+        request(base, "POST", "/v1/traces", export_json, {"Content-Type": "application/json"})
+
     with pytest.MonkeyPatch.context() as mp, serve(server.App(db, ui_dir=None)) as base:
         mp.setattr(db, "insert", unavailable)
         mp.setattr(db, "ping", unavailable)
         request(base, "GET", "/api/ready")
         request(base, "GET", "/api/health")
-        request(base, "POST", "/v1/traces", to_proto([Consumer().send(T0, "m")]).SerializeToString(),
-                {"Content-Type": "application/x-protobuf"})
+        both_encodings(base)
+
+    # 503: the writer is behind (backpressure.py)
+    with pytest.MonkeyPatch.context() as mp, serve(server.App(db, ui_dir=None)) as base:
+        mp.setattr(db, "insert", busy)
+        both_encodings(base)
+
+    # 429: the queue is full (every place taken)
+    full = server.App(db, ui_dir=None, gate=IngestGate(max_pending=1))
+    full.gate.pending = 1
+    with serve(full) as base:
+        both_encodings(base)
 
     # 401: a server with an access token, asked without it (health and ready still answer, as the file says)
     with serve(server.App(db, ui_dir=None, auth=auth_mod.Auth(TOKEN))) as base:
