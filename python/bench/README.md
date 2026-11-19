@@ -105,6 +105,44 @@ in steps 3 and 4 goes through the real server.
 Disk: about 1 GB per million spans with 1 KB bodies on a tenth of the queues; `summary.md` has the measured
 figure. Seeding runs at about 25k spans/s on one core.
 
+## CI regression check: `ci_check.py`
+
+The `perf` job in `.github/workflows/ci.yml` runs this on every pull request (QV-77). It exists because of
+QV-68: the settle join scanned every stored receive, inserts got 100 to 10,000 times slower, and no test
+noticed. On a seeded 100k-span file (same traffic as the harness) it checks:
+
+1. **Join plans.** `EXPLAIN QUERY PLAN` of `db.SETTLE_JOIN_SQL`, `db.RECEIVE_JOIN_FROM_SQL` and
+   `db.RECEIVE_JOIN_SQL`, without statistics (as the server leaves the file) and after `ANALYZE`. Each must
+   SEARCH `spans` by an index whose leading columns are `(receipt_hmac, key_id)`, with both bound. The rule
+   reads the columns from `PRAGMA index_info`, so renaming an index doesn't break it.
+2. **Insert.** In-process `Database.insert` of 20 exports of 512 spans: p95 per export and spans/s.
+3. **Server.** The read pages idle (p95), then 20 s of ingest at 1,000 spans/s through `python -m
+   trailbeam.server`: errors, achieved rate, export p99.
+
+```sh
+python python/bench/ci_check.py --out ci-perf                       # exit 1 on a regression
+python python/bench/ci_check.py --out ci-perf-broken --break-plan   # exit 0 only if it catches a scan
+```
+
+`--break-plan` rewrites the three statements to `NOT INDEXED` in its own process (the QV-68 bug) and runs
+steps 1 and 2. CI runs it on every PR, so each run shows that the check still fails on a scanning join.
+`report.json` and `summary.md` go to `--out`, and the summary to the job's step summary.
+
+Measured on the QV-70 machine (Ryzen 7 7700X, WSL2, SQLite 3.45.1), main at `e595f20`, and the limits set
+from it. The limits are wide because the runners share a machine; the bug they are for is 10x or more.
+
+| check | correct plan | broken plan | limit |
+|---|---|---|---|
+| insert p95 per 512-span export | 47.6 ms | 11,799 ms | ≤ 600 ms |
+| insert, in-process | 11,833 spans/s | 44 spans/s | ≥ 1,500 spans/s |
+| slowest checked page, idle p95 (Tenants) | 5.2 ms | not run | ≤ 300 ms |
+| ingest at 1,000 spans/s: export p99 | 181 ms | not run | ≤ 1,000 ms |
+| ingest: errors, achieved rate | 0, 1,000 spans/s | not run | 0, ≥ 950 spans/s |
+
+Both passes take under a minute here (29 s and 41 s). Every limit is a flag (`--max-insert-p95-ms`,
+`--min-insert-spans-per-s`, `--max-page-p95-ms`, `--max-export-p99-ms`). The body-search pages are bounded scans by
+design and are left to the full harness.
+
 ## Postgres smoke run: `pg_smoke.py`
 
 A short check of the Postgres store (QV-80), not the full harness: seed a database to a size through
