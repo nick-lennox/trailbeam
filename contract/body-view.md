@@ -11,10 +11,11 @@ is shared: `BodyPanel` in `@trailbeam/ui`. Both are tested against the same expe
 Bodies are **off unless the server is told to keep them**, per queue:
 
 - **Open-source Trailbeam** keeps bodies only for the queues in `TRAILBEAM_STORE_BODIES`
-  (`--store-bodies`), none by default. It has no logins and no roles. **Anyone who can reach the
-  server can read every stored body**, in the Body tab and from `/api/messages/{id}/body`, and anyone
-  who can read the SQLite file can read them there. The only access control is that setting plus
-  who can reach the server on the network, so run it on a trusted network.
+  (`--store-bodies`), none by default. It has no users and no roles, only an optional shared
+  access token (`TRAILBEAM_TOKEN`, off by default). **Anyone the server lets in can read every
+  stored body**, in the Body tab and from `/api/messages/{id}/body`: with no token that is anyone
+  who can reach it. Anyone who can read the SQLite file can read them there too. Set a token, or
+  run it on a trusted network.
 - **The hosted app** keeps bodies only for queues an admin opted in under Settings, and shows them to
   owners and admins only.
 
@@ -22,7 +23,8 @@ Redaction happens in the packages, before a body leaves the process (contract 15
 server redacts.
 
 A queue taken off `TRAILBEAM_STORE_BODIES` stops having its bodies shown or searched at once. The
-bodies already in the SQLite file stay there: open-source Trailbeam deletes no data.
+bodies already in the SQLite file stay there until retention deletes their messages (README,
+Retention).
 
 ## One body per message
 
@@ -45,6 +47,7 @@ With a body:
     "format": "json",
     "redacted_count": 3,
     "envelope": null,
+    "capture_status": "captured",
     "from_kind": "send",
     "service": "checkout-api",
     "queue": "orders",
@@ -53,6 +56,7 @@ With a body:
     "time_unix_nano": "1763312345678901234"
   },
   "size": 135,
+  "offloaded_size": null,
   "tenant": "acme",
   "tenant_source": "message_attribute"
 }
@@ -61,8 +65,15 @@ With a body:
 - `body`: the body as stored, after the package redacted it. `format` is `json` or `text`,
   `envelope` is `sns`, `eventbridge` or null (contract 15.2). `from_kind`, `service`, `queue`, the
   IDs and `time_unix_nano` (the span's end) say which span it came from.
+- `capture_status`: `trailbeam.body.capture_status` of that span: `captured`, or `offloaded_to_s3`
+  when the body is an SQS Extended Client pointer (contract 15.4). Then `body` is the pointer, not
+  the payload: the payload is in S3, and neither the packages nor Trailbeam fetch it. The view says
+  so, and gives the payload's size. A pointer is not redacted (contract 15.3). Null if the span has
+  no status.
 - `size`: `messaging.message.body.size` from that span, the body's size **before** redaction; if
-  that span has none, the message's size as below.
+  that span has none, the message's size as below. For a pointer, this is the pointer's size.
+- `offloaded_size`: `trailbeam.body.offloaded_size` from that span, else from the first span that
+  has it, sends first: the size of the payload in S3. Null when the spans don't give one.
 - `tenant`, `tenant_source`: `trailbeam.tenant` and `trailbeam.tenant.source` from the first span
   that has a tenant, sends first.
 
@@ -119,10 +130,13 @@ The body part of the explorer's query language, the same in both products:
 - Only kept bodies are searched, as stored, after redaction: a value the package redacted can't be
   found.
 
-Open-source Trailbeam takes the terms in `GET /api/messages?body=...` (with `queue` and `limit`)
-and on its Messages page. It lists the messages whose kept body matches, most recently seen first.
-Any other kind of term is a `400`. It reads every kept body on each search: there is no index, which
-is fine for one SQLite file and gets slower as bodies pile up [estimate: not measured].
+Open-source Trailbeam takes the terms in `GET /api/messages?body=...` (with `queue`, `limit`, a time
+window and `cursor`) and on its Messages page. It lists the messages whose kept body matches, most
+recently seen first. Any other kind of term is a `400`. There is no index of body contents, so a
+search is bounded instead: it reads the kept bodies of the messages last seen in the window
+(`from_ms`/`to_ms`, or `since_s`, default the last day), on `queue` if given, newest first, and stops
+after `limit` matches or 5,000 messages. `next_cursor` goes on from there. A page can have fewer than
+`limit` matches and still have a next page.
 
 The hosted app runs the same terms in its event explorer, where a match is the event that carried
 the body.

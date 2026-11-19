@@ -3,11 +3,12 @@
 
 const crypto = require('node:crypto');
 const api = require('@opentelemetry/api');
-const { BasicTracerProvider, BatchSpanProcessor, AlwaysOnSampler } = require('@opentelemetry/sdk-trace-base');
+const { BasicTracerProvider, AlwaysOnSampler } = require('@opentelemetry/sdk-trace-base');
 const { detectResources, envDetector, resourceFromAttributes } = require('@opentelemetry/resources');
 
 const { version } = require('./version');
 const order = require('./order');
+const { CountingSpanProcessor } = require('./export');
 const { DEFAULT_ENDPOINT, ENDPOINT_ENV, KINDS, SCHEMA_VERSION, SCOPE_NAME } = require('./contract');
 
 const SERVICE_NAME = 'service.name';
@@ -29,7 +30,9 @@ function makeResource() {
 /**
  * An always-on provider of our own, so the application's sampling never drops Trailbeam spans. It is not
  * registered globally. Exports OTLP/HTTP (protobuf) to $TRAILBEAM_OTLP_TRACES_ENDPOINT unless a span
- * exporter or span processor is given. Returns `{ provider, resource }`.
+ * exporter or span processor is given. Without a span processor, spans go through a CountingSpanProcessor: a
+ * batch queue of $TRAILBEAM_MAX_QUEUE_SIZE spans (default 16,384) that counts and reports every span it
+ * drops (`trailbeam.exportStats()`). Returns `{ provider, resource }`.
  */
 function makeProvider({ spanExporter, spanProcessor } = {}) {
   const resource = makeResource();
@@ -39,7 +42,7 @@ function makeProvider({ spanExporter, spanProcessor } = {}) {
       const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-proto');
       spanExporter = new OTLPTraceExporter({ url: process.env[ENDPOINT_ENV] || DEFAULT_ENDPOINT });
     }
-    spanProcessor = new BatchSpanProcessor(spanExporter);
+    spanProcessor = new CountingSpanProcessor(spanExporter);
   }
   const provider = new BasicTracerProvider({ resource, sampler: new AlwaysOnSampler(), spanProcessors: [spanProcessor] });
   return { provider, resource };

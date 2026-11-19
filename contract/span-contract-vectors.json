@@ -25,7 +25,7 @@
     }
   ],
   "capture": {
-    "description": "Test vectors for contract/span-contract.md section 15 (revision 3.2): redaction of captured bodies, the tenant, and Lambda error text. 'capture' and 'tenant' are the options given to the package; defaults apply to everything not given. Both packages must produce exactly 'redacted', 'redacted_count' and 'format' for each body.",
+    "description": "Test vectors for contract/span-contract.md section 15 (revision 3.2): redaction of captured bodies, the tenant, and Lambda error text. 'capture' and 'tenant' are the options given to the package; defaults apply to everything not given. Both packages must produce exactly 'redacted', 'redacted_count' and 'format' for each body. 'offloaded_size': both packages must set trailbeam.body.offloaded_size to 'expected' (absent when null), with body capture off.",
     "redaction": [
       {
         "name": "json key at any depth",
@@ -120,6 +120,58 @@
         "redacted": "clé ünïcode [REDACTED]",
         "redacted_count": 1,
         "format": "text"
+      },
+      {
+        "name": "s3 pointer is not redacted (uuid key)",
+        "capture": {},
+        "body": "[\"software.amazon.payloadoffloading.PayloadS3Pointer\", {\"s3BucketName\": \"payloads-bucket\", \"s3Key\": \"61fc25e3-8ae5-4569-9189-43c27e5ba06f\"}]",
+        "redacted": "[\"software.amazon.payloadoffloading.PayloadS3Pointer\",{\"s3BucketName\":\"payloads-bucket\",\"s3Key\":\"61fc25e3-8ae5-4569-9189-43c27e5ba06f\"}]",
+        "redacted_count": 0,
+        "format": "json"
+      },
+      {
+        "name": "s3 pointer is not redacted (account ID in bucket, long number in key)",
+        "capture": {
+          "redact_keys": [
+            "s3Key"
+          ]
+        },
+        "body": "[\"software.amazon.payloadoffloading.PayloadS3Pointer\",{\"s3Key\":\"orders/2026-11-17/order-1234567890\",\"s3BucketName\":\"payloads-123456789012\"}]",
+        "redacted": "[\"software.amazon.payloadoffloading.PayloadS3Pointer\",{\"s3BucketName\":\"payloads-123456789012\",\"s3Key\":\"orders/2026-11-17/order-1234567890\"}]",
+        "redacted_count": 0,
+        "format": "json"
+      },
+      {
+        "name": "s3 pointer duplicate member: only the value a parser keeps is exported",
+        "capture": {},
+        "body": "[\"software.amazon.payloadoffloading.PayloadS3Pointer\",{\"s3BucketName\":\"b\",\"s3Key\":\"ada@example.com\",\"s3Key\":\"k\"}]",
+        "redacted": "[\"software.amazon.payloadoffloading.PayloadS3Pointer\",{\"s3BucketName\":\"b\",\"s3Key\":\"k\"}]",
+        "redacted_count": 0,
+        "format": "json"
+      },
+      {
+        "name": "s3 pointer key with escapes and non-ascii",
+        "capture": {},
+        "body": "[\"software.amazon.payloadoffloading.PayloadS3Pointer\",{\"s3BucketName\":\"b\",\"s3Key\":\"r\\u00e9sum\\u00e9\\/a\\\"b\\tc\"}]",
+        "redacted": "[\"software.amazon.payloadoffloading.PayloadS3Pointer\",{\"s3BucketName\":\"b\",\"s3Key\":\"résumé/a\\\"b\\tc\"}]",
+        "redacted_count": 0,
+        "format": "json"
+      },
+      {
+        "name": "s3 pointer with any other member is redacted as usual",
+        "capture": {},
+        "body": "[\"software.amazon.payloadoffloading.PayloadS3Pointer\",{\"s3BucketName\":\"b\",\"s3Key\":\"order-1234567890\",\"note\":\"ada@example.com\"}]",
+        "redacted": "[\"software.amazon.payloadoffloading.PayloadS3Pointer\",{\"s3BucketName\":\"b\",\"s3Key\":\"order-[REDACTED]\",\"note\":\"[REDACTED]\"}]",
+        "redacted_count": 2,
+        "format": "json"
+      },
+      {
+        "name": "s3 pointer with a non-string key is redacted as usual",
+        "capture": {},
+        "body": "[\"software.amazon.payloadoffloading.PayloadS3Pointer\",{\"s3BucketName\":\"b\",\"s3Key\":1234567890}]",
+        "redacted": "[\"software.amazon.payloadoffloading.PayloadS3Pointer\",{\"s3BucketName\":\"b\",\"s3Key\":1234567890}]",
+        "redacted_count": 0,
+        "format": "json"
       }
     ],
     "tenant": [
@@ -240,6 +292,84 @@
         "queue": "orders",
         "message": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
         "expected": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+      }
+    ],
+    "offloaded_size": [
+      {
+        "name": "current attribute (client)",
+        "body": "[\"software.amazon.payloadoffloading.PayloadS3Pointer\",{\"s3BucketName\":\"b\",\"s3Key\":\"k\"}]",
+        "lambda_record": false,
+        "message_attributes": {
+          "ExtendedPayloadSize": {
+            "DataType": "Number",
+            "StringValue": "300000"
+          }
+        },
+        "expected": 300000
+      },
+      {
+        "name": "legacy attribute (Lambda record)",
+        "body": "[\"software.amazon.payloadoffloading.PayloadS3Pointer\",{\"s3BucketName\":\"b\",\"s3Key\":\"k\"}]",
+        "lambda_record": true,
+        "message_attributes": {
+          "SQSLargePayloadSize": {
+            "dataType": "Number",
+            "stringValue": "300000"
+          }
+        },
+        "expected": 300000
+      },
+      {
+        "name": "current attribute first",
+        "body": "[\"software.amazon.payloadoffloading.PayloadS3Pointer\",{\"s3BucketName\":\"b\",\"s3Key\":\"k\"}]",
+        "lambda_record": false,
+        "message_attributes": {
+          "SQSLargePayloadSize": {
+            "DataType": "Number",
+            "StringValue": "1"
+          },
+          "ExtendedPayloadSize": {
+            "DataType": "Number",
+            "StringValue": "2"
+          }
+        },
+        "expected": 2
+      },
+      {
+        "name": "not a whole number",
+        "body": "[\"software.amazon.payloadoffloading.PayloadS3Pointer\",{\"s3BucketName\":\"b\",\"s3Key\":\"k\"}]",
+        "lambda_record": false,
+        "message_attributes": {
+          "ExtendedPayloadSize": {
+            "DataType": "Number",
+            "StringValue": "3e5"
+          }
+        },
+        "expected": null
+      },
+      {
+        "name": "body is not a pointer",
+        "body": "{\"a\":1}",
+        "lambda_record": false,
+        "message_attributes": {
+          "ExtendedPayloadSize": {
+            "DataType": "Number",
+            "StringValue": "300000"
+          }
+        },
+        "expected": null
+      },
+      {
+        "name": "pointer with extra members still counts",
+        "body": "[\"software.amazon.payloadoffloading.PayloadS3Pointer\",{\"s3BucketName\":\"b\",\"s3Key\":\"k\",\"x\":1}]",
+        "lambda_record": false,
+        "message_attributes": {
+          "ExtendedPayloadSize": {
+            "DataType": "Number",
+            "StringValue": "300000"
+          }
+        },
+        "expected": 300000
       }
     ]
   }

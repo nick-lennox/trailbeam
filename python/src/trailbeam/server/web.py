@@ -23,7 +23,7 @@ returns. No JavaScript, no external assets: everything is in one response.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from html import escape
 from typing import Callable, Iterable, Optional
 from urllib.parse import quote, urlencode
@@ -130,22 +130,35 @@ def handle(api: Callable[[str, dict], object], api_error: type, path: str, query
 
 
 def _index(api, q: dict) -> Response:
-    data = api("messages", _pick(q, "limit", "queue", "tenant", "body"))
-    searching = "body_search" in data
-    note = ""
+    searching = bool(q.get("body", "").strip())
+    data = api("messages", _pick(q, "limit", "queue", "tenant", "body", "cursor",
+                                 *(("since_s", "from_ms", "to_ms") if searching else ())))
+    note, nxt = "", q
     if searching:
+        bs = data["body_search"]
         note = ('<p class="muted body-note">Searches only the bodies this server keeps: those of queues in '
-                "<code>TRAILBEAM_STORE_BODIES</code>, as the package redacted them. Trailbeam has no logins, so "
-                "anyone who can reach this server can read them.</p>")
-        if not data["body_search"]["stores_bodies"]:
+                "<code>TRAILBEAM_STORE_BODIES</code>, as the package redacted them. Anyone who can open this "
+                "page can read them.</p>")
+        if not bs["stores_bodies"]:
             note += ('<p class="notice">This server keeps no bodies: <code>TRAILBEAM_STORE_BODIES</code> is not '
                      "set, so a body search finds nothing.</p>")
+        elif bs["scanned"]:
+            note += (f'<p class="muted">Read the bodies of {bs["scanned"]:,} messages last seen between '
+                     f'{escape(_ms(bs["searched_from_ms"]))} and {escape(_ms(bs["to_ms"]))}'
+                     + ("." if bs["complete"] else f'; the next page reads older ones, back to {escape(_ms(bs["from_ms"]))}.')
+                     + "</p>")
+        nxt = {**q, "from_ms": str(bs["from_ms"]), "to_ms": str(bs["to_ms"])}
+        nxt.pop("since_s", None)
+    fields = [("body", "Body", "text"), ("queue", "Queue", "text"), ("tenant", "Tenant", "text"),
+              ("limit", "Limit", "number")]
+    if searching:
+        fields.insert(2, ("since_s", "Last seen within", WINDOWS))
     body = ("<h1>Look up a message</h1>" + _lookup_form("")
             + ("<h2>Messages whose body matches</h2>" if searching else "<h2>Recent messages</h2>")
-            + _filters("/", q, [("body", "Body", "text"), ("queue", "Queue", "text"),
-                                 ("tenant", "Tenant", "text"), ("limit", "Limit", "number")])
+            + _filters("/", {"since_s": "86400", **q} if searching else q, fields)
             + note
-            + _summary_table(data["messages"], empty="No message body matches." if searching else "No messages stored yet."))
+            + _summary_table(data["messages"], empty="No message body matches." if searching else "No messages stored yet.")
+            + _next("/", nxt, data))
     return _page(200, "Trailbeam", body)
 
 
@@ -198,7 +211,7 @@ def _message(api, q: dict) -> Response:
 
 
 def _duplicates(api, q: dict) -> Response:
-    params = _pick(q, "limit", "queue", "reason")
+    params = _pick(q, "limit", "queue", "reason", "cursor")
     data = api("duplicates", params)
     reason_opts = [("", "any reason")] + list(DUPLICATE_REASONS.items())
     body = ("<h1>Duplicate deliveries</h1>"
@@ -207,12 +220,13 @@ def _duplicates(api, q: dict) -> Response:
                                           ("limit", "Limit", "number")])
             + _summary_table(data["messages"], extra=("Why", lambda m: ", ".join(
                 escape(DUPLICATE_REASONS.get(r, r)) for r in m.get("reasons", []))),
-                empty="No duplicate deliveries."))
+                empty="No duplicate deliveries.")
+            + _next("/duplicates", q, data))
     return _page(200, "Duplicate deliveries", body)
 
 
 def _stuck(api, q: dict) -> Response:
-    data = api("stuck", _pick(q, "older_than_s", "limit", "queue"))
+    data = api("stuck", _pick(q, "older_than_s", "limit", "queue", "cursor"))
     body = ("<h1>Stuck messages</h1>"
             f'<p class="muted">First seen more than {int(data["older_than_s"])} s ago, with no final delete. '
             "Oldest first. First seen is the send, on the producer host's clock. Only when the send was not "
@@ -221,7 +235,8 @@ def _stuck(api, q: dict) -> Response:
             + _filters("/stuck", {**q, "older_than_s": str(data["older_than_s"])},
                        [("older_than_s", "Older than (s)", "number"), ("queue", "Queue", "text"),
                         ("limit", "Limit", "number")])
-            + _summary_table(data["messages"], extra=("Age", _stuck_age), empty="No stuck messages."))
+            + _summary_table(data["messages"], extra=("Age", _stuck_age), empty="No stuck messages.")
+            + _next("/stuck", q, data))
     return _page(200, "Stuck messages", body)
 
 
@@ -495,6 +510,21 @@ def _summary_table(messages: list[dict], *, empty: str, extra: Optional[tuple] =
             + "".join(rows) + "</tbody></table>")
 
 
+WINDOWS = [("3600", "an hour"), ("86400", "a day"), ("604800", "a week"), ("2592000", "30 days")]  # body search
+
+
+def _ms(ms: Optional[int]) -> str:
+    return "-" if ms is None else datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def _next(action: str, q: dict, data: dict) -> str:
+    """A link to the next page, with the same filters, when the API returned a cursor for one."""
+    if not data.get("next_cursor"):
+        return ""
+    params = {**{k: v for k, v in q.items() if v != "" and k != "cursor"}, "cursor": data["next_cursor"]}
+    return f'<p class="pager"><a href="{escape(action)}?{escape(urlencode(params))}">Next page</a></p>'
+
+
 def _filters(action: str, q: dict, fields: Iterable[tuple]) -> str:
     out = [f'<form class="filters" method="get" action="{escape(action)}">']
     for name, label, kind in fields:
@@ -526,6 +556,16 @@ def _page(status: int, title: str, body: str) -> Response:
             f"<main>{body}</main><footer>Trailbeam {escape(__version__)} · "
             '<a href="/api/health">health</a></footer></body></html>')
     return status, {"Content-Type": "text/html; charset=utf-8"}, html.encode()
+
+
+def login_page(next_path: str, error: bool = False, status: int = 401) -> Response:
+    """The page a browser gets without the session cookie when the server has a token (auth.py)."""
+    body = ("<h1>Sign in</h1><p>This Trailbeam server needs its access token (<code>TRAILBEAM_TOKEN</code>).</p>"
+            + ('<p class="notice">That is not the token.</p>' if error else "")
+            + '<form method="post" action="/login"><input type="password" name="token" placeholder="Token" '
+            'autocomplete="current-password" required autofocus>'
+            f'<input type="hidden" name="next" value="{escape(next_path)}"> <button>Sign in</button></form>')
+    return _page(status, "Sign in", body)
 
 
 def _dd(name: str, value: str) -> str:

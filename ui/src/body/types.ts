@@ -14,6 +14,12 @@ export type StoredBody = {
   format: string | null; // "json" | "text"
   redacted_count: number | null;
   envelope: string | null; // "sns" | "eventbridge"
+  /**
+    trailbeam.body.capture_status of the span it came from: "captured", or "offloaded_to_s3" when
+    the body is an SQS Extended Client pointer and the payload is in S3. Optional for a store that
+    doesn't keep it; bodyView gives null then.
+  */
+  capture_status?: string | null;
   from_kind: "send" | "receive";
   service: string | null;
   queue: string;
@@ -25,7 +31,10 @@ export type StoredBody = {
 export type BodyFound = {
   message_id: string; kind: "body"; body: StoredBody;
   /** messaging.message.body.size: before redaction */
-  size: number | null; tenant: string | null; tenant_source: string | null;
+  size: number | null;
+  /** trailbeam.body.offloaded_size: the size of the payload in S3, for a pointer */
+  offloaded_size: number | null;
+  tenant: string | null; tenant_source: string | null;
 };
 
 export type BodyMissing = {

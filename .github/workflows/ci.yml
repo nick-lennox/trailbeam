@@ -8,10 +8,16 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels that PR's older run, so the self-hosted
+# runners never spend time on outdated commits. Runs on main always finish.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   python:
     name: Python ${{ matrix.python }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     strategy:
       fail-fast: false
       matrix:
@@ -25,11 +31,80 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: pip install -e '.[test]'
-      - run: pytest -q
+      - run: pytest -q --ignore=tests/conformance
+      - name: Store conformance suite (SQLite)
+        run: pytest -q tests/conformance
+      - name: A SQLite install gets no Postgres driver
+        run: |
+          python -m venv /tmp/plain && /tmp/plain/bin/pip install -q '.[server]'
+          ! /tmp/plain/bin/pip show psycopg psycopg-binary psycopg-pool 2>/dev/null | grep -q '^Name'
+          /tmp/plain/bin/python -c "import sys, trailbeam.server.__main__; assert not any(m.startswith('psycopg') for m in sys.modules)"
+
+  perf:
+    # The QV-68 regression check (python/bench/README.md#ci-regression-check): the receipt-hash join plans on a
+    # seeded ~100k-span file, in-process insert speed, page p95 and 1,000 spans/s of ingest through the server,
+    # with limits that fail the build. Then the same check on a deliberately broken (scanning) join plan, which
+    # must fail it: that step passes only if the check caught the break.
+    name: Perf regression check (100k spans)
+    runs-on: [self-hosted, trailbeam]
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[test]'
+      - name: Join plans and thresholds
+        run: python bench/ci_check.py --out "$RUNNER_TEMP/ci-perf"
+      - name: The check fails on a broken join plan
+        if: success() || failure()
+        run: python bench/ci_check.py --out "$RUNNER_TEMP/ci-perf-broken" --break-plan
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-regression-check
+          path: |
+            ${{ runner.temp }}/ci-perf/
+            ${{ runner.temp }}/ci-perf-broken/
+
+  postgres:
+    # The Postgres store (TRAILBEAM_STORE_URL) on the oldest supported version and the current one.
+    name: Postgres ${{ matrix.postgres }} store
+    runs-on: [self-hosted, trailbeam]
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ["14", "16"]
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432   # random host port: several runners share one machine
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+      - name: Point the tests at this job's Postgres (random host port)
+        run: echo "TRAILBEAM_TEST_POSTGRES_URL=postgresql://postgres:postgres@localhost:${{ job.services.postgres.ports['5432'] }}/postgres" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[test,postgres]'
+      - name: Store conformance suite and contract fixtures (SQLite and Postgres)
+        run: pytest -q tests/conformance
+      - name: Postgres store tests
+        run: pytest -q tests/server/test_postgres.py
 
   node:
     name: Node.js ${{ matrix.node }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     strategy:
       fail-fast: false
       matrix:
@@ -38,14 +113,14 @@ jobs:
       elasticmq:
         image: softwaremill/elasticmq-native:1.6.15
         ports:
-          - 9324:9324
-    env:
-      TRAILBEAM_TEST_SQS_ENDPOINT: http://localhost:9324
+          - 9324   # random host port: several runners share one machine
     defaults:
       run:
         working-directory: node
     steps:
       - uses: actions/checkout@v4
+      - name: Point the tests at this job's ElasticMQ (random host port)
+        run: echo "TRAILBEAM_TEST_SQS_ENDPOINT=http://localhost:${{ job.services.elasticmq.ports['9324'] }}" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
@@ -55,7 +130,7 @@ jobs:
 
   ui:
     name: Shared UI (@trailbeam/ui)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     defaults:
       run:
         working-directory: ui
@@ -72,7 +147,7 @@ jobs:
 
   collector:
     name: Collector configuration
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     env:
       OTELCOL_VERSION: "0.165.0"
     steps:
@@ -90,51 +165,69 @@ jobs:
 
   container:
     name: Container smoke test
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     steps:
       - uses: actions/checkout@v4
+      - name: Pick a free port and names of its own (runners share one machine)
+        run: |
+          echo "TB_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')" >> "$GITHUB_ENV"
+          echo "TB_NAME=tbci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}" >> "$GITHUB_ENV"
       - name: Build the image (local only, not pushed)
-        run: docker build -t trailbeam:ci .
+        run: docker build -t "$TB_NAME:ci" .
       - name: Run it with SQLite on a volume
         run: |
-          docker volume create trailbeam-ci-data
-          docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-ci-data:/data trailbeam:ci
+          docker volume create "$TB_NAME-data"
+          docker run -d --name "$TB_NAME" -p "127.0.0.1:$TB_PORT:4318" -v "$TB_NAME-data:/data" "$TB_NAME:ci"
       - name: Send recorded spans, check the timeline page
-        run: python3 python/smoke/smoke_test.py http://127.0.0.1:4318
+        run: python3 python/smoke/smoke_test.py "http://127.0.0.1:$TB_PORT"
       - name: Stops cleanly and keeps the data on the volume
         run: |
-          time docker stop -t 5 trailbeam
-          test "$(docker inspect -f '{{.State.ExitCode}}' trailbeam)" = 0
-          docker run --rm -v trailbeam-ci-data:/data --entrypoint ls trailbeam:ci -l /data
-          docker rm trailbeam
-          docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-ci-data:/data trailbeam:ci
-          python3 python/smoke/smoke_test.py http://127.0.0.1:4318
-          test "$(docker inspect -f '{{.State.Health.Status}}' trailbeam)" != unhealthy
+          time docker stop -t 5 "$TB_NAME"
+          test "$(docker inspect -f '{{.State.ExitCode}}' "$TB_NAME")" = 0
+          docker run --rm -v "$TB_NAME-data:/data" --entrypoint ls "$TB_NAME:ci" -l /data
+          docker rm "$TB_NAME"
+          docker run -d --name "$TB_NAME" -p "127.0.0.1:$TB_PORT:4318" -v "$TB_NAME-data:/data" "$TB_NAME:ci"
+          python3 python/smoke/smoke_test.py "http://127.0.0.1:$TB_PORT"
+          test "$(docker inspect -f '{{.State.Health.Status}}' "$TB_NAME")" != unhealthy
       - name: Container logs
         if: always()
-        run: docker logs trailbeam || true
+        run: docker logs "$TB_NAME" || true
+      - name: Remove this job's container, volume and image
+        if: always()
+        run: |
+          docker rm -f "$TB_NAME" || true
+          docker volume rm -f "$TB_NAME-data" || true
+          docker image rm -f "$TB_NAME:ci" || true
 
   demo:
     name: Local demo (Docker Compose)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     steps:
       - uses: actions/checkout@v4
+      - name: Pick a free port and names of its own (runners share one machine)
+        run: |
+          echo "TB_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')" >> "$GITHUB_ENV"
+          echo "TB_NAME=tbci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}" >> "$GITHUB_ENV"
       - name: Build and start the demo (images local only, not pushed)
-        run: docker compose -f demo/compose.yaml up -d --build --wait
+        run: COMPOSE_PROJECT_NAME="$TB_NAME" TRAILBEAM_DEMO_PORT="$TB_PORT" docker compose -f demo/compose.yaml up -d --build --wait
       - name: Timelines from the Python and Node.js consumers reach Trailbeam
-        run: python3 demo/smoke_test.py http://127.0.0.1:4318 --timeout 180
+        run: python3 demo/smoke_test.py "http://127.0.0.1:$TB_PORT" --timeout 180
       - name: Logs
         if: always()
-        run: docker compose -f demo/compose.yaml logs --tail 50 || true
+        run: COMPOSE_PROJECT_NAME="$TB_NAME" docker compose -f demo/compose.yaml logs --tail 50 || true
       - name: Stop
         if: always()
-        run: docker compose -f demo/compose.yaml down -v || true
+        run: COMPOSE_PROJECT_NAME="$TB_NAME" docker compose -f demo/compose.yaml down -v --remove-orphans || true
 
   concurrency-check:
     name: Concurrency check (3 processes x 4 consumers, 200 messages)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, trailbeam]
     steps:
       - uses: actions/checkout@v4
+      - name: Pick a free port and names of its own (runners share one machine)
+        run: |
+          echo "TRAILBEAM_DEMO_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')" >> "$GITHUB_ENV"
+          echo "COMPOSE_PROJECT_NAME=tbci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -176,8 +269,9 @@ jobs:
     # to sqs:* on qv2-measure-*). It fails, rather than skips, when they are missing, so the floor can't stop
     # gating unnoticed. Pull requests from forks get no secrets, so it runs on pushes and same-repo PRs only.
     name: Concurrency check on real SQS (floor gating)
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    # Real AWS calls, the slowest job and timing-sensitive: main only. PRs get the emulator check above.
+    if: github.event_name == 'push'
+    runs-on: [self-hosted, trailbeam]
     concurrency:
       group: real-sqs
       cancel-in-progress: false
@@ -187,6 +281,10 @@ jobs:
       AWS_REGION: us-east-1
     steps:
       - uses: actions/checkout@v4
+      - name: Pick a free port and names of its own (runners share one machine)
+        run: |
+          echo "TRAILBEAM_DEMO_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')" >> "$GITHUB_ENV"
+          echo "COMPOSE_PROJECT_NAME=tbci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}" >> "$GITHUB_ENV"
       - name: The AWS secrets are set
         run: |
           if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then

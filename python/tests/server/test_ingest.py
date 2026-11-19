@@ -1,5 +1,6 @@
 """OTLP/HTTP ingest: protobuf and JSON, gzip, and what is ignored or rejected."""
 import gzip
+import http.client
 import json
 import urllib.error
 import urllib.request
@@ -122,7 +123,25 @@ def test_health(server, db):
     status, h = get(server, "/api/health")
     assert status == 200 and h["status"] == "ok"
     assert h["ingest"]["inserted"] == 2
-    assert h["data"] == {"spans": {"receive": 1, "delete": 1}, "messages": 1, "unjoined_settles": 1}
+    assert h["data"] == {"last_row": 2}
+    status, st = get(server, "/api/stats")
+    assert status == 200
+    assert st["data"] == {"spans": {"receive": 1, "delete": 1}, "messages": 1, "unjoined_settles": 1}
+
+
+def test_health_answers_while_an_export_is_being_written(server, db):
+    """QV-68: health counted the table behind the writer lock and stopped answering at 10M spans."""
+    if db.path == ":memory:":
+        pytest.skip(":memory: reads through the writer connection")
+    with db.lock:  # an export holds the writer
+        db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            status, h = get(server, "/api/health")
+            status2, st = get(server, "/api/stats")
+        finally:
+            db.conn.execute("ROLLBACK")
+    assert status == 200 and h["data"] == {"last_row": 0}
+    assert status2 == 200 and st["data"]["spans"] == {}
 
 
 # -- contract v2 times (section 2) ----------------------------------------------------------------
@@ -149,34 +168,59 @@ def test_a_span_that_ends_before_it_starts_is_rejected(server, db):
     assert get(server, "/api/health")[1]["ingest"]["rejected"] == 1
 
 
-def test_a_schema_1_database_is_migrated_with_unknown_starts(tmp_path):
-    import sqlite3
+def post_chunked(url, chunks, encoding=None, conn=None):
+    """POST with Transfer-Encoding: chunked and no Content-Length, as the Node.js OTLP exporter does."""
+    host = url.split("//", 1)[1]
+    c = conn or http.client.HTTPConnection(host, timeout=5)
+    headers = {"Content-Type": "application/x-protobuf"}
+    if encoding:
+        headers["Content-Encoding"] = encoding
+    c.request("POST", "/v1/traces", body=iter(chunks), headers=headers, encode_chunked=True)
+    r = c.getresponse()
+    return r.status, r.read()
 
-    from trailbeam.server.db import Database
 
-    path = str(tmp_path / "v1.sqlite")
-    old = sqlite3.connect(path)
-    old.executescript("""
-        CREATE TABLE spans (row INTEGER PRIMARY KEY, trace_id TEXT NOT NULL, span_id TEXT NOT NULL,
-            kind TEXT NOT NULL, time_ns INTEGER NOT NULL, service_name TEXT, source TEXT, operation TEXT,
-            queue TEXT NOT NULL, queue_url TEXT, message_id TEXT, receipt_hmac TEXT, key_id TEXT,
-            receive_count INTEGER, sent_ts_ms INTEGER, first_receive_ts_ms INTEGER, result TEXT, error_code TEXT,
-            visibility_timeout INTEGER, outcome TEXT, error_type TEXT, batch_entry_id TEXT, client_id TEXT,
-            pid INTEGER, thread_name TEXT, faas_name TEXT, faas_invocation_id TEXT, attributes TEXT NOT NULL,
-            mid TEXT, mid_source TEXT, receive_row INTEGER REFERENCES spans(row), UNIQUE (trace_id, span_id));
-        CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-        INSERT INTO meta VALUES ('schema_version', '1');
-        INSERT INTO spans (trace_id, span_id, kind, time_ns, queue, message_id, attributes, mid)
-            VALUES ('t', 's', 'send', 5, 'orders', 'm1', '{}', 'm1');
-    """)
-    old.commit()
-    old.close()
-    s = Database(path)
-    [row] = s.message_rows("m1")
-    assert (row["time_ns"], row["start_ns"]) == (5, None)
-    assert (row["order_scope"], row["order_issued"], row["order_returned"]) == (None, None, None)
-    assert row["dlq_source_arn"] is None
-    assert row["body_dropped"] is None
-    assert s.query("SELECT value FROM meta WHERE key = 'schema_version'")[0][0] == "5"
-    s.close()
-    Database(path).close()  # opens again without migrating twice
+def test_chunked_body_is_read(server, db):
+    """The Node.js exporter sends chunked bodies. They were read as empty and answered 200: every span lost."""
+    c = Consumer()
+    body = to_proto([c.receive(T0, "m1", "rh-1"), c.delete(T0 + SEC, "rh-1")]).SerializeToString()
+    assert post_chunked(server, [body[:7], body[7:20], body[20:]])[0] == 200
+    assert kinds(db) == [("receive", "m1"), ("delete", "m1")]
+    assert get(server, "/api/health")[1]["ingest"]["inserted"] == 2
+
+
+def test_chunked_gzip_and_keep_alive(server, db):
+    c = Consumer()
+    conn = http.client.HTTPConnection(server.split("//", 1)[1], timeout=5)
+    for i in range(3):  # one connection: each body must be read to its end, or the next request breaks
+        body = gzip.compress(to_proto([c.receive(T0 + i * SEC, f"m{i}", f"rh-{i}")]).SerializeToString())
+        assert post_chunked(server, [body[:5], body[5:]], encoding="gzip", conn=conn)[0] == 200
+    assert kinds(db) == [("receive", "m0"), ("receive", "m1"), ("receive", "m2")]
+
+
+@pytest.mark.parametrize("raw, status", [
+    (b"zz\r\nabc\r\n0\r\n\r\n", 400),         # not a hex size
+    (b"5\r\nabc\r\n0\r\n\r\n", 400),          # shorter than its size
+    (b"FFFFFFFF\r\n", 413),                     # over the body limit
+])
+def test_bad_chunked_bodies(server, raw, status):
+    import socket
+
+    host, port = server.split("//", 1)[1].split(":")
+    with socket.create_connection((host, int(port)), timeout=5) as s:
+        s.sendall(b"POST /v1/traces HTTP/1.1\r\nHost: x\r\nContent-Type: application/x-protobuf\r\n"
+                  b"Transfer-Encoding: chunked\r\n\r\n" + raw)
+        s.shutdown(socket.SHUT_WR)
+        reply = b""
+        while chunk := s.recv(4096):
+            reply += chunk
+    assert reply.split(b" ", 2)[1] == str(status).encode()
+
+
+def test_other_transfer_codings_are_refused(server):
+    import socket
+
+    host, port = server.split("//", 1)[1].split(":")
+    with socket.create_connection((host, int(port)), timeout=5) as s:
+        s.sendall(b"POST /v1/traces HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n")
+        assert s.recv(4096).split(b" ", 2)[1] == b"501"

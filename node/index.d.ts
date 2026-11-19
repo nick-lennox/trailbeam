@@ -63,6 +63,26 @@ export declare function uninstall(): Promise<void>;
 /** Flush client-hook spans waiting to be exported. */
 export declare function forceFlush(): Promise<void>;
 
+export interface ExportStats {
+  /** Spans exported successfully. */
+  exported: number;
+  /** Spans accepted whose export has not finished yet. */
+  queued: number;
+  /** Spans dropped before export: the sum of `droppedByReason`. */
+  dropped: number;
+  /**
+   * `queue_full`: the queue held $TRAILBEAM_MAX_QUEUE_SIZE spans; `export_failed`: the export failed or
+   * timed out; `shutdown`: ended after shutdown, or still queued when it finished.
+   */
+  droppedByReason: { queue_full: number; export_failed: number; shutdown: number };
+}
+/**
+ * Trailbeam spans of this process so far, over the default export path of `install` and `wrapHandler`
+ * (not a `spanProcessor` passed in). Drops are also counted on the `trailbeam.sdk.spans.dropped` metric
+ * and reported with `process.emitWarning` (code `TRAILBEAM_SPANS_DROPPED`).
+ */
+export declare function exportStats(): ExportStats;
+
 /** `trailbeam.receipt_handle.hmac`: lower hex of HMAC-SHA256(key, receiptHandle), first 32 characters. */
 export declare function hashReceiptHandle(key: string, receiptHandle: string): string;
 /** `trailbeam.receipt_handle.key_id`: lower hex of HMAC-SHA256(key, "trailbeam key id"), first 8 characters. */

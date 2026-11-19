@@ -22,8 +22,12 @@ const HINTS = {
 
 /** A tenant's messages: the server-rendered list, filtered (contract/tenants.md, "Tenant filter"). */
 const tenantHref = (t: string) => `/?tenant=${encodeURIComponent(t)}`;
-const suggest = (text: string) =>
-  fetch(`/api/tenants/search?q=${encodeURIComponent(text)}`).then((r) => (r.ok ? r.json() : { tenants: [] })).then((d: { tenants: string[] }) => d.tenants);
+/** Suggestions from the tenants named in the Tenants page's range: the one shown, else its default (a day). */
+const suggest = (text: string) => {
+  const since = location.pathname === "/tenants" ? new URLSearchParams(location.search).get("since_s") : null;
+  const range = since ? `&since_s=${encodeURIComponent(since)}` : "";
+  return fetch(`/api/tenants/search?q=${encodeURIComponent(text)}${range}`).then((r) => (r.ok ? r.json() : { tenants: [] })).then((d: { tenants: string[] }) => d.tenants);
+};
 
 function Header({ id = "" }: { id?: string }) {
   return (

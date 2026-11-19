@@ -60,14 +60,14 @@ def test_lists(loaded):
     status, d = get(url, "/api/duplicates")
     assert status == 200 and [m["message_id"] for m in d["messages"]] == [mid]
     assert d["messages"][0]["reasons"] == ["received_more_than_once"]
-    assert get(url, "/api/duplicates?reason=succeeded_more_than_once")[1] == {"messages": []}
+    assert get(url, "/api/duplicates?reason=succeeded_more_than_once")[1] == {"messages": [], "next_cursor": None}
     status, s = get(url, "/api/stuck?older_than_s=60")
     assert status == 200 and s["older_than_s"] == 60
     assert [m["message_id"] for m in s["messages"]] == ["id/with spaces?&"]
     assert get(url, "/api/stuck")[1]["older_than_s"] == 300
     recent = get(url, "/api/messages?limit=1")[1]["messages"]
     assert [m["message_id"] for m in recent] == [mid]
-    assert get(url, "/api/messages?queue=payments")[1] == {"messages": []}
+    assert get(url, "/api/messages?queue=payments")[1] == {"messages": [], "next_cursor": None}
 
 
 @pytest.mark.parametrize("path", [
@@ -79,11 +79,25 @@ def test_bad_parameters(server, path):
     assert status == 400 and body["error"]
 
 
-@pytest.mark.parametrize("path", ["/api/messages/a/b", "/api/stuck/x", "/api/duplicates/x", "/api/health/x", "/api/"])
+@pytest.mark.parametrize("bad", ["x", "-1", "0"])
+def test_stuck_ignores_to_ms(loaded, bad):
+    """QV-96: the upper bound is now minus older_than_s, so to_ms, even a bad one, changes nothing."""
+    url, _ = loaded
+    status, d = get(url, f"/api/stuck?older_than_s=60&to_ms={bad}")
+    assert status == 200 and [m["message_id"] for m in d["messages"]] == ["id/with spaces?&"]
+    assert get(url, "/api/stuck?from_ms=x")[0] == 400  # from_ms is still read
+
+
+@pytest.mark.parametrize("path", ["/api/messages/a/b", "/api/stuck/x", "/api/duplicates/x", "/api/health/x",
+                                  "/api/stats/x", "/api/"])
 def test_unknown_endpoints(server, path):
     assert get(server, path)[0] == 404
 
 
 def test_health_shows_configuration(server):
-    assert get(server, "/api/health")[1]["config"] == {"stuck_after_s": 300, "lambda_timeout_s": 900,
-                                                         "max_receive_counts": {}, "store_bodies": []}
+    assert get(server, "/api/health")[1]["config"] == {"auth": "off", "stuck_after_s": 300, "lambda_timeout_s": 900,
+                                                         "max_receive_counts": {}, "store_bodies": [], "retention": None}
+
+
+def test_ready_when_the_store_answers(server):
+    assert get(server, "/api/ready") == (200, {"status": "ready", "version": get(server, "/api/health")[1]["version"]})

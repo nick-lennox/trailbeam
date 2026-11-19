@@ -10,6 +10,8 @@ export type BodySpan = {
   kind: string; // send | receive | outcome | ...
   captureStatus: string | null;
   bodySize: number | null;
+  /** trailbeam.body.offloaded_size; optional for a store that doesn't keep it */
+  offloadedSize?: number | null;
   tenant: string | null;
   tenantSource: string | null;
   /** it carried a body the server did not keep */
@@ -29,9 +31,13 @@ export function bodyView(messageId: string, kept: StoredBody | null, spans: Body
   const ordered = [...spans.filter((s) => s.kind === "send"), ...spans.filter((s) => s.kind !== "send")];
   const size = ordered.find((s) => s.bodySize !== null)?.bodySize ?? null;
   if (kept) {
-    const own = spans.find((s) => s.traceId === kept.trace_id && s.spanId === kept.span_id)?.bodySize ?? null;
+    const from = spans.find((s) => s.traceId === kept.trace_id && s.spanId === kept.span_id);
+    const offloaded = from?.offloadedSize ?? ordered.find((s) => (s.offloadedSize ?? null) !== null)?.offloadedSize ?? null;
     const t = ordered.find((s) => s.tenant !== null);
-    return { message_id: messageId, kind: "body", body: kept, size: own ?? size, tenant: t?.tenant ?? null, tenant_source: t?.tenantSource ?? null };
+    return {
+      message_id: messageId, kind: "body", body: { ...kept, capture_status: kept.capture_status ?? null },
+      size: from?.bodySize ?? size, offloaded_size: offloaded, tenant: t?.tenant ?? null, tenant_source: t?.tenantSource ?? null,
+    };
   }
   const send_status = spans.find((s) => s.kind === "send" && s.captureStatus)?.captureStatus ?? null;
   const receive_status = spans.filter((s) => s.kind === "receive" && s.captureStatus).at(-1)?.captureStatus ?? null;
