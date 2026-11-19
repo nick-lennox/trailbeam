@@ -267,12 +267,13 @@ class App:
                 terms = bodies.parse_query(q["body"])
             except bodies.QueryError as e:
                 raise ApiError(400, str(e)) from None
-            # bounded: the messages last seen in a window (default the last day), on a queue if given, and at most
-            # bodies.SCAN of them per page; next_cursor goes on from where this page stopped
+            # bounded: the messages last seen in a window (default the last day), on a queue and naming a tenant if
+            # given, and at most bodies.SCAN of them per page; next_cursor goes on from where this page stopped
             from_ms, to_ms = self._window(q)
             r = queries.body_search_page(self.db, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue") or None,
                                          terms, mrc=self.max_receive_counts, from_ns=from_ms * 1_000_000,
-                                         to_ns=(to_ms + 1) * 1_000_000, cursor=q.get("cursor"))
+                                         to_ns=(to_ms + 1) * 1_000_000, cursor=q.get("cursor"),
+                                         tenant=q.get("tenant") or None)
             return {"messages": r.page.items, "next_cursor": r.page.next_cursor,
                     "body_search": {"stores_bodies": bool(self.db.store_bodies), "from_ms": from_ms, "to_ms": to_ms,
                                     "scanned": r.scanned,
@@ -299,7 +300,8 @@ class App:
         if rest:
             raise ApiError(404, "no such endpoint")
         older = _int(q, "older_than_s", self.stuck_after_s, 0, 10 ** 9)
-        frm, _ = self._range(q)
+        # only from_ms: the upper bound is now minus older_than_s (queries.stuck_page)
+        frm = _int(q, "from_ms", -1, 0, 10 ** 15) * 1_000_000 if "from_ms" in q else None
         page = queries.stuck_page(self.db, self.now(), self._lambda_timeout(q), older, _limit(q), q.get("queue"),
                                   mrc=self.max_receive_counts, from_ns=frm, cursor=q.get("cursor"))
         return {"older_than_s": older, "messages": page.items, "next_cursor": page.next_cursor}
@@ -316,7 +318,8 @@ class App:
             return {"tenants": queries.find_tenants(self.db, q.get("q", "").strip(), _int(q, "limit", 8, 1, 100),
                                                     from_ms=from_ms, to_ms=to_ms, queue=q.get("queue") or None),
                     "from_ms": from_ms, "to_ms": to_ms}
-        return queries.tenants(self.db, now, self._lambda_timeout(q), from_ms, to_ms, self.max_receive_counts)
+        # the server's Lambda timeout, not a lambda_timeout_s parameter: it doesn't change what the page counts
+        return queries.tenants(self.db, now, self.lambda_timeout_s, from_ms, to_ms, self.max_receive_counts)
 
     def _window(self, q: dict) -> tuple:
         """[from_ms, to_ms], both included: given, or the last ``since_s`` seconds (default a day) to now. The
@@ -359,6 +362,11 @@ def make_handler(app: App):
         protocol_version = "HTTP/1.1"
 
         def _send(self, status: int, ctype: str, body: bytes, headers: Optional[dict] = None):
+            if getattr(self, "_count_ingest_reject", False):
+                # count a rejected export before the client can see the answer, so a scrape
+                # that follows the response always includes it
+                self._count_ingest_reject = False
+                app.m_ingest_requests.inc(code=str(status))
             self.send_response(status)
             self.send_header("Content-Type", ctype)
             for k, v in (headers or {}).items():
@@ -446,15 +454,16 @@ def make_handler(app: App):
             if path != "/v1/traces":
                 self._send(404, "text/plain", b"not found")
                 return
+            self._count_ingest_reject = True  # a 401, 413, 415, 400 or 501 below is counted as it is sent
             if app.auth is not None and not app.auth.bearer_ok(self.headers.get("Authorization")):
                 self.close_connection = True  # the request body is not read
                 self._unauthorized("text/plain", b"this server needs Authorization: Bearer <TRAILBEAM_TOKEN>")
-                app.m_ingest_requests.inc(code="401")
                 return
             body = self._body()
-            if body is None:  # 413, 415 or 400, already sent
-                app.m_ingest_requests.inc(code=str(self._status))
+            if body is None:  # 413, 415, 400 or 501, already sent and counted
+                self._count_ingest_reject = False  # the handler is reused on a kept-alive connection
                 return
+            self._count_ingest_reject = False  # app.ingest counts the rest
             try:
                 status, ctype, out, headers = app.ingest(body, self.headers.get("Content-Type", ""),
                                                          abandoned=lambda: _client_gone(self.connection))

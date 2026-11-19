@@ -241,10 +241,11 @@ class Store(abc.ABC):
     # ---- bodies ------------------------------------------------------------------------------
 
     @abc.abstractmethod
-    def newest_messages(self, limit: int, queue: Optional[str] = None, *, from_ns: Optional[int] = None,
-                        to_ns: Optional[int] = None, after: Optional[tuple] = None) -> list[tuple[int, str]]:
-        """(last_ns, mid) of up to ``limit`` messages, as recent_messages orders and filters them: the walk body
-        search reads bodies along (bodies.search)."""
+    def newest_messages(self, limit: int, queue: Optional[str] = None, tenant: Optional[str] = None, *,
+                        from_ns: Optional[int] = None, to_ns: Optional[int] = None,
+                        after: Optional[tuple] = None) -> list[tuple[int, str]]:
+        """(last_ns, mid) of up to ``limit`` messages, as recent_messages orders and filters them (``tenant``
+        included): the walk body search reads bodies along (bodies.search)."""
 
     @abc.abstractmethod
     def body_spans(self, message_ids: list[str]) -> list[Row]:

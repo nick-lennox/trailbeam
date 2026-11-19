@@ -79,6 +79,15 @@ def test_bad_parameters(server, path):
     assert status == 400 and body["error"]
 
 
+@pytest.mark.parametrize("bad", ["x", "-1", "0"])
+def test_stuck_ignores_to_ms(loaded, bad):
+    """QV-96: the upper bound is now minus older_than_s, so to_ms, even a bad one, changes nothing."""
+    url, _ = loaded
+    status, d = get(url, f"/api/stuck?older_than_s=60&to_ms={bad}")
+    assert status == 200 and [m["message_id"] for m in d["messages"]] == ["id/with spaces?&"]
+    assert get(url, "/api/stuck?from_ms=x")[0] == 400  # from_ms is still read
+
+
 @pytest.mark.parametrize("path", ["/api/messages/a/b", "/api/stuck/x", "/api/duplicates/x", "/api/health/x",
                                   "/api/stats/x", "/api/"])
 def test_unknown_endpoints(server, path):

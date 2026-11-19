@@ -874,6 +874,10 @@ class PostgresStore(Store):
     def recent_messages(self, limit: int, queue: Optional[str] = None, tenant: Optional[str] = None, *,
                         from_ns: Optional[int] = None, to_ns: Optional[int] = None,
                         after: Optional[tuple] = None) -> list[str]:
+        return [r["mid"] for r in self._newest_first(*self._recent_src(queue, tenant), limit, from_ns, to_ns, after)]
+
+    def _recent_src(self, queue: Optional[str], tenant: Optional[str]) -> tuple[str, list]:
+        """The summary table, and its WHERE, that recent_messages and newest_messages walk."""
         if tenant:
             src, p = "message_tenants s WHERE s.tenant = %s", [tenant[:TENANT_MAX_CHARS]]
             if queue:
@@ -883,7 +887,7 @@ class PostgresStore(Store):
             src, p = "message_queues s WHERE s.queue = %s", [queue]
         else:
             src, p = "messages s WHERE TRUE", []
-        return [r["mid"] for r in self._newest_first(src, p, limit, from_ns, to_ns, after)]
+        return src, p
 
     def duplicate_messages(self, limit: int, queue: Optional[str] = None, reason: Optional[str] = None, *,
                            from_ns: Optional[int] = None, to_ns: Optional[int] = None,
@@ -973,13 +977,11 @@ class PostgresStore(Store):
                     found.append((nxt["tenant_lower"] != lo, -newest["named_ns"], nxt["tenant"]))
         return [t for *_, t in sorted(found)[:limit]]
 
-    def newest_messages(self, limit: int, queue: Optional[str] = None, *, from_ns: Optional[int] = None,
-                        to_ns: Optional[int] = None, after: Optional[tuple] = None) -> list[tuple[int, str]]:
-        if queue:
-            src, p = "message_queues s WHERE s.queue = %s", [queue]
-        else:
-            src, p = "messages s WHERE TRUE", []
-        return [(r["last_ns"], r["mid"]) for r in self._newest_first(src, p, limit, from_ns, to_ns, after)]
+    def newest_messages(self, limit: int, queue: Optional[str] = None, tenant: Optional[str] = None, *,
+                        from_ns: Optional[int] = None, to_ns: Optional[int] = None,
+                        after: Optional[tuple] = None) -> list[tuple[int, str]]:
+        return [(r["last_ns"], r["mid"])
+                for r in self._newest_first(*self._recent_src(queue, tenant), limit, from_ns, to_ns, after)]
 
     def body_spans(self, message_ids: list[str]) -> list[dict]:
         if not message_ids:
