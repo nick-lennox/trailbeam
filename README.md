@@ -433,6 +433,76 @@ The sync per export was not the limit there. For export p99 under about 500 ms a
 RAM larger than the database file and more than 2 vCPUs. The gain from more CPU and RAM is an
 estimate; it hasn't been measured on a larger instance.
 
+### Backup and restore (SQLite)
+
+Everything Trailbeam stores is in the database file (`--db`, `/data/trailbeam.sqlite` in the container). The
+file is in WAL mode: committed writes are in `trailbeam.sqlite-wal` until the server copies them into the
+file, about once a second. **Don't back up by copying the file while the server runs.** A copy of the file
+without its `-wal`, or of both at slightly different moments, can be missing recent spans or be corrupt.
+
+**Backup, with the server running.** Use SQLite's backup API, which copies one consistent snapshot. Python's
+`sqlite3` module is all it needs, and the container has it:
+
+```sh
+python3 -c 'import sqlite3, sys; s = sqlite3.connect(sys.argv[1]); d = sqlite3.connect(sys.argv[2]); s.backup(d); d.close(); s.close()' \
+    /data/trailbeam.sqlite /backups/trailbeam-$(date +%F).sqlite
+```
+
+In Docker, write the copy to the volume, take it out, and delete it there:
+
+```sh
+docker exec trailbeam python -c 'import sqlite3, sys; s = sqlite3.connect(sys.argv[1]); d = sqlite3.connect(sys.argv[2]); s.backup(d); d.close(); s.close()' \
+    /data/trailbeam.sqlite /data/backup.sqlite
+docker cp trailbeam:/data/backup.sqlite ./trailbeam-$(date +%F).sqlite
+docker exec trailbeam rm /data/backup.sqlite
+```
+
+The copy needs free disk about the size of the file. Ingest carries on while it runs. On our test machine
+(2.1 GB file, ingest at 1,000 spans/s), the backup took 5.6 s with the file in the page cache and 12 s
+with it mostly out. Export p99 over that minute went from 80 ms to 192 ms, with no errors. While a backup
+runs, the server can't copy the log into the file, so `-wal` grows by what arrives meanwhile: roughly
+10 MB per second of backup at 1,000 spans/s (an estimate from about 2.4 log pages per span). The server cuts it
+back to 64 MB once it has caught up.
+
+We don't recommend `VACUUM INTO` for a running server. In the same test it took 4.6 s, but export p99 rose
+to 747 ms and the log reached about 210 MB.
+
+**Check a backup** before you rely on it. This prints `ok` (about a minute for a 2 GB file here):
+
+```sh
+python3 -c 'import sqlite3, sys; print(sqlite3.connect(sys.argv[1]).execute("PRAGMA integrity_check").fetchone()[0])' \
+    trailbeam-2026-11-19.sqlite
+```
+
+**Restore.** Stop the server, delete the old `-wal` and `-shm` files, put the backup in place of the file,
+and start the server. Delete those two files first: SQLite would apply a leftover log from the old file to
+the restored one and corrupt it.
+
+```sh
+rm -f /data/trailbeam.sqlite-wal /data/trailbeam.sqlite-shm
+cp trailbeam-2026-11-19.sqlite /data/trailbeam.sqlite
+```
+
+In Docker, from the directory that has the backup:
+
+```sh
+docker stop trailbeam
+docker run --rm --user root -v trailbeam-data:/data -v "$PWD":/restore:ro --entrypoint sh trailbeam -c \
+  'rm -f /data/trailbeam.sqlite-wal /data/trailbeam.sqlite-shm && cp /restore/trailbeam-2026-11-19.sqlite /data/trailbeam.sqlite && chown trailbeam: /data/trailbeam.sqlite'
+docker start trailbeam
+```
+
+A backup from an older version is upgraded when the server starts ([Upgrading a database
+file](#retention)). The purge then deletes whatever is past retention, so set a longer `--retention` first
+if you restored the backup to look at old timelines.
+
+**What else to keep.** Your configuration file and token file, if you use them; they are not in the
+database. A backup holds the stored message bodies (`--store-bodies`), so protect it like the data.
+
+**Continuous replication.** [Litestream](https://litestream.io/) streams a SQLite file's WAL to object storage.
+It should work with Trailbeam, because the server only runs PASSIVE checkpoints, but we haven't tested it.
+With Postgres (`--store-url`), use Postgres' own backups (`pg_dump`, or your provider's).
+
 ### When Trailbeam is overloaded: 429, 503 and Retry-After
 
 Trailbeam answers an export it can't take right away. It doesn't leave it hanging until the exporter
