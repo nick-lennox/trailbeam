@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels that PR's older run, so the self-hosted
+# runners never spend time on outdated commits. Runs on main always finish.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   python:
     name: Python ${{ matrix.python }}
@@ -235,7 +241,8 @@ jobs:
     # to sqs:* on qv2-measure-*). It fails, rather than skips, when they are missing, so the floor can't stop
     # gating unnoticed. Pull requests from forks get no secrets, so it runs on pushes and same-repo PRs only.
     name: Concurrency check on real SQS (floor gating)
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    # Real AWS calls, the slowest job and timing-sensitive: main only. PRs get the emulator check above.
+    if: github.event_name == 'push'
     runs-on: [self-hosted, trailbeam]
     concurrency:
       group: real-sqs
