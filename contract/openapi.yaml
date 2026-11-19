@@ -20,9 +20,7 @@ info:
 
     Every API endpoint is a `GET` that returns `application/json`. The API never changes stored data.
 
-    A query parameter the endpoint does not list is ignored, with two exceptions: `/api/stuck`
-    checks `to_ms` and `/api/tenants` checks `lambda_timeout_s`, and each answers `400` to a value
-    it does not accept, although neither changes the answer. When a parameter is repeated, the last value
+    A query parameter the endpoint does not list is ignored. When a parameter is repeated, the last value
     is used.
 servers:
   - url: http://127.0.0.1:4318
@@ -55,7 +53,6 @@ paths:
         With `body`, returns only messages whose stored body matches. A body search reads at most
         5,000 messages per page, in the time window given by `from_ms` and `to_ms` or by `since_s`.
         A page of a body search can hold fewer than `limit` messages and still have a `next_cursor`.
-        A body search ignores `tenant`.
       parameters:
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/cursor'
