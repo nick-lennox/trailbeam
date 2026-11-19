@@ -156,6 +156,13 @@ def test_api(fixture_db):
     assert len(app.api("messages", {"tenant": ""})["messages"]) == 10  # empty: no filter
 
 
+@pytest.mark.parametrize("bad", ["0", "x", "100000"])
+def test_api_ignores_lambda_timeout_s(fixture_db, bad):
+    """QV-96: the Lambda timeout doesn't change what the page counts, so the parameter, even a bad one, is unread."""
+    app = App(fixture_db, now=lambda: NOW, ui_dir=None)
+    assert app.api("tenants", {"lambda_timeout_s": bad}) == app.api("tenants", {})
+
+
 @pytest.mark.parametrize("path,q", [("tenants", {"from_ms": "x"}), ("tenants", {"from_ms": "5", "to_ms": "4"}),
                                     ("tenants", {"since_s": "0"}), ("tenants/search", {"limit": "0"}),
                                     ("tenants/nope", {})])

@@ -279,22 +279,23 @@ def _kept(rows: list, store_bodies: frozenset):
 
 
 def search(db, terms: list[dict], store_bodies: frozenset, *, limit: int = 100, queue: Optional[str] = None,
-           from_ns: Optional[int] = None, to_ns: Optional[int] = None, after: Optional[tuple] = None,
-           scan: int = SCAN) -> SearchResult:
+           tenant: Optional[str] = None, from_ns: Optional[int] = None, to_ns: Optional[int] = None,
+           after: Optional[tuple] = None, scan: int = SCAN) -> SearchResult:
     """The messages whose kept body matches, most recently seen first. ``db``: a Store.
 
     There is no index of body contents, so a search reads bodies, and it is bounded: it walks the messages last
-    seen in [from_ns, to_ns) (on ``queue``, if given), newest first and from ``after`` on, the way the Messages
-    page lists them, and reads the kept body of each (Store.body_spans, an index lookup). It stops at ``limit``
-    matches or after ``scan`` messages, whichever comes first, and says where (``SearchResult.after``), so the
-    caller can go on from there. The cost is ``scan`` messages at most, however many bodies are stored."""
+    seen in [from_ns, to_ns) (on ``queue`` and naming ``tenant``, each if given), newest first and from ``after``
+    on, the way the Messages page lists them, and reads the kept body of each (Store.body_spans, an index lookup).
+    It stops at ``limit`` matches or after ``scan`` messages, whichever comes first, and says where
+    (``SearchResult.after``), so the caller can go on from there. The cost is ``scan`` messages at most, however
+    many bodies are stored."""
     if not store_bodies:
         return SearchResult([], None, 0, None)
     hits: list = []
     scanned, pos, oldest = 0, after, None
     while scanned < scan:
         want = min(_CHUNK, scan - scanned)
-        chunk = db.newest_messages(want, queue, from_ns=from_ns, to_ns=to_ns, after=pos)
+        chunk = db.newest_messages(want, queue, tenant, from_ns=from_ns, to_ns=to_ns, after=pos)
         by_mid: dict = {}
         for r in db.body_spans([m for _, m in chunk]) if chunk else ():
             by_mid.setdefault(r["mid"], []).append(r)

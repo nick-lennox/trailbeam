@@ -25,15 +25,16 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import os
 import sqlite3
 import threading
 import time
-from typing import Iterable, Iterator, Optional
+from typing import Callable, Iterable, Iterator, Optional
 
 from . import body_table, migrations, summary_table
 from .otlp import RECORD_FIELDS
 from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store,
-                    StuckCandidate, TenantActivity)
+                    StuckCandidate, TenantActivity, WriterBusy)
 
 # The body and the attributes that describe it (contract 15.2). trailbeam.body.capture_status is kept:
 # it is the package's reason, carries no message content, and the Body tab needs it either way.
@@ -111,6 +112,7 @@ class SqliteStore(Store):
         self._closed = False
         self._stop = threading.Event()
         self._checkpointer: Optional[threading.Thread] = None
+        self.on_join: Optional[Callable[[str, float], None]] = None  # Store.on_join
         try:
             # A new file is created with incremental vacuum, so retention can give space back (reclaim_space).
             # SQLite only takes this before the first table is created; on an existing file it does nothing.
@@ -190,17 +192,25 @@ class SqliteStore(Store):
 
     # ---- writes ---------------------------------------------------------------------------
 
-    def insert(self, records: Iterable[dict]) -> tuple[int, int]:
+    def insert(self, records: Iterable[dict], *, wait_s: Optional[float] = None,
+               timings: Optional[dict] = None) -> tuple[int, int]:
         """Insert records (from otlp.decode) in one transaction. Returns (inserted, duplicates).
 
         A span already stored (same trace and span ID, e.g. an exporter retry) is skipped. In the same
         transaction, the summary of every message a new span or a join touched is rewritten (summary_table.py).
+        ``wait_s`` bounds the wait for the writer connection: past it, ``WriterBusy`` is raised and nothing is
+        written (the server answers 503, backpressure.py). ``timings``, if given, gets ``wait_s`` and ``write_s``.
         """
         inserted = dupes = 0
         touched: set = set()
         cols = RECORD_FIELDS + ["attributes", "mid", "mid_source", "body_dropped", "body_id"]
         sql = f"INSERT OR IGNORE INTO spans ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})"
-        with self.lock:
+        on_join = self.on_join
+        t0 = time.perf_counter()
+        if not self.lock.acquire(timeout=-1 if wait_s is None else wait_s):
+            raise WriterBusy(f"the writer was busy for {wait_s:g} s")
+        try:
+            t1 = time.perf_counter()
             c = self.conn
             c.execute("BEGIN IMMEDIATE")
             try:
@@ -218,11 +228,16 @@ class SqliteStore(Store):
                         continue
                     inserted += 1
                     row = cur.lastrowid
-                    if r["kind"] in SETTLE_KINDS:
-                        touched.add(self._join_settle(row, r) or own)
-                    elif r["kind"] == "receive":
-                        touched.update(self._join_receive(row, r))
-                        touched.add(own)
+                    kind = r["kind"]
+                    if kind in SETTLE_KINDS or kind == "receive":
+                        j0 = time.perf_counter()
+                        if kind == "receive":
+                            touched.update(self._join_receive(row, r))
+                            touched.add(own)
+                        else:
+                            touched.add(self._join_settle(row, r) or own)
+                        if on_join is not None:
+                            on_join("receive" if kind == "receive" else "settle", time.perf_counter() - j0)
                     else:
                         touched.add(own)
                 summary_table.refresh(c, touched)
@@ -230,6 +245,11 @@ class SqliteStore(Store):
             except BaseException:
                 c.execute("ROLLBACK")
                 raise
+        finally:
+            self.lock.release()
+        if timings is not None:
+            timings["wait_s"] = t1 - t0
+            timings["write_s"] = time.perf_counter() - t1
         return inserted, dupes
 
     def _join_settle(self, row: int, r: dict) -> Optional[str]:
@@ -364,6 +384,11 @@ class SqliteStore(Store):
     def recent_messages(self, limit: int, queue: Optional[str] = None, tenant: Optional[str] = None, *,
                         from_ns: Optional[int] = None, to_ns: Optional[int] = None,
                         after: Optional[tuple] = None) -> list[str]:
+        return self._newest_first(*self._recent_src(queue, tenant), limit, from_ns, to_ns, after)
+
+    @staticmethod
+    def _recent_src(queue: Optional[str], tenant: Optional[str]) -> tuple[str, list]:
+        """The summary table, and its WHERE, that recent_messages and newest_messages walk."""
         if tenant:
             src, p = "message_tenants s NOT INDEXED WHERE s.tenant = ?", [tenant[:TENANT_MAX_CHARS]]
             if queue:
@@ -373,7 +398,7 @@ class SqliteStore(Store):
             src, p = "message_queues s NOT INDEXED WHERE s.queue = ?", [queue]
         else:
             src, p = "messages s INDEXED BY messages_last WHERE 1", []
-        return self._newest_first(src, p, limit, from_ns, to_ns, after)
+        return src, p
 
     def duplicate_messages(self, limit: int, queue: Optional[str] = None, reason: Optional[str] = None, *,
                            from_ns: Optional[int] = None, to_ns: Optional[int] = None,
@@ -490,12 +515,10 @@ class SqliteStore(Store):
                     found.append((nxt[0] != lo, -newest[0], nxt[1]))
         return [t for *_, t in sorted(found)[:limit]]
 
-    def newest_messages(self, limit: int, queue: Optional[str] = None, *, from_ns: Optional[int] = None,
-                        to_ns: Optional[int] = None, after: Optional[tuple] = None) -> list[tuple[int, str]]:
-        if queue:
-            src, p = "message_queues s NOT INDEXED WHERE s.queue = ?", [queue]
-        else:
-            src, p = "messages s INDEXED BY messages_last WHERE 1", []
+    def newest_messages(self, limit: int, queue: Optional[str] = None, tenant: Optional[str] = None, *,
+                        from_ns: Optional[int] = None, to_ns: Optional[int] = None,
+                        after: Optional[tuple] = None) -> list[tuple[int, str]]:
+        src, p = self._recent_src(queue, tenant)
         return [(r["last_ns"], r["mid"]) for r in self._newest_first(src, p, limit, from_ns, to_ns, after, rows=True)]
 
     def body_spans(self, message_ids: list[str]) -> list[sqlite3.Row]:
@@ -509,6 +532,17 @@ class SqliteStore(Store):
                        FROM spans s INDEXED BY spans_body JOIN bodies b ON b.id = s.body_id
                        WHERE s.mid IN (SELECT value FROM json_each(?)) AND s.body_id IS NOT NULL""",
                     (json.dumps(message_ids[i:i + 500]),)).fetchall()
+        return out
+
+    def file_sizes(self) -> Optional[dict]:
+        if self.path == ":memory:":
+            return None
+        out = {}
+        for name, suffix in (("main", ""), ("wal", "-wal")):
+            try:
+                out[name] = os.path.getsize(self.path + suffix)
+            except FileNotFoundError:
+                out[name] = 0
         return out
 
     def last_row(self) -> int:

@@ -93,12 +93,13 @@ class BodySearch(NamedTuple):
 def body_search_page(db: Store, now_ns: int, lambda_timeout_s: int, limit: int, queue: Optional[str],
                      terms: list[dict], mrc: Optional[dict] = None, *, from_ns: Optional[int] = None,
                      to_ns: Optional[int] = None, cursor: Optional[str] = None,
-                     scan: int = bodies.SCAN) -> BodySearch:
+                     scan: int = bodies.SCAN, tenant: Optional[str] = None) -> BodySearch:
     """Messages last seen in [from_ns, to_ns) whose kept body matches the body.* terms (bodies.py), most recently
     seen first. A page reads at most ``scan`` messages: ``next_cursor`` goes on from the last one read, so a page
-    can have fewer than ``limit`` items, or none, and still a next one. None: the range is searched to its end."""
-    r = bodies.search(db, terms, db.store_bodies, limit=limit, queue=queue, from_ns=from_ns, to_ns=to_ns,
-                      after=decode_cursor(cursor), scan=scan)
+    can have fewer than ``limit`` items, or none, and still a next one. None: the range is searched to its end.
+    ``tenant``: only messages with a span naming it, as on ``recent_page``."""
+    r = bodies.search(db, terms, db.store_bodies, limit=limit, queue=queue, tenant=tenant, from_ns=from_ns,
+                      to_ns=to_ns, after=decode_cursor(cursor), scan=scan)
     return BodySearch(Page(_items(db, r.mids, now_ns, lambda_timeout_s, mrc),
                            encode_cursor(*r.after) if r.after else None), r.scanned, r.oldest_ns)
 

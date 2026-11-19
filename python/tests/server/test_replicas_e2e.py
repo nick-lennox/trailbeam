@@ -4,6 +4,7 @@
 - Each span of contract/fixtures is sent on its own to a random replica, in a random order, many at once: every
   timeline either replica serves is exactly the one a single SQLite Trailbeam serves for the same spans.
 - One shared token works on both, and a browser session made on one works on the other (no sticky sessions).
+- /metrics is per replica: each counts the exports and spans it took itself, behind the same token.
 - A replica killed (SIGKILL) during ingest loses no acknowledged span: the exporter retries what was in flight
   and the load balancer sends it to the other replica.
 
@@ -175,6 +176,25 @@ def reference_timelines(requests: list[bytes]) -> dict:
     return out
 
 
+def scrape(url) -> dict:
+    """/metrics as {(name, frozenset of label pairs): value}."""
+    status, _, body = call(url, "/metrics", headers=AUTH)
+    assert status == 200, (status, body)
+    out = {}
+    for line in body.decode().splitlines():
+        if not line or line.startswith("#"):
+            continue
+        key, value = line.rsplit(" ", 1)
+        name, _, labels = key.partition("{")
+        pairs = (kv.split("=", 1) for kv in labels.rstrip("}").split(",") if kv)
+        out[(name, frozenset((k, v.strip('"')) for k, v in pairs))] = float(value)
+    return out
+
+
+def metric(scraped: dict, name: str, **labels) -> float:
+    return scraped.get((name, frozenset(labels.items())), 0.0)
+
+
 def _stable(obj):
     """Without what depends on the moment of the request (``now``)."""
     if isinstance(obj, dict):
@@ -224,6 +244,15 @@ def test_spans_to_random_replicas_in_random_order_give_the_fixture_timelines(clu
     for r in replicas:
         for path, expected in want.items():
             assert _stable(api(r.url, path)) == _stable(expected), (r.url, path)
+    # /metrics is per replica: each counts the exports sent to it (retries go to the same replica here), and
+    # together they count every span once. The token guards it on both.
+    scraped = {r.url: scrape(r.url) for r in replicas}
+    for r in replicas:
+        assert call(r.url, "/metrics")[0] == 401
+        sent = sum(1 for url, _ in work if url == r.url)
+        assert 0 < sent < len(work)
+        assert metric(scraped[r.url], "trailbeam_ingest_requests_total", code="200") == sent, r.url
+    assert sum(metric(m, "trailbeam_ingest_spans_total", result="inserted") for m in scraped.values()) == len(requests)
 
 
 def test_killing_a_replica_during_ingest_loses_no_acknowledged_span(cluster):
@@ -249,15 +278,29 @@ def test_killing_a_replica_during_ingest_loses_no_acknowledged_span(cluster):
                 acked.append(i)
             if len(acked) == len(exports) // 3 and not killed.is_set():
                 killed.set()
-                a.p.send_signal(signal.SIGKILL)  # mid-ingest: exports are in flight on it
+                threading.Thread(target=kill_mid_ingest, daemon=True).start()
         return ok
+
+    def kill_mid_ingest():
+        # Freeze replica a, wait until the load balancer has sent it an export (which it can't have answered),
+        # then SIGKILL it: an export is cut mid-flight on every run, however busy the machine is.
+        a.p.send_signal(signal.SIGSTOP)
+        with lb._lock:
+            before = lb.opened[0]
+        end = time.monotonic() + 10
+        while time.monotonic() < end:
+            with lb._lock:
+                if lb.opened[0] > before:
+                    break
+            time.sleep(0.005)
+        a.p.send_signal(signal.SIGKILL)
 
     try:
         with concurrent.futures.ThreadPoolExecutor(8) as pool:
             results = list(pool.map(send, range(len(exports))))
         assert killed.is_set() and a.p.wait(10) == -signal.SIGKILL
         assert all(results), f"{results.count(False)} exports never acknowledged"
-        assert cut, "no export was in flight on the killed replica"  # 3 to 6 of 8, in practice
+        assert cut, "no export was in flight on the killed replica"
     finally:
         lb.close()
     # every acknowledged span is stored, once, and the timelines are a single Trailbeam's for the same spans

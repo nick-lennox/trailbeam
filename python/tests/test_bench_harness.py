@@ -59,7 +59,8 @@ def test_a_small_run(tmp_path):
     out = tmp_path / "out"
     harness.main(["--out", str(out), "--sizes", "2k", "--rates", "2,5", "--step-seconds", "2",
                   "--under-load-seconds", "2", "--page-repeats", "2", "--growth-spans", "2000",
-                  "--sdk-seconds", "1", "--processes", "1", "--queues", "5", "--tenants", "3", "--body-queues", "2"])
+                  "--sdk-seconds", "1", "--processes", "1", "--queues", "5", "--tenants", "3", "--body-queues", "2",
+                  "--overload-seconds", "6"])
     res = json.loads((out / "results.json").read_text())
     size = res["sizes"][0]
     assert size["spans"] >= 2000
@@ -69,6 +70,10 @@ def test_a_small_run(tmp_path):
     assert size["ingest"][0]["errors"] == 0
     assert size["breakdown"]["insert_ms"] > 0
     assert size["sdk"]["emitted_spans"] > 0
+    ov = size["overload"]  # QV-74: every span the server answered 200 for is stored
+    assert ov["acked_not_stored"] == 0 and ov.get("server_inserted_not_stored") == 0
+    assert ov["sdk"]["http_attempts"] >= ov["sdk"]["export_calls"] > 0
+    assert "## Above the ceiling" in (out / "summary.md").read_text()
     assert len(res["growth"]) == 5
     assert "## Ingest" in (out / "summary.md").read_text()
     assert (out / "results.csv").read_text().startswith("db_spans")
@@ -91,7 +96,7 @@ def test_a_page_that_times_out_restarts_the_server_and_is_skipped_at_larger_size
     monkeypatch.setattr(harness.Server, "__init__", counted)
     harness.main(["--out", str(out), "--sizes", "1k,1500", "--rates", "2", "--step-seconds", "1",
                   "--under-load-seconds", "1", "--page-repeats", "2", "--skip-pages", "tenants",
-                  "--growth-spans", "0", "--sdk-seconds", "0", "--processes", "1",
+                  "--growth-spans", "0", "--sdk-seconds", "0", "--overload-seconds", "0", "--processes", "1",
                   "--queues", "3", "--tenants", "2", "--body-queues", "1"])
     res = json.loads((out / "results.json").read_text())
     first, second = res["sizes"]
@@ -113,7 +118,8 @@ def test_every_ingest_step_starts_from_the_seeded_file(tmp_path):
     out = tmp_path / "out"
     harness.main(["--out", str(out), "--sizes", "2k,4k", "--rates", "20,40", "--step-seconds", "2",
                   "--under-load-seconds", "2", "--page-repeats", "1", "--growth-spans", "0",
-                  "--sdk-seconds", "0", "--processes", "1", "--queues", "5", "--tenants", "3", "--body-queues", "2"])
+                  "--sdk-seconds", "0", "--overload-seconds", "0", "--processes", "1", "--queues", "5", "--tenants", "3",
+                  "--body-queues", "2"])
     res = json.loads((out / "results.json").read_text())
     small, big = res["sizes"]
     assert small["steps_restore_seeded_file"]

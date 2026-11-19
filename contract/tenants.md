@@ -21,8 +21,9 @@ configuration does (`TRAILBEAM_TENANT_ATTRIBUTE` or `TRAILBEAM_TENANT_BODY_PATH`
 ## A message's tenant
 
 A span names a tenant when its `trailbeam.tenant` attribute is a non-empty string. Only send, receive
-and outcome spans count. The value is cut to its first 256 characters (the packages already cut it
-there).
+and outcome spans count. The value is cut to its first 256 characters. The packages send no longer value: they drop a tenant
+longer than 256 characters rather than cut it (span contract, section 15.2), so the cut only matters for
+spans from other senders.
 
 A message's tenant is the one its earliest send span names. If no send span names one, it is the one
 its earliest receive or outcome span names. Earliest is by span end time, then by trace ID, then by
