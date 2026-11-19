@@ -57,13 +57,13 @@ jobs:
           - 5432   # random host port: several runners share one machine
         options: >-
           --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
-    env:
-      TRAILBEAM_TEST_POSTGRES_URL: postgresql://postgres:postgres@localhost:${{ job.services.postgres.ports['5432'] }}/postgres
     defaults:
       run:
         working-directory: python
     steps:
       - uses: actions/checkout@v4
+      - name: Point the tests at this job's Postgres (random host port)
+        run: echo "TRAILBEAM_TEST_POSTGRES_URL=postgresql://postgres:postgres@localhost:${{ job.services.postgres.ports['5432'] }}/postgres" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -85,13 +85,13 @@ jobs:
         image: softwaremill/elasticmq-native:1.6.15
         ports:
           - 9324   # random host port: several runners share one machine
-    env:
-      TRAILBEAM_TEST_SQS_ENDPOINT: http://localhost:${{ job.services.elasticmq.ports['9324'] }}
     defaults:
       run:
         working-directory: node
     steps:
       - uses: actions/checkout@v4
+      - name: Point the tests at this job's ElasticMQ (random host port)
+        run: echo "TRAILBEAM_TEST_SQS_ENDPOINT=http://localhost:${{ job.services.elasticmq.ports['9324'] }}" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
