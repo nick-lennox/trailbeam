@@ -523,8 +523,9 @@ version is older, it upgrades the schema, one replica at a time under an advisor
 server older than the schema refuses to start (`written by a newer Trailbeam`), so it can't damage the data, but it
 can't run on the upgraded database either: to go back, restore a backup taken before the upgrade. A replica only
 checks the version when it starts. So when a release changes the Postgres schema, stop every replica before you
-start the new version, unless that release's notes say a rolling upgrade is safe. This version has the first
-Postgres schema, so no upgrade has happened yet.
+start the new version, unless that release's notes say a rolling upgrade is safe ([CHANGELOG](CHANGELOG.md)
+says which releases change it). An older replica still running would store spans the new schema doesn't index.
+This version upgrades a 0.2.0 database to Postgres schema 2: stop every 0.2.0 replica first.
 
 **Postgres.** For a minor version, use your package manager's or provider's update. While the database restarts,
 `/api/ready` answers `503` and exports are answered `503` with `Retry-After`, so exporters send them again. For a
