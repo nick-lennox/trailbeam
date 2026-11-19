@@ -63,9 +63,16 @@ until autoanalyze reaches them, and with none Postgres estimates ``rclass = c AN
 the partition, whatever it holds, so the export's statements pick plans for an empty table (a hash of the
 whole partition for the settle UPDATE). Once this replica has written ``ANALYZE_AFTER_SPANS`` spans to a place
 whose partitions have never been analysed, it analyses them, after that export commits.
+
+**Locks** (QV-107). The locks a page takes on every place's partitions and indexes are held in Postgres's
+shared lock table, whose size is fixed by ``max_locks_per_transaction``. So what that setting must be grows with
+the places and the read pool: ``lock_need`` (pg_schema.py) works it out, checked at start and as places are
+added, and a shortfall is logged as a warning saying what to set. The table is shared, so pages filling it fail
+exports too; a full lock table is reported as that, on ingest and on reads, not as an unreachable database.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -192,9 +199,13 @@ class PostgresStore(Store):
         self.retention = retention
         self.bucket_ns = int(bucket_ns)
         self.retention_granularity_ns = self.bucket_ns
+        self._lock_connections = read_connections  # pages: the only statements that lock every place ("Locks")
+        self._lock_warned_at: Optional[float] = None
+        self.lock_need: Optional[pg_schema.LockNeed] = None
         with psycopg.connect(url, autocommit=True) as c:
             self.migrated = pg_schema.open_schema(c)
             self.server_version = c.info.server_version
+            self._check_locks(c)
             # the retention lease's advisory lock key: one per schema, so two Trailbeams in one database don't share it
             self._lease_key = _key("retention lease:" + c.execute("SELECT current_schema()").fetchone()[0])
 
@@ -271,6 +282,35 @@ class PostgresStore(Store):
                         pass  # another server made it at the same moment
                 c.execute("INSERT INTO places (rclass, bucket) VALUES (%s, %s) ON CONFLICT DO NOTHING",
                           (rclass, bucket))
+            self._check_locks(c, throttle_s=self.LOCK_WARNING_INTERVAL_S)
+
+    LOCK_WARNING_INTERVAL_S = 3600.0  # a shortfall found as places are added is logged at most this often
+
+    def _check_locks(self, conn, throttle_s: float = 0.0) -> None:
+        """Compare what this replica's statements can lock with the server's lock table (pg_schema.LockNeed),
+        and warn when it is short. Never raises: the check must not stop a store that works under light load."""
+        try:
+            need = pg_schema.lock_need(conn, self._lock_connections)
+        except psycopg.Error as e:
+            log.info("could not check max_locks_per_transaction: %s", e)
+            return
+        self.lock_need = need
+        if not need.short:
+            return
+        now = time.monotonic()
+        if throttle_s and self._lock_warned_at is not None and now - self._lock_warned_at < throttle_s:
+            return
+        self._lock_warned_at = now
+        log.warning("%s", need.message())
+
+    def _lock_table_full(self, e: BaseException) -> Optional[str]:
+        """For a "out of shared memory" error from the lock table: what to say about it; else None."""
+        if not isinstance(e, errors.OutOfMemory) or "max_locks_per_transaction" not in (e.diag.message_hint or ""):
+            return None
+        need = self.lock_need
+        return ("Postgres's lock table is full (out of shared memory: too many partitions locked at once). "
+                + (need.message() if need is not None and need.short else
+                   "Raise max_locks_per_transaction (README: Postgres lock table)"))
 
     @staticmethod
     def _lock_places(conn, places) -> dict:
@@ -374,6 +414,10 @@ class PostgresStore(Store):
         except (psycopg.OperationalError, psycopg_pool.PoolTimeout) as e:
             if isinstance(e, errors.QueryCanceled):
                 raise  # a statement timeout: the database is there, the export is too slow
+            full = self._lock_table_full(e)
+            if full is not None:  # the database is there, and the export may pass when it is sent again
+                log.error("export not stored: %s", full)
+                raise StoreUnavailable(full) from None
             raise StoreUnavailable(f"Postgres is unreachable: {e}") from None
         if self._to_analyse:
             self._analyse_due()
@@ -833,7 +877,7 @@ class PostgresStore(Store):
             parts = resume.split(":", 3)
             start = (int(parts[0]), int(parts[1]))
             sweep_after = (int(parts[2]), parts[3]) if len(parts) == 4 else None
-        with self.reads.connection() as c:
+        with self._reading() as c:
             places = c.execute(
                 """SELECT rclass, bucket, state, swept FROM places WHERE (bucket, rclass) >= (%s, %s)
                    ORDER BY bucket, rclass LIMIT 1000""", start).fetchall()
@@ -1012,8 +1056,20 @@ class PostgresStore(Store):
 
     # ---- reads ----------------------------------------------------------------------------
 
-    def _all(self, query, params=()) -> list:
+    @contextlib.contextmanager
+    def _reading(self):
+        """A read connection; a full lock table is logged as that before the error goes on."""
         with self.reads.connection() as c:
+            try:
+                yield c
+            except errors.OutOfMemory as e:
+                full = self._lock_table_full(e)
+                if full is not None:
+                    log.error("read failed: %s", full)
+                raise
+
+    def _all(self, query, params=()) -> list:
+        with self._reading() as c:
             return c.execute(query, params).fetchall()
 
     def _by_message(self, mids, query) -> list:
@@ -1117,7 +1173,7 @@ class PostgresStore(Store):
         return {r["mid"] for r in self._all("SELECT mid FROM message_queues WHERE queue = %s", (queue,))}
 
     def tenant_activity(self, from_ms: int, to_ms: int) -> list[TenantActivity]:
-        with self.reads.connection() as c:
+        with self._reading() as c:
             totals = c.execute(
                 """SELECT tenant, SUM(CASE WHEN kind = 'sent' THEN 1 ELSE 0 END) AS sent,
                           COUNT(DISTINCT CASE WHEN kind = 'dead_lettered' THEN mid END) AS dead_lettered
@@ -1147,7 +1203,7 @@ class PostgresStore(Store):
                       " AND q.mid = t.mid)")
             p.append(queue)
         found = []
-        with self.reads.connection() as c:
+        with self._reading() as c:
             key = (lo, "")
             while True:
                 nxt = c.execute(
@@ -1191,7 +1247,7 @@ class PostgresStore(Store):
         return self._all('SELECT MAX("row") AS n FROM spans')[0]["n"] or 0
 
     def counts(self) -> dict:
-        with self.reads.connection() as c:
+        with self._reading() as c:
             kinds = {r["kind"]: r["n"] for r in c.execute("SELECT kind, COUNT(*) AS n FROM spans GROUP BY kind")}
             unjoined = c.execute("""SELECT COUNT(*) AS n FROM spans
                                     WHERE kind IN ('delete', 'change_visibility') AND receive_row IS NULL""").fetchone()["n"]

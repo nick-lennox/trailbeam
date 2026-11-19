@@ -20,6 +20,11 @@
 - **Postgres: a new day's partition is analyzed once a replica has written 1,000 spans to it.** Until then
   Postgres has no statistics for it and plans it as empty. On a 200,000-row partition, that made the
   receipt-hash update take 55–68 ms instead of 0.6 ms.
+- **Postgres: the server says when `max_locks_per_transaction` is too low.** List pages, `/api/health` and the
+  counts still lock every day partition, so with enough partitions concurrent pages fill Postgres's lock table.
+  At start and as partitions are added, the server works out the value it needs and logs a warning with it
+  (on a stock Postgres, from about 80 partitions). A request that fails on a full lock table is logged as that,
+  and an export gets 503 with `Retry-After`, not "Postgres is unreachable". README: Postgres lock table.
 
 ### Upgrading from 0.2.0 (Postgres)
 

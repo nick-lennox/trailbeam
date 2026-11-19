@@ -346,3 +346,83 @@ def place_ddl(rclass: int, bucket: int) -> list[str]:
     return [f"CREATE TABLE IF NOT EXISTS {partition_name(t, rclass, bucket)} PARTITION OF {t} "
             f"FOR VALUES FROM ({int(rclass)}, {int(bucket)}) TO ({int(rclass)}, {int(bucket) + 1})"
             for t in PARTITIONED]
+
+
+# ---- the lock table (QV-107) ----------------------------------------------------------------------------------
+#
+# A statement on a partitioned table whose WHERE can't prune by place (a message ID, a receipt hash, a page
+# across all of time) locks every partition and every partition's index until its transaction ends: about one
+# lock per table and index of each place, per connection. Those locks live in Postgres's shared lock table,
+# sized at server start (src/backend/storage/lmgr/lock.c NLOCKENTS and postinit.c InitializeMaxBackends, REL_14_STABLE):
+# max_locks_per_transaction x (max_connections + autovacuum_max_workers + 1 + max_worker_processes
+# + max_wal_senders + max_prepared_transactions) locked objects, and twice that (object, backend) pairs. When it
+# is full, any statement fails with "out of shared memory". On a stock server (64 x 122 = 7,808 objects) the
+# lock count of Trailbeam's own statements grows with the number of places, so the check below says what
+# setting a store's places and pools need.
+
+LOCK_SETTINGS = ("max_locks_per_transaction", "max_connections", "autovacuum_max_workers", "max_worker_processes",
+                 "max_wal_senders", "max_prepared_transactions")
+
+
+@dataclass(frozen=True)
+class LockNeed:
+    """What one replica can lock at once, against what the server has room for. ``settings``: LOCK_SETTINGS,
+    as ints; ``relations_per_place``: the partitioned tables and indexes (one partition of each per place);
+    ``connections``: this replica's connections that can run a page at once (the read pool: since
+    QV-113 pages are the only statements that lock every place)."""
+    places: int
+    relations_per_place: int
+    connections: int
+    settings: dict
+
+    @property
+    def backends(self) -> int:
+        s = self.settings
+        return (s["max_connections"] + s["autovacuum_max_workers"] + 1 + s["max_worker_processes"]
+                + s["max_wal_senders"] + s["max_prepared_transactions"])
+
+    @property
+    def objects(self) -> int:
+        """Relations one page may hold a lock on at once: every table and index of every place."""
+        return self.places * self.relations_per_place
+
+    @property
+    def holders(self) -> int:
+        """(relation, connection) pairs, with every read connection of the replica in a page at once."""
+        return self.objects * self.connections
+
+    @property
+    def required(self) -> int:
+        """The least max_locks_per_transaction with room for both (ignoring Postgres's 10 % margin)."""
+        b = self.backends
+        return max(-(-self.objects // b), -(-self.holders // (2 * b)), 1)
+
+    @property
+    def short(self) -> bool:
+        return self.required > self.settings["max_locks_per_transaction"]
+
+    def message(self) -> str:
+        have = self.settings["max_locks_per_transaction"]
+        return (f"Postgres lock table: this replica's statements can lock up to {self.holders:,} tables and indexes "
+                f"at once ({self.places} places x {self.relations_per_place} tables and indexes x "
+                f"{self.connections} read connections), but max_locks_per_transaction = {have} leaves room for "
+                f"{2 * have * self.backends:,} ({2 * have} x {self.backends} server processes). Under concurrent "
+                f"pages, statements (exports too) fail with \"out of shared memory\". Set max_locks_per_transaction to "
+                f"at least {self.required} (and restart Postgres); with more replicas on this database, multiply by "
+                f"their number; it grows as places are added (README: Postgres lock table)")
+
+
+def lock_need(conn, connections: int) -> LockNeed:
+    """LockNeed for the current schema's places and the server's settings. ``conn``: any psycopg connection."""
+    rows = conn.execute("SELECT name, setting FROM pg_settings WHERE name = ANY(%s)", (list(LOCK_SETTINGS),)).fetchall()
+    settings = {(r["name"] if isinstance(r, dict) else r[0]): int(r["setting"] if isinstance(r, dict) else r[1])
+                for r in rows}
+    places = _one(conn.execute("SELECT COUNT(*) FROM places").fetchone())
+    per_place = _one(conn.execute(
+        "SELECT COUNT(*) FROM pg_class WHERE relnamespace = current_schema()::regnamespace AND relkind IN ('p', 'I')"
+    ).fetchone())
+    return LockNeed(places, per_place, connections, settings)
+
+
+def _one(row):
+    return next(iter(row.values())) if isinstance(row, dict) else row[0]
