@@ -10,6 +10,11 @@
   lookup tables make this possible: one row per message ID and one per receipt handle. On our test machine,
   seeding 205,000 spans wrote 29% more WAL (852 MB against 658 MB), the database grew 6% (33 MB), and the
   seed took 48 s instead of 90 s.
+- **Postgres: the server says when `max_locks_per_transaction` is too low.** List pages, `/api/health` and the
+  counts still lock every day partition, so with enough partitions concurrent pages fill Postgres's lock table.
+  At start and as partitions are added, the server works out the value it needs and logs a warning with it
+  (on a stock Postgres, from about 80 partitions). A request that fails on a full lock table is logged as that,
+  and an export gets 503 with `Retry-After`, not "Postgres is unreachable". README: Postgres lock table.
 
 ### Upgrading from 0.2.0 (Postgres)
 

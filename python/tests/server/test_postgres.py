@@ -5,6 +5,7 @@ and abandoned exports.
 The tests that need a database run when TRAILBEAM_TEST_POSTGRES_URL names one the tests may create schemas in
 (CI: Postgres 14 and 16 service containers); the conformance suite runs on it too (tests/conformance).
 """
+import contextlib
 import os
 import subprocess
 import sys
@@ -336,6 +337,143 @@ def test_ready_fails_and_ingest_answers_503_while_postgres_is_unreachable(pg_sto
         httpd.server_close()
         s.close()
     assert direct.counts()["spans"] == {}
+
+
+# ---- the lock table (QV-107) ------------------------------------------------------------------------------
+
+STOCK = {"max_locks_per_transaction": 64, "max_connections": 100, "autovacuum_max_workers": 3,
+         "max_worker_processes": 8, "max_wal_senders": 10, "max_prepared_transactions": 0}
+
+
+def test_lock_need_is_what_the_places_and_pages_can_lock_against_the_lock_table():
+    """lock.c's NLOCKENTS: max_locks_per_transaction x server processes objects, twice that (object, backend)
+    pairs. A stock Postgres 14 has 122 processes: 7,808 objects, 15,616 pairs. The connections that count are
+    the read pool's (8 by default): pages are what locks every place."""
+    from trailbeam.server.pg_schema import LockNeed
+
+    few = LockNeed(places=10, relations_per_place=24, connections=8, settings=STOCK)
+    assert (few.backends, few.objects, few.holders) == (122, 240, 1_920)
+    assert few.required == 8 and not few.short  # ceil(1,920 / 244)
+    many = LockNeed(places=400, relations_per_place=24, connections=8, settings=STOCK)
+    assert many.required == 315 and many.short  # ceil(76,800 / 244)
+    assert "max_locks_per_transaction to at least 315" in many.message()
+    one = LockNeed(places=400, relations_per_place=24, connections=1, settings=STOCK)
+    assert one.required == 79  # a single connection: the objects themselves bind, ceil(9,600 / 122)
+    assert not LockNeed(400, 24, 8, {**STOCK, "max_locks_per_transaction": 315}).short
+
+
+@contextlib.contextmanager
+def _held_pages(s, n):
+    """``n`` pages (recent_messages) at once, each held at the end of its transaction (every lock it took still
+    held) until the block ends. Yields, once every page has run or failed, what each gave: None, or the error."""
+    out = [None] * n
+    ran = threading.Semaphore(0)
+    release = threading.Event()
+
+    def held_all(query, params=()):
+        with s._reading() as c, c.transaction():
+            rows = c.execute(query, params).fetchall()
+            ran.release()
+            release.wait(120)
+            return rows
+    s._all = held_all
+
+    def page(i):
+        try:
+            s.recent_messages(50)
+        except Exception as e:
+            out[i] = e
+            ran.release()
+    threads = [threading.Thread(target=page, args=(i,)) for i in range(n)]
+    try:
+        for t in threads:
+            t.start()
+        for _ in range(n):
+            assert ran.acquire(timeout=120), "a page neither ran nor failed"
+        yield out
+    finally:
+        release.set()
+        for t in threads:
+            t.join(120)
+        del s._all
+
+
+def _fill_the_lock_table(url) -> "psycopg.Connection":
+    """A connection holding session advisory locks until the lock table has no room left (one more lock: "out of
+    shared memory"). Session advisory locks outlive the statement that failed, so the table stays full until
+    the connection is closed."""
+    import psycopg
+
+    c = psycopg.connect(url, autocommit=True)
+    k = 0
+    try:
+        while k < 10_000_000:
+            c.execute("SELECT pg_advisory_lock(k) FROM generate_series(%s::bigint, %s::bigint) k", (k, k + 999))
+            k += 1000
+    except psycopg.errors.OutOfMemory:
+        return c
+    c.close()
+    raise AssertionError("the lock table never filled")
+
+
+@needs_pg
+def test_many_places_fill_a_default_postgres_lock_table_and_the_store_says_so(pg_store, caplog):
+    """QV-107: a page (a walk across all of time) locks every place's partitions and indexes, so what pages lock
+    grows with the places (since QV-113 exports don't: they lock their own places only). On a stock Postgres
+    (max_locks_per_transaction = 64), 150 daily places and 32 pages at once fill the lock table: "out of shared
+    memory". The store warns at start and as places are added, with the setting to use, and reports the
+    failure as a full lock table, not as an unreachable database: a page in the log, an export (the table is
+    shared) as that in its error. The places are empty: their partitions are locked all the same."""
+    import psycopg
+
+    from trailbeam.server.postgres import PostgresStore
+    from trailbeam.server.store import StoreUnavailable
+
+    s = pg_store(read_connections=32)
+    if s.lock_need.settings != STOCK:
+        pytest.skip(f"needs a Postgres with stock lock settings, not {s.lock_need.settings}")
+    assert not s.lock_need.short  # a new store: nothing to warn about
+    day0 = D0 // DAY
+
+    # a few places: 32 pages at once run
+    s._ensure_places({(0, day0 + d) for d in range(10)})
+    assert not s.lock_need.short
+    with _held_pages(s, 32) as out:
+        assert out == [None] * 32
+
+    caplog.set_level("WARNING", logger="trailbeam.server.postgres")
+    s._ensure_places({(0, day0 + d) for d in range(150)})
+    need = s.lock_need
+    assert need.places == 150 and need.short and need.required > 64
+    assert f"max_locks_per_transaction to at least {need.required}" in caplog.text
+
+    caplog.clear()
+    w = Consumer()
+    export = records([w.send((day0 + 149) * DAY + SEC, "full"), w.receive((day0 + 149) * DAY + 2 * SEC, "full", "hf")])
+    with _held_pages(s, 32) as out:
+        failed = [e for e in out if e is not None]
+        assert failed, "32 pages over 150 places did not fill a stock lock table"
+        for e in failed:
+            assert isinstance(e, psycopg.errors.OutOfMemory), repr(e)
+        assert "read failed: Postgres's lock table is full" in caplog.text
+        assert f"at least {need.required}" in caplog.text
+        # top the table up to full (the failed pages let go of theirs): an export finds no room either
+        filler = _fill_the_lock_table(s.url)
+        try:
+            with pytest.raises(StoreUnavailable) as e:
+                s.insert(export)
+            assert "lock table is full" in str(e.value) and "unreachable" not in str(e.value), str(e.value)
+            assert f"at least {need.required}" in str(e.value)
+        finally:
+            filler.close()
+    assert s.insert(export)[0] == 2  # room again: the same export is stored
+
+    caplog.clear()  # a replica starting on these places says so at start
+    other = PostgresStore(s.url, read_connections=32)
+    try:
+        assert f"max_locks_per_transaction to at least {need.required}" in caplog.text
+    finally:
+        other.close()
 
 
 # ---- what one export locks (QV-113) -----------------------------------------------------------------------
