@@ -92,9 +92,10 @@ CREATE TABLE IF NOT EXISTS tenant_events (
 
 TABLES = ("messages", "message_queues", "message_tenants", "tenant_events")
 LISTS = ("queues_json", "tenants_json", "events_json")  # the lists that key the other tables' rows
-COLUMNS = FIELDS + LISTS + ("rows_json",)
+COLUMNS = FIELDS + LISTS  # the summary columns both stores keep (postgres.py imports these)
+_SQLITE_COLUMNS = COLUMNS + ("rows_json",)  # SQLite also lists a message's span rows: it has no spans_mid index
 
-_UPSERT = f"INSERT INTO messages ({', '.join(COLUMNS)}) VALUES ({', '.join('?' * len(COLUMNS))})"
+_UPSERT = f"INSERT INTO messages ({', '.join(_SQLITE_COLUMNS)}) VALUES ({', '.join('?' * len(_SQLITE_COLUMNS))})"
 _ROWS = "SELECT * FROM spans WHERE row IN (SELECT value FROM json_each(?))"
 _OLD = f"SELECT mid, last_ns, tenant, {', '.join(LISTS)} FROM messages WHERE mid = ?"
 _DEL_QUEUE = "DELETE FROM message_queues WHERE queue = ? AND last_ns = ? AND mid = ?"
@@ -234,7 +235,7 @@ def refresh(conn: sqlite3.Connection, changes: Changes) -> None:
             continue
         lists = _lists(new)
         values = [new[f] for f in FIELDS] + list(lists) + [new["rows_json"]]
-        changed = [(c, v) for c, v in zip(COLUMNS, values) if old[c] != v]
+        changed = [(c, v) for c, v in zip(_SQLITE_COLUMNS, values) if old[c] != v]
         if not changed:
             continue
         conn.execute(f"UPDATE messages SET {', '.join(c + ' = ?' for c, _ in changed)} WHERE mid = ?",
