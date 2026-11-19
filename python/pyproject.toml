@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trailbeam"
-version = "0.1.0.dev0"
+version = "0.2.0"
 description = "Message-level timelines for Amazon SQS: OpenTelemetry hooks for boto3 and AWS Lambda, and, with the server extra, Trailbeam itself."
 readme = "README.md"
 license = "Apache-2.0"
