@@ -336,3 +336,105 @@ def test_ready_fails_and_ingest_answers_503_while_postgres_is_unreachable(pg_sto
         httpd.server_close()
         s.close()
     assert direct.counts()["spans"] == {}
+
+
+# ---- the lock table (QV-107) ------------------------------------------------------------------------------
+
+STOCK = {"max_locks_per_transaction": 64, "max_connections": 100, "autovacuum_max_workers": 3,
+         "max_worker_processes": 8, "max_wal_senders": 10, "max_prepared_transactions": 0}
+
+
+def test_lock_need_is_what_the_places_and_pools_can_lock_against_the_lock_table():
+    """lock.c's NLOCKENTS: max_locks_per_transaction x server processes objects, twice that (object, backend)
+    pairs. A stock Postgres 14 has 122 processes: 7,808 objects, 15,616 pairs."""
+    from trailbeam.server.pg_schema import LockNeed
+
+    few = LockNeed(places=10, relations_per_place=25, connections=13, settings=STOCK)
+    assert (few.backends, few.objects, few.holders) == (122, 250, 3_250)
+    assert few.required == 14 and not few.short  # ceil(3,250 / 244)
+    many = LockNeed(places=400, relations_per_place=25, connections=13, settings=STOCK)
+    assert many.required == 533 and many.short  # ceil(130,000 / 244)
+    assert "max_locks_per_transaction to at least 533" in many.message()
+    one = LockNeed(places=400, relations_per_place=25, connections=1, settings=STOCK)
+    assert one.required == 82  # a single connection: the objects themselves bind, ceil(10,000 / 122)
+    assert not LockNeed(400, 25, 13, {**STOCK, "max_locks_per_transaction": 533}).short
+
+
+def _held_exports(s, n, bucket0, t_bucket):
+    """``n`` exports at once, each held at the end of its transaction (every lock it took still held) until all
+    are there or one has failed. Returns the exceptions (None for a stored export)."""
+    import concurrent.futures
+
+    from trailbeam.server.postgres import PostgresStore
+
+    # first one export there, not held: the place's place_queues row is then written (held exports writing it
+    # at once would each wait for the first, held, one)
+    w = Consumer(client_id="first")
+    s.insert(records([w.send(t_bucket * DAY, f"first-{t_bucket}")]))
+    both = threading.Barrier(n, timeout=60)
+    refresh = PostgresStore._refresh
+
+    def held(conn, mids):
+        refresh(s, conn, mids)
+        try:
+            both.wait()
+        except threading.BrokenBarrierError:
+            pass
+    s._refresh = held
+
+    def export(i):
+        w, t = Consumer(client_id=f"c{i}"), t_bucket * DAY + (i + 1) * 10 * SEC
+        try:
+            s.insert(records([w.send(t, f"held-{i}"), w.receive(t + SEC, f"held-{i}", f"hh{i}"),
+                              w.delete(t + 2 * SEC, f"hh{i}")]))
+            return None
+        except Exception as e:
+            both.abort()
+            return e
+    try:
+        with concurrent.futures.ThreadPoolExecutor(n) as pool:
+            return list(pool.map(export, range(n)))
+    finally:
+        del s._refresh
+
+
+@needs_pg
+def test_many_places_fill_a_default_postgres_lock_table_and_the_store_says_so(pg_store, caplog):
+    """QV-107: a statement that can't prune by place locks every place's partitions and indexes, so what an
+    export locks grows with the places. On a stock Postgres (max_locks_per_transaction = 64) 150 daily places
+    and 16 exports at once fill the lock table: "out of shared memory". The store warns at start and as places
+    are added, with the setting to use, and reports the failure as a full lock table, not as an unreachable
+    database. The places are empty: their partitions are locked all the same."""
+    from trailbeam.server.postgres import PostgresStore
+    from trailbeam.server.store import StoreUnavailable
+
+    s = pg_store(ingest_connections=16)
+    if s.lock_need.settings != STOCK:
+        pytest.skip(f"needs a Postgres with stock lock settings, not {s.lock_need.settings}")
+    assert not s.lock_need.short  # a new store: nothing to warn about
+    day0 = D0 // DAY
+
+    # a few places: 16 exports at once are stored
+    s._ensure_places({(0, day0 + d) for d in range(10)})
+    assert not s.lock_need.short
+    assert _held_exports(s, 16, day0, day0 + 9) == [None] * 16
+
+    caplog.set_level("WARNING", logger="trailbeam.server.postgres")
+    s._ensure_places({(0, day0 + d) for d in range(150)})
+    need = s.lock_need
+    assert need.places == 150 and need.short and need.required > 64
+    assert f"max_locks_per_transaction to at least {need.required}" in caplog.text
+
+    failed = [e for e in _held_exports(s, 16, day0, day0 + 149) if e is not None]
+    assert failed, "16 exports over 150 places did not fill a stock lock table"
+    for e in failed:
+        assert isinstance(e, StoreUnavailable), repr(e)
+        assert "lock table is full" in str(e) and "unreachable" not in str(e), str(e)
+        assert f"at least {need.required}" in str(e)
+
+    caplog.clear()  # a replica starting on these places says so at start
+    other = PostgresStore(s.url, ingest_connections=16)
+    try:
+        assert f"max_locks_per_transaction to at least {need.required}" in caplog.text
+    finally:
+        other.close()
