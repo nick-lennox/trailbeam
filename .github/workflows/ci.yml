@@ -262,6 +262,10 @@ jobs:
         with:
           name: concurrency-check-results
           path: demo/results/
+      # check.sh leaves the stack up for local reruns; on a runner it would pile up and use up Docker's networks
+      - name: Tear down
+        if: always()
+        run: docker compose -f demo/compose.yaml down -v --remove-orphans || true
 
   concurrency-check-aws:
     # The same check against real SQS in us-east-1, with the 90% floor gating (demo/README.md#the-floor-in-ci).
@@ -311,3 +315,7 @@ jobs:
         with:
           name: concurrency-check-aws-results
           path: demo/results/
+      # check.sh leaves the stack up for local reruns; on a runner it would pile up and use up Docker's networks
+      - name: Tear down
+        if: always()
+        run: docker compose -f demo/compose.yaml down -v --remove-orphans || true
