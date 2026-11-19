@@ -3,6 +3,8 @@
 # Written from python/src/trailbeam/server/server.py. The server is a plain http.server handler, so this
 # file is not generated: when a route, a parameter or a response field changes there, change it here in
 # the same commit. docs.trailbeam.app builds its API reference from this file.
+# python/tests/server/test_openapi.py fails when the two disagree: routes, query parameters and their
+# bounds and defaults, and every response the server tests produce, validated against this file.
 #
 # x-example-request, on an operation, is the request that returned the operation's 200 example, from a
 # server holding contract/fixtures/contract-3.2-spans.json.
@@ -841,17 +843,43 @@ paths:
           content:
             text/plain:
               schema: {type: string}
-        '503':
-          description: The store is unreachable (Postgres store only). Nothing was stored. Send the export again.
+        '429':
+          description: |
+            Queue full: the server already has as many exports in progress as it takes at once
+            (`TRAILBEAM_INGEST_MAX_PENDING`, default 16). The export was not decoded and nothing was stored.
+            Send it again after `Retry-After`; OTLP/HTTP exporters do. The body is a `google.rpc.Status`
+            in the request's encoding.
           headers:
             Retry-After:
-              description: Seconds to wait before the next attempt.
-              schema: {type: string, const: '1'}
+              $ref: '#/components/headers/IngestRetryAfter'
           content:
-            text/plain:
-              schema: {type: string}
-              example: the store is unreachable, try again
+            application/x-protobuf:
+              schema: {type: string, format: binary}
+            application/json:
+              schema: {$ref: '#/components/schemas/IngestStatus'}
+              example: {"code": 8, "message": "Trailbeam is busy: 16 exports in progress, the most it takes at once (TRAILBEAM_INGEST_MAX_PENDING). Retry after 1 s."}
+        '503':
+          description: |
+            Nothing was stored. Send the export again after `Retry-After`; OTLP/HTTP exporters do. Either the
+            writer is behind (the exports ahead of this one did not finish writing in
+            `TRAILBEAM_INGEST_MAX_WAIT_S`, default 2 s; `Retry-After` is the estimated backlog, 1 to 3 s), or
+            the store is unreachable (`Retry-After: 1`). The body is a `google.rpc.Status` in the request's
+            encoding.
+          headers:
+            Retry-After:
+              $ref: '#/components/headers/IngestRetryAfter'
+          content:
+            application/x-protobuf:
+              schema: {type: string, format: binary}
+            application/json:
+              schema: {$ref: '#/components/schemas/IngestStatus'}
+              example: {"code": 14, "message": "Trailbeam can't reach its store (the database is down or unreachable). Nothing in this export was stored. Retry after 1 s."}
 components:
+  headers:
+    IngestRetryAfter:
+      description: Whole seconds to wait before sending the export again, from 1 to 3.
+      required: true
+      schema: {type: string, enum: ['1', '2', '3']}
   securitySchemes:
     accessToken:
       type: http
@@ -1601,6 +1629,16 @@ components:
         longest_reclaim_step_ms: {type: number}
         stopped: {type: boolean, description: Whether the pass was stopped before it finished.}
         seconds: {type: number, description: How long the pass took. Present once the pass has ended.}
+    IngestStatus:
+      type: object
+      description: |
+        A `google.rpc.Status` in the JSON encoding: why the export was not taken. `code` is the gRPC status:
+        8 (`RESOURCE_EXHAUSTED`) with `429`, 14 (`UNAVAILABLE`) with `503`.
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code: {type: integer, enum: [8, 14]}
+        message: {type: string}
     ExportResponse:
       type: object
       description: An OTLP `ExportTraceServiceResponse` in the JSON encoding. Empty when no span was rejected.
