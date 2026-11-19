@@ -532,7 +532,7 @@ contract, the specification the packages and Trailbeam both follow, is
 | [`Dockerfile`](Dockerfile) | The Trailbeam container: `trailbeam[server]` with SQLite on a volume |
 | [`collector/`](collector/) | OpenTelemetry Collector configuration |
 | [`demo/`](demo/) | Local demo on ElasticMQ with Docker Compose, and the concurrency check (`demo/check.sh`) |
-| [`contract/`](contract/) | The span contract, the receipt-hash test vectors, the Tenants query ([`tenants.md`](contract/tenants.md)) and the recorded contract 3.2 spans both Trailbeam and the hosted app test against ([`fixtures/`](contract/fixtures/)) |
+| [`contract/`](contract/) | The span contract, the receipt-hash test vectors, the server's API and ingest endpoint as OpenAPI ([`openapi.yaml`](contract/openapi.yaml)), the Tenants query ([`tenants.md`](contract/tenants.md)) and the recorded contract 3.2 spans both Trailbeam and the hosted app test against ([`fixtures/`](contract/fixtures/)) |
 
 ## Development
 
