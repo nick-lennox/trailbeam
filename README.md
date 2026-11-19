@@ -403,13 +403,35 @@ and readiness probes and a Service, on a Postgres you run. The image needs the P
 
 By default (`full`), an export is answered 200 only after its spans are committed and synced to disk
 (SQLite `synchronous = FULL`). On a slow or shared disk that sync is most of an export's time: on the
-QV-78 benchmark machine, about 150–180 ms at p99 for one 512-span export.
+QV-78 desktop benchmark machine (a WSL2 virtual disk), about 150–180 ms at p99 for one 512-span export.
+On an AWS EBS gp3 volume the same sync is about 35 ms at p99, and `relaxed` made no measurable
+difference there (see [Sizing](#sizing-one-sqlite-server)).
 
 `--durability relaxed` (env `TRAILBEAM_DURABILITY=relaxed`) skips the sync per export (SQLite
 `synchronous = NORMAL`): the log is synced at checkpoints, about once a second. A crash of the
 Trailbeam process loses nothing that was answered 200. An OS crash or power loss can lose the exports
 answered 200 in the last moments before it, and the file stays consistent. The server logs a warning at
 start when it's set. It applies to the SQLite file only; with Postgres, use its `synchronous_commit`.
+
+### Sizing one SQLite server
+
+Measured with the benchmark harness (`python/bench/harness.py --sizes 1M --rates 1000sp`): 1M stored
+spans, 1,000 spans/s ingest, the load generator on the same machine. Export p99 is over one 30 s step
+(about 60 exports) idle, and over 60 s while the read pages are timed.
+
+| machine | durability | export p99, idle | export p99, while pages load | slowest page p95 while ingesting |
+|---|---|---|---|---|
+| desktop, 16 threads, 11.7 GB RAM, WSL2 virtual disk | `full` (default) | 336 ms | 583 ms | `tenants`, 153 ms |
+| same | `relaxed` | 199 ms | 365 ms | `tenants`, 160 ms |
+| AWS t3.small, 2 vCPU, 2 GB RAM, EBS gp3 | `full` (default) | 1.5–2.3 s | 1.4–4.4 s | `tenants`, 0.5–0.76 s |
+| same | `relaxed` | 1.5–1.6 s | 1.5–3.7 s | `tenants`, 0.53–0.61 s |
+
+On the t3.small, ingest kept up at 1,000 spans/s, and every 200 was stored. The 1M file (2 GB) is larger
+than the machine's RAM, so writes wait on disk reads, and the server shares its 2 vCPUs with the load
+generator. At 300k spans (a file that fits in RAM) export p99 was still about 1.3 s for both modes.
+The sync per export was not the limit there. For export p99 under about 500 ms at 1M spans, plan for
+RAM larger than the database file and more than 2 vCPUs. The gain from more CPU and RAM is an
+estimate; it hasn't been measured on a larger instance.
 
 ### When Trailbeam is overloaded: 429, 503 and Retry-After
 
