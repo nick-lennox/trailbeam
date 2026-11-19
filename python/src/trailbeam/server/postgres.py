@@ -50,7 +50,19 @@ retention looks a message ID or a receipt hash up across all places: the lookup 
 ``plan_cache_mode = force_custom_plan``: psycopg prepares a statement run often, and Postgres's generic plan of
 it would lock every partition. What an export locks is then the partitions of the places its messages and
 hashes are in, however many places the store has (85 lock entries for a four-span export joining across two
-places, with 10 places or 400). Pages (walks across all of time) still lock every place.
+places, with 10 places or 400).
+
+**Pages** (QV-116): the lists of messages, stuck messages, tenants, a queue's messages, ``counts`` and
+``last_row`` read across all of time. They walk the places a batch at a time (``PAGE_PLACES`` a statement, each
+named as above), each statement in its own transaction, so a page holds one batch's locks at a time however
+many places there are. The newest-first lists start at the newest bucket and stop once the page is full and the
+next place can't hold a row newer than the page's last: a place's rows are no newer than its bucket's end
+(``_top_ns``). A ``from`` time skips the places that end before it. The stuck list (by ``stuck_first_ns``,
+which no bucket bounds), the tenant search and activity, a queue's messages, ``counts`` and ``last_row`` read
+every place, a batch at a time. Each batch reads its own snapshot, not one for the whole page. So a message
+that moves to a newer place while a page is read (a span of it came) is listed once if both batches see it,
+and not at all if the batch with its new place ran before it moved and the one with its old place after. The
+next page doesn't list it either: it is newer than the cursor now, as when the span comes between two pages.
 """
 from __future__ import annotations
 
@@ -122,17 +134,21 @@ def _body_bytes(text: str) -> bytes:
     return text.encode("utf-8", "surrogatepass")
 
 
-def _each(places, query: str, params=(), alias: str = "") -> tuple[str, list]:
+def _each(places, query: str, params=(), alias: str = "", **aliases: str) -> tuple[str, list]:
     """``query`` once per place, ``{p}`` its WHERE term naming the place (columns of ``alias``), as one UNION ALL,
-    and the parameters of every copy. The place is a literal, so each copy is pruned to its place's partition when
-    it is planned, in a generic plan too (module docstring, "Locks"). Not one statement with several places:
+    and the parameters of every copy. The place is a literal, so each copy is pruned to its place's partition
+    when it is planned, in a generic plan too (module docstring, "Locks"). Each of ``aliases`` is another such
+    term: ``q="q"`` makes ``{q}`` name the place by the columns of ``q`` (a subquery on another table of the same
+    place: a correlated ``q.rclass = s.rclass`` is pruned only when run). Not one statement with several places:
     Postgres doesn't prune ``(rclass = 0 AND bucket = 1) OR (rclass = 0 AND bucket = 2)`` on a two-column range
     key (it takes out ``rclass = 0`` and can't prune by ``bucket`` alone), nor a constant FALSE. So never call it
     with no places: skip the statement."""
     places = sorted(set(places))
     assert places, "a statement naming no places locks them all: skip it"
-    a = f"{alias}." if alias else ""
-    parts = [query.format(p=f"{a}rclass = {int(c)} AND {a}bucket = {int(b)}") for c, b in places]
+    def term(alias, c, b):
+        a = f"{alias}." if alias else ""
+        return f"{a}rclass = {int(c)} AND {a}bucket = {int(b)}"
+    parts = [query.format(p=term(alias, c, b), **{k: term(v, c, b) for k, v in aliases.items()}) for c, b in places]
     return " UNION ALL ".join(f"({q})" for q in parts), list(params) * len(places)
 
 
@@ -950,6 +966,45 @@ class PostgresStore(Store):
             out.append(r)
         return out
 
+    # Pages walk the places (module docstring, "Pages"): a batch of PAGE_PLACES places a statement, each statement
+    # its own transaction, so a page holds the locks of one batch at a time however many places the store has.
+    PAGE_PLACES = 8
+
+    def _places_from(self, c, from_ns: Optional[int] = None) -> list:
+        """The places, newest bucket first, without those whose rows are all older than ``from_ns``."""
+        q, p = "SELECT rclass, bucket FROM places", ()
+        if from_ns is not None:
+            q, p = q + " WHERE bucket >= %s", (self.bucket(from_ns),)
+        return [(r["rclass"], r["bucket"]) for r in c.execute(q + " ORDER BY bucket DESC, rclass", p).fetchall()]
+
+    def _top_ns(self, place) -> int:
+        """The newest ``last_ns`` a summary row in this place can have. A message is placed by its newest span's
+        bucket, or a later one when that bucket is being dropped (``_resolve``), never an earlier one; so are its
+        message_queues, message_tenants and tenant_events rows, whose times are no newer than ``last_ns``."""
+        return (place[1] + 1) * self.bucket_ns - 1
+
+    def _batches(self, places):
+        for k in range(0, len(places), self.PAGE_PLACES):
+            yield places[k:k + self.PAGE_PLACES]
+
+    def _walk_first(self, branch: str, params: list, key, limit: int, places_from=None, top=None) -> list:
+        """The first ``limit`` rows by ``key`` of ``branch`` (one place's query: ``{p}`` and ``{q}`` name the
+        place, it sorts and limits its own rows) across the places, a batch a statement. ``top(row)``: when
+        given, rows come newest first, and the walk stops once the page is full and no row of the next batch can
+        come before the page's last. A message seen twice (it moved between two statements) counts once."""
+        if limit <= 0:
+            return []
+        page: list = []
+        with self.reads.connection() as c:
+            for batch in self._batches(self._places_from(c, places_from)):
+                if top is not None and len(page) >= limit and self._top_ns(batch[0]) < top(page[-1]):
+                    break
+                q, qp = _each(batch, branch, params + [limit], "s", q="q")
+                rows = c.execute(f"SELECT * FROM ({q}) u", qp).fetchall()
+                seen, page = set(), sorted(page + rows, key=key)
+                page = [r for r in page if not (r["mid"] in seen or seen.add(r["mid"]))][:limit]
+        return page
+
     def _newest_first(self, src: str, p: list, limit: int, from_ns, to_ns, after) -> list:
         where, p = "", list(p)
         if from_ns is not None:
@@ -962,10 +1017,12 @@ class PostgresStore(Store):
             where += " AND (s.last_ns < %s OR (s.last_ns = %s AND s.mid > %s))"
             p += [after[0], after[0], after[1]]
         table, _, rest = src.partition(" WHERE ")
-        return self._all(f"SELECT s.last_ns, s.mid FROM {table} WHERE {rest}{where} "
-                         "ORDER BY s.last_ns DESC, s.mid LIMIT %s", tuple(p) + (limit,))
+        branch = (f"SELECT s.last_ns, s.mid FROM {table} WHERE {{p}} AND ({rest}){where} "
+                  "ORDER BY s.last_ns DESC, s.mid LIMIT %s")
+        return self._walk_first(branch, p, lambda r: (-r["last_ns"], r["mid"]), limit, from_ns,
+                                top=lambda r: r["last_ns"])
 
-    _ON_QUEUE = (" AND EXISTS (SELECT 1 FROM message_queues q WHERE q.queue = %s AND q.last_ns = s.last_ns"
+    _ON_QUEUE = (" AND EXISTS (SELECT 1 FROM message_queues q WHERE {q} AND q.queue = %s AND q.last_ns = s.last_ns"
                  " AND q.mid = s.mid)")
 
     def recent_messages(self, limit: int, queue: Optional[str] = None, tenant: Optional[str] = None, *,
@@ -1000,6 +1057,8 @@ class PostgresStore(Store):
 
     def stuck_messages(self, cutoff_ns: int, limit: int, queue: Optional[str] = None, *,
                        from_ns: Optional[int] = None, after: Optional[tuple] = None) -> list[StuckCandidate]:
+        # Oldest first by stuck_first_ns, which a place's bucket doesn't bound (a message received long ago and
+        # kept on its consumer is placed by its newest span; an SQS send time is SQS's clock): every place is read.
         where, p = "", [cutoff_ns]
         if from_ns is not None:
             where += " AND s.stuck_first_ns >= %s"
@@ -1010,10 +1069,10 @@ class PostgresStore(Store):
         if queue:
             where += self._ON_QUEUE
             p.append(queue)
-        rows = self._all(
+        rows = self._walk_first(
             f"""SELECT s.mid, s.stuck_first_ns, s.stuck_sqs_clock FROM messages s
-                WHERE s.stuck_open <> 0 AND s.stuck_first_ns IS NOT NULL AND s.stuck_first_ns < %s{where}
-                ORDER BY s.stuck_first_ns, s.mid LIMIT %s""", tuple(p) + (limit,))
+                WHERE {{p}} AND s.stuck_open <> 0 AND s.stuck_first_ns IS NOT NULL AND s.stuck_first_ns < %s{where}
+                ORDER BY s.stuck_first_ns, s.mid LIMIT %s""", p, lambda r: (r["stuck_first_ns"], r["mid"]), limit)
         return [StuckCandidate(r["mid"], r["stuck_first_ns"], bool(r["stuck_sqs_clock"])) for r in rows]
 
     def summaries(self, message_ids: list[str]) -> list[dict]:
@@ -1023,21 +1082,36 @@ class PostgresStore(Store):
             places, f"SELECT {', '.join(COLUMNS)} FROM messages WHERE {{p}} AND mid = ANY(%s)", [list(message_ids)]))}
         return [out[m] for m in message_ids if m in out]
 
+    def _walk_all(self, query: str, params=(), from_ns: Optional[int] = None):
+        """``query`` (``{p}`` names the place) over the places, a batch a statement: the rows of every batch."""
+        with self.reads.connection() as c:
+            for batch in self._batches(self._places_from(c, from_ns)):
+                yield from c.execute(*_each(batch, query, params)).fetchall()
+
     def queue_messages(self, queue: str) -> set[str]:
-        return {r["mid"] for r in self._all("SELECT mid FROM message_queues WHERE queue = %s", (queue,))}
+        return {r["mid"] for r in self._walk_all("SELECT mid FROM message_queues WHERE {p} AND queue = %s", [queue])}
 
     def tenant_activity(self, from_ms: int, to_ms: int) -> list[TenantActivity]:
-        with self.reads.connection() as c:
-            totals = c.execute(
+        # A message's events are all in its place, so a count of distinct messages adds up over places.
+        sent: dict = {}
+        dead: dict = {}
+        waits: dict = {}
+        for r in self._walk_all(
                 """SELECT tenant, SUM(CASE WHEN kind = 'sent' THEN 1 ELSE 0 END) AS sent,
-                          COUNT(DISTINCT CASE WHEN kind = 'dead_lettered' THEN mid END) AS dead_lettered
-                   FROM tenant_events WHERE at_ms BETWEEN %s AND %s GROUP BY tenant""", (from_ms, to_ms)).fetchall()
-            waits: dict = {}
-            for r in c.execute("""SELECT tenant, wait_ms FROM tenant_events
-                                  WHERE at_ms BETWEEN %s AND %s AND kind = 'first_delivery'""", (from_ms, to_ms)):
-                waits.setdefault(r["tenant"], []).append(r["wait_ms"])
-        return [TenantActivity(r["tenant"], int(r["sent"]), int(r["dead_lettered"]), waits.get(r["tenant"], []))
-                for r in totals]
+                          COUNT(DISTINCT CASE WHEN kind = 'dead_lettered' THEN mid END) AS dead_lettered,
+                          NULL AS wait_ms
+                   FROM tenant_events WHERE {p} AND at_ms BETWEEN %s AND %s GROUP BY tenant
+                   UNION ALL
+                   SELECT tenant, NULL, NULL, wait_ms FROM tenant_events
+                   WHERE {p} AND at_ms BETWEEN %s AND %s AND kind = 'first_delivery'""",
+                [from_ms, to_ms, from_ms, to_ms], from_ms * 10 ** 6):
+            t = r["tenant"]
+            if r["sent"] is not None:
+                sent[t] = sent.get(t, 0) + int(r["sent"])
+                dead[t] = dead.get(t, 0) + int(r["dead_lettered"])
+            else:
+                waits.setdefault(t, []).append(r["wait_ms"])
+        return [TenantActivity(t, sent[t], dead[t], waits.get(t, [])) for t in sent]
 
     def find_tenants(self, text: str, limit: int, *, from_ns: Optional[int] = None, to_ns: Optional[int] = None,
                      queue: Optional[str] = None) -> list[str]:
@@ -1045,34 +1119,36 @@ class PostgresStore(Store):
             return []
         lo = ascii_lower(text)
         hi = lo[:-1] + chr(ord(lo[-1]) + 1) if ord(lo[-1]) < 0x10FFFF else None
+        below, below_p = (" AND t.tenant_lower < %s", [hi]) if hi else ("", [])
         where, p = "", []
         if from_ns is not None:
-            where += " AND named_ns >= %s"
+            where += " AND t.named_ns >= %s"
             p.append(from_ns)
         if to_ns is not None:
-            where += " AND named_ns < %s"
+            where += " AND t.named_ns < %s"
             p.append(to_ns)
         if queue:
-            where += (" AND EXISTS (SELECT 1 FROM message_queues q WHERE q.queue = %s AND q.last_ns = t.last_ns"
-                      " AND q.mid = t.mid)")
+            where += (" AND EXISTS (SELECT 1 FROM message_queues q WHERE {p} AND q.queue = %s"
+                      " AND q.last_ns = t.last_ns AND q.mid = t.mid)")
             p.append(queue)
-        found = []
-        with self.reads.connection() as c:
-            key = (lo, "")
-            while True:
-                nxt = c.execute(
-                    f"""SELECT tenant_lower, tenant FROM message_tenants
-                        WHERE (tenant_lower, tenant) > (%s, %s) {"AND tenant_lower < %s" if hi else ""}
-                        ORDER BY tenant_lower, tenant LIMIT 1""", key + ((hi,) if hi else ())).fetchone()
-                if nxt is None or not nxt["tenant_lower"].startswith(lo):
-                    break
-                key = (nxt["tenant_lower"], nxt["tenant"])
-                newest = c.execute(
-                    f"""SELECT named_ns FROM message_tenants t WHERE tenant_lower = %s AND tenant = %s{where}
-                        ORDER BY named_ns DESC LIMIT 1""", key + tuple(p)).fetchone()
-                if newest is not None:
-                    found.append((nxt["tenant_lower"] != lo, -newest["named_ns"], nxt["tenant"]))
-        return [t for *_, t in sorted(found)[:limit]]
+        # In each place: its tenants from ``lo`` on, one index step each (a recursive skip scan), and the newest
+        # time each was named within the filters.
+        branch = ("WITH RECURSIVE d AS ((SELECT t.tenant_lower, t.tenant FROM message_tenants t"
+                  " WHERE {p} AND (t.tenant_lower, t.tenant) > (%s, '')" + below +
+                  " ORDER BY t.tenant_lower, t.tenant LIMIT 1)"
+                  " UNION ALL SELECT n.tenant_lower, n.tenant FROM d CROSS JOIN LATERAL ("
+                  "SELECT t.tenant_lower, t.tenant FROM message_tenants t"
+                  " WHERE {p} AND (t.tenant_lower, t.tenant) > (d.tenant_lower, d.tenant)" + below +
+                  " ORDER BY t.tenant_lower, t.tenant LIMIT 1) n WHERE starts_with(n.tenant_lower, %s))"
+                  " SELECT d.tenant_lower, d.tenant, (SELECT t.named_ns FROM message_tenants t"
+                  " WHERE {p} AND t.tenant_lower = d.tenant_lower AND t.tenant = d.tenant" + where +
+                  " ORDER BY t.named_ns DESC LIMIT 1) AS newest FROM d WHERE starts_with(d.tenant_lower, %s)")
+        newest: dict = {}
+        for r in self._walk_all(branch, [lo] + below_p + below_p + [lo] + p + [lo], from_ns):
+            if r["newest"] is not None:
+                k = (r["tenant_lower"], r["tenant"])
+                newest[k] = max(newest.get(k, r["newest"]), r["newest"])
+        return [t for *_, t in sorted((k[0] != lo, -ns, k[1]) for k, ns in newest.items())[:limit]]
 
     def newest_messages(self, limit: int, queue: Optional[str] = None, tenant: Optional[str] = None, *,
                         from_ns: Optional[int] = None, to_ns: Optional[int] = None,
@@ -1098,16 +1174,25 @@ class PostgresStore(Store):
         return out
 
     def last_row(self) -> int:
-        return self._all('SELECT MAX("row") AS n FROM spans')[0]["n"] or 0
+        # rows are numbered in the order they were stored, not by their time, so every place is read
+        return max((r["n"] for r in self._walk_all('SELECT MAX("row") AS n FROM spans WHERE {p}') if r["n"]),
+                   default=0)
 
     def counts(self) -> dict:
-        with self.reads.connection() as c:
-            kinds = {r["kind"]: r["n"] for r in c.execute("SELECT kind, COUNT(*) AS n FROM spans GROUP BY kind")}
-            unjoined = c.execute("""SELECT COUNT(*) AS n FROM spans
-                                    WHERE kind IN ('delete', 'change_visibility') AND receive_row IS NULL""").fetchone()["n"]
-            messages = c.execute("SELECT COUNT(*) AS n FROM messages").fetchone()["n"]
+        kinds: dict = {}
+        unjoined = messages = 0
+        for r in self._walk_all(
+                """SELECT kind, COUNT(*) AS n FROM spans WHERE {p} GROUP BY kind
+                   UNION ALL SELECT '', COUNT(*) FROM spans
+                   WHERE {p} AND kind IN ('delete', 'change_visibility') AND receive_row IS NULL
+                   UNION ALL SELECT NULL, COUNT(*) FROM messages WHERE {p}"""):
+            if r["kind"] is None:
+                messages += r["n"]
+            elif r["kind"] == "":
+                unjoined += r["n"]
+            else:
+                kinds[r["kind"]] = kinds.get(r["kind"], 0) + r["n"]
         return {"spans": kinds, "messages": messages, "unjoined_settles": unjoined}
-
 
 def _lists(s) -> tuple:
     return (json.dumps(s["queues"]), json.dumps(s["tenants"], sort_keys=True),

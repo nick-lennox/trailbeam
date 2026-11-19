@@ -443,3 +443,127 @@ def test_version_2_fills_the_lookup_tables_place_by_place(pg_store):
         assert len(again.message_rows("old-7")) == 3
     finally:
         again.close()
+
+
+# ---- what one page locks (QV-116) -------------------------------------------------------------------------
+
+def _page_history(places: int) -> list:
+    """Exports of ``places`` one-second places: in place k a message of tenant ``tenant-<k % 3>`` on "orders" or
+    "billing", sent and received; deleted, except every 7th (stuck); every 5th received twice (a duplicate)."""
+    w = Consumer()
+    exports = []
+    for k0 in range(0, places, 20):
+        spans = []
+        for k in range(k0, min(places, k0 + 20)):
+            t, mid, q = T0 + k * SEC + 10, f"m-{k}", ("orders", "billing")[k % 2]
+            send = w.send(t, mid, queue=q)
+            send.attrs["trailbeam.tenant"] = f"tenant-{k % 3}"
+            spans += [send, w.receive(t + 1, mid, f"h-{k}", queue=q)]
+            if k % 5 == 0:
+                spans.append(w.receive(t + 2, mid, f"h2-{k}", count=2, queue=q))
+            if k % 7:
+                spans.append(w.delete(t + 3, f"h-{k}", queue=q))
+        exports.append(spans)
+    return exports
+
+
+def _pages(s, places: int) -> dict:
+    """Every page that walks the places, as the API asks for them: the first and a later page of each list."""
+    first = s.newest_messages(5)
+    mid_ns = T0 + places // 2 * SEC
+    return {
+        "recent": s.recent_messages(5), "recent_after": s.recent_messages(5, after=first[-1]),
+        "recent_queue": s.recent_messages(5, "billing"), "recent_tenant": s.recent_messages(5, tenant="tenant-1"),
+        "recent_tenant_queue": s.recent_messages(5, "orders", "tenant-2"),
+        "recent_window": s.recent_messages(5, from_ns=mid_ns - 10 * SEC, to_ns=mid_ns),
+        "recent_old": s.recent_messages(5, to_ns=T0 + 3 * SEC), "newest": first,
+        "duplicates": s.duplicate_messages(5), "duplicates_queue": s.duplicate_messages(5, "orders"),
+        "stuck": s.stuck_messages(T0 + places * SEC, 5),
+        "stuck_queue": s.stuck_messages(T0 + places * SEC, 5, "billing"),
+        "stuck_after": s.stuck_messages(T0 + places * SEC, 5, after=(T0 + 7 * SEC + 10, "m-7")),
+        "queue": sorted(s.queue_messages("orders")),
+        "activity": sorted((a.tenant, a.sent, a.dead_lettered, sorted(a.waits))
+                           for a in s.tenant_activity((T0 + SEC) // 10 ** 6, (T0 + places * SEC) // 10 ** 6)),
+        "find": s.find_tenants("TEN", 8), "find_queue": s.find_tenants("tenant-", 2, queue="billing"),
+        "find_window": s.find_tenants("t", 8, from_ns=T0 + (places - 2) * SEC), "counts": s.counts(),
+    }
+
+
+def _read_locks(s, call) -> list:
+    """Run ``call``, each of its statements in a transaction of its own (as autocommit runs it) that, before it
+    ends, lists what the connection holds. Returns one sorted list of relation names for each statement."""
+    import contextlib
+
+    import psycopg
+
+    held = []
+    pool_connection = s.reads.connection
+
+    class Counted:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+        def execute(self, query, params=None):
+            idle = self._conn.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
+            with self._conn.transaction() if idle else contextlib.nullcontext():
+                cur = self._conn.execute(query, params)
+                rows = cur.fetchall() if cur.description else []
+                held.append(sorted(r["relname"] or f"<{r['locktype']}>" for r in self._conn.execute(
+                    """SELECT l.locktype, c.relname FROM pg_locks l LEFT JOIN pg_class c ON c.oid = l.relation
+                       WHERE l.pid = pg_backend_pid() AND l.locktype <> 'advisory'""").fetchall()))
+            return Rows(rows)
+
+    class Rows(list):
+        def fetchall(self):
+            return list(self)
+
+        def fetchone(self):
+            return self[0] if self else None
+
+    @contextlib.contextmanager
+    def counted(*a, **kw):
+        with pool_connection(*a, **kw) as conn:
+            yield Counted(conn)
+
+    s.reads.connection = counted
+    try:
+        call()
+    finally:
+        del s.reads.connection
+    return held
+
+
+@needs_pg
+@pytest.mark.parametrize("places", [10, 400])
+def test_what_one_page_locks_does_not_grow_with_the_places(pg_store, places, tmp_path):
+    """QV-116: a page walks the places a batch a statement, so no statement locks the partitions of more than
+    PAGE_PLACES places, and the most lock entries a page holds at once are as many with 400 places as with 10.
+    The pages are those of a SQLite store given the same spans."""
+    import re
+
+    from trailbeam.server.db import SqliteStore
+
+    s = pg_store(bucket_ns=SEC)
+    lite = SqliteStore(str(tmp_path / "lite.sqlite"))
+    try:
+        for spans in _page_history(places):
+            assert s.insert(records(spans)) == lite.insert(records(spans))
+        assert _pages(s, places) == _pages(lite, places)
+        assert s.last_row() == lite.last_row() == sum(s.counts()["spans"].values())
+    finally:
+        lite.close()
+    most = 0
+    for name, call in [("pages", lambda: _pages(s, places)), ("last_row", s.last_row)]:
+        for held in _read_locks(s, call):
+            buckets = {int(m.group(1)) for n in held for m in [re.search(r"_p0_(\d+)", n)] if m}
+            assert len(buckets) <= s.PAGE_PLACES, (name, sorted(buckets))
+            most = max(most, len(held))
+    _PAGE_LOCKS[places] = most
+    if len(_PAGE_LOCKS) == 2:
+        assert _PAGE_LOCKS[400] == _PAGE_LOCKS[10], _PAGE_LOCKS
+
+
+_PAGE_LOCKS: dict = {}

@@ -6,10 +6,18 @@
   partitions and indexes per day partition of history until it committed, so a store with months of history
   could fill Postgres's lock table ("out of shared memory", `max_locks_per_transaction`). Now an export locks
   only the partitions its own messages are in: 85 lock entries for a typical export, with 10 day partitions or
-  400. Reading one message's timeline is bounded the same way. List pages still lock every partition. Two small
-  lookup tables make this possible: one row per message ID and one per receipt handle. On our test machine,
-  seeding 205,000 spans wrote 29% more WAL (852 MB against 658 MB), the database grew 6% (33 MB), and the
-  seed took 48 s instead of 90 s.
+  400. Reading one message's timeline is bounded the same way. Two small lookup tables make this possible:
+  one row per message ID and one per receipt handle. On our test machine, seeding 205,000 spans wrote 29% more
+  WAL (852 MB against 658 MB), the database grew 6% (33 MB), and the seed took 48 s instead of 90 s.
+- **Postgres: a list page no longer locks every day's partitions.** The message, duplicate and stuck lists,
+  tenant search and activity, `/api/stats` and `/api/health` read 8 day partitions per query. Each query runs
+  in its own transaction, so it releases its locks before the next one starts. Newest-first lists start with
+  the newest day and stop once the page is full. With 400 day partitions, the most lock entries any page held
+  at once fell from 3,586 to 124. With 10 it is about the same as before (124 against 103). The answers are
+  unchanged. With 400
+  partitions, the first page of messages takes 1.6 ms instead of 24 ms and tenant search 151 ms instead of
+  490 ms. The lists that must read every partition got slower: stuck messages take 62 ms instead of 32 ms,
+  and `/api/health` 55 ms instead of 48 ms.
 
 ### Upgrading from 0.2.0 (Postgres)
 
