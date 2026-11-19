@@ -339,8 +339,7 @@ time, as an exporter retry sends it.
 
 ### Postgres (bring your own)
 
-SQLite is the default and needs nothing else. When you outgrow one file, point Trailbeam at a Postgres you
-already run:
+SQLite is the default and needs nothing else. Postgres is optional: point Trailbeam at a Postgres you already run.
 
 ```sh
 pip install "trailbeam[server,postgres]"
@@ -348,27 +347,191 @@ TRAILBEAM_STORE_URL=postgres://trailbeam:<password>@db.internal:5432/trailbeam t
 # or trailbeam --store-url postgres://...
 ```
 
-Trailbeam creates and upgrades its own tables in that database (schema version in `schema_version`). Installing,
-sizing, backing up and upgrading Postgres is up to you. **Supported: Postgres 14 and later**; CI runs the
-storage conformance suite on 14 and 16. The Postgres driver is an extra: a SQLite install doesn't get it, and it
-is loaded only when the URL is a Postgres one. Existing SQLite history is not copied over: a new Postgres store
-starts empty.
+Trailbeam creates and upgrades its own tables in that database. Installing, sizing, backing up and upgrading
+Postgres stays up to you; this section is what Trailbeam needs from it. The Postgres driver (psycopg 3) is an
+extra: a SQLite install doesn't get it, and it is loaded only when the URL is a Postgres one.
 
-**Upgrading with several replicas.** When a new version changes the Postgres schema, stop every replica of the
-older version before starting the new one ([CHANGELOG](CHANGELOG.md) says which versions do). The first one to
-start upgrades the database. An older replica still running would store spans the new schema doesn't index.
+**Existing SQLite history is not copied over.** A new Postgres store starts empty. A `trailbeam migrate`
+command that copies a SQLite file into Postgres is planned, but it isn't available yet. Until then you can keep
+the old SQLite server running next to the new one, with your exporters sending to the new one, for as long as you
+need the old timelines.
 
-Retention works as described above, with one difference: spans are kept in **daily partitions** per retention
-(a partition per day for each distinct retention you configure), and the purge drops whole partitions instead
-of deleting rows, so it costs about the same however much it removes. A message expires once the *day* of its
-newest span has ended more than its retention ago, so `7d` keeps a message for 7 to 8 days. Messages are still
-deleted whole: when a message's spans fall in two partitions (it crossed midnight, or moved to a dead-letter
-queue kept longer), the purge first moves its older spans in with the newer ones. If you change a queue's
-retention after its spans were stored, partitions holding queues with different retentions are cleaned by a
-bounded background delete, outside ingest.
+#### When to move from SQLite
 
-Ingest and pages use separate connection pools (4 and 8 connections). Each export is one transaction, and an
-export whose client hangs up or times out is cancelled in the database.
+- **You need more than one server**, for high availability or several replicas on Kubernetes. SQLite is one file
+  on one server's disk. With Postgres the servers are stateless ([Several replicas](#several-replicas-on-one-postgres)).
+- **Retention can't keep up.** SQLite deletes expired spans row by row and shares its one writer with ingest:
+  about 1,530 spans/s on our test machine ([Retention](#retention)). When your average ingest is above what
+  the purge deletes on your disk, the file keeps growing. Postgres drops a whole day at once (at 1M stored
+  spans: 4 ms to detach the partition, 12 ms per table to drop it), however much it holds.
+- **The history doesn't fit one server.** Export latency rises once the SQLite file is larger than RAM
+  ([Sizing one SQLite server](#sizing-one-sqlite-server)).
+- **You already run and back up Postgres**, and you'd rather keep Trailbeam's data there.
+
+Postgres isn't a speed upgrade by itself. On our desktop test machine at 1M spans, export p99 was 336 ms with
+SQLite at 1,000 spans/s and 1.3 s with one Trailbeam on Postgres at 2,000 spans/s. Those runs weren't at the
+same rate, so they aren't a direct comparison.
+
+#### The database, the role and the URL
+
+The simplest setup is a database of its own, owned by a role for Trailbeam:
+
+```sql
+CREATE ROLE trailbeam LOGIN PASSWORD '...';
+CREATE DATABASE trailbeam OWNER trailbeam;
+```
+
+Trailbeam keeps its tables in the connection's current schema (`public` by default). It creates and drops
+partitions of them while it runs, so the role must be able to create tables in that schema and must own them.
+It needs no extension and no superuser. On Postgres 15 and later, a role that doesn't own the database can't
+create tables in `public`, and Trailbeam stops at start with `permission denied for schema public`.
+
+To share a database with other applications, give Trailbeam a schema of its own and choose it in the URL. Two
+Trailbeams can share one database this way, each in its own schema:
+
+```sql
+CREATE SCHEMA trailbeam AUTHORIZATION trailbeam;
+```
+
+```sh
+TRAILBEAM_STORE_URL='postgres://trailbeam@db.internal:5432/shared?options=-csearch_path%3Dtrailbeam'
+```
+
+The URL goes to libpq unchanged, so libpq's [connection parameters](https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-PARAMKEYWORDS)
+and [environment variables](https://www.postgresql.org/docs/current/libpq-envars.html) work: `?sslmode=verify-full`
+for TLS, and `PGPASSWORD` or a [password file](https://www.postgresql.org/docs/current/libpq-pgpass.html) to keep the
+password out of the URL. The server log shows the URL with the password hidden. The URL is set by
+`TRAILBEAM_STORE_URL` or `--store-url` only; the [configuration file](#configuration-file) doesn't take it.
+
+**Connections.** Each replica opens up to 14: up to 4 for ingest and up to 8 for pages and the API (opened as
+needed, 2 when idle), 1 held by the replica that runs retention, and a short-lived one when it creates partitions.
+Set `max_connections` to 14 per replica plus your other clients. Every connection runs with
+`statement_timeout = 60s`. An export that waits longer than `TRAILBEAM_INGEST_MAX_WAIT_S` (2 s by default) for a free
+ingest connection is answered `503` with `Retry-After`, as one waiting for SQLite's writer is
+([overload](#when-trailbeam-is-overloaded-429-503-and-retry-after)).
+Each export is one transaction, and an export whose client hangs up or times out is cancelled in the database.
+
+**Connect directly, not through a transaction pooler.** Trailbeam pools its own connections and relies on
+session state: the retention lease and the schema upgrade are session-level advisory locks, and each connection
+sets its timeouts once when it opens. Poolers in transaction mode break that
+([PgBouncer's list](https://www.pgbouncer.org/features.html#sql-feature-map-for-pooling-modes)). That includes
+PgBouncer in transaction or statement mode, Neon's pooled (`-pooler`) host and Supabase's transaction pooler
+(port 6543). Use the direct connection string. A pooler in session mode keeps the session state, but it adds
+nothing to Trailbeam's own pools, and we haven't tested one.
+
+#### Supported versions and managed services
+
+**Postgres 14 and later.** Retention needs `DETACH PARTITION … CONCURRENTLY`, which is new in 14. CI runs the
+storage conformance suite on 14 and 16, and the setup, backup and restore steps here were checked on stock
+Postgres 14 and 16.
+
+A managed Postgres should work if it gives you version 14 or later, a role that can own a database or schema,
+and a direct connection. **We haven't run Trailbeam on any managed service yet.**
+
+| Service | What to use |
+|---|---|
+| Amazon RDS for PostgreSQL, Aurora PostgreSQL | The instance or cluster endpoint, not RDS Proxy (a pooler Trailbeam doesn't need). TLS with `sslmode=verify-full` and the [RDS CA bundle](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html) as `sslrootcert`. |
+| Google Cloud SQL for PostgreSQL | The instance's IP, or the [Cloud SQL Auth Proxy](https://cloud.google.com/sql/docs/postgres/sql-proxy), which forwards connections without pooling them. |
+| Neon | The direct connection string, not the pooled one ([Neon: connection pooling](https://neon.com/docs/connect/connection-pooling)). Scale to zero hasn't been tested with Trailbeam. |
+
+#### Retention on Postgres
+
+Retention works as described [above](#retention), with one difference: spans are kept in **daily partitions**
+(UTC days), one set per retention you configure, and the purge drops whole partitions instead of deleting rows,
+so it costs about the same however much it removes. A message expires once the *day* of its newest span has
+ended more than its retention ago, so `7d` keeps a message for 7 to 8 days. Messages are still deleted whole:
+when a message's spans fall in two partitions (it crossed midnight, or moved to a dead-letter queue kept longer),
+the purge first moves its older spans in with the newer ones. If you change a queue's retention after its spans
+were stored, partitions holding queues with different retentions are cleaned by a bounded background delete,
+outside ingest. At the start of each pass, the replica running retention creates the partitions for today and
+tomorrow, so ingest rarely has to.
+
+#### Sizing Postgres
+
+This isn't a sizing guide yet: the medium-tier benchmark (10,000 spans/s with 100M spans stored, 2 replicas)
+hasn't been run on a representative machine. What we have measured so far, on our shared desktop test machine
+(16 threads, 11.7 GB RAM, WSL2 virtual disk), with 1–3M spans, 2 replicas and Postgres 16 with
+`shared_buffers = 1GB`:
+
+- **Disk: about 2.5–2.8 GB per million spans**, with 1 KB bodies stored on 5 of 50 queues. With `7d` retention a
+  message is kept 7 to 8 days, so plan for 8 days of your average ingest, plus room for one more day. For
+  example, 100 spans/s on average is about 70M spans, or about 200 GB.
+- **Commit latency sets export latency.** An export keeps its locks on the messages it touches until it
+  commits, so a slow WAL flush holds up the exports behind it. On the virtual disk, export p99 at 2,000 spans/s
+  was 1.7 s. With `synchronous_commit = off` (as a test) it was 400 ms. Put the database on storage with a fast
+  fsync: local NVMe, EBS gp3, or a managed service's SSD.
+- **RAM for today's indexes.** Ingest writes into today's partition at random index positions, so today's
+  indexes should stay in memory. That's roughly 3–4 GB for 14M spans in a day: an estimate, not measured.
+- **The Trailbeam servers weren't the limit.** They used 14–30% CPU at 2,000–4,000 spans/s. Ingest held
+  2,000 spans/s steadily, and reached 4,000 spans/s with export p99 at 2.4 s. These numbers are for that machine,
+  not a target.
+
+To trade durability for latency, as `--durability relaxed` does for SQLite, set it on Trailbeam's role:
+`ALTER ROLE trailbeam SET synchronous_commit = off;`. A crash of Postgres can then lose the exports answered `200`
+in the last moments before it (up to three times `wal_writer_delay`, 600 ms by default). The database stays
+consistent ([Postgres: asynchronous commit](https://www.postgresql.org/docs/current/wal-async-commit.html)).
+
+**Known limits in this version.** Fixes are planned.
+
+- Keeping a message's summary up to date deletes its old list rows with a scan of that day's partition of three
+  tables (they have no index on the message ID). Export cost grows with how many messages a day holds: 41 ms per
+  such delete at 1M stored spans on our test machine.
+- **A new partition waits for open transactions, and ingest waits behind it.** Creating a partition needs a lock
+  that an open transaction which has read Trailbeam's tables holds until it ends. A `pg_dump` holds one for its
+  whole run. Trailbeam waits for that lock with no timeout, and exports queue behind it: in our test, a read
+  transaction open for 25 s made an export wait 24 s. This happens at the first retention pass after 00:00 UTC
+  (within `TRAILBEAM_PURGE_INTERVAL_S`, 10 minutes by default), and when a span arrives for a day that has no
+  partition yet, such as one more than a day late. Until it's fixed, run logical backups (`pg_dump`) outside
+  00:00–00:15 UTC, and set `idle_in_transaction_session_timeout` for the database's other clients.
+- In the first minutes of a new day's partition, before Postgres has analyzed it, some ingest statements were up
+  to 10 times slower. We haven't confirmed the cause yet.
+- The connection pools (4 ingest and 8 read connections per replica) can't be changed yet.
+
+#### Backup and restore (Postgres)
+
+Use Postgres' own backups. Everything Trailbeam stores is in its database (or schema). Keep your configuration
+and token files as well, since they aren't in the database. Protect the backups like the data: they hold the stored
+message bodies.
+
+- **Snapshots and point-in-time recovery** (the automated backups of RDS and Cloud SQL, Neon's restore,
+  `pg_basebackup` with WAL archiving, pgBackRest) copy the files and take no table locks. Prefer them.
+- **`pg_dump`** works while Trailbeam ingests. Mind the midnight window in the known limits above.
+
+```sh
+pg_dump -Fc -f trailbeam-$(date +%F).dump "postgres://trailbeam@db.internal/trailbeam"
+```
+
+To restore, create an empty database owned by the role, restore into it as that role, and refresh the planner
+statistics, which a dump doesn't carry. Without that, Postgres has no statistics for the restored tables until
+autovacuum analyzes them, and it can pick slow plans meanwhile.
+
+```sh
+createdb -O trailbeam trailbeam_restored        # as an administrator
+pg_restore --no-owner --role=trailbeam -d "postgres://trailbeam@db.internal/trailbeam_restored" trailbeam-2026-11-19.dump
+psql "postgres://trailbeam@db.internal/trailbeam_restored" -c ANALYZE
+```
+
+Then point `TRAILBEAM_STORE_URL` at the restored database. If Trailbeam has a schema of its own, add
+`-n trailbeam` to `pg_dump`, and restore as a role allowed to create that schema. As with SQLite, the purge
+deletes whatever is past retention at its next pass, so set a longer `--retention` first if you restored the
+backup to look at old timelines.
+
+#### Upgrades
+
+**Trailbeam.** Each server checks the schema version (the `schema_version` table) when it starts. If the
+version is older, it upgrades the schema, one replica at a time under an advisory lock while the others wait. A
+server older than the schema refuses to start (`written by a newer Trailbeam`), so it can't damage the data, but it
+can't run on the upgraded database either: to go back, restore a backup taken before the upgrade. A replica only
+checks the version when it starts. So when a release changes the Postgres schema, stop every replica before you
+start the new version, unless that release's notes say a rolling upgrade is safe ([CHANGELOG](CHANGELOG.md)
+says which releases change it). An older replica still running would store spans the new schema doesn't index.
+This version upgrades a 0.2.0 database to Postgres schema 2: stop every 0.2.0 replica first.
+
+**Postgres.** For a minor version, use your package manager's or provider's update. While the database restarts,
+`/api/ready` answers `503` and exports are answered `503` with `Retry-After`, so exporters send them again. For a
+major version (to 14 or later), use `pg_upgrade`, your provider's major-version upgrade, or a dump and restore.
+Before Postgres 18, `pg_upgrade` doesn't carry the planner statistics over, so run
+`vacuumdb --all --analyze-in-stages` afterwards.
 
 #### Postgres lock table (`max_locks_per_transaction`)
 
@@ -444,7 +607,7 @@ difference there (see [Sizing](#sizing-one-sqlite-server)).
 `synchronous = NORMAL`): the log is synced at checkpoints, about once a second. A crash of the
 Trailbeam process loses nothing that was answered 200. An OS crash or power loss can lose the exports
 answered 200 in the last moments before it, and the file stays consistent. The server logs a warning at
-start when it's set. It applies to the SQLite file only; with Postgres, use its `synchronous_commit`.
+start when it's set. It applies to the SQLite file only; with Postgres, use its `synchronous_commit` ([Sizing Postgres](#sizing-postgres)).
 
 ### Sizing one SQLite server
 
@@ -580,7 +743,7 @@ database. A backup holds the stored message bodies (`--store-bodies`), so protec
 
 **Continuous replication.** [Litestream](https://litestream.io/) streams a SQLite file's WAL to object storage.
 It should work with Trailbeam, because the server only runs PASSIVE checkpoints, but we haven't tested it.
-With Postgres (`--store-url`), use Postgres' own backups (`pg_dump`, or your provider's).
+With Postgres (`--store-url`), use Postgres' own backups: see [Backup and restore (Postgres)](#backup-and-restore-postgres).
 
 ### When Trailbeam is overloaded: 429, 503 and Retry-After
 
