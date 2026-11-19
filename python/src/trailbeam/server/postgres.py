@@ -40,6 +40,17 @@ With the retention given to the store (as the server does), every place has one 
 drops only. With several replicas on one database, one runs retention at a time: the one holding the retention
 lease, a session advisory lock that Postgres releases when that replica dies. Give every replica the same
 retention configuration.
+
+**Locks** (QV-113). A statement on a partitioned table locks, until its transaction ends, every partition (and
+its indexes) that it can't rule out when it is planned. So no statement of an export, a by-message read or
+retention looks a message ID or a receipt hash up across all places: the lookup tables (``mid_places``,
+``hash_places``, pg_schema.py) give the places that may hold its rows, and the statement names each of them
+(``_each``: one copy a place, the place a literal). Statements that name their place by a parameter
+(``rclass = %s AND bucket = %s``) are pruned at plan time only in a custom plan, so every connection sets
+``plan_cache_mode = force_custom_plan``: psycopg prepares a statement run often, and Postgres's generic plan of
+it would lock every partition. What an export locks is then the partitions of the places its messages and
+hashes are in, however many places the store has (85 lock entries for a four-span export joining across two
+places, with 10 places or 400). Pages (walks across all of time) still lock every place.
 """
 from __future__ import annotations
 
@@ -111,6 +122,39 @@ def _body_bytes(text: str) -> bytes:
     return text.encode("utf-8", "surrogatepass")
 
 
+def _each(places, query: str, params=(), alias: str = "") -> tuple[str, list]:
+    """``query`` once per place, ``{p}`` its WHERE term naming the place (columns of ``alias``), as one UNION ALL,
+    and the parameters of every copy. The place is a literal, so each copy is pruned to its place's partition when
+    it is planned, in a generic plan too (module docstring, "Locks"). Not one statement with several places:
+    Postgres doesn't prune ``(rclass = 0 AND bucket = 1) OR (rclass = 0 AND bucket = 2)`` on a two-column range
+    key (it takes out ``rclass = 0`` and can't prune by ``bucket`` alone), nor a constant FALSE. So never call it
+    with no places: skip the statement."""
+    places = sorted(set(places))
+    assert places, "a statement naming no places locks them all: skip it"
+    a = f"{alias}." if alias else ""
+    parts = [query.format(p=f"{a}rclass = {int(c)} AND {a}bucket = {int(b)}") for c, b in places]
+    return " UNION ALL ".join(f"({q})" for q in parts), list(params) * len(places)
+
+
+def _mid_places(conn, mids) -> dict:
+    """{mid: {place, ...}}: the places that may hold rows of these messages (mid_places)."""
+    out: dict = {}
+    mids = sorted({m for m in mids if m is not None})
+    if mids:
+        for r in conn.execute("SELECT mid, rclass, bucket FROM mid_places WHERE mid = ANY(%s)", (mids,)).fetchall():
+            out.setdefault(r["mid"], set()).add((r["rclass"], r["bucket"]))
+    return out
+
+
+def _note_mids(conn, rows) -> None:
+    """mid_places rows for these (mid, rclass, bucket)."""
+    rows = sorted({r for r in rows if r[0] is not None})
+    if rows:
+        conn.execute("""INSERT INTO mid_places (mid, rclass, bucket)
+                        SELECT * FROM unnest(%s::text[], %s::bigint[], %s::bigint[]) ON CONFLICT DO NOTHING""",
+                     [[r[k] for r in rows] for k in range(3)])
+
+
 class PostgresStore(Store):
     """Thread-safe: an ingest pool and a read pool (``ingest_connections``, ``read_connections``).
 
@@ -140,10 +184,12 @@ class PostgresStore(Store):
         def ingest_conf(conn):
             conn.execute(f"SET statement_timeout = {int(statement_timeout_ms)}")
             conn.execute("SET lock_timeout = 0")
+            conn.execute("SET plan_cache_mode = force_custom_plan")  # "Locks" above
 
         def read_conf(conn):
             conn.execute(f"SET statement_timeout = {int(statement_timeout_ms)}")
             conn.execute("SET default_transaction_read_only = on")
+            conn.execute("SET plan_cache_mode = force_custom_plan")
 
         kw = {"autocommit": True, "row_factory": dict_row}
         self.ingest = psycopg_pool.ConnectionPool(url, min_size=1, max_size=ingest_connections, kwargs=kw,
@@ -384,11 +430,13 @@ class PostgresStore(Store):
                 wanted_bodies.setdefault((own, hashlib.sha256(_body_bytes(body)).digest()), (i, body))
         if wanted_bodies:
             ks = list(wanted_bodies)
-            for row in conn.execute(
-                    """SELECT mid, sha, id FROM bodies
-                       WHERE (mid, sha) IN (SELECT * FROM unnest(%s::text[], %s::bytea[]))""",
-                    ([k[0] for k in ks], [k[1] for k in ks])).fetchall():
-                body_ids.setdefault((row["mid"], bytes(row["sha"])), row["id"])
+            known = set().union(*_mid_places(conn, {k[0] for k in ks}).values())
+            if known:
+                for row in conn.execute(*_each(
+                        known, "SELECT mid, sha, id FROM bodies WHERE {p} "
+                               "AND (mid, sha) IN (SELECT * FROM unnest(%s::text[], %s::bytea[]))",
+                        [[k[0] for k in ks], [k[1] for k in ks]])).fetchall():
+                    body_ids.setdefault((row["mid"], bytes(row["sha"])), row["id"])
             new = [k for k in ks if k not in body_ids]
             if new:
                 ids = conn.execute("SELECT nextval('body_ids') AS id FROM generate_series(1, %s)", (len(new),)).fetchall()
@@ -399,6 +447,7 @@ class PostgresStore(Store):
                     rows.append((places[i][0], places[i][1], idrow["id"], k[0], k[1], _body_bytes(body)))
                 conn.cursor().executemany(
                     "INSERT INTO bodies (rclass, bucket, id, mid, sha, body) VALUES (%s, %s, %s, %s, %s, %s)", rows)
+                _note_mids(conn, [(r[3], r[0], r[1]) for r in rows])
 
         cols = {c: [] for c in _INSERT_COLUMNS}
         for i, (r, own, attrs, dropped, body) in enumerate(prepared):
@@ -430,6 +479,14 @@ class PostgresStore(Store):
                 dupes += 1
         if not order:
             return 0, dupes
+        _note_mids(conn, [(prepared[i][1], places[i][0], places[i][1]) for i, _ in order])
+        hashed = sorted({(prepared[i][0].get("receipt_hmac"), prepared[i][0].get("key_id")) + places[i] for i, _ in order
+                         if (prepared[i][0]["kind"] == "receive" or prepared[i][0]["kind"] in SETTLE_KINDS)
+                         and prepared[i][0].get("receipt_hmac") is not None and prepared[i][0].get("key_id") is not None})
+        if hashed:
+            conn.execute("""INSERT INTO hash_places (receipt_hmac, key_id, rclass, bucket)
+                            SELECT * FROM unnest(%s::text[], %s::text[], %s::bigint[], %s::bigint[])
+                            ON CONFLICT DO NOTHING""", [[h[k] for h in hashed] for k in range(4)])
 
         j0 = time.perf_counter()
         touched, updates = self._join(conn, prepared, places, order)
@@ -442,13 +499,16 @@ class PostgresStore(Store):
         if extra and not conn.execute("SELECT bool_and(pg_try_advisory_xact_lock(k)) AS ok FROM unnest(%s::bigint[]) AS k",
                                       (extra,)).fetchone()["ok"]:
             raise _NeedLocks(extra)
-        if updates:
+        by_place: dict = {}
+        for u in updates:
+            by_place.setdefault((u[0], u[1]), []).append(u)
+        for (uc, ub), us in sorted(by_place.items()):  # one statement a place, so that it is pruned when planned
             conn.execute(
                 """UPDATE spans s SET mid = u.mid, mid_source = 'receipt_hash', receive_row = u.rr
-                   FROM unnest(%s::bigint[], %s::bigint[], %s::bigint[], %s::text[], %s::bigint[])
-                        AS u(rclass, bucket, "row", mid, rr)
-                   WHERE s.rclass = u.rclass AND s.bucket = u.bucket AND s."row" = u."row" """,
-                [[u[k] for u in updates] for k in range(5)])
+                   FROM unnest(%s::bigint[], %s::text[], %s::bigint[]) AS u("row", mid, rr)
+                   WHERE s.rclass = %s AND s.bucket = %s AND s."row" = u."row" """,
+                [[u[2] for u in us], [u[3] for u in us], [u[4] for u in us], uc, ub])
+        _note_mids(conn, [(u[3], u[0], u[1]) for u in updates])
         on_join = self.on_join
         if on_join is not None:
             # one batched join for the whole export: each joined span gets its share of the time
@@ -473,11 +533,17 @@ class PostgresStore(Store):
         unjoined: dict = {}
         if hashes:
             a, b = [h[0] for h in hashes], [h[1] for h in hashes]
-            for x in conn.execute(
-                    """SELECT "row", message_id, time_ns, receipt_hmac, key_id, kind, mid, rclass, bucket, receive_row
-                       FROM spans WHERE (receipt_hmac, key_id) IN (SELECT * FROM unnest(%s::text[], %s::text[]))
-                         AND (kind = 'receive' OR (kind IN ('delete', 'change_visibility') AND receive_row IS NULL))
-                       ORDER BY "row" """, (a, b)).fetchall():
+            known = {(r["rclass"], r["bucket"]) for r in conn.execute(
+                """SELECT DISTINCT rclass, bucket FROM hash_places
+                   WHERE (receipt_hmac, key_id) IN (SELECT * FROM unnest(%s::text[], %s::text[]))""", (a, b)).fetchall()}
+            q, qp = _each(known,  # never empty: it has the places of this export's own spans
+                          """SELECT "row", message_id, time_ns, receipt_hmac, key_id, kind, mid, rclass, bucket,
+                                    receive_row
+                             FROM spans WHERE {p}
+                               AND (receipt_hmac, key_id) IN (SELECT * FROM unnest(%s::text[], %s::text[]))
+                               AND (kind = 'receive' OR (kind IN ('delete', 'change_visibility') AND receive_row IS NULL))""",
+                          [a, b])
+            for x in conn.execute(f'SELECT * FROM ({q}) u ORDER BY "row"', qp).fetchall():
                 if x["row"] in mine:
                     continue
                 h = (x["receipt_hmac"], x["key_id"])
@@ -526,14 +592,16 @@ class PostgresStore(Store):
         mids = sorted(set(mids))
         if not mids:
             return
+        known = _mid_places(conn, mids)  # with the places of this export's spans: it wrote them above
+        where = set().union(*known.values())
         rows_by: dict = {}
-        for r in conn.execute(
-                f"""SELECT {_SPAN_SELECT}, s.rclass, s.bucket FROM spans s WHERE s.mid = ANY(%s)
-                    ORDER BY s.mid, s.time_ns, s."row" """, (mids,)).fetchall():
+        q, qp = _each(where, f"SELECT {_SPAN_SELECT}, s.rclass, s.bucket FROM spans s WHERE {{p}} AND s.mid = ANY(%s)",
+                      [mids], "s")
+        for r in conn.execute(f'SELECT * FROM ({q}) u ORDER BY mid, time_ns, "row"', qp).fetchall():
             rows_by.setdefault(r["mid"], []).append(r)
-        old_by = {r["mid"]: r for r in conn.execute(
-            f"SELECT rclass, bucket, strays_json, {', '.join(COLUMNS)} FROM messages WHERE mid = ANY(%s)",
-            (mids,)).fetchall()}
+        old_by = {r["mid"]: r for r in conn.execute(*_each(
+            where, f"SELECT rclass, bucket, strays_json, {', '.join(COLUMNS)} FROM messages WHERE {{p}} AND mid = ANY(%s)",
+            [mids])).fetchall()}
         # every place this changes rows in must be live
         self._require_live(conn, {(o["rclass"], o["bucket"]) for o in old_by.values()})
         news = {m: summary.summarize(rows_by[m]) for m in mids if m in rows_by}
@@ -554,7 +622,7 @@ class PostgresStore(Store):
             strays_json = json.dumps([list(p) for p in stray_places])
             noted.update((pc, pb, q) for q in new["queues"])
             if any(r["body_id"] is not None for r in rows_by[m]):
-                bodies_move.append((pc, pb, m, pc, pb))
+                bodies_move += [(pc, pb, oc, ob, m) for oc, ob in sorted(known.get(m, ())) if (oc, ob) != (pc, pb)]
             values = [int(v) if isinstance(v, bool) else v for v in (new[f] for f in FIELDS)] + list(lists)
             if old is not None and (old["rclass"], old["bucket"]) != (pc, pb):
                 del_rows.append((old["rclass"], old["bucket"], m))
@@ -610,8 +678,9 @@ class PostgresStore(Store):
             cur.executemany("""INSERT INTO tenant_events (rclass, bucket, at_ms, mid, seq, kind, tenant, wait_ms)
                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""", add_e)
         if bodies_move:
-            cur.executemany("""UPDATE bodies SET rclass = %s, bucket = %s
-                               WHERE mid = %s AND (rclass, bucket) <> (%s, %s)""", bodies_move)
+            cur.executemany("UPDATE bodies SET rclass = %s, bucket = %s WHERE rclass = %s AND bucket = %s AND mid = %s",
+                            bodies_move)
+        _note_mids(conn, [(m, place[m][0], place[m][1]) for m in mids if m in news])
         if strays_new:
             cur.executemany("INSERT INTO strays (rclass, bucket, mid) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
                             sorted(set(strays_new)))
@@ -748,9 +817,17 @@ class PostgresStore(Store):
                 c.execute("SELECT pg_advisory_xact_lock(k) FROM unnest(%s::bigint[]) AS k",
                           (sorted({_key("m:" + m) for m in strays + spread}),))
                 # 1. rows here of messages placed elsewhere: to their message's place
-                for x in c.execute(
-                        """SELECT mid, rclass, bucket, strays_json FROM messages
-                           WHERE mid = ANY(%s) AND (rclass, bucket) <> (%s, %s)""", (strays, pc, pb)).fetchall():
+                homes, found = set().union(*_mid_places(c, strays).values()) - {(pc, pb)}, []
+                if homes:
+                    found = c.execute(*_each(homes, "SELECT mid, rclass, bucket, strays_json FROM messages "
+                                                    "WHERE {p} AND mid = ANY(%s)", [strays])).fetchall()
+                for x in found:
+                    c.execute("""INSERT INTO hash_places (receipt_hmac, key_id, rclass, bucket)
+                                 SELECT DISTINCT receipt_hmac, key_id, %s::bigint, %s::bigint FROM spans
+                                 WHERE rclass = %s AND bucket = %s AND mid = %s
+                                   AND receipt_hmac IS NOT NULL AND key_id IS NOT NULL
+                                   AND kind IN ('receive', 'delete', 'change_visibility')
+                                 ON CONFLICT DO NOTHING""", (x["rclass"], x["bucket"], pc, pb, x["mid"]))
                     c.execute("UPDATE spans SET rclass = %s, bucket = %s WHERE mid = %s AND rclass = %s AND bucket = %s",
                               (x["rclass"], x["bucket"], x["mid"], pc, pb))
                     c.execute("UPDATE messages SET strays_json = %s WHERE rclass = %s AND bucket = %s AND mid = %s",
@@ -773,9 +850,14 @@ class PostgresStore(Store):
                         c.execute("DELETE FROM strays WHERE rclass = %s AND bucket = %s AND mid = %s", (sc, sb, x["mid"]))
                 n += c.execute("SELECT COUNT(*) AS n FROM spans WHERE rclass = %s AND bucket = %s",
                                (pc, pb)).fetchone()["n"]
-            # 3. the partitions themselves
+            # 3. the partitions themselves, then the place's lookup entries (in batches: as many as its messages)
             for t in pg_schema.PARTITIONED:
                 self._detach_and_drop(c, t, pc, pb)
+            for t in ("mid_places", "hash_places"):
+                while c.execute(f"""DELETE FROM {t} WHERE ctid = ANY(ARRAY(
+                                        SELECT ctid FROM {t} WHERE rclass = %s AND bucket = %s LIMIT %s))""",
+                                (pc, pb, self.LOOKUP_DELETE_BATCH)).rowcount:
+                    pass
             with c.transaction():
                 c.execute("DELETE FROM strays WHERE rclass = %s AND bucket = %s", (pc, pb))
                 c.execute("DELETE FROM place_queues WHERE rclass = %s AND bucket = %s", (pc, pb))
@@ -783,6 +865,8 @@ class PostgresStore(Store):
         with self._cache_lock:
             self._known_queues = {k for k in self._known_queues if (k[0], k[1]) != (pc, pb)}
         return n, examined, (time.monotonic() - t0) * 1000
+
+    LOOKUP_DELETE_BATCH = 10_000  # lookup rows deleted a transaction when a place is dropped
 
     def _detach_and_drop(self, c, table: str, pc: int, pb: int) -> None:
         name = pg_schema.partition_name(table, pc, pb)
@@ -820,7 +904,9 @@ class PostgresStore(Store):
                     ids = [m["mid"] for m in gone]
                     other = {tuple(x) for m in gone for x in json.loads(m["strays_json"])} - {(pc, pb)}
                     self._require_live(c, other)
-                    n += c.execute("DELETE FROM spans WHERE mid = ANY(%s)", (ids,)).rowcount
+                    for kc, kb in sorted(set().union(*_mid_places(c, ids).values())):
+                        n += c.execute("DELETE FROM spans WHERE rclass = %s AND bucket = %s AND mid = ANY(%s)",
+                                       (kc, kb, ids)).rowcount
                     for t in ("messages", "message_queues", "message_tenants", "tenant_events", "bodies"):
                         c.execute(f"DELETE FROM {t} WHERE rclass = %s AND bucket = %s AND mid = ANY(%s)", (pc, pb, ids))
                     c.execute("DELETE FROM strays WHERE mid = ANY(%s)", (ids,))
@@ -840,11 +926,22 @@ class PostgresStore(Store):
         with self.reads.connection() as c:
             return c.execute(query, params).fetchall()
 
+    def _by_message(self, mids, query) -> list:
+        """``query(places)``: (SQL, parameters) reading rows of ``mids`` in these places (``_each``); run in one
+        snapshot with the lookup that gives the places, so that a message moving meanwhile is seen whole."""
+        with self.reads.connection() as c, c.transaction():
+            c.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            places = set().union(*_mid_places(c, mids).values())
+            return c.execute(*query(places)).fetchall() if places else []
+
     def message_rows(self, message_id: str) -> list[dict]:
+        def query(places):
+            spans, sp = _each(places, f"SELECT {_SPAN_SELECT} FROM spans s WHERE {{p}} AND s.mid = %s", [message_id], "s")
+            bodies, bp = _each(places, "SELECT mid, id, body FROM bodies WHERE {p} AND mid = %s", [message_id])
+            return (f"""SELECT s.*, b.body AS _body FROM ({spans}) s LEFT JOIN ({bodies}) b ON b.mid = s.mid AND b.id = s.body_id
+                        ORDER BY s.time_ns, s."row" """, sp + bp)
         out = []
-        for r in self._all(f"""SELECT {_SPAN_SELECT}, b.body AS _body FROM spans s
-                               LEFT JOIN bodies b ON b.mid = s.mid AND b.id = s.body_id
-                               WHERE s.mid = %s ORDER BY s.time_ns, s."row" """, (message_id,)):
+        for r in self._by_message([message_id], query):
             body = r.pop("_body")
             if body is not None:
                 attrs = json.loads(r["attributes"])
@@ -922,8 +1019,8 @@ class PostgresStore(Store):
     def summaries(self, message_ids: list[str]) -> list[dict]:
         if not message_ids:
             return []
-        out = {r["mid"]: r for r in self._all(f"SELECT {', '.join(COLUMNS)} FROM messages WHERE mid = ANY(%s)",
-                                              (list(message_ids),))}
+        out = {r["mid"]: r for r in self._by_message(message_ids, lambda places: _each(
+            places, f"SELECT {', '.join(COLUMNS)} FROM messages WHERE {{p}} AND mid = ANY(%s)", [list(message_ids)]))}
         return [out[m] for m in message_ids if m in out]
 
     def queue_messages(self, queue: str) -> set[str]:
@@ -987,9 +1084,13 @@ class PostgresStore(Store):
         if not message_ids:
             return []
         out = []
-        for r in self._all("""SELECT s."row", s.kind, s.mid, s.queue, b.body, s.attributes FROM spans s
-                              JOIN bodies b ON b.mid = s.mid AND b.id = s.body_id
-                              WHERE s.mid = ANY(%s) AND s.body_id IS NOT NULL""", (list(message_ids),)):
+        def query(places):
+            spans, sp = _each(places, """SELECT "row", kind, mid, queue, attributes, body_id FROM spans
+                                         WHERE {p} AND mid = ANY(%s) AND body_id IS NOT NULL""", [list(message_ids)])
+            bodies, bp = _each(places, "SELECT mid, id, body FROM bodies WHERE {p} AND mid = ANY(%s)", [list(message_ids)])
+            return (f"""SELECT s."row", s.kind, s.mid, s.queue, b.body, s.attributes FROM ({spans}) s
+                        JOIN ({bodies}) b ON b.mid = s.mid AND b.id = s.body_id""", sp + bp)
+        for r in self._by_message(message_ids, query):
             attrs = r.pop("attributes")
             r["body"] = bytes(r["body"]).decode("utf-8", "surrogatepass")
             r["format"] = json.loads(attrs).get("trailbeam.body.format")

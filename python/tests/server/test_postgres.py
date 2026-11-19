@@ -336,3 +336,110 @@ def test_ready_fails_and_ingest_answers_503_while_postgres_is_unreachable(pg_sto
         httpd.server_close()
         s.close()
     assert direct.counts()["spans"] == {}
+
+
+# ---- what one export locks (QV-113) -----------------------------------------------------------------------
+
+T0 = D0  # one-second buckets from here: a place a second
+
+
+def _history(s, places: int) -> None:
+    """``places`` one-second places, each with a message sent, received and deleted; place 0 also has "late",
+    received and not yet deleted. Written 20 places an export."""
+    w = Consumer()
+    s.insert(records([w.send(T0, "late"), w.receive(T0 + 1, "late", "h-late")]))
+    for k0 in range(0, places, 20):
+        spans = []
+        for k in range(k0, min(places, k0 + 20)):
+            t = T0 + k * SEC + 10
+            spans += [w.send(t, f"old-{k}"), w.receive(t + 1, f"old-{k}", f"h-old-{k}"), w.delete(t + 2, f"h-old-{k}")]
+        s.insert(records(spans))
+
+
+def _export_locks(s, spans) -> list:
+    """The relations one export holds locks on at the end of its transaction (it holds every lock it took until
+    then): one name per lock entry, sorted."""
+    from trailbeam.server.postgres import PostgresStore
+
+    held = []
+    refresh = PostgresStore._refresh
+
+    def counting(conn, mids):
+        refresh(s, conn, mids)
+        held[:] = sorted(r["relname"] or f"<{r['locktype']}>" for r in conn.execute(
+            """SELECT l.locktype, c.relname FROM pg_locks l LEFT JOIN pg_class c ON c.oid = l.relation
+               WHERE l.pid = pg_backend_pid() AND l.locktype <> 'advisory'""").fetchall())
+    s._refresh = counting
+    try:
+        assert s.insert(records(spans))[0] == len(spans)
+    finally:
+        del s._refresh
+    return held
+
+
+def _the_export(places: int) -> list:
+    """A new message sent (with a body), received and deleted in the place after the history, and the delete of
+    "late", whose receive is in place 0: a join across places that moves "late" to the new place."""
+    w = Consumer()
+    t = T0 + places * SEC + 10
+    send = w.send(t, "new")
+    send.attrs["trailbeam.body"] = "hello"
+    return [send, w.receive(t + 1, "new", "h-new"), w.delete(t + 2, "h-new"), w.delete(t + 3, "h-late")]
+
+
+@needs_pg
+@pytest.mark.parametrize("places", [10, 400])
+def test_what_one_export_locks_does_not_grow_with_the_places(pg_store, places):
+    """QV-113: an export locks the partitions of the places it writes and reads (here the new place, and place 0
+    for the late delete's join), and the store's lookup tables; never one of the other places. So the same export
+    takes as many locks with 400 places of history as with 10."""
+    import re
+
+    s = pg_store(bucket_ns=SEC, store_bodies={"orders"})
+    _history(s, places)
+    held = _export_locks(s, _the_export(places))
+    buckets = {int(m.group(1)) for n in held for m in [re.search(r"_p0_(\d+)", n)] if m}
+    assert buckets == {T0 // SEC, T0 // SEC + places}, buckets
+    _EXPORT_LOCKS[places] = len(held)
+    if len(_EXPORT_LOCKS) == 2:
+        assert _EXPORT_LOCKS[400] == _EXPORT_LOCKS[10], _EXPORT_LOCKS
+    rows = s.message_rows("late")
+    assert [r["kind"] for r in rows] == ["send", "receive", "delete"] and rows[2]["mid"] == "late"
+    assert rows[2]["receive_row"] == rows[1]["row"] and s.summaries(["late"])[0]["final_delete"]
+    assert s.body_spans(["new"])[0]["body"] == "hello"
+
+
+_EXPORT_LOCKS: dict = {}
+
+
+@needs_pg
+def test_version_2_fills_the_lookup_tables_place_by_place(pg_store):
+    """A version-1 database (no lookup tables) is brought to version 2: the lookups are filled from the rows,
+    one place a transaction, as ingest would have written them; then a late delete joins a receive stored
+    before the upgrade, and a message stored before it reads whole."""
+    from trailbeam.server.postgres import PostgresStore
+
+    s = pg_store(bucket_ns=SEC, store_bodies={"orders"})
+    _history(s, 30)
+    w = Consumer()
+    send = w.send(T0 + 5 * SEC, "with-body")
+    send.attrs["trailbeam.body"] = "kept"
+    s.insert(records([send, w.receive(T0 + 40 * SEC, "with-body", "h-wb")]))  # its body moves to place 40
+    with s.ingest.connection() as c:
+        lookups = {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in ("mid_places", "hash_places")}
+        assert len(lookups["mid_places"]) == 30 + 3 and len(lookups["hash_places"]) == 30 + 2
+        c.execute("DROP TABLE mid_places, hash_places")
+        c.execute("UPDATE schema_version SET version = 1")
+    again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
+    try:
+        assert again.migrated == [2]
+        with again.ingest.connection() as c:
+            assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
+            assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == [1, 2]
+        again.insert(records([w.delete(T0 + 50 * SEC, "h-late")]))
+        rows = again.message_rows("late")
+        assert [r["kind"] for r in rows] == ["send", "receive", "delete"] and rows[2]["receive_row"] == rows[1]["row"]
+        assert again.body_spans(["with-body"])[0]["body"] == "kept"
+        assert len(again.message_rows("old-7")) == 3
+    finally:
+        again.close()
