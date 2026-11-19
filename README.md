@@ -354,6 +354,10 @@ storage conformance suite on 14 and 16. The Postgres driver is an extra: a SQLit
 is loaded only when the URL is a Postgres one. Existing SQLite history is not copied over: a new Postgres store
 starts empty.
 
+**Upgrading with several replicas.** When a new version changes the Postgres schema, stop every replica of the
+older version before starting the new one ([CHANGELOG](CHANGELOG.md) says which versions do). The first one to
+start upgrades the database. An older replica still running would store spans the new schema doesn't index.
+
 Retention works as described above, with one difference: spans are kept in **daily partitions** per retention
 (a partition per day for each distinct retention you configure), and the purge drops whole partitions instead
 of deleting rows, so it costs about the same however much it removes. A message expires once the *day* of its
