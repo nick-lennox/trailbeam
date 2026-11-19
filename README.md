@@ -308,13 +308,13 @@ Age is the span's end time, measured against the server's clock.
 `TRAILBEAM_PURGE_DUTY` of the time (default 0.25). Ingest and pages never wait behind a whole pass.
 `GET /api/health` shows the settings and the last pass under `config.retention`.
 
-**How fast the purge deletes.** Deleting spans costs about as much disk work as writing them, and it
-shares SQLite's one writer with ingest. On our test machine (1M stored spans, 1 KB bodies, ingest at
-1,000 spans/s during the pass) the purge deleted about 220 spans/s at the default batch and about 80
-spans/s at `--purge-batch 15`. Exports stayed under 2 s p99 in both, with one 30 s window at 2.5 s at
-the default batch. So retention keeps up only while your *average* ingest is below the purge rate; above
-that the file keeps growing. Measured on one machine; your disk will give different numbers. Raising
-`TRAILBEAM_PURGE_DUTY` deletes faster but makes ingest wait longer.
+**How fast the purge deletes.** The purge shares SQLite's one writer with ingest. On our test machine
+(1M stored spans, 1 KB bodies, ingest at 1,000 spans/s during the pass) it deleted about 1,530 spans/s at
+the default batch and about 550 spans/s at `--purge-batch 15`. Export p99 during the pass stayed at what
+ingest alone gives (worst 30 s window 243 ms, against 268 ms with no purge). So retention keeps up while
+your *average* ingest is below the purge rate, and at the default batch that rate is above the 1,000
+spans/s the server is sized for. Above it, the file keeps growing. Measured on one machine; your disk will
+give different numbers. Raising `TRAILBEAM_PURGE_DUTY` deletes faster but makes ingest wait longer.
 
 **Disk space.** A database file created by this version gives the deleted space back to the disk
 (SQLite incremental vacuum, a few pages at a time after each pass). A file created by an earlier version
@@ -441,6 +441,52 @@ answered 200 in the last moments before it, and the file stays consistent. The s
 start when it's set. It applies to the SQLite file only; with Postgres, use its `synchronous_commit`.
 
 ### Sizing one SQLite server
+
+**Disk is the limit to plan for.** One SQLite server holds *average ingest × retention* spans, at about
+**2 GB per million spans** (1.9 GB measured at 300k and 1M spans, with or without 1 KB bodies on a tenth
+of the queues, and 2.1 GB at 10M). Retention keeps the file at that size as long as the average stays
+under the purge rate (about 1,530 spans/s on our test machine, [Retention](#retention)). In our test
+traffic a message is about 3.2 spans, so divide by 3 for messages/s.
+
+| average ingest | 1 day | 7 days (default) | 30 days |
+|---|---|---|---|
+| 10 spans/s | 0.9M spans, 1.7 GB | 6M, 12 GB | 26M, 52 GB |
+| 50 spans/s | 4.3M, 9 GB | 30M, 60 GB | 130M, 260 GB |
+| 200 spans/s | 17M, 35 GB | 121M, 240 GB | 518M, 1 TB |
+| 1,000 spans/s | 86M, 170 GB | 605M, 1.2 TB | 2.6B, 5.2 TB |
+
+Disk sizes are spans × 2 GB per million, before the free space an upgrade leaves ([Upgrading a database
+file](#retention)). Keep free disk about the size of the file on top: an upgrade and a
+[backup](#backup-and-restore-sqlite) each need it.
+
+**1,000 spans/s is a peak rate for SQLite, not a sustained one.** One server takes bursts of 1,000 spans/s
+and stores every export it answers 200 (measured below). Held for 7 days, that rate is 605M spans and about
+1.2 TB, 60 times the largest file we have measured. What we have measured:
+
+- **Live ingest and pages:** at 1M spans (2 GB). The table below.
+- **In-process inserts at 10M spans** (21 GB file, 12 GB RAM): 2,030–2,480 spans/s, against 9,560–9,770 at 1M.
+  The writer slows once the file is larger than RAM. We haven't measured live export latency or pages at 10M.
+- **Past 10M spans:** not measured. At the 7-day default, 10M spans is an average of about 16 spans/s.
+
+**When to move to [Postgres](#postgres-bring-your-own):**
+
+- you need more than one replica, or a server you can restart without stopping ingest;
+- the data you keep is past about 10M spans (20 GB), the largest SQLite file we've measured, or much larger
+  than the machine's RAM;
+- export p99 on `/metrics` keeps rising as the file grows;
+- or the average ingest you need is near the purge rate.
+
+The Postgres store has been measured at 1M spans too (`python/bench/README.md`), not yet at larger sizes.
+
+**Which machine.**
+
+- **Recommended:** RAM larger than the database file and more than 2 vCPUs. That's where the list-page target
+  holds: p95 ≤ 300 ms (on the desktop below, 153 ms for the slowest page while ingesting at 1M spans).
+- **Minimum:** an AWS t3.small class machine (2 vCPU, 2 GB RAM, EBS gp3), with the measured numbers below.
+  At 1M spans and 1,000 spans/s its targets are export p99 ≤ 3 s idle and ≤ 6 s while pages load, and ingest
+  keeps up with nothing acknowledged lost. The Tenants page is slower there than the 300 ms target.
+
+#### Latency at 1M spans
 
 Measured with the benchmark harness (`python/bench/harness.py --sizes 1M --rates 1000sp`): 1M stored
 spans, 1,000 spans/s ingest, the load generator on the same machine. Export p99 is over one 30 s step
@@ -656,6 +702,8 @@ The documentation is at [docs.trailbeam.app](https://docs.trailbeam.app).
 | [Run Trailbeam](https://docs.trailbeam.app/setup/run) | Run Trailbeam, natively or in a container |
 | [HTTP API](https://docs.trailbeam.app/reference/api) | Trailbeam's JSON API |
 | [Vocabulary](https://docs.trailbeam.app/concepts/vocabulary) | Terms |
+
+What changed in each release, with upgrade notes: [CHANGELOG.md](CHANGELOG.md).
 
 The reference for each part of this repository is next to its code: [`python/`](python/README.md),
 [`node/`](node/README.md), [`collector/`](collector/README.md) and [`demo/`](demo/README.md). The span
