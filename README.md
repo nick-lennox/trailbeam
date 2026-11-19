@@ -446,12 +446,13 @@ were stored, partitions holding queues with different retentions are cleaned by 
 outside ingest. At the start of each pass, the replica running retention creates the partitions for today and
 the next two days, so ingest rarely has to.
 
-Creating a partition needs a lock that any open transaction which has read Trailbeam's tables holds until it
-ends (a `pg_dump` holds one for its whole run), and exports queue behind the request. So Trailbeam waits at most
-1 second for it. A retention pass that can't get it tries again at the next pass, a day or more before the
-partition is needed. An export that needs a partition nobody has made yet (a span more than two days early, or a late one
-for a day that has no partition) tries three times, then is answered `503` with `Retry-After`, nothing
-stored, and the exporter sends it again. Each try can hold other exports up by up to 1 second.
+Trailbeam creates a partition as a table of its own and then attaches it, which doesn't have to wait for open
+transactions that have read Trailbeam's tables (a `pg_dump` is one for its whole run) and doesn't hold up exports.
+It conflicts only with a schema change or a manual `ANALYZE` of a whole table running at the same time, and waits
+at most 1 second for those. A retention pass that can't get the lock tries again at the next pass, a day or more
+before the partition is needed. An export that needs a partition nobody has made yet (a span more than two days
+early, or a late one for a day that has no partition) tries three times, then is answered `503` with
+`Retry-After`, nothing stored, and the exporter sends it again.
 
 Trailbeam analyzes a new day's partitions itself once a replica has written 1,000 spans to them, instead of
 waiting for autovacuum. Until a partition has planner statistics, Postgres treats it as empty and picks slow
@@ -494,11 +495,8 @@ message bodies.
 
 - **Snapshots and point-in-time recovery** (the automated backups of RDS and Cloud SQL, Neon's restore,
   `pg_basebackup` with WAL archiving, pgBackRest) copy the files and take no table locks. Prefer them.
-- **`pg_dump`** works while Trailbeam ingests, at any time of day. While it runs, Trailbeam can't create
-  partitions. Today's and the next two days' are made ahead, so this only matters for a dump that runs longer
-  than a day, or for a span more than two days early: each try holds exports up by up to 1 second, and that
-  span's export is answered `503` until the dump ends. Set `idle_in_transaction_session_timeout` for the
-  database's other clients, so a forgotten open transaction can't do the same.
+- **`pg_dump`** works while Trailbeam ingests, at any time of day, and doesn't stop Trailbeam creating partitions
+  or storing exports.
 
 ```sh
 pg_dump -Fc -f trailbeam-$(date +%F).dump "postgres://trailbeam@db.internal/trailbeam"

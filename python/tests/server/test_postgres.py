@@ -742,11 +742,13 @@ def test_a_new_place_is_analysed_once_it_has_rows(pg_store):
 
 @needs_pg
 def test_partition_creation_does_not_hold_exports_behind_an_open_reader(pg_store):
-    """3d: a transaction that has read the tables (as a pg_dump does) holds a lock that creating a partition
-    needs, and every export queues behind the DDL's lock request. The DDL waits at most DDL_LOCK_TIMEOUT_MS:
-    an export into an existing place is held up by about that at most, the export that needed the new place
-    tries DDL_ATTEMPTS times and is answered busy with nothing stored, and retention's pass gives up quickly and creates the places (now and
-    the next PRECREATE_AHEAD buckets) at the next pass. Before, all of them waited until the reader ended."""
+    """3d: a transaction that has read the tables (as a pg_dump does) holds ACCESS SHARE on them until it ends.
+    A partition is made as a table of its own and then attached (SHARE UPDATE EXCLUSIVE on the parent), which
+    doesn't conflict with that or with exports' writes: retention's pass makes the places (now and the next
+    PRECREATE_AHEAD buckets), an export that needs a new place stores it, and no export waits on the reader.
+    Before, all of them waited until the reader ended. A transaction holding a lock that ATTACH does conflict
+    with: the DDL waits at most DDL_LOCK_TIMEOUT_MS a try, and the export that needed the place is answered busy
+    after DDL_ATTEMPTS tries, nothing stored, while exports into existing places go on."""
     import psycopg
 
     from trailbeam.server.store import WriterBusy
@@ -759,21 +761,27 @@ def test_partition_creation_does_not_hold_exports_behind_an_open_reader(pg_store
     with psycopg.connect(s.url) as reader:  # not autocommit: the transaction stays open
         reader.execute("BEGIN ISOLATION LEVEL REPEATABLE READ")
         reader.execute("SELECT COUNT(*) FROM spans").fetchone()
-
         t0 = time.monotonic()
         s._precreate()
+        assert ahead <= _partitions(s)
+        t = time.monotonic()
+        assert s.insert(records([w.send(D0 + 5 * DAY, "needs-a-place")])) == (1, 0)
+        assert s.insert(records([w.send(D0 + SEC, "existing-1")])) == (1, 0)
         assert time.monotonic() - t0 < 3
-        assert not ahead & _partitions(s)
+        reader.rollback()
 
+    with psycopg.connect(s.url) as holder:  # as a schema change or a manual ANALYZE of the parent would
+        holder.execute("BEGIN")
+        holder.execute("LOCK TABLE spans IN SHARE UPDATE EXCLUSIVE MODE")
         new_place, held = [], []
 
         def export_new():
             t = time.monotonic()
-            new_place.append((_try(s.insert, records([w.send(D0 + 5 * DAY, "needs-a-place")])), time.monotonic() - t))
+            new_place.append((_try(s.insert, records([w.send(D0 + 9 * DAY, "busy")])), time.monotonic() - t))
         th = threading.Thread(target=export_new)
         th.start()
-        time.sleep(0.3)  # its CREATE is now waiting, and exports queue behind it
-        for i in range(1, 4):
+        time.sleep(0.3)  # its ATTACH is now waiting
+        for i in range(2, 5):
             t = time.monotonic()
             assert s.insert(records([w.send(D0 + i * SEC, f"existing-{i}")])) == (1, 0)
             held.append(time.monotonic() - t)
@@ -781,10 +789,9 @@ def test_partition_creation_does_not_hold_exports_behind_an_open_reader(pg_store
         assert not th.is_alive()
         assert isinstance(new_place[0][0], WriterBusy), new_place
         assert new_place[0][1] < s.DDL_ATTEMPTS * s.DDL_LOCK_TIMEOUT_MS / 1000 + 2, new_place
-        assert max(held) < s.DDL_LOCK_TIMEOUT_MS / 1000 + 1.5, held
-        assert s.message_rows("needs-a-place") == []
-        reader.rollback()  # the reader ends
-    assert s.insert(records([w.send(D0 + 5 * DAY, "needs-a-place")])) == (1, 0)
-    s._precreate()
-    assert ahead <= _partitions(s)
-    assert len(s.message_rows("needs-a-place")) == 1 and len(s.recent_messages(10)) == 5
+        assert max(held) < 1.5, held
+        assert s.message_rows("busy") == []
+        holder.rollback()
+    assert s.insert(records([w.send(D0 + 9 * DAY, "busy")])) == (1, 0)
+    assert len(s.message_rows("needs-a-place")) == 1 and len(s.message_rows("busy")) == 1
+    assert len(s.recent_messages(10)) == 7

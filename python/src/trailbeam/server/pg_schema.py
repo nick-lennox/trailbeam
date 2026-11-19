@@ -341,11 +341,21 @@ def partition_name(table: str, rclass: int, bucket: int) -> str:
     return f"{table}_p{rclass}_{'m' if bucket < 0 else ''}{abs(bucket)}"
 
 
-def place_ddl(rclass: int, bucket: int) -> list[str]:
-    """The partitions of one place, one per partitioned table."""
-    return [f"CREATE TABLE IF NOT EXISTS {partition_name(t, rclass, bucket)} PARTITION OF {t} "
-            f"FOR VALUES FROM ({int(rclass)}, {int(bucket)}) TO ({int(rclass)}, {int(bucket) + 1})"
-            for t in PARTITIONED]
+def place_ddl(rclass: int, bucket: int) -> list[tuple[str, str, str, str]]:
+    """The partitions of one place, one per partitioned table: (table, partition, create, attach). Made as a
+    table of its own, then attached: ``ATTACH PARTITION`` locks the parent SHARE UPDATE EXCLUSIVE, which
+    exports' writes and any reader (a ``pg_dump``) don't conflict with, where ``CREATE TABLE … PARTITION OF``
+    needs ACCESS EXCLUSIVE, so it waits for every open transaction and every export queues behind it (QV-118).
+    Attaching builds the parent's indexes on it (the same names) and checks its range (it is empty)."""
+    out = []
+    for t in PARTITIONED:
+        name = partition_name(t, rclass, bucket)
+        out.append((t, name,
+                    f"CREATE TABLE IF NOT EXISTS {name} (LIKE {t} INCLUDING DEFAULTS INCLUDING CONSTRAINTS "
+                    f"INCLUDING STORAGE)",
+                    f"ALTER TABLE {t} ATTACH PARTITION {name} "
+                    f"FOR VALUES FROM ({int(rclass)}, {int(bucket)}) TO ({int(rclass)}, {int(bucket) + 1})"))
+    return out
 
 
 # ---- the lock table (QV-107) ----------------------------------------------------------------------------------

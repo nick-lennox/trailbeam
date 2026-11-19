@@ -13,10 +13,12 @@
 - **Postgres: keeping a message's summary up to date no longer scans the day's partition.** Three summary
   tables get an index on the message ID (schema 3). On a day partition of 500,000 rows, each of those deletes
   took 8–26 ms and now takes 0.1 ms.
-- **Postgres: a new day's partition no longer stalls ingest behind a `pg_dump`.** Creating a partition waits at
-  most 1 second for its lock, and retention creates the partitions for today and the next two days, so a
-  `pg_dump` can run at any time of day. An export that needs a partition that can't be created tries 3 times,
-  then is answered `503` with `Retry-After`. Before, a read transaction open for 25 s made exports wait 24 s.
+- **Postgres: a new day's partition no longer stalls ingest behind a `pg_dump`.** A partition is now created as
+  a table of its own and then attached, which needs no lock that an open transaction or an export holds, so a
+  `pg_dump` can run at any time of day. Retention creates the partitions for today and the next two days. Before,
+  a read transaction open for 25 s made exports wait 24 s. Attaching still waits at most 1 second for a schema
+  change running at the same time; an export that needs a partition that can't be created then tries 3 times,
+  then is answered `503` with `Retry-After`.
 - **Postgres: a new day's partition is analyzed once a replica has written 1,000 spans to it.** Until then
   Postgres has no statistics for it and plans it as empty. On a 200,000-row partition, that made the
   receipt-hash update take 55–68 ms instead of 0.6 ms.

@@ -52,10 +52,12 @@ it would lock every partition. What an export locks is then the partitions of th
 hashes are in, however many places the store has (85 lock entries for a four-span export joining across two
 places, with 10 places or 400). Pages (walks across all of time) still lock every place.
 
-**New places** (QV-118). Creating a place's partitions (``CREATE TABLE … PARTITION OF``) needs a lock on each
-parent table that conflicts with the lock any open transaction holds once it has read the table (a ``pg_dump``
-holds one for its whole run), and every export's statements queue behind the request. So the DDL waits at most
-``DDL_LOCK_TIMEOUT_MS`` for it. Retention's pass creates the places of today and the next ``PRECREATE_AHEAD``
+**New places** (QV-118). ``CREATE TABLE … PARTITION OF`` locks the parent ACCESS EXCLUSIVE: it waits for every
+open transaction that has read it (a ``pg_dump`` for its whole run, and every running export), and every export
+queues behind the request, which with the exports' message locks can form a cycle. So a place's partitions are
+made as tables of their own and then attached (``pg_schema.place_ddl``), which locks the parent SHARE UPDATE
+EXCLUSIVE, conflicting only with other DDL and ANALYZE of the parent. That still waits at most
+``DDL_LOCK_TIMEOUT_MS``. Retention's pass creates the places of today and the next ``PRECREATE_AHEAD``
 buckets, so a pass that can't is retried at the next one long before the place is needed; an export that needs
 a place that isn't there (a span more than that late or early) and can't create it in ``DDL_ATTEMPTS`` tries
 is answered busy (WriterBusy: 503 with Retry-After), nothing stored. A new place's partitions also have no planner statistics
@@ -275,14 +277,28 @@ class PostgresStore(Store):
         with psycopg.connect(self.url, autocommit=True) as c:
             c.execute(f"SET lock_timeout = {int(self.DDL_LOCK_TIMEOUT_MS)}")
             for rclass, bucket in sorted(places):
-                for ddl in pg_schema.place_ddl(rclass, bucket):
+                for table, name, create, attach in pg_schema.place_ddl(rclass, bucket):
+                    if self._is_partition(c, table, name):
+                        continue
                     try:
-                        c.execute(ddl)
+                        c.execute(create)
                     except (errors.UniqueViolation, errors.DuplicateTable):
                         pass  # another server made it at the same moment
+                    try:
+                        c.execute(attach)
+                    except errors.WrongObjectType:
+                        pass  # another server attached it at the same moment ("is already a partition")
                 c.execute("INSERT INTO places (rclass, bucket) VALUES (%s, %s) ON CONFLICT DO NOTHING",
                           (rclass, bucket))
             self._check_locks(c, throttle_s=self.LOCK_WARNING_INTERVAL_S)
+
+    @staticmethod
+    def _is_partition(c, table: str, name: str) -> bool:
+        return c.execute(
+            """SELECT 1 FROM pg_inherits i JOIN pg_class ch ON ch.oid = i.inhrelid JOIN pg_class pa ON pa.oid = i.inhparent
+               WHERE ch.relname = %s AND pa.relname = %s
+                 AND ch.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())""",
+            (name, table)).fetchone() is not None
 
     LOCK_WARNING_INTERVAL_S = 3600.0  # a shortfall found as places are added is logged at most this often
 
@@ -610,10 +626,8 @@ class PostgresStore(Store):
         return inserted, dupes
 
     def _ensure_places_for_ingest(self, places) -> None:
-        """An export's missing places, tried DDL_ATTEMPTS times. A lock wait can time out under ordinary ingest
-        too: an export queued behind the DDL may hold a message lock that an export the DDL waits for needs, and
-        the timeout is what breaks that cycle; so try again. Still not made: a long transaction (a pg_dump?) has
-        the tables open, and exports would queue behind every try. Answer busy (WriterBusy: 503), nothing
+        """An export's missing places, tried DDL_ATTEMPTS times ("New places"). Still not made: other DDL (or
+        an ANALYZE of a parent) holds a lock that attaching needs. Answer busy (WriterBusy: 503), nothing
         stored; the exporter sends it again."""
         for attempt in range(self.DDL_ATTEMPTS):
             try:
@@ -621,10 +635,10 @@ class PostgresStore(Store):
                 return
             except (errors.LockNotAvailable, TimeoutError):
                 pass
-        log.warning("ingest: could not create the partitions of %d new place(s) in %d tries of %d ms: an open "
-                    "transaction (a pg_dump?) holds a lock on the tables; answering busy",
+        log.warning("ingest: could not create the partitions of %d new place(s) in %d tries of %d ms: another "
+                    "transaction (a schema change?) holds a lock on the tables; answering busy",
                     len(places), self.DDL_ATTEMPTS, self.DDL_LOCK_TIMEOUT_MS)
-        raise WriterBusy("could not create a new day's partitions now: an open transaction holds a lock on "
+        raise WriterBusy("could not create a new day's partitions now: another transaction holds a lock on "
                          "the tables")
 
     def _analyse_due(self) -> None:
@@ -919,7 +933,7 @@ class PostgresStore(Store):
         try:
             self._ensure_places({(c, b) for c in classes for b in range(now, now + self.PRECREATE_AHEAD + 1)})
         except errors.LockNotAvailable:
-            log.info("retention: an open transaction (a pg_dump?) held the tables for %d ms; the next places will "
+            log.info("retention: another transaction (a schema change?) held the tables for %d ms; the next places will "
                      "be created at the next pass", self.DDL_LOCK_TIMEOUT_MS)
         except psycopg.Error as e:  # e.g. no CREATE privilege: ingest makes them when spans come
             log.warning("could not create the next places ahead of time: %s", e)
