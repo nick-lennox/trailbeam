@@ -24,6 +24,10 @@ place's entries when retention drops it.
 
 Text keys that pages sort or compare by are ``COLLATE "C"``: byte order, as SQLite compares, so ties and
 cursors come out the same on both.
+
+**Message-ID indexes** (version 3, QV-118). ``message_queues``, ``message_tenants`` and ``tenant_events`` are
+indexed by ``mid``, so rewriting a message's summary deletes its old list rows by index instead of scanning its
+place's partition.
 """
 from __future__ import annotations
 
@@ -137,6 +141,7 @@ CREATE TABLE IF NOT EXISTS message_queues (
     mid TEXT COLLATE "C" NOT NULL
 ) PARTITION BY RANGE (rclass, bucket);
 CREATE INDEX IF NOT EXISTS message_queues_key ON message_queues (queue, last_ns DESC, mid);
+CREATE INDEX IF NOT EXISTS message_queues_mid ON message_queues (mid);
 CREATE TABLE IF NOT EXISTS message_tenants (
     rclass BIGINT NOT NULL,
     bucket BIGINT NOT NULL,
@@ -148,6 +153,7 @@ CREATE TABLE IF NOT EXISTS message_tenants (
 ) PARTITION BY RANGE (rclass, bucket);
 CREATE INDEX IF NOT EXISTS message_tenants_key ON message_tenants (tenant, last_ns DESC, mid);
 CREATE INDEX IF NOT EXISTS message_tenants_search ON message_tenants (tenant_lower, tenant, named_ns);
+CREATE INDEX IF NOT EXISTS message_tenants_mid ON message_tenants (mid);
 CREATE TABLE IF NOT EXISTS tenant_events (
     rclass BIGINT NOT NULL,
     bucket BIGINT NOT NULL,
@@ -159,6 +165,7 @@ CREATE TABLE IF NOT EXISTS tenant_events (
     wait_ms BIGINT
 ) PARTITION BY RANGE (rclass, bucket);
 CREATE INDEX IF NOT EXISTS tenant_events_key ON tenant_events (at_ms, mid, seq);
+CREATE INDEX IF NOT EXISTS tenant_events_mid ON tenant_events (mid);
 CREATE TABLE IF NOT EXISTS bodies (
     rclass BIGINT NOT NULL,
     bucket BIGINT NOT NULL,
@@ -196,12 +203,38 @@ CREATE TABLE IF NOT EXISTS schema_version (
 class Migration:
     """``statements`` run in one transaction. ``per_place``, when given, then run once for every place, each place
     in a transaction of its own (``%(rclass)s``, ``%(bucket)s``: the place), so that the migration locks one
-    place's partitions at a time; the version is recorded after the last. Both must be safe to run again: a
-    migration stopped part way is run again from the start."""
+    place's partitions at a time; the version is recorded after the last. A ``per_place`` entry is SQL, or a
+    function ``f(conn, rclass, bucket)``. Both must be safe to run again: a migration stopped part way is run
+    again from the start."""
     version: int
     name: str
     statements: tuple
     per_place: tuple = ()
+
+
+# The summary list tables that version 3 indexes by message ID.
+MID_INDEXED = ("message_queues", "message_tenants", "tenant_events")
+
+
+def _mid_indexes(conn, rclass: int, bucket: int) -> None:
+    """Version 3, one place: build each list table's ``(mid)`` index on the place's partition and attach it to
+    the parent's (``ON ONLY``, made by the migration's statements). ``CREATE INDEX`` on the parent itself would
+    build every partition's in one transaction, locking them all against writes until the last is built; this
+    locks one place's at a time (SHARE: reads go on). The parent's index becomes valid when the last partition's
+    is attached; a partition created later gets its own as Postgres creates it. A partition being detached by
+    retention is skipped: the next pass drops it."""
+    for table in MID_INDEXED:
+        part = partition_name(table, rclass, bucket)
+        attached = conn.execute(
+            """SELECT NOT i.inhdetachpending FROM pg_inherits i
+               JOIN pg_class ch ON ch.oid = i.inhrelid JOIN pg_class pa ON pa.oid = i.inhparent
+               WHERE ch.relname = %s AND pa.relname = %s
+                 AND ch.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())""",
+            (part, table)).fetchone()
+        if not attached or not attached[0]:
+            continue
+        conn.execute(f"CREATE INDEX IF NOT EXISTS {part}_mid_idx ON {part} (mid)")
+        conn.execute(f"ALTER INDEX {table}_mid ATTACH PARTITION {part}_mid_idx")  # attached already: nothing happens
 
 
 # Version 1 is the first Postgres schema. Later versions go here, one at a time.
@@ -226,8 +259,11 @@ MIGRATIONS: tuple = (
                  AND kind IN ('receive', 'delete', 'change_visibility')
            ON CONFLICT DO NOTHING""",
     )),
+    Migration(3, "message-ID indexes on the summary list tables (QV-118)", tuple(
+        f"CREATE INDEX IF NOT EXISTS {t}_mid ON ONLY {t} (mid)" for t in MID_INDEXED
+    ), per_place=(_mid_indexes,)),
 )
-LATEST = 2
+LATEST = 3
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 
@@ -269,8 +305,11 @@ def open_schema(conn) -> list[int]:
             places = conn.execute("SELECT rclass, bucket FROM places ORDER BY bucket, rclass").fetchall()
             for rclass, bucket in places:
                 with conn.transaction():
-                    for sql in m.per_place:
-                        conn.execute(sql, {"rclass": rclass, "bucket": bucket})
+                    for step in m.per_place:
+                        if callable(step):
+                            step(conn, rclass, bucket)
+                        else:
+                            conn.execute(step, {"rclass": rclass, "bucket": bucket})
             with conn.transaction():
                 if current_version(conn) == m.version - 1:
                     _record(conn, m.version, m.name)

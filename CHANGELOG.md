@@ -10,15 +10,29 @@
   lookup tables make this possible: one row per message ID and one per receipt handle. On our test machine,
   seeding 205,000 spans wrote 29% more WAL (852 MB against 658 MB), the database grew 6% (33 MB), and the
   seed took 48 s instead of 90 s.
+- **Postgres: keeping a message's summary up to date no longer scans the day's partition.** Three summary
+  tables get an index on the message ID (schema 3). On a day partition of 500,000 rows, each of those deletes
+  took 8–26 ms and now takes 0.1 ms.
+- **Postgres: a new day's partition no longer stalls ingest behind a `pg_dump`.** Creating a partition waits at
+  most 1 second for its lock, and retention creates the partitions for today and the next two days, so a
+  `pg_dump` can run at any time of day. An export that needs a partition that can't be created tries 3 times,
+  then is answered `503` with `Retry-After`. Before, a read transaction open for 25 s made exports wait 24 s.
+- **Postgres: a new day's partition is analyzed once a replica has written 1,000 spans to it.** Until then
+  Postgres has no statistics for it and plans it as empty. On a 200,000-row partition, that made the
+  receipt-hash update take 55–68 ms instead of 0.6 ms.
 
 ### Upgrading from 0.2.0 (Postgres)
 
 **Stop every 0.2.0 replica, then start the new version.** At start the server upgrades the database to
-Postgres schema 2, filling the lookup tables from the stored spans, one day partition at a time. On our test
-machine that took 1 second for 205,000 spans. Don't run 0.2.0 and this version against one database at
-the same time. A 0.2.0 replica doesn't write the lookup tables, so the spans it stores are missing from
+Postgres schema 3, one day partition at a time. Schema 2 fills the lookup tables from the stored spans. On our
+test machine that took 1 second for 205,000 spans. Schema 3 builds the message-ID indexes: 0.4 s for 500,000
+rows in each of the three tables. Each partition's index build blocks writes to that partition only, and no
+replica is writing during the upgrade anyway. Reads (and a `pg_dump`) carry on. A database already at schema 2
+(from a build of `main`) gets only the schema-3 step, and the same rule applies: stop every replica first.
+Don't run 0.2.0 and this version against one database at the same time. A 0.2.0 replica doesn't write the lookup tables, so the spans it stores are missing from
 joins and timelines. Once the database is upgraded, a 0.2.0 server refuses to start on it. If the upgrade
-is stopped part way, the database stays at schema 1, and the next start runs it again.
+is stopped part way, the database stays at the last schema it finished, and the next start goes on from
+there.
 
 ## 0.2.0: production single-node
 
