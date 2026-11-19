@@ -17,6 +17,18 @@
   unchanged. With 400 partitions, the first page of messages takes 1.6 ms instead of 24 ms and tenant search
   151 ms instead of 490 ms. The lists that must read every partition got slower: stuck messages take 62 ms instead of 32 ms,
   and `/api/health` 55 ms instead of 48 ms.
+- **Postgres: keeping a message's summary up to date no longer scans the day's partition.** Three summary
+  tables get an index on the message ID (schema 3). On a day partition of 500,000 rows, each of those deletes
+  took 8–26 ms and now takes 0.1 ms.
+- **Postgres: a new day's partition no longer stalls ingest behind a `pg_dump`.** A partition is now created as
+  a table of its own and then attached, which needs no lock that an open transaction or an export holds, so a
+  `pg_dump` can run at any time of day. Retention creates the partitions for today and the next two days. Before,
+  a read transaction open for 25 s made exports wait 24 s. Attaching still waits at most 1 second for a schema
+  change running at the same time; an export that needs a partition that can't be created then tries 3 times,
+  then is answered `503` with `Retry-After`.
+- **Postgres: a new day's partition is analyzed once a replica has written 1,000 spans to it.** Until then
+  Postgres has no statistics for it and plans it as empty. On a 200,000-row partition, that made the
+  receipt-hash update take 55–68 ms instead of 0.6 ms.
 - **Postgres: the server says when `max_locks_per_transaction` is too low.** At start and as partitions are
   added, the server works out the value it needs and logs a warning with it. Since list pages read 8 day
   partitions a query, that value no longer grows with the partitions: a stock Postgres is enough for one replica
@@ -26,11 +38,15 @@
 ### Upgrading from 0.2.0 (Postgres)
 
 **Stop every 0.2.0 replica, then start the new version.** At start the server upgrades the database to
-Postgres schema 2, filling the lookup tables from the stored spans, one day partition at a time. On our test
-machine that took 1 second for 205,000 spans. Don't run 0.2.0 and this version against one database at
-the same time. A 0.2.0 replica doesn't write the lookup tables, so the spans it stores are missing from
+Postgres schema 3, one day partition at a time. Schema 2 fills the lookup tables from the stored spans. On our
+test machine that took 1 second for 205,000 spans. Schema 3 builds the message-ID indexes: 0.4 s for 500,000
+rows in each of the three tables. Each partition's index build blocks writes to that partition only, and no
+replica is writing during the upgrade anyway. Reads (and a `pg_dump`) carry on. A database already at schema 2
+(from a build of `main`) gets only the schema-3 step, and the same rule applies: stop every replica first.
+Don't run 0.2.0 and this version against one database at the same time. A 0.2.0 replica doesn't write the lookup tables, so the spans it stores are missing from
 joins and timelines. Once the database is upgraded, a 0.2.0 server refuses to start on it. If the upgrade
-is stopped part way, the database stays at schema 1, and the next start runs it again.
+is stopped part way, the database stays at the last schema it finished, and the next start goes on from
+there.
 
 ## 0.2.0: production single-node
 

@@ -536,14 +536,13 @@ def test_version_2_fills_the_lookup_tables_place_by_place(pg_store):
     with s.ingest.connection() as c:
         lookups = {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in ("mid_places", "hash_places")}
         assert len(lookups["mid_places"]) == 30 + 3 and len(lookups["hash_places"]) == 30 + 2
-        c.execute("DROP TABLE mid_places, hash_places")
-        c.execute("UPDATE schema_version SET version = 1")
+        _as_version(c, 1)
     again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
     try:
-        assert again.migrated == [2]
+        assert again.migrated == [2, 3]
         with again.ingest.connection() as c:
             assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
-            assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == [1, 2]
+            assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == [1, 2, 3]
         again.insert(records([w.delete(T0 + 50 * SEC, "h-late")]))
         rows = again.message_rows("late")
         assert [r["kind"] for r in rows] == ["send", "receive", "delete"] and rows[2]["receive_row"] == rows[1]["row"]
@@ -600,8 +599,6 @@ def _pages(s, places: int) -> dict:
 def _read_locks(s, call) -> list:
     """Run ``call``, each of its statements in a transaction of its own (as autocommit runs it) that, before it
     ends, lists what the connection holds. Returns one sorted list of relation names for each statement."""
-    import contextlib
-
     import psycopg
 
     held = []
@@ -678,3 +675,218 @@ def test_what_one_page_locks_does_not_grow_with_the_places(pg_store, places, tmp
 
 
 _PAGE_LOCKS: dict = {}
+
+
+def _as_version(c, version: int) -> None:
+    """Make a current database look as Postgres schema ``version`` left it: 1 is 0.2.0's (no lookup tables, no
+    message-ID indexes on the list tables), 2 adds the lookup tables (QV-113)."""
+    if version < 3:
+        c.execute("DROP INDEX message_queues_mid, message_tenants_mid, tenant_events_mid")  # with the partitions'
+    if version < 2:
+        c.execute("DROP TABLE mid_places, hash_places")
+    c.execute("DELETE FROM schema_version")
+    c.execute("INSERT INTO schema_version (version, name) SELECT v, 'test' FROM generate_series(1, %s) v", (version,))
+
+
+# ---- QV-118: the summary upkeep DELETEs, statistics on a new place, partition creation behind a reader -------
+
+def _mid_index_partitions(c) -> dict:
+    """{table: {partition, ...}}: the partitions of the three list tables with a valid index on (mid) alone,
+    attached to the parent's message-ID index."""
+    out: dict = {}
+    for r in c.execute(
+            """SELECT pa.relname AS parent, ch.relname AS part FROM pg_inherits i
+               JOIN pg_class ch ON ch.oid = i.inhrelid JOIN pg_class pa ON pa.oid = i.inhparent
+               JOIN pg_index x ON x.indrelid = ch.oid AND x.indisvalid
+               JOIN pg_inherits ii ON ii.inhrelid = x.indexrelid
+               JOIN pg_class pi ON pi.oid = ii.inhparent AND pi.relname = pa.relname || '_mid'
+               WHERE ch.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
+                 AND pa.relname IN ('message_queues', 'message_tenants', 'tenant_events')
+                 AND pg_get_indexdef(x.indexrelid) LIKE '%%(mid)'""").fetchall():
+        out.setdefault(r["parent"], set()).add(r["part"])
+    return out
+
+
+def _list_partitions(c) -> dict:
+    out: dict = {}
+    for r in c.execute(
+            """SELECT pa.relname AS parent, ch.relname AS part FROM pg_inherits i
+               JOIN pg_class ch ON ch.oid = i.inhrelid JOIN pg_class pa ON pa.oid = i.inhparent
+               WHERE ch.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
+                 AND pa.relname IN ('message_queues', 'message_tenants', 'tenant_events')""").fetchall():
+        out.setdefault(r["parent"], set()).add(r["part"])
+    return out
+
+
+def _delete_plans(c, rclass: int, bucket: int) -> list:
+    """The plans of the summary upkeep's three DELETEs, with sequential scans priced out: a plan that still
+    scans has no index it can use."""
+    plans = []
+    with c.transaction():
+        c.execute("SET LOCAL enable_seqscan = off")
+        for table in ("message_queues", "message_tenants", "tenant_events"):
+            plans.append("\n".join(r["QUERY PLAN"] for r in c.execute(
+                f"EXPLAIN DELETE FROM {table} WHERE rclass = %s AND bucket = %s AND mid = %s", (rclass, bucket, "m1"))))
+    return plans
+
+
+@needs_pg
+def test_summary_upkeep_deletes_by_the_message_id_index(pg_store):
+    """3a: rewriting a message's summary deletes its old rows of message_queues, message_tenants and
+    tenant_events. Each DELETE names the place and the message, and has an index on mid to find them by,
+    in a place made before the export and in one made by it."""
+    s = pg_store()
+    w = Consumer()
+    send = w.send(D0, "m1")
+    send.attrs["trailbeam.tenant"] = "acme"
+    s.insert(records([send]))
+    s.insert(records([w.receive(D0 + SEC, "m1", "h1"), w.delete(D0 + 2 * SEC, "h1")]))  # rewrites m1's rows
+    s.insert(records([w.send(D0 + 3 * DAY, "m2")]))  # another place, made by ingest
+    with s.ingest.connection() as c:
+        for b in (D0 // DAY, D0 // DAY + 3):
+            for plan in _delete_plans(c, 0, b):
+                assert "Seq Scan" not in plan and "_mid_idx" in plan, plan
+        assert _mid_index_partitions(c) == _list_partitions(c)
+        assert c.execute("SELECT COUNT(*) AS n FROM message_queues WHERE mid = 'm1'").fetchone()["n"] == 1
+        assert c.execute("SELECT COUNT(*) AS n FROM message_tenants WHERE mid = 'm1'").fetchone()["n"] == 1
+    assert s.summaries(["m1"])[0]["final_delete"]
+
+
+@needs_pg
+def test_version_3_indexes_the_list_tables_place_by_place(pg_store):
+    """A schema-2 database is brought to version 3: each place's list-table partitions get their (mid) index,
+    attached to the parent's, which ends valid; a place stopped part way through a drop (its partitions gone)
+    is skipped. Run again, the step changes nothing; a place made after it has the index too."""
+    from trailbeam.server.postgres import PostgresStore
+
+    s = pg_store(bucket_ns=SEC)
+    _history(s, 12)
+    with s.ingest.connection() as c:
+        for table in ("message_queues", "message_tenants", "tenant_events"):
+            part = f"{table}_p0_{T0 // SEC + 5}"
+            c.execute(f"ALTER TABLE {table} DETACH PARTITION {part}")
+            c.execute(f"DROP TABLE {part}")
+        c.execute("UPDATE places SET state = 'dropping' WHERE rclass = 0 AND bucket = %s", (T0 // SEC + 5,))
+        _as_version(c, 2)
+        assert _mid_index_partitions(c) == {}
+    for attempt in range(2):
+        again = PostgresStore(s.url, bucket_ns=SEC)
+        try:
+            assert again.migrated == [3]
+            with again.ingest.connection() as c:
+                parts = _list_partitions(c)
+                assert len(parts["message_queues"]) == 11 + attempt  # 12 places less the dropped one, + "after-0"
+                assert _mid_index_partitions(c) == parts
+                assert all(r["indisvalid"] for r in c.execute(
+                    """SELECT indisvalid FROM pg_index WHERE indexrelid IN
+                       ('message_queues_mid'::regclass, 'message_tenants_mid'::regclass, 'tenant_events_mid'::regclass)"""))
+                assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == [1, 2, 3]
+                if attempt == 0:
+                    c.execute("DELETE FROM schema_version WHERE version = 3")  # as if stopped before recording it
+            again.insert(records([Consumer().send(T0 + 100 * SEC, f"after-{attempt}")]))
+            with again.ingest.connection() as c:
+                assert _mid_index_partitions(c) == _list_partitions(c)
+            assert len(again.message_rows("old-7")) == 3
+        finally:
+            again.close()
+
+
+def _planned_rows(c, table: str, rclass: int, bucket: int) -> float:
+    plan = c.execute(f"EXPLAIN (FORMAT JSON) SELECT * FROM {table} WHERE rclass = %s AND bucket = %s",
+                     (rclass, bucket)).fetchone()["QUERY PLAN"]
+    return plan[0]["Plan"]["Plan Rows"]
+
+
+@needs_pg
+def test_a_new_place_is_analysed_once_it_has_rows(pg_store):
+    """3b: a partition no ANALYZE has reached has no statistics, so Postgres estimates the place's own WHERE
+    (rclass = c AND bucket = b) at 1 row, however many it holds, and plans the export's statements as if the
+    partition were empty. Once this replica has written ANALYZE_AFTER_SPANS spans to the place, it analyses
+    the place's partitions, and the estimate is the rows it holds."""
+    from trailbeam.server import pg_schema
+
+    s = pg_store()
+    s.ANALYZE_AFTER_SPANS = 600
+    w = Consumer()
+    b = D0 // DAY
+    s.insert(records([w.send(D0, "first")]))
+    with s.ingest.connection() as c:
+        for t in pg_schema.PARTITIONED:  # so that autovacuum's ANALYZE doesn't come first
+            c.execute(f"ALTER TABLE {pg_schema.partition_name(t, 0, b)} SET (autovacuum_enabled = false)")
+    for k in range(0, 498, 166):
+        spans = []
+        for i in range(k, k + 166):
+            spans += [w.send(D0 + i * 1000, f"m{i}"), w.receive(D0 + i * 1000 + 1, f"m{i}", f"h{i}"),
+                      w.delete(D0 + i * 1000 + 2, f"h{i}")]
+        s.insert(records(spans[:len(spans) // 2]))
+        s.insert(records(spans[len(spans) // 2:]))
+        with s.ingest.connection() as c:
+            n = c.execute("SELECT COUNT(*) AS n FROM spans").fetchone()["n"]
+            planned = _planned_rows(c, "spans", 0, b)
+        if n < s.ANALYZE_AFTER_SPANS:
+            assert planned == 1, (n, planned)  # the cause: an unanalysed partition looks empty
+        else:
+            assert planned > n / 2, (n, planned)
+    with s.ingest.connection() as c:
+        analysed = {r["tablename"] for r in c.execute(
+            "SELECT DISTINCT tablename FROM pg_stats WHERE schemaname = current_schema() AND attname = 'bucket'")}
+        assert analysed == {pg_schema.partition_name(t, 0, b) for t in pg_schema.PARTITIONED  # the rest are empty
+                            if t not in ("bodies", "message_tenants")}
+        assert _planned_rows(c, "messages", 0, b) > 400
+
+
+@needs_pg
+def test_partition_creation_does_not_hold_exports_behind_an_open_reader(pg_store):
+    """3d: a transaction that has read the tables (as a pg_dump does) holds ACCESS SHARE on them until it ends.
+    A partition is made as a table of its own and then attached (SHARE UPDATE EXCLUSIVE on the parent), which
+    doesn't conflict with that or with exports' writes: retention's pass makes the places (now and the next
+    PRECREATE_AHEAD buckets), an export that needs a new place stores it, and no export waits on the reader.
+    Before, all of them waited until the reader ended. A transaction holding a lock that ATTACH does conflict
+    with: the DDL waits at most DDL_LOCK_TIMEOUT_MS a try, and the export that needed the place is answered busy
+    after DDL_ATTEMPTS tries, nothing stored, while exports into existing places go on."""
+    import psycopg
+
+    from trailbeam.server.store import WriterBusy
+
+    s = pg_store()
+    w = Consumer()
+    s.insert(records([w.send(D0, "existing-0")]))
+    now = s.bucket(time.time_ns())
+    ahead = {f"spans_p0_{b}" for b in range(now, now + s.PRECREATE_AHEAD + 1)}
+    with psycopg.connect(s.url) as reader:  # not autocommit: the transaction stays open
+        reader.execute("BEGIN ISOLATION LEVEL REPEATABLE READ")
+        reader.execute("SELECT COUNT(*) FROM spans").fetchone()
+        t0 = time.monotonic()
+        s._precreate()
+        assert ahead <= _partitions(s)
+        t = time.monotonic()
+        assert s.insert(records([w.send(D0 + 5 * DAY, "needs-a-place")])) == (1, 0)
+        assert s.insert(records([w.send(D0 + SEC, "existing-1")])) == (1, 0)
+        assert time.monotonic() - t0 < 3
+        reader.rollback()
+
+    with psycopg.connect(s.url) as holder:  # as a schema change or a manual ANALYZE of the parent would
+        holder.execute("BEGIN")
+        holder.execute("LOCK TABLE spans IN SHARE UPDATE EXCLUSIVE MODE")
+        new_place, held = [], []
+
+        def export_new():
+            t = time.monotonic()
+            new_place.append((_try(s.insert, records([w.send(D0 + 9 * DAY, "busy")])), time.monotonic() - t))
+        th = threading.Thread(target=export_new)
+        th.start()
+        time.sleep(0.3)  # its ATTACH is now waiting
+        for i in range(2, 5):
+            t = time.monotonic()
+            assert s.insert(records([w.send(D0 + i * SEC, f"existing-{i}")])) == (1, 0)
+            held.append(time.monotonic() - t)
+        th.join(timeout=10)
+        assert not th.is_alive()
+        assert isinstance(new_place[0][0], WriterBusy), new_place
+        assert new_place[0][1] < s.DDL_ATTEMPTS * s.DDL_LOCK_TIMEOUT_MS / 1000 + 2, new_place
+        assert max(held) < 1.5, held
+        assert s.message_rows("busy") == []
+        holder.rollback()
+    assert s.insert(records([w.send(D0 + 9 * DAY, "busy")])) == (1, 0)
+    assert len(s.message_rows("needs-a-place")) == 1 and len(s.message_rows("busy")) == 1
+    assert len(s.recent_messages(10)) == 7

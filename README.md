@@ -444,7 +444,19 @@ when a message's spans fall in two partitions (it crossed midnight, or moved to 
 the purge first moves its older spans in with the newer ones. If you change a queue's retention after its spans
 were stored, partitions holding queues with different retentions are cleaned by a bounded background delete,
 outside ingest. At the start of each pass, the replica running retention creates the partitions for today and
-tomorrow, so ingest rarely has to.
+the next two days, so ingest rarely has to.
+
+Trailbeam creates a partition as a table of its own and then attaches it, which doesn't have to wait for open
+transactions that have read Trailbeam's tables (a `pg_dump` is one for its whole run) and doesn't hold up exports.
+It conflicts only with a schema change or a manual `ANALYZE` of a whole table running at the same time, and waits
+at most 1 second for those. A retention pass that can't get the lock tries again at the next pass, a day or more
+before the partition is needed. An export that needs a partition nobody has made yet (a span more than two days
+early, or a late one for a day that has no partition) tries three times, then is answered `503` with
+`Retry-After`, nothing stored, and the exporter sends it again.
+
+Trailbeam analyzes a new day's partitions itself once a replica has written 1,000 spans to them, instead of
+waiting for autovacuum. Until a partition has planner statistics, Postgres treats it as empty and picks slow
+plans for it.
 
 #### Sizing Postgres
 
@@ -471,20 +483,8 @@ To trade durability for latency, as `--durability relaxed` does for SQLite, set 
 in the last moments before it (up to three times `wal_writer_delay`, 600 ms by default). The database stays
 consistent ([Postgres: asynchronous commit](https://www.postgresql.org/docs/current/wal-async-commit.html)).
 
-**Known limits in this version.** Fixes are planned.
+**Known limits in this version.** A fix is planned.
 
-- Keeping a message's summary up to date deletes its old list rows with a scan of that day's partition of three
-  tables (they have no index on the message ID). Export cost grows with how many messages a day holds: 41 ms per
-  such delete at 1M stored spans on our test machine.
-- **A new partition waits for open transactions, and ingest waits behind it.** Creating a partition needs a lock
-  that an open transaction which has read Trailbeam's tables holds until it ends. A `pg_dump` holds one for its
-  whole run. Trailbeam waits for that lock with no timeout, and exports queue behind it: in our test, a read
-  transaction open for 25 s made an export wait 24 s. This happens at the first retention pass after 00:00 UTC
-  (within `TRAILBEAM_PURGE_INTERVAL_S`, 10 minutes by default), and when a span arrives for a day that has no
-  partition yet, such as one more than a day late. Until it's fixed, run logical backups (`pg_dump`) outside
-  00:00–00:15 UTC, and set `idle_in_transaction_session_timeout` for the database's other clients.
-- In the first minutes of a new day's partition, before Postgres has analyzed it, some ingest statements were up
-  to 10 times slower. We haven't confirmed the cause yet.
 - The connection pools (4 ingest and 8 read connections per replica) can't be changed yet.
 
 #### Backup and restore (Postgres)
@@ -495,7 +495,8 @@ message bodies.
 
 - **Snapshots and point-in-time recovery** (the automated backups of RDS and Cloud SQL, Neon's restore,
   `pg_basebackup` with WAL archiving, pgBackRest) copy the files and take no table locks. Prefer them.
-- **`pg_dump`** works while Trailbeam ingests. Mind the midnight window in the known limits above.
+- **`pg_dump`** works while Trailbeam ingests, at any time of day, and doesn't stop Trailbeam creating partitions
+  or storing exports.
 
 ```sh
 pg_dump -Fc -f trailbeam-$(date +%F).dump "postgres://trailbeam@db.internal/trailbeam"
@@ -525,7 +526,7 @@ can't run on the upgraded database either: to go back, restore a backup taken be
 checks the version when it starts. So when a release changes the Postgres schema, stop every replica before you
 start the new version, unless that release's notes say a rolling upgrade is safe ([CHANGELOG](CHANGELOG.md)
 says which releases change it). An older replica still running would store spans the new schema doesn't index.
-This version upgrades a 0.2.0 database to Postgres schema 2: stop every 0.2.0 replica first.
+This version upgrades a 0.2.0 database to Postgres schema 3: stop every 0.2.0 replica first.
 
 **Postgres.** For a minor version, use your package manager's or provider's update. While the database restarts,
 `/api/ready` answers `503` and exports are answered `503` with `Retry-After`, so exporters send them again. For a
