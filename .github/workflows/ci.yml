@@ -40,6 +40,35 @@ jobs:
           ! /tmp/plain/bin/pip show psycopg psycopg-binary psycopg-pool 2>/dev/null | grep -q '^Name'
           /tmp/plain/bin/python -c "import sys, trailbeam.server.__main__; assert not any(m.startswith('psycopg') for m in sys.modules)"
 
+  perf:
+    # The QV-68 regression check (python/bench/README.md#ci-regression-check): the receipt-hash join plans on a
+    # seeded ~100k-span file, in-process insert speed, page p95 and 1,000 spans/s of ingest through the server,
+    # with limits that fail the build. Then the same check on a deliberately broken (scanning) join plan, which
+    # must fail it: that step passes only if the check caught the break.
+    name: Perf regression check (100k spans)
+    runs-on: [self-hosted, trailbeam]
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[test]'
+      - name: Join plans and thresholds
+        run: python bench/ci_check.py --out "$RUNNER_TEMP/ci-perf"
+      - name: The check fails on a broken join plan
+        if: success() || failure()
+        run: python bench/ci_check.py --out "$RUNNER_TEMP/ci-perf-broken" --break-plan
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-regression-check
+          path: |
+            ${{ runner.temp }}/ci-perf/
+            ${{ runner.temp }}/ci-perf-broken/
+
   postgres:
     # The Postgres store (TRAILBEAM_STORE_URL) on the oldest supported version and the current one.
     name: Postgres ${{ matrix.postgres }} store
