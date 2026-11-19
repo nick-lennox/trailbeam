@@ -31,7 +31,7 @@ sorted keys, bodies removed per ``store_bodies``), and these, which the Store se
 from __future__ import annotations
 
 import abc
-from typing import Any, Iterable, Mapping, NamedTuple, Optional
+from typing import Any, Callable, Iterable, Mapping, NamedTuple, Optional
 
 Row = Mapping[str, Any]
 Summary = Mapping[str, Any]  # summary.summarize, as stored
@@ -54,6 +54,10 @@ class ExportAbandoned(Exception):
 class StoreUnavailable(Exception):
     """The store can't be reached (its database is down, or no connection came in time): nothing was stored. The
     server answers 503 with Retry-After, so the exporter (or a load balancer, on another replica) tries again."""
+
+
+class WriterBusy(Exception):
+    """``Store.insert`` gave up waiting to write within ``wait_s``; nothing was written (the server answers 503)."""
 
 
 class StuckCandidate(NamedTuple):
@@ -93,6 +97,9 @@ class Store(abc.ABC):
     """Thread-safe: the server calls it from one thread per request, ingest and reads at once."""
 
     store_bodies: frozenset  # queues whose bodies are kept (``*``: every queue); empty: none
+    # Set by the server: called as on_join("settle" | "receive", seconds) after each receipt-hash join at insert
+    # (the /metrics join histogram). None: not measured.
+    on_join: Optional[Callable[[str, float], None]] = None
 
     # Retention's granularity, in ns of span time (purge_step). 1: exact, a message expires as soon as its newest
     # span is older than the cutoff (SQLite). G > 1: the store drops whole time buckets ``[k*G, (k+1)*G)``, and a
@@ -107,9 +114,20 @@ class Store(abc.ABC):
     cancels_abandoned_exports: bool = False
 
     @abc.abstractmethod
-    def insert(self, records: Iterable[dict]) -> tuple[int, int]:
+    def insert(self, records: Iterable[dict], *, wait_s: Optional[float] = None,
+               timings: Optional[dict] = None) -> tuple[int, int]:
         """Store records (otlp.decode) atomically and join them (module docstring). A span already stored,
-        same trace and span ID, is skipped. Returns (inserted, duplicates)."""
+        same trace and span ID, is skipped. Returns (inserted, duplicates).
+
+        Backpressure (backpressure.py): ``wait_s`` bounds how long to wait before the write starts (SQLite: the
+        writer lock; Postgres: a pooled ingest connection); past it raise ``WriterBusy`` with nothing written
+        (the server answers 503 writer_behind). A store whose database can't be reached raises
+        ``StoreUnavailable`` instead, also with nothing written (503 store_unreachable). Never return before the
+        records are durable as far as the backend promises: the server answers 200 on return. ``timings``, if
+        given, gets ``wait_s`` (time waited) and ``write_s`` (the write itself) in seconds. Each receipt-hash
+        join of an inserted receive or settle span is reported to ``on_join`` (a store that joins a whole
+        export at once reports each span's share). A store with ``cancels_abandoned_exports`` also takes
+        ``abandoned``."""
 
     @abc.abstractmethod
     def purge_step(self, cutoffs: "Cutoffs", resume: Optional[str] = None, limit: int = 100) -> "PurgeStep":
@@ -205,6 +223,11 @@ class Store(abc.ABC):
         """Exact: ``{"spans": {kind: n}, "messages": n, "unjoined_settles": n}``, kinds with no spans left out.
         Unjoined: settle spans with no ``receive_row``."""
 
+    def file_sizes(self) -> Optional[dict]:
+        """Bytes on local disk by file (SQLite: ``main``, ``wal``) for /metrics; None when the data isn't in
+        local files (``:memory:``, a server-side database)."""
+        return None
+
     @abc.abstractmethod
     def last_row(self) -> int:
         """The highest ``row`` stored, 0 if none. Cheap at any size (the health check)."""
@@ -216,10 +239,11 @@ class Store(abc.ABC):
     # ---- bodies ------------------------------------------------------------------------------
 
     @abc.abstractmethod
-    def newest_messages(self, limit: int, queue: Optional[str] = None, *, from_ns: Optional[int] = None,
-                        to_ns: Optional[int] = None, after: Optional[tuple] = None) -> list[tuple[int, str]]:
-        """(last_ns, mid) of up to ``limit`` messages, as recent_messages orders and filters them: the walk body
-        search reads bodies along (bodies.search)."""
+    def newest_messages(self, limit: int, queue: Optional[str] = None, tenant: Optional[str] = None, *,
+                        from_ns: Optional[int] = None, to_ns: Optional[int] = None,
+                        after: Optional[tuple] = None) -> list[tuple[int, str]]:
+        """(last_ns, mid) of up to ``limit`` messages, as recent_messages orders and filters them (``tenant``
+        included): the walk body search reads bodies along (bodies.search)."""
 
     @abc.abstractmethod
     def body_spans(self, message_ids: list[str]) -> list[Row]:

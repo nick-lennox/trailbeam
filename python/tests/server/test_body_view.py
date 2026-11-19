@@ -170,6 +170,18 @@ def test_api_search(served):
     assert status == 400 and "body" in d["error"]
 
 
+def test_api_search_honours_tenant(served):
+    """QV-96: a body search used to ignore ``tenant`` and answer from every tenant."""
+    assert [m["message_id"] for m in search(served, body="body.order.qty:>=2", tenant="acme")[1]["messages"]] == \
+        ["m-orders-1"]
+    assert [m["message_id"] for m in search(served, body="body.order.qty:>=2", tenant="hooli")[1]["messages"]] == \
+        ["m-orphan"]
+    status, d = search(served, body="body.order.sku:A-100", tenant="nobody-xyz")
+    assert status == 200 and d["messages"] == [] and d["body_search"]["scanned"] == 0  # no message names it
+    assert d["body_search"]["complete"] is True
+    assert len(search(served, body="body.order.qty:>=2", tenant="")[1]["messages"]) == 2  # empty: no filter
+
+
 def test_api_search_is_bounded_by_a_window_of_a_day_by_default(served):
     status, text = get(served, "/api/messages?" + urllib.parse.urlencode({"body": "body.order.qty:>=2"}))
     d = json.loads(text)

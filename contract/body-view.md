@@ -23,7 +23,8 @@ Redaction happens in the packages, before a body leaves the process (contract 15
 server redacts.
 
 A queue taken off `TRAILBEAM_STORE_BODIES` stops having its bodies shown or searched at once. The
-bodies already in the SQLite file stay there: open-source Trailbeam deletes no data.
+bodies already in the SQLite file stay there until retention deletes their messages (README,
+Retention).
 
 ## One body per message
 

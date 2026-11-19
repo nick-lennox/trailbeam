@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 import os
 import signal
 import sqlite3
@@ -10,6 +11,7 @@ import sys
 import time
 
 from . import auth, config
+from .backpressure import DEFAULT_MAX_PENDING, DEFAULT_MAX_WAIT_S, IngestGate
 from .db import SqliteStore, parse_queue_list
 from .migrations import SchemaError
 from .retention import DEFAULT as DEFAULT_RETENTION, Purger, Retention, parse_duration, parse_queue_retentions
@@ -26,11 +28,13 @@ def main(argv=None) -> None:
                         "its tables there; installing, backing up and upgrading Postgres is yours. Default: SQLite")
     p.add_argument("--host", default=os.environ.get("TRAILBEAM_HOST", "127.0.0.1"),
                    help="listen address (env TRAILBEAM_HOST, default 127.0.0.1; use 0.0.0.0 in a container)")
-    p.add_argument("--port", type=int, default=int(os.environ.get("TRAILBEAM_PORT", "4318")),
+    p.add_argument("--port", type=_port, default=_env(_port, "TRAILBEAM_PORT", 4318),
                    help="listen port (env TRAILBEAM_PORT, default 4318)")
-    p.add_argument("--stuck-after", type=int, default=int(os.environ.get("TRAILBEAM_STUCK_AFTER_S", "300")),
+    p.add_argument("--stuck-after", type=_positive_int,
+                   default=_env(_positive_int, "TRAILBEAM_STUCK_AFTER_S", 300),
                    help="seconds after which a message without a final delete is stuck (env TRAILBEAM_STUCK_AFTER_S, default 300)")
-    p.add_argument("--lambda-timeout", type=int, default=int(os.environ.get("TRAILBEAM_LAMBDA_TIMEOUT_S", "900")),
+    p.add_argument("--lambda-timeout", type=_positive_int,
+                   default=_env(_positive_int, "TRAILBEAM_LAMBDA_TIMEOUT_S", 900),
                    help="seconds after which a Lambda receive without an outcome is inferred killed "
                         "(env TRAILBEAM_LAMBDA_TIMEOUT_S, default 900, the Lambda maximum)")
     p.add_argument("--config", default=os.environ.get("TRAILBEAM_CONFIG"),
@@ -59,13 +63,14 @@ def main(argv=None) -> None:
                    help="QUEUE=DURATION[,QUEUE=DURATION...]: per-queue retention, overriding --retention, e.g. "
                         "orders-dlq=30d,audit=forever. A message on several queues is kept as long as the longest "
                         "(env TRAILBEAM_RETENTION_QUEUES). Overrides the config file for the queues it names")
-    p.add_argument("--purge-interval", type=float, default=float(os.environ.get("TRAILBEAM_PURGE_INTERVAL_S", "600")),
+    p.add_argument("--purge-interval", type=_interval,
+                   default=_env(_interval, "TRAILBEAM_PURGE_INTERVAL_S", 600.0),
                    help="seconds between retention passes; the first runs at start (env TRAILBEAM_PURGE_INTERVAL_S, "
                         "default 600)")
-    p.add_argument("--purge-batch", type=int, default=int(os.environ.get("TRAILBEAM_PURGE_BATCH", "50")),
+    p.add_argument("--purge-batch", type=_positive_int, default=_env(_positive_int, "TRAILBEAM_PURGE_BATCH", 50),
                    help="messages looked at per purge step, each one write transaction: smaller steps hold the "
                         "writer lock for less time (env TRAILBEAM_PURGE_BATCH, default 50)")
-    p.add_argument("--purge-duty", type=float, default=float(os.environ.get("TRAILBEAM_PURGE_DUTY", "0.25")),
+    p.add_argument("--purge-duty", type=_duty, default=_env(_duty, "TRAILBEAM_PURGE_DUTY", 0.25),
                    help="the most of the time the purge holds the writer lock, in (0, 1] "
                         "(env TRAILBEAM_PURGE_DUTY, default 0.25)")
     p.add_argument("--vacuum", action="store_true",
@@ -76,6 +81,14 @@ def main(argv=None) -> None:
                    help="a file holding the shared access token (env TRAILBEAM_TOKEN_FILE, or the token itself in "
                         "TRAILBEAM_TOKEN). When set, ingest and the API need Authorization: Bearer <token>, and the "
                         "web screen asks for it once. Default: no token, for local use")
+    p.add_argument("--ingest-max-pending", type=_positive_int,
+                   default=_env(_positive_int, "TRAILBEAM_INGEST_MAX_PENDING", DEFAULT_MAX_PENDING),
+                   help="exports in progress at once; one more is answered 429 with Retry-After "
+                        f"(env TRAILBEAM_INGEST_MAX_PENDING, default {DEFAULT_MAX_PENDING})")
+    p.add_argument("--ingest-max-wait", type=_positive_float,
+                   default=_env(_positive_float, "TRAILBEAM_INGEST_MAX_WAIT_S", DEFAULT_MAX_WAIT_S),
+                   help="seconds an export waits for the database writer before it is answered 503 with "
+                        f"Retry-After (env TRAILBEAM_INGEST_MAX_WAIT_S, default {DEFAULT_MAX_WAIT_S:g})")
     p.add_argument("--log-level", default=os.environ.get("TRAILBEAM_LOG_LEVEL", "INFO"))
     a = p.parse_args(argv)
     logging.basicConfig(level=a.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -123,14 +136,16 @@ def main(argv=None) -> None:
             "--db %s --vacuum once (it rewrites the file)", a.db, a.db)
     httpd = make_server(db, a.host, a.port, stuck_after_s=a.stuck_after,
                         lambda_timeout_s=a.lambda_timeout, max_receive_counts=a.max_receive_count,
-                        purger=purger, auth=auth.Auth(token) if token else None)
+                        purger=purger, auth=auth.Auth(token) if token else None,
+                        gate=IngestGate(a.ingest_max_pending, a.ingest_max_wait))
     if token:
         logging.getLogger("trailbeam.server").info("access token set: ingest, the API and the web screen need it")
     elif a.host not in ("127.0.0.1", "localhost", "::1"):
         logging.getLogger("trailbeam.server").warning(
             "no access token (TRAILBEAM_TOKEN) and listening on %s: anyone who can reach this port can send "
             "spans and read every timeline", a.host)
-    logging.getLogger("trailbeam.server").info("listening on http://%s:%d (OTLP: /v1/traces, API: /api/), db %s",
+    logging.getLogger("trailbeam.server").info("listening on http://%s:%d (OTLP: /v1/traces, API: /api/, "
+                                               "metrics: /metrics), db %s",
                                         a.host, httpd.server_address[1], where)
     # docker stop and systemd send SIGTERM; Python ignores it as PID 1 unless a handler is set. Stop the
     # same way as on Ctrl-C, so the SQLite file is closed cleanly.
@@ -228,6 +243,56 @@ def _max_receive_counts(text: str) -> dict:
             raise argparse.ArgumentTypeError(f"expected QUEUE=N with N from 1 to 1000, got {part!r}")
         out[name.strip()] = int(n)
     return out
+
+
+def _positive_int(text: str) -> int:
+    try:
+        n = int(text)
+    except ValueError:
+        n = 0
+    if n < 1:
+        raise argparse.ArgumentTypeError(f"expected a whole number of at least 1, got {text!r}")
+    return n
+
+
+def _port(text: str) -> int:
+    try:
+        n = int(text)
+    except ValueError:
+        n = -1
+    if not 0 <= n <= 65535:
+        raise argparse.ArgumentTypeError(f"expected a port from 0 to 65535, got {text!r}")
+    return n
+
+
+def _interval(text: str) -> float:
+    try:
+        x = float(text)
+    except ValueError:
+        x = 0
+    if not 0 < x < math.inf:
+        raise argparse.ArgumentTypeError(f"expected seconds above 0, got {text!r}")
+    return x
+
+
+def _duty(text: str) -> float:
+    try:
+        x = float(text)
+    except ValueError:
+        x = 0
+    if not 0 < x <= 1:
+        raise argparse.ArgumentTypeError(f"expected a fraction above 0 and at most 1, got {text!r}")
+    return x
+
+
+def _positive_float(text: str) -> float:
+    try:
+        x = float(text)
+    except ValueError:
+        x = 0
+    if not 0 < x <= 3600:
+        raise argparse.ArgumentTypeError(f"expected seconds above 0 and at most 3600, got {text!r}")
+    return x
 
 
 def body_warning(store_bodies, db_path: str, token: bool = False) -> str:

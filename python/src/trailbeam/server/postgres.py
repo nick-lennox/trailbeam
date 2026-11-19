@@ -59,7 +59,7 @@ from . import body_table, pg_schema, summary
 from .db import gate_body
 from .otlp import RECORD_FIELDS
 from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Cutoffs, ExportAbandoned, PurgeStep, Store,
-                    StoreUnavailable, StuckCandidate, TenantActivity)
+                    StoreUnavailable, StuckCandidate, TenantActivity, WriterBusy)
 from .summary_table import COLUMNS, FIELDS, LISTS, ascii_lower
 
 log = logging.getLogger("trailbeam.server.postgres")
@@ -267,6 +267,12 @@ class PostgresStore(Store):
 
     INGEST_CONNECTION_WAIT_S = 10.0  # for a pooled connection, before an export is answered StoreUnavailable
 
+    def _ingest_saturated(self) -> bool:
+        """Every ingest connection open and in use: busy, not unreachable (an unreachable database leaves the
+        pool short of connections, as it can't open new ones)."""
+        st = self.ingest.get_stats()
+        return st.get("pool_size", 0) >= self.ingest.max_size and st.get("pool_available", 0) == 0
+
     def ping(self, timeout_s: float = 2.0) -> None:
         try:
             with self.reads.connection(timeout=timeout_s) as c:
@@ -274,20 +280,31 @@ class PostgresStore(Store):
         except (psycopg.OperationalError, psycopg_pool.PoolTimeout) as e:
             raise StoreUnavailable(f"Postgres is unreachable: {e}") from None
 
-    def insert(self, records: Iterable[dict], *, abandoned=None) -> tuple[int, int]:
+    def insert(self, records: Iterable[dict], *, wait_s: Optional[float] = None, timings: Optional[dict] = None,
+               abandoned=None) -> tuple[int, int]:
         """Store.insert. ``abandoned``: see Store.cancels_abandoned_exports; checked every WATCH_INTERVAL_S
         while the export's transaction runs, which is then cancelled (ExportAbandoned, nothing stored).
-        StoreUnavailable when the database can't be reached (nothing stored: the client sends it again)."""
+        StoreUnavailable when the database can't be reached (nothing stored: the client sends it again).
+
+        ``wait_s`` bounds the wait for a pooled ingest connection (``ingest_connections`` of them: the
+        exports this replica writes at once). Past it, with every connection in use by other exports, raise
+        WriterBusy, nothing written; with connections missing from the pool (it can't open them), the
+        database is unreachable: StoreUnavailable. Only the first connection is bounded: an export retried
+        after a lock conflict has nothing committed either way, but is already this replica's turn."""
         try:
-            return self._insert_records(records, abandoned)
+            return self._insert_records(records, abandoned, wait_s, timings)
         except (psycopg.OperationalError, psycopg_pool.PoolTimeout) as e:
             if isinstance(e, errors.QueryCanceled):
                 raise  # a statement timeout: the database is there, the export is too slow
             raise StoreUnavailable(f"Postgres is unreachable: {e}") from None
 
-    def _insert_records(self, records, abandoned) -> tuple[int, int]:
+    def _insert_records(self, records, abandoned, wait_s=None, timings=None) -> tuple[int, int]:
+        t0 = time.perf_counter()
+        t1 = None  # when the first connection came
         records = list(records)  # an exporter's iterator that fails part way stores nothing
         if not records:
+            if timings is not None:
+                timings["wait_s"] = timings["write_s"] = 0.0
             return 0, 0
         prepared = []
         for r in records:
@@ -300,8 +317,12 @@ class PostgresStore(Store):
         for attempt in range(self.INGEST_ATTEMPTS):
             if abandoned is not None and abandoned():
                 raise ExportAbandoned()
+            bounded = wait_s is not None and t1 is None
             try:
-                with self.ingest.connection(timeout=self.INGEST_CONNECTION_WAIT_S) as conn:
+                with self.ingest.connection(timeout=min(wait_s, self.INGEST_CONNECTION_WAIT_S) if bounded
+                                            else self.INGEST_CONNECTION_WAIT_S) as conn:
+                    if t1 is None:
+                        t1 = time.perf_counter()
                     watch = [conn, abandoned, False]
                     if abandoned is not None:
                         with self._watch_lock:
@@ -322,7 +343,14 @@ class PostgresStore(Store):
                                 conn.close()  # a cancel may still be on its way: never reuse the connection
                     with self._cache_lock:
                         self._known_queues.update(self._tx.noted)
+                    if timings is not None:
+                        timings["wait_s"] = t1 - t0
+                        timings["write_s"] = time.perf_counter() - t1
                     return result
+            except psycopg_pool.PoolTimeout:
+                if bounded and self._ingest_saturated():
+                    raise WriterBusy(f"every ingest connection was busy for {wait_s:g} s") from None
+                raise
             except _NeedPlaces as e:
                 self._ensure_places(e.places)
             except _NeedLocks as e:
@@ -403,6 +431,7 @@ class PostgresStore(Store):
         if not order:
             return 0, dupes
 
+        j0 = time.perf_counter()
         touched, updates = self._join(conn, prepared, places, order)
         # A settle span joined by its receipt hash touches a message the export has no span of (a settle carries
         # no message ID): lock it too before its summary is rewritten, or an export of that message's own spans,
@@ -420,6 +449,15 @@ class PostgresStore(Store):
                         AS u(rclass, bucket, "row", mid, rr)
                    WHERE s.rclass = u.rclass AND s.bucket = u.bucket AND s."row" = u."row" """,
                 [[u[k] for u in updates] for k in range(5)])
+        on_join = self.on_join
+        if on_join is not None:
+            # one batched join for the whole export: each joined span gets its share of the time
+            kinds = ["receive" if prepared[i][0]["kind"] == "receive" else "settle" for i, _ in order
+                     if prepared[i][0]["kind"] == "receive" or prepared[i][0]["kind"] in SETTLE_KINDS]
+            if kinds:
+                share = (time.perf_counter() - j0) / len(kinds)
+                for k in kinds:
+                    on_join(k, share)
         self._note_queues(conn, {(places[i][0], places[i][1], prepared[i][0]["queue"]) for i, _ in order})
         self._refresh(conn, touched)
         return inserted, dupes
@@ -836,6 +874,10 @@ class PostgresStore(Store):
     def recent_messages(self, limit: int, queue: Optional[str] = None, tenant: Optional[str] = None, *,
                         from_ns: Optional[int] = None, to_ns: Optional[int] = None,
                         after: Optional[tuple] = None) -> list[str]:
+        return [r["mid"] for r in self._newest_first(*self._recent_src(queue, tenant), limit, from_ns, to_ns, after)]
+
+    def _recent_src(self, queue: Optional[str], tenant: Optional[str]) -> tuple[str, list]:
+        """The summary table, and its WHERE, that recent_messages and newest_messages walk."""
         if tenant:
             src, p = "message_tenants s WHERE s.tenant = %s", [tenant[:TENANT_MAX_CHARS]]
             if queue:
@@ -845,7 +887,7 @@ class PostgresStore(Store):
             src, p = "message_queues s WHERE s.queue = %s", [queue]
         else:
             src, p = "messages s WHERE TRUE", []
-        return [r["mid"] for r in self._newest_first(src, p, limit, from_ns, to_ns, after)]
+        return src, p
 
     def duplicate_messages(self, limit: int, queue: Optional[str] = None, reason: Optional[str] = None, *,
                            from_ns: Optional[int] = None, to_ns: Optional[int] = None,
@@ -935,13 +977,11 @@ class PostgresStore(Store):
                     found.append((nxt["tenant_lower"] != lo, -newest["named_ns"], nxt["tenant"]))
         return [t for *_, t in sorted(found)[:limit]]
 
-    def newest_messages(self, limit: int, queue: Optional[str] = None, *, from_ns: Optional[int] = None,
-                        to_ns: Optional[int] = None, after: Optional[tuple] = None) -> list[tuple[int, str]]:
-        if queue:
-            src, p = "message_queues s WHERE s.queue = %s", [queue]
-        else:
-            src, p = "messages s WHERE TRUE", []
-        return [(r["last_ns"], r["mid"]) for r in self._newest_first(src, p, limit, from_ns, to_ns, after)]
+    def newest_messages(self, limit: int, queue: Optional[str] = None, tenant: Optional[str] = None, *,
+                        from_ns: Optional[int] = None, to_ns: Optional[int] = None,
+                        after: Optional[tuple] = None) -> list[tuple[int, str]]:
+        return [(r["last_ns"], r["mid"])
+                for r in self._newest_first(*self._recent_src(queue, tenant), limit, from_ns, to_ns, after)]
 
     def body_spans(self, message_ids: list[str]) -> list[dict]:
         if not message_ids:

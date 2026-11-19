@@ -446,6 +446,71 @@ def purge_under_ingest(db_path: str, snapshot: Optional[str], profile, store_bod
     return out
 
 
+def scrape(port: int) -> Optional[dict]:
+    """The server's /metrics as {'name{labels}': value}; None for a server without it (before QV-74)."""
+    try:
+        status, body = get(port, "/metrics", timeout=30)
+    except OSError:
+        return None
+    if status != 200:
+        return None
+    out = {}
+    for line in body.decode().splitlines():
+        if line and not line.startswith("#"):
+            k, _, v = line.rpartition(" ")
+            out[k] = float(v)
+    return out
+
+
+def _delta(after: dict, before: dict, prefix: str) -> dict:
+    """``{label part: after - before}`` for the series of one metric, e.g. reason="queue_full" -> 3."""
+    keys = {k for k in after if k.startswith(prefix + "{") or k == prefix}
+    return {k[len(prefix):].strip("{}") or "": after[k] - before.get(k, 0) for k in sorted(keys)}
+
+
+def overload_step(srv: Server, db_path: str, profile, rate: float, sdk_rate: float, seconds: float, args) -> dict:
+    """Ingest above the ceiling (QV-74): the load generator at ``rate`` and, alongside it, the OTel SDK at
+    ``sdk_rate``, so the SDK's exporter meets a server that is already full. Then account for every span:
+    the server must have stored every span it answered 200 for, and answered 429/503 with Retry-After
+    instead of hanging. ``acked_not_stored`` is the silent loss on the server side; it must be 0.
+    ``stored_not_acked`` is spans the server committed after the client had given up on the export (it
+    timed out first); the SDK's retry of those is a duplicate, which the server skips."""
+    before_rows = span_count(db_path)
+    m0 = scrape(srv.port)
+    box: dict = {}
+    t = threading.Thread(target=lambda: box.update(raw=loadgen.run(
+        srv.otlp, profile, rate, seconds, concurrency=args.overload_concurrency or args.concurrency,
+        processes=args.processes,
+        timeout=args.export_timeout, grace=args.export_timeout)))
+    t.start()
+    time.sleep(min(5.0, seconds / 4))  # the server is full before the SDK starts
+    sdk = loadgen.run_sdk(srv.otlp, profile, sdk_rate, max(seconds - 5, 5), settle_s=30)
+    sdk.pop("profile", None)
+    t.join()
+    raw = box["raw"]
+    for k in ("profile", "processes", "concurrency"):
+        raw.pop(k, None)
+    deadline = time.monotonic() + 120  # exports still being written when the clients stopped
+    m1 = scrape(srv.port)
+    while m1 is not None and m1.get("trailbeam_ingest_queue_depth", 0) > 0 and time.monotonic() < deadline:
+        time.sleep(0.5)
+        m1 = scrape(srv.port)
+    stored = span_count(db_path) - before_rows
+    acked = raw["spans_ok"] + sdk["exported_spans"]
+    res = {"target_msgs_per_s": rate, "sdk_msgs_per_s": sdk_rate, "seconds": seconds, "loadgen": raw, "sdk": sdk,
+           "acked_spans": acked, "stored_spans": stored,
+           "acked_not_stored": max(acked - stored, 0), "stored_not_acked": max(stored - acked, 0)}
+    if m0 is not None and m1 is not None:
+        res["server"] = {
+            "requests_by_code": _delta(m1, m0, "trailbeam_ingest_requests_total"),
+            "rejected_by_reason": _delta(m1, m0, "trailbeam_ingest_rejected_requests_total"),
+            "spans_by_result": _delta(m1, m0, "trailbeam_ingest_spans_total"),
+            "retry_after_now_s": m1.get("trailbeam_ingest_retry_after_seconds")}
+        inserted = res["server"]["spans_by_result"].get('result="inserted"', 0)
+        res["server_inserted_not_stored"] = max(inserted - stored, 0)  # also must be 0
+    return res
+
+
 def breakdown(db_path: str, profile, store_bodies, batches: int = 3) -> dict:
     """Where one export's time goes, in-process on the database file: decode, insert, and the join queries.
     Adds ``batches`` + 1 exports of spans to the file. The first, on a cold page cache, is reported on its own
@@ -650,6 +715,19 @@ def run(args) -> dict:
                 log(f"  ingest while pages load: p99 {entry['ingest_under_pages']['export_p99_ms']} ms, achieved "
                     f"{entry['ingest_under_pages']['achieved_spans_per_s']} spans/s")
                 save()
+                if args.overload_seconds:
+                    # above the ceiling: the first rate that was not steady, times --overload-factor
+                    last = ramp[-1]
+                    over = last["target_msgs_per_s"] * (1 if not last["steady"] else 2) * args.overload_factor
+                    restore_seeded()
+                    entry["overload"] = ov = overload_step(box["srv"], db_path, profile, over, max(under_rate, 5),
+                                                           args.overload_seconds, args)
+                    log(f"  overload {over:g} msg/s: loadgen statuses {ov['loadgen']['statuses']}, SDK attempts "
+                        f"{ov['sdk']['http_statuses']} ({ov['sdk']['exporter_retries']} retries), SDK dropped "
+                        f"{ov['sdk']['dropped_spans']}; acked {ov['acked_spans']}, stored {ov['stored_spans']}, "
+                        f"acked but not stored {ov['acked_not_stored']}")
+                    save()
+                    restore_seeded()
                 if args.sdk_seconds and size == max(parse_size(s) for s in args.sizes.split(",")):
                     sdk_rate = max(under_rate * 4, 5)
                     entry["sdk"] = loadgen.run_sdk(box["srv"].otlp, profile, sdk_rate, args.sdk_seconds, settle_s=30)
@@ -808,6 +886,22 @@ def summary(results: dict) -> str:
                 f"{format(ps['deleted_spans'], ',') if 'deleted_spans' in ps else '-'} | {ps.get('longest_step_ms', '-')} / {ps.get('longest_write_ms', '-')} / {ps.get('longest_reclaim_step_ms', '-')} | "
                 f"{round(ps.get('reclaimed_pages', 0) * 4096 / 1e6, 1)} | {q['before']['file_mb']:,} / {q['after']['file_mb']:,} "
                 f"({q['before']['auto_vacuum']}) | {'ok' if pu['gate_ok'] else 'FAILED'} |")
+    over = [e for e in sizes if e.get("overload")]
+    if over:
+        lines += ["", "## Above the ceiling: backpressure (429/503 + Retry-After)", "",
+                  "Load generator above the first rate that was not steady, with the OTel SDK alongside. "
+                  "Acked = spans in a 200, as the clients saw it. Acked but not stored must be 0.", "",
+                  "| DB spans | msg/s | loadgen statuses | SDK attempts by status | SDK retries | Retry-After seen "
+                  "| SDK dropped | acked | stored | acked but not stored | server rejected |",
+                  "|---|---|---|---|---|---|---|---|---|---|---|"]
+        for e in over:
+            o = e["overload"]
+            rej = ", ".join(f"{k.split('=')[-1].strip(chr(34))} {v:g}"
+                            for k, v in (o.get("server") or {}).get("rejected_by_reason", {}).items()) or "-"
+            lines.append(f"| {e['spans']:,} | {o['target_msgs_per_s']:g} | {o['loadgen']['statuses']} | "
+                         f"{o['sdk']['http_statuses']} | {o['sdk']['exporter_retries']} | "
+                         f"{', '.join(o['sdk']['retry_after_values']) or '-'} | {o['sdk']['dropped_spans']} | "
+                         f"{o['acked_spans']:,} | {o['stored_spans']:,} | **{o['acked_not_stored']}** | {rej} |")
     if results.get("growth"):
         lines += ["", "## File growth", "", "| case | MB per million spans |", "|---|---|"]
         lines += [f"| {g['case']} | {g['mb_per_million_spans']:,} |" for g in results["growth"]]
@@ -834,6 +928,14 @@ def main(argv=None) -> None:
     p.add_argument("--skip-pages", default="", help="pages not to time, e.g. stuck,tenants")
     p.add_argument("--seed-days", type=float, default=7)
     p.add_argument("--growth-spans", type=int, default=200_000, help="0 skips the file growth measurement")
+    p.add_argument("--overload-seconds", type=float, default=30,
+                   help="ingest above the ceiling, to check 429/503 backpressure (QV-74); 0 skips it")
+    p.add_argument("--overload-concurrency", type=int, default=16,
+                   help="concurrent exports per process in the overload step. Above the ceiling a fleet of producers "
+                        "has more exports in flight than the server takes at once (TRAILBEAM_INGEST_MAX_PENDING, "
+                        "16): with the ramp's --concurrency the clients only slow down and the server is never full")
+    p.add_argument("--overload-factor", type=float, default=2,
+                   help="the overload rate: the first rate that was not steady times this")
     p.add_argument("--sdk-seconds", type=float, default=30, help="0 skips the SDK drop measurement")
     p.add_argument("--restore-max-gb", type=float, default=4,
                    help="start every ingest step from a copy of the seeded file up to this size")
