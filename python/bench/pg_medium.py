@@ -29,6 +29,7 @@ import loadgen  # noqa: E402
 import pg_smoke  # noqa: E402
 
 from trailbeam.server.postgres import PostgresStore  # noqa: E402
+from trailbeam.server.retention import Retention  # noqa: E402
 
 PROFILE = pg_smoke.PROFILE
 BODIES = tuple(loadgen.body_queue_names(PROFILE))
@@ -103,8 +104,18 @@ def ingest(reps: Replicas, spans_per_s: float, seconds: float, a) -> dict:
     return res
 
 
-def pages_for(url: str) -> dict:
-    store = PostgresStore(url, store_bodies=BODIES, retention=pg_smoke.RETENTION)
+def retention_of(text: str) -> Retention:
+    """--seed-retention / --server-retention: the seed must use the servers' retention, or their new spans of a
+    seeded message land in another retention class (another partition) and move rows."""
+    return Retention.parse(text)
+
+
+def server_args(a) -> tuple:
+    return ("--retention", a.server_retention)
+
+
+def pages_for(url: str, retention: Retention) -> dict:
+    store = PostgresStore(url, store_bodies=BODIES, retention=retention)
     try:
         return pg_smoke.page_paths(store)
     finally:
@@ -122,7 +133,7 @@ def save(a, kind: str, result: dict) -> None:
 
 def _seed_slice(args: dict) -> dict:
     """One seeding process: ``spans`` more spans, messages spread evenly over [start_ns, end_ns)."""
-    store = PostgresStore(args["url"], store_bodies=BODIES, retention=pg_smoke.RETENTION,
+    store = PostgresStore(args["url"], store_bodies=BODIES, retention=retention_of(args["retention"]),
                           ingest_connections=args["threads"])
     spm = PROFILE.mean_spans_per_message()
     n_msgs = int(args["spans"] / spm * 1.03) + 20
@@ -160,15 +171,18 @@ def cmd_seed(a) -> None:
     import multiprocessing
     have = db_state(a.store_url)["spans"] if _has_schema(a.store_url) else 0
     target = harness.parse_size(a.spans)
+    if a.add:  # --spans is what to add, not the size to reach
+        target += have
     if have >= target:
         save(a, "seed", {"seed": {"added": 0, "spans": have}, "db": db_state(a.store_url)})
         return
-    PostgresStore(a.store_url, retention=pg_smoke.RETENTION).close()  # the schema, before the processes race for it
+    PostgresStore(a.store_url, retention=retention_of(a.seed_retention)).close()  # the schema, before the race
     now = time.time_ns()
-    start, end = now - int(a.seed_days * pg_smoke.DAY_NS), now - 3_600 * 10 ** 9
+    end = now - int(a.seed_end_ago_s * 10 ** 9)
+    start = end - int(a.seed_days * pg_smoke.DAY_NS)
     k = a.seed_procs
     width = (end - start) // k
-    jobs = [{"url": a.store_url, "threads": a.threads, "spans": (target - have) // k + 1,
+    jobs = [{"url": a.store_url, "threads": a.threads, "retention": a.seed_retention, "spans": (target - have) // k + 1,
              "start_ns": start + j * width, "end_ns": start + (j + 1) * width,
              "seed": 7 * 1_000_003 + have + j, "worker": 900 + (have + j) % 97} for j in range(k)]
     t0 = time.monotonic()
@@ -189,7 +203,7 @@ def _has_schema(url: str) -> bool:
 def cmd_ramp(a) -> None:
     before = db_state(a.store_url)
     steps = []
-    reps = Replicas(a.store_url, a.replicas, Path(a.out))
+    reps = Replicas(a.store_url, a.replicas, Path(a.out), extra=server_args(a))
     try:
         for r in [float(x) for x in a.spans_per_s.split(",")]:
             s = ingest(reps, r, a.step_seconds, a)
@@ -206,8 +220,8 @@ def cmd_ramp(a) -> None:
 
 def cmd_pages(a) -> None:
     before = db_state(a.store_url)
-    pages = pages_for(a.store_url)
-    reps = Replicas(a.store_url, a.replicas, Path(a.out))
+    pages = pages_for(a.store_url, retention_of(a.server_retention))
+    reps = Replicas(a.store_url, a.replicas, Path(a.out), extra=server_args(a))
     try:
         port = reps.servers[0].port
         idle = harness.time_pages(port, pages, repeats=a.page_repeats, budget_s=a.page_budget_s, timeout_s=60)
@@ -226,8 +240,15 @@ def cmd_retention(a) -> None:
     """Servers run with --retention a.retention: the oldest seeded days are past it, so the replica holding the
     retention lease drops their partitions while ingest runs."""
     before = db_state(a.store_url)
+    # Hold the retention lease while the replicas start (their first pass runs at start and does nothing without
+    # it), and let go --hold-lease-s into the ingest: the drop then happens under load, not before it.
+    holder = PostgresStore(a.store_url, retention=retention_of(a.retention))
+    if not holder.holds_retention_lease():
+        holder.close()
+        raise SystemExit("another process holds the retention lease")
     reps = Replicas(a.store_url, a.replicas, Path(a.out),
                     extra=("--retention", a.retention, "--purge-interval", a.purge_interval))
+    released = threading.Timer(a.hold_lease_s, holder.close)
     samples = []
     halt = threading.Event()
 
@@ -242,13 +263,17 @@ def cmd_retention(a) -> None:
     t0 = time.monotonic()
     w = threading.Thread(target=watch, daemon=True)
     w.start()
+    released.start()
     try:
         ing = ingest(reps, float(a.spans_per_s), a.seconds, a)
     finally:
+        released.cancel()
+        holder.close()
         halt.set()
         w.join()
         reps.stop()
     save(a, "retention", {"db_before": before, "db_after": db_state(a.store_url), "ingest": ing,
+                          "lease_released_at_s": a.hold_lease_s,
                           "partitions_over_time": samples})
 
 
@@ -260,6 +285,13 @@ def main(argv=None) -> None:
     p.add_argument("--replicas", type=int, default=2)
     p.add_argument("--spans", default="1M", help="seed: database size to reach")
     p.add_argument("--seed-days", type=float, default=7)
+    p.add_argument("--seed-end-ago-s", type=float, default=3600, help="seed: the window ends this long ago")
+    p.add_argument("--add", action="store_true", help="seed: --spans is what to add, not the size to reach")
+    p.add_argument("--seed-retention", default="forever",
+                   help="seed: the retention the seed's spans are placed by; use the servers' (--server-retention)")
+    p.add_argument("--server-retention", default="forever", help="ramp, pages: the servers' --retention")
+    p.add_argument("--hold-lease-s", type=float, default=60,
+                   help="retention: seconds into the ingest before the replicas may take the retention lease")
     p.add_argument("--threads", type=int, default=4, help="seed: concurrent inserts per process")
     p.add_argument("--seed-procs", type=int, default=6, help="seed: processes")
     p.add_argument("--spans-per-s", default="10000", help="ramp: comma-separated steps")
