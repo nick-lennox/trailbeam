@@ -36,9 +36,9 @@ jobs:
         run: pytest -q tests/conformance
       - name: A SQLite install gets no Postgres driver
         run: |
-          python -m venv /tmp/plain && /tmp/plain/bin/pip install -q '.[server]'
-          ! /tmp/plain/bin/pip show psycopg psycopg-binary psycopg-pool 2>/dev/null | grep -q '^Name'
-          /tmp/plain/bin/python -c "import sys, trailbeam.server.__main__; assert not any(m.startswith('psycopg') for m in sys.modules)"
+          python -m venv "$RUNNER_TEMP/plain" && "$RUNNER_TEMP/plain"/bin/pip install -q '.[server]'
+          ! "$RUNNER_TEMP/plain"/bin/pip show psycopg psycopg-binary psycopg-pool 2>/dev/null | grep -q '^Name'
+          "$RUNNER_TEMP/plain"/bin/python -c "import sys, trailbeam.server.__main__; assert not any(m.startswith('psycopg') for m in sys.modules)"
 
   perf:
     # The QV-68 regression check (python/bench/README.md#ci-regression-check): the receipt-hash join plans on a
@@ -157,11 +157,11 @@ jobs:
           python-version: "3.12"
       - name: Download otelcol-contrib
         run: |
-          curl -sSfL -o /tmp/otelcol.tgz "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTELCOL_VERSION}/otelcol-contrib_${OTELCOL_VERSION}_linux_amd64.tar.gz"
-          tar -xzf /tmp/otelcol.tgz -C /tmp otelcol-contrib
-          /tmp/otelcol-contrib --version
+          curl -sSfL -o $RUNNER_TEMP/otelcol.tgz "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTELCOL_VERSION}/otelcol-contrib_${OTELCOL_VERSION}_linux_amd64.tar.gz"
+          tar -xzf $RUNNER_TEMP/otelcol.tgz -C "$RUNNER_TEMP" otelcol-contrib
+          $RUNNER_TEMP/otelcol-contrib --version
       - run: pip install pytest opentelemetry-proto
-      - run: TRAILBEAM_OTELCOL_BIN=/tmp/otelcol-contrib pytest -q collector/tests
+      - run: TRAILBEAM_OTELCOL_BIN=$RUNNER_TEMP/otelcol-contrib pytest -q collector/tests
 
   container:
     name: Container smoke test
