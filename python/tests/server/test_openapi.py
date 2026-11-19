@@ -564,11 +564,15 @@ def test_every_status_the_file_lists_is_answered_and_matches_it(db, record_api_r
         mp.setattr(db, "insert", busy)
         both_encodings(base)
 
-    # 429: the queue is full (every place taken)
-    full = server.App(db, ui_dir=None, gate=IngestGate(max_pending=1))
-    full.gate.pending = 1
-    with serve(full) as base:
-        both_encodings(base)
+    # 429: the queue is full (every place taken), with each Retry-After the file allows: the recent write
+    # time, rounded up, from 1 s to the most (3 s)
+    for write_s in (0, 1.5, 10):
+        full = server.App(db, ui_dir=None, gate=IngestGate(max_pending=1))
+        if write_s:
+            full.gate.wrote(write_s)
+        full.gate.pending = 1
+        with serve(full) as base:
+            both_encodings(base)
 
     # 401: a server with an access token, asked without it (health and ready still answer, as the file says)
     with serve(server.App(db, ui_dir=None, auth=auth_mod.Auth(TOKEN))) as base:
