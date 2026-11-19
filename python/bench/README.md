@@ -102,7 +102,7 @@ and `insert` could not have seeded 1M spans at all). The seeded rows are the sam
 column for column; `tests/test_bench_harness.py` checks that. The live ingest
 in steps 3 and 4 goes through the real server.
 
-Disk: about 1 GB per million spans with 1 KB bodies on a tenth of the queues; `summary.md` has the measured
+Disk: about 1.9 GB per million spans, with or without 1 KB bodies on a tenth of the queues (QV-77); `summary.md` has the measured
 figure. Seeding runs at about 25k spans/s on one core.
 
 ## CI regression check: `ci_check.py`
