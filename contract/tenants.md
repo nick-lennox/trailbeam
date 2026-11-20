@@ -93,9 +93,9 @@ when they are sorted ascending. An implementation may return it exactly, or an e
 a whole number of milliseconds, at most 1% above or below it (|returned − exact| ≤ 0.01 × exact). Every
 other field is exact.
 
-Self-hosted Trailbeam returns an estimate, so the page costs the same however much traffic its range
-covers. It keeps the times in queue as counts per bucket, which add up across hours
-(a sketch, after DDSketch: Masson, Rim and Lee, VLDB 2019, <https://arxiv.org/abs/1908.10693>). Times
+Self-hosted Trailbeam returns an estimate, so that it can add the page up from one row per hour and
+tenant instead of from every message in the range. It keeps the times in queue as counts per bucket,
+which add up across hours (a sketch, after DDSketch: Masson, Rim and Lee, VLDB 2019, <https://arxiv.org/abs/1908.10693>). Times
 up to 100 ms have a bucket each and come back exact. Above that, each bucket is about 1% wide and comes
 back as the whole number nearest its middle: at most 0.91% off. A p95 of 100 ms or less is therefore always
 exact. The same spans always give the same estimate, so the same range shows the same number on every
