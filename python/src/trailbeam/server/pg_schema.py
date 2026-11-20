@@ -22,6 +22,14 @@ locks every place's partitions and indexes until its transaction ends (postgres.
 with the rows, may name a place that no longer holds any (a message moved on, a sweep deleted it), and lose a
 place's entries when retention drops it.
 
+**Lookups by place** (version 4, QV-127). ``mid_places`` and ``hash_places`` are partitioned by place too, so
+ingest writes only to recent partitions, and retention drops a place's lookups with it. A place more than
+``hot_buckets`` old is *sealed*: its lookup keys go into one Bloom filter (``lookup_filters``, its bits in
+``lookup_filter``; ``places.sealed_in``: the first filter version holding them), and a lookup row written to it
+afterwards also goes to ``mid_places_late`` / ``hash_places_late``, which every lookup reads. A lookup reads
+the recent partitions and the late tables, and a sealed partition only for the keys the filter may hold
+(postgres.py, "Lookups").
+
 Text keys that pages sort or compare by are ``COLLATE "C"``: byte order, as SQLite compares, so ties and
 cursors come out the same on both.
 
@@ -38,7 +46,43 @@ from .. import __version__
 from .migrations import SchemaError, SchemaTooNew
 
 # Partitioned tables: one partition of each per place.
-PARTITIONED = ("spans", "messages", "message_queues", "message_tenants", "tenant_events", "bodies")
+PARTITIONED = ("spans", "messages", "message_queues", "message_tenants", "tenant_events", "bodies", "mid_places",
+               "hash_places")
+LOOKUPS = ("mid_places", "hash_places")  # partitioned since version 4
+
+# Version 4's other tables (QV-127): the late lookup rows and the filter of the sealed places.
+SEALING = """
+CREATE TABLE IF NOT EXISTS mid_places_late (       -- lookup rows written to a place once it was sealed
+    mid TEXT COLLATE "C" NOT NULL,
+    rclass BIGINT NOT NULL,
+    bucket BIGINT NOT NULL,
+    PRIMARY KEY (mid, rclass, bucket)
+);
+CREATE INDEX IF NOT EXISTS mid_places_late_place ON mid_places_late (rclass, bucket);
+CREATE TABLE IF NOT EXISTS hash_places_late (
+    receipt_hmac TEXT NOT NULL,
+    key_id TEXT NOT NULL,
+    rclass BIGINT NOT NULL,
+    bucket BIGINT NOT NULL,
+    PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
+);
+CREATE INDEX IF NOT EXISTS hash_places_late_place ON hash_places_late (rclass, bucket);
+CREATE TABLE IF NOT EXISTS lookup_filters (        -- the Bloom filter of the sealed places' lookup keys
+    version BIGINT PRIMARY KEY,
+    m BIGINT NOT NULL,                   -- bits
+    k INTEGER NOT NULL,                  -- bits set per key
+    capacity BIGINT NOT NULL,            -- keys it was sized for
+    keys BIGINT NOT NULL,                -- keys added
+    made_at_ms BIGINT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS lookup_filter (
+    version BIGINT NOT NULL,
+    chunk INTEGER NOT NULL,
+    bits BYTEA NOT NULL,
+    PRIMARY KEY (version, chunk)
+);
+ALTER TABLE lookup_filter ALTER COLUMN bits SET STORAGE EXTERNAL;
+"""
 
 CREATE = """
 CREATE TABLE IF NOT EXISTS places (
@@ -46,6 +90,8 @@ CREATE TABLE IF NOT EXISTS places (
     bucket BIGINT NOT NULL,
     state TEXT NOT NULL DEFAULT 'live',  -- live | dropping (retention is removing it; ingest writes elsewhere)
     swept TEXT,                          -- JSON [queue, ...]: the expired queues of its last sweep (postgres.py)
+    sealed_in BIGINT,                    -- NULL: not sealed; 0: being sealed; v: in lookup filter v and later ones
+    lookup_keys BIGINT,                  -- the lookup keys sealing took from it
     PRIMARY KEY (rclass, bucket)
 );
 CREATE TABLE IF NOT EXISTS place_queues (
@@ -180,17 +226,15 @@ CREATE TABLE IF NOT EXISTS mid_places (
     rclass BIGINT NOT NULL,
     bucket BIGINT NOT NULL,
     PRIMARY KEY (mid, rclass, bucket)
-);
-CREATE INDEX IF NOT EXISTS mid_places_place ON mid_places (rclass, bucket);
+) PARTITION BY RANGE (rclass, bucket);
 CREATE TABLE IF NOT EXISTS hash_places (
     receipt_hmac TEXT NOT NULL,          -- a receive or settle span with this receipt hash is in the place
     key_id TEXT NOT NULL,
     rclass BIGINT NOT NULL,
     bucket BIGINT NOT NULL,
     PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
-);
-CREATE INDEX IF NOT EXISTS hash_places_place ON hash_places (rclass, bucket);
-CREATE TABLE IF NOT EXISTS schema_version (
+) PARTITION BY RANGE (rclass, bucket);
+""" + SEALING + """CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
     name TEXT NOT NULL,
@@ -199,17 +243,26 @@ CREATE TABLE IF NOT EXISTS schema_version (
 """
 
 
+def statements(script: str) -> list[str]:
+    """A script as single statements: ``--`` comments removed, then split at semicolons (no statement here
+    has one in a string)."""
+    text = "\n".join(line.split("--", 1)[0] for line in script.splitlines())
+    return [s.strip() for s in text.split(";") if s.strip()]
+
+
 @dataclass(frozen=True)
 class Migration:
     """``statements`` run in one transaction. ``per_place``, when given, then run once for every place, each place
     in a transaction of its own (``%(rclass)s``, ``%(bucket)s``: the place), so that the migration locks one
     place's partitions at a time; the version is recorded after the last. A ``per_place`` entry is SQL, or a
-    function ``f(conn, rclass, bucket)``. Both must be safe to run again: a migration stopped part way is run
-    again from the start."""
+    function ``f(conn, rclass, bucket)``; a ``statements`` or ``after`` entry is SQL or a function ``f(conn)``.
+    ``after`` runs in the transaction that records the version. All must be safe to run again: a migration
+    stopped part way is run again from the start."""
     version: int
     name: str
     statements: tuple
     per_place: tuple = ()
+    after: tuple = ()
 
 
 # The summary list tables that version 3 indexes by message ID.
@@ -237,6 +290,44 @@ def _mid_indexes(conn, rclass: int, bucket: int) -> None:
         conn.execute(f"ALTER INDEX {table}_mid ATTACH PARTITION {part}_mid_idx")  # attached already: nothing happens
 
 
+def _is_partition(conn, table: str, name: str) -> bool:
+    return conn.execute(
+        """SELECT 1 FROM pg_inherits i JOIN pg_class ch ON ch.oid = i.inhrelid JOIN pg_class pa ON pa.oid = i.inhparent
+           WHERE ch.relname = %s AND pa.relname = %s
+             AND ch.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())""",
+        (name, table)).fetchone() is not None
+
+
+def _set_lookups_aside(conn) -> None:
+    """Version 4, first: the unpartitioned lookup tables of version 2 become ``<table>_v3`` (with their indexes),
+    so the partitioned ones can take their names. Done already (a migration run again): nothing."""
+    for table in LOOKUPS:
+        kind = conn.execute(
+            "SELECT relkind FROM pg_class WHERE relname = %s AND relnamespace = current_schema()::regnamespace",
+            (table,)).fetchone()
+        if kind is None or kind[0] != "r":
+            continue
+        conn.execute(f"ALTER TABLE {table} RENAME TO {table}_v3")
+        conn.execute(f"ALTER INDEX {table}_pkey RENAME TO {table}_v3_pkey")
+        conn.execute(f"ALTER INDEX {table}_place RENAME TO {table}_v3_place")
+
+
+def _lookups_by_place(conn, rclass: int, bucket: int) -> None:
+    """Version 4, one place: its partitions of the two lookup tables, made and attached as ``place_ddl`` makes
+    them, then filled with its rows of the old tables (found by their ``(rclass, bucket)`` index)."""
+    for table, name, create, attach in place_ddl(rclass, bucket, LOOKUPS):
+        if not _is_partition(conn, table, name):
+            conn.execute(create)
+            conn.execute(attach)
+    if conn.execute("SELECT to_regclass('mid_places_v3')").fetchone()[0] is None:
+        return  # run again after the old tables were dropped: nothing to copy
+    conn.execute("""INSERT INTO mid_places (mid, rclass, bucket) SELECT mid, rclass, bucket FROM mid_places_v3
+                    WHERE rclass = %s AND bucket = %s ON CONFLICT DO NOTHING""", (rclass, bucket))
+    conn.execute("""INSERT INTO hash_places (receipt_hmac, key_id, rclass, bucket)
+                    SELECT receipt_hmac, key_id, rclass, bucket FROM hash_places_v3
+                    WHERE rclass = %s AND bucket = %s ON CONFLICT DO NOTHING""", (rclass, bucket))
+
+
 # Version 1 is the first Postgres schema. Later versions go here, one at a time.
 MIGRATIONS: tuple = (
     Migration(2, "lookup tables: the places of a message ID and of a receipt hash (QV-113)", (
@@ -262,16 +353,21 @@ MIGRATIONS: tuple = (
     Migration(3, "message-ID indexes on the summary list tables (QV-118)", tuple(
         f"CREATE INDEX IF NOT EXISTS {t}_mid ON ONLY {t} (mid)" for t in MID_INDEXED
     ), per_place=(_mid_indexes,)),
+    Migration(4, "lookup tables partitioned by place, and the filter of the sealed places (QV-127)", (
+        _set_lookups_aside,
+        """CREATE TABLE IF NOT EXISTS mid_places (mid TEXT COLLATE "C" NOT NULL, rclass BIGINT NOT NULL,
+           bucket BIGINT NOT NULL, PRIMARY KEY (mid, rclass, bucket)) PARTITION BY RANGE (rclass, bucket)""",
+        """CREATE TABLE IF NOT EXISTS hash_places (receipt_hmac TEXT NOT NULL, key_id TEXT NOT NULL,
+           rclass BIGINT NOT NULL, bucket BIGINT NOT NULL, PRIMARY KEY (receipt_hmac, key_id, rclass, bucket))
+           PARTITION BY RANGE (rclass, bucket)""",
+        "ALTER TABLE places ADD COLUMN IF NOT EXISTS sealed_in BIGINT",
+        "ALTER TABLE places ADD COLUMN IF NOT EXISTS lookup_keys BIGINT",
+    ) + tuple(statements(SEALING)), per_place=(_lookups_by_place,), after=(
+        "DROP TABLE IF EXISTS mid_places_v3, hash_places_v3",
+    )),
 )
-LATEST = 3
+LATEST = 4
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
-
-
-def statements(script: str) -> list[str]:
-    """A script as single statements: ``--`` comments removed, then split at semicolons (no statement here
-    has one in a string)."""
-    text = "\n".join(line.split("--", 1)[0] for line in script.splitlines())
-    return [s.strip() for s in text.split(";") if s.strip()]
 
 
 def open_schema(conn) -> list[int]:
@@ -296,9 +392,9 @@ def open_schema(conn) -> list[int]:
                         f"one ({__version__}) knows versions up to {LATEST}. Run the newer Trailbeam. Refusing to "
                         "start, so nothing is lost")
                 m = MIGRATIONS[version - 1]
-                for sql in m.statements:
-                    conn.execute(sql)
+                _run(conn, m.statements)
                 if not m.per_place:
+                    _run(conn, m.after)
                     _record(conn, m.version, m.name)
                     done.append(m.version)
                     continue
@@ -312,10 +408,19 @@ def open_schema(conn) -> list[int]:
                             conn.execute(step, {"rclass": rclass, "bucket": bucket})
             with conn.transaction():
                 if current_version(conn) == m.version - 1:
+                    _run(conn, m.after)
                     _record(conn, m.version, m.name)
             done.append(m.version)
     finally:
         conn.execute("SELECT pg_advisory_unlock(%s)", (MIGRATION_LOCK,))
+
+
+def _run(conn, steps) -> None:
+    for step in steps:
+        if callable(step):
+            step(conn)
+        else:
+            conn.execute(step)
 
 
 def current_version(conn):
@@ -341,14 +446,14 @@ def partition_name(table: str, rclass: int, bucket: int) -> str:
     return f"{table}_p{rclass}_{'m' if bucket < 0 else ''}{abs(bucket)}"
 
 
-def place_ddl(rclass: int, bucket: int) -> list[tuple[str, str, str, str]]:
+def place_ddl(rclass: int, bucket: int, tables=PARTITIONED) -> list[tuple[str, str, str, str]]:
     """The partitions of one place, one per partitioned table: (table, partition, create, attach). Made as a
     table of its own, then attached: ``ATTACH PARTITION`` locks the parent SHARE UPDATE EXCLUSIVE, which
     exports' writes and any reader (a ``pg_dump``) don't conflict with, where ``CREATE TABLE … PARTITION OF``
     needs ACCESS EXCLUSIVE, so it waits for every open transaction and every export queues behind it (QV-118).
     Attaching builds the parent's indexes on it (the same names) and checks its range (it is empty)."""
     out = []
-    for t in PARTITIONED:
+    for t in tables:
         name = partition_name(t, rclass, bucket)
         out.append((t, name,
                     f"CREATE TABLE IF NOT EXISTS {name} (LIKE {t} INCLUDING DEFAULTS INCLUDING CONSTRAINTS "

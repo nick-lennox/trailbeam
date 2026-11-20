@@ -457,9 +457,17 @@ def test_many_places_dont_need_a_bigger_lock_table_and_a_full_one_is_reported(pg
     finally:
         pid = filler.info.backend_pid
         filler.close()
-    # its locks go when its backend exits, a moment after the connection closes
-    with psycopg.connect(s.url, autocommit=True) as c:
-        deadline = time.monotonic() + 30
+    # its locks go when its backend exits, a moment after the connection closes: until then even a new
+    # connection may not find room (it takes a lock as it starts)
+    deadline = time.monotonic() + 30
+    while True:
+        try:
+            c = psycopg.connect(s.url, autocommit=True)
+            break
+        except psycopg.OperationalError:
+            assert time.monotonic() < deadline, "the lock table stayed full after the filler closed"
+            time.sleep(0.05)
+    with c:
         while c.execute("SELECT 1 FROM pg_stat_activity WHERE pid = %s", (pid,)).fetchone():
             assert time.monotonic() < deadline, "the filler's backend never exited"
             time.sleep(0.05)
@@ -517,21 +525,26 @@ def _the_export(places: int) -> list:
 
 
 @needs_pg
+@pytest.mark.parametrize("sealed", [False, True])
 @pytest.mark.parametrize("places", [10, 400])
-def test_what_one_export_locks_does_not_grow_with_the_places(pg_store, places):
+def test_what_one_export_locks_does_not_grow_with_the_places(pg_store, places, sealed):
     """QV-113: an export locks the partitions of the places it writes and reads (here the new place, and place 0
     for the late delete's join), and the store's lookup tables; never one of the other places. So the same export
-    takes as many locks with 400 places of history as with 10."""
+    takes as many locks with 400 places of history as with 10. QV-127: whether the old places are sealed (the
+    filter rules them out) or not (they are read for every key, on a read connection of their own)."""
     import re
 
     s = pg_store(bucket_ns=SEC, store_bodies={"orders"})
     _history(s, places)
+    if sealed:
+        _pass(s)
     held = _export_locks(s, _the_export(places))
     buckets = {int(m.group(1)) for n in held for m in [re.search(r"_p0_(\d+)", n)] if m}
-    assert buckets == {T0 // SEC, T0 // SEC + places}, buckets
-    _EXPORT_LOCKS[places] = len(held)
-    if len(_EXPORT_LOCKS) == 2:
-        assert _EXPORT_LOCKS[400] == _EXPORT_LOCKS[10], _EXPORT_LOCKS
+    hot = {b for b in buckets if b >= s._hot_from()}  # the recent places (the pass made today's): a few, always
+    assert buckets - hot == {T0 // SEC, T0 // SEC + places} and len(hot) <= s.hot_buckets + 1 + s.PRECREATE_AHEAD
+    _EXPORT_LOCKS[sealed, places] = len(held)
+    if (sealed, 10) in _EXPORT_LOCKS and (sealed, 400) in _EXPORT_LOCKS:
+        assert _EXPORT_LOCKS[sealed, 400] == _EXPORT_LOCKS[sealed, 10], _EXPORT_LOCKS
     rows = s.message_rows("late")
     assert [r["kind"] for r in rows] == ["send", "receive", "delete"] and rows[2]["mid"] == "late"
     assert rows[2]["receive_row"] == rows[1]["row"] and s.summaries(["late"])[0]["final_delete"]
@@ -560,10 +573,10 @@ def test_version_2_fills_the_lookup_tables_place_by_place(pg_store):
         _as_version(c, 1)
     again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
     try:
-        assert again.migrated == [2, 3]
+        assert again.migrated == [2, 3, 4]
         with again.ingest.connection() as c:
             assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
-            assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == [1, 2, 3]
+            assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == [1, 2, 3, 4]
         again.insert(records([w.delete(T0 + 50 * SEC, "h-late")]))
         rows = again.message_rows("late")
         assert [r["kind"] for r in rows] == ["send", "receive", "delete"] and rows[2]["receive_row"] == rows[1]["row"]
@@ -700,7 +713,21 @@ _PAGE_LOCKS: dict = {}
 
 def _as_version(c, version: int) -> None:
     """Make a current database look as Postgres schema ``version`` left it: 1 is 0.2.0's (no lookup tables, no
-    message-ID indexes on the list tables), 2 adds the lookup tables (QV-113)."""
+    message-ID indexes on the list tables), 2 adds the lookup tables (QV-113), 3 the indexes (QV-118); 4
+    partitions the lookup tables (QV-127)."""
+    if version < 4:
+        for t, cols in (("mid_places", 'mid TEXT COLLATE "C" NOT NULL'),
+                        ("hash_places", "receipt_hmac TEXT NOT NULL, key_id TEXT NOT NULL")):
+            keys = ", ".join(x.split()[0] for x in cols.split(", "))
+            c.execute(f"CREATE TABLE {t}_old ({cols}, rclass BIGINT NOT NULL, bucket BIGINT NOT NULL, "
+                      f"PRIMARY KEY ({keys}, rclass, bucket))")
+            c.execute(f"INSERT INTO {t}_old SELECT {keys}, rclass, bucket FROM {t}")
+            c.execute(f"DROP TABLE {t}")
+            c.execute(f"ALTER TABLE {t}_old RENAME TO {t}")
+            c.execute(f"ALTER INDEX {t}_old_pkey RENAME TO {t}_pkey")
+            c.execute(f"CREATE INDEX {t}_place ON {t} (rclass, bucket)")
+        c.execute("DROP TABLE mid_places_late, hash_places_late, lookup_filters, lookup_filter")
+        c.execute("ALTER TABLE places DROP COLUMN sealed_in, DROP COLUMN lookup_keys")
     if version < 3:
         c.execute("DROP INDEX message_queues_mid, message_tenants_mid, tenant_events_mid")  # with the partitions'
     if version < 2:
@@ -793,7 +820,7 @@ def test_version_3_indexes_the_list_tables_place_by_place(pg_store):
     for attempt in range(2):
         again = PostgresStore(s.url, bucket_ns=SEC)
         try:
-            assert again.migrated == [3]
+            assert again.migrated == [3, 4]
             with again.ingest.connection() as c:
                 parts = _list_partitions(c)
                 assert len(parts["message_queues"]) == 11 + attempt  # 12 places less the dropped one, + "after-0"
@@ -801,9 +828,9 @@ def test_version_3_indexes_the_list_tables_place_by_place(pg_store):
                 assert all(r["indisvalid"] for r in c.execute(
                     """SELECT indisvalid FROM pg_index WHERE indexrelid IN
                        ('message_queues_mid'::regclass, 'message_tenants_mid'::regclass, 'tenant_events_mid'::regclass)"""))
-                assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == [1, 2, 3]
-                if attempt == 0:
-                    c.execute("DELETE FROM schema_version WHERE version = 3")  # as if stopped before recording it
+                assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == [1, 2, 3, 4]
+                if attempt == 0:  # as if stopped before recording 3 (4 run again too)
+                    c.execute("DELETE FROM schema_version WHERE version >= 3")
             again.insert(records([Consumer().send(T0 + 100 * SEC, f"after-{attempt}")]))
             with again.ingest.connection() as c:
                 assert _mid_index_partitions(c) == _list_partitions(c)
@@ -948,3 +975,213 @@ def test_replicas_creating_the_same_place_at_once_all_go_on(pg_store):
     finally:
         for r in replicas[1:]:
             r.close()
+
+
+# ---- QV-127: lookups by place, sealing and the filter ------------------------------------------------------
+
+def _sealed(s) -> dict:
+    """{(rclass, bucket): sealed_in} of every place."""
+    with s.ingest.connection() as c:
+        return {(r["rclass"], r["bucket"]): r["sealed_in"] for r in c.execute("SELECT * FROM places")}
+
+
+def _pass(s, cutoffs=None) -> None:
+    """One whole retention pass (it seals first); by default one that deletes nothing."""
+    resume = None
+    while True:
+        resume = s.purge_step(cutoffs or Cutoffs(None), resume).resume
+        if resume is None:
+            return
+
+
+def _timeline(store, mid) -> list:
+    rows = store.message_rows(mid)
+    index = {r["row"]: i for i, r in enumerate(rows)}
+    return [(r["kind"], r["time_ns"], r["mid"], index.get(r["receive_row"])) for r in rows]
+
+
+def _same_as_sqlite(s, exports, mids, tmp_path, between=None) -> None:
+    """Each export stored on ``s`` and on a SQLite store; ``between(k)`` (sealing, say) runs on ``s`` before the
+    k-th. Then both give the same timelines, summaries and counts: what the lookups changed is not the answers."""
+    from trailbeam.server.db import SqliteStore
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    lite = SqliteStore(str(tmp_path / "same.sqlite"))
+    try:
+        for k, spans in enumerate(exports):
+            if between is not None:
+                between(k)
+            assert s.insert(records(spans)) == lite.insert(records(spans))
+        for m in mids:
+            assert _timeline(s, m) == _timeline(lite, m), m
+        ours = [dict(r) for r in s.summaries(mids)]
+        assert ours == [{k: dict(r)[k] for k in ours[0]} for r in lite.summaries(mids)]  # SQLite has rows_json too
+        assert s.counts() == lite.counts()
+    finally:
+        lite.close()
+
+
+@needs_pg
+def test_a_settle_after_midnight_joins_its_receive(pg_store, tmp_path):
+    """Day buckets: a delete stored after midnight joins its receive from before it, in either order of the
+    two exports, whether day 0 is still hot or already sealed when the delete comes."""
+    late = D0 + DAY - SEC  # 23:59:59 on day 0
+    w = Consumer()
+    exports = [[w.send(late - SEC, "m1"), w.receive(late, "m1", "h1")], [w.delete(late + 2 * SEC, "h1")],
+               [w.send(late - SEC, "m2")], [w.delete(late + 2 * SEC, "h2")], [w.receive(late, "m2", "h2")]]
+    for hot_buckets, name in ((10 ** 6, "hot"), (0, "sealed")):
+        s = pg_store(hot_buckets=hot_buckets)
+        _same_as_sqlite(s, exports, ["m1", "m2"], tmp_path / name, between=lambda k: _pass(s) if k in (1, 4) else None)
+        assert s.counts()["unjoined_settles"] == 0
+        old = {v for p, v in _sealed(s).items() if p[1] <= D0 // DAY + 1}
+        assert old == ({None} if name == "hot" else {1, 2})
+
+
+@needs_pg
+def test_a_settle_past_the_oldest_hot_bucket_joins(pg_store, tmp_path):
+    """Day buckets, two hot: a receive stored five days ago, its day since sealed into the filter; its delete,
+    stored now, joins it. The other way round too: a receive now joins a delete stored (unjoined) in a sealed
+    day. And a span late for a sealed day (its lookup rows went to the late tables) is found: a receive
+    written to day -5 after it was sealed, whose delete comes now."""
+    today = time.time_ns() // DAY
+    old, now = (today - 5) * DAY + 3600 * SEC, today * DAY + 3600 * SEC
+    s = pg_store(hot_buckets=2)
+    w = Consumer()
+    exports = [[w.send(old, "m1"), w.receive(old + SEC, "m1", "h1")],
+               [w.send(old, "m2"), w.delete(old + 2 * SEC, "h2")],
+               [w.send(old, "m3")],
+               # (sealed here)
+               [w.receive(old + 5 * SEC, "m3", "h3"), w.receive(old + 6 * SEC, "m4", "h4")],  # late for day -5
+               [w.delete(now, "h1")], [w.receive(now + SEC, "m2", "h2")], [w.delete(now + 2 * SEC, "h3")],
+               [w.delete(now + 3 * SEC, "h4"), w.send(now + 4 * SEC, "m5")]]
+    _same_as_sqlite(s, exports, ["m1", "m2", "m3", "m4", "m5"], tmp_path,
+                    between=lambda k: _pass(s) if k == 3 else None)
+    sealed = _sealed(s)
+    assert sealed[(0, today - 5)] > 0 and sealed[(0, today)] is None
+    with s.ingest.connection() as c:  # m3 was in day -5's lookups already (its send); m4 and both hashes weren't
+        assert [tuple(r.values()) for r in c.execute("SELECT * FROM mid_places_late")] == [("m4", 0, today - 5)]
+        assert len(c.execute("SELECT * FROM hash_places_late").fetchall()) == 2
+    assert s.counts()["unjoined_settles"] == 0
+    rows = s.message_rows("m1")
+    assert rows[2]["mid"] == "m1" and rows[2]["receive_row"] == rows[1]["row"]
+    # retention drops day -5 whole: its lookup partitions with it, and its late rows
+    _pass(s, Cutoffs(today * DAY))
+    with s.ingest.connection() as c:
+        assert c.execute("SELECT COUNT(*) AS n FROM mid_places_late").fetchone()["n"] == 0
+        assert c.execute("SELECT COUNT(*) AS n FROM hash_places_late").fetchone()["n"] == 0
+        assert c.execute("SELECT COUNT(*) AS n FROM mid_places WHERE bucket = %s", (today - 5,)).fetchone()["n"] == 0
+        assert not c.execute("SELECT 1 FROM pg_tables WHERE tablename = %s",
+                             (f"mid_places_p0_{today - 5}",)).fetchone()
+
+
+@needs_pg
+def test_new_messages_read_no_sealed_place(pg_store):
+    """Once the old places are sealed, an export of new messages reads none of them (the filter says their keys
+    are in none), while one that joins a receive in a sealed place reads them. Before the seal, a lookup reads
+    every old place it can't rule out (on a read connection: none of their locks is held by the export)."""
+    s = pg_store(bucket_ns=SEC)
+    _history(s, 40)
+    walks = []
+    connection = s.reads.connection
+
+    @contextlib.contextmanager
+    def counted(*a, **kw):
+        walks.append(1)
+        with connection(*a, **kw) as c:
+            yield c
+    s.reads.connection = counted
+    try:
+        w = Consumer()
+        t = time.time_ns()
+        s.insert(records([w.send(t, "fresh-1"), w.receive(t + 1, "fresh-1", "h-fresh-1")]))
+        assert walks, "before sealing, the old places are read for every key"
+        s.reads.connection = connection
+        _pass(s)
+        assert all(v for p, v in _sealed(s).items() if p[1] < s._hot_from())
+        s.reads.connection = counted
+        walks.clear()
+        s.insert(records([w.send(t + 2, "fresh-2"), w.receive(t + 3, "fresh-2", "h-fresh-2"),
+                          w.delete(t + 4, "h-fresh-2")]))
+        assert walks == []
+        s.insert(records([w.delete(t + 5, "h-late")]))
+        assert walks
+    finally:
+        s.reads.connection = connection
+    rows = s.message_rows("late")
+    assert [r["kind"] for r in rows] == ["send", "receive", "delete"] and rows[2]["receive_row"] == rows[1]["row"]
+    assert [r["kind"] for r in s.message_rows("fresh-2")] == ["send", "receive", "delete"]
+
+
+@needs_pg
+def test_the_filter_grows_and_other_replicas_load_it(pg_store, monkeypatch):
+    """Sealing adds the places' keys to the filter while it has room, and builds it anew, twice what it must
+    hold, when it hasn't. Each is stored as the next version, the older ones removed. Every key of a sealed
+    place is in it (no false negatives), and another replica on the database loads the newest."""
+    from trailbeam.server import lookup_filter
+    from trailbeam.server.postgres import PostgresStore
+
+    monkeypatch.setattr(lookup_filter, "MIN_CAPACITY", 1)
+    s = pg_store(bucket_ns=SEC)
+    other = PostgresStore(s.url, bucket_ns=SEC)
+    try:
+        def seal_up_to(k):
+            s.hot_buckets = s.bucket(time.time_ns()) - (T0 // SEC + k)
+            assert s._seal_due() > 0
+            return s._filter
+        _history(s, 30)
+        f1 = seal_up_to(10)  # "late" and old-0 .. old-9
+        assert (f1.version, f1.keys) == (1, 1 + 1 + 10 * 2) and f1.capacity == 2 * f1.keys
+        f2 = seal_up_to(12)  # 4 more keys: room
+        assert (f2.version, f2.m, f2.capacity, f2.keys) == (2, f1.m, f1.capacity, f1.keys + 4)
+        f3 = seal_up_to(30)  # 36 more: built anew
+        assert f3.version == 3 and f3.keys == 2 + 30 * 2 and f3.capacity == 2 * f3.keys
+        with s.ingest.connection() as c:
+            assert [r["version"] for r in c.execute("SELECT version FROM lookup_filters")] == [3]
+            assert {r["version"] for r in c.execute("SELECT version FROM lookup_filter")} == {3}
+            assert all(lookup_filter.mid_key(r["mid"]) in f3 for r in c.execute("SELECT mid FROM mid_places"))
+            assert all(lookup_filter.hash_key(r["receipt_hmac"], r["key_id"]) in f3
+                       for r in c.execute("SELECT receipt_hmac, key_id FROM hash_places"))
+        assert other._filter is None
+        other._check_filter()
+        assert other._filter.version == 3 and other._filter.bits == f3.bits
+        other.insert(records([Consumer().delete(T0 + 100 * SEC, "h-late")]))
+        assert [r["kind"] for r in s.message_rows("late")] == ["send", "receive", "delete"]
+        assert len(other.message_rows("old-17")) == 3 and other.summaries(["old-29"])[0]["final_delete"]
+    finally:
+        other.close()
+
+
+@needs_pg
+def test_version_4_partitions_the_lookup_tables_place_by_place(pg_store, tmp_path):
+    """A schema-3 database (unpartitioned lookup tables) is brought to version 4: each place's lookup rows move
+    to its own partitions, the old tables go, and every place is unsealed until the next pass seals the old
+    ones. Messages stored before read whole, and a late delete joins a receive stored before the upgrade."""
+    from trailbeam.server.postgres import PostgresStore
+
+    s = pg_store(bucket_ns=SEC, store_bodies={"orders"})
+    _history(s, 20)
+    with s.ingest.connection() as c:
+        lookups = {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in ("mid_places", "hash_places")}
+        _as_version(c, 3)
+        assert c.execute("SELECT relkind FROM pg_class WHERE relname = 'mid_places' "
+                         "AND relnamespace = current_schema()::regnamespace").fetchone()["relkind"] == "r"
+    again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
+    try:
+        assert again.migrated == [4]
+        with again.ingest.connection() as c:
+            assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
+            assert c.execute("SELECT to_regclass('mid_places_v3') AS t").fetchone()["t"] is None
+            parts = {r["relname"] for r in c.execute(
+                """SELECT ch.relname FROM pg_inherits i JOIN pg_class ch ON ch.oid = i.inhrelid
+                   JOIN pg_class pa ON pa.oid = i.inhparent WHERE pa.relname = 'mid_places'
+                     AND ch.relnamespace = current_schema()::regnamespace""")}
+            assert len(parts) == 20
+        assert all(v is None for v in _sealed(again).values())
+        _pass(again)
+        assert all(v for p, v in _sealed(again).items() if p[1] < again._hot_from())  # today's places: not
+        assert len(again.message_rows("old-7")) == 3
+        again.insert(records([Consumer().delete(T0 + 50 * SEC, "h-late")]))
+        rows = again.message_rows("late")
+        assert [r["kind"] for r in rows] == ["send", "receive", "delete"] and rows[2]["receive_row"] == rows[1]["row"]
+    finally:
+        again.close()

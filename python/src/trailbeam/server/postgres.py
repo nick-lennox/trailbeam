@@ -44,13 +44,31 @@ retention configuration.
 **Locks** (QV-113). A statement on a partitioned table locks, until its transaction ends, every partition (and
 its indexes) that it can't rule out when it is planned. So no statement of an export, a by-message read or
 retention looks a message ID or a receipt hash up across all places: the lookup tables (``mid_places``,
-``hash_places``, pg_schema.py) give the places that may hold its rows, and the statement names each of them
+``hash_places``, pg_schema.py; "Lookups" below) give the places that may hold its rows, and the statement names each of them
 (``_each``: one copy a place, the place a literal). Statements that name their place by a parameter
 (``rclass = %s AND bucket = %s``) are pruned at plan time only in a custom plan, so every connection sets
 ``plan_cache_mode = force_custom_plan``: psycopg prepares a statement run often, and Postgres's generic plan of
 it would lock every partition. What an export locks is then the partitions of the places its messages and
 hashes are in, however many places the store has (85 lock entries for a four-span export joining across two
 places, with 10 places or 400).
+
+**Lookups** (QV-127). The lookup tables are partitioned by place, so they no longer grow as one index with all
+of history; but every export looks up keys that are new (a send's message ID, a receive's hash), and only
+reading every place's partition would show such a key is in none of them. So the places are two kinds. *Hot*:
+from ``hot_buckets`` before the current bucket on (and the places the export writes to), read by name in the
+export's transaction. *Sealed*: older, their keys in one Bloom filter (lookup_filter.py), read only for the keys
+the filter says may be there (about 1 in 15,000 of the others, at 20 bits a key), newest first, a batch a
+statement on a read connection: outside the export's transaction, so it holds none of their locks, and safe
+because the export holds the advisory lock of every key it looks up, which every writer of that key takes. An
+old place not sealed yet (before the next retention pass) is read for every key, the same way. A message's
+lookup stops at its *home*, the place of its summary row, whose ``strays_json`` names every other place with
+spans of it; pages note the home of each message they list, so its summary is read without a lookup.
+
+Retention's pass seals the places past the hot ones (``_seal_due``): it marks them, so that a lookup row written
+to one from then on (a late span) also goes to the late tables, which every lookup reads; adds their keys to the
+filter, or builds it anew, larger, once it would hold more than its capacity (which also drops the keys of
+places gone); and stores it as the next version. Each replica loads the newest at start and every
+``FILTER_CHECK_S``; until it has loaded one, a place sealed in it is read as if it were not sealed.
 
 **Pages** (QV-116): the lists of messages, stuck messages, tenants, a queue's messages, ``counts`` and
 ``last_row`` read across all of time. They walk the places a batch at a time (``PAGE_PLACES`` a statement, each
@@ -96,7 +114,7 @@ import json
 import logging
 import threading
 import time
-from collections import Counter
+from collections import Counter, OrderedDict
 from typing import Iterable, Optional
 
 import psycopg
@@ -105,6 +123,7 @@ from psycopg import errors, sql
 from psycopg.rows import dict_row
 
 from . import body_table, pg_schema, summary
+from .lookup_filter import LookupFilter, hash_key, mid_key
 from .db import gate_body
 from .otlp import RECORD_FIELDS
 from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Cutoffs, ExportAbandoned, PurgeStep, Store,
@@ -178,23 +197,14 @@ def _each(places, query: str, params=(), alias: str = "", **aliases: str) -> tup
     return " UNION ALL ".join(f"({q})" for q in parts), list(params) * len(places)
 
 
-def _mid_places(conn, mids) -> dict:
-    """{mid: {place, ...}}: the places that may hold rows of these messages (mid_places)."""
-    out: dict = {}
-    mids = sorted({m for m in mids if m is not None})
-    if mids:
-        for r in conn.execute("SELECT mid, rclass, bucket FROM mid_places WHERE mid = ANY(%s)", (mids,)).fetchall():
-            out.setdefault(r["mid"], set()).add((r["rclass"], r["bucket"]))
-    return out
-
-
-def _note_mids(conn, rows) -> None:
-    """mid_places rows for these (mid, rclass, bucket)."""
-    rows = sorted({r for r in rows if r[0] is not None})
-    if rows:
-        conn.execute("""INSERT INTO mid_places (mid, rclass, bucket)
-                        SELECT * FROM unnest(%s::text[], %s::bigint[], %s::bigint[]) ON CONFLICT DO NOTHING""",
-                     [[r[k] for r in rows] for k in range(3)])
+def _per_place(jobs, query: str) -> tuple[str, list]:
+    """``query`` once per place with that place's own parameters, as one UNION ALL: ``jobs`` is [(place,
+    params), ...], ``{p}`` the WHERE term naming the place (a literal, as ``_each``)."""
+    parts, params = [], []
+    for (c, b), ps in jobs:
+        parts.append("(" + query.format(p=f"rclass = {int(c)} AND bucket = {int(b)}") + ")")
+        params += list(ps)
+    return " UNION ALL ".join(parts), params
 
 
 class PostgresStore(Store):
@@ -202,7 +212,8 @@ class PostgresStore(Store):
 
     ``retention``: retention.Retention (or anything with ``default`` and ``queues`` in seconds, None forever),
     the retention classes spans are placed by. None: one class; retention then sweeps places whose queues have
-    different cutoffs instead of dropping them. ``bucket_ns``: the bucket width G (the granularity)."""
+    different cutoffs instead of dropping them. ``bucket_ns``: the bucket width G (the granularity).
+    ``hot_buckets``: places more than this many buckets before the current one are sealed ("Lookups")."""
 
     INGEST_ATTEMPTS = 50
     DDL_LOCK_TIMEOUT_MS = 1_000  # the longest a partition's DDL waits for its lock ("New places")
@@ -214,7 +225,8 @@ class PostgresStore(Store):
     WATCH_INTERVAL_S = 0.2  # how often an export's client is checked (``insert(abandoned=...)``)
 
     def __init__(self, url: str, *, store_bodies: Iterable[str] = (), retention=None, bucket_ns: int = DAY_NS,
-                 ingest_connections: int = 4, read_connections: int = 8, statement_timeout_ms: int = 60_000):
+                 ingest_connections: int = 4, read_connections: int = 8, statement_timeout_ms: int = 60_000,
+                 hot_buckets: int = 2):
         if bucket_ns < 1:
             raise ValueError("bucket_ns must be at least 1")
         self.url = url
@@ -222,6 +234,13 @@ class PostgresStore(Store):
         self.retention = retention
         self.bucket_ns = int(bucket_ns)
         self.retention_granularity_ns = self.bucket_ns
+        if hot_buckets < 0:
+            raise ValueError("hot_buckets must be at least 0")
+        self.hot_buckets = int(hot_buckets)
+        self._filter: Optional[LookupFilter] = None  # the newest lookup filter loaded ("Lookups")
+        self._filter_checked = time.monotonic()
+        self._hints: OrderedDict = OrderedDict()  # mid -> its home as a page last listed it ("Lookups")
+        self._hints_lock = threading.Lock()
         self._lock_connections = read_connections  # pages: the statements that lock the most places ("Locks")
         self._lock_warned_at: Optional[float] = None
         self.lock_need: Optional[pg_schema.LockNeed] = None
@@ -233,6 +252,7 @@ class PostgresStore(Store):
             schema = c.execute("SELECT current_schema()").fetchone()[0]
             self._lease_key = _key("retention lease:" + schema)
             self._places_key = _key("places:" + schema)  # held while a connection makes places ("New places")
+            self._filter_key = _key("lookup filter:" + schema)  # held while a replica seals places ("Lookups")
 
         def ingest_conf(conn):
             conn.execute(f"SET statement_timeout = {int(statement_timeout_ms)}")
@@ -260,6 +280,11 @@ class PostgresStore(Store):
         self._lease = None                   # the connection holding the retention lease's lock, while this replica holds it
         self._lease_lock = threading.Lock()
         self._stop = threading.Event()
+        try:
+            with self.reads.connection() as c:
+                self._load_filter(c)
+        except psycopg.Error as e:  # lookups read every place until a filter is loaded: slower, still exact
+            log.warning("could not load the lookup filter: %s", e)
         self._watcher = threading.Thread(target=self._watch_loop, name="trailbeam-pg-abandoned", daemon=True)
         self._watcher.start()
 
@@ -372,13 +397,16 @@ class PostgresStore(Store):
                 + (need.message() if need is not None and need.short else
                    "Raise max_locks_per_transaction (README: Postgres lock table)"))
 
-    @staticmethod
-    def _lock_places(conn, places) -> dict:
+    def _lock_places(self, conn, places) -> dict:
         """Lock (FOR SHARE) and read the state of these places: {place: state}; a missing place is absent.
-        Retention takes the rows FOR UPDATE to mark a place ``dropping``, so it waits for this transaction."""
+        Retention takes the rows FOR UPDATE to mark a place ``dropping``, and sealing to mark it sealed, so they
+        wait for this transaction. An export notes the places, which its lookups then read ("Lookups")."""
         places = sorted(set(places))
         if not places:
             return {}
+        locked = getattr(self._tx, "locked", None)
+        if locked is not None:
+            locked.update(places)
         rows = conn.execute(
             """SELECT rclass, bucket, state FROM places
                WHERE (rclass, bucket) IN (SELECT * FROM unnest(%s::bigint[], %s::bigint[]))
@@ -422,12 +450,296 @@ class PostgresStore(Store):
             "INSERT INTO place_queues (rclass, bucket, queue) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING", new)
         self._tx.noted += new  # cached once the export commits
 
+    # ---- lookups (QV-127) ---------------------------------------------------------------------
+
+    def _hot_from(self) -> int:
+        """The oldest bucket that is not sealed: places from it on are read for every key ("Lookups")."""
+        return self.bucket(time.time_ns()) - self.hot_buckets
+
+    def _near(self) -> set:
+        """The places this export has locked so far: those it writes rows to, so its lookups read them in its
+        own transaction, which sees its own rows."""
+        return set(getattr(self._tx, "locked", None) or ())
+
+    def _split(self, conn, near) -> tuple[set, list]:
+        """(near, far): the places a lookup reads on ``conn`` (the given ones, and every place from
+        ``_hot_from`` on), and the others, newest first, each with whether the loaded filter covers it."""
+        hot, f = self._hot_from(), self._filter
+        v = f.version if f is not None else 0
+        near, far = set(near), []
+        exporting = getattr(self._tx, "locked", None) is not None
+        rows = getattr(self._tx, "places", None) if exporting else None  # in an export: read once an attempt
+        if rows is None:
+            rows = conn.execute("SELECT rclass, bucket, sealed_in FROM places").fetchall()
+            if exporting:
+                self._tx.places = rows
+        for r in rows:
+            p = (r["rclass"], r["bucket"])
+            if p[1] >= hot:
+                near.add(p)
+            elif p not in near:
+                far.append((p, r["sealed_in"] is not None and 0 < r["sealed_in"] <= v))
+        far.sort(key=lambda x: (-x[0][1], x[0][0]))
+        return near, far
+
+    @contextlib.contextmanager
+    def _walker(self, conn, walk):
+        """The connection a lookup reads the far places on: ``walk()``'s, or ``conn`` when walk is None."""
+        if walk is None:
+            yield conn
+        else:
+            with walk() as c:
+                yield c
+
+    @staticmethod
+    def _homes(c, hits: dict) -> dict:
+        """{mid: places} for the messages of ``hits`` ({mid: places}) whose summary row is in one of those
+        places: that place, its *home*, and the places of its ``strays_json``, which are every other place that
+        holds spans of it ("Placement"; its summary rows and bodies are all at home). So once a message's home
+        is found, its other places need no lookup."""
+        where = set().union(*hits.values()) if hits else set()
+        if not where:
+            return {}
+        out = {}
+        for r in c.execute(*_each(where, "SELECT mid, rclass, bucket, strays_json FROM messages "
+                                         "WHERE {p} AND mid = ANY(%s)", [sorted(hits)])).fetchall():
+            home = (r["rclass"], r["bucket"])
+            if home in hits.get(r["mid"], ()):
+                out[r["mid"]] = {home} | {tuple(x) for x in json.loads(r["strays_json"])}
+        return out
+
+    def _locate_mids(self, conn, mids, near=(), walk=None, homed: Optional[set] = None) -> dict:
+        """{mid: {place, ...}}: every place holding rows of these messages (with, maybe, places that no longer
+        do). ``conn``: the transaction it reads in, with the places ``near`` and the recent ones; ``walk``: a
+        function giving the connection it reads the older places on, one batch a statement, so that their locks
+        aren't held by ``conn``'s transaction (``conn`` itself when None). A message is looked for in a sealed
+        place only when the filter may hold it, and in no more places once its home is found. ``homed``, when
+        given, gets the messages whose home was found."""
+        mids = sorted({m for m in mids if m is not None})
+        homed = set() if homed is None else homed
+        if not mids:
+            return {}
+        near, far = self._split(conn, near)
+        # the near places with their summary rows (one statement: a home found here needs no more), and the late rows
+        hits: dict = {}
+        homes: dict = {}
+        q, qp = ("SELECT mid, rclass, bucket, NULL AS strays_json FROM mid_places_late l WHERE mid = ANY(%s)", [mids])
+        if near:
+            nq, nqp = _each(near, "SELECT l.mid, l.rclass, l.bucket, m.strays_json FROM mid_places l "
+                                  "LEFT JOIN messages m ON {m} AND m.mid = l.mid WHERE {p} AND l.mid = ANY(%s)",
+                            [mids], "l", m="m")
+            q, qp = f"{nq} UNION ALL ({q})", nqp + qp
+        for r in conn.execute(q, qp).fetchall():
+            p = (r["rclass"], r["bucket"])
+            hits.setdefault(r["mid"], set()).add(p)
+            if r["strays_json"] is not None:
+                homes[r["mid"]] = {p} | {tuple(x) for x in json.loads(r["strays_json"])}
+        late = {m: ps - near for m, ps in hits.items() if m not in homes and ps - near}
+        homes.update(self._homes(conn, late))  # a home among the late rows' places (rare: sealed places)
+        out = {m: set(ps) for m, ps in hits.items()}
+        for m, ps in homes.items():
+            out[m] |= ps
+        homed.update(homes)
+        left = set(mids) - set(homes)
+        if not left or not far:
+            return out
+        f = self._filter
+        maybe = {m for m in left if f is not None and mid_key(m) in f}
+        if all(sealed for _, sealed in far) and not maybe:
+            return out
+        with self._walker(conn, walk) as c:
+            for k in range(0, len(far), self.PAGE_PLACES):
+                jobs = [(p, [sorted(left & maybe if sealed else left)]) for p, sealed in far[k:k + self.PAGE_PLACES]]
+                jobs = [j for j in jobs if j[1][0]]
+                if not jobs:
+                    continue
+                found: dict = {}
+                for r in c.execute(*_per_place(jobs, "SELECT mid, rclass, bucket FROM mid_places "
+                                                     "WHERE {p} AND mid = ANY(%s)")).fetchall():
+                    found.setdefault(r["mid"], set()).add((r["rclass"], r["bucket"]))
+                for m, ps in found.items():
+                    out.setdefault(m, set()).update(ps)
+                for m, ps in self._homes(c, found).items():
+                    out[m] |= ps
+                    left.discard(m)
+                    homed.add(m)
+                if not left:
+                    break
+        return out
+
+    def _locate_hashes(self, conn, hashes, near=(), walk=None) -> set:
+        """The places holding receive or settle spans of these receipt hashes ((receipt_hmac, key_id)), as
+        ``_locate_mids`` finds them, but read in every far place (unsealed) or every sealed one whose filter may
+        hold the hash: a hash has no summary row saying where the rest is."""
+        hashes = sorted(set(hashes))
+        if not hashes:
+            return set()
+        near, far = self._split(conn, near)
+        a, b = [h[0] for h in hashes], [h[1] for h in hashes]
+        sub = "(receipt_hmac, key_id) IN (SELECT * FROM unnest(%s::text[], %s::text[]))"
+        q, qp = f"SELECT rclass, bucket FROM hash_places_late WHERE {sub}", [a, b]
+        if near:
+            nq, nqp = _each(near, "SELECT rclass, bucket FROM hash_places WHERE {p} AND " + sub, [a, b])
+            q, qp = f"{nq} UNION ALL ({q})", nqp + qp
+        places = {(r["rclass"], r["bucket"]) for r in conn.execute(q, qp).fetchall()}
+        f = self._filter
+        maybe = [h for h in hashes if f is not None and hash_key(*h) in f]
+        jobs = [(p, maybe if sealed else hashes) for p, sealed in far]
+        jobs = [(p, [[h[0] for h in hs], [h[1] for h in hs]]) for p, hs in jobs if hs]
+        if jobs:
+            with self._walker(conn, walk) as c:
+                for k in range(0, len(jobs), self.PAGE_PLACES):
+                    places |= {(r["rclass"], r["bucket"]) for r in c.execute(*_per_place(
+                        jobs[k:k + self.PAGE_PLACES], "SELECT rclass, bucket FROM hash_places WHERE {p} AND " + sub
+                    )).fetchall()}
+        return places
+
+    def _note_mids(self, conn, rows) -> None:
+        """mid_places rows for these (mid, rclass, bucket); a new one for a sealed place goes to
+        mid_places_late too. Each place's row in ``places`` is locked FOR SHARE by the caller, so its
+        ``sealed_in`` doesn't change before the commit (sealing waits)."""
+        rows = sorted({r for r in rows if r[0] is not None})
+        if rows:
+            conn.execute("""WITH new AS (INSERT INTO mid_places (mid, rclass, bucket)
+                                SELECT * FROM unnest(%s::text[], %s::bigint[], %s::bigint[]) ON CONFLICT DO NOTHING
+                                RETURNING mid, rclass, bucket)
+                            INSERT INTO mid_places_late (mid, rclass, bucket)
+                            SELECT n.mid, n.rclass, n.bucket FROM new n
+                            JOIN places p ON p.rclass = n.rclass AND p.bucket = n.bucket AND p.sealed_in IS NOT NULL
+                            ON CONFLICT DO NOTHING""", [[r[k] for r in rows] for k in range(3)])
+
+    def _note_hashes(self, conn, rows) -> None:
+        """hash_places rows for these (receipt_hmac, key_id, rclass, bucket), as ``_note_mids``."""
+        rows = sorted({r for r in rows if r[0] is not None and r[1] is not None})
+        if rows:
+            conn.execute("""WITH new AS (INSERT INTO hash_places (receipt_hmac, key_id, rclass, bucket)
+                                SELECT * FROM unnest(%s::text[], %s::text[], %s::bigint[], %s::bigint[])
+                                ON CONFLICT DO NOTHING RETURNING receipt_hmac, key_id, rclass, bucket)
+                            INSERT INTO hash_places_late (receipt_hmac, key_id, rclass, bucket)
+                            SELECT n.receipt_hmac, n.key_id, n.rclass, n.bucket FROM new n
+                            JOIN places p ON p.rclass = n.rclass AND p.bucket = n.bucket AND p.sealed_in IS NOT NULL
+                            ON CONFLICT DO NOTHING""", [[r[k] for r in rows] for k in range(4)])
+
+    # Sealing: the replica holding the retention lease, at the start of each pass.
+
+    FILTER_CHUNK_BYTES = 4 << 20  # bytes of the filter per lookup_filter row
+    FILTER_CHECK_S = 30.0         # how often a replica looks for a newer filter than it has
+
+    def _seal_due(self) -> int:
+        """Seal the places older than ``hot_buckets`` ("Lookups"): mark them (a lookup row written to them from
+        then on goes to the late tables too), add their lookup keys to the filter, or build it anew, twice the
+        size of what it must hold, when they would fill it (which also drops the keys of places gone), and store
+        it as the next version, which marks them sealed in it. Returns the places sealed."""
+        hot = self._hot_from()
+        with self.ingest.connection() as c:
+            due = [(r["rclass"], r["bucket"]) for r in c.execute(
+                """SELECT rclass, bucket FROM places WHERE bucket < %s AND state = 'live'
+                   AND (sealed_in IS NULL OR sealed_in = 0) ORDER BY bucket, rclass""", (hot,)).fetchall()]
+            if not due:
+                return 0
+            if not c.execute("SELECT pg_try_advisory_lock(%s) AS ok", (self._filter_key,)).fetchone()["ok"]:
+                return 0  # another replica is sealing (one that held the lease a moment ago)
+            try:
+                t0 = time.monotonic()
+                cols = [[p[0] for p in due], [p[1] for p in due]]
+                with c.transaction():  # waits for the exports writing to them (they hold their rows FOR SHARE)
+                    c.execute("""SELECT 1 FROM places WHERE (rclass, bucket) IN (SELECT * FROM unnest(%s::bigint[],
+                                 %s::bigint[])) ORDER BY rclass, bucket FOR UPDATE""", cols)
+                    c.execute("""UPDATE places SET sealed_in = 0 WHERE sealed_in IS NULL
+                                 AND (rclass, bucket) IN (SELECT * FROM unnest(%s::bigint[], %s::bigint[]))""", cols)
+                stored = self._load_filter(c)
+                counts = {p: self._lookup_rows(c, p) for p in due}
+                new = sum(counts.values())
+                if stored is None or stored.full(new):
+                    sealed = [(r["rclass"], r["bucket"]) for r in c.execute(
+                        "SELECT rclass, bucket FROM places WHERE sealed_in > 0 ORDER BY bucket, rclass").fetchall()]
+                    held = c.execute("SELECT COALESCE(SUM(lookup_keys), 0) AS n FROM places WHERE sealed_in > 0"
+                                     ).fetchone()["n"]
+                    f, sources = LookupFilter.sized(2 * (held + new)), sealed + due
+                else:  # a copy: lookups on this replica go on with the stored one meanwhile
+                    f = LookupFilter(stored.m, stored.k, capacity=stored.capacity, keys=stored.keys, bits=stored.bits)
+                    sources = due
+                for p in sources:
+                    self._add_keys(c, f, p)
+                self._store_filter(c, f, due, counts)
+                log.info("sealed %d place(s) into lookup filter version %d (%d keys of %d, %.1f MB) in %.1f s",
+                         len(due), f.version, f.keys, f.capacity, len(f.bits) / 1e6, time.monotonic() - t0)
+            finally:
+                with contextlib.suppress(psycopg.Error):
+                    c.execute("SELECT pg_advisory_unlock(%s)", (self._filter_key,))
+        return len(due)
+
+    @staticmethod
+    def _lookup_rows(c, place) -> int:
+        return c.execute("SELECT (SELECT COUNT(*) FROM mid_places WHERE rclass = %s AND bucket = %s) + "
+                         "(SELECT COUNT(*) FROM hash_places WHERE rclass = %s AND bucket = %s) AS n",
+                         place + place).fetchone()["n"]
+
+    @staticmethod
+    def _add_keys(c, f: LookupFilter, place) -> None:
+        with c.transaction():
+            with c.cursor(name="trailbeam_seal_mids") as cur:
+                cur.itersize = 20_000
+                cur.execute("SELECT mid FROM mid_places WHERE rclass = %s AND bucket = %s", place)
+                for r in cur:
+                    f.add(mid_key(r["mid"]))
+            with c.cursor(name="trailbeam_seal_hashes") as cur:
+                cur.itersize = 20_000
+                cur.execute("SELECT receipt_hmac, key_id FROM hash_places WHERE rclass = %s AND bucket = %s", place)
+                for r in cur:
+                    f.add(hash_key(r["receipt_hmac"], r["key_id"]))
+
+    def _store_filter(self, c, f: LookupFilter, due, counts) -> None:
+        """Store ``f`` as the next version, mark ``due`` sealed in it, and remove the older versions."""
+        n = self.FILTER_CHUNK_BYTES
+        with c.transaction():
+            v = c.execute("SELECT COALESCE(MAX(version), 0) + 1 AS v FROM lookup_filters").fetchone()["v"]
+            c.execute("""INSERT INTO lookup_filters (version, m, k, capacity, keys, made_at_ms)
+                         VALUES (%s, %s, %s, %s, %s, %s)""", (v, f.m, f.k, f.capacity, f.keys, time.time_ns() // 10 ** 6))
+            c.cursor().executemany("INSERT INTO lookup_filter (version, chunk, bits) VALUES (%s, %s, %s)",
+                                   [(v, i, bytes(f.bits[o:o + n])) for i, o in enumerate(range(0, len(f.bits), n))])
+            c.cursor().executemany(
+                "UPDATE places SET sealed_in = %s, lookup_keys = %s WHERE rclass = %s AND bucket = %s AND sealed_in = 0",
+                [(v, counts[p], p[0], p[1]) for p in due])
+            c.execute("DELETE FROM lookup_filter WHERE version < %s", (v,))
+            c.execute("DELETE FROM lookup_filters WHERE version < %s", (v,))
+        f.version = v
+        self._filter = f
+
+    def _load_filter(self, c) -> Optional[LookupFilter]:
+        """The newest stored filter, loaded unless this replica has it already (None: none stored yet)."""
+        f = self._filter
+        newest = c.execute("SELECT MAX(version) AS v FROM lookup_filters").fetchone()["v"]
+        if newest is None or (f is not None and f.version >= newest):
+            return f if newest is not None else None
+        with c.transaction():
+            c.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            meta = c.execute("SELECT version, m, k, capacity, keys FROM lookup_filters ORDER BY version DESC LIMIT 1"
+                             ).fetchone()
+            chunks = c.execute("SELECT bits FROM lookup_filter WHERE version = %s ORDER BY chunk",
+                               (meta["version"],)).fetchall()
+        f = LookupFilter(meta["m"], meta["k"], capacity=meta["capacity"], keys=meta["keys"], version=meta["version"],
+                         bits=b"".join(bytes(r["bits"]) for r in chunks))
+        self._filter = f
+        return f
+
+    def _check_filter(self) -> None:
+        """Load a newer filter if another replica stored one (in the watcher thread, every FILTER_CHECK_S)."""
+        try:
+            with self.reads.connection(timeout=5) as c:
+                self._load_filter(c)
+        except (psycopg.Error, psycopg_pool.PoolTimeout) as e:
+            log.info("could not check for a newer lookup filter: %s", e)
+
     # ---- writes ---------------------------------------------------------------------------
 
     def _watch_loop(self) -> None:
         """Cancel the database work of exports whose client has gone (rule 5 of QV-69): the client will retry
         the export, so finishing it only adds load. One thread for every export."""
         while not self._stop.wait(self.WATCH_INTERVAL_S):
+            if time.monotonic() - self._filter_checked > self.FILTER_CHECK_S:
+                self._filter_checked = time.monotonic()
+                self._check_filter()
             with self._watch_lock:
                 for w in self._watched.values():
                     if w[2]:
@@ -484,6 +796,12 @@ class PostgresStore(Store):
         return result
 
     def _insert_records(self, records, abandoned, wait_s=None, timings=None) -> tuple[int, int]:
+        try:
+            return self._insert_attempts(records, abandoned, wait_s, timings)
+        finally:  # this thread's next read is not in an export ("Lookups": _split, _near)
+            self._tx.locked = self._tx.places = None
+
+    def _insert_attempts(self, records, abandoned, wait_s=None, timings=None) -> tuple[int, int]:
         t0 = time.perf_counter()
         t1 = None  # when the first connection came
         records = list(records)  # an exporter's iterator that fails part way stores nothing
@@ -513,7 +831,8 @@ class PostgresStore(Store):
                         with self._watch_lock:
                             self._watched[id(watch)] = watch
                     try:
-                        self._tx.noted, self._tx.written = [], Counter()
+                        self._tx.noted, self._tx.written, self._tx.locked = [], Counter(), set()
+                        self._tx.places = None
                         with conn.transaction():
                             result = self._insert(conn, prepared, more_locks)
                     except psycopg.Error:
@@ -576,7 +895,8 @@ class PostgresStore(Store):
                 wanted_bodies.setdefault((own, hashlib.sha256(_body_bytes(body)).digest()), (i, body))
         if wanted_bodies:
             ks = list(wanted_bodies)
-            known = set().union(*_mid_places(conn, {k[0] for k in ks}).values())
+            known = set().union(*self._locate_mids(conn, {k[0] for k in ks}, self._near(),
+                                                   self.reads.connection).values())
             if known:
                 for row in conn.execute(*_each(
                         known, "SELECT mid, sha, id FROM bodies WHERE {p} "
@@ -593,7 +913,7 @@ class PostgresStore(Store):
                     rows.append((places[i][0], places[i][1], idrow["id"], k[0], k[1], _body_bytes(body)))
                 conn.cursor().executemany(
                     "INSERT INTO bodies (rclass, bucket, id, mid, sha, body) VALUES (%s, %s, %s, %s, %s, %s)", rows)
-                _note_mids(conn, [(r[3], r[0], r[1]) for r in rows])
+                self._note_mids(conn, [(r[3], r[0], r[1]) for r in rows])
 
         cols = {c: [] for c in _INSERT_COLUMNS}
         for i, (r, own, attrs, dropped, body) in enumerate(prepared):
@@ -626,14 +946,11 @@ class PostgresStore(Store):
         if not order:
             return 0, dupes
         self._tx.written.update(places[i] for i, _ in order)
-        _note_mids(conn, [(prepared[i][1], places[i][0], places[i][1]) for i, _ in order])
+        self._note_mids(conn, [(prepared[i][1], places[i][0], places[i][1]) for i, _ in order])
         hashed = sorted({(prepared[i][0].get("receipt_hmac"), prepared[i][0].get("key_id")) + places[i] for i, _ in order
                          if (prepared[i][0]["kind"] == "receive" or prepared[i][0]["kind"] in SETTLE_KINDS)
                          and prepared[i][0].get("receipt_hmac") is not None and prepared[i][0].get("key_id") is not None})
-        if hashed:
-            conn.execute("""INSERT INTO hash_places (receipt_hmac, key_id, rclass, bucket)
-                            SELECT * FROM unnest(%s::text[], %s::text[], %s::bigint[], %s::bigint[])
-                            ON CONFLICT DO NOTHING""", [[h[k] for h in hashed] for k in range(4)])
+        self._note_hashes(conn, hashed)
 
         j0 = time.perf_counter()
         touched, updates = self._join(conn, prepared, places, order)
@@ -655,7 +972,7 @@ class PostgresStore(Store):
                    FROM unnest(%s::bigint[], %s::text[], %s::bigint[]) AS u("row", mid, rr)
                    WHERE s.rclass = %s AND s.bucket = %s AND s."row" = u."row" """,
                 [[u[2] for u in us], [u[3] for u in us], [u[4] for u in us], uc, ub])
-        _note_mids(conn, [(u[3], u[0], u[1]) for u in updates])
+        self._note_mids(conn, [(u[3], u[0], u[1]) for u in updates])
         on_join = self.on_join
         if on_join is not None:
             # one batched join for the whole export: each joined span gets its share of the time
@@ -719,9 +1036,7 @@ class PostgresStore(Store):
         unjoined: dict = {}
         if hashes:
             a, b = [h[0] for h in hashes], [h[1] for h in hashes]
-            known = {(r["rclass"], r["bucket"]) for r in conn.execute(
-                """SELECT DISTINCT rclass, bucket FROM hash_places
-                   WHERE (receipt_hmac, key_id) IN (SELECT * FROM unnest(%s::text[], %s::text[]))""", (a, b)).fetchall()}
+            known = self._locate_hashes(conn, hashes, self._near(), self.reads.connection)
             q, qp = _each(known,  # never empty: it has the places of this export's own spans
                           """SELECT "row", message_id, time_ns, receipt_hmac, key_id, kind, mid, rclass, bucket,
                                     receive_row
@@ -778,7 +1093,7 @@ class PostgresStore(Store):
         mids = sorted(set(mids))
         if not mids:
             return
-        known = _mid_places(conn, mids)  # with the places of this export's spans: it wrote them above
+        known = self._locate_mids(conn, mids, self._near(), self.reads.connection)  # with this export's own rows
         where = set().union(*known.values())
         rows_by: dict = {}
         q, qp = _each(where, f"SELECT {_SPAN_SELECT}, s.rclass, s.bucket FROM spans s WHERE {{p}} AND s.mid = ANY(%s)",
@@ -866,7 +1181,7 @@ class PostgresStore(Store):
         if bodies_move:
             cur.executemany("UPDATE bodies SET rclass = %s, bucket = %s WHERE rclass = %s AND bucket = %s AND mid = %s",
                             bodies_move)
-        _note_mids(conn, [(m, place[m][0], place[m][1]) for m in mids if m in news])
+        self._note_mids(conn, [(m, place[m][0], place[m][1]) for m in mids if m in news])
         if strays_new:
             cur.executemany("INSERT INTO strays (rclass, bucket, mid) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
                             sorted(set(strays_new)))
@@ -930,11 +1245,18 @@ class PostgresStore(Store):
             return PurgeStep(0, 0, None)
         if resume is None:
             self._precreate()
+            try:
+                self._seal_due()
+            except psycopg.Error as e:  # lookups stay exact unsealed, only slower: the next pass tries again
+                log.warning("retention: could not seal the older places' lookups: %s", e)
             start, sweep_after = (-(2 ** 63), -(2 ** 63)), None
         else:
             parts = resume.split(":", 3)
             start = (int(parts[0]), int(parts[1]))
             sweep_after = (int(parts[2]), parts[3]) if len(parts) == 4 else None
+        # Choose the step on a read connection, then give it back before the step: a drop's and a sweep's
+        # lookups may need one of their own ("Lookups").
+        step = None
         with self._reading() as c:
             places = c.execute(
                 """SELECT rclass, bucket, state, swept FROM places WHERE (bucket, rclass) >= (%s, %s)
@@ -948,22 +1270,29 @@ class PostgresStore(Store):
                     "SELECT queue FROM place_queues WHERE rclass = %s AND bucket = %s", (pc, pb)).fetchall()]
                 expired = {q for q in queues if _expired(cutoffs.of(q), end)}
                 if p["state"] == "dropping" or expired == set(queues):
-                    n, examined, w = self._drop(pc, pb, expired)
-                    return PurgeStep(n, examined, f"{pb}:{pc + 1}", w)
+                    step = ("drop", pc, pb, expired)
+                    break
                 swept = set(json.loads(p["swept"])) if p["swept"] else set()
                 if expired and (sweep_after is not None or not expired <= swept):
-                    n, examined, done_key, w = self._sweep(pc, pb, expired, sweep_after, limit)
-                    if done_key is None:
-                        with self.ingest.connection() as w_conn:
-                            w_conn.execute("UPDATE places SET swept = %s WHERE rclass = %s AND bucket = %s",
-                                           (json.dumps(sorted(expired)), pc, pb))
-                        return PurgeStep(n, examined, f"{pb}:{pc + 1}", w)
-                    return PurgeStep(n, examined, f"{pb}:{pc}:{done_key[0]}:{done_key[1]}", w)
+                    step = ("sweep", pc, pb, expired)
+                    break
                 sweep_after = None
+        if step is None:
             if len(places) == 1000:
                 last = places[-1]
                 return PurgeStep(0, 0, f"{last['bucket']}:{last['rclass'] + 1}")
-        return PurgeStep(0, 0, None)
+            return PurgeStep(0, 0, None)
+        kind, pc, pb, expired = step
+        if kind == "drop":
+            n, examined, w = self._drop(pc, pb, expired)
+            return PurgeStep(n, examined, f"{pb}:{pc + 1}", w)
+        n, examined, done_key, w = self._sweep(pc, pb, expired, sweep_after, limit)
+        if done_key is None:
+            with self.ingest.connection() as w_conn:
+                w_conn.execute("UPDATE places SET swept = %s WHERE rclass = %s AND bucket = %s",
+                               (json.dumps(sorted(expired)), pc, pb))
+            return PurgeStep(n, examined, f"{pb}:{pc + 1}", w)
+        return PurgeStep(n, examined, f"{pb}:{pc}:{done_key[0]}:{done_key[1]}", w)
 
     def _precreate(self) -> None:
         """Places for now and the next PRECREATE_AHEAD buckets, for every class the configuration names, made
@@ -1007,17 +1336,17 @@ class PostgresStore(Store):
                 c.execute("SELECT pg_advisory_xact_lock(k) FROM unnest(%s::bigint[]) AS k",
                           (sorted({_key("m:" + m) for m in strays + spread}),))
                 # 1. rows here of messages placed elsewhere: to their message's place
-                homes, found = set().union(*_mid_places(c, strays).values()) - {(pc, pb)}, []
+                homes = set().union(*self._locate_mids(c, strays, {(pc, pb)}, self.reads.connection).values())
+                homes, found = homes - {(pc, pb)}, []
                 if homes:
                     found = c.execute(*_each(homes, "SELECT mid, rclass, bucket, strays_json FROM messages "
                                                     "WHERE {p} AND mid = ANY(%s)", [strays])).fetchall()
+                self._lock_places(c, {(x["rclass"], x["bucket"]) for x in found})  # their sealed_in holds still
                 for x in found:
-                    c.execute("""INSERT INTO hash_places (receipt_hmac, key_id, rclass, bucket)
-                                 SELECT DISTINCT receipt_hmac, key_id, %s::bigint, %s::bigint FROM spans
-                                 WHERE rclass = %s AND bucket = %s AND mid = %s
-                                   AND receipt_hmac IS NOT NULL AND key_id IS NOT NULL
-                                   AND kind IN ('receive', 'delete', 'change_visibility')
-                                 ON CONFLICT DO NOTHING""", (x["rclass"], x["bucket"], pc, pb, x["mid"]))
+                    self._note_hashes(c, [(h["receipt_hmac"], h["key_id"], x["rclass"], x["bucket"]) for h in c.execute(
+                        """SELECT DISTINCT receipt_hmac, key_id FROM spans WHERE rclass = %s AND bucket = %s AND mid = %s
+                             AND receipt_hmac IS NOT NULL AND key_id IS NOT NULL
+                             AND kind IN ('receive', 'delete', 'change_visibility')""", (pc, pb, x["mid"])).fetchall()])
                     c.execute("UPDATE spans SET rclass = %s, bucket = %s WHERE mid = %s AND rclass = %s AND bucket = %s",
                               (x["rclass"], x["bucket"], x["mid"], pc, pb))
                     c.execute("UPDATE messages SET strays_json = %s WHERE rclass = %s AND bucket = %s AND mid = %s",
@@ -1040,15 +1369,12 @@ class PostgresStore(Store):
                         c.execute("DELETE FROM strays WHERE rclass = %s AND bucket = %s AND mid = %s", (sc, sb, x["mid"]))
                 n += c.execute("SELECT COUNT(*) AS n FROM spans WHERE rclass = %s AND bucket = %s",
                                (pc, pb)).fetchone()["n"]
-            # 3. the partitions themselves, then the place's lookup entries (in batches: as many as its messages)
+            # 3. the partitions themselves, its lookups' with them
             for t in pg_schema.PARTITIONED:
                 self._detach_and_drop(c, t, pc, pb)
-            for t in ("mid_places", "hash_places"):
-                while c.execute(f"""DELETE FROM {t} WHERE ctid = ANY(ARRAY(
-                                        SELECT ctid FROM {t} WHERE rclass = %s AND bucket = %s LIMIT %s))""",
-                                (pc, pb, self.LOOKUP_DELETE_BATCH)).rowcount:
-                    pass
             with c.transaction():
+                c.execute("DELETE FROM mid_places_late WHERE rclass = %s AND bucket = %s", (pc, pb))
+                c.execute("DELETE FROM hash_places_late WHERE rclass = %s AND bucket = %s", (pc, pb))
                 c.execute("DELETE FROM strays WHERE rclass = %s AND bucket = %s", (pc, pb))
                 c.execute("DELETE FROM place_queues WHERE rclass = %s AND bucket = %s", (pc, pb))
                 c.execute("DELETE FROM places WHERE rclass = %s AND bucket = %s", (pc, pb))
@@ -1057,8 +1383,6 @@ class PostgresStore(Store):
             self._analysed.discard((pc, pb))
             self._written.pop((pc, pb), None)
         return n, examined, (time.monotonic() - t0) * 1000
-
-    LOOKUP_DELETE_BATCH = 10_000  # lookup rows deleted a transaction when a place is dropped
 
     def _detach_and_drop(self, c, table: str, pc: int, pb: int) -> None:
         name = pg_schema.partition_name(table, pc, pb)
@@ -1096,7 +1420,8 @@ class PostgresStore(Store):
                     ids = [m["mid"] for m in gone]
                     other = {tuple(x) for m in gone for x in json.loads(m["strays_json"])} - {(pc, pb)}
                     self._require_live(c, other)
-                    for kc, kb in sorted(set().union(*_mid_places(c, ids).values())):
+                    for kc, kb in sorted(set().union(*self._locate_mids(c, ids, {(pc, pb)},
+                                                                        self.reads.connection).values())):
                         n += c.execute("DELETE FROM spans WHERE rclass = %s AND bucket = %s AND mid = ANY(%s)",
                                        (kc, kb, ids)).rowcount
                     for t in ("messages", "message_queues", "message_tenants", "tenant_events", "bodies"):
@@ -1126,13 +1451,48 @@ class PostgresStore(Store):
                     log.error("read failed: %s", full)
                 raise
 
+    BY_MESSAGE_ATTEMPTS = 3
+
     def _by_message(self, mids, query) -> list:
-        """``query(places)``: (SQL, parameters) reading rows of ``mids`` in these places (``_each``); run in one
-        snapshot with the lookup that gives the places, so that a message moving meanwhile is seen whole."""
-        with self.reads.connection() as c, c.transaction():
-            c.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-            places = set().union(*_mid_places(c, mids).values())
-            return c.execute(*query(places)).fetchall() if places else []
+        """``query(places)``: (SQL, parameters) reading rows of ``mids`` in these places (``_each``). The lookup
+        runs first, each statement in a transaction of its own (so an old message's walk holds no more locks than
+        a page does), then the query in one snapshot, which checks that the places still hold every message it
+        found whole: a message's home and strays (``_homes``), and no home lost. One that moved meanwhile (a span
+        came) is looked up again."""
+        mids = sorted(set(mids))
+        rows: list = []
+        with self._reading() as c:
+            for attempt in range(self.BY_MESSAGE_ATTEMPTS):
+                homed: set = set()
+                located = self._locate_mids(c, mids, self._hinted(mids), None, homed)
+                places = set().union(*located.values()) if located else set()
+                if not places:
+                    return []
+                with c.transaction():
+                    c.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+                    rows = c.execute(*query(places)).fetchall()
+                    now = c.execute(*_each(places, "SELECT mid, rclass, bucket, strays_json FROM messages "
+                                                   "WHERE {p} AND mid = ANY(%s)", [mids])).fetchall()
+                whole = {r["mid"] for r in now if {tuple(x) for x in json.loads(r["strays_json"])} <= places}
+                if homed <= whole and len(whole) == len({r["mid"] for r in now}):
+                    return rows
+        return rows
+
+    HINTS = 100_000  # message homes remembered from the pages listed
+
+    def _remember(self, rows) -> None:
+        """Note the home of each message a page listed (its list rows are at its home), so that the page's
+        summaries find them without a walk (``_locate_mids``: a hint is a near place, checked like any other)."""
+        with self._hints_lock:
+            for r in rows:
+                self._hints[r["mid"]] = (r["rclass"], r["bucket"])
+                self._hints.move_to_end(r["mid"])
+            while len(self._hints) > self.HINTS:
+                self._hints.popitem(last=False)
+
+    def _hinted(self, mids) -> set:
+        with self._hints_lock:
+            return {self._hints[m] for m in mids if m in self._hints}
 
     def message_rows(self, message_id: str) -> list[dict]:
         def query(places):
@@ -1187,6 +1547,7 @@ class PostgresStore(Store):
                 rows = c.execute(f"SELECT * FROM ({q}) u", qp).fetchall()
                 seen, page = set(), sorted(page + rows, key=key)
                 page = [r for r in page if not (r["mid"] in seen or seen.add(r["mid"]))][:limit]
+        self._remember(page)
         return page
 
     def _newest_first(self, src: str, p: list, limit: int, from_ns, to_ns, after) -> list:
@@ -1201,7 +1562,7 @@ class PostgresStore(Store):
             where += " AND (s.last_ns < %s OR (s.last_ns = %s AND s.mid > %s))"
             p += [after[0], after[0], after[1]]
         table, _, rest = src.partition(" WHERE ")
-        branch = (f"SELECT s.last_ns, s.mid FROM {table} WHERE {{p}} AND ({rest}){where} "
+        branch = (f"SELECT s.last_ns, s.mid, s.rclass, s.bucket FROM {table} WHERE {{p}} AND ({rest}){where} "
                   "ORDER BY s.last_ns DESC, s.mid LIMIT %s")
         return self._walk_first(branch, p, lambda r: (-r["last_ns"], r["mid"]), limit, from_ns,
                                 top=lambda r: r["last_ns"])
@@ -1254,7 +1615,7 @@ class PostgresStore(Store):
             where += self._ON_QUEUE
             p.append(queue)
         rows = self._walk_first(
-            f"""SELECT s.mid, s.stuck_first_ns, s.stuck_sqs_clock FROM messages s
+            f"""SELECT s.mid, s.stuck_first_ns, s.stuck_sqs_clock, s.rclass, s.bucket FROM messages s
                 WHERE {{p}} AND s.stuck_open <> 0 AND s.stuck_first_ns IS NOT NULL AND s.stuck_first_ns < %s{where}
                 ORDER BY s.stuck_first_ns, s.mid LIMIT %s""", p, lambda r: (r["stuck_first_ns"], r["mid"]), limit)
         return [StuckCandidate(r["mid"], r["stuck_first_ns"], bool(r["stuck_sqs_clock"])) for r in rows]

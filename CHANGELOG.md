@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Postgres: the lookup tables are time-bucketed (schema 4).** `mid_places` and `hash_places` are partitioned
+  by day like the spans, so ingest writes only to recent partitions and retention drops them whole (before, it
+  deleted their rows in batches). Older days are sealed into a Bloom filter, about 2.5 bytes per key, kept by
+  each replica. A lookup reads an older day only for the keys the filter can't rule out: a late settle, a
+  message older than three days, or about 1 in 15,000 other keys. Joins and summaries are unchanged; late
+  settles still join their receive from any day. At 1M spans over 7 days, ingest touches 25 MB of lookup
+  indexes instead of 92 MB. Upgrading a 1M-span database took 8 s. The effect at 4M–100M spans hasn't been
+  measured.
 - **Postgres: the connection pools are settings.** `--pg-ingest-connections` (`TRAILBEAM_PG_INGEST_CONNECTIONS`,
   default 4) and `--pg-read-connections` (`TRAILBEAM_PG_READ_CONNECTIONS`, default 8) set how many exports and
   reads one replica runs on Postgres at once. Before, they were fixed at 4 and 8.
