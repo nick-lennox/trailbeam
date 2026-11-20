@@ -181,7 +181,10 @@ def test_spans_ended_after_shutdown_are_drops(caplog):
 
 
 def test_one_line_per_interval_with_the_count_since_the_last(monkeypatch, caplog):
-    monkeypatch.setattr(_export, "REPORT_INTERVAL_S", 0.3)
+    # The 499 emits below must all land inside one interval. They take milliseconds, but a loaded shared CI
+    # runner once took over 0.3 s and the timer split them in two, so the interval has room to spare.
+    interval = 2.0
+    monkeypatch.setattr(_export, "REPORT_INTERVAL_S", interval)
     monkeypatch.setenv(_export.QUEUE_SIZE_ENV, "10")
     exporter = Gate(blocked=True)
     provider = make_provider(span_exporter=exporter)
@@ -191,7 +194,9 @@ def test_one_line_per_interval_with_the_count_since_the_last(monkeypatch, caplog
         assert len(drop_lines(caplog)) == 1
         emit(provider, 499)  # within the interval: one more line, from the timer
         assert len(drop_lines(caplog)) == 1
-        time.sleep(0.6)
+        deadline = time.monotonic() + interval + 5
+        while len(drop_lines(caplog)) < 2 and time.monotonic() < deadline:
+            time.sleep(0.05)
         assert len(drop_lines(caplog)) == 2
         exporter.release.set()
         provider.shutdown()
