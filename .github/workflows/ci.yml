@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 
-# A newer push to a pull request cancels that PR's older run, so the self-hosted
+# A newer push to a pull request cancels that PR's older run, so the runners
 # runners never spend time on outdated commits. Runs on main always finish.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -17,7 +17,7 @@ concurrency:
 jobs:
   python:
     name: Python ${{ matrix.python }}
-    runs-on: [self-hosted, trailbeam]
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -46,7 +46,7 @@ jobs:
     # with limits that fail the build. Then the same check on a deliberately broken (scanning) join plan, which
     # must fail it: that step passes only if the check caught the break.
     name: Perf regression check (100k spans)
-    runs-on: [self-hosted, trailbeam]
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: python
@@ -72,7 +72,7 @@ jobs:
   postgres:
     # The Postgres store (TRAILBEAM_STORE_URL) on the oldest supported version and the current one.
     name: Postgres ${{ matrix.postgres }} store
-    runs-on: [self-hosted, trailbeam]
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -104,7 +104,7 @@ jobs:
 
   node:
     name: Node.js ${{ matrix.node }}
-    runs-on: [self-hosted, trailbeam]
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -130,7 +130,7 @@ jobs:
 
   ui:
     name: Shared UI (@trailbeam/ui)
-    runs-on: [self-hosted, trailbeam]
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: ui
@@ -147,7 +147,7 @@ jobs:
 
   collector:
     name: Collector configuration
-    runs-on: [self-hosted, trailbeam]
+    runs-on: ubuntu-latest
     env:
       OTELCOL_VERSION: "0.165.0"
     steps:
@@ -165,7 +165,7 @@ jobs:
 
   container:
     name: Container smoke test
-    runs-on: [self-hosted, trailbeam]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Pick a free port and names of its own (runners share one machine)
@@ -201,7 +201,7 @@ jobs:
 
   demo:
     name: Local demo (Docker Compose)
-    runs-on: [self-hosted, trailbeam]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Pick a free port and names of its own (runners share one machine)
@@ -221,7 +221,7 @@ jobs:
 
   concurrency-check:
     name: Concurrency check (3 processes x 4 consumers, 200 messages)
-    runs-on: [self-hosted, trailbeam]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Pick a free port and names of its own (runners share one machine)
@@ -275,7 +275,7 @@ jobs:
     name: Concurrency check on real SQS (floor gating)
     # Real AWS calls, the slowest job and timing-sensitive: main only. PRs get the emulator check above.
     if: github.event_name == 'push'
-    runs-on: [self-hosted, trailbeam]
+    runs-on: ubuntu-latest
     concurrency:
       group: real-sqs
       cancel-in-progress: false
