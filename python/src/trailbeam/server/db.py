@@ -548,9 +548,16 @@ class SqliteStore(Store):
         ends, and the repeat dead-letter moves (rollup.py)."""
         hours, raw = rollup.split(from_ms, to_ms)
         with self.reader() as c:
-            rows = c.execute(
-                """SELECT tenant, sent, first_deliveries, dead_letter_moves, waits FROM tenant_rollup
-                   WHERE hour BETWEEN ? AND ?""", hours).fetchall() if hours else []
+            rows = []
+            if hours:  # counts added up in SQL; the sketches here, faster than json_each (QV-128)
+                waits: dict = {}
+                for t, w in c.execute("SELECT tenant, waits FROM tenant_rollup WHERE hour BETWEEN ? AND ?", hours):
+                    into = waits.setdefault(t, {})
+                    for k, n in json.loads(w).items():
+                        into[k] = into.get(k, 0) + n
+                rows = [(t, sent, firsts, moves, waits.get(t, {})) for t, sent, firsts, moves in c.execute(
+                    """SELECT tenant, SUM(sent), SUM(first_deliveries), SUM(dead_letter_moves) FROM tenant_rollup
+                       WHERE hour BETWEEN ? AND ? GROUP BY tenant""", hours)]
             events = [r for a, b in raw for r in c.execute(
                 "SELECT tenant, kind, wait_ms FROM tenant_events WHERE at_ms BETWEEN ? AND ?", (a, b))]
             again = [r[0] for r in c.execute(

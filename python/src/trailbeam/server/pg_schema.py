@@ -26,7 +26,7 @@ Text keys that pages sort or compare by are ``COLLATE "C"``: byte order, as SQLi
 cursors come out the same on both.
 
 **Tenant rollup** (version 4, QV-128). ``tenant_rollup``: what the place's messages add to the Tenants page per
-hour, queue and tenant (rollup.py), one row per writing connection (postgres.py, "Tenant rollup"); and a partial
+hour and tenant (rollup.py), one row per writing connection (postgres.py, "Tenant rollup"); and a partial
 index on the tenant events of repeat dead-letter moves. Partitioned by place like the rest, so retention drops a
 place's rollup with it.
 
@@ -176,14 +176,13 @@ CREATE TABLE IF NOT EXISTS tenant_rollup (
     rclass BIGINT NOT NULL,
     bucket BIGINT NOT NULL,
     hour BIGINT NOT NULL,                -- at_ms // 3,600,000 (rollup.py)
-    queue TEXT COLLATE "C" NOT NULL,     -- the messages' source queue
-    tenant TEXT COLLATE "C" NOT NULL,    -- their tenant, '' for none
+    tenant TEXT COLLATE "C" NOT NULL,    -- the messages' tenant, '' for none
     writer BIGINT NOT NULL,              -- pg_backend_pid() of the connection that owns the row (postgres.py)
     sent BIGINT NOT NULL,
     first_deliveries BIGINT NOT NULL,
     dead_letter_moves BIGINT NOT NULL,
     waits JSONB NOT NULL,                -- {bucket: count}: the first deliveries' times in queue (rollup.Sketch)
-    UNIQUE (rclass, bucket, hour, queue, tenant, writer)
+    UNIQUE (rclass, bucket, hour, tenant, writer)
 ) PARTITION BY RANGE (rclass, bucket);
 CREATE TABLE IF NOT EXISTS bodies (
     rclass BIGINT NOT NULL,
@@ -306,15 +305,15 @@ def _rollup_place(conn, rclass: int, bucket: int) -> None:
     conn.execute("DELETE FROM tenant_rollup WHERE rclass = %(c)s AND bucket = %(b)s", place)
     deltas = rollup.Deltas()
     cur = conn.cursor(name=f"rollup_{rclass}_{bucket}".replace("-", "m"))
-    cur.execute("SELECT tenant, source_queue, events_json FROM messages WHERE rclass = %(c)s AND bucket = %(b)s "
+    cur.execute("SELECT tenant, events_json FROM messages WHERE rclass = %(c)s AND bucket = %(b)s "
                 "AND events_json <> '[]'", place)
-    for tenant, source_queue, events_json in cur:
-        deltas.add(None, rollup.contributions(tenant, source_queue, json.loads(events_json)))
+    for tenant, events_json in cur:
+        deltas.add(None, rollup.contributions(tenant, json.loads(events_json)))
     cur.close()
     conn.cursor().executemany(
-        """INSERT INTO tenant_rollup (rclass, bucket, hour, queue, tenant, writer, sent, first_deliveries,
-           dead_letter_moves, waits) VALUES (%s, %s, %s, %s, %s, 0, %s, %s, %s, %s)""",
-        [(rclass, bucket, h, q, t) + a.row() for (_, h, q, t), a in deltas.items()])
+        """INSERT INTO tenant_rollup (rclass, bucket, hour, tenant, writer, sent, first_deliveries,
+           dead_letter_moves, waits) VALUES (%s, %s, %s, %s, 0, %s, %s, %s, %s)""",
+        [(rclass, bucket, h, t) + a.row() for (_, h, t), a in deltas.items()])
 
 
 # Version 1 is the first Postgres schema. Later versions go here, one at a time.
@@ -344,10 +343,9 @@ MIGRATIONS: tuple = (
     ), per_place=(_mid_indexes,)),
     Migration(4, "hourly tenant rollup (QV-128)", (
         """CREATE TABLE IF NOT EXISTS tenant_rollup (rclass BIGINT NOT NULL, bucket BIGINT NOT NULL,
-           hour BIGINT NOT NULL, queue TEXT COLLATE "C" NOT NULL, tenant TEXT COLLATE "C" NOT NULL,
-           writer BIGINT NOT NULL, sent BIGINT NOT NULL, first_deliveries BIGINT NOT NULL,
-           dead_letter_moves BIGINT NOT NULL, waits JSONB NOT NULL,
-           UNIQUE (rclass, bucket, hour, queue, tenant, writer)) PARTITION BY RANGE (rclass, bucket)""",
+           hour BIGINT NOT NULL, tenant TEXT COLLATE "C" NOT NULL, writer BIGINT NOT NULL,
+           sent BIGINT NOT NULL, first_deliveries BIGINT NOT NULL, dead_letter_moves BIGINT NOT NULL,
+           waits JSONB NOT NULL, UNIQUE (rclass, bucket, hour, tenant, writer)) PARTITION BY RANGE (rclass, bucket)""",
         "CREATE INDEX IF NOT EXISTS tenant_events_again ON ONLY tenant_events (at_ms) WHERE kind = 'dead_lettered_again'",
     ), per_place=(_rollup_place,)),
 )

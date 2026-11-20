@@ -2,21 +2,26 @@
 
 Until QV-128 the page added up every tenant event (summary.py ``tenant_events``) in its range on each request,
 so its cost grew with the traffic in the range: 1.5 s at 4M spans and 2.8 s at 7M on Postgres, 0.5-0.76 s on a
-t3.small with SQLite. Now each store also keeps, per hour, queue and tenant, what the page adds up:
+t3.small with SQLite. Now each store also keeps, per hour and tenant, what the page adds up:
 
 - ``sent``: send events; ``first_deliveries``: first deliveries with a time in queue; ``dead_letter_moves``:
   dead-letter moves, and ``repeat_moves``: moves that follow an earlier move of the same message (below);
 - ``waits``: the first deliveries' times in queue, as a ``Sketch``.
 
-A row's queue is the message's source queue (summary ``source_queue``) and its tenant the message's tenant
-(``""`` for none: tenant names are never empty). Rows are the sum of what every stored message adds
+A row's tenant is the message's tenant (``""`` for none: tenant names are never empty). Rows are the sum of what every stored message adds
 (``contributions``), so a store keeps them exact by adding what a message adds now and taking away what it
 added before, whenever it rewrites the message's summary, and taking it all away when retention removes the
 message. Counts subtract exactly, and so does the sketch: it is a count per bucket.
 
 **The page** (``tenant_page``) reads the rollup for the whole hours in its range and the raw tenant events for
-the parts of an hour at either end (at most two partial hours), so its cost is the number of (hour, queue,
-tenant) rows in the range plus two hours of events, not every event in the range.
+the parts of an hour at either end (at most two partial hours), so its cost is the number of (hour, tenant)
+rows in the range plus two hours of events, not every event in the range.
+
+**No queue in the key.** The plan (QV-67) had rows per hour, queue and tenant, for a queue filter the page
+doesn't have. Measured at 1M spans (50 queues, 50 tenants, 7 days; QV-128 report), that made 154,390 rows for
+627,241 tenant events: a tenant's traffic spreads over most queues, so the rows were only 4x fewer than the
+events, and adding them up took as long as adding up the events had (last 7 days: 515 ms against 553 ms). Per
+hour and tenant it is 8,150 rows. A queue filter would need a second rollup keyed by queue as well.
 
 **Dead-lettered messages** must be distinct messages, which a sum per hour can't give: a message moved twice
 (two dead-letter queues, or a chain of them) would count twice. Every move after a message's first is also a
@@ -31,7 +36,8 @@ bucket and come back exact; above that, buckets grow by a factor GAMMA (relative
 Masson, Rim and Lee, "DDSketch: a fast and fully-mergeable quantile sketch with relative-error guarantees",
 VLDB 2019, https://arxiv.org/abs/1908.10693), and a bucket comes back as the integer nearest its centre. The
 true p95 lies in the bucket the rank falls in, so the answer is within ALPHA x it + 0.5 ms of it, which is
-under 1 % above EXACT_MS. Buckets for times up to 400 days: about 1,900; a busy tenant-hour has far fewer.
+under 1 % above EXACT_MS (at most 0.91 %). Buckets for times up to 400 days: about 2,070; a tenant-hour has
+far fewer.
 """
 from __future__ import annotations
 
@@ -137,7 +143,7 @@ class Sketch:
 
 
 class Agg:
-    """One rollup row's numbers: what some messages add to an (hour, queue, tenant)."""
+    """One rollup row's numbers: what some messages add to an (hour, tenant)."""
 
     __slots__ = ("sent", "first_deliveries", "dead_letter_moves", "waits")
 
@@ -179,26 +185,26 @@ def hour(at_ms: int) -> int:
     return int(at_ms) // HOUR_MS
 
 
-def contributions(tenant: Optional[str], source_queue: str, events: Iterable) -> dict:
-    """What one message adds to the rollup: {(hour, queue, tenant): Agg}, from its summary's tenant, source queue
-    and tenant_events ([at_ms, kind, wait_ms], as stored in events_json)."""
+def contributions(tenant: Optional[str], events: Iterable) -> dict:
+    """What one message adds to the rollup: {(hour, tenant): Agg}, from its summary's tenant and tenant_events
+    ([at_ms, kind, wait_ms], as stored in events_json)."""
     out: dict = {}
     t = tenant if tenant is not None else NO_TENANT
     for at, kind, wait in events:
         if kind not in (SENT, FIRST_DELIVERY, DEAD_LETTERED):
             continue
-        out.setdefault((hour(at), source_queue, t), Agg()).add_event(kind, wait)
+        out.setdefault((hour(at), t), Agg()).add_event(kind, wait)
     return out
 
 
 def of_summary(s) -> dict:
-    """contributions() of a stored summary row (tenant, source_queue, events_json) or a summarize() result."""
+    """contributions() of a stored summary row (tenant, events_json) or a summarize() result."""
     events = s["tenant_events"] if "tenant_events" in s.keys() else json.loads(s["events_json"])
-    return contributions(s["tenant"], s["source_queue"], events)
+    return contributions(s["tenant"], events)
 
 
 class Deltas:
-    """What a transaction changes in the rollup, added up per (place, hour, queue, tenant) so that each row is
+    """What a transaction changes in the rollup, added up per (place, hour, tenant) so that each row is
     written once however many messages touched it. ``place`` is the store's: None for SQLite, (rclass, bucket)
     for Postgres."""
 
@@ -206,8 +212,8 @@ class Deltas:
         self.by: dict = {}
 
     def add(self, place, contrib: dict, sign: int = 1) -> None:
-        for (h, q, t), a in contrib.items():
-            self.by.setdefault((place, h, q, t), Agg()).merge(a, sign)
+        for (h, t), a in contrib.items():
+            self.by.setdefault((place, h, t), Agg()).merge(a, sign)
 
     def change(self, place_old, old: Optional[dict], place_new, new: Optional[dict]) -> None:
         """A message's contributions went from ``old`` (in ``place_old``) to ``new`` (in ``place_new``); None:
@@ -220,7 +226,7 @@ class Deltas:
             self.add(place_new, new, 1)
 
     def items(self):
-        """((place, hour, queue, tenant), Agg) for the rows that change, in key order (a fixed lock order)."""
+        """((place, hour, tenant), Agg) for the rows that change, in key order (a fixed lock order)."""
         return sorted(((k, a) for k, a in self.by.items() if a), key=lambda kv: (repr(kv[0][0]),) + kv[0][1:])
 
     def __bool__(self):
@@ -244,8 +250,9 @@ def split(from_ms: int, to_ms: int) -> tuple:
 def tenant_page(rollup_rows: Iterable, raw_events: Iterable, repeats: Iterable) -> list:
     """Store.tenant_activity's answer (TenantActivity, ``waits`` a Sketch) from its three reads, the same for every store:
 
-    - ``rollup_rows``: (tenant, sent, first_deliveries, dead_letter_moves, waits JSON) for the whole hours
-      (any number of rows per tenant: queues, hours, Postgres places and its uncompacted deltas);
+    - ``rollup_rows``: (tenant, sent, first_deliveries, dead_letter_moves, waits: JSON or {bucket: count}) for
+      the whole hours
+      (any number of rows per tenant: hours, and on Postgres places and writers);
     - ``raw_events``: (tenant, kind, wait_ms) of the tenant events in the partial hours (every kind may come;
       only sent, first_delivery and dead_lettered count);
     - ``repeats``: the tenant of each ``dead_lettered_again`` event in the range whose previous move is in it too.
@@ -261,7 +268,7 @@ def tenant_page(rollup_rows: Iterable, raw_events: Iterable, repeats: Iterable) 
         return a
 
     for t, sent, firsts, moves, waits in rollup_rows:
-        g(t).merge(Agg(int(sent), int(firsts), int(moves), Sketch.loads(waits)))
+        g(t).merge(Agg(int(sent), int(firsts), int(moves), Sketch(waits) if isinstance(waits, dict) else Sketch.loads(waits)))
     for t, kind, wait in raw_events:
         g(t).add_event(kind, wait)
     again: dict = {}

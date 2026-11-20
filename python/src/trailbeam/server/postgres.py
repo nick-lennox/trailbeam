@@ -41,11 +41,11 @@ drops only. With several replicas on one database, one runs retention at a time:
 lease, a session advisory lock that Postgres releases when that replica dies. Give every replica the same
 retention configuration.
 
-**Tenant rollup** (QV-128, rollup.py). What a message adds to the Tenants page per hour, queue and tenant is
+**Tenant rollup** (QV-128, rollup.py). What a message adds to the Tenants page per hour and tenant is
 kept in ``tenant_rollup``, in the message's place: an export that rewrites a message's summary takes its old
 contribution out of the place it was in and adds the new one to the place it is in now, and a sweep takes out
 what it deletes; a drop removes the place's rollup with the rest. A tenant's current hour is touched by nearly
-every export, so a single row per (place, hour, queue, tenant) would make concurrent exports for one tenant wait
+every export, so a single row per (place, hour, tenant) would make concurrent exports for one tenant wait
 for each other's commit, across replicas too. Each row belongs to one connection instead (``writer``, its
 backend PID): only that connection's transactions, one at a time, write it, so no export waits on another's
 rollup row. A key has as many rows as connections wrote it (the ingest pools of every replica, and a few more as
@@ -1102,7 +1102,7 @@ class PostgresStore(Store):
                     where = " AND (last_ns, mid) > (%s, %s)"
                     p += list(after)
                 msgs = c.execute(
-                    f"""SELECT mid, last_ns, queues_json, strays_json, tenant, source_queue, events_json
+                    f"""SELECT mid, last_ns, queues_json, strays_json, tenant, events_json
                         FROM messages WHERE rclass = %s AND bucket = %s{where}
                         ORDER BY last_ns, mid LIMIT %s""", p + [limit]).fetchall()
                 gone = [m for m in msgs if set(json.loads(m["queues_json"])) <= expired]
@@ -1296,26 +1296,31 @@ class PostgresStore(Store):
 
     def tenant_activity(self, from_ms: int, to_ms: int) -> list[TenantActivity]:
         """The rollup for the whole hours in the range, the tenant events of the partial hours at its ends, and the
-        repeat dead-letter moves (rollup.py), a batch of places a statement. The rollup's rows, its writers' and
-        its places', are added up in SQL: one row per tenant, and one per tenant and sketch bucket."""
+        repeat dead-letter moves (rollup.py), a batch of places a statement."""
         hours, raw = rollup.split(from_ms, to_ms)
         rows, events, again = [], [], []
         if hours:
+            # counts added up in SQL; the sketches here, faster than jsonb_each and a GROUP BY (QV-128)
             totals: dict = {}
+            waits: dict = {}
             for r in self._walk_all(
                     """SELECT tenant, SUM(sent) AS sent, SUM(first_deliveries) AS firsts,
-                              SUM(dead_letter_moves) AS moves, NULL AS k, NULL AS n
+                              SUM(dead_letter_moves) AS moves, NULL::jsonb AS waits
                        FROM tenant_rollup WHERE {p} AND hour BETWEEN %s AND %s GROUP BY tenant
                        UNION ALL
-                       SELECT tenant, NULL, NULL, NULL, w.key, SUM(w.value::bigint)
-                       FROM tenant_rollup, jsonb_each_text(waits) AS w WHERE {p} AND hour BETWEEN %s AND %s
-                       GROUP BY tenant, w.key""", list(hours) * 2, from_ms * 10 ** 6):
-                g = totals.setdefault(r["tenant"], rollup.Agg())
-                if r["k"] is None:
-                    g.merge(rollup.Agg(int(r["sent"]), int(r["firsts"]), int(r["moves"])))
+                       SELECT tenant, NULL, NULL, NULL, waits FROM tenant_rollup WHERE {p} AND hour BETWEEN %s AND %s""",
+                    list(hours) * 2, from_ms * 10 ** 6):
+                t = r["tenant"]
+                if r["waits"] is None:
+                    c = totals.setdefault(t, [0, 0, 0])
+                    c[0] += int(r["sent"])
+                    c[1] += int(r["firsts"])
+                    c[2] += int(r["moves"])
                 else:
-                    g.waits.merge(rollup.Sketch({int(r["k"]): int(r["n"])}))
-            rows = [(t,) + a.row() for t, a in totals.items()]
+                    into = waits.setdefault(t, {})
+                    for k, n in r["waits"].items():
+                        into[k] = into.get(k, 0) + n
+            rows = [(t, c[0], c[1], c[2], waits.get(t, {})) for t, c in totals.items()]
         for a, b in raw:
             events += [(r["tenant"], r["kind"], r["wait_ms"]) for r in self._walk_all(
                 "SELECT tenant, kind, wait_ms FROM tenant_events WHERE {p} AND at_ms BETWEEN %s AND %s", [a, b],
@@ -1416,34 +1421,34 @@ def _apply_rollup(conn, deltas: "rollup.Deltas") -> None:
         return
     me = conn.info.backend_pid
     by_place: dict = {}
-    for (place, h, q, t), d in items:
-        by_place.setdefault(place, []).append((h, q, t, d))
+    for (place, h, t), d in items:
+        by_place.setdefault(place, []).append((h, t, d))
     cur = conn.cursor()
     for (pc, pb), keys in sorted(by_place.items()):
-        have = {(r["hour"], r["queue"], r["tenant"]): r for r in conn.execute(
-            """SELECT hour, queue, tenant, sent, first_deliveries, dead_letter_moves, waits FROM tenant_rollup
+        have = {(r["hour"], r["tenant"]): r for r in conn.execute(
+            """SELECT hour, tenant, sent, first_deliveries, dead_letter_moves, waits FROM tenant_rollup
                WHERE rclass = %s AND bucket = %s AND writer = %s
-                 AND (hour, queue, tenant) IN (SELECT * FROM unnest(%s::bigint[], %s::text[], %s::text[]))""",
-            (pc, pb, me, [k[0] for k in keys], [k[1] for k in keys], [k[2] for k in keys])).fetchall()}
+                 AND (hour, tenant) IN (SELECT * FROM unnest(%s::bigint[], %s::text[]))""",
+            (pc, pb, me, [k[0] for k in keys], [k[1] for k in keys])).fetchall()}
         put, gone = [], []
-        for h, q, t, d in keys:
-            r = have.get((h, q, t))
+        for h, t, d in keys:
+            r = have.get((h, t))
             a = rollup.Agg(r["sent"], r["first_deliveries"], r["dead_letter_moves"], rollup.Sketch(
                 r["waits"])) if r else rollup.Agg()
             a.merge(d)
             if a:
-                put.append((pc, pb, h, q, t, me) + a.row())
+                put.append((pc, pb, h, t, me) + a.row())
             elif r:
-                gone.append((pc, pb, h, q, t, me))
+                gone.append((pc, pb, h, t, me))
         if put:
             cur.executemany(
-                """INSERT INTO tenant_rollup (rclass, bucket, hour, queue, tenant, writer, sent, first_deliveries,
-                   dead_letter_moves, waits) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                   ON CONFLICT (rclass, bucket, hour, queue, tenant, writer) DO UPDATE SET sent = EXCLUDED.sent,
+                """INSERT INTO tenant_rollup (rclass, bucket, hour, tenant, writer, sent, first_deliveries,
+                   dead_letter_moves, waits) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (rclass, bucket, hour, tenant, writer) DO UPDATE SET sent = EXCLUDED.sent,
                    first_deliveries = EXCLUDED.first_deliveries, dead_letter_moves = EXCLUDED.dead_letter_moves,
                    waits = EXCLUDED.waits""", put)
         if gone:
-            cur.executemany("""DELETE FROM tenant_rollup WHERE rclass = %s AND bucket = %s AND hour = %s AND queue = %s
+            cur.executemany("""DELETE FROM tenant_rollup WHERE rclass = %s AND bucket = %s AND hour = %s
                                AND tenant = %s AND writer = %s""", gone)
 
 

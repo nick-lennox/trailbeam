@@ -198,9 +198,8 @@ def test_rows_say_what_their_messages_add():
               _span(2, "receive", h * HOUR_MS + 401, "orders", "a", "acme", receive_count=1),
               _span(3, "send", h * HOUR_MS + 2, "orders", "b"),
               _span(4, "send", (h + 1) * HOUR_MS, "payments", "c", "acme")])
-    got = {tuple(r)[:6]: json.loads(r["waits"]) for r in s.query("SELECT * FROM tenant_rollup ORDER BY hour, queue, tenant")}
-    assert got == {(h, "orders", "", 1, 0, 0): {}, (h, "orders", "acme", 1, 1, 0): {str(rollup.bucket(400)): 1},
-                   (h + 1, "payments", "acme", 1, 0, 0): {}}
+    got = {tuple(r)[:5]: json.loads(r["waits"]) for r in s.query("SELECT * FROM tenant_rollup ORDER BY hour, tenant")}
+    assert got == {(h, "", 1, 0, 0): {}, (h, "acme", 1, 1, 0): {str(rollup.bucket(400)): 1}, (h + 1, "acme", 1, 0, 0): {}}
     assert math.isclose(rollup.value(rollup.bucket(400)), 400, rel_tol=rollup.BOUND)
     s.close()
 

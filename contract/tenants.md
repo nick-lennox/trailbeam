@@ -41,7 +41,7 @@ were more; it now counts every message and `capped` is always false. An implemen
 must set `capped` when it left messages out, and the page says so. Each message counts as its timeline
 says, by the usual rules (`timeline.py`, and the app's port of it). Self-hosted Trailbeam doesn't build
 the timelines for this page: it keeps what each message adds to it (`summary.py`) as spans arrive, adds
-that up per hour, queue and tenant (`rollup.py`), and its tests check both against the timelines and
+that up per hour and tenant (`rollup.py`), and its tests check both against the timelines and
 against adding up every message.
 
 **Which events count**, from each message's timeline. An event's time is its end time in whole
@@ -94,7 +94,7 @@ a whole number of milliseconds, at most 1% above or below it (|returned − exac
 other field is exact.
 
 Self-hosted Trailbeam returns an estimate, so the page costs the same however much traffic its range
-covers. It keeps the times in queue as counts per bucket, which add up across hours and queues
+covers. It keeps the times in queue as counts per bucket, which add up across hours
 (a sketch, after DDSketch: Masson, Rim and Lee, VLDB 2019, <https://arxiv.org/abs/1908.10693>). Times
 up to 100 ms have a bucket each and come back exact. Above that, each bucket is about 1% wide and comes
 back as the whole number nearest its middle: at most 0.91% off. A p95 of 100 ms or less is therefore always

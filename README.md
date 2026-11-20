@@ -142,7 +142,8 @@ reads the tenant the packages recorded. Reading the body path parses the body in
 the body is not exported.
 
 The **Tenants** page (`/tenants`) shows, for the last hour, day or week: messages sent, share of all
-sends, p95 time in queue (send to first receive) and dead-lettered messages, per tenant. A tenant's
+sends, p95 time in queue (send to first receive, within 1% of the exact value) and dead-lettered messages,
+per tenant. A tenant's
 name links to its messages (`/?tenant=acme`), and the search box in the header suggests tenants
 named in the page's range (default the last day) as you type. The same data is in the JSON API:
 `GET /api/tenants`, `GET /api/tenants/search?q=` (with `since_s` or `from_ms`/`to_ms`, and `queue`) and
@@ -339,6 +340,8 @@ span by about a third. It takes a while on a large file: about 5 minutes per mil
 machine. While it runs, the server doesn't accept spans, and it needs free disk about the size of the
 file. Afterwards the file is larger by about that much free space, which new spans reuse. If the
 upgrade is stopped part way, the file stays at the version before, and the next start runs it again.
+Another (schema 12) builds the hourly tenant rollup from the stored summaries: 7 seconds for 1M spans on the
+same machine.
 A span the server already has is skipped when it arrives again with the same trace ID, span ID and end
 time, as an exporter retry sends it.
 
@@ -484,8 +487,10 @@ with `shared_buffers = 1GB`:
   fsync: local NVMe, EBS gp3, or a managed service's SSD.
 - **The Trailbeam servers use about one CPU core per 5,000–6,000 spans/s** in total (2 replicas at 50% of a core
   each at 6,000 spans/s, and at 77% each at 6,900). These numbers are for that machine, not a target.
-- **The tenants page gets slower as data grows:** p95 1.5 s at 4M spans and 2.8 s at 7M, because it adds up
-  every tenant event in its time window on each request. The other pages stayed under 500 ms (p95) under ingest.
+- **The tenants page** added up every tenant event in its time window on each request, so it got slower as
+  data grew: p95 1.5 s at 4M spans and 2.8 s at 7M. The other pages stayed under 500 ms (p95) under ingest. It
+  now reads an hourly rollup per tenant: at 1M spans on the same desktop, idle, p95 went from 184 ms to 44 ms
+  for the last day and from 670 ms to 193 ms for the last 7 days. It hasn't been measured at 4M or 7M since.
 
 To trade durability for latency, as `--durability relaxed` does for SQLite, set it on Trailbeam's role:
 `ALTER ROLE trailbeam SET synchronous_commit = off;`. A crash of Postgres can then lose the exports answered `200`
@@ -535,7 +540,7 @@ can't run on the upgraded database either: to go back, restore a backup taken be
 checks the version when it starts. So when a release changes the Postgres schema, stop every replica before you
 start the new version, unless that release's notes say a rolling upgrade is safe ([CHANGELOG](CHANGELOG.md)
 says which releases change it). An older replica still running would store spans the new schema doesn't index.
-This version upgrades a 0.2.0 database to Postgres schema 3: stop every 0.2.0 replica first.
+This version upgrades a 0.2.0 database to Postgres schema 4: stop every 0.2.0 replica first.
 
 **Postgres.** For a minor version, use your package manager's or provider's update. While the database restarts,
 `/api/ready` answers `503` and exports are answered `503` with `Retry-After`, so exporters send them again. For a
@@ -662,7 +667,9 @@ The Postgres store has been measured at 1M spans too (`python/bench/README.md`),
   holds: p95 ≤ 300 ms (on the desktop below, 153 ms for the slowest page while ingesting at 1M spans).
 - **Minimum:** an AWS t3.small class machine (2 vCPU, 2 GB RAM, EBS gp3), with the measured numbers below.
   At 1M spans and 1,000 spans/s its targets are export p99 ≤ 3 s idle and ≤ 6 s while pages load, and ingest
-  keeps up with nothing acknowledged lost. The Tenants page is slower there than the 300 ms target.
+  keeps up with nothing acknowledged lost. The Tenants page was slower there than the 300 ms target, before it
+  read an hourly rollup; it hasn't been measured on that machine since (at 1M spans on the desktop, the rollup
+  took the last day from 78 ms to 17 ms, idle).
 
 #### Latency at 1M spans
 

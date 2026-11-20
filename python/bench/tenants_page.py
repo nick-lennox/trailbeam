@@ -10,7 +10,8 @@ with the old code and one with the new code on the same data can be compared:
     python python/bench/tenants_page.py --db /tmp/t.sqlite --out after.json --compare before.json
 
 The second run opens the store with the new code, so it also migrates it (the time is reported). Counts must
-be equal; p95 within the contract's bound (contract/tenants.md).
+be equal; p95 within the contract's bound (contract/tenants.md). ``--insert N`` then times N exports of live
+traffic, one at a time, to see what keeping the rollup adds to ingest; it adds spans, so run it on a copy.
 """
 from __future__ import annotations
 
@@ -86,6 +87,21 @@ def run(args) -> dict:
                                "p95_ms": round(p95, 1), "max_ms": round(lat[-1], 1), "answer": ans}
         print(f"{out['store']:8} {name:12} p50 {statistics.median(lat):8.1f} ms  p95 {p95:8.1f} ms  "
               f"max {lat[-1]:8.1f} ms  tenants {len(ans['rows'])}  sends {ans['total_sent']:,}", flush=True)
+    if args.insert:
+        # live traffic after the pages: exports of ~512 spans, timed one at a time (what the rollup adds to ingest)
+        stream, lat, spans = loadgen.Stream(PROFILE, seed=4242, worker=77), [], 0
+        batches = stream.batches_of_messages(args.insert * 512 // int(PROFILE.mean_spans_per_message()))
+        for batch in batches:
+            recs = loadgen.records(batch)
+            t0 = time.perf_counter()
+            s.insert(recs)
+            lat.append((time.perf_counter() - t0) * 1000)
+            spans += len(recs)
+        lat.sort()
+        out["insert"] = {"exports": len(lat), "spans": spans, "p50_ms": round(statistics.median(lat), 1),
+                         "p95_ms": round(lat[max(0, -(-95 * len(lat) // 100) - 1)], 1),
+                         "spans_per_s": round(spans / (sum(lat) / 1000))}
+        print(f"{out['store']:8} insert       {out['insert']}", flush=True)
     s.close()
     return out
 
@@ -121,6 +137,7 @@ def main(argv=None) -> None:
     p.add_argument("--schema", default="tenants_bench")
     p.add_argument("--spans", type=harness.parse_size, default=0, help="seed to this many spans first (e.g. 1M)")
     p.add_argument("--repeats", type=int, default=30)
+    p.add_argument("--insert", type=int, default=0, help="then time this many exports of ~512 spans (changes the data)")
     p.add_argument("--out", required=True)
     p.add_argument("--compare", help="a previous run's JSON: check the answers match")
     args = p.parse_args(argv)
