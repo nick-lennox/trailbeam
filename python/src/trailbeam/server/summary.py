@@ -35,7 +35,9 @@ And three lists, kept in their own tables so they can be indexed:
 - ``tenants``: {tenant: the newest time a span of the message named it} (the tenant filter and search);
 - ``tenant_events``: what the message adds to the Tenants page, as (time in ms, kind, time in queue in ms):
   ``sent`` per send span, ``first_delivery`` for a first delivery with a time in queue, ``dead_lettered``
-  per observed move to a dead-letter queue, at the receive that reported it (contract/tenants.md).
+  per observed move to a dead-letter queue, at the receive that reported it (contract/tenants.md), and
+  ``dead_lettered_again`` for each move after the first, with the time since the move before it in place of a
+  time in queue: the hourly rollup (rollup.py) needs it to count dead-lettered messages, not moves (QV-128).
 """
 from __future__ import annotations
 
@@ -53,7 +55,7 @@ FIELDS = ("mid", "first_ns", "first_clock", "last_ns", "source_queue", "current_
           "lambda_wait_ns", "tenant", "dup_received", "dup_succeeded", "stuck_first_ns", "stuck_sqs_clock",
           "stuck_open")
 
-SENT, FIRST_DELIVERY, DEAD_LETTERED = "sent", "first_delivery", "dead_lettered"
+SENT, FIRST_DELIVERY, DEAD_LETTERED, DEAD_LETTERED_AGAIN = "sent", "first_delivery", "dead_lettered", "dead_lettered_again"
 _NS_PER_MS = 1_000_000
 
 
@@ -134,7 +136,11 @@ def summarize(rows) -> dict:
         sent_at = sends[0]["time_ns"] // _NS_PER_MS if sends else first["sent_ts_ms"]
         if isinstance(sent_at, int):
             events.append((at, FIRST_DELIVERY, max(0, at - sent_at)))
-    events += [(r["time_ns"] // _NS_PER_MS, DEAD_LETTERED, None) for _, r in reports.values()]
+    moves = sorted((r["time_ns"], r["row"]) for _, r in reports.values())
+    events += [(t // _NS_PER_MS, DEAD_LETTERED, None) for t, _ in moves]
+    # every move after the first, with the time since the one before it: the rollup counts distinct messages
+    events += [(b // _NS_PER_MS, DEAD_LETTERED_AGAIN, b // _NS_PER_MS - a // _NS_PER_MS)
+               for (a, _), (b, _) in zip(moves, moves[1:])]
 
     return {
         "mid": rows[0]["mid"],

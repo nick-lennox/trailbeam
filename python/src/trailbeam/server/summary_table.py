@@ -29,7 +29,7 @@ import json
 import sqlite3
 from typing import Iterable, Optional
 
-from . import summary
+from . import rollup, summary
 from .summary import FIELDS
 
 CREATE = """
@@ -83,21 +83,37 @@ CREATE TABLE IF NOT EXISTS tenant_events (
     at_ms INTEGER NOT NULL,              -- the event's time, in whole milliseconds
     mid TEXT NOT NULL,
     seq INTEGER NOT NULL,                -- its place in the message's events_json
-    kind TEXT NOT NULL,                  -- sent | first_delivery | dead_lettered
+    kind TEXT NOT NULL,                  -- sent | first_delivery | dead_lettered | dead_lettered_again
     tenant TEXT,                         -- the message's tenant, NULL if none
-    wait_ms INTEGER,                     -- first_delivery: its time in queue
+    wait_ms INTEGER,                     -- first_delivery: its time in queue; dead_lettered_again: ms since the last move
     PRIMARY KEY (at_ms, mid, seq)
 ) WITHOUT ROWID;
 """
 
-TABLES = ("messages", "message_queues", "message_tenants", "tenant_events")
+# Schema 12 (QV-128): the hourly tenant rollup (rollup.py), and the repeat dead-letter moves it can't add up.
+ROLLUP_CREATE = """
+CREATE INDEX IF NOT EXISTS tenant_events_again ON tenant_events (at_ms) WHERE kind = 'dead_lettered_again';
+CREATE TABLE IF NOT EXISTS tenant_rollup (
+    hour INTEGER NOT NULL,               -- at_ms // 3,600,000 (rollup.py)
+    queue TEXT NOT NULL,                 -- the messages' source queue
+    tenant TEXT NOT NULL,                -- their tenant, '' for none
+    sent INTEGER NOT NULL,
+    first_deliveries INTEGER NOT NULL,
+    dead_letter_moves INTEGER NOT NULL,
+    waits TEXT NOT NULL,                 -- JSON {bucket: count}: the first deliveries' times in queue (rollup.Sketch)
+    PRIMARY KEY (hour, queue, tenant)
+) WITHOUT ROWID;
+"""
+CREATE += ROLLUP_CREATE
+
+TABLES = ("messages", "message_queues", "message_tenants", "tenant_events", "tenant_rollup")
 LISTS = ("queues_json", "tenants_json", "events_json")  # the lists that key the other tables' rows
 COLUMNS = FIELDS + LISTS  # the summary columns both stores keep (postgres.py imports these)
 _SQLITE_COLUMNS = COLUMNS + ("rows_json",)  # SQLite also lists a message's span rows: it has no spans_mid index
 
 _UPSERT = f"INSERT INTO messages ({', '.join(_SQLITE_COLUMNS)}) VALUES ({', '.join('?' * len(_SQLITE_COLUMNS))})"
 _ROWS = "SELECT * FROM spans WHERE row IN (SELECT value FROM json_each(?))"
-_OLD = f"SELECT mid, last_ns, tenant, {', '.join(LISTS)} FROM messages WHERE mid = ?"
+_OLD = f"SELECT mid, last_ns, tenant, source_queue, {', '.join(LISTS)} FROM messages WHERE mid = ?"
 _DEL_QUEUE = "DELETE FROM message_queues WHERE queue = ? AND last_ns = ? AND mid = ?"
 _ADD_QUEUE = "INSERT INTO message_queues (queue, last_ns, mid) VALUES (?, ?, ?)"
 _DEL_TENANT = "DELETE FROM message_tenants WHERE tenant = ? AND last_ns = ? AND mid = ?"
@@ -169,11 +185,14 @@ def forget(conn: sqlite3.Connection, mids: Iterable[str]) -> None:
     """Remove the messages' rows from every summary table."""
     cur = conn.cursor()
     cur.row_factory = sqlite3.Row
+    deltas = rollup.Deltas()
     for mid in mids:
         old = cur.execute(_OLD, (mid,)).fetchone()
         if old is not None:
             _drop(conn, old)
             conn.execute("DELETE FROM messages WHERE mid = ?", (mid,))
+            deltas.add(None, rollup.of_summary(old), -1)
+    apply(conn, deltas)
 
 
 def prefetch(conn: sqlite3.Connection, mids: Iterable[str]) -> None:
@@ -200,6 +219,8 @@ def prefetch(conn: sqlite3.Connection, mids: Iterable[str]) -> None:
                          "WHERE tenant_lower = ? AND tenant = ? AND named_ns = ?", (ascii_lower(t), t, named)).fetchall()
         for i, e in enumerate(events):
             conn.execute("SELECT 1 FROM tenant_events WHERE at_ms = ? AND mid = ? AND seq = ?", (e[0], mid, i)).fetchall()
+        for h, q, t in rollup.of_summary(old):
+            conn.execute(_GET_ROLLUP, (h, q, t)).fetchall()
 
 
 def _drop(conn: sqlite3.Connection, old) -> None:
@@ -217,55 +238,108 @@ def refresh(conn: sqlite3.Connection, changes: Changes) -> None:
     little else, and every row rewritten is pages of index to write at commit."""
     cur = conn.cursor()
     cur.row_factory = sqlite3.Row
+    deltas = rollup.Deltas()
     for mid in changes:
         old = cur.execute("SELECT * FROM messages WHERE mid = ?", (mid,)).fetchone()
-        rows = set(json.loads(old["rows_json"])) if old is not None else set()
-        rows = (rows | changes.added.get(mid, set())) - changes.removed.get(mid, set())
-        spans = cur.execute(_ROWS, (json.dumps(sorted(rows)),)).fetchall() if rows else []
-        new = summary.summarize(spans) if spans else None
-        if new is not None:
-            new["rows_json"] = json.dumps(sorted(r["row"] for r in spans))
-        if new is None:
-            if old is not None:
-                _drop(conn, old)
-                conn.execute("DELETE FROM messages WHERE mid = ?", (mid,))
-            continue
-        if old is None:
-            write(conn, [new])
-            continue
-        lists = _lists(new)
-        values = [new[f] for f in FIELDS] + list(lists) + [new["rows_json"]]
-        changed = [(c, v) for c, v in zip(_SQLITE_COLUMNS, values) if old[c] != v]
-        if not changed:
-            continue
-        conn.execute(f"UPDATE messages SET {', '.join(c + ' = ?' for c, _ in changed)} WHERE mid = ?",
-                     [v for _, v in changed] + [mid])
-        last, was_last = new["last_ns"], old["last_ns"]
-        old_queues, old_tenants, old_events = _keys(old)
-        if last != was_last or lists[0] != old["queues_json"]:
-            conn.executemany(_DEL_QUEUE, old_queues)
-            conn.executemany(_ADD_QUEUE, [(q, last, mid) for q in new["queues"]])
-        if last != was_last:
-            conn.executemany(_DEL_TENANT, [(t, was_last, mid) for t in old_tenants])
-            conn.executemany(_ADD_TENANT, [(t, last, mid, ascii_lower(t), ns) for t, ns in new["tenants"].items()])
-        elif lists[1] != old["tenants_json"]:
-            want = new["tenants"]
-            conn.executemany(_DEL_TENANT, [(t, last, mid) for t in old_tenants if t not in want])
-            conn.executemany(_ADD_TENANT, [(t, last, mid, ascii_lower(t), ns) for t, ns in want.items()
-                                           if t not in old_tenants])
-            conn.executemany("UPDATE message_tenants SET named_ns = ? WHERE tenant = ? AND last_ns = ? AND mid = ?",
-                             [(ns, t, last, mid) for t, ns in want.items() if t in old_tenants and old_tenants[t] != ns])
-        if lists[2] != old["events_json"] or (old_events and old["tenant"] != new["tenant"]):
-            conn.executemany(_DEL_EVENT, [(e[0], mid, i) for i, e in enumerate(old_events)])
-            conn.executemany(_ADD_EVENT, _events(new, json.loads(lists[2])))
+        _refresh_one(conn, cur, changes, mid, old, deltas)
+    apply(conn, deltas)
+
+
+def _refresh_one(conn, cur, changes: Changes, mid, old, deltas: "rollup.Deltas") -> None:
+    """One message of ``refresh``; what it changes in the rollup goes into ``deltas``."""
+    rows = set(json.loads(old["rows_json"])) if old is not None else set()
+    rows = (rows | changes.added.get(mid, set())) - changes.removed.get(mid, set())
+    spans = cur.execute(_ROWS, (json.dumps(sorted(rows)),)).fetchall() if rows else []
+    new = summary.summarize(spans) if spans else None
+    if new is not None:
+        new["rows_json"] = json.dumps(sorted(r["row"] for r in spans))
+    if new is None:
+        if old is not None:
+            _drop(conn, old)
+            conn.execute("DELETE FROM messages WHERE mid = ?", (mid,))
+            deltas.add(None, rollup.of_summary(old), -1)
+        return
+    if old is None:
+        write(conn, [new], deltas)
+        return
+    lists = _lists(new)
+    values = [new[f] for f in FIELDS] + list(lists) + [new["rows_json"]]
+    changed = [(c, v) for c, v in zip(_SQLITE_COLUMNS, values) if old[c] != v]
+    if not changed:
+        return
+    if {c for c, _ in changed} & {"tenant", "source_queue", "events_json"}:
+        deltas.change(None, rollup.of_summary(old), None, rollup.of_summary(new))
+    conn.execute(f"UPDATE messages SET {', '.join(c + ' = ?' for c, _ in changed)} WHERE mid = ?",
+                 [v for _, v in changed] + [mid])
+    last, was_last = new["last_ns"], old["last_ns"]
+    old_queues, old_tenants, old_events = _keys(old)
+    if last != was_last or lists[0] != old["queues_json"]:
+        conn.executemany(_DEL_QUEUE, old_queues)
+        conn.executemany(_ADD_QUEUE, [(q, last, mid) for q in new["queues"]])
+    if last != was_last:
+        conn.executemany(_DEL_TENANT, [(t, was_last, mid) for t in old_tenants])
+        conn.executemany(_ADD_TENANT, [(t, last, mid, ascii_lower(t), ns) for t, ns in new["tenants"].items()])
+    elif lists[1] != old["tenants_json"]:
+        want = new["tenants"]
+        conn.executemany(_DEL_TENANT, [(t, last, mid) for t in old_tenants if t not in want])
+        conn.executemany(_ADD_TENANT, [(t, last, mid, ascii_lower(t), ns) for t, ns in want.items()
+                                       if t not in old_tenants])
+        conn.executemany("UPDATE message_tenants SET named_ns = ? WHERE tenant = ? AND last_ns = ? AND mid = ?",
+                         [(ns, t, last, mid) for t, ns in want.items() if t in old_tenants and old_tenants[t] != ns])
+    if lists[2] != old["events_json"] or (old_events and old["tenant"] != new["tenant"]):
+        conn.executemany(_DEL_EVENT, [(e[0], mid, i) for i, e in enumerate(old_events)])
+        conn.executemany(_ADD_EVENT, _events(new, json.loads(lists[2])))
+
+
+_GET_ROLLUP = """SELECT sent, first_deliveries, dead_letter_moves, waits FROM tenant_rollup
+                 WHERE hour = ? AND queue = ? AND tenant = ?"""
+
+
+def apply(conn: sqlite3.Connection, deltas: "rollup.Deltas") -> None:
+    """Add the deltas to tenant_rollup: one read and one write per row they change; a row that comes to nothing
+    is deleted (rollup.py)."""
+    for (_, h, q, t), d in deltas.items():
+        got = conn.execute(_GET_ROLLUP, (h, q, t)).fetchone()
+        a = rollup.Agg(got[0], got[1], got[2], rollup.Sketch.loads(got[3])) if got else rollup.Agg()
+        a.merge(d)
+        if not a:
+            if got:
+                conn.execute("DELETE FROM tenant_rollup WHERE hour = ? AND queue = ? AND tenant = ?", (h, q, t))
+        elif got:
+            conn.execute("""UPDATE tenant_rollup SET sent = ?, first_deliveries = ?, dead_letter_moves = ?, waits = ?
+                            WHERE hour = ? AND queue = ? AND tenant = ?""", a.row() + (h, q, t))
+        else:
+            conn.execute("""INSERT INTO tenant_rollup (hour, queue, tenant, sent, first_deliveries, dead_letter_moves,
+                            waits) VALUES (?, ?, ?, ?, ?, ?, ?)""", (h, q, t) + a.row())
+
+
+def rebuild_rollup(conn: sqlite3.Connection) -> int:
+    """tenant_rollup from scratch, from every message's summary row (migration 12). Returns its rows."""
+    conn.execute("DELETE FROM tenant_rollup")
+    cur = conn.cursor()
+    cur.row_factory = sqlite3.Row
+    deltas = rollup.Deltas()
+    for r in cur.execute("SELECT tenant, source_queue, events_json FROM messages WHERE events_json <> '[]'"):
+        deltas.add(None, rollup.of_summary(r))
+    rows = [(h, q, t) + a.row() for (_, h, q, t), a in deltas.items()]
+    conn.executemany("""INSERT INTO tenant_rollup (hour, queue, tenant, sent, first_deliveries, dead_letter_moves,
+                        waits) VALUES (?, ?, ?, ?, ?, ?, ?)""", rows)
+    return len(rows)
 
 
 def _events(s, events: list) -> list:
     return [(at, s["mid"], i, kind, s["tenant"], wait) for i, (at, kind, wait) in enumerate(events)]
 
 
-def write(conn: sqlite3.Connection, sums: list) -> None:
-    """Insert summaries of messages that have no summary rows (``forget`` them first). Each has ``rows_json``."""
+def write(conn: sqlite3.Connection, sums: list, deltas: Optional["rollup.Deltas"] = None) -> None:
+    """Insert summaries of messages that have no summary rows (``forget`` them first). Each has ``rows_json``.
+    What they add to the rollup goes into ``deltas``, or, with none given, into the rollup now."""
+    own = deltas is None
+    deltas = rollup.Deltas() if own else deltas
+    for s in sums:
+        deltas.add(None, rollup.of_summary(s))
+    if own:
+        apply(conn, deltas)
     rows = []
     for s in sums:
         lists = _lists(s)
