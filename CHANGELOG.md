@@ -6,10 +6,17 @@
   partitions and indexes per day partition of history until it committed, so a store with months of history
   could fill Postgres's lock table ("out of shared memory", `max_locks_per_transaction`). Now an export locks
   only the partitions its own messages are in: 85 lock entries for a typical export, with 10 day partitions or
-  400. Reading one message's timeline is bounded the same way. List pages still lock every partition. Two small
-  lookup tables make this possible: one row per message ID and one per receipt handle. On our test machine,
-  seeding 205,000 spans wrote 29% more WAL (852 MB against 658 MB), the database grew 6% (33 MB), and the
-  seed took 48 s instead of 90 s.
+  400. Reading one message's timeline is bounded the same way. Two small lookup tables make this possible:
+  one row per message ID and one per receipt handle. On our test machine, seeding 205,000 spans wrote 29% more
+  WAL (852 MB against 658 MB), the database grew 6% (33 MB), and the seed took 48 s instead of 90 s.
+- **Postgres: a list page no longer locks every day's partitions.** The message, duplicate and stuck lists,
+  tenant search and activity, `/api/stats` and `/api/health` read 8 day partitions per query. Each query runs
+  in its own transaction, so it releases its locks before the next one starts. Newest-first lists start with
+  the newest day and stop once the page is full. With 400 day partitions, the most lock entries any page held
+  at once fell from 3,586 to 124. With 10 it is about the same as before (124 against 103). The answers are
+  unchanged. With 400 partitions, the first page of messages takes 1.6 ms instead of 24 ms and tenant search
+  151 ms instead of 490 ms. The lists that must read every partition got slower: stuck messages take 62 ms instead of 32 ms,
+  and `/api/health` 55 ms instead of 48 ms.
 - **Postgres: keeping a message's summary up to date no longer scans the day's partition.** Three summary
   tables get an index on the message ID (schema 3). On a day partition of 500,000 rows, each of those deletes
   took 8–26 ms and now takes 0.1 ms.
@@ -18,20 +25,18 @@
   `pg_dump` can run at any time of day. Retention creates the partitions for today and the next two days. Before,
   a read transaction open for 25 s made exports wait 24 s. Attaching still waits at most 1 second for a schema
   change running at the same time; an export that needs a partition that can't be created then tries 3 times,
-  then is answered `503` with `Retry-After`.
-- **Postgres: replicas creating the same new partition at the same moment no longer fail the export.** The
-  replica that lost the race got `type "…" already exists` and answered `500`. And when many exports on one
-  replica needed new partitions at once, each waited at most 2 seconds for the others, 3 times, and was then
-  answered `503` even though Postgres had refused nothing. Now an export waits once, up to 10 seconds, for the
-  replica's other exports, and then creates only the partitions that are still missing (usually none).
+  then is answered `503` with `Retry-After`. Exports that need new partitions at the same moment, on one
+  replica or several, take turns, and one whose partitions another has made stops waiting. Before, the one that
+  lost the race could fail ("type ... already exists"), and under load one that waited more than 2 s for another
+  export of its replica was answered `503`.
 - **Postgres: a new day's partition is analyzed once a replica has written 1,000 spans to it.** Until then
   Postgres has no statistics for it and plans it as empty. On a 200,000-row partition, that made the
   receipt-hash update take 55–68 ms instead of 0.6 ms.
-- **Postgres: the server says when `max_locks_per_transaction` is too low.** List pages, `/api/health` and the
-  counts still lock every day partition, so with enough partitions concurrent pages fill Postgres's lock table.
-  At start and as partitions are added, the server works out the value it needs and logs a warning with it
-  (on a stock Postgres, from about 80 partitions). A request that fails on a full lock table is logged as that,
-  and an export gets 503 with `Retry-After`, not "Postgres is unreachable". README: Postgres lock table.
+- **Postgres: the server says when `max_locks_per_transaction` is too low.** At start and as partitions are
+  added, the server works out the value it needs and logs a warning with it. Since list pages read 8 day
+  partitions a query, that value no longer grows with the partitions: a stock Postgres is enough for one replica
+  with up to about 80 read connections. A request that fails on a full lock table is logged as that, and an
+  export gets 503 with `Retry-After`, not "Postgres is unreachable". README: Postgres lock table.
 
 ### Upgrading from 0.2.0 (Postgres)
 

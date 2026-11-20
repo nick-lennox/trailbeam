@@ -345,57 +345,25 @@ STOCK = {"max_locks_per_transaction": 64, "max_connections": 100, "autovacuum_ma
          "max_worker_processes": 8, "max_wal_senders": 10, "max_prepared_transactions": 0}
 
 
-def test_lock_need_is_what_the_places_and_pages_can_lock_against_the_lock_table():
+def test_lock_need_is_what_a_page_batch_can_lock_against_the_lock_table():
     """lock.c's NLOCKENTS: max_locks_per_transaction x server processes objects, twice that (object, backend)
     pairs. A stock Postgres 14 has 122 processes: 7,808 objects, 15,616 pairs. The connections that count are
-    the read pool's (8 by default): pages are what locks every place."""
+    the read pool's (8 by default). Since QV-116 a page statement names at most PAGE_PLACES places (8), so the
+    need is the same with 10 places or 400."""
     from trailbeam.server.pg_schema import LockNeed
 
     few = LockNeed(places=10, relations_per_place=24, connections=8, settings=STOCK)
-    assert (few.backends, few.objects, few.holders) == (122, 240, 1_920)
-    assert few.required == 8 and not few.short  # ceil(1,920 / 244)
+    assert (few.backends, few.objects, few.holders) == (122, 192, 1_536)
+    assert few.required == 7 and not few.short  # ceil(1,536 / 244)
     many = LockNeed(places=400, relations_per_place=24, connections=8, settings=STOCK)
-    assert many.required == 315 and many.short  # ceil(76,800 / 244)
-    assert "max_locks_per_transaction to at least 315" in many.message()
-    one = LockNeed(places=400, relations_per_place=24, connections=1, settings=STOCK)
-    assert one.required == 79  # a single connection: the objects themselves bind, ceil(9,600 / 122)
-    assert not LockNeed(400, 24, 8, {**STOCK, "max_locks_per_transaction": 315}).short
-
-
-@contextlib.contextmanager
-def _held_pages(s, n):
-    """``n`` pages (recent_messages) at once, each held at the end of its transaction (every lock it took still
-    held) until the block ends. Yields, once every page has run or failed, what each gave: None, or the error."""
-    out = [None] * n
-    ran = threading.Semaphore(0)
-    release = threading.Event()
-
-    def held_all(query, params=()):
-        with s._reading() as c, c.transaction():
-            rows = c.execute(query, params).fetchall()
-            ran.release()
-            release.wait(120)
-            return rows
-    s._all = held_all
-
-    def page(i):
-        try:
-            s.recent_messages(50)
-        except Exception as e:
-            out[i] = e
-            ran.release()
-    threads = [threading.Thread(target=page, args=(i,)) for i in range(n)]
-    try:
-        for t in threads:
-            t.start()
-        for _ in range(n):
-            assert ran.acquire(timeout=120), "a page neither ran nor failed"
-        yield out
-    finally:
-        release.set()
-        for t in threads:
-            t.join(120)
-        del s._all
+    assert (many.objects, many.holders, many.required) == (192, 1_536, 7) and not many.short
+    tiny = LockNeed(places=3, relations_per_place=24, connections=8, settings=STOCK)
+    assert tiny.objects == 72  # fewer places than a batch
+    pool = LockNeed(places=400, relations_per_place=24, connections=200, settings=STOCK)
+    assert pool.required == 158 and pool.short  # ceil(38,400 / 244): a read pool far past the stock one
+    assert "max_locks_per_transaction to at least 158" in pool.message()
+    assert "8 places a statement" in pool.message()
+    assert not LockNeed(400, 24, 200, {**STOCK, "max_locks_per_transaction": 158}).short
 
 
 def _fill_the_lock_table(url) -> "psycopg.Connection":
@@ -417,63 +385,65 @@ def _fill_the_lock_table(url) -> "psycopg.Connection":
 
 
 @needs_pg
-def test_many_places_fill_a_default_postgres_lock_table_and_the_store_says_so(pg_store, caplog):
-    """QV-107: a page (a walk across all of time) locks every place's partitions and indexes, so what pages lock
-    grows with the places (since QV-113 exports don't: they lock their own places only). On a stock Postgres
-    (max_locks_per_transaction = 64), 150 daily places and 32 pages at once fill the lock table: "out of shared
-    memory". The store warns at start and as places are added, with the setting to use, and reports the
-    failure as a full lock table, not as an unreachable database: a page in the log, an export (the table is
-    shared) as that in its error. The places are empty: their partitions are locked all the same."""
+def test_many_places_dont_need_a_bigger_lock_table_and_a_full_one_is_reported(pg_store, caplog):
+    """QV-107, after QV-116: what a page locks no longer grows with the places, so a stock Postgres
+    (max_locks_per_transaction = 64) with 150 daily places and a 32-connection read pool needs no warning, and 32
+    pages at once all run. When the lock table is full all the same (here: session advisory locks), the store
+    reports it as that, not as an unreachable database: a page in the log, an export in its error. The places
+    are empty: their partitions are locked all the same."""
     import psycopg
 
-    from trailbeam.server.postgres import PostgresStore
     from trailbeam.server.store import StoreUnavailable
 
     s = pg_store(read_connections=32)
     if s.lock_need.settings != STOCK:
         pytest.skip(f"needs a Postgres with stock lock settings, not {s.lock_need.settings}")
-    assert not s.lock_need.short  # a new store: nothing to warn about
     day0 = D0 // DAY
-
-    # a few places: 32 pages at once run
-    s._ensure_places({(0, day0 + d) for d in range(10)})
-    assert not s.lock_need.short
-    with _held_pages(s, 32) as out:
-        assert out == [None] * 32
-
     caplog.set_level("WARNING", logger="trailbeam.server.postgres")
     s._ensure_places({(0, day0 + d) for d in range(150)})
     need = s.lock_need
-    assert need.places == 150 and need.short and need.required > 64
-    assert f"max_locks_per_transaction to at least {need.required}" in caplog.text
+    assert need.places == 150 and not need.short and need.required <= 64
+    assert "max_locks_per_transaction" not in caplog.text
+
+    failed: list = []
+
+    def page():
+        try:
+            s.recent_messages(50)
+            s.stuck_messages(D0, 50)
+            s.counts()
+        except Exception as e:
+            failed.append(e)
+    threads = [threading.Thread(target=page) for _ in range(32)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(120)
+    assert failed == []
 
     caplog.clear()
     w = Consumer()
     export = records([w.send((day0 + 149) * DAY + SEC, "full"), w.receive((day0 + 149) * DAY + 2 * SEC, "full", "hf")])
-    with _held_pages(s, 32) as out:
-        failed = [e for e in out if e is not None]
-        assert failed, "32 pages over 150 places did not fill a stock lock table"
-        for e in failed:
-            assert isinstance(e, psycopg.errors.OutOfMemory), repr(e)
-        assert "read failed: Postgres's lock table is full" in caplog.text
-        assert f"at least {need.required}" in caplog.text
-        # top the table up to full (the failed pages let go of theirs): an export finds no room either
-        filler = _fill_the_lock_table(s.url)
-        try:
-            with pytest.raises(StoreUnavailable) as e:
-                s.insert(export)
-            assert "lock table is full" in str(e.value) and "unreachable" not in str(e.value), str(e.value)
-            assert f"at least {need.required}" in str(e.value)
-        finally:
-            filler.close()
-    assert s.insert(export)[0] == 2  # room again: the same export is stored
-
-    caplog.clear()  # a replica starting on these places says so at start
-    other = PostgresStore(s.url, read_connections=32)
+    filler = _fill_the_lock_table(s.url)
     try:
-        assert f"max_locks_per_transaction to at least {need.required}" in caplog.text
+        with pytest.raises(psycopg.errors.OutOfMemory):
+            s.recent_messages(50)
+        assert "read failed: Postgres's lock table is full" in caplog.text
+        with pytest.raises(StoreUnavailable) as e:
+            s.insert(export)
+        assert "lock table is full" in str(e.value) and "unreachable" not in str(e.value), str(e.value)
+        assert "Raise max_locks_per_transaction" in str(e.value)
     finally:
-        other.close()
+        pid = filler.info.backend_pid
+        filler.close()
+    # its locks go when its backend exits, a moment after the connection closes
+    with psycopg.connect(s.url, autocommit=True) as c:
+        deadline = time.monotonic() + 30
+        while c.execute("SELECT 1 FROM pg_stat_activity WHERE pid = %s", (pid,)).fetchone():
+            assert time.monotonic() < deadline, "the filler's backend never exited"
+            time.sleep(0.05)
+    assert s.insert(export)[0] == 2  # room again: the same export is stored
+    assert s.recent_messages(50) == ["full"]
 
 
 # ---- what one export locks (QV-113) -----------------------------------------------------------------------
@@ -580,6 +550,131 @@ def test_version_2_fills_the_lookup_tables_place_by_place(pg_store):
         assert len(again.message_rows("old-7")) == 3
     finally:
         again.close()
+
+
+# ---- what one page locks (QV-116) -------------------------------------------------------------------------
+
+def _page_history(places: int) -> list:
+    """Exports of ``places`` one-second places: in place k a message of tenant ``tenant-<k % 3>`` on "orders" or
+    "billing", sent and received; deleted, except every 7th (stuck); every 5th received twice (a duplicate)."""
+    w = Consumer()
+    exports = []
+    for k0 in range(0, places, 20):
+        spans = []
+        for k in range(k0, min(places, k0 + 20)):
+            t, mid, q = T0 + k * SEC + 10, f"m-{k}", ("orders", "billing")[k % 2]
+            send = w.send(t, mid, queue=q)
+            send.attrs["trailbeam.tenant"] = f"tenant-{k % 3}"
+            spans += [send, w.receive(t + 1, mid, f"h-{k}", queue=q)]
+            if k % 5 == 0:
+                spans.append(w.receive(t + 2, mid, f"h2-{k}", count=2, queue=q))
+            if k % 7:
+                spans.append(w.delete(t + 3, f"h-{k}", queue=q))
+        exports.append(spans)
+    return exports
+
+
+def _pages(s, places: int) -> dict:
+    """Every page that walks the places, as the API asks for them: the first and a later page of each list."""
+    first = s.newest_messages(5)
+    mid_ns = T0 + places // 2 * SEC
+    return {
+        "recent": s.recent_messages(5), "recent_after": s.recent_messages(5, after=first[-1]),
+        "recent_queue": s.recent_messages(5, "billing"), "recent_tenant": s.recent_messages(5, tenant="tenant-1"),
+        "recent_tenant_queue": s.recent_messages(5, "orders", "tenant-2"),
+        "recent_window": s.recent_messages(5, from_ns=mid_ns - 10 * SEC, to_ns=mid_ns),
+        "recent_old": s.recent_messages(5, to_ns=T0 + 3 * SEC), "newest": first,
+        "duplicates": s.duplicate_messages(5), "duplicates_queue": s.duplicate_messages(5, "orders"),
+        "stuck": s.stuck_messages(T0 + places * SEC, 5),
+        "stuck_queue": s.stuck_messages(T0 + places * SEC, 5, "billing"),
+        "stuck_after": s.stuck_messages(T0 + places * SEC, 5, after=(T0 + 7 * SEC + 10, "m-7")),
+        "queue": sorted(s.queue_messages("orders")),
+        "activity": sorted((a.tenant, a.sent, a.dead_lettered, sorted(a.waits))
+                           for a in s.tenant_activity((T0 + SEC) // 10 ** 6, (T0 + places * SEC) // 10 ** 6)),
+        "find": s.find_tenants("TEN", 8), "find_queue": s.find_tenants("tenant-", 2, queue="billing"),
+        "find_window": s.find_tenants("t", 8, from_ns=T0 + (places - 2) * SEC), "counts": s.counts(),
+    }
+
+
+def _read_locks(s, call) -> list:
+    """Run ``call``, each of its statements in a transaction of its own (as autocommit runs it) that, before it
+    ends, lists what the connection holds. Returns one sorted list of relation names for each statement."""
+    import psycopg
+
+    held = []
+    pool_connection = s.reads.connection
+
+    class Counted:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+        def execute(self, query, params=None):
+            idle = self._conn.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
+            with self._conn.transaction() if idle else contextlib.nullcontext():
+                cur = self._conn.execute(query, params)
+                rows = cur.fetchall() if cur.description else []
+                held.append(sorted(r["relname"] or f"<{r['locktype']}>" for r in self._conn.execute(
+                    """SELECT l.locktype, c.relname FROM pg_locks l LEFT JOIN pg_class c ON c.oid = l.relation
+                       WHERE l.pid = pg_backend_pid() AND l.locktype <> 'advisory'""").fetchall()))
+            return Rows(rows)
+
+    class Rows(list):
+        def fetchall(self):
+            return list(self)
+
+        def fetchone(self):
+            return self[0] if self else None
+
+    @contextlib.contextmanager
+    def counted(*a, **kw):
+        with pool_connection(*a, **kw) as conn:
+            yield Counted(conn)
+
+    s.reads.connection = counted
+    try:
+        call()
+    finally:
+        del s.reads.connection
+    return held
+
+
+@needs_pg
+@pytest.mark.parametrize("places", [10, 400])
+def test_what_one_page_locks_does_not_grow_with_the_places(pg_store, places, tmp_path):
+    """QV-116: a page walks the places a batch a statement, so no statement locks the partitions of more than
+    PAGE_PLACES places, and the most lock entries a page holds at once (system catalogs aside) are as many with
+    400 places as with 10.
+    The pages are those of a SQLite store given the same spans."""
+    import re
+
+    from trailbeam.server.db import SqliteStore
+
+    s = pg_store(bucket_ns=SEC)
+    lite = SqliteStore(str(tmp_path / "lite.sqlite"))
+    try:
+        for spans in _page_history(places):
+            assert s.insert(records(spans)) == lite.insert(records(spans))
+        assert _pages(s, places) == _pages(lite, places)
+        assert s.last_row() == lite.last_row() == sum(s.counts()["spans"].values())
+    finally:
+        lite.close()
+    most = 0
+    for name, call in [("pages", lambda: _pages(s, places)), ("last_row", s.last_row)]:
+        for held in _read_locks(s, call):
+            buckets = {int(m.group(1)) for n in held for m in [re.search(r"_p0_(\d+)", n)] if m}
+            assert len(buckets) <= s.PAGE_PLACES, (name, sorted(buckets))
+            # system catalogs are left out: which of them a statement locks depends on Postgres's relation
+            # cache (a cache miss reads pg_attribute and more), not on the places
+            most = max(most, len([n for n in held if not n.startswith("pg_")]))
+    _PAGE_LOCKS[places] = most
+    if len(_PAGE_LOCKS) == 2:
+        assert _PAGE_LOCKS[400] == _PAGE_LOCKS[10], _PAGE_LOCKS
+
+
+_PAGE_LOCKS: dict = {}
 
 
 def _as_version(c, version: int) -> None:
@@ -799,3 +894,36 @@ def test_partition_creation_does_not_hold_exports_behind_an_open_reader(pg_store
     assert s.insert(records([w.send(D0 + 9 * DAY, "busy")])) == (1, 0)
     assert len(s.message_rows("needs-a-place")) == 1 and len(s.message_rows("busy")) == 1
     assert len(s.recent_messages(10)) == 7
+
+
+@needs_pg
+def test_replicas_creating_the_same_place_at_once_all_go_on(pg_store):
+    """Several replicas need the same new place at the same moment. Without the place's advisory lock, CREATE
+    TABLE IF NOT EXISTS races: the loser fails on the table's row type in pg_type ("type ... already exists",
+    DuplicateObject), or ATTACHes what the other attached and waits behind its exports. With it, one makes the
+    place, the others wait for it and find it made: every replica's export goes on."""
+    from trailbeam.server.postgres import PostgresStore
+
+    s = pg_store()
+    replicas = [s] + [PostgresStore(s.url) for _ in range(3)]
+    try:
+        for k in range(30):
+            bucket = s.bucket(D0) + 100 + k
+            go, errs = threading.Barrier(len(replicas)), []
+
+            def make(r):
+                go.wait()
+                try:
+                    r._ensure_places_for_ingest({(0, bucket)})
+                except Exception as e:  # noqa: BLE001 - the test reports whatever a replica raised
+                    errs.append(e)
+            ts = [threading.Thread(target=make, args=(r,)) for r in replicas]
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join()
+            assert errs == []
+            assert f"spans_p0_{bucket}" in _partitions(s)
+    finally:
+        for r in replicas[1:]:
+            r.close()

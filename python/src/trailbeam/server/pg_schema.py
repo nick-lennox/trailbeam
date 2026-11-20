@@ -378,12 +378,14 @@ LOCK_SETTINGS = ("max_locks_per_transaction", "max_connections", "autovacuum_max
 class LockNeed:
     """What one replica can lock at once, against what the server has room for. ``settings``: LOCK_SETTINGS,
     as ints; ``relations_per_place``: the partitioned tables and indexes (one partition of each per place);
-    ``connections``: this replica's connections that can run a page at once (the read pool: since
-    QV-113 pages are the only statements that lock every place)."""
+    ``connections``: this replica's connections that can run a page at once (the read pool); ``page_places``:
+    the most places one page statement names (PostgresStore.PAGE_PLACES: since QV-116 a page walks the places
+    a batch a statement, each its own transaction, so it locks no more than that many at once)."""
     places: int
     relations_per_place: int
     connections: int
     settings: dict
+    page_places: int = 8
 
     @property
     def backends(self) -> int:
@@ -393,8 +395,8 @@ class LockNeed:
 
     @property
     def objects(self) -> int:
-        """Relations one page may hold a lock on at once: every table and index of every place."""
-        return self.places * self.relations_per_place
+        """Relations one page may hold a lock on at once: every table and index of one batch of places."""
+        return min(self.places, self.page_places) * self.relations_per_place
 
     @property
     def holders(self) -> int:
@@ -414,15 +416,15 @@ class LockNeed:
     def message(self) -> str:
         have = self.settings["max_locks_per_transaction"]
         return (f"Postgres lock table: this replica's statements can lock up to {self.holders:,} tables and indexes "
-                f"at once ({self.places} places x {self.relations_per_place} tables and indexes x "
-                f"{self.connections} read connections), but max_locks_per_transaction = {have} leaves room for "
+                f"at once ({min(self.places, self.page_places)} places a statement x {self.relations_per_place} tables and "
+                f"indexes x {self.connections} read connections), but max_locks_per_transaction = {have} leaves room for "
                 f"{2 * have * self.backends:,} ({2 * have} x {self.backends} server processes). Under concurrent "
                 f"pages, statements (exports too) fail with \"out of shared memory\". Set max_locks_per_transaction to "
                 f"at least {self.required} (and restart Postgres); with more replicas on this database, multiply by "
-                f"their number; it grows as places are added (README: Postgres lock table)")
+                f"their number (README: Postgres lock table)")
 
 
-def lock_need(conn, connections: int) -> LockNeed:
+def lock_need(conn, connections: int, page_places: int = 8) -> LockNeed:
     """LockNeed for the current schema's places and the server's settings. ``conn``: any psycopg connection."""
     rows = conn.execute("SELECT name, setting FROM pg_settings WHERE name = ANY(%s)", (list(LOCK_SETTINGS),)).fetchall()
     settings = {(r["name"] if isinstance(r, dict) else r[0]): int(r["setting"] if isinstance(r, dict) else r[1])
@@ -431,7 +433,7 @@ def lock_need(conn, connections: int) -> LockNeed:
     per_place = _one(conn.execute(
         "SELECT COUNT(*) FROM pg_class WHERE relnamespace = current_schema()::regnamespace AND relkind IN ('p', 'I')"
     ).fetchone())
-    return LockNeed(places, per_place, connections, settings)
+    return LockNeed(places, per_place, connections, settings, page_places)
 
 
 def _one(row):
