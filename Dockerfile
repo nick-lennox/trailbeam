@@ -4,7 +4,7 @@
 #   docker run -p 127.0.0.1:4318:4318 -v trailbeam-data:/data trailbeam
 #
 # Then open http://127.0.0.1:4318/ and point the Trailbeam packages (or the Collector) at
-# http://127.0.0.1:4318/v1/traces. Published as ghcr.io/nick-lennox/trailbeam (.github/workflows/release.yml).
+# http://127.0.0.1:4318/v1/traces. Published as ghcr.io/nick-lennox/trailbeam (.github/workflows/release.yaml).
 #
 # For Postgres (TRAILBEAM_STORE_URL), add its driver: docker build --build-arg TRAILBEAM_EXTRAS=server,postgres
 # (deploy/replicas/compose.yaml does). The default image has SQLite only.
