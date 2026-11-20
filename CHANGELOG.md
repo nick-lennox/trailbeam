@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- **Postgres: the lookup tables are time-bucketed (schema 5).** `mid_places` and `hash_places` are partitioned
+  by day like the spans, so ingest writes only to recent partitions and retention drops them whole (before, it
+  deleted their rows in batches). Older days are sealed into a Bloom filter, about 2.5 bytes per key, kept by
+  each replica. A lookup reads an older day only for the keys the filter can't rule out: a late settle, a
+  message older than three days, or about 1 in 15,000 other keys. Joins and summaries are unchanged; late
+  settles still join their receive from any day. At 1M spans over 7 days, ingest touches 25 MB of lookup
+  indexes instead of 92 MB. Upgrading a 1M-span database took 8 s. The effect at 4M–100M spans hasn't been
+  measured.
+
+### Upgrading from 0.3.0 (Postgres)
+
+**Stop every 0.3.0 replica, then start the new version.** At start the server upgrades the database from
+Postgres schema 4 to 5, one day partition at a time: it copies each day's lookup rows into that day's new
+partitions, then drops the old tables. On our test machine that took 8 s for 1M spans, and the first
+retention pass after it sealed the 5 older days into the filter (4.5 s). A 0.3.0 replica left running would
+write lookup rows the filter doesn't know about, so don't run 0.3.0 and this version against one database at
+the same time. Once the database is at schema 5, a 0.3.0 server refuses to start on it. If the upgrade is
+stopped part way, the next start runs it again; rows already copied are left as they are. A database at an older schema (from
+0.2.0) goes through schema 4 first, as the 0.3.0 notes describe. SQLite files are unchanged.
+
+## 0.3.0: Postgres for teams that outgrow SQLite
+
+The first published release: `pip install trailbeam`, `npm install trailbeam`, and the container image
+`ghcr.io/nick-lennox/trailbeam`. 0.2.0 was tagged but never published.
+
 - **The Tenants page reads an hourly rollup per tenant, on SQLite and Postgres.** Before, it added up every
   tenant event in its range on each request, so it got slower as traffic grew (Postgres: p95 1.5 s at 4M spans,
   2.8 s at 7M). Now each store keeps, per hour and tenant, the sends, first deliveries with their times in
@@ -15,14 +40,6 @@
   but not sorted. Times up to 100 ms come back exact; above that the p95 is at most 0.91% off the nearest-rank
   value. The same spans always give the same p95. `contract/fixtures/tenants-expected.json` keeps the exact
   values and gains `p95_relative_error` (0.01), which a result must be within.
-- **Postgres: the lookup tables are time-bucketed (schema 5).** `mid_places` and `hash_places` are partitioned
-  by day like the spans, so ingest writes only to recent partitions and retention drops them whole (before, it
-  deleted their rows in batches). Older days are sealed into a Bloom filter, about 2.5 bytes per key, kept by
-  each replica. A lookup reads an older day only for the keys the filter can't rule out: a late settle, a
-  message older than three days, or about 1 in 15,000 other keys. Joins and summaries are unchanged; late
-  settles still join their receive from any day. At 1M spans over 7 days, ingest touches 25 MB of lookup
-  indexes instead of 92 MB. Upgrading a 1M-span database took 8 s. The effect at 4M–100M spans hasn't been
-  measured.
 - **Postgres: the connection pools are settings.** `--pg-ingest-connections` (`TRAILBEAM_PG_INGEST_CONNECTIONS`,
   default 4) and `--pg-read-connections` (`TRAILBEAM_PG_READ_CONNECTIONS`, default 8) set how many exports and
   reads one replica runs on Postgres at once. Before, they were fixed at 4 and 8.
@@ -72,15 +89,14 @@ rewritten first (rare). If it is stopped part way, the next start runs it again.
 ### Upgrading from 0.2.0 (Postgres)
 
 **Stop every 0.2.0 replica, then start the new version.** At start the server upgrades the database to
-Postgres schema 5, one day partition at a time. Schema 4 builds the hourly tenant rollup of each partition
-from its message summaries: 3.9 seconds for 1M spans on our test machine. Schema 5 partitions the two lookup
-tables by day: 8 s for 1M spans, and the first retention pass after it seals the older days (4.5 s). A replica of an earlier build left
+Postgres schema 4, one day partition at a time. Schema 4 builds the hourly tenant rollup of each partition
+from its message summaries: 3.9 seconds for 1M spans on our test machine. A replica of an earlier build left
 running would store spans without adding them to the rollup, and the Tenants page would undercount them, so
 this applies to builds of `main` at schema 2 or 3 too. Schema 2 fills the lookup tables from the stored spans. On our
 test machine that took 1 second for 205,000 spans. Schema 3 builds the message-ID indexes: 0.4 s for 500,000
 rows in each of the three tables. Each partition's index build blocks writes to that partition only, and no
 replica is writing during the upgrade anyway. Reads (and a `pg_dump`) carry on. A database already at schema 2
-(from a build of `main`) starts from the schema-3 step, and the same rule applies: stop every replica first.
+(from a build of `main`) gets only the schema-3 step, and the same rule applies: stop every replica first.
 Don't run 0.2.0 and this version against one database at the same time. A 0.2.0 replica doesn't write the lookup tables, so the spans it stores are missing from
 joins and timelines. Once the database is upgraded, a 0.2.0 server refuses to start on it. If the upgrade
 is stopped part way, the database stays at the last schema it finished, and the next start goes on from
