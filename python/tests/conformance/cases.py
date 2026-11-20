@@ -163,3 +163,17 @@ def _ids(items: list[dict]) -> list[str]:
 
 def canonical(obj) -> str:
     return json.dumps(obj, sort_keys=True, indent=1, default=str)
+
+
+def rows_match(got: list, want: list, bound: float) -> bool:
+    """Tenants page rows as contract/tenants.md compares them: every field equal, except p95_in_queue_ms, which is
+    within ``bound`` (relative) of the expected exact nearest-rank value."""
+    if len(got) != len(want):
+        return False
+    for g, w in zip(got, want):
+        if {k: v for k, v in g.items() if k != "p95_in_queue_ms"} != {k: v for k, v in w.items() if k != "p95_in_queue_ms"}:
+            return False
+        a, b = g["p95_in_queue_ms"], w["p95_in_queue_ms"]
+        if (a is None) != (b is None) or (b is not None and abs(a - b) > bound * b):
+            return False
+    return True

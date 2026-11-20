@@ -166,3 +166,12 @@ Result on the QV-70 machine (Ryzen 7 7700X, WSL2, Postgres 16.2 on the same box,
 export p50 297 ms, p99 456 ms, no errors. List pages p95 under that ingest: Messages 5.4 ms, one queue 5.0, Duplicates 5.0,
 Stuck 5.1, message detail 2.1, Tenants 298, tenant search 41, body search 124 (one queue 209). The first run
 straight after seeding, during a 125 s checkpoint, had an export p99 of 4.1 s.
+
+## Tenants page before and after: `tenants_page.py`
+
+Seeds harness traffic (50 queues, 50 tenants, 1 KB bodies on 5 queues, 7 days) into a SQLite file or a
+Postgres schema and times the Tenants page for the last hour, day and 7 days, ending at the newest span. Run it
+with the old code first (`PYTHONPATH=<old checkout>/python/src`), then with the new code on the same data and
+`--compare` the first run's JSON: the counts must be equal and p95 within the contract's 1 %. The second run
+opens the store with the new code, so it times the schema upgrade too. `--insert N` then times N exports of
+live traffic (it adds spans: run it on a copy). QV-128 measured the hourly tenant rollup with it at 1M spans.

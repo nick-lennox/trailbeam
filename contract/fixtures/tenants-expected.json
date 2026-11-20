@@ -1,5 +1,6 @@
 {
- "about": "Expected outputs of contract/tenants.md for fixtures/contract-3.2-spans.json. Self-hosted Trailbeam (python/tests/server/test_tenants.py) and the hosted app check them; keep both in step.",
+ "about": "Expected outputs of contract/tenants.md for fixtures/contract-3.2-spans.json. Self-hosted Trailbeam (python/tests/server/test_tenants.py) and the hosted app check them; keep both in step. p95_in_queue_ms is the exact nearest-rank value; an implementation passes when its p95 is within p95_relative_error of it (contract/tenants.md: Tenants page, p95) and every other number is equal.",
+ "p95_relative_error": 0.01,
  "lambda_timeout_s": 900,
  "now_ns": "1794852397716000000",
  "stats": [
