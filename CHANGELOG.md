@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Postgres: the connection pools are settings.** `--pg-ingest-connections` (`TRAILBEAM_PG_INGEST_CONNECTIONS`,
+  default 4) and `--pg-read-connections` (`TRAILBEAM_PG_READ_CONNECTIONS`, default 8) set how many exports and
+  reads one replica runs on Postgres at once. Before, they were fixed at 4 and 8.
 - **Postgres: an export no longer locks every day's partitions.** Before, each export locked about 25
   partitions and indexes per day partition of history until it committed, so a store with months of history
   could fill Postgres's lock table ("out of shared memory", `max_locks_per_transaction`). Now an export locks

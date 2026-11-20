@@ -408,9 +408,19 @@ for TLS, and `PGPASSWORD` or a [password file](https://www.postgresql.org/docs/c
 password out of the URL. The server log shows the URL with the password hidden. The URL is set by
 `TRAILBEAM_STORE_URL` or `--store-url` only; the [configuration file](#configuration-file) doesn't take it.
 
-**Connections.** Each replica opens up to 14: up to 4 for ingest and up to 8 for pages and the API (opened as
-needed, 2 when idle), 1 held by the replica that runs retention, and a short-lived one when it creates partitions.
-Set `max_connections` to 14 per replica plus your other clients. Every connection runs with
+**Connections.** Each replica opens up to 14 by default: up to 4 for ingest and up to 8 for pages and the API
+(opened as needed, 2 when idle), 1 held by the replica that runs retention, and a short-lived one when it creates
+partitions. Set `max_connections` to that per replica plus your other clients. The two pools are settings:
+
+| Flag | Environment variable | Default | What it is |
+|---|---|---|---|
+| `--pg-ingest-connections` | `TRAILBEAM_PG_INGEST_CONNECTIONS` | 4 | exports a replica writes at once |
+| `--pg-read-connections` | `TRAILBEAM_PG_READ_CONNECTIONS` | 8 | pages and API reads a replica runs at once |
+
+More ingest connections help only while Postgres has CPU and disk to spare: exports that touch the same
+messages wait for each other anyway. A bigger read pool raises what the [lock table](#postgres-lock-table-max_locks_per_transaction)
+must hold (Trailbeam warns at start when it is short). They are for Postgres only: with SQLite, setting either
+stops the server with an error. Every connection runs with
 `statement_timeout = 60s`. An export that waits longer than `TRAILBEAM_INGEST_MAX_WAIT_S` (2 s by default) for a free
 ingest connection is answered `503` with `Retry-After`, as one waiting for SQLite's writer is
 ([overload](#when-trailbeam-is-overloaded-429-503-and-retry-after)).
@@ -491,10 +501,6 @@ To trade durability for latency, as `--durability relaxed` does for SQLite, set 
 `ALTER ROLE trailbeam SET synchronous_commit = off;`. A crash of Postgres can then lose the exports answered `200`
 in the last moments before it (up to three times `wal_writer_delay`, 600 ms by default). The database stays
 consistent ([Postgres: asynchronous commit](https://www.postgresql.org/docs/current/wal-async-commit.html)).
-
-**Known limits in this version.** A fix is planned.
-
-- The connection pools (4 ingest and 8 read connections per replica) can't be changed yet.
 
 #### Backup and restore (Postgres)
 
