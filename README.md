@@ -467,21 +467,25 @@ plans for it.
 
 This isn't a sizing guide yet: the medium-tier benchmark (10,000 spans/s with 100M spans stored, 2 replicas)
 hasn't been run on a representative machine. What we have measured so far, on our shared desktop test machine
-(16 threads, 11.7 GB RAM, WSL2 virtual disk), with 1–3M spans, 2 replicas and Postgres 16 with
-`shared_buffers = 1GB`:
+(16 threads, 11.7 GB RAM shared with other work, WSL2 virtual disk), with 1–8M spans, 2 replicas and Postgres 16
+with `shared_buffers = 1GB`:
 
-- **Disk: about 2.5–2.8 GB per million spans**, with 1 KB bodies stored on 5 of 50 queues. With `7d` retention a
-  message is kept 7 to 8 days, so plan for 8 days of your average ingest, plus room for one more day. For
-  example, 100 spans/s on average is about 70M spans, or about 200 GB.
-- **Commit latency sets export latency.** An export keeps its locks on the messages it touches until it
-  commits, so a slow WAL flush holds up the exports behind it. On the virtual disk, export p99 at 2,000 spans/s
-  was 1.7 s. With `synchronous_commit = off` (as a test) it was 400 ms. Put the database on storage with a fast
+- **Disk: about 2.8 GB per million spans**, with 1 KB bodies stored on 5 of 50 queues, plus the WAL
+  (`max_wal_size`). With `7d` retention a message is kept 7 to 8 days, so plan for 8 days of your average
+  ingest, plus room for one more day. For example, 100 spans/s on average is about 70M spans, or about 200 GB.
+- **RAM is the first limit.** Ingest writes at random index positions in today's partition and in two lookup
+  tables that aren't partitioned (`hash_places` and `mid_places`, which grow with everything stored: about
+  90 MB of index per million spans). While those indexes stay in memory, ingest is fast. At about 1M spans this
+  machine held 6,000 spans/s with export p99 630 ms. At 4M, where they no longer stayed cached here, 2,000
+  spans/s had p99 1.7 s, and at 7M it didn't hold 2,000 spans/s. Give Postgres enough memory for today's
+  indexes and those two tables. For 100M spans that's an estimate of 12–16 GB, not measured.
+- **Commit latency adds to export latency.** An export keeps its locks on the messages it touches until it
+  commits, so a slow WAL flush holds up the exports behind it. Put the database on storage with a fast
   fsync: local NVMe, EBS gp3, or a managed service's SSD.
-- **RAM for today's indexes.** Ingest writes into today's partition at random index positions, so today's
-  indexes should stay in memory. That's roughly 3–4 GB for 14M spans in a day: an estimate, not measured.
-- **The Trailbeam servers weren't the limit.** They used 14–30% CPU at 2,000–4,000 spans/s. Ingest held
-  2,000 spans/s steadily, and reached 4,000 spans/s with export p99 at 2.4 s. These numbers are for that machine,
-  not a target.
+- **The Trailbeam servers use about one CPU core per 5,000–6,000 spans/s** in total (2 replicas at 50% of a core
+  each at 6,000 spans/s, and at 77% each at 6,900). These numbers are for that machine, not a target.
+- **The tenants page gets slower as data grows:** p95 1.5 s at 4M spans and 2.8 s at 7M, because it adds up
+  every tenant event in its time window on each request. The other pages stayed under 500 ms (p95) under ingest.
 
 To trade durability for latency, as `--durability relaxed` does for SQLite, set it on Trailbeam's role:
 `ALTER ROLE trailbeam SET synchronous_commit = off;`. A crash of Postgres can then lose the exports answered `200`
