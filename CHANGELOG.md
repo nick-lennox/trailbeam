@@ -6,7 +6,9 @@
   by day like the spans, so ingest writes only to recent partitions and retention drops them whole (before, it
   deleted their rows in batches). Older days are sealed into a Bloom filter, about 2.5 bytes per key, kept by
   each replica. A lookup reads an older day only for the keys the filter can't rule out: a late settle, a
-  message older than three days, or about 1 in 15,000 other keys. Joins and summaries are unchanged; late
+  message older than three days, or about 1 in 15,000 other keys. Sealing runs at the start of every retention
+  pass, also when every queue is kept forever: with Postgres the passes now run then too, deleting nothing
+  (they also create the coming days' partitions ahead of ingest, which they didn't before). Joins and summaries are unchanged; late
   settles still join their receive from any day. At 1M spans over 7 days, ingest touches 25 MB of lookup
   indexes instead of 92 MB. Upgrading a 1M-span database took 8 s. The effect at 4M–100M spans hasn't been
   measured.

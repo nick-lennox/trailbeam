@@ -292,7 +292,9 @@ docker run ... -e TRAILBEAM_RETENTION=14d -e TRAILBEAM_RETENTION_QUEUES=orders-d
 or `retention` under `[defaults]` and `[queues.<name>]` in the [configuration file](#configuration-file).
 
 A retention is a duration in `s`, `m`, `h` or `d` (`90m`, `36h`, `7d`), or `forever`.
-`TRAILBEAM_RETENTION=forever` with no per-queue overrides turns the purge off.
+`TRAILBEAM_RETENTION=forever` with no per-queue overrides turns the purge off: nothing is deleted. With
+Postgres the passes still run, every `--purge-interval`, to create the coming days' partitions and seal the
+older days' lookups ([sizing](#sizing-postgres)).
 
 **Messages are deleted whole, never in part.** A message is deleted once its *newest* span is older than
 the retention of its queue, so a timeline is either complete or gone. That has three consequences:
@@ -420,7 +422,9 @@ partitions. Set `max_connections` to that per replica plus your other clients. T
 
 More ingest connections help only while Postgres has CPU and disk to spare: exports that touch the same
 messages wait for each other anyway. A bigger read pool raises what the [lock table](#postgres-lock-table-max_locks_per_transaction)
-must hold (Trailbeam warns at start when it is short). They are for Postgres only: with SQLite, setting either
+must hold (Trailbeam warns at start when it is short). An export that must search older days' lookups (a late
+settle, a message older than three days) borrows a read connection for it while holding its ingest connection,
+so pages and API reads filling the read pool can hold such exports up. They are for Postgres only: with SQLite, setting either
 stops the server with an error. Every connection runs with
 `statement_timeout = 60s`. An export that waits longer than `TRAILBEAM_INGEST_MAX_WAIT_S` (2 s by default) for a free
 ingest connection is answered `503` with `Retry-After`, as one waiting for SQLite's writer is
@@ -495,7 +499,8 @@ with `shared_buffers = 1GB`:
   3.3 MB per million spans of history, measured at 1M), which each replica keeps in memory. An older day's
   partition is read only for the rare keys the filter can't rule out, such as a late settle or a false
   positive (about 1 in 15,000 keys). At 1M spans over 7 days, ingest touches 25 MB of lookup indexes instead
-  of 92 MB. So give Postgres enough memory for the last three days' indexes, not for all of history. We
+  of 92 MB. So give Postgres enough memory for the last three days' indexes, not for all of history. This holds with
+  `forever` retention too: retention's passes seal the older days whether or not anything expires. We
   haven't re-run the 4M–7M measurement with this change, so its effect at scale is **not measured**, and the
   100M figure stays an estimate: 12–16 GB, from before this change.
 - **Commit latency adds to export latency.** An export keeps its locks on the messages it touches until it

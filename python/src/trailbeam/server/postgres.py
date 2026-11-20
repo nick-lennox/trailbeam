@@ -74,7 +74,7 @@ old place not sealed yet (before the next retention pass) is read for every key,
 lookup stops at its *home*, the place of its summary row, whose ``strays_json`` names every other place with
 spans of it; pages note the home of each message they list, so its summary is read without a lookup.
 
-Retention's pass seals the places past the hot ones (``_seal_due``): it marks them, so that a lookup row written
+Retention's pass seals the places past the hot ones (``maintain``, also when every queue is kept forever): it marks them, so that a lookup row written
 to one from then on (a late span) also goes to the late tables, which every lookup reads; adds their keys to the
 filter, or builds it anew, larger, once it would hold more than its capacity (which also drops the keys of
 places gone); and stores it as the next version. Each replica loads the newest at start and every
@@ -630,7 +630,7 @@ class PostgresStore(Store):
                             JOIN places p ON p.rclass = n.rclass AND p.bucket = n.bucket AND p.sealed_in IS NOT NULL
                             ON CONFLICT DO NOTHING""", [[r[k] for r in rows] for k in range(4)])
 
-    # Sealing: the replica holding the retention lease, at the start of each pass.
+    # Sealing: the replica holding the retention lease, at the start of each pass (maintain).
 
     FILTER_CHUNK_BYTES = 4 << 20  # bytes of the filter per lookup_filter row
     FILTER_CHECK_S = 30.0         # how often a replica looks for a newer filter than it has
@@ -1250,6 +1250,21 @@ class PostgresStore(Store):
             if self._lease is not None:
                 self._drop_lease_conn()  # closing the session releases the lock
 
+    maintains = True
+
+    def maintain(self) -> None:
+        """Store.maintain, at the start of every retention pass, also when every queue is kept forever: on the
+        replica holding the retention lease, create the next places ("New places") and seal the places past the
+        hot ones ("Lookups"). Sealing is what keeps an export from reading every old place, so it must not wait
+        for something to expire."""
+        if not self.holds_retention_lease():
+            return
+        self._precreate()
+        try:
+            self._seal_due()
+        except psycopg.Error as e:  # lookups stay exact unsealed, only slower: the next pass tries again
+            log.warning("retention: could not seal the older places' lookups: %s", e)
+
     def purge_step(self, cutoffs: Cutoffs, resume: Optional[str] = None, limit: int = 100) -> PurgeStep:
         """Store.purge_step, by place (module docstring). ``resume``: ``<bucket>:<rclass>`` of the next place to
         look at, and for a sweep in progress ``:<last_ns>:<mid>`` of the last message it looked at. Only on the
@@ -1258,11 +1273,6 @@ class PostgresStore(Store):
         if not self.holds_retention_lease():
             return PurgeStep(0, 0, None)
         if resume is None:
-            self._precreate()
-            try:
-                self._seal_due()
-            except psycopg.Error as e:  # lookups stay exact unsealed, only slower: the next pass tries again
-                log.warning("retention: could not seal the older places' lookups: %s", e)
             start, sweep_after = (-(2 ** 63), -(2 ** 63)), None
         else:
             parts = resume.split(":", 3)

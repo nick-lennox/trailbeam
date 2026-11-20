@@ -1093,7 +1093,8 @@ def _sealed(s) -> dict:
 
 
 def _pass(s, cutoffs=None) -> None:
-    """One whole retention pass (it seals first); by default one that deletes nothing."""
+    """One whole retention pass (its upkeep seals first); by default one that deletes nothing."""
+    s.maintain()
     resume = None
     while True:
         resume = s.purge_step(cutoffs or Cutoffs(None), resume).resume
@@ -1217,6 +1218,50 @@ def test_new_messages_read_no_sealed_place(pg_store):
     rows = s.message_rows("late")
     assert [r["kind"] for r in rows] == ["send", "receive", "delete"] and rows[2]["receive_row"] == rows[1]["row"]
     assert [r["kind"] for r in s.message_rows("fresh-2")] == ["send", "receive", "delete"]
+
+
+@needs_pg
+def test_forever_retention_still_seals_the_old_places(pg_store):
+    """Every queue kept forever: nothing expires, but the background purge still runs its passes (store upkeep),
+    and they seal the places past the hot ones. Then an export of new messages reads no sealed place, as with a
+    retention that deletes."""
+    from trailbeam.server.retention import Purger, Retention
+
+    r = Retention(None)
+    s = pg_store(bucket_ns=SEC, retention=r)
+    _history(s, 40)
+    old = [p for p in _sealed(s) if p[1] < s._hot_from()]
+    assert len(old) >= 40 and not any(_sealed(s)[p] for p in old)
+    p = Purger(s, r, interval_s=3600, pause_s=0)
+    p.start()
+    try:
+        assert p._thread is not None, "a store with upkeep gets passes even when everything is kept"
+        deadline = time.monotonic() + 30
+        while p.passes == 0 and time.monotonic() < deadline:
+            time.sleep(0.05)
+    finally:
+        p.stop()
+    assert p.passes >= 1 and p.last_pass["deleted_spans"] == 0
+    sealed = _sealed(s)
+    assert all(sealed[q] for q in old)
+    walks = []
+    connection = s.reads.connection
+
+    @contextlib.contextmanager
+    def counted(*a, **kw):
+        walks.append(1)
+        with connection(*a, **kw) as c:
+            yield c
+    s.reads.connection = counted
+    try:
+        w = Consumer()
+        t = time.time_ns()
+        s.insert(records([w.send(t, "fresh-1"), w.receive(t + 1, "fresh-1", "h-fresh-1"),
+                          w.delete(t + 2, "h-fresh-1")]))
+        assert walks == []
+    finally:
+        s.reads.connection = connection
+    assert s.message_rows("old-0") and s.message_rows("late")  # kept forever
 
 
 @needs_pg

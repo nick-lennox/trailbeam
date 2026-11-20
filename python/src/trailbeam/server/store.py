@@ -148,6 +148,13 @@ class Store(abc.ABC):
         Spans that change a message between steps are taken into account: a step deletes a message only if it
         is still expired in the write. ``resume`` is opaque to the caller."""
 
+    #: True: ``maintain`` does work, so the purge runs its passes even when every queue is kept forever.
+    maintains = False
+
+    def maintain(self) -> None:
+        """Housekeeping retention's pass does first, whether or not anything can expire (so also when every
+        queue is kept forever). Raises on failure; the pass logs it and goes on. Default: nothing."""
+
     def reclaim_space(self, max_pages: int) -> int:
         """Give up to ``max_pages`` of the space deleted spans left back to the file system. Returns the pages
         given back; 0 when there are none, or the backend reclaims space by itself."""
