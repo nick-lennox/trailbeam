@@ -292,7 +292,9 @@ docker run ... -e TRAILBEAM_RETENTION=14d -e TRAILBEAM_RETENTION_QUEUES=orders-d
 or `retention` under `[defaults]` and `[queues.<name>]` in the [configuration file](#configuration-file).
 
 A retention is a duration in `s`, `m`, `h` or `d` (`90m`, `36h`, `7d`), or `forever`.
-`TRAILBEAM_RETENTION=forever` with no per-queue overrides turns the purge off.
+`TRAILBEAM_RETENTION=forever` with no per-queue overrides turns the purge off: nothing is deleted. With
+Postgres the passes still run, every `--purge-interval`, to create the coming days' partitions and seal the
+older days' lookups ([sizing](#sizing-postgres)).
 
 **Messages are deleted whole, never in part.** A message is deleted once its *newest* span is older than
 the retention of its queue, so a timeline is either complete or gone. That has three consequences:
@@ -420,7 +422,9 @@ partitions. Set `max_connections` to that per replica plus your other clients. T
 
 More ingest connections help only while Postgres has CPU and disk to spare: exports that touch the same
 messages wait for each other anyway. A bigger read pool raises what the [lock table](#postgres-lock-table-max_locks_per_transaction)
-must hold (Trailbeam warns at start when it is short). They are for Postgres only: with SQLite, setting either
+must hold (Trailbeam warns at start when it is short). An export that must search older days' lookups (a late
+settle, a message older than three days) borrows a read connection for it while holding its ingest connection,
+so pages and API reads filling the read pool can hold such exports up. They are for Postgres only: with SQLite, setting either
 stops the server with an error. Every connection runs with
 `statement_timeout = 60s`. An export that waits longer than `TRAILBEAM_INGEST_MAX_WAIT_S` (2 s by default) for a free
 ingest connection is answered `503` with `Retry-After`, as one waiting for SQLite's writer is
@@ -484,12 +488,21 @@ with `shared_buffers = 1GB`:
 - **Disk: about 2.8 GB per million spans**, with 1 KB bodies stored on 5 of 50 queues, plus the WAL
   (`max_wal_size`). With `7d` retention a message is kept 7 to 8 days, so plan for 8 days of your average
   ingest, plus room for one more day. For example, 100 spans/s on average is about 70M spans, or about 200 GB.
-- **RAM is the first limit.** Ingest writes at random index positions in today's partition and in two lookup
-  tables that aren't partitioned (`hash_places` and `mid_places`, which grow with everything stored: about
-  90 MB of index per million spans). While those indexes stay in memory, ingest is fast. At about 1M spans this
-  machine held 6,000 spans/s with export p99 630 ms. At 4M, where they no longer stayed cached here, 2,000
-  spans/s had p99 1.7 s, and at 7M it didn't hold 2,000 spans/s. Give Postgres enough memory for today's
-  indexes and those two tables. For 100M spans that's an estimate of 12–16 GB, not measured.
+- **RAM is the first limit.** Ingest writes at random index positions in today's partitions. Before this
+  version it also wrote to two lookup tables that weren't partitioned (`hash_places` and `mid_places`, about
+  90 MB of index per million spans, growing with everything stored). That was the likely cause of the falloff
+  measured here: at about 1M spans this machine held 6,000 spans/s with export p99 630 ms; at 4M, where those
+  indexes no longer stayed cached, 2,000 spans/s had p99 1.7 s, and at 7M it didn't hold 2,000 spans/s.
+- **The lookup tables are now time-bucketed** (Postgres schema 5). They are partitioned by day like the spans,
+  and dropped with them by retention. Only the last three days' partitions are written to and searched for
+  every export. Older days are *sealed*: their keys go into a compact filter, about 2.5 bytes per key (about
+  3.3 MB per million spans of history, measured at 1M), which each replica keeps in memory. An older day's
+  partition is read only for the rare keys the filter can't rule out, such as a late settle or a false
+  positive (about 1 in 15,000 keys). At 1M spans over 7 days, ingest touches 25 MB of lookup indexes instead
+  of 92 MB. So give Postgres enough memory for the last three days' indexes, not for all of history. This holds with
+  `forever` retention too: retention's passes seal the older days whether or not anything expires. We
+  haven't re-run the 4M–7M measurement with this change, so its effect at scale is **not measured**, and the
+  100M figure stays an estimate: 12–16 GB, from before this change.
 - **Commit latency adds to export latency.** An export keeps its locks on the messages it touches until it
   commits, so a slow WAL flush holds up the exports behind it. Put the database on storage with a fast
   fsync: local NVMe, EBS gp3, or a managed service's SSD.
@@ -544,7 +557,10 @@ can't run on the upgraded database either: to go back, restore a backup taken be
 checks the version when it starts. So when a release changes the Postgres schema, stop every replica before you
 start the new version, unless that release's notes say a rolling upgrade is safe ([CHANGELOG](CHANGELOG.md)
 says which releases change it). An older replica still running would store spans the new schema doesn't index.
-This version upgrades a 0.2.0 database to Postgres schema 4: stop every 0.2.0 replica first.
+This version upgrades a 0.3.0 (or 0.2.0) database to Postgres schema 5: stop every older replica first. Schema 5
+partitions the two lookup tables, one day at a time: 8 s for a database of 1M spans on our test machine, and
+about as long again per further million (an estimate). The first retention pass after it then seals the older
+days (4.5 s at 1M).
 
 **Postgres.** For a minor version, use your package manager's or provider's update. While the database restarts,
 `/api/ready` answers `503` and exports are answered `503` with `Retry-After`, so exporters send them again. For a
@@ -565,7 +581,7 @@ Exports and reads of one message lock only the partitions that hold its spans. P
 which walk across all of time), `/api/health` and the counts read 8 partitions per statement, each statement in
 its own transaction. So what this store locks at once doesn't grow with the number of partitions, and the stock
 setting (64) is enough for one replica with the default read pool (8 connections), however long the retention.
-Trailbeam still works it out, counting every table and index of 8 partitions (24 each) for every read connection,
+Trailbeam still works it out, counting every table and index of 8 partitions (31 each) for every read connection,
 so the value is an upper bound. At start, and as partitions are added (at most once an hour), it logs a warning
 when the server is short, with the value to set:
 

@@ -113,6 +113,29 @@ def test_forever_everywhere_never_deletes(db, ingest):
     assert mids(db) == {"m1"}
 
 
+def test_a_store_with_upkeep_gets_passes_even_when_everything_is_kept(db, ingest):
+    """Store.maintain runs at the start of every pass, also when nothing can expire; a store that needs it
+    (Postgres seals its older lookups) gets the background passes then too, deleting nothing. One whose
+    upkeep fails still finishes the pass."""
+    ingest(*message("m1", T0))
+    calls = []
+    db.maintains = True
+    db.maintain = lambda: calls.append(1)
+    p = Purger(db, Retention(None), now=lambda: T0 + 1000 * DAY * SEC, interval_s=3600, pause_s=0)
+    assert p.run_pass()["deleted_spans"] == 0 and calls == [1]
+    p.start()
+    deadline = time.monotonic() + 10
+    while p.passes < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    p.stop()
+    assert p._thread is not None and calls == [1, 1] and mids(db) == {"m1"}
+
+    def fails():
+        raise RuntimeError("database gone")
+    db.maintain = fails
+    assert not Purger(db, Retention(None)).run_pass()["stopped"]
+
+
 def test_the_background_purge_runs_at_start_and_stops(db, ingest):
     ingest(*message("old", T0))
     p = Purger(db, Retention(DAY), now=lambda: T0 + 2 * DAY * SEC, interval_s=3600, pause_s=0)

@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- **Postgres: the lookup tables are time-bucketed (schema 5).** `mid_places` and `hash_places` are partitioned
+  by day like the spans, so ingest writes only to recent partitions and retention drops them whole (before, it
+  deleted their rows in batches). Older days are sealed into a Bloom filter, about 2.5 bytes per key, kept by
+  each replica. A lookup reads an older day only for the keys the filter can't rule out: a late settle, a
+  message older than three days, or about 1 in 15,000 other keys. Sealing runs at the start of every retention
+  pass, also when every queue is kept forever: with Postgres the passes now run then too, deleting nothing
+  (they also create the coming days' partitions ahead of ingest, which they didn't before). Joins and summaries are unchanged; late
+  settles still join their receive from any day. At 1M spans over 7 days, ingest touches 25 MB of lookup
+  indexes instead of 92 MB. Upgrading a 1M-span database took 8 s. The effect at 4M–100M spans hasn't been
+  measured.
+
+### Upgrading from 0.3.0 (Postgres)
+
+**Stop every 0.3.0 replica, then start the new version.** At start the server upgrades the database from
+Postgres schema 4 to 5, one day partition at a time: it copies each day's lookup rows into that day's new
+partitions, then drops the old tables. On our test machine that took 8 s for 1M spans, and the first
+retention pass after it sealed the 5 older days into the filter (4.5 s). A 0.3.0 replica left running would
+write lookup rows the filter doesn't know about, so don't run 0.3.0 and this version against one database at
+the same time. Once the database is at schema 5, a 0.3.0 server refuses to start on it. If the upgrade is
+stopped part way, the next start runs it again; rows already copied are left as they are. A database at an older schema (from
+0.2.0) goes through schema 4 first, as the 0.3.0 notes describe. SQLite files are unchanged.
+
 ## 0.3.0: Postgres for teams that outgrow SQLite
 
 The first published release: `pip install trailbeam`, `npm install trailbeam`, and the container image

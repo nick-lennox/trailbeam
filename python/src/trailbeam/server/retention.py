@@ -19,7 +19,8 @@ writer lock at most a quarter of the time. Deleting costs about what inserting d
 message at 1M spans, nearly all of it the commit writing index pages), so a purge without that limit took two
 thirds of the writer and ingest at 1,000 spans/s fell behind until exports timed out. After a pass it gives the
 freed space back to the file system in small pieces too (``Store.reclaim_space``; only on files with
-incremental vacuum, see db.py).
+incremental vacuum, see db.py). Each pass first runs ``Store.maintain`` (Postgres: create the next partitions
+and seal the older days' lookups), so a store that needs it gets passes even when every queue is kept forever.
 """
 from __future__ import annotations
 
@@ -140,6 +141,12 @@ class Purger:
         with self._lock:
             self._running = res
         try:
+            s0 = time.monotonic()
+            try:
+                self.store.maintain()
+            except Exception:  # e.g. the database went away: the purge below fails the same way, or goes on
+                log.exception("retention: store maintenance failed")
+            res["maintain_ms"] = round((time.monotonic() - s0) * 1000, 1)
             if not cutoffs.keeps_everything():
                 resume = None
                 while True:
@@ -187,8 +194,10 @@ class Purger:
 
     def start(self) -> None:
         if self.retention.keeps_everything():
-            log.info("retention: every queue is kept forever, no purge")
-            return
+            if not self.store.maintains:
+                log.info("retention: every queue is kept forever, no purge")
+                return
+            log.info("retention: every queue is kept forever, no purge; passes still do the store's upkeep")
         self._thread = threading.Thread(target=self._loop, name="trailbeam-retention", daemon=True)
         self._thread.start()
 
