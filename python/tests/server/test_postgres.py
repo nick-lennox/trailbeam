@@ -80,6 +80,27 @@ def test_store_url_is_checked_and_its_password_kept_out_of_logs():
         open_store("mysql://x:pw@db/tb", "", store_bodies=frozenset(), retention=Retention())
 
 
+
+@needs_pg
+def test_pool_sizes_reach_the_store():
+    """QV-127 (3c): --pg-ingest-connections and --pg-read-connections size the pools; unset, 4 and 8."""
+    sys.path.insert(0, str(ROOT / "tests" / "conformance"))
+    from pg_helpers import drop_schema, new_schema
+    from trailbeam.server.__main__ import open_store
+
+    for given, want in (((None, None), (4, 8)), ((2, 11), (2, 11))):
+        conninfo = new_schema()
+        schema = conninfo.split("search_path=")[1].split()[0].strip("'")
+        url = PG + ("&" if "?" in PG else "?") + "options=-csearch_path%3D" + schema  # a URL, as the server takes
+        s = open_store(url, "", store_bodies=frozenset(), retention=Retention(), ingest_connections=given[0],
+                       read_connections=given[1])
+        try:
+            assert (s.ingest.max_size, s.reads.max_size) == want
+            assert s.lock_need is None or s.lock_need.connections == want[1]
+        finally:
+            s.close()
+            drop_schema(conninfo)
+
 # ---- with a database ---------------------------------------------------------------------------------
 
 @pytest.fixture
