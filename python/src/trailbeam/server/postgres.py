@@ -187,6 +187,7 @@ class PostgresStore(Store):
     INGEST_ATTEMPTS = 50
     DDL_LOCK_TIMEOUT_MS = 1_000  # the longest a partition's DDL waits for its lock ("New places")
     DDL_ATTEMPTS = 3             # tries an export makes at a missing place's DDL before it is answered busy
+    PLACE_WAIT_S = 10.0          # the longest an export waits for this replica's other place creation (QV-121)
     PRECREATE_AHEAD = 2          # buckets after the current one that a retention pass creates
     ANALYZE_AFTER_SPANS = 1_000  # spans this replica writes to a never-analysed place before it analyses it
     cancels_abandoned_exports = True
@@ -261,29 +262,47 @@ class PostgresStore(Store):
     def bucket(self, time_ns: int) -> int:
         return int(time_ns) // self.bucket_ns
 
-    def _ensure_places(self, places, wait_s: Optional[float] = None) -> None:
-        """Create the partitions of these places, outside any export's transaction (DDL locks the parent). Each
+    def _ensure_places(self, places, wait_s: Optional[float] = None, attempts: int = 1) -> None:
+        """Create the partitions of these places that aren't there yet, outside any export's transaction (DDL
+        locks the parent). One creation at a time in this replica: an export that waited for another's makes
+        only the places still missing, often none (exports of the same moment need the same places). Each
         statement waits at most DDL_LOCK_TIMEOUT_MS for its locks: errors.LockNotAvailable past it, with the
-        places made so far kept. ``wait_s``: the longest to wait for this replica's other place creation
-        (TimeoutError past it); None, as long as it takes."""
+        places made so far kept, after ``attempts`` tries. ``wait_s``: the longest to wait for this replica's
+        other place creation (TimeoutError past it); None, as long as it takes."""
         if not self._admin_lock.acquire(timeout=-1 if wait_s is None else wait_s):
             raise TimeoutError("another export of this replica is creating places")
         try:
-            self._create_places(places)
+            for attempt in range(attempts):
+                try:
+                    self._create_places(places)
+                    return
+                except errors.LockNotAvailable:
+                    if attempt == attempts - 1:
+                        raise
         finally:
             self._admin_lock.release()
 
     def _create_places(self, places) -> None:
         with psycopg.connect(self.url, autocommit=True) as c:
             c.execute(f"SET lock_timeout = {int(self.DDL_LOCK_TIMEOUT_MS)}")
+            places = set(places)
+            # a place's row is written once all its partitions are attached: those are done (by another export
+            # of this replica, or another replica)
+            places -= {(r[0], r[1]) for r in c.execute(
+                "SELECT rclass, bucket FROM places"
+                " WHERE (rclass, bucket) IN (SELECT * FROM unnest(%s::bigint[], %s::bigint[]))",
+                ([p[0] for p in places], [p[1] for p in places]))}
             for rclass, bucket in sorted(places):
                 for table, name, create, attach in pg_schema.place_ddl(rclass, bucket):
                     if self._is_partition(c, table, name):
                         continue
                     try:
                         c.execute(create)
-                    except (errors.UniqueViolation, errors.DuplicateTable):
-                        pass  # another server made it at the same moment
+                    except (errors.UniqueViolation, errors.DuplicateTable, errors.DuplicateObject):
+                        # another server made it at the same moment: IF NOT EXISTS checks before it inserts, so the
+                        # second of two concurrent creates fails on the catalogs' unique indexes instead, often the
+                        # table's row type in pg_type ("type ... already exists": DuplicateObject) (QV-121)
+                        pass
                     try:
                         c.execute(attach)
                     except errors.WrongObjectType:
@@ -628,13 +647,19 @@ class PostgresStore(Store):
     def _ensure_places_for_ingest(self, places) -> None:
         """An export's missing places, tried DDL_ATTEMPTS times ("New places"). Still not made: other DDL (or
         an ANALYZE of a parent) holds a lock that attaching needs. Answer busy (WriterBusy: 503), nothing
-        stored; the exporter sends it again."""
-        for attempt in range(self.DDL_ATTEMPTS):
-            try:
-                self._ensure_places(places, wait_s=2 * self.DDL_LOCK_TIMEOUT_MS / 1000)
-                return
-            except (errors.LockNotAvailable, TimeoutError):
-                pass
+        stored; the exporter sends it again. Waiting for this replica's other exports' place creation is one
+        wait of at most PLACE_WAIT_S, not a try: those make the same places, a few hundred ms each, and with
+        many exports at once a try of its own each could time out without Postgres ever refusing a lock (QV-121)."""
+        try:
+            self._ensure_places(places, wait_s=self.PLACE_WAIT_S, attempts=self.DDL_ATTEMPTS)
+            return
+        except TimeoutError:
+            log.warning("ingest: this replica's other exports have been creating places for %g s; answering busy",
+                        self.PLACE_WAIT_S)
+            raise WriterBusy("could not create a new day's partitions now: this replica is busy creating others") \
+                from None
+        except errors.LockNotAvailable:
+            pass
         log.warning("ingest: could not create the partitions of %d new place(s) in %d tries of %d ms: another "
                     "transaction (a schema change?) holds a lock on the tables; answering busy",
                     len(places), self.DDL_ATTEMPTS, self.DDL_LOCK_TIMEOUT_MS)

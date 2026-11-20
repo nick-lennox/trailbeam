@@ -761,14 +761,18 @@ def test_partition_creation_does_not_hold_exports_behind_an_open_reader(pg_store
     with psycopg.connect(s.url) as reader:  # not autocommit: the transaction stays open
         reader.execute("BEGIN ISOLATION LEVEL REPEATABLE READ")
         reader.execute("SELECT COUNT(*) FROM spans").fetchone()
-        t0 = time.monotonic()
+        # The reader stays open until after these, so DDL that waited on it would wait out DDL_LOCK_TIMEOUT_MS
+        # and fail: the places wouldn't be there and the export needing one would be answered busy. No wall-clock
+        # bound: a loaded CI runner can take seconds over these without anything waiting on the reader (QV-121).
         s._precreate()
         assert ahead <= _partitions(s)
-        t = time.monotonic()
         assert s.insert(records([w.send(D0 + 5 * DAY, "needs-a-place")])) == (1, 0)
         assert s.insert(records([w.send(D0 + SEC, "existing-1")])) == (1, 0)
-        assert time.monotonic() - t0 < 3
         reader.rollback()
+
+    # A DDL lock timeout far longer than an export takes, even on a loaded runner: an export that queued behind
+    # the waiting ATTACH would wait it out (at least 4.7 s here), one that didn't takes well under a second.
+    s.DDL_LOCK_TIMEOUT_MS, s.DDL_ATTEMPTS = 5_000, 2
 
     with psycopg.connect(s.url) as holder:  # as a schema change or a manual ANALYZE of the parent would
         holder.execute("BEGIN")
@@ -785,11 +789,11 @@ def test_partition_creation_does_not_hold_exports_behind_an_open_reader(pg_store
             t = time.monotonic()
             assert s.insert(records([w.send(D0 + i * SEC, f"existing-{i}")])) == (1, 0)
             held.append(time.monotonic() - t)
-        th.join(timeout=10)
+        th.join(timeout=30)
         assert not th.is_alive()
         assert isinstance(new_place[0][0], WriterBusy), new_place
-        assert new_place[0][1] < s.DDL_ATTEMPTS * s.DDL_LOCK_TIMEOUT_MS / 1000 + 2, new_place
-        assert max(held) < 1.5, held
+        assert new_place[0][1] < s.DDL_ATTEMPTS * s.DDL_LOCK_TIMEOUT_MS / 1000 + 5, new_place
+        assert max(held) < 4, held  # not behind the ATTACH (>= DDL_LOCK_TIMEOUT_MS - 0.3 s)
         assert s.message_rows("busy") == []
         holder.rollback()
     assert s.insert(records([w.send(D0 + 9 * DAY, "busy")])) == (1, 0)

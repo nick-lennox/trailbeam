@@ -19,6 +19,11 @@
   a read transaction open for 25 s made exports wait 24 s. Attaching still waits at most 1 second for a schema
   change running at the same time; an export that needs a partition that can't be created then tries 3 times,
   then is answered `503` with `Retry-After`.
+- **Postgres: replicas creating the same new partition at the same moment no longer fail the export.** The
+  replica that lost the race got `type "…" already exists` and answered `500`. And when many exports on one
+  replica needed new partitions at once, each waited at most 2 seconds for the others, 3 times, and was then
+  answered `503` even though Postgres had refused nothing. Now an export waits once, up to 10 seconds, for the
+  replica's other exports, and then creates only the partitions that are still missing (usually none).
 - **Postgres: a new day's partition is analyzed once a replica has written 1,000 spans to it.** Until then
   Postgres has no statistics for it and plans it as empty. On a 200,000-row partition, that made the
   receipt-hash update take 55–68 ms instead of 0.6 ms.
