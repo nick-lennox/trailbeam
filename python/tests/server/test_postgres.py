@@ -890,3 +890,36 @@ def test_partition_creation_does_not_hold_exports_behind_an_open_reader(pg_store
     assert s.insert(records([w.send(D0 + 9 * DAY, "busy")])) == (1, 0)
     assert len(s.message_rows("needs-a-place")) == 1 and len(s.message_rows("busy")) == 1
     assert len(s.recent_messages(10)) == 7
+
+
+@needs_pg
+def test_replicas_creating_the_same_place_at_once_all_go_on(pg_store):
+    """Several replicas need the same new place at the same moment. Without the place's advisory lock, CREATE
+    TABLE IF NOT EXISTS races: the loser fails on the table's row type in pg_type ("type ... already exists",
+    DuplicateObject), or ATTACHes what the other attached and waits behind its exports. With it, one makes the
+    place, the others wait for it and find it made: every replica's export goes on."""
+    from trailbeam.server.postgres import PostgresStore
+
+    s = pg_store()
+    replicas = [s] + [PostgresStore(s.url) for _ in range(3)]
+    try:
+        for k in range(30):
+            bucket = s.bucket(D0) + 100 + k
+            go, errs = threading.Barrier(len(replicas)), []
+
+            def make(r):
+                go.wait()
+                try:
+                    r._ensure_places_for_ingest({(0, bucket)})
+                except Exception as e:  # noqa: BLE001 - the test reports whatever a replica raised
+                    errs.append(e)
+            ts = [threading.Thread(target=make, args=(r,)) for r in replicas]
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join()
+            assert errs == []
+            assert f"spans_p0_{bucket}" in _partitions(s)
+    finally:
+        for r in replicas[1:]:
+            r.close()

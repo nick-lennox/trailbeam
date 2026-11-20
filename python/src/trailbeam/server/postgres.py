@@ -69,7 +69,10 @@ open transaction that has read it (a ``pg_dump`` for its whole run, and every ru
 queues behind the request, which with the exports' message locks can form a cycle. So a place's partitions are
 made as tables of their own and then attached (``pg_schema.place_ddl``), which locks the parent SHARE UPDATE
 EXCLUSIVE, conflicting only with other DDL and ANALYZE of the parent. That still waits at most
-``DDL_LOCK_TIMEOUT_MS``. Retention's pass creates the places of today and the next ``PRECREATE_AHEAD``
+``DDL_LOCK_TIMEOUT_MS``. Places are made by one connection at a time, of any replica, under a session advisory
+lock: ATTACHes to one parent wait for each other anyway, and the exports that need a new place at the same
+moment queue there for up to ``PLACE_WAIT_MS``, not each with ``DDL_LOCK_TIMEOUT_MS``, and find made what the
+others made. Retention's pass creates the places of today and the next ``PRECREATE_AHEAD``
 buckets, so a pass that can't is retried at the next one long before the place is needed; an export that needs
 a place that isn't there (a span more than that late or early) and can't create it in ``DDL_ATTEMPTS`` tries
 is answered busy (WriterBusy: 503 with Retry-After), nothing stored. A new place's partitions also have no planner statistics
@@ -203,6 +206,7 @@ class PostgresStore(Store):
 
     INGEST_ATTEMPTS = 50
     DDL_LOCK_TIMEOUT_MS = 1_000  # the longest a partition's DDL waits for its lock ("New places")
+    PLACE_WAIT_MS = 5_000        # the longest to wait while another connection makes places ("New places")
     DDL_ATTEMPTS = 3             # tries an export makes at a missing place's DDL before it is answered busy
     PRECREATE_AHEAD = 2          # buckets after the current one that a retention pass creates
     ANALYZE_AFTER_SPANS = 1_000  # spans this replica writes to a never-analysed place before it analyses it
@@ -226,7 +230,9 @@ class PostgresStore(Store):
             self.server_version = c.info.server_version
             self._check_locks(c)
             # the retention lease's advisory lock key: one per schema, so two Trailbeams in one database don't share it
-            self._lease_key = _key("retention lease:" + c.execute("SELECT current_schema()").fetchone()[0])
+            schema = c.execute("SELECT current_schema()").fetchone()[0]
+            self._lease_key = _key("retention lease:" + schema)
+            self._places_key = _key("places:" + schema)  # held while a connection makes places ("New places")
 
         def ingest_conf(conn):
             conn.execute(f"SET statement_timeout = {int(statement_timeout_ms)}")
@@ -243,7 +249,6 @@ class PostgresStore(Store):
                                                   configure=ingest_conf, name="trailbeam-ingest", open=True)
         self.reads = psycopg_pool.ConnectionPool(url, min_size=1, max_size=read_connections, kwargs=kw,
                                                  configure=read_conf, name="trailbeam-read", open=True)
-        self._admin_lock = threading.Lock()
         self._known_queues: set = set()      # (rclass, bucket, queue) rows of place_queues written
         self._written: Counter = Counter()   # place -> spans written, until it is analysed or known to be
         self._analysed: set = set()          # places whose partitions have statistics (or were just analysed)
@@ -278,36 +283,58 @@ class PostgresStore(Store):
     def bucket(self, time_ns: int) -> int:
         return int(time_ns) // self.bucket_ns
 
-    def _ensure_places(self, places, wait_s: Optional[float] = None) -> None:
+    def _ensure_places(self, places) -> None:
         """Create the partitions of these places, outside any export's transaction (DDL locks the parent). Each
-        statement waits at most DDL_LOCK_TIMEOUT_MS for its locks: errors.LockNotAvailable past it, with the
-        places made so far kept. ``wait_s``: the longest to wait for this replica's other place creation
-        (TimeoutError past it); None, as long as it takes."""
-        if not self._admin_lock.acquire(timeout=-1 if wait_s is None else wait_s):
-            raise TimeoutError("another export of this replica is creating places")
-        try:
-            self._create_places(places)
-        finally:
-            self._admin_lock.release()
+        statement waits at most DDL_LOCK_TIMEOUT_MS for its locks, and all of it at most PLACE_WAIT_MS for another
+        connection (of this replica or another) that is making places: errors.LockNotAvailable past either, with
+        the places made so far kept."""
+        self._create_places(places)
 
     def _create_places(self, places) -> None:
         with psycopg.connect(self.url, autocommit=True) as c:
+            # One connection, of any replica, makes places at a time: ATTACH locks the parent against other
+            # ATTACHes anyway, and the many that need one new place at once would queue there, each with only
+            # DDL_LOCK_TIMEOUT_MS. Here they wait up to PLACE_WAIT_MS, and stop waiting once others have made
+            # all their places. Without it, the one that loses a race fails CREATE on the table's row type in
+            # pg_type (IF NOT EXISTS doesn't cover a race) or ATTACHes what the other attached, behind the
+            # exports writing to it.
             c.execute(f"SET lock_timeout = {int(self.DDL_LOCK_TIMEOUT_MS)}")
-            for rclass, bucket in sorted(places):
-                for table, name, create, attach in pg_schema.place_ddl(rclass, bucket):
-                    if self._is_partition(c, table, name):
-                        continue
-                    try:
-                        c.execute(create)
-                    except (errors.UniqueViolation, errors.DuplicateTable):
-                        pass  # another server made it at the same moment
-                    try:
-                        c.execute(attach)
-                    except errors.WrongObjectType:
-                        pass  # another server attached it at the same moment ("is already a partition")
-                c.execute("INSERT INTO places (rclass, bucket) VALUES (%s, %s) ON CONFLICT DO NOTHING",
-                          (rclass, bucket))
+            places = sorted(places)
+            deadline = time.monotonic() + self.PLACE_WAIT_MS / 1000
+            while not c.execute("SELECT pg_try_advisory_lock(%s)", (self._places_key,)).fetchone()[0]:
+                if self._places_made(c, places):
+                    return
+                if time.monotonic() > deadline:
+                    raise errors.LockNotAvailable(
+                        f"another connection was making places for {self.PLACE_WAIT_MS} ms")
+                time.sleep(0.02)
+            try:
+                for rclass, bucket in places:
+                    for table, name, create, attach in pg_schema.place_ddl(rclass, bucket):
+                        if self._is_partition(c, table, name):
+                            continue
+                        try:
+                            c.execute(create)
+                        except (errors.UniqueViolation, errors.DuplicateTable, errors.DuplicateObject):
+                            pass  # a replica without the lock above (an older one) made it at the same moment
+                        try:
+                            c.execute(attach)
+                        except errors.WrongObjectType:
+                            pass  # ... or attached it ("is already a partition")
+                    c.execute("INSERT INTO places (rclass, bucket) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                              (rclass, bucket))
+            finally:
+                with contextlib.suppress(psycopg.Error):  # a lost session has released it; keep the error
+                    c.execute("SELECT pg_advisory_unlock(%s)", (self._places_key,))
             self._check_locks(c, throttle_s=self.LOCK_WARNING_INTERVAL_S)
+
+    @staticmethod
+    def _places_made(c, places: list) -> bool:
+        """Whether every one of these places is in ``places``: its row is written once all its partitions are."""
+        return c.execute(
+            """SELECT count(*) FROM places p JOIN unnest(%s::bigint[], %s::bigint[]) AS w(rclass, bucket)
+                 ON (p.rclass, p.bucket) = (w.rclass, w.bucket)""",
+            ([r for r, _ in places], [b for _, b in places])).fetchone()[0] == len(places)
 
     @staticmethod
     def _is_partition(c, table: str, name: str) -> bool:
@@ -648,9 +675,9 @@ class PostgresStore(Store):
         stored; the exporter sends it again."""
         for attempt in range(self.DDL_ATTEMPTS):
             try:
-                self._ensure_places(places, wait_s=2 * self.DDL_LOCK_TIMEOUT_MS / 1000)
+                self._ensure_places(places)
                 return
-            except (errors.LockNotAvailable, TimeoutError):
+            except errors.LockNotAvailable:
                 pass
         log.warning("ingest: could not create the partitions of %d new place(s) in %d tries of %d ms: another "
                     "transaction (a schema change?) holds a lock on the tables; answering busy",

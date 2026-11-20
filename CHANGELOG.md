@@ -25,7 +25,10 @@
   `pg_dump` can run at any time of day. Retention creates the partitions for today and the next two days. Before,
   a read transaction open for 25 s made exports wait 24 s. Attaching still waits at most 1 second for a schema
   change running at the same time; an export that needs a partition that can't be created then tries 3 times,
-  then is answered `503` with `Retry-After`.
+  then is answered `503` with `Retry-After`. Exports that need new partitions at the same moment, on one
+  replica or several, take turns, and one whose partitions another has made stops waiting. Before, the one that
+  lost the race could fail ("type ... already exists"), and under load one that waited more than 2 s for another
+  export of its replica was answered `503`.
 - **Postgres: a new day's partition is analyzed once a replica has written 1,000 spans to it.** Until then
   Postgres has no statistics for it and plans it as empty. On a 200,000-row partition, that made the
   receipt-hash update take 55–68 ms instead of 0.6 ms.
