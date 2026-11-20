@@ -189,19 +189,6 @@ TENANTS = json.loads((cases.FIXTURES / "tenants-expected.json").read_text())
 BODY_VIEWS = json.loads((cases.FIXTURES / "body-views.json").read_text())
 
 
-def rows_match(got: list, want: list, bound: float) -> bool:
-    """Tenants page rows as contract/tenants.md compares them: every field equal, except p95_in_queue_ms, which is
-    within ``bound`` (relative) of the expected exact nearest-rank value."""
-    if len(got) != len(want):
-        return False
-    for g, w in zip(got, want):
-        if {k: v for k, v in g.items() if k != "p95_in_queue_ms"} != {k: v for k, v in w.items() if k != "p95_in_queue_ms"}:
-            return False
-        a, b = g["p95_in_queue_ms"], w["p95_in_queue_ms"]
-        if (a is None) != (b is None) or (b is not None and abs(a - b) > bound * b):
-            return False
-    return True
-
 
 def test_tenants_match_the_shared_expected_outputs(new_store):
     s = load(new_store, "contract-3.2")
@@ -210,7 +197,7 @@ def test_tenants_match_the_shared_expected_outputs(new_store):
         got = queries.tenants(s, now, lt, case["from_ms"], case["to_ms"])
         assert {k: got[k] for k in ("total_sent", "untagged_sent")} == \
                {k: case[k] for k in ("total_sent", "untagged_sent")}, case["name"]
-        assert rows_match(got["rows"], case["rows"], TENANTS["p95_relative_error"]), case["name"]
+        assert cases.rows_match(got["rows"], case["rows"], TENANTS["p95_relative_error"]), case["name"]
     for case in TENANTS["filter"]:
         assert sorted(s.recent_messages(100, tenant=case["tenant"])) == case["message_ids"], case["tenant"]
     for case in TENANTS["search"]:

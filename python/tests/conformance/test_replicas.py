@@ -98,8 +98,9 @@ def test_tenants_match_the_shared_expected_outputs_across_replicas(replicas):
     now, lt = int(TENANTS["now_ns"]), TENANTS["lambda_timeout_s"]
     for case in TENANTS["stats"]:
         got = queries.tenants(s, now, lt, case["from_ms"], case["to_ms"])
-        assert {k: got[k] for k in ("total_sent", "untagged_sent", "rows")} == \
-               {k: case[k] for k in ("total_sent", "untagged_sent", "rows")}, case["name"]
+        assert {k: got[k] for k in ("total_sent", "untagged_sent")} == \
+               {k: case[k] for k in ("total_sent", "untagged_sent")}, case["name"]
+        assert cases.rows_match(got["rows"], case["rows"], TENANTS["p95_relative_error"]), case["name"]
     for case in TENANTS["filter"]:
         assert sorted(s.recent_messages(100, tenant=case["tenant"])) == case["message_ids"], case["tenant"]
     for case in TENANTS["search"]:

@@ -6,6 +6,7 @@ store, so the two give the same numbers on the same spans.
 """
 import base64
 import json
+import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -17,25 +18,15 @@ from trailbeam.server.db import Database
 from trailbeam.server.otlp import decode
 from trailbeam.server.server import App, ApiError
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "conformance"))
+from cases import rows_match  # noqa: E402
+
 FIXTURES = Path(__file__).resolve().parents[3] / "contract" / "fixtures"
 SPANS = json.loads((FIXTURES / "contract-3.2-spans.json").read_text())
 EXPECTED = json.loads((FIXTURES / "tenants-expected.json").read_text())
 NOW = int(EXPECTED["now_ns"])
 BOUND = EXPECTED["p95_relative_error"]
 
-
-def rows_match(got: list, want: list, bound: float) -> bool:
-    """Tenants page rows as contract/tenants.md compares them: every field equal, except p95_in_queue_ms, which is
-    within ``bound`` (relative) of the expected exact nearest-rank value."""
-    if len(got) != len(want):
-        return False
-    for g, w in zip(got, want):
-        if {k: v for k, v in g.items() if k != "p95_in_queue_ms"} != {k: v for k, v in w.items() if k != "p95_in_queue_ms"}:
-            return False
-        a, b = g["p95_in_queue_ms"], w["p95_in_queue_ms"]
-        if (a is None) != (b is None) or (b is not None and abs(a - b) > bound * b):
-            return False
-    return True
 
 
 @pytest.fixture

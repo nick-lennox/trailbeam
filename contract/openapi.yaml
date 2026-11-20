@@ -1519,7 +1519,7 @@ components:
               tenant: {type: string}
               sent: {type: integer, description: Messages the tenant sent in the window.}
               share: {type: number, description: '`sent` divided by `total_sent`.'}
-              p95_in_queue_ms: {type: [integer, 'null'], description: 'The 95th percentile of the time from send to first delivery, in milliseconds. Null when there was no first delivery.'}
+              p95_in_queue_ms: {type: [integer, 'null'], description: 'The 95th percentile of the time from send to first delivery, in milliseconds: within 1% of the nearest-rank value (contract/tenants.md). Null when there was no first delivery.'}
               first_deliveries: {type: integer, description: The first deliveries the percentile is computed from.}
               dead_lettered: {type: integer, description: Messages moved to a dead-letter queue in the window.}
     TenantSearch:

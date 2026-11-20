@@ -40,8 +40,9 @@ There is no cap: self-hosted Trailbeam read at most 2,000 messages until 0.2 and
 were more; it now counts every message and `capped` is always false. An implementation that still caps
 must set `capped` when it left messages out, and the page says so. Each message counts as its timeline
 says, by the usual rules (`timeline.py`, and the app's port of it). Self-hosted Trailbeam doesn't build
-the timelines for this page: it keeps what each message adds to it (`summary.py`) as spans arrive, and
-its tests check that against the timelines.
+the timelines for this page: it keeps what each message adds to it (`summary.py`) as spans arrive, adds
+that up per hour, queue and tenant (`rollup.py`), and its tests check both against the timelines and
+against adding up every message.
 
 **Which events count**, from each message's timeline. An event's time is its end time in whole
 milliseconds (nanoseconds divided by 1,000,000, rounded down). Only events whose time is in [`from`,
@@ -77,7 +78,7 @@ Each row:
 | `tenant` | the tenant |
 | `sent` | sends in the range whose message has this tenant |
 | `share` | `sent / total_sent`, or 0 when `total_sent` is 0 |
-| `p95_in_queue_ms` | nearest-rank p95 of the tenant's times in queue: sort them ascending, take the one at position ceil(0.95 × n), counting from 1. `null` when there are none |
+| `p95_in_queue_ms` | p95 of the tenant's times in queue, within 1% of the nearest-rank p95 (below). `null` when there are none |
 | `first_deliveries` | how many times in queue the p95 is over |
 | `dead_lettered` | distinct messages with this tenant that have a `moved_to_dead_letter_queue` event in the range |
 
@@ -86,6 +87,19 @@ code-point order.
 
 So a tenant appears when a message of theirs was sent, first delivered or dead-lettered in the range,
 even if it was sent before the range began. Its `sent` is then 0, and its share 0.
+
+**p95.** The nearest-rank p95 of n times in queue is the one at position ceil(0.95 × n), counting from 1,
+when they are sorted ascending. An implementation may return it exactly, or an estimate within 1% of it:
+a whole number of milliseconds, at most 1% above or below it (|returned − exact| ≤ 0.01 × exact). Every
+other field is exact.
+
+Self-hosted Trailbeam returns an estimate, so the page costs the same however much traffic its range
+covers. It keeps the times in queue as counts per bucket, which add up across hours and queues
+(a sketch, after DDSketch: Masson, Rim and Lee, VLDB 2019, <https://arxiv.org/abs/1908.10693>). Times
+up to 100 ms have a bucket each and come back exact. Above that, each bucket is about 1% wide and comes
+back as the whole number nearest its middle: at most 0.91% off. A p95 of 100 ms or less is therefore always
+exact. The same spans always give the same estimate, so the same range shows the same number on every
+request and on every replica.
 
 ## Tenant filter
 
@@ -116,4 +130,6 @@ are unbounded.
   implementation, since the fixture's spans are milliseconds apart).
 - `search`: suggestions for a text.
 
-Numbers are compared exactly; `share` is a double computed as `sent / total_sent` in both.
+`p95_in_queue_ms` is the exact nearest-rank value, and a result passes when its p95 is within
+`p95_relative_error` (0.01) of it, as above. Every other number is compared exactly; `share` is a double
+computed as `sent / total_sent` in both.
