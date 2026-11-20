@@ -42,7 +42,7 @@ def test_max_receive_count_option():
 
 NUMERIC_ENV = ("TRAILBEAM_PORT", "TRAILBEAM_STUCK_AFTER_S", "TRAILBEAM_LAMBDA_TIMEOUT_S", "TRAILBEAM_PURGE_INTERVAL_S",
                "TRAILBEAM_PURGE_BATCH", "TRAILBEAM_PURGE_DUTY", "TRAILBEAM_INGEST_MAX_PENDING",
-               "TRAILBEAM_INGEST_MAX_WAIT_S")
+               "TRAILBEAM_INGEST_MAX_WAIT_S", "TRAILBEAM_PG_INGEST_CONNECTIONS", "TRAILBEAM_PG_READ_CONNECTIONS")
 
 
 def _parse(monkeypatch, env: dict, argv=()):
@@ -71,6 +71,7 @@ def test_empty_numeric_env_is_unset(monkeypatch):
     assert (a.port, a.stuck_after, a.lambda_timeout) == (4318, 300, 900)
     assert (a.purge_interval, a.purge_batch, a.purge_duty) == (600, 50, 0.25)
     assert a.ingest_max_pending >= 1 and a.ingest_max_wait > 0
+    assert (a.pg_ingest_connections, a.pg_read_connections) == (None, None)  # the store's defaults
 
 
 def test_numeric_env_is_parsed(monkeypatch):
@@ -81,7 +82,8 @@ def test_numeric_env_is_parsed(monkeypatch):
 @pytest.mark.parametrize("name,value", [("TRAILBEAM_PORT", "x"), ("TRAILBEAM_PORT", "70000"),
                                         ("TRAILBEAM_STUCK_AFTER_S", "0"), ("TRAILBEAM_PURGE_DUTY", "1.5"),
                                         ("TRAILBEAM_PURGE_DUTY", "0"), ("TRAILBEAM_PURGE_INTERVAL_S", "nan"),
-                                        ("TRAILBEAM_PURGE_BATCH", "0")])
+                                        ("TRAILBEAM_PURGE_BATCH", "0"), ("TRAILBEAM_PG_READ_CONNECTIONS", "0"),
+                                        ("TRAILBEAM_PG_INGEST_CONNECTIONS", "two")])
 def test_bad_numeric_env_is_one_line(monkeypatch, name, value):
     from trailbeam.server import __main__ as m
 
@@ -152,3 +154,25 @@ def test_relaxed_durability_is_sqlite_only(tmp_path):
     r = subprocess.run([sys.executable, "-m", "trailbeam.server", "--db", str(tmp_path / "x.sqlite")], env=env,
                        capture_output=True, text=True, timeout=30)
     assert r.returncode == 2 and "Traceback" not in r.stderr and "synchronous_commit" in r.stderr
+
+
+@pytest.mark.parametrize("env,argv,want", [({}, (), (None, None)),
+                                            ({"TRAILBEAM_PG_INGEST_CONNECTIONS": "6", "TRAILBEAM_PG_READ_CONNECTIONS": "20"},
+                                             (), (6, 20)),
+                                            ({"TRAILBEAM_PG_READ_CONNECTIONS": "20"},
+                                             ("--pg-read-connections", "3", "--pg-ingest-connections", "2"), (2, 3))])
+def test_pool_size_options(monkeypatch, env, argv, want):
+    """QV-127 (3c): the Postgres pools are settings; a flag overrides its environment variable."""
+    for k in ("TRAILBEAM_PG_INGEST_CONNECTIONS", "TRAILBEAM_PG_READ_CONNECTIONS"):
+        monkeypatch.delenv(k, raising=False)
+    a = _parse(monkeypatch, env, argv)
+    assert (a.pg_ingest_connections, a.pg_read_connections) == want
+
+
+def test_pool_sizes_are_postgres_only(tmp_path):
+    env = {**os.environ, "TRAILBEAM_PG_READ_CONNECTIONS": "12"}
+    env.pop("TRAILBEAM_STORE_URL", None)
+    r = subprocess.run([sys.executable, "-m", "trailbeam.server", "--db", str(tmp_path / "x.sqlite")], env=env,
+                       capture_output=True, text=True, timeout=30)
+    assert r.returncode == 2 and "Traceback" not in r.stderr and "TRAILBEAM_STORE_URL" in r.stderr
+    assert not (tmp_path / "x.sqlite").exists()

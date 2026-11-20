@@ -94,6 +94,14 @@ def main(argv=None) -> None:
                    default=_env(_positive_float, "TRAILBEAM_INGEST_MAX_WAIT_S", DEFAULT_MAX_WAIT_S),
                    help="seconds an export waits for the database writer before it is answered 503 with "
                         f"Retry-After (env TRAILBEAM_INGEST_MAX_WAIT_S, default {DEFAULT_MAX_WAIT_S:g})")
+    p.add_argument("--pg-ingest-connections", type=_positive_int,
+                   default=_env(_positive_int, "TRAILBEAM_PG_INGEST_CONNECTIONS", None),
+                   help="Postgres only: the most connections a replica writes exports on at once "
+                        f"(env TRAILBEAM_PG_INGEST_CONNECTIONS, default {PG_INGEST_CONNECTIONS})")
+    p.add_argument("--pg-read-connections", type=_positive_int,
+                   default=_env(_positive_int, "TRAILBEAM_PG_READ_CONNECTIONS", None),
+                   help="Postgres only: the most connections a replica reads pages and the API on at once "
+                        f"(env TRAILBEAM_PG_READ_CONNECTIONS, default {PG_READ_CONNECTIONS})")
     p.add_argument("--log-level", default=os.environ.get("TRAILBEAM_LOG_LEVEL", "INFO"))
     a = p.parse_args(argv)
     logging.basicConfig(level=a.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -125,8 +133,13 @@ def main(argv=None) -> None:
         if a.store_url and a.durability != "full":
             raise StoreUrlError("--durability relaxed is for the SQLite file; with Postgres, set its own "
                                 "synchronous_commit instead")
+        if not a.store_url and (a.pg_ingest_connections or a.pg_read_connections):
+            raise StoreUrlError("--pg-ingest-connections and --pg-read-connections (TRAILBEAM_PG_INGEST_CONNECTIONS, "
+                                "TRAILBEAM_PG_READ_CONNECTIONS) are for a Postgres store (TRAILBEAM_STORE_URL); "
+                                "SQLite has one writer")
         db = open_store(a.store_url, a.db, store_bodies=a.store_bodies, retention=retention,
-                        durability=a.durability)
+                        durability=a.durability, ingest_connections=a.pg_ingest_connections,
+                        read_connections=a.pg_read_connections)
     except (SchemaError, StoreUrlError) as e:
         logging.getLogger("trailbeam.server").error("%s", e)
         sys.exit(2)
@@ -179,8 +192,15 @@ class StoreUrlError(ValueError):
     pass
 
 
-def open_store(url, db_path: str, *, store_bodies, retention, durability: str = "full"):
-    """The Store: Postgres when ``url`` is a postgres:// one (its driver imported only then), else SQLite."""
+PG_INGEST_CONNECTIONS = 4  # PostgresStore's pools, when not set
+PG_READ_CONNECTIONS = 8
+
+
+def open_store(url, db_path: str, *, store_bodies, retention, durability: str = "full",
+               ingest_connections=None, read_connections=None):
+    """The Store: Postgres when ``url`` is a postgres:// one (its driver imported only then), else SQLite.
+    ``ingest_connections``, ``read_connections``: Postgres's pool sizes (None: PG_INGEST_CONNECTIONS,
+    PG_READ_CONNECTIONS)."""
     if not url:
         return SqliteStore(db_path, store_bodies=store_bodies, durability=durability)
     if not url.startswith(("postgres://", "postgresql://")):
@@ -192,7 +212,9 @@ def open_store(url, db_path: str, *, store_bodies, retention, durability: str = 
                             "pip install \"trailbeam[postgres]\"") from None
     import psycopg
     try:
-        return PostgresStore(url, store_bodies=store_bodies, retention=retention)
+        return PostgresStore(url, store_bodies=store_bodies, retention=retention,
+                             ingest_connections=ingest_connections or PG_INGEST_CONNECTIONS,
+                             read_connections=read_connections or PG_READ_CONNECTIONS)
     except psycopg.Error as e:
         raise StoreUrlError(f"{redact_url(url)}: {e}") from None
 
