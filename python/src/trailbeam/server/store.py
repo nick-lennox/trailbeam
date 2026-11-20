@@ -70,7 +70,7 @@ class TenantActivity(NamedTuple):
     tenant: Optional[str]
     sent: int            # sends
     dead_lettered: int   # messages moved to a dead-letter queue
-    waits: list          # first deliveries' times in queue, ms
+    waits: Any           # first deliveries' times in queue, ms: a rollup.Sketch (its n is the first deliveries)
 
 
 class Cutoffs(NamedTuple):

@@ -4,7 +4,7 @@ export type TenantRow = {
   sent: number;
   /** sent / total_sent, 0 when there were no sends */
   share: number;
-  /** nearest-rank p95 of time in queue over first deliveries, in ms; null when there were none */
+  /** p95 of time in queue over first deliveries, in ms, within 1% of the nearest-rank p95 (contract/tenants.md); null when there were none */
   p95_in_queue_ms: number | null;
   /** how many first deliveries the p95 is over */
   first_deliveries: number;

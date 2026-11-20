@@ -3067,7 +3067,7 @@
      {
       "dead_lettered": 1,
       "first_deliveries": 3,
-      "p95_in_queue_ms": 430,
+      "p95_in_queue_ms": 431,
       "sent": 2,
       "share": 0.2857142857142857,
       "tenant": "globex"
@@ -3075,7 +3075,7 @@
      {
       "dead_lettered": 0,
       "first_deliveries": 3,
-      "p95_in_queue_ms": 430,
+      "p95_in_queue_ms": 431,
       "sent": 2,
       "share": 0.2857142857142857,
       "tenant": "acme"
@@ -3083,7 +3083,7 @@
      {
       "dead_lettered": 0,
       "first_deliveries": 2,
-      "p95_in_queue_ms": 512,
+      "p95_in_queue_ms": 510,
       "sent": 2,
       "share": 0.2857142857142857,
       "tenant": "initech"
@@ -3108,7 +3108,7 @@
      {
       "dead_lettered": 0,
       "first_deliveries": 1,
-      "p95_in_queue_ms": 129,
+      "p95_in_queue_ms": 128,
       "sent": 2,
       "share": 0.3333333333333333,
       "tenant": "acme"
@@ -3149,7 +3149,7 @@
      {
       "dead_lettered": 1,
       "first_deliveries": 2,
-      "p95_in_queue_ms": 430,
+      "p95_in_queue_ms": 431,
       "sent": 0,
       "share": 0.0,
       "tenant": "globex"
@@ -3157,7 +3157,7 @@
      {
       "dead_lettered": 0,
       "first_deliveries": 2,
-      "p95_in_queue_ms": 430,
+      "p95_in_queue_ms": 431,
       "sent": 0,
       "share": 0.0,
       "tenant": "acme"
@@ -3165,7 +3165,7 @@
      {
       "dead_lettered": 0,
       "first_deliveries": 2,
-      "p95_in_queue_ms": 512,
+      "p95_in_queue_ms": 510,
       "sent": 0,
       "share": 0.0,
       "tenant": "initech"
@@ -6259,7 +6259,7 @@
      {
       "dead_lettered": 1,
       "first_deliveries": 3,
-      "p95_in_queue_ms": 430,
+      "p95_in_queue_ms": 431,
       "sent": 2,
       "share": 0.2857142857142857,
       "tenant": "globex"
@@ -6267,7 +6267,7 @@
      {
       "dead_lettered": 0,
       "first_deliveries": 3,
-      "p95_in_queue_ms": 430,
+      "p95_in_queue_ms": 431,
       "sent": 2,
       "share": 0.2857142857142857,
       "tenant": "acme"
@@ -6275,7 +6275,7 @@
      {
       "dead_lettered": 0,
       "first_deliveries": 2,
-      "p95_in_queue_ms": 512,
+      "p95_in_queue_ms": 510,
       "sent": 2,
       "share": 0.2857142857142857,
       "tenant": "initech"
@@ -6300,7 +6300,7 @@
      {
       "dead_lettered": 0,
       "first_deliveries": 1,
-      "p95_in_queue_ms": 129,
+      "p95_in_queue_ms": 128,
       "sent": 2,
       "share": 0.3333333333333333,
       "tenant": "acme"
@@ -6341,7 +6341,7 @@
      {
       "dead_lettered": 1,
       "first_deliveries": 2,
-      "p95_in_queue_ms": 430,
+      "p95_in_queue_ms": 431,
       "sent": 0,
       "share": 0.0,
       "tenant": "globex"
@@ -6349,7 +6349,7 @@
      {
       "dead_lettered": 0,
       "first_deliveries": 2,
-      "p95_in_queue_ms": 430,
+      "p95_in_queue_ms": 431,
       "sent": 0,
       "share": 0.0,
       "tenant": "acme"
@@ -6357,7 +6357,7 @@
      {
       "dead_lettered": 0,
       "first_deliveries": 2,
-      "p95_in_queue_ms": 512,
+      "p95_in_queue_ms": 510,
       "sent": 0,
       "share": 0.0,
       "tenant": "initech"
@@ -8642,7 +8642,7 @@
      {
       "dead_lettered": 0,
       "first_deliveries": 1,
-      "p95_in_queue_ms": 10000,
+      "p95_in_queue_ms": 10047,
       "sent": 3,
       "share": 0.6,
       "tenant": "acme"
@@ -8650,7 +8650,7 @@
      {
       "dead_lettered": 1,
       "first_deliveries": 1,
-      "p95_in_queue_ms": 27000,
+      "p95_in_queue_ms": 27040,
       "sent": 1,
       "share": 0.2,
       "tenant": "initech"
@@ -8658,7 +8658,7 @@
      {
       "dead_lettered": 0,
       "first_deliveries": 1,
-      "p95_in_queue_ms": 11000,
+      "p95_in_queue_ms": 10994,
       "sent": 1,
       "share": 0.2,
       "tenant": "globex"
@@ -8675,7 +8675,7 @@
      {
       "dead_lettered": 0,
       "first_deliveries": 1,
-      "p95_in_queue_ms": 10000,
+      "p95_in_queue_ms": 10047,
       "sent": 3,
       "share": 0.6,
       "tenant": "acme"
@@ -8683,7 +8683,7 @@
      {
       "dead_lettered": 0,
       "first_deliveries": 1,
-      "p95_in_queue_ms": 11000,
+      "p95_in_queue_ms": 10994,
       "sent": 1,
       "share": 0.2,
       "tenant": "globex"
@@ -8691,7 +8691,7 @@
      {
       "dead_lettered": 0,
       "first_deliveries": 1,
-      "p95_in_queue_ms": 27000,
+      "p95_in_queue_ms": 27040,
       "sent": 1,
       "share": 0.2,
       "tenant": "initech"

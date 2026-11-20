@@ -6,6 +6,7 @@ store, so the two give the same numbers on the same spans.
 """
 import base64
 import json
+import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -17,10 +18,15 @@ from trailbeam.server.db import Database
 from trailbeam.server.otlp import decode
 from trailbeam.server.server import App, ApiError
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "conformance"))
+from cases import rows_match  # noqa: E402
+
 FIXTURES = Path(__file__).resolve().parents[3] / "contract" / "fixtures"
 SPANS = json.loads((FIXTURES / "contract-3.2-spans.json").read_text())
 EXPECTED = json.loads((FIXTURES / "tenants-expected.json").read_text())
 NOW = int(EXPECTED["now_ns"])
+BOUND = EXPECTED["p95_relative_error"]
+
 
 
 @pytest.fixture
@@ -43,8 +49,10 @@ def test_the_fixture(fixture_db):
 @pytest.mark.parametrize("case", EXPECTED["stats"], ids=lambda c: c["name"])
 def test_stats_match_the_shared_expected_outputs(fixture_db, case):
     got = queries.tenants(fixture_db, NOW, EXPECTED["lambda_timeout_s"], case["from_ms"], case["to_ms"])
-    assert got == {"from_ms": case["from_ms"], "to_ms": case["to_ms"], "capped": False,
-                   **{k: case[k] for k in ("total_sent", "untagged_sent", "rows")}}
+    assert {k: v for k, v in got.items() if k != "rows"} == {
+        "from_ms": case["from_ms"], "to_ms": case["to_ms"], "capped": False,
+        **{k: case[k] for k in ("total_sent", "untagged_sent")}}
+    assert rows_match(got["rows"], case["rows"], BOUND), (got["rows"], case["rows"])
 
 
 @pytest.mark.parametrize("case", EXPECTED["filter"], ids=lambda c: c["tenant"])
@@ -72,7 +80,8 @@ def test_whole_fixture_by_hand(fixture_db):
     for mid in ("m-orders-1", "m-pay-1", "m-bill-1"):
         rows = fixture_db.message_rows(mid)
         waits += queries.tenant_counts(queries.timeline.build(rows, NOW, 900)["events"], "acme", 0, NOW)["waits"]
-    assert len(waits) == 3 and by["acme"]["p95_in_queue_ms"] == queries.p95(waits) == max(waits)
+    assert len(waits) == 3 and queries.p95(waits) == max(waits) == 430
+    assert abs(by["acme"]["p95_in_queue_ms"] - 430) <= BOUND * 430  # from the sketch (rollup.py)
 
 
 def test_filter_is_most_recently_active_first(fixture_db):
@@ -146,10 +155,10 @@ def test_api(fixture_db):
     app = App(fixture_db, now=lambda: NOW, ui_dir=None)
     whole = EXPECTED["stats"][0]
     got = app.api("tenants", {"from_ms": str(whole["from_ms"]), "to_ms": str(whole["to_ms"])})
-    assert got["rows"] == whole["rows"]
+    assert rows_match(got["rows"], whole["rows"], BOUND)
     # default: the last day up to now
     day = app.api("tenants", {})
-    assert (day["from_ms"], day["to_ms"]) == (NOW // 10**6 - 86_400_000, NOW // 10**6) and day["rows"] == whole["rows"]
+    assert (day["from_ms"], day["to_ms"]) == (NOW // 10**6 - 86_400_000, NOW // 10**6) and day["rows"] == got["rows"]
     assert app.api("tenants", {"since_s": "1"})["rows"] == []  # the last second: 60 s after the spans
     assert app.api("tenants/search", {"q": " gl "})["tenants"] == ["globex"]
     assert {m["message_id"] for m in app.api("messages", {"tenant": "hooli"})["messages"]} == {"m-orphan"}

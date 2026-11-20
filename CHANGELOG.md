@@ -2,7 +2,20 @@
 
 ## Unreleased
 
-- **Postgres: the lookup tables are time-bucketed (schema 4).** `mid_places` and `hash_places` are partitioned
+- **The Tenants page reads an hourly rollup per tenant, on SQLite and Postgres.** Before, it added up every
+  tenant event in its range on each request, so it got slower as traffic grew (Postgres: p95 1.5 s at 4M spans,
+  2.8 s at 7M). Now each store keeps, per hour and tenant, the sends, first deliveries with their times in
+  queue, and dead-letter moves, kept up to date as spans arrive and taken out when retention deletes them. The
+  page reads the rollup for the whole hours in its range and the raw events for the part-hours at either end.
+  At 1M spans on our desktop, idle, p95 for the last day went from 78 ms to 17 ms on SQLite and from 184 ms to
+  44 ms on Postgres; for the last 7 days from 553 ms to 72 ms and from 670 ms to 193 ms. Every count is still
+  exact. Ingest time per export was the same within the noise of the measurement.
+- **Contract change: `p95_in_queue_ms` is within 1% of the exact value** (`contract/tenants.md`). The rollup
+  keeps the times in queue as counts per bucket (a sketch, after DDSketch), which can be added up across hours
+  but not sorted. Times up to 100 ms come back exact; above that the p95 is at most 0.91% off the nearest-rank
+  value. The same spans always give the same p95. `contract/fixtures/tenants-expected.json` keeps the exact
+  values and gains `p95_relative_error` (0.01), which a result must be within.
+- **Postgres: the lookup tables are time-bucketed (schema 5).** `mid_places` and `hash_places` are partitioned
   by day like the spans, so ingest writes only to recent partitions and retention drops them whole (before, it
   deleted their rows in batches). Older days are sealed into a Bloom filter, about 2.5 bytes per key, kept by
   each replica. A lookup reads an older day only for the keys the filter can't rule out: a late settle, a
@@ -49,14 +62,25 @@
   with up to about 80 read connections. A request that fails on a full lock table is logged as that, and an
   export gets 503 with `Retry-After`, not "Postgres is unreachable". README: Postgres lock table.
 
+### Upgrading from 0.2.0 (SQLite)
+
+At start the server upgrades the file to schema 12, which builds the hourly tenant rollup from the stored
+message summaries, without reading the spans: 7 seconds for a 1M-span file on our test machine, during which
+the server doesn't accept spans. Messages moved to a dead-letter queue more than once get their summary
+rewritten first (rare). If it is stopped part way, the next start runs it again.
+
 ### Upgrading from 0.2.0 (Postgres)
 
 **Stop every 0.2.0 replica, then start the new version.** At start the server upgrades the database to
-Postgres schema 3, one day partition at a time. Schema 2 fills the lookup tables from the stored spans. On our
+Postgres schema 5, one day partition at a time. Schema 4 builds the hourly tenant rollup of each partition
+from its message summaries: 3.9 seconds for 1M spans on our test machine. Schema 5 partitions the two lookup
+tables by day: 8 s for 1M spans, and the first retention pass after it seals the older days (4.5 s). A replica of an earlier build left
+running would store spans without adding them to the rollup, and the Tenants page would undercount them, so
+this applies to builds of `main` at schema 2 or 3 too. Schema 2 fills the lookup tables from the stored spans. On our
 test machine that took 1 second for 205,000 spans. Schema 3 builds the message-ID indexes: 0.4 s for 500,000
 rows in each of the three tables. Each partition's index build blocks writes to that partition only, and no
 replica is writing during the upgrade anyway. Reads (and a `pg_dump`) carry on. A database already at schema 2
-(from a build of `main`) gets only the schema-3 step, and the same rule applies: stop every replica first.
+(from a build of `main`) starts from the schema-3 step, and the same rule applies: stop every replica first.
 Don't run 0.2.0 and this version against one database at the same time. A 0.2.0 replica doesn't write the lookup tables, so the spans it stores are missing from
 joins and timelines. Once the database is upgraded, a 0.2.0 server refuses to start on it. If the upgrade
 is stopped part way, the database stays at the last schema it finished, and the next start goes on from

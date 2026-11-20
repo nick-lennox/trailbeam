@@ -15,7 +15,7 @@ import math
 from datetime import datetime, timedelta, timezone
 from typing import NamedTuple, Optional
 
-from . import bodies, summary, timeline
+from . import bodies, rollup, summary, timeline
 from .store import Store
 from .summary import message_tenant, span_tenant  # noqa: F401  (part of this module's interface)
 
@@ -218,7 +218,8 @@ def tenant_counts(timeline_events: list, tenant: Optional[str], from_ms: int, to
 
 def tenant_stats(per_message: list, capped: bool = False) -> dict:
     """The Tenants page (contract/tenants.md) from each message's tenant_counts, or from totals per tenant
-    (Store.tenant_activity) in the same shape, with ``dead_lettered`` a count of messages."""
+    (Store.tenant_activity) in the same shape, with ``dead_lettered`` a count of messages. ``waits`` is a list of
+    times in queue or a rollup.Sketch of them; p95 comes from the sketch either way (within rollup.BOUND)."""
     by: dict = {}
     total = untagged = 0
     for m in per_message:
@@ -226,14 +227,15 @@ def tenant_stats(per_message: list, capped: bool = False) -> dict:
         if m["tenant"] is None:
             untagged += m["sent"]
             continue
-        if not (m["sent"] or m["waits"] or m["dead_lettered"]):
+        waits = m["waits"] if isinstance(m["waits"], rollup.Sketch) else rollup.Sketch.of(m["waits"])
+        if not (m["sent"] or waits or m["dead_lettered"]):
             continue
-        g = by.setdefault(m["tenant"], {"sent": 0, "waits": [], "dead_lettered": 0})
+        g = by.setdefault(m["tenant"], {"sent": 0, "waits": rollup.Sketch(), "dead_lettered": 0})
         g["sent"] += m["sent"]
-        g["waits"] += m["waits"]
+        g["waits"].merge(waits)
         g["dead_lettered"] += int(m["dead_lettered"])  # a message's flag, or a count of messages
     rows = [{"tenant": t, "sent": g["sent"], "share": g["sent"] / total if total else 0,
-             "p95_in_queue_ms": p95(g["waits"]), "first_deliveries": len(g["waits"]),
+             "p95_in_queue_ms": g["waits"].p95(), "first_deliveries": g["waits"].n,
              "dead_lettered": g["dead_lettered"]} for t, g in by.items()]
     rows.sort(key=lambda r: (-r["sent"], -r["dead_lettered"], r["tenant"]))
     return {"total_sent": total, "untagged_sent": untagged, "capped": capped, "rows": rows}
@@ -242,9 +244,9 @@ def tenant_stats(per_message: list, capped: bool = False) -> dict:
 def tenants(db: Store, now_ns: int, lambda_timeout_s: int, from_ms: int, to_ms: int,
             mrc: Optional[dict] = None) -> dict:
     """The Tenants page for [from_ms, to_ms], both included (contract/tenants.md), from every message: the
-    summaries' tenant events (summary.py), so no timeline is built and nothing is capped. ``capped`` is
-    always false; it stays in the response for clients of the capped page. ``now_ns``, the Lambda timeout
-    and ``mrc`` don't change what the page counts."""
+    store's hourly rollup of the summaries' tenant events (rollup.py), so no timeline is built and nothing is
+    capped. ``capped`` is always false; it stays in the response for clients of the capped page. ``now_ns``,
+    the Lambda timeout and ``mrc`` don't change what the page counts."""
     per_tenant = [{"tenant": a.tenant, "sent": a.sent, "waits": a.waits, "dead_lettered": a.dead_lettered}
                   for a in db.tenant_activity(from_ms, to_ms)]
     out = tenant_stats(per_tenant, capped=False)

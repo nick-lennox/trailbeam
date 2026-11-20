@@ -31,7 +31,7 @@ import threading
 import time
 from typing import Callable, Iterable, Iterator, Optional
 
-from . import body_table, migrations, summary_table
+from . import body_table, migrations, rollup, summary_table
 from .otlp import RECORD_FIELDS
 from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store,
                     StuckCandidate, TenantActivity, WriterBusy)
@@ -544,19 +544,27 @@ class SqliteStore(Store):
         return {r["mid"] for r in self.query("SELECT mid FROM message_queues NOT INDEXED WHERE queue = ?", (queue,))}
 
     def tenant_activity(self, from_ms: int, to_ms: int) -> list[TenantActivity]:
+        """The hourly rollup for the whole hours in the range, the tenant events of the partial hours at its
+        ends, and the repeat dead-letter moves (rollup.py)."""
+        hours, raw = rollup.split(from_ms, to_ms)
         with self.reader() as c:
-            totals = c.execute(
-                """SELECT tenant, SUM(kind = 'sent') AS sent,
-                          COUNT(DISTINCT CASE WHEN kind = 'dead_lettered' THEN mid END) AS dead_lettered
-                   FROM tenant_events NOT INDEXED WHERE at_ms BETWEEN ? AND ?
-                   GROUP BY tenant""", (from_ms, to_ms)).fetchall()
-            waits: dict = {}
-            for t, w in c.execute(
-                    """SELECT tenant, wait_ms FROM tenant_events NOT INDEXED
-                       WHERE at_ms BETWEEN ? AND ? AND kind = 'first_delivery'""", (from_ms, to_ms)):
-                waits.setdefault(t, []).append(w)
-        return [TenantActivity(r["tenant"], r["sent"], r["dead_lettered"], waits.get(r["tenant"], []))
-                for r in totals]
+            rows = []
+            if hours:  # counts added up in SQL; the sketches here, faster than json_each (QV-128)
+                waits: dict = {}
+                for t, w in c.execute("SELECT tenant, waits FROM tenant_rollup WHERE hour BETWEEN ? AND ?", hours):
+                    into = waits.setdefault(t, {})
+                    for k, n in json.loads(w).items():
+                        into[k] = into.get(k, 0) + n
+                rows = [(t, sent, firsts, moves, waits.get(t, {})) for t, sent, firsts, moves in c.execute(
+                    """SELECT tenant, SUM(sent), SUM(first_deliveries), SUM(dead_letter_moves) FROM tenant_rollup
+                       WHERE hour BETWEEN ? AND ? GROUP BY tenant""", hours)]
+            events = [r for a, b in raw for r in c.execute(
+                "SELECT tenant, kind, wait_ms FROM tenant_events WHERE at_ms BETWEEN ? AND ?", (a, b))]
+            again = [r[0] for r in c.execute(
+                """SELECT tenant FROM tenant_events INDEXED BY tenant_events_again
+                   WHERE kind = 'dead_lettered_again' AND at_ms BETWEEN ? AND ? AND at_ms - wait_ms >= ?""",
+                (from_ms, to_ms, from_ms))]
+        return rollup.tenant_page(rows, events, again)
 
     def find_tenants(self, text: str, limit: int, *, from_ns: Optional[int] = None, to_ns: Optional[int] = None,
                      queue: Optional[str] = None) -> list[str]:

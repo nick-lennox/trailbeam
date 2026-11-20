@@ -10,8 +10,8 @@ tests/server/test_postgres.py. Never edit a migration that has been on ``main``.
 **Places.** Every table holding spans or what is derived from them is partitioned by ``(rclass, bucket)``,
 a *place*: ``rclass`` the retention class (the retention of the queue, in seconds; FOREVER_CLASS for forever;
 0 when the store was given no retention), ``bucket`` a span time bucket (``time_ns // G``). One place is one
-partition of each of ``spans``, ``messages``, ``message_queues``, ``message_tenants``, ``tenant_events`` and
-``bodies``, created when a span first needs it (``place_ddl``) and removed whole by retention (postgres.py).
+partition of each of ``spans``, ``messages``, ``message_queues``, ``message_tenants``, ``tenant_events``,
+``bodies`` and ``tenant_rollup``, created when a span first needs it (``place_ddl``) and removed whole by retention (postgres.py).
 ``places`` lists them; ``place_queues`` the queues each holds; ``strays`` the messages with rows in a place
 other than their own (postgres.py, "Placement").
 
@@ -22,7 +22,7 @@ locks every place's partitions and indexes until its transaction ends (postgres.
 with the rows, may name a place that no longer holds any (a message moved on, a sweep deleted it), and lose a
 place's entries when retention drops it.
 
-**Lookups by place** (version 4, QV-127). ``mid_places`` and ``hash_places`` are partitioned by place too, so
+**Lookups by place** (version 5, QV-127). ``mid_places`` and ``hash_places`` are partitioned by place too, so
 ingest writes only to recent partitions, and retention drops a place's lookups with it. A place more than
 ``hot_buckets`` old is *sealed*: its lookup keys go into one Bloom filter (``lookup_filters``, its bits in
 ``lookup_filter``; ``places.sealed_in``: the first filter version holding them), and a lookup row written to it
@@ -32,6 +32,11 @@ the recent partitions and the late tables, and a sealed partition only for the k
 
 Text keys that pages sort or compare by are ``COLLATE "C"``: byte order, as SQLite compares, so ties and
 cursors come out the same on both.
+
+**Tenant rollup** (version 4, QV-128). ``tenant_rollup``: what the place's messages add to the Tenants page per
+hour and tenant (rollup.py), one row per writing connection (postgres.py, "Tenant rollup"); and a partial
+index on the tenant events of repeat dead-letter moves. Partitioned by place like the rest, so retention drops a
+place's rollup with it.
 
 **Message-ID indexes** (version 3, QV-118). ``message_queues``, ``message_tenants`` and ``tenant_events`` are
 indexed by ``mid``, so rewriting a message's summary deletes its old list rows by index instead of scanning its
@@ -46,11 +51,11 @@ from .. import __version__
 from .migrations import SchemaError, SchemaTooNew
 
 # Partitioned tables: one partition of each per place.
-PARTITIONED = ("spans", "messages", "message_queues", "message_tenants", "tenant_events", "bodies", "mid_places",
-               "hash_places")
-LOOKUPS = ("mid_places", "hash_places")  # partitioned since version 4
+PARTITIONED = ("spans", "messages", "message_queues", "message_tenants", "tenant_events", "bodies", "tenant_rollup",
+               "mid_places", "hash_places")
+LOOKUPS = ("mid_places", "hash_places")  # partitioned since version 5
 
-# Version 4's other tables (QV-127): the late lookup rows and the filter of the sealed places.
+# Version 5's other tables (QV-127): the late lookup rows and the filter of the sealed places.
 SEALING = """
 CREATE TABLE IF NOT EXISTS mid_places_late (       -- lookup rows written to a place once it was sealed
     mid TEXT COLLATE "C" NOT NULL,
@@ -212,6 +217,19 @@ CREATE TABLE IF NOT EXISTS tenant_events (
 ) PARTITION BY RANGE (rclass, bucket);
 CREATE INDEX IF NOT EXISTS tenant_events_key ON tenant_events (at_ms, mid, seq);
 CREATE INDEX IF NOT EXISTS tenant_events_mid ON tenant_events (mid);
+CREATE INDEX IF NOT EXISTS tenant_events_again ON tenant_events (at_ms) WHERE kind = 'dead_lettered_again';
+CREATE TABLE IF NOT EXISTS tenant_rollup (
+    rclass BIGINT NOT NULL,
+    bucket BIGINT NOT NULL,
+    hour BIGINT NOT NULL,                -- at_ms // 3,600,000 (rollup.py)
+    tenant TEXT COLLATE "C" NOT NULL,    -- the messages' tenant, '' for none
+    writer BIGINT NOT NULL,              -- pg_backend_pid() of the connection that owns the row (postgres.py)
+    sent BIGINT NOT NULL,
+    first_deliveries BIGINT NOT NULL,
+    dead_letter_moves BIGINT NOT NULL,
+    waits JSONB NOT NULL,                -- {bucket: count}: the first deliveries' times in queue (rollup.Sketch)
+    UNIQUE (rclass, bucket, hour, tenant, writer)
+) PARTITION BY RANGE (rclass, bucket);
 CREATE TABLE IF NOT EXISTS bodies (
     rclass BIGINT NOT NULL,
     bucket BIGINT NOT NULL,
@@ -299,7 +317,7 @@ def _is_partition(conn, table: str, name: str) -> bool:
 
 
 def _set_lookups_aside(conn) -> None:
-    """Version 4, first: the unpartitioned lookup tables of version 2 become ``<table>_v3`` (with their indexes),
+    """Version 5, first: the unpartitioned lookup tables of version 2 become ``<table>_v4`` (with their indexes),
     so the partitioned ones can take their names. Done already (a migration run again): nothing."""
     for table in LOOKUPS:
         kind = conn.execute(
@@ -307,25 +325,86 @@ def _set_lookups_aside(conn) -> None:
             (table,)).fetchone()
         if kind is None or kind[0] != "r":
             continue
-        conn.execute(f"ALTER TABLE {table} RENAME TO {table}_v3")
-        conn.execute(f"ALTER INDEX {table}_pkey RENAME TO {table}_v3_pkey")
-        conn.execute(f"ALTER INDEX {table}_place RENAME TO {table}_v3_place")
+        conn.execute(f"ALTER TABLE {table} RENAME TO {table}_v4")
+        conn.execute(f"ALTER INDEX {table}_pkey RENAME TO {table}_v4_pkey")
+        conn.execute(f"ALTER INDEX {table}_place RENAME TO {table}_v4_place")
 
 
 def _lookups_by_place(conn, rclass: int, bucket: int) -> None:
-    """Version 4, one place: its partitions of the two lookup tables, made and attached as ``place_ddl`` makes
+    """Version 5, one place: its partitions of the two lookup tables, made and attached as ``place_ddl`` makes
     them, then filled with its rows of the old tables (found by their ``(rclass, bucket)`` index)."""
     for table, name, create, attach in place_ddl(rclass, bucket, LOOKUPS):
         if not _is_partition(conn, table, name):
             conn.execute(create)
             conn.execute(attach)
-    if conn.execute("SELECT to_regclass('mid_places_v3')").fetchone()[0] is None:
+    if conn.execute("SELECT to_regclass('mid_places_v4')").fetchone()[0] is None:
         return  # run again after the old tables were dropped: nothing to copy
-    conn.execute("""INSERT INTO mid_places (mid, rclass, bucket) SELECT mid, rclass, bucket FROM mid_places_v3
+    conn.execute("""INSERT INTO mid_places (mid, rclass, bucket) SELECT mid, rclass, bucket FROM mid_places_v4
                     WHERE rclass = %s AND bucket = %s ON CONFLICT DO NOTHING""", (rclass, bucket))
     conn.execute("""INSERT INTO hash_places (receipt_hmac, key_id, rclass, bucket)
-                    SELECT receipt_hmac, key_id, rclass, bucket FROM hash_places_v3
+                    SELECT receipt_hmac, key_id, rclass, bucket FROM hash_places_v4
                     WHERE rclass = %s AND bucket = %s ON CONFLICT DO NOTHING""", (rclass, bucket))
+
+
+def _rollup_place(conn, rclass: int, bucket: int) -> None:
+    """Version 4, one place: its tenant_rollup partition (made and attached as place_ddl does; its unique index is
+    built empty), the repeat-move index on its tenant_events partition (as _mid_indexes), the ``dead_lettered_again``
+    events of its messages moved more than once (rollup.py: derived from their dead_lettered events, as
+    summary.summarize derives them), and its rollup rows from its messages' summaries. Safe to run again: the
+    place's rollup is built from nothing each time."""
+    from . import rollup  # noqa: PLC0415  (not needed to open a current schema)
+    import json  # noqa: PLC0415
+
+    events_part = partition_name("tenant_events", rclass, bucket)
+    attached = conn.execute(
+        """SELECT NOT i.inhdetachpending FROM pg_inherits i
+           JOIN pg_class ch ON ch.oid = i.inhrelid JOIN pg_class pa ON pa.oid = i.inhparent
+           WHERE ch.relname = %s AND pa.relname = 'tenant_events'
+             AND ch.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())""",
+        (events_part,)).fetchone()
+    if not attached or not attached[0]:
+        return  # being dropped by retention: the next pass removes it
+    for table, name, create, attach in place_ddl(rclass, bucket):
+        if table == "tenant_rollup":
+            conn.execute(create)
+            if not conn.execute("SELECT 1 FROM pg_inherits WHERE inhrelid = to_regclass(%s)", (name,)).fetchone():
+                conn.execute(attach)
+    if not conn.execute(
+            """SELECT 1 FROM pg_inherits i JOIN pg_index x ON x.indexrelid = i.inhrelid
+               WHERE i.inhparent = 'tenant_events_again'::regclass AND x.indrelid = to_regclass(%s)""",
+            (events_part,)).fetchone():  # a partition made after the parent index has its own already
+        conn.execute(f"CREATE INDEX IF NOT EXISTS {events_part}_again_idx ON {events_part} (at_ms) "
+                     "WHERE kind = 'dead_lettered_again'")
+        conn.execute(f"ALTER INDEX tenant_events_again ATTACH PARTITION {events_part}_again_idx")
+    place = {"c": rclass, "b": bucket}
+    for mid, tenant, events_json in conn.execute(
+            "SELECT mid, tenant, events_json FROM messages WHERE rclass = %(c)s AND bucket = %(b)s AND moved <> 0",
+            place).fetchall():
+        events = [e for e in json.loads(events_json) if e[1] != rollup.DEAD_LETTERED_AGAIN]
+        moves = sorted(e[0] for e in events if e[1] == rollup.DEAD_LETTERED)
+        events = sorted(events + [[b, rollup.DEAD_LETTERED_AGAIN, b - a] for a, b in zip(moves, moves[1:])])
+        text = json.dumps(events)
+        if text == events_json:
+            continue
+        conn.execute("UPDATE messages SET events_json = %s WHERE rclass = %s AND bucket = %s AND mid = %s",
+                     (text, rclass, bucket, mid))
+        conn.execute("DELETE FROM tenant_events WHERE rclass = %s AND bucket = %s AND mid = %s", (rclass, bucket, mid))
+        conn.cursor().executemany(
+            """INSERT INTO tenant_events (rclass, bucket, at_ms, mid, seq, kind, tenant, wait_ms)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+            [(rclass, bucket, at, mid, i, kind, tenant, wait) for i, (at, kind, wait) in enumerate(events)])
+    conn.execute("DELETE FROM tenant_rollup WHERE rclass = %(c)s AND bucket = %(b)s", place)
+    deltas = rollup.Deltas()
+    cur = conn.cursor(name=f"rollup_{rclass}_{bucket}".replace("-", "m"))
+    cur.execute("SELECT tenant, events_json FROM messages WHERE rclass = %(c)s AND bucket = %(b)s "
+                "AND events_json <> '[]'", place)
+    for tenant, events_json in cur:
+        deltas.add(None, rollup.contributions(tenant, json.loads(events_json)))
+    cur.close()
+    conn.cursor().executemany(
+        """INSERT INTO tenant_rollup (rclass, bucket, hour, tenant, writer, sent, first_deliveries,
+           dead_letter_moves, waits) VALUES (%s, %s, %s, %s, 0, %s, %s, %s, %s)""",
+        [(rclass, bucket, h, t) + a.row() for (_, h, t), a in deltas.items()])
 
 
 # Version 1 is the first Postgres schema. Later versions go here, one at a time.
@@ -353,7 +432,14 @@ MIGRATIONS: tuple = (
     Migration(3, "message-ID indexes on the summary list tables (QV-118)", tuple(
         f"CREATE INDEX IF NOT EXISTS {t}_mid ON ONLY {t} (mid)" for t in MID_INDEXED
     ), per_place=(_mid_indexes,)),
-    Migration(4, "lookup tables partitioned by place, and the filter of the sealed places (QV-127)", (
+    Migration(4, "hourly tenant rollup (QV-128)", (
+        """CREATE TABLE IF NOT EXISTS tenant_rollup (rclass BIGINT NOT NULL, bucket BIGINT NOT NULL,
+           hour BIGINT NOT NULL, tenant TEXT COLLATE "C" NOT NULL, writer BIGINT NOT NULL,
+           sent BIGINT NOT NULL, first_deliveries BIGINT NOT NULL, dead_letter_moves BIGINT NOT NULL,
+           waits JSONB NOT NULL, UNIQUE (rclass, bucket, hour, tenant, writer)) PARTITION BY RANGE (rclass, bucket)""",
+        "CREATE INDEX IF NOT EXISTS tenant_events_again ON ONLY tenant_events (at_ms) WHERE kind = 'dead_lettered_again'",
+    ), per_place=(_rollup_place,)),
+    Migration(5, "lookup tables partitioned by place, and the filter of the sealed places (QV-127)", (
         _set_lookups_aside,
         """CREATE TABLE IF NOT EXISTS mid_places (mid TEXT COLLATE "C" NOT NULL, rclass BIGINT NOT NULL,
            bucket BIGINT NOT NULL, PRIMARY KEY (mid, rclass, bucket)) PARTITION BY RANGE (rclass, bucket)""",
@@ -363,10 +449,10 @@ MIGRATIONS: tuple = (
         "ALTER TABLE places ADD COLUMN IF NOT EXISTS sealed_in BIGINT",
         "ALTER TABLE places ADD COLUMN IF NOT EXISTS lookup_keys BIGINT",
     ) + tuple(statements(SEALING)), per_place=(_lookups_by_place,), after=(
-        "DROP TABLE IF EXISTS mid_places_v3, hash_places_v3",
+        "DROP TABLE IF EXISTS mid_places_v4, hash_places_v4",
     )),
 )
-LATEST = 4
+LATEST = 5
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 

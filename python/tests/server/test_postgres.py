@@ -6,6 +6,7 @@ The tests that need a database run when TRAILBEAM_TEST_POSTGRES_URL names one th
 (CI: Postgres 14 and 16 service containers); the conformance suite runs on it too (tests/conformance).
 """
 import contextlib
+import json
 import os
 import subprocess
 import sys
@@ -573,10 +574,10 @@ def test_version_2_fills_the_lookup_tables_place_by_place(pg_store):
         _as_version(c, 1)
     again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
     try:
-        assert again.migrated == [2, 3, 4]
+        assert again.migrated == [2, 3, 4, 5]
         with again.ingest.connection() as c:
             assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
-            assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == [1, 2, 3, 4]
+            assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == [1, 2, 3, 4, 5]
         again.insert(records([w.delete(T0 + 50 * SEC, "h-late")]))
         rows = again.message_rows("late")
         assert [r["kind"] for r in rows] == ["send", "receive", "delete"] and rows[2]["receive_row"] == rows[1]["row"]
@@ -623,7 +624,7 @@ def _pages(s, places: int) -> dict:
         "stuck_queue": s.stuck_messages(T0 + places * SEC, 5, "billing"),
         "stuck_after": s.stuck_messages(T0 + places * SEC, 5, after=(T0 + 7 * SEC + 10, "m-7")),
         "queue": sorted(s.queue_messages("orders")),
-        "activity": sorted((a.tenant, a.sent, a.dead_lettered, sorted(a.waits))
+        "activity": sorted((a.tenant, a.sent, a.dead_lettered, sorted(a.waits.counts.items()))
                            for a in s.tenant_activity((T0 + SEC) // 10 ** 6, (T0 + places * SEC) // 10 ** 6)),
         "find": s.find_tenants("TEN", 8), "find_queue": s.find_tenants("tenant-", 2, queue="billing"),
         "find_window": s.find_tenants("t", 8, from_ns=T0 + (places - 2) * SEC), "counts": s.counts(),
@@ -713,9 +714,9 @@ _PAGE_LOCKS: dict = {}
 
 def _as_version(c, version: int) -> None:
     """Make a current database look as Postgres schema ``version`` left it: 1 is 0.2.0's (no lookup tables, no
-    message-ID indexes on the list tables), 2 adds the lookup tables (QV-113), 3 the indexes (QV-118); 4
-    partitions the lookup tables (QV-127)."""
-    if version < 4:
+    message-ID indexes on the list tables), 2 adds the lookup tables (QV-113), 3 the message-ID indexes (QV-118),
+    4 the tenant rollup (QV-128); 5 partitions the lookup tables (QV-127)."""
+    if version < 5:
         for t, cols in (("mid_places", 'mid TEXT COLLATE "C" NOT NULL'),
                         ("hash_places", "receipt_hmac TEXT NOT NULL, key_id TEXT NOT NULL")):
             keys = ", ".join(x.split()[0] for x in cols.split(", "))
@@ -728,6 +729,19 @@ def _as_version(c, version: int) -> None:
             c.execute(f"CREATE INDEX {t}_place ON {t} (rclass, bucket)")
         c.execute("DROP TABLE mid_places_late, hash_places_late, lookup_filters, lookup_filter")
         c.execute("ALTER TABLE places DROP COLUMN sealed_in, DROP COLUMN lookup_keys")
+    if version < 4:
+        c.execute("DROP TABLE tenant_rollup")  # with its partitions
+        c.execute("DROP INDEX tenant_events_again")
+        for r in c.execute("SELECT rclass, bucket, mid, tenant, events_json FROM messages WHERE moved <> 0").fetchall():
+            ev = [e for e in json.loads(r["events_json"]) if e[1] != "dead_lettered_again"]
+            c.execute("UPDATE messages SET events_json = %s WHERE rclass = %s AND bucket = %s AND mid = %s",
+                      (json.dumps(ev), r["rclass"], r["bucket"], r["mid"]))
+            c.execute("DELETE FROM tenant_events WHERE rclass = %s AND bucket = %s AND mid = %s",
+                      (r["rclass"], r["bucket"], r["mid"]))
+            for i, (at, kind, wait) in enumerate(ev):
+                c.execute("""INSERT INTO tenant_events (rclass, bucket, at_ms, mid, seq, kind, tenant, wait_ms)
+                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                          (r["rclass"], r["bucket"], at, r["mid"], i, kind, r["tenant"], wait))
     if version < 3:
         c.execute("DROP INDEX message_queues_mid, message_tenants_mid, tenant_events_mid")  # with the partitions'
     if version < 2:
@@ -820,7 +834,7 @@ def test_version_3_indexes_the_list_tables_place_by_place(pg_store):
     for attempt in range(2):
         again = PostgresStore(s.url, bucket_ns=SEC)
         try:
-            assert again.migrated == [3, 4]
+            assert again.migrated == [3, 4, 5]
             with again.ingest.connection() as c:
                 parts = _list_partitions(c)
                 assert len(parts["message_queues"]) == 11 + attempt  # 12 places less the dropped one, + "after-0"
@@ -828,8 +842,8 @@ def test_version_3_indexes_the_list_tables_place_by_place(pg_store):
                 assert all(r["indisvalid"] for r in c.execute(
                     """SELECT indisvalid FROM pg_index WHERE indexrelid IN
                        ('message_queues_mid'::regclass, 'message_tenants_mid'::regclass, 'tenant_events_mid'::regclass)"""))
-                assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == [1, 2, 3, 4]
-                if attempt == 0:  # as if stopped before recording 3 (4 run again too)
+                assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == [1, 2, 3, 4, 5]
+                if attempt == 0:  # as if stopped before recording 3: 3, 4 and 5 run again
                     c.execute("DELETE FROM schema_version WHERE version >= 3")
             again.insert(records([Consumer().send(T0 + 100 * SEC, f"after-{attempt}")]))
             with again.ingest.connection() as c:
@@ -975,6 +989,99 @@ def test_replicas_creating_the_same_place_at_once_all_go_on(pg_store):
     finally:
         for r in replicas[1:]:
             r.close()
+
+
+# ---- QV-128: the hourly tenant rollup ------------------------------------------------------------------------
+
+def _rollup_traffic(seed, messages=300, hours=6):
+    sys.path.insert(0, str(ROOT / "tests" / "server"))
+    import test_rollup  # noqa: PLC0415
+    return test_rollup, test_rollup._traffic(seed, messages=messages, hours=hours)
+
+
+def _rollup_page(s, a, b):
+    return sorted((x.tenant or "", x.sent, x.dead_lettered, sorted(x.waits.counts.items()))
+                  for x in s.tenant_activity(a, b))
+
+
+@needs_pg
+def test_the_rollup_gives_the_pages_sqlite_gives_with_late_spans_and_moving_messages(pg_store):
+    """Hour-long places, so messages move place as their spans come (late and out of order), leaving rows that
+    take back what they added in the place they left; a sweep takes out what it deletes. The page is SQLite's,
+    on whole hours, parts of hours and across them."""
+    import random
+
+    from trailbeam.server.db import SqliteStore
+    from trailbeam.server.rollup import HOUR_MS
+
+    tr, spans = _rollup_traffic(7)
+    random.Random(7).shuffle(spans)
+    pg, lite = pg_store(bucket_ns=HOUR_MS * 10 ** 6), SqliteStore()
+    for k in range(0, len(spans), 40):
+        assert pg.insert(spans[k:k + 40]) == lite.insert(spans[k:k + 40])
+    with pg.reads.connection() as c:
+        assert c.execute("SELECT COUNT(DISTINCT (rclass, bucket)) AS n FROM tenant_rollup").fetchone()["n"] > 3
+        assert c.execute("SELECT COUNT(*) AS n FROM tenant_events WHERE kind = 'dead_lettered_again'").fetchone()["n"]
+    for a, b in tr._ranges(7, 6):
+        assert _rollup_page(pg, a, b) == _rollup_page(lite, a, b), (a, b)
+    lite.close()
+    # retention: "orders" expires in the first places, which mix it with "payments", so they are swept
+    from trailbeam.server.store import Cutoffs
+    cut, resume = (tr.T0 + 3 * HOUR_MS) * 10 ** 6, None
+    deleted = 0
+    while True:
+        step = pg.purge_step(Cutoffs(None, {"orders": cut}), resume, 25)
+        deleted += step.deleted
+        if step.resume is None:
+            break
+        resume = step.resume
+    assert deleted
+    for a, b in tr._ranges(7, 6):
+        assert _rollup_page(pg, a, b) == _pg_brute(pg, a, b), (a, b)
+
+
+def _pg_brute(s, a, b):
+    """The page as every tenant event in the range adds it up (test_rollup._brute, on Postgres)."""
+    from trailbeam.server.rollup import Sketch
+    by: dict = {}
+    with s.reads.connection() as c:
+        for r in c.execute("SELECT * FROM tenant_events WHERE at_ms BETWEEN %s AND %s", (a, b)).fetchall():
+            g = by.setdefault(r["tenant"] or "", {"sent": 0, "waits": [], "dead": set()})
+            if r["kind"] == "sent":
+                g["sent"] += 1
+            elif r["kind"] == "first_delivery":
+                g["waits"].append(r["wait_ms"])
+            elif r["kind"] == "dead_lettered":
+                g["dead"].add(r["mid"])
+    return sorted((t, g["sent"], len(g["dead"]), sorted(Sketch.of(g["waits"]).counts.items()))
+                  for t, g in by.items() if g["sent"] or g["dead"] or g["waits"])
+
+
+@needs_pg
+def test_version_4_builds_the_rollup_place_by_place(pg_store):
+    """A version-3 database: no rollup and no dead_lettered_again events. The upgrade gives the pages a database
+    that stored the same spans at 4 gives, and the same tenant events."""
+    from trailbeam.server.postgres import PostgresStore
+    from trailbeam.server.rollup import HOUR_MS
+
+    tr, spans = _rollup_traffic(8)
+    s = pg_store(bucket_ns=HOUR_MS * 10 ** 6)
+    s.insert(spans)
+    ranges = tr._ranges(8, 6)
+    want = [_rollup_page(s, a, b) for a, b in ranges]
+    with s.ingest.connection() as c:
+        events = c.execute("SELECT * FROM tenant_events ORDER BY rclass, bucket, at_ms, mid, seq").fetchall()
+        assert any(e["kind"] == "dead_lettered_again" for e in events)
+        _as_version(c, 3)
+    again = PostgresStore(s.url, bucket_ns=HOUR_MS * 10 ** 6)
+    try:
+        assert again.migrated == [4, 5]
+        assert [_rollup_page(again, a, b) for a, b in ranges] == want
+        with again.ingest.connection() as c:
+            assert c.execute("SELECT * FROM tenant_events ORDER BY rclass, bucket, at_ms, mid, seq").fetchall() == events
+        again.insert(tr._traffic(9, messages=50, hours=6))  # and it goes on taking spans
+    finally:
+        again.close()
 
 
 # ---- QV-127: lookups by place, sealing and the filter ------------------------------------------------------
@@ -1152,8 +1259,8 @@ def test_the_filter_grows_and_other_replicas_load_it(pg_store, monkeypatch):
 
 
 @needs_pg
-def test_version_4_partitions_the_lookup_tables_place_by_place(pg_store, tmp_path):
-    """A schema-3 database (unpartitioned lookup tables) is brought to version 4: each place's lookup rows move
+def test_version_5_partitions_the_lookup_tables_place_by_place(pg_store, tmp_path):
+    """A schema-4 database (unpartitioned lookup tables) is brought to version 5: each place's lookup rows move
     to its own partitions, the old tables go, and every place is unsealed until the next pass seals the old
     ones. Messages stored before read whole, and a late delete joins a receive stored before the upgrade."""
     from trailbeam.server.postgres import PostgresStore
@@ -1162,15 +1269,15 @@ def test_version_4_partitions_the_lookup_tables_place_by_place(pg_store, tmp_pat
     _history(s, 20)
     with s.ingest.connection() as c:
         lookups = {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in ("mid_places", "hash_places")}
-        _as_version(c, 3)
+        _as_version(c, 4)
         assert c.execute("SELECT relkind FROM pg_class WHERE relname = 'mid_places' "
                          "AND relnamespace = current_schema()::regnamespace").fetchone()["relkind"] == "r"
     again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
     try:
-        assert again.migrated == [4]
+        assert again.migrated == [5]
         with again.ingest.connection() as c:
             assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
-            assert c.execute("SELECT to_regclass('mid_places_v3') AS t").fetchone()["t"] is None
+            assert c.execute("SELECT to_regclass('mid_places_v4') AS t").fetchone()["t"] is None
             parts = {r["relname"] for r in c.execute(
                 """SELECT ch.relname FROM pg_inherits i JOIN pg_class ch ON ch.oid = i.inhrelid
                    JOIN pg_class pa ON pa.oid = i.inhparent WHERE pa.relname = 'mid_places'

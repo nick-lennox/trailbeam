@@ -19,6 +19,7 @@ same schema as ``CREATE``). Never edit a migration that has been on ``main``: so
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -147,6 +148,10 @@ CREATE TABLE IF NOT EXISTS schema_version (
 #   is copied, row IDs and all, and every index built again (body_table's spans_body too). That needs free
 #   disk for a second copy of the table.
 # Freshly built indexes are full, so for a while after the upgrade an insert splits more pages than it will later.
+# Schema 12 (QV-128) adds tenant_rollup, the hourly rollup the Tenants page reads (rollup.py), and a partial index
+# on the tenant events of repeat dead-letter moves. Messages moved to a dead-letter queue more than once get those
+# events (their summary is rewritten from their spans; rare), then the rollup is built from every message's
+# summary row: one pass over messages, no span read.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new"))
                   + [f"INSERT INTO spans_new ({SPANS_COLUMNS}) SELECT {SPANS_COLUMNS} FROM spans ORDER BY row",
                      "DROP TABLE spans",
@@ -163,6 +168,18 @@ def _to_11(conn: sqlite3.Connection) -> None:
     summary_table.backfill(conn)
     for sql in _REBUILD_SPANS:
         conn.execute(sql)
+
+
+def _to_12(conn: sqlite3.Connection) -> None:
+    cur = conn.cursor()
+    cur.row_factory = sqlite3.Row
+    again = summary_table.Changes()
+    for r in cur.execute("SELECT mid, events_json FROM messages WHERE moved"):
+        if sum(e[1] == "dead_lettered" for e in json.loads(r["events_json"])) > 1:
+            again.added[r["mid"]] = set()
+    if again:
+        summary_table.refresh(conn, again)
+    summary_table.rebuild_rollup(conn)
 
 
 MIGRATIONS = (
@@ -190,6 +207,7 @@ MIGRATIONS = (
         ["ALTER TABLE spans ADD COLUMN body_id INTEGER"] + statements(body_table.CREATE)),
         run=body_table.move_inline),
     Migration(11, "spans indexes at the right edge", (), run=_to_11),
+    Migration(12, "hourly tenant rollup", tuple(statements(summary_table.ROLLUP_CREATE)), run=_to_12),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table
