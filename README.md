@@ -83,8 +83,6 @@ pip install trailbeam      # Python
 npm install trailbeam      # Node.js
 ```
 
-Neither is published yet. Until they are, install from a clone: `pip install ./python`, `npm install ./node`.
-
 **Python (boto3)**
 
 ```python
@@ -163,11 +161,11 @@ seen in that range (Stuck: `from_ms`, first seen). Lists read a per-message summ
 up to date as spans arrive, so a page costs about the same however much history is stored.
 
 ```sh
-docker build -t trailbeam .
-docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-data:/data trailbeam
+docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-data:/data ghcr.io/nick-lennox/trailbeam
 ```
 
-Or without Docker: `pip install "trailbeam[server]"`, then run `trailbeam`.
+Or without Docker: `pip install "trailbeam[server]"`, then run `trailbeam`. To build the image yourself:
+`docker build -t trailbeam .` from a clone.
 
 With no access token set (the default), anyone who can reach the port can send spans and read every
 timeline, so keep it on `127.0.0.1` or a trusted network, or set a token ([Access token](#access-token)). See
@@ -181,7 +179,7 @@ One shared token protects ingest, the API and the web screen. It is off by defau
 ```sh
 openssl rand -hex 32 > trailbeam.token
 docker run ... -v $PWD/trailbeam.token:/run/secrets/trailbeam-token:ro \
-  -e TRAILBEAM_TOKEN_FILE=/run/secrets/trailbeam-token trailbeam
+  -e TRAILBEAM_TOKEN_FILE=/run/secrets/trailbeam-token ghcr.io/nick-lennox/trailbeam
 # or trailbeam --token-file trailbeam.token, or TRAILBEAM_TOKEN=<token> in the environment
 ```
 
@@ -223,7 +221,7 @@ retention = "forever"
 ```
 
 ```sh
-docker run ... -v $PWD/trailbeam.toml:/etc/trailbeam.toml:ro -e TRAILBEAM_CONFIG=/etc/trailbeam.toml trailbeam
+docker run ... -v $PWD/trailbeam.toml:/etc/trailbeam.toml:ro -e TRAILBEAM_CONFIG=/etc/trailbeam.toml ghcr.io/nick-lennox/trailbeam
 # or trailbeam --config trailbeam.toml
 ```
 
@@ -242,7 +240,7 @@ set but empty counts as not set. `GET /api/health` shows the result under `confi
 Trailbeam stores no message body unless you opt queues in on the server as well as in the package:
 
 ```sh
-docker run ... -e TRAILBEAM_STORE_BODIES=orders,payments trailbeam   # or trailbeam --store-bodies orders,payments
+docker run ... -e TRAILBEAM_STORE_BODIES=orders,payments ghcr.io/nick-lennox/trailbeam   # or trailbeam --store-bodies orders,payments
 ```
 
 or `store_bodies = true` for those queues in the [configuration file](#configuration-file).
@@ -287,7 +285,7 @@ Trailbeam keeps spans for **7 days** by default, then deletes them, bodies inclu
 retention for every queue, override it for some queues, or keep data forever:
 
 ```sh
-docker run ... -e TRAILBEAM_RETENTION=14d -e TRAILBEAM_RETENTION_QUEUES=orders-dlq=30d,audit=forever trailbeam
+docker run ... -e TRAILBEAM_RETENTION=14d -e TRAILBEAM_RETENTION_QUEUES=orders-dlq=30d,audit=forever ghcr.io/nick-lennox/trailbeam
 # or trailbeam --retention 14d --retention-queues orders-dlq=30d,audit=forever
 ```
 
@@ -751,7 +749,7 @@ In Docker, from the directory that has the backup:
 
 ```sh
 docker stop trailbeam
-docker run --rm --user root -v trailbeam-data:/data -v "$PWD":/restore:ro --entrypoint sh trailbeam -c \
+docker run --rm --user root -v trailbeam-data:/data -v "$PWD":/restore:ro --entrypoint sh ghcr.io/nick-lennox/trailbeam -c \
   'rm -f /data/trailbeam.sqlite-wal /data/trailbeam.sqlite-shm && cp /restore/trailbeam-2026-11-19.sqlite /data/trailbeam.sqlite && chown trailbeam: /data/trailbeam.sqlite'
 docker start trailbeam
 ```

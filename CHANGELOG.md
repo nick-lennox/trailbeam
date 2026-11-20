@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.3.0: Postgres for teams that outgrow SQLite
+
+The first published release: `pip install trailbeam`, `npm install trailbeam`, and the container image
+`ghcr.io/nick-lennox/trailbeam`. 0.2.0 was tagged but never published.
+
 - **The Tenants page reads an hourly rollup per tenant, on SQLite and Postgres.** Before, it added up every
   tenant event in its range on each request, so it got slower as traffic grew (Postgres: p95 1.5 s at 4M spans,
   2.8 s at 7M). Now each store keeps, per hour and tenant, the sends, first deliveries with their times in

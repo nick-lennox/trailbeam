@@ -1,0 +1,117 @@
+name: Release
+
+# Push a tag vX.Y.Z (matching python/pyproject.toml, trailbeam.__version__, node/package.json and a
+# "## X.Y.Z" heading in CHANGELOG.md) to publish that version:
+#   - PyPI: trailbeam (wheel with the built UI, and sdist), by trusted publishing (no token stored)
+#   - npm: trailbeam (the Node.js package), with provenance, using the NPM_TOKEN secret
+#   - GitHub Container Registry: ghcr.io/nick-lennox/trailbeam:X.Y.Z and :latest
+#   - a GitHub release with that version's CHANGELOG section
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag matches every package version and the changelog
+        id: v
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          grep -qx "version = \"$v\"" python/pyproject.toml || { echo "python/pyproject.toml is not $v"; exit 1; }
+          grep -qx "__version__ = \"$v\"" python/src/trailbeam/__init__.py || { echo "trailbeam.__version__ is not $v"; exit 1; }
+          test "$(node -p 'require("./node/package.json").version')" = "$v" || { echo "node/package.json is not $v"; exit 1; }
+          grep -q "^## $v" CHANGELOG.md || { echo "CHANGELOG.md has no '## $v' section"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  python:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Build the web screen into the Python package
+        working-directory: ui
+        run: npm ci --no-audit --no-fund && npm run build
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Build the wheel and sdist
+        working-directory: python
+        run: |
+          pip install build
+          python -m build -o ../dist .
+          python -c "import zipfile,glob,sys; n=zipfile.ZipFile(glob.glob('../dist/*.whl')[0]).namelist(); sys.exit(0 if 'trailbeam/server/ui/index.html' in n else 'the wheel has no web screen')"
+      - uses: actions/upload-artifact@v4
+        with: { name: python-dist, path: dist/ }
+
+  pypi:
+    needs: python
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: python-dist, path: dist/ }
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  npm:
+    needs: check
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      id-token: write  # provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, registry-url: "https://registry.npmjs.org" }
+      - working-directory: node
+        run: npm ci --no-audit --no-fund && npm test
+      - working-directory: node
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  image:
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/nick-lennox/trailbeam:${{ needs.check.outputs.version }}
+            ghcr.io/nick-lennox/trailbeam:latest
+
+  github-release:
+    needs: [check, pypi, npm, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release notes from the changelog
+        run: |
+          v="${{ needs.check.outputs.version }}"
+          awk -v v="$v" '$0 ~ "^## " v {f=1; next} /^## / && f {exit} f' CHANGELOG.md > notes.md
+          gh release create "$GITHUB_REF_NAME" --title "Trailbeam $v" --notes-file notes.md --verify-tag
+        env:
+          GH_TOKEN: ${{ github.token }}
