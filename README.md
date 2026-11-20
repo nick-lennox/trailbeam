@@ -47,6 +47,11 @@ answers a narrower question: where did this one message go?
   carries `DeadLetterQueueSourceArn`. It is never guessed from settings.
 - **Lambda outcomes.** A handler wrapper records how each record ended: success, a reported batch
   item failure, or an exception.
+- **Message bodies, opt-in.** For queues you opt in, both in the package and on the server, the
+  packages export a redacted copy of each body. A message's **Body** tab shows it, and the Messages
+  page searches bodies with `body.*` terms ([Message bodies](#message-bodies)).
+- **Lambda error text.** For queues you list, the Lambda wrapper records the handler's error text, and
+  the timeline groups errors by cause.
 - **Tenants.** Name the message attribute or JSON body field that holds your customer, and
   Trailbeam shows per tenant: messages sent, their share, p95 time in queue and dead-lettered
   messages. You can also list one tenant's messages and search tenants by name.
@@ -819,27 +824,43 @@ trailbeam_ingest_queue_depth / trailbeam_ingest_queue_capacity > 0.8            
 
 ## Open source and the hosted app
 
-Everything that tells you what happened to your messages is open source and runs on your own
-machine. The hosted app at [trailbeam.app](https://trailbeam.app) adds what needs hosting or a team.
-It is not generally available yet.
+Everything about your messages is open source: the packages, the span contract, Trailbeam itself and
+the views in [`@trailbeam/ui`](ui/). That covers a message's timeline, stuck messages and duplicate
+deliveries, tenants, message bodies (opt-in, redacted in your process) and Lambda error text. The
+hosted app at [trailbeam.app](https://trailbeam.app) is closed source. It adds what a team or a hosted
+service needs: accounts and roles, several workspaces and AWS accounts, and hosting. It is not
+generally available yet.
+
+What each has today:
 
 | | Open source | Hosted app |
 |---|---|---|
-| The packages for your services | yes | yes, the same packages with an ingest key |
+| The packages for your services | yes | yes, the same packages, sending with an ingest key |
 | A message's timeline, lookup by message ID | yes | yes |
-| Lambda error text on the timeline, errors grouped by cause | yes | yes |
 | Stuck messages and duplicate deliveries | yes | yes |
-| Overview of flows between services and queues | coming | yes |
-| Event explorer | coming | coming |
+| Tenants: sends, share, p95 time in queue, dead-lettered, per tenant | yes | yes |
+| Message bodies, opt-in per queue, with `body.*` search | yes, for queues in `TRAILBEAM_STORE_BODIES`; anyone who can reach the server can read them | yes, for queues an admin opts in; owners and admins only |
+| Lambda error text on the timeline, errors grouped by cause | yes | yes |
 | JSON API | yes | |
-| Accounts, workspaces and teams | | yes |
-| Dashboards | | yes |
+| Overview of flows between services and queues, event explorer, dashboards | not yet | yes |
+| Queue settings, depth and Lambda triggers read from AWS, and redrive | | yes, with a read-only role you connect (redrive needs a second, separate role) |
 | Retention: global, per queue, or forever | yes | yes |
-| Hosting and backups | | yes |
+| Accounts, sign-in and invitations | | yes |
+| Roles (owner, admin, member) | | yes |
+| Several workspaces, several AWS accounts per workspace | | yes |
+| Hosting | | yes, not generally available |
+| SSO | | planned |
+| A log of who viewed a message body | | planned |
+| Billing | | planned |
+| Backups | | planned |
 
-Both show the same timeline from the same rules: the hosted app draws it with this repository's
-`@trailbeam/ui`, and its message pages are checked against this repository's code and the shared span
-fixtures in [`contract/fixtures/`](contract/fixtures/).
+Open-source Trailbeam makes no AWS calls, so it reads nothing from AWS and cannot redrive. "Planned"
+means the hosted app does not have it yet.
+
+Both draw the same views from the same rules. The hosted app installs this repository's
+`@trailbeam/ui` as a normal dependency, and both are tested against the same recorded contract 3.2
+spans in [`contract/fixtures/`](contract/fixtures/), with the expected tenant and body results there
+too. App-only code (accounts, roles, billing, hosting) stays out of this repository.
 
 ## How it works
 
@@ -889,7 +910,7 @@ contract, the specification the packages and Trailbeam both follow, is
 |---|---|
 | [`python/`](python/) | Python package `trailbeam`: boto3 hooks, a Lambda handler wrapper, and Trailbeam itself (`trailbeam.server`, installed with the `server` extra) |
 | [`node/`](node/) | Node.js package `trailbeam`: AWS SDK v3 hooks and a Lambda handler wrapper |
-| [`ui/`](ui/) | `@trailbeam/ui`: the views Trailbeam's web screen and the hosted app share (the timeline and the Tenants table so far) |
+| [`ui/`](ui/) | `@trailbeam/ui`: the views Trailbeam's web screen and the hosted app share (the timeline with Lambda errors grouped by cause, the Tenants table, and the Body tab with `body.*` search) |
 | [`Dockerfile`](Dockerfile) | The Trailbeam container: `trailbeam[server]` with SQLite on a volume |
 | [`collector/`](collector/) | OpenTelemetry Collector configuration |
 | [`demo/`](demo/) | Local demo on ElasticMQ with Docker Compose, and the concurrency check (`demo/check.sh`) |
