@@ -38,6 +38,9 @@ hour and tenant (rollup.py), one row per writing connection (postgres.py, "Tenan
 index on the tenant events of repeat dead-letter moves. Partitioned by place like the rest, so retention drops a
 place's rollup with it.
 
+**Deduplicated sends** (version 7, QV-246). No table changes: the tenant events of FIFO messages with more than
+one send are worked out again, without the sends SQS deduplicated, and the rollup with them.
+
 **Probes** (version 6, QV-148). ``probes``: the test spans ``trailbeam doctor`` sends, kept apart from the spans
 so they never show as messages.
 
@@ -416,6 +419,56 @@ def _rollup_place(conn, rclass: int, bucket: int) -> None:
         [(rclass, bucket, h, t) + a.row() for (_, h, t), a in deltas.items()])
 
 
+def _dedup_place(conn, rclass: int, bucket: int) -> None:
+    """Version 7 (QV-246), one place: a send SQS deduplicated on a FIFO queue (timeline.deduplicated_sends) is no
+    longer a ``sent`` tenant event. Messages here with a FIFO queue and more than one sent event get their events
+    worked out again from their send spans (in this place and its strays), their tenant_events rows rewritten and
+    the difference taken out of the rollup, as an export's refresh does. Rare: other messages are skipped on their
+    summary row. Safe to run again: a message already right is left alone."""
+    from . import rollup, timeline  # noqa: PLC0415  (not needed to open a current schema)
+    from .postgres import _apply_rollup  # noqa: PLC0415
+    from psycopg.rows import dict_row  # noqa: PLC0415
+    import json  # noqa: PLC0415
+
+    was = conn.row_factory
+    conn.row_factory = dict_row  # as the store's connections: timeline and _apply_rollup read rows by name
+    try:
+        _dedup_place_rows(conn, rclass, bucket, rollup, timeline, _apply_rollup, json)
+    finally:
+        conn.row_factory = was
+
+
+def _dedup_place_rows(conn, rclass, bucket, rollup, timeline, _apply_rollup, json) -> None:
+    deltas = rollup.Deltas()
+    for m in conn.execute(
+            """SELECT mid, tenant, events_json, strays_json FROM messages
+               WHERE rclass = %s AND bucket = %s AND queues_json LIKE '%%.fifo%%'""", (rclass, bucket)).fetchall():
+        mid, tenant, events_json, strays_json = m["mid"], m["tenant"], m["events_json"], m["strays_json"]
+        old = json.loads(events_json)
+        if sum(e[1] == rollup.SENT for e in old) < 2:
+            continue
+        sends = []
+        for pc, pb in [(rclass, bucket)] + [tuple(p) for p in json.loads(strays_json or "[]")]:
+            sends += conn.execute(
+                """SELECT kind, queue, time_ns, "row" FROM spans
+                   WHERE rclass = %s AND bucket = %s AND mid = %s AND kind = 'send'""", (pc, pb, mid)).fetchall()
+        dup = timeline.deduplicated_sends(sends)
+        events = sorted([e for e in old if e[1] != rollup.SENT]
+                        + [[r["time_ns"] // 1_000_000, rollup.SENT, None] for r in sends if r["row"] not in dup])
+        if events == sorted(old):
+            continue
+        conn.execute("UPDATE messages SET events_json = %s WHERE rclass = %s AND bucket = %s AND mid = %s",
+                     (json.dumps(events), rclass, bucket, mid))
+        conn.execute("DELETE FROM tenant_events WHERE rclass = %s AND bucket = %s AND mid = %s", (rclass, bucket, mid))
+        conn.cursor().executemany(
+            """INSERT INTO tenant_events (rclass, bucket, at_ms, mid, seq, kind, tenant, wait_ms)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+            [(rclass, bucket, at, mid, i, kind, tenant, wait) for i, (at, kind, wait) in enumerate(events)])
+        deltas.change((rclass, bucket), rollup.contributions(tenant, old),
+                      (rclass, bucket), rollup.contributions(tenant, events))
+    _apply_rollup(conn, deltas)
+
+
 # Version 1 is the first Postgres schema. Later versions go here, one at a time.
 MIGRATIONS: tuple = (
     Migration(2, "lookup tables: the places of a message ID and of a receipt hash (QV-113)", (
@@ -461,8 +514,9 @@ MIGRATIONS: tuple = (
         "DROP TABLE IF EXISTS mid_places_v4, hash_places_v4",
     )),
     Migration(6, "probes: the test spans of trailbeam doctor (QV-148)", tuple(statements(PROBES))),
+    Migration(7, "FIFO deduplicated sends out of the tenant events (QV-246)", (), per_place=(_dedup_place,)),
 )
-LATEST = 6
+LATEST = 7
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 
