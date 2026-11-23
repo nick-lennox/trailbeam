@@ -113,10 +113,29 @@ def test_a_queue_taken_off_the_list_is_no_longer_shown_or_searched(tmp_path):
     db.close()
 
 
-@pytest.mark.parametrize("q", ["queue:orders", "acme", "body", "-", ""])
-def test_only_body_terms(q):
-    with pytest.raises(bodies.QueryError):
+@pytest.mark.parametrize("q,term", [("queue:orders", "queue:orders"), ("ord-1003 -tenant:acme", "-tenant:acme")])
+def test_a_term_for_another_field_is_an_error(q, term):
+    with pytest.raises(bodies.QueryError) as e:
         bodies.parse_query(q)
+    assert str(e.value) == f"Can't read `{term}`. Use text, or `body.<path>:<value>`."
+
+
+@pytest.mark.parametrize("q", ["", "   ", '""'])
+def test_an_empty_search_is_an_error(q):
+    with pytest.raises(bodies.QueryError, match="empty"):
+        bodies.parse_query(q)
+
+
+def test_plain_text_is_body_text():
+    """QV-215: ``ord-1003`` with no field is ``body:ord-1003``, not a 400."""
+    assert bodies.parse_query("ord-1003") == [{"field": "body", "path": [], "value": "ord-1003", "neg": False}]
+    assert [(t["field"], t["value"], t["neg"]) for t in bodies.parse_query('-acme "call me" body.order_id:ord-1003')] == [
+        ("body", "acme", True), ("body", "call me", False), ("body.order_id", "ord-1003", False)]
+    order = {"order_id": "ord-1003", "customer": "acme"}
+    assert bodies.matches(order, bodies.parse_query("ord-1003")) is True
+    assert bodies.matches(order, bodies.parse_query("ORD-1003")) is True
+    assert bodies.matches(order, bodies.parse_query("ord-1004")) is False
+    assert bodies.matches(order, bodies.parse_query("ord-1003 -acme")) is False
 
 
 # ---- over HTTP --------------------------------------------------------------------------------
@@ -167,7 +186,10 @@ def test_api_search(served):
     assert [m["message_id"] for m in rest["messages"]] == [d["messages"][1]["message_id"]]
     assert search(served, body="body.order.qty:>=2", queue="billing")[1]["messages"] == []
     status, d = search(served, body="tenant:acme")
-    assert status == 400 and "body" in d["error"]
+    assert status == 400 and d["error"] == "Can't read `tenant:acme`. Use text, or `body.<path>:<value>`."
+    # QV-215: plain text is body:<text>
+    status, plain = search(served, body="A-100")
+    assert status == 200 and plain["messages"] and plain["messages"] == search(served, body="body:A-100")[1]["messages"]
 
 
 def test_api_search_honours_tenant(served):
@@ -232,7 +254,7 @@ def test_messages_page_says_when_the_server_keeps_no_bodies():
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     try:
         _, html = get(f"http://127.0.0.1:{httpd.server_address[1]}", "/?body=body:acme")
-        assert "This server keeps no bodies" in unescape(html)
+        assert "This server keeps no message bodies, so there’s nothing to search" in unescape(html)
     finally:
         httpd.shutdown()
         httpd.server_close()

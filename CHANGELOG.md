@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Body search takes plain text.** On the Messages page and in `GET /api/messages?body=`, `ord-1003` is
+  searched as `body:ord-1003` instead of being refused with a 400. The **Body** field shows an example, and
+  on a server that keeps no bodies (`/api/health` lists no `store_bodies`) it is off, with a line saying how to
+  turn bodies on. A term for another field still fails, now as ``Can't read `queue:orders`. Use text, or
+  `body.<path>:<value>`.``, without the HTTP status. (QV-215)
 - **Upgrading from 0.3.0 is checked in CI.** A new job starts 0.3.0 (the PyPI package, and the published image),
   stores 1,200 messages' spans, then runs this version on the same SQLite file, volume or Postgres database. It
   checks that every timeline, list and tenant count reads as before, that messages in flight across the upgrade

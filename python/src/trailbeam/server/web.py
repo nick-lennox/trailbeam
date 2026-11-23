@@ -140,8 +140,10 @@ def _index(api, q: dict) -> Response:
                 "<code>TRAILBEAM_STORE_BODIES</code>, as the package redacted them. Anyone who can open this "
                 "page can read them.</p>")
         if not bs["stores_bodies"]:
-            note += ('<p class="notice">This server keeps no bodies: <code>TRAILBEAM_STORE_BODIES</code> is not '
-                     "set, so a body search finds nothing.</p>")
+            note += ('<p class="notice">This server keeps no message bodies, so there&rsquo;s nothing to search. To '
+                     "keep them, set <code>TRAILBEAM_STORE_BODIES</code> on the server and "
+                     "<code>TRAILBEAM_CAPTURE_BODY_QUEUES</code> in the package. "
+                     '<a href="https://github.com/nick-lennox/trailbeam#message-bodies">Message bodies</a></p>')
         elif bs["scanned"]:
             note += (f'<p class="muted">Read the bodies of {bs["scanned"]:,} messages last seen between '
                      f'{escape(_ms(bs["searched_from_ms"]))} and {escape(_ms(bs["to_ms"]))}'

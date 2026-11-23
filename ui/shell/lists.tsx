@@ -4,7 +4,7 @@
 */
 import { useEffect, useState, type ReactNode } from "react";
 import {
-  DUPLICATE_REASONS, EmptyState, MessagesTable, duplicatesEmpty, fmtAge, messagesEmpty, storeIsEmpty, stuckEmpty,
+  DUPLICATE_REASONS, EmptyState, MessagesTable, duplicatesEmpty, fmtAge, messagesEmpty, parseBodyQuery, storeIsEmpty, stuckEmpty,
   type Column, type EmptyStateProps, type MessageSummary,
 } from "../src/index.ts";
 import { Frame, Json, getHealth, getJSON, messageHref } from "./chrome.tsx";
@@ -16,7 +16,7 @@ type Page = {
   body_search?: { stores_bodies: boolean; from_ms: number; to_ms: number; scanned: number; searched_from_ms: number | null; complete: boolean };
 };
 
-type Field = { name: string; label: string; kind: "text" | "number" | [string, string][] };
+type Field = { name: string; label: string; kind: "text" | "number" | [string, string][]; placeholder?: string; disabled?: boolean };
 
 const pick = (params: Record<string, string>, names: string[]) => Object.fromEntries(names.filter((n) => params[n]).map((n) => [n, params[n]]));
 const qs = (p: Record<string, string>) => new URLSearchParams(Object.entries(p).filter(([, v]) => v !== "")).toString();
@@ -34,7 +34,8 @@ function Filters({ action, values, fields }: { action: string; values: Record<st
               {f.kind.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
             </select>
           ) : (
-            <input name={f.name} type={f.kind} defaultValue={values[f.name] ?? ""} className={`${input} ${f.kind === "number" ? "w-24" : "w-44"}`} />
+            <input name={f.name} type={f.kind} defaultValue={values[f.name] ?? ""} placeholder={f.placeholder} disabled={f.disabled}
+              className={`${input} ${f.kind === "number" ? "w-24" : f.placeholder ? "w-72" : "w-44"} placeholder:text-sky-ink-3 disabled:cursor-not-allowed disabled:opacity-60`} />
           )}
         </label>
       ))}
@@ -63,12 +64,17 @@ type ListProps = {
   next?: (page: Page) => Record<string, string>;
   /** told each answer, for what the page around the list says */
   onPage?: (page: Page) => void;
+  /** under the filters, before any answer */
+  below?: ReactNode;
+  /** what's wrong with the URL's filters, said instead of asking the API */
+  invalid?: ReactNode;
 };
 
-export function MessageList({ action, api, params, fields, defaults = {}, extra, notes, empty, next, onPage }: ListProps) {
+export function MessageList({ action, api, params, fields, defaults = {}, extra, notes, empty, next, onPage, below, invalid }: ListProps) {
   const [state, setState] = useState<ListState>({ kind: "loading" });
   const query = qs(params);
   useEffect(() => {
+    if (invalid) return;
     let live = true;
     getJSON<Page>(`/api/${api}${query ? `?${query}` : ""}`)
       .then(async (page) => {
@@ -86,7 +92,9 @@ export function MessageList({ action, api, params, fields, defaults = {}, extra,
   return (
     <>
       <Filters key={qs(values)} action={action} values={values} fields={fields} />
+      {below}
       <div className="mt-5">
+        {invalid ? <p className="text-sky-ink-2" role="alert">{invalid}</p> : <>
         {state.kind === "loading" && <p className="text-sky-ink-3">Loading messages</p>}
         {state.kind === "error" && <p className="text-sky-ink-2" role="alert">{state.message}</p>}
         {state.kind === "ok" && (
@@ -107,10 +115,27 @@ export function MessageList({ action, api, params, fields, defaults = {}, extra,
             </p>
           </>
         )}
+        </>}
       </div>
     </>
   );
 }
+
+/** Inline `code` in a sentence: the words the parsers write (badBodyTerm in src/body/search.ts). */
+const withCode = (s: string) => s.split("`").map((part, i) => (i % 2 ? <code key={i} className="font-mono text-caption">{part}</code> : part));
+
+/** What ?body= can't read, said before any request: the same rules the server applies. */
+function bodyQueryProblem(body: string | undefined): ReactNode {
+  if (!body?.trim()) return null;
+  try { parseBodyQuery(body); return null; } catch (e) { return withCode((e as Error).message); }
+}
+
+const NoBodies = () => (
+  <p className="mt-3 max-w-[80ch] text-sm text-sky-ink-2">
+    This server keeps no message bodies, so there&rsquo;s nothing to search. To keep them, set <code className="font-mono text-caption">TRAILBEAM_STORE_BODIES</code> on the server and <code className="font-mono text-caption">TRAILBEAM_CAPTURE_BODY_QUEUES</code> in the package.{" "}
+    <a className="text-dawn hover:underline" href="https://github.com/nick-lennox/trailbeam#message-bodies">Message bodies</a>
+  </p>
+);
 
 const WINDOWS: [string, string][] = [["3600", "an hour"], ["86400", "a day"], ["604800", "a week"], ["2592000", "30 days"]];
 
@@ -118,18 +143,26 @@ const WINDOWS: [string, string][] = [["3600", "an hour"], ["86400", "a day"], ["
 export function MessagesList({ params, heading = "h1" }: { params: Record<string, string>; heading?: "h1" | "h2" }) {
   const searching = Boolean(params.body?.trim());
   const H = heading;
-  const fields: Field[] = [{ name: "body", label: "Body", kind: "text" }, { name: "queue", label: "Queue", kind: "text" }, { name: "tenant", label: "Tenant", kind: "text" }, { name: "limit", label: "Limit", kind: "number" }];
+  // /api/health's store_bodies; [] when the server keeps none (without a session, health doesn't say: leave the field on)
+  const [noBodies, setNoBodies] = useState(false);
+  useEffect(() => {
+    let live = true;
+    getHealth(5000).then((h) => live && setNoBodies(Array.isArray(h.config?.store_bodies) && h.config.store_bodies.length === 0), () => {});
+    return () => { live = false; };
+  }, []);
+  const fields: Field[] = [{ name: "body", label: "Body", kind: "text", placeholder: "ord-1003 or body.order_id:ord-1003", disabled: noBodies }, { name: "queue", label: "Queue", kind: "text" }, { name: "tenant", label: "Tenant", kind: "text" }, { name: "limit", label: "Limit", kind: "number" }];
   if (searching) fields.splice(2, 0, { name: "since_s", label: "Last seen within", kind: WINDOWS });
   return (
     <section>
       <H className={heading === "h1" ? "text-[1.75rem] text-sky-ink" : "text-[1.25rem] text-sky-ink"}>{searching ? "Messages whose body matches" : "Recent messages"}</H>
       <MessageList action="/" api="messages" fields={fields} defaults={searching ? { since_s: "86400" } : {}}
+        below={noBodies && <NoBodies />} invalid={bodyQueryProblem(params.body)}
         params={pick(params, ["limit", "queue", "tenant", "body", "cursor", ...(searching ? ["since_s", "from_ms", "to_ms"] : [])])}
         notes={(p) => p.body_search && (
           <div className="mb-4 grid gap-2 text-[15px] leading-[1.5] text-sky-ink-2">
             <p className="max-w-[80ch] text-sm text-sky-ink-3">Searches only the bodies this server keeps: those of queues in <code className="font-mono text-caption">TRAILBEAM_STORE_BODIES</code>, as the package redacted them. Anyone who can open this page can read them.</p>
             {!p.body_search.stores_bodies ? (
-              <p className="rounded-[12px] border border-sky-line bg-sky-2 px-4 py-3">This server keeps no bodies: <code className="font-mono text-caption">TRAILBEAM_STORE_BODIES</code> is not set, so a body search finds nothing.</p>
+              !noBodies && <NoBodies />
             ) : p.body_search.scanned > 0 && (
               <p className="text-sm text-sky-ink-3">Read the bodies of <span className="font-mono">{p.body_search.scanned.toLocaleString("en-US")}</span> messages last seen between {ms(p.body_search.searched_from_ms)} and {ms(p.body_search.to_ms)}{p.body_search.complete ? "." : `; the next page reads older ones, back to ${ms(p.body_search.from_ms)}.`}</p>
             )}

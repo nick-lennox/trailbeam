@@ -366,8 +366,9 @@ per million spans. A file from an earlier version is converted when this version
 The bodies it keeps are on the message page's **Body** tab, one per message (the send's copy, else the
 first receive's). A message with no body says why: the package's capture status, a producer that isn't
 instrumented, a package from before 3.2, or a body this server dropped because its queue isn't in
-`TRAILBEAM_STORE_BODIES`. The Messages page searches them with `body.*` terms such as
-`body.order.sku:A-100` or `body.amount:>=100`, and so does `GET /api/messages?body=...`. The rules are in
+`TRAILBEAM_STORE_BODIES`. The Messages page searches them with plain text (`ord-1003`, the same as
+`body:ord-1003`) or `body.*` terms such as `body.order.sku:A-100` or `body.amount:>=100`, and so does
+`GET /api/messages?body=...`. On a server that keeps no bodies, the page's **Body** field is off and says so. The rules are in
 [`contract/body-view.md`](contract/body-view.md); the hosted app follows the same ones and draws the same view.
 
 **A body search is bounded.** Bodies have no index, so a search reads them. It reads only the messages
