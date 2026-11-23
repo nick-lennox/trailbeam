@@ -128,6 +128,7 @@ const { SQSClient } = require("@aws-sdk/client-sqs");
 const trailbeam = require("trailbeam");
 
 const sqs = trailbeam.instrument(new SQSClient({}));
+// before process.exit(), if you call it: await trailbeam.uninstall();
 ```
 
 **AWS Lambda**

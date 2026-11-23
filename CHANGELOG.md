@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Node.js: a short script no longer loses its spans.** When the event loop empties, the package now
+  exports the spans still queued, so a script that sends a message and ends without
+  `await trailbeam.uninstall()` delivers them, as the Python package already did. `process.exit()` and
+  signals skip that step; spans still queued then are lost, and the package now prints one line to stderr
+  with the count and the fix (`await trailbeam.uninstall()` before `process.exit()`)
+  ([Node.js README](node/README.md#client-hooks)). (QV-156)
+
 - **`npx trailbeam start`: the server from npm, without Python.** The npm package has a `trailbeam` command.
   `npx trailbeam start` runs the container image of the same version (`ghcr.io/nick-lennox/trailbeam:X.Y.Z`)
   with its data in the Docker volume `trailbeam-data`, and prints the same first-run output as the Python
