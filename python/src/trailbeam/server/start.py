@@ -8,7 +8,13 @@ In a data directory (``--data-dir``, env ``TRAILBEAM_DATA_DIR``, default ``~/.tr
 - ``trailbeam.sqlite``: the spans.
 
 Each secret is created on the first run, 32 random bytes as hex, in a file only its owner can read, and read
-back on every later run, so the token and key never change unless the file is deleted. Then the server starts
+back on every later run, so the token and key never change unless the file is deleted.
+
+Others on the machine must not be able to read the spans or plant a token (QV-201). On POSIX the data directory
+has to be the user's own and not writable by every user, else ``trailbeam start`` stops; one the group or
+others can use is made 0700. A secret file has to be a regular file (not a symlink) of the user's; one others
+can read is made 0600. Files are created with a 077 umask, so the SQLite file (and its -wal and -shm) is 0600
+wherever it is; an existing one must be the user's too, and is made 0600. Then the server starts
 as ``trailbeam`` would, and once it listens, the address, the token and the environment variables for a Python
 and a Node.js service are printed on stdout (the logs stay on stderr).
 
@@ -80,6 +86,8 @@ def start(argv) -> None:
     a.command = "trailbeam start"  # in the one-line errors serve() prints
     logging.basicConfig(level=a.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
     data = Path(a.data_dir).expanduser()
+    if os.name == "posix":
+        os.umask(0o077)  # everything this process creates (the SQLite file, -wal, -shm) is the user's only
     db_file = None if a.store_url else Path(a.db).expanduser() if a.db else data / DB_FILE
     had_data = db_file is not None and db_file.is_file() and db_file.stat().st_size > 0
     try:
@@ -102,6 +110,12 @@ def start(argv) -> None:
         warn_existing_data(db_file, made_token and a.token_file, made_key and data / KEY_FILE)
     if a.db is None:
         a.db = str(data / DB_FILE)
+    if not a.store_url:
+        try:
+            _tighten_db(a.db)
+        except (OSError, SetupError) as e:
+            log.error("trailbeam start: %s", e)
+            sys.exit(2)
 
     shown_host = os.environ.get(SHOWN_HOST_ENV, "").strip()
     shown_data_env = os.environ.get(SHOWN_DATA_DIR_ENV, "").strip()
@@ -159,18 +173,17 @@ def warn_existing_data(db_file, new_token_file, new_key_file) -> None:
 
 def ensure_secret(path) -> tuple:
     """The secret in ``path``, and whether it was just created. A missing file is created, readable and writable
-    by its owner only, holding 32 random bytes as hex; an existing one is read and never rewritten."""
+    by its owner only, holding 32 random bytes as hex; an existing one is read and never rewritten. On POSIX an
+    existing one must be a regular file (a symlink is not followed) owned by this user, else SetupError; one
+    others can read is made 0600."""
     path = Path(path)
     value = secrets.token_hex(32)
     try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW, 0o600)
     except FileExistsError:
-        text = path.read_text(encoding="utf-8").strip()
+        text = _read_own_secret(path)
         if not text:
             raise SetupError(f"{path} is empty: delete it to have a new secret made, or put one in it") from None
-        mode = path.stat().st_mode
-        if os.name == "posix" and mode & (stat.S_IRWXG | stat.S_IRWXO):
-            log.warning("%s can be read by other users (mode %o): chmod 600 %s", path, stat.S_IMODE(mode), path)
         return auth.check_token(text) if path.name == TOKEN_FILE else text, False
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(value + "\n")
@@ -179,10 +192,75 @@ def ensure_secret(path) -> tuple:
     return value, True
 
 
+_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+
+
+def _read_own_secret(path: Path) -> str:
+    try:
+        fd = os.open(path, os.O_RDONLY | _NOFOLLOW)
+    except OSError as e:
+        if path.is_symlink():
+            raise SetupError(f"{path} is a symlink: a secret file must be a regular file of yours. Delete it to "
+                             "have a new one made") from None
+        raise
+    with os.fdopen(fd, "r", encoding="utf-8") as f:
+        st = os.fstat(f.fileno())
+        if not stat.S_ISREG(st.st_mode):
+            raise SetupError(f"{path} is not a regular file")
+        if os.name == "posix":
+            if st.st_uid != os.geteuid():
+                raise SetupError(f"{path} belongs to another user (uid {st.st_uid}): it can't be trusted as a "
+                                 "secret. Delete it to have a new one made")
+            mode = stat.S_IMODE(st.st_mode)
+            if mode & 0o077:
+                os.fchmod(f.fileno(), 0o600)
+                log.warning("%s could be read by other users (mode %o): made it 600. If they could, make a new "
+                            "secret: delete it and run trailbeam start again", path, mode)
+        return f.read().strip()
+
+
 def _make_dir(path: Path) -> None:
+    """Creates the data directory 0700, or checks an existing one: on POSIX it must be this user's and not
+    writable by every user (else SetupError); one the group or others can use is made 0700."""
     if path.exists() and not path.is_dir():
         raise SetupError(f"the data directory {path} is a file")
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.name != "posix":
+        return
+    st = os.stat(path)
+    if st.st_uid != os.geteuid():
+        raise SetupError(f"the data directory {path} belongs to another user (uid {st.st_uid}): use a directory "
+                         "of your own (--data-dir)")
+    mode = stat.S_IMODE(st.st_mode)
+    if mode & stat.S_IWOTH:
+        raise SetupError(f"the data directory {path} can be written by any user (mode {mode:o}): they could plant "
+                         f"a token. Check what is in it, then chmod 700 {path}, or use another --data-dir")
+    if mode & 0o077:
+        # Group-writable is the usual with a 002 umask (a group of one's own). What a group member may have put
+        # here is caught file by file: a secret or SQLite file that isn't this user's is refused.
+        os.chmod(path, 0o700)
+        log.info("the data directory %s could be read by other users (mode %o): made it 700", path, mode)
+
+
+def _tighten_db(db: str) -> None:
+    """An existing SQLite file (or its -wal, -shm) must be a regular file of this user's (else SetupError: whoever
+    owns it can read every span); one others can read is made 0600. New ones are 0600 already (the umask)."""
+    if os.name != "posix":
+        return
+    for p in (db, db + "-wal", db + "-shm"):
+        try:
+            st = os.lstat(p)
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISREG(st.st_mode):
+            raise SetupError(f"{p} is not a regular file (a symlink?): the SQLite file must be a file of yours")
+        if st.st_uid != os.geteuid():
+            raise SetupError(f"{p} belongs to another user (uid {st.st_uid}), who can read every span in it: use "
+                             "a file of your own (--db)")
+        mode = stat.S_IMODE(st.st_mode)
+        if mode & 0o077:
+            os.chmod(p, 0o600)
+            log.info("%s could be read by other users (mode %o): made it 600", p, mode)
 
 
 def _shell_path(path) -> str:

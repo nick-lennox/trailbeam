@@ -117,6 +117,29 @@ test('--data-dir and --db: mounted from this machine, run as this user', () => {
   assert.deepStrictEqual(args.slice(-6), [cli.IMAGE, 'start', '--data-dir', '/data', '--db', '/trailbeam-db/x.sqlite']);
 });
 
+const posix = process.platform !== 'win32' && process.geteuid;
+
+test('--data-dir: an existing 755 directory is made 700 (QV-201)', { skip: !posix }, () => {
+  const data = path.join(tmp(), 'tb');
+  fs.mkdirSync(data, { mode: 0o755 });
+  fs.chmodSync(data, 0o755);
+  const said = [];
+  cli.dockerArgs(['--data-dir', data], { env: {}, uid: 1, gid: 1, log: (m) => said.push(m) });
+  assert.strictEqual(fs.statSync(data).mode & 0o777, 0o700);
+  assert.match(said.join('\n'), /could be read by other users \(mode 755\): made it 700/);
+});
+
+test('--data-dir: a directory any user can write, or another user\'s, is refused', { skip: !posix }, () => {
+  const data = path.join(tmp(), 'tb');
+  fs.mkdirSync(data);
+  fs.chmodSync(data, 0o777);
+  assert.throws(() => cli.dockerArgs(['--data-dir', data], { env: {}, uid: 1, gid: 1 }), /can be written by any user/);
+  assert.strictEqual(fs.statSync(data).mode & 0o777, 0o777);
+  fs.chmodSync(data, 0o700);
+  assert.throws(() => cli.dockerArgs(['--data-dir', data], { env: {}, uid: 1, gid: 1, ownerUid: process.geteuid() + 1 }),
+    /belongs to another user/);
+});
+
 test('--token-file is read here and given as TRAILBEAM_TOKEN; --config is mounted read-only', () => {
   const dir = tmp();
   fs.writeFileSync(path.join(dir, 'token'), 'my-own-token-0123456789\n', { mode: 0o600 });
