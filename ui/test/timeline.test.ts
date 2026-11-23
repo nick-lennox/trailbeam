@@ -8,9 +8,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { TimelineView } from "../src/timeline/Timeline.tsx";
+import { TimelineView, Node, SourceTag } from "../src/timeline/Timeline.tsx";
 import { answerFor } from "../src/summary.ts";
-import type { Timeline } from "../src/timeline/types.ts";
+import type { Timeline, TimelineEvent } from "../src/timeline/types.ts";
 
 const { timelines } = JSON.parse(readFileSync(new URL("./fixtures/timelines.json", import.meta.url), "utf8")) as { timelines: Timeline[] };
 const render = (t: Timeline) => renderToStaticMarkup(createElement(TimelineView, { t, answer: answerFor(t) }));
@@ -36,6 +36,33 @@ test("an inferred step is marked inferred, and a message without a group still s
   assert.match(html, /inferred/);
   const lone = t.events.find((e) => e.group === null);
   if (lone) assert.ok(text(html).includes(` ${lone.id} `), "a step placed between groups is drawn");
+});
+
+test("inferred steps are drawn in neutral Haze with dashes, never the failure red (QV-211)", () => {
+  const inferred = { id: "e3", inferred: true, type: "visibility_timeout_expired", group: null, time: null,
+    window: { from: "2026-01-01T00:00:01Z", to: "2026-01-01T00:00:31Z" }, reason: "", queue: "orders", after: [] } as unknown as TimelineEvent;
+  const node = renderToStaticMarkup(createElement(Node, { e: inferred }));
+  assert.match(node, /stroke="var\(--color-sky-ink-3\)"/);
+  assert.match(node, /stroke-dasharray/);
+  assert.doesNotMatch(node, /lost/);
+  const tag = renderToStaticMarkup(createElement(SourceTag, { kind: "inferred", children: "inferred" }));
+  assert.match(tag, /border-dashed border-sky-ink-3/);
+  assert.doesNotMatch(tag, /lost/);
+  for (const t of timelines.filter((x) => x.events.some((e) => e.inferred))) {
+    const html = render(t);
+    assert.doesNotMatch(html, /border-dashed border-lost|text-lost[^"]*">\s*inferred/, `${t.message_id}: no red on inferred marks`);
+  }
+});
+
+test("failures stay red: a failed delete, a dead-letter move, a failed handler (QV-211)", () => {
+  const base = { group: 1, time: "2026-01-01T00:00:01Z", start: null, end: "2026-01-01T00:00:01Z", start_observed: false,
+    queue: "orders", consumer: { service_name: "orders-worker" }, after: [] };
+  const red = (e: object) => renderToStaticMarkup(createElement(Node, { e: e as TimelineEvent })).includes("var(--color-lost)");
+  assert.ok(red({ ...base, id: "e1", inferred: false, type: "deleted", delivery: 1, result: "failed", status: "failed" }), "failed delete");
+  assert.ok(red({ ...base, id: "e2", inferred: false, type: "lambda_outcome", outcome: "failed_exception" }), "failed handler");
+  assert.ok(red({ id: "e3", inferred: false, type: "moved_to_dead_letter_queue", group: null, time: null, window: { from: null, to: null },
+    reason: "", queue: "orders", after: [], source: "sqs_dlq_source" }), "DLQ move");
+  assert.ok(!red({ ...base, id: "e4", inferred: false, type: "deleted", delivery: 1, result: "ok", status: "final" }), "a good delete is not red");
 });
 
 test("the summary says what happened", () => {
