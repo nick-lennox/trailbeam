@@ -4,7 +4,9 @@ In a data directory (``--data-dir``, env ``TRAILBEAM_DATA_DIR``, default ``~/.tr
 
 - ``token``: the access token. Ingest, the API and the web screen need it;
 - ``receipt-hash-key``: the key every service hashes receipt handles with (``TRAILBEAM_RECEIPT_HASH_KEY``).
-  The server never reads it; it is kept here so that every service is given the same one;
+  The server never reads it; it is kept here so that every service is given the same one. If
+  ``TRAILBEAM_RECEIPT_HASH_KEY`` is set, that key wins: it is printed instead, and no file is made (an existing
+  file that holds a different key is left alone, with one warning);
 - ``trailbeam.sqlite``: the spans.
 
 Each secret is created on the first run, 32 random bytes as hex, in a file only its owner can read, and read
@@ -37,6 +39,7 @@ DB_FILE = "trailbeam.sqlite"
 DATA_DIR_ENV = "TRAILBEAM_DATA_DIR"
 SHOWN_HOST_ENV = "TRAILBEAM_START_SHOWN_HOST"  # set by npx trailbeam start: see the module docstring
 SHOWN_DATA_DIR_ENV = "TRAILBEAM_START_SHOWN_DATA_DIR"
+KEY_ENV = "TRAILBEAM_RECEIPT_HASH_KEY"
 MIN_KEY_LENGTH = 16  # the packages warn below 16 bytes
 
 log = logging.getLogger("trailbeam.server")
@@ -70,9 +73,7 @@ def start(argv) -> None:
     data = Path(a.data_dir).expanduser()
     try:
         _make_dir(data)
-        key, made_key = ensure_secret(data / KEY_FILE)
-        if len(key) < MIN_KEY_LENGTH:
-            raise SetupError(f"{data / KEY_FILE}: the receipt-hash key must be at least {MIN_KEY_LENGTH} characters")
+        key, made_key = receipt_hash_key(data / KEY_FILE)
         made_token = False
         if not a.token_file and not os.environ.get("TRAILBEAM_TOKEN", "").strip():
             a.token_file = str(data / TOKEN_FILE)
@@ -94,6 +95,27 @@ def start(argv) -> None:
         sys.stdout.flush()
 
     serve(a, on_listening=announce)
+
+
+def receipt_hash_key(path: Path) -> tuple:
+    """The key to give the services, and whether its file was just created. $TRAILBEAM_RECEIPT_HASH_KEY wins
+    over the file, so that services already set up with it keep joining; then the file is not created."""
+    env = os.environ.get(KEY_ENV, "").strip()
+    if env:
+        if len(env) < MIN_KEY_LENGTH:
+            raise SetupError(f"{KEY_ENV}: the receipt-hash key must be at least {MIN_KEY_LENGTH} characters")
+        try:
+            in_file = path.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            in_file = None
+        if in_file and in_file != env:
+            log.warning("%s differs from the key in %s: using %s; services set up with the file's key will not "
+                        "join timelines with the others until they use it too", KEY_ENV, path, KEY_ENV)
+        return env, False
+    key, made = ensure_secret(path)
+    if len(key) < MIN_KEY_LENGTH:
+        raise SetupError(f"{path}: the receipt-hash key must be at least {MIN_KEY_LENGTH} characters")
+    return key, made
 
 
 def ensure_secret(path) -> tuple:
@@ -137,7 +159,7 @@ def service_env(url: str, token, key: str, service: str) -> list:
     env = [("TRAILBEAM_OTLP_TRACES_ENDPOINT", f"{url}/v1/traces")]
     if token:
         env.append(("OTEL_EXPORTER_OTLP_HEADERS", f"Authorization=Bearer%20{token}"))
-    env += [("TRAILBEAM_RECEIPT_HASH_KEY", key), ("OTEL_SERVICE_NAME", service)]
+    env += [(KEY_ENV, key), ("OTEL_SERVICE_NAME", service)]
     return env
 
 

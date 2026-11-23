@@ -125,7 +125,10 @@ export OTEL_SERVICE_NAME=my-python-service
 ```
 
 Because the token is on, services need these settings, and the web screen asks for the token once. Later
-runs reuse the same token and key. Every `trailbeam` flag works after `start` (`trailbeam start --help`).
+runs reuse the same token and key. If `TRAILBEAM_RECEIPT_HASH_KEY` is already set (at least 16 characters),
+`trailbeam start` prints that key instead and makes no key file, so services you set up before keep
+joining; if the data directory already holds a different key, the environment variable wins and one
+warning says so. Every `trailbeam` flag works after `start` (`trailbeam start --help`).
 Stop it with Ctrl-C. Without Python, `npx trailbeam start` does the same with Docker
 ([Node.js README](node/README.md#run-the-server-npx-trailbeam-start)).
 

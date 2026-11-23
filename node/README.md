@@ -28,7 +28,8 @@ runs the Trailbeam server from its container image, `ghcr.io/nick-lennox/trailbe
 package's version, and keeps its data in the Docker volume `trailbeam-data`. The first run creates an access
 token and a receipt-hash key there. It then prints the web screen's address (`http://127.0.0.1:4318/`), the
 token, and the environment variables to set in your services, the same output as the Python
-`trailbeam start`. Later runs reuse the token and key. Stop it with Ctrl-C.
+`trailbeam start`. Later runs reuse the token and key. If `TRAILBEAM_RECEIPT_HASH_KEY` is set, that key
+is used and printed instead of the one in the volume. Stop it with Ctrl-C.
 
 It takes the same flags as the Python command (`npx trailbeam start --help` lists them), and the same
 `TRAILBEAM_` environment variables. The flags that name something on your machine work like this:
