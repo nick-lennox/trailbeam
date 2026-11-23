@@ -27,6 +27,12 @@
 - **Team install: `.env` readable by its owner only.** The README, the `docker-compose.yaml` header and
   `.env.example` now say `install -m 600 .env.example .env` instead of `cp`, which left the token and the
   Postgres password readable by every user of the server (QV-204).
+- **`npx trailbeam start` says which image it runs; image versions are write-once.** Before the server starts,
+  one stderr line names the image: its reference, local image ID and registry digest, and, when
+  `TRAILBEAM_IMAGE` is set, that it replaces the default image. The image is pulled (only when missing) and
+  inspected first, then run with `--pull never`, so the line names what runs. The release workflow now stops
+  before pushing `ghcr.io/nick-lennox/trailbeam:X.Y.Z` when that tag is already published, so re-running a
+  release can't change what an already-published npm version runs (QV-205).
 - **A first-run screen, and one design for every page.** While the store holds no span, `/` shows how to send
   the first message: install the package (a Python / Node.js switch), the OTLP endpoint of this server with a
   Copy button, the environment variables (with the token header when the server has a token, never the token),
