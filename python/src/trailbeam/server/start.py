@@ -4,7 +4,9 @@ In a data directory (``--data-dir``, env ``TRAILBEAM_DATA_DIR``, default ``~/.tr
 
 - ``token``: the access token. Ingest, the API and the web screen need it;
 - ``receipt-hash-key``: the key every service hashes receipt handles with (``TRAILBEAM_RECEIPT_HASH_KEY``).
-  The server never reads it; it is kept here so that every service is given the same one;
+  The server never reads it; it is kept here so that every service is given the same one. If
+  ``TRAILBEAM_RECEIPT_HASH_KEY`` is set, that key wins: the services are told to use it, and no file is made (an
+  existing file that holds a different key is left alone, with one warning);
 - ``trailbeam.sqlite``: the spans.
 
 Each secret is created on the first run, 32 random bytes as hex, in a file only its owner can read, and read
@@ -22,7 +24,8 @@ The token and the key are printed in full only by the run that created them. A l
 ``docker run -d``, nohup or CI, whose stdout often ends up in a log) prints the command that shows each one
 instead (``cat ~/.trailbeam/token``), and the environment variable lines read the files with ``$(cat ...)``, so
 the secrets reach neither the log nor the shell history. A token given with ``--token-file`` or
-``TRAILBEAM_TOKEN`` was not created here, so it is never printed.
+``TRAILBEAM_TOKEN`` was not created here, so it is never printed, and nor is a key given with
+``TRAILBEAM_RECEIPT_HASH_KEY``: the lines say ``$TRAILBEAM_TOKEN`` or ``$TRAILBEAM_RECEIPT_HASH_KEY`` instead.
 
 Every flag of ``trailbeam`` works here too. ``--db`` or ``--store-url`` replaces the SQLite file in the data
 directory, and ``--token-file`` or ``TRAILBEAM_TOKEN`` replaces the token file.
@@ -53,6 +56,7 @@ DB_FILE = "trailbeam.sqlite"
 DATA_DIR_ENV = "TRAILBEAM_DATA_DIR"
 SHOWN_HOST_ENV = "TRAILBEAM_START_SHOWN_HOST"  # set by npx trailbeam start: see the module docstring
 SHOWN_DATA_DIR_ENV = "TRAILBEAM_START_SHOWN_DATA_DIR"
+KEY_ENV = "TRAILBEAM_RECEIPT_HASH_KEY"
 SHOWN_CAT_ENV = "TRAILBEAM_START_SHOWN_CAT"
 SHOWN_TOKEN_FILE_ENV = "TRAILBEAM_START_SHOWN_TOKEN_FILE"
 MIN_KEY_LENGTH = 16  # the packages warn below 16 bytes
@@ -92,9 +96,7 @@ def start(argv) -> None:
     had_data = db_file is not None and db_file.is_file() and db_file.stat().st_size > 0
     try:
         _make_dir(data)
-        key, made_key = ensure_secret(data / KEY_FILE)
-        if len(key) < MIN_KEY_LENGTH:
-            raise SetupError(f"{data / KEY_FILE}: the receipt-hash key must be at least {MIN_KEY_LENGTH} characters")
+        key, made_key = receipt_hash_key(data / KEY_FILE)
         made_token = False
         token_file = a.token_file  # given with --token-file; None with TRAILBEAM_TOKEN or the data directory's
         if not a.token_file and not os.environ.get("TRAILBEAM_TOKEN", "").strip():
@@ -128,7 +130,8 @@ def start(argv) -> None:
             return cat.replace("{}", name)
         return "cat " + _shell_path(Path(shown_data_env) / name if shown_data_env else data / name)
 
-    key_cmd = None if made_key else show(KEY_FILE)
+    key_var = KEY_ENV if os.environ.get(KEY_ENV, "").strip() else None  # receipt_hash_key() used it
+    key_cmd = None if made_key or key_var else show(KEY_FILE)
     token_cmd = token_var = None
     if made_token:
         pass
@@ -145,10 +148,32 @@ def start(argv) -> None:
 
     def announce(host, port, token):
         sys.stdout.write(banner(_url_host(shown_host or host), port, token, key, shown_data,
-                                token_cmd=token_cmd, key_cmd=key_cmd, token_var=token_var))
+                                token_cmd=token_cmd, key_cmd=key_cmd, token_var=token_var,
+                                key_var=key_var))
         sys.stdout.flush()
 
     serve(a, on_listening=announce)
+
+
+def receipt_hash_key(path: Path) -> tuple:
+    """The key to give the services, and whether its file was just created. $TRAILBEAM_RECEIPT_HASH_KEY wins
+    over the file, so that services already set up with it keep joining; then the file is not created."""
+    env = os.environ.get(KEY_ENV, "").strip()
+    if env:
+        if len(env) < MIN_KEY_LENGTH:
+            raise SetupError(f"{KEY_ENV}: the receipt-hash key must be at least {MIN_KEY_LENGTH} characters")
+        try:
+            in_file = path.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            in_file = None
+        if in_file and in_file != env:
+            log.warning("%s differs from the key in %s: using %s; services set up with the file's key will not "
+                        "join timelines with the others until they use it too", KEY_ENV, path, KEY_ENV)
+        return env, False
+    key, made = ensure_secret(path)
+    if len(key) < MIN_KEY_LENGTH:
+        raise SetupError(f"{path}: the receipt-hash key must be at least {MIN_KEY_LENGTH} characters")
+    return key, made
 
 
 def warn_existing_data(db_file, new_token_file, new_key_file) -> None:
@@ -167,8 +192,8 @@ def warn_existing_data(db_file, new_token_file, new_key_file) -> None:
         log.warning("trailbeam start: %s is an existing database, and a new receipt-hash key was made (%s). Your "
                     "services keep hashing with the key they have (TRAILBEAM_RECEIPT_HASH_KEY, or the published "
                     "default key if none is set) until you change it; messages in flight while services change keys "
-                    "are not joined. To keep the key they use, put it in %s and start again.",
-                    db_file, new_key_file, new_key_file)
+                    "are not joined. To keep the key they use, set %s to it (or put it in %s) and start again.",
+                    db_file, new_key_file, KEY_ENV, new_key_file)
 
 
 def ensure_secret(path) -> tuple:
@@ -288,14 +313,15 @@ def service_env(url: str, token, key: str, service: str) -> list:
     env = [("TRAILBEAM_OTLP_TRACES_ENDPOINT", f"{url}/v1/traces")]
     if token:
         env.append(("OTEL_EXPORTER_OTLP_HEADERS", f"Authorization=Bearer%20{token}"))
-    env += [("TRAILBEAM_RECEIPT_HASH_KEY", key), ("OTEL_SERVICE_NAME", service)]
+    env += [(KEY_ENV, key), ("OTEL_SERVICE_NAME", service)]
     return env
 
 
-def banner(host: str, port: int, token, key: str, data, token_cmd=None, key_cmd=None, token_var=None) -> str:
+def banner(host: str, port: int, token, key: str, data, token_cmd=None, key_cmd=None, token_var=None,
+           key_var=None) -> str:
     """The text printed once the server listens. When the token (key) was not created by this run, it is not in
-    the text: ``token_cmd`` (``key_cmd``) is the shell command that prints it, or ``token_var`` the environment
-    variable that holds it, and the environment variable lines use that."""
+    the text: ``token_cmd`` (``key_cmd``) is the shell command that prints it, or ``token_var`` (``key_var``) the
+    environment variable that holds it, and the environment variable lines use that."""
     url = f"http://{host}:{port}"
     lines = ["", f"Trailbeam is running: open {url}/"]
     if token:
@@ -309,6 +335,9 @@ def banner(host: str, port: int, token, key: str, data, token_cmd=None, key_cmd=
     if key_cmd:
         key = f"$({key_cmd})"
         lines.append(f"  Receipt-hash key: show it with: {key_cmd}")
+    elif key_var:
+        key = f"${key_var}"
+        lines.append(f"  Receipt-hash key: the one in {key_var}")
     lines += [f"  Data directory: {data} (keep it private: it holds the token and the receipt-hash key)", ""]
     for lang, install, service, code in (
             ("Python", "pip install trailbeam", "my-python-service",

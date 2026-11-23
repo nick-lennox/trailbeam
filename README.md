@@ -135,7 +135,10 @@ export OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20$(cat ~/.trailbeam/toke
 export TRAILBEAM_RECEIPT_HASH_KEY=$(cat ~/.trailbeam/receipt-hash-key)
 ```
 
-A token you give with `--token-file` or `TRAILBEAM_TOKEN` is never printed. Every `trailbeam` flag works after
+A token you give with `--token-file` or `TRAILBEAM_TOKEN` is never printed. If `TRAILBEAM_RECEIPT_HASH_KEY` is
+already set (at least 16 characters), `trailbeam start` uses that key and makes no key file, so services you set
+up before keep joining: the export lines say `$TRAILBEAM_RECEIPT_HASH_KEY`, and if the data directory already
+holds a different key, the environment variable wins and one warning says so. Every `trailbeam` flag works after
 `start` (`trailbeam start --help`). Stop it with Ctrl-C. From the next release, `npx trailbeam start` does the
 same with Docker and no Python ([Node.js README](node/README.md#run-the-server-npx-trailbeam-start)). It does not
 work with 0.3.0: the npm package has no `trailbeam` command yet, and the 0.3.0 image has no `start`. Nothing on
