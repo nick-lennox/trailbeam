@@ -259,6 +259,51 @@ jobs:
         if: always() && matrix.store == 'sqlite-image'
         run: docker image rm -f "$TB_IMAGE" || true
 
+  backup-restore:
+    # A backup taken with the README's commands while the server ingests restores onto a new machine, with its
+    # token and receipt-hash key. python/smoke/backup_restore_check.py says what is checked.
+    name: Backup and restore under load (${{ matrix.store }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        store: [sqlite, sqlite-image, postgres]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432   # random host port: several runners share one machine
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[test,postgres]'
+      - name: SQLite, trailbeam start's data directory
+        if: matrix.store == 'sqlite'
+        run: python smoke/backup_restore_check.py --store sqlite --cmd trailbeam
+      - name: SQLite in a Docker volume, this checkout's image
+        if: matrix.store == 'sqlite-image'
+        run: |
+          echo "TB_IMAGE=tbci-${{ github.run_id }}-${{ github.run_attempt }}-backup:ci" >> "$GITHUB_ENV"
+          docker build -t "tbci-${{ github.run_id }}-${{ github.run_attempt }}-backup:ci" ..
+          python smoke/backup_restore_check.py --store sqlite --image "tbci-${{ github.run_id }}-${{ github.run_attempt }}-backup:ci"
+      - name: Postgres, pg_dump and pg_restore (the runner's client tools)
+        if: matrix.store == 'postgres'
+        run: >-
+          python smoke/backup_restore_check.py --store postgres --cmd trailbeam
+          --pg-url "postgresql://postgres:postgres@localhost:${{ job.services.postgres.ports['5432'] }}/postgres"
+      - name: Remove this job's image
+        if: always() && matrix.store == 'sqlite-image'
+        run: docker image rm -f "$TB_IMAGE" || true
+
   demo:
     name: Local demo (Docker Compose)
     runs-on: ubuntu-latest

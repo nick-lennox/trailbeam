@@ -347,8 +347,8 @@ TRAILBEAM_RECEIPT_HASH_KEY=<the same key as in .env>
 - **The port is plain HTTP.** The bearer token, the login form and the session cookie (no `Secure` flag) cross
   the network in clear: put a TLS proxy in front when it crosses a network you don't trust.
 - **The data stays** across `docker compose down` and `up`, and across restarts of the machine: spans are in the
-  `postgres-data` volume. `docker compose down -v` deletes them. Back up with `pg_dump`
-  ([Backup and restore](#backup-and-restore-postgres)): `docker compose exec -T postgres pg_dump -U trailbeam -Fc trailbeam > trailbeam.dump`.
+  `postgres-data` volume. `docker compose down -v` deletes them. Back up with `pg_dump`, and keep a copy of `.env`
+  with it ([Backup and restore](#backup-and-restore-postgres)): `docker compose exec -T postgres pg_dump -U trailbeam -Fc trailbeam > trailbeam.dump`.
 - **Postgres starts with `max_locks_per_transaction = 256`** instead of the stock 64, so a larger read pool or a
   second server on the same database needs no Postgres restart ([lock table](#postgres-lock-table-max_locks_per_transaction)).
   Its port is not published: only the Trailbeam container connects.
@@ -761,9 +761,20 @@ consistent ([Postgres: asynchronous commit](https://www.postgresql.org/docs/curr
 
 #### Backup and restore (Postgres)
 
-Use Postgres' own backups. Everything Trailbeam stores is in its database (or schema). Keep your configuration
-and token files as well, since they aren't in the database. Protect the backups like the data: they hold the stored
-message bodies.
+Use Postgres' own backups. Everything Trailbeam stores is in its database (or schema). The access token and the
+receipt-hash key are not, and a restore needs both: keep them with the backups. Without the token every service
+and browser has to be given a new one; without the key, services that start hashing with a new one leave the
+deletes of messages received before the restore unjoined (`key_mismatch`; see [the SQLite
+section](#backup-and-restore-sqlite) for why). Where they are:
+
+- **Team install (Docker Compose):** `.env` (`TRAILBEAM_TOKEN`, `TRAILBEAM_RECEIPT_HASH_KEY`, and `POSTGRES_PASSWORD`).
+- **Helm chart:** the Secret `<release>-trailbeam` (keys `token` and `receipt-hash-key`), or your
+  `auth.existingSecret`. On a new cluster the chart generates new values unless you give it the old ones:
+  recreate the Secret and set `auth.existingSecret`, or set `auth.token` and `auth.receiptHashKey`.
+- **Your own setup:** wherever `TRAILBEAM_TOKEN` or `--token-file` and the services' `TRAILBEAM_RECEIPT_HASH_KEY` come from.
+
+Keep your configuration file too, if you use one. Protect the backups like the data: they hold the stored message
+bodies, and with the token anyone can read every timeline.
 
 - **Snapshots and point-in-time recovery** (the automated backups of RDS and Cloud SQL, Neon's restore,
   `pg_basebackup` with WAL archiving, pgBackRest) copy the files and take no table locks. Prefer them.
@@ -784,10 +795,29 @@ pg_restore --no-owner --role=trailbeam -d "postgres://trailbeam@db.internal/trai
 psql "postgres://trailbeam@db.internal/trailbeam_restored" -c ANALYZE
 ```
 
-Then point `TRAILBEAM_STORE_URL` at the restored database. If Trailbeam has a schema of its own, add
-`-n trailbeam` to `pg_dump`, and restore as a role allowed to create that schema. As with SQLite, the purge
-deletes whatever is past retention at its next pass, so set a longer `--retention` first if you restored the
-backup to look at old timelines.
+Then point `TRAILBEAM_STORE_URL` at the restored database, give the server the same token, and the services the
+same key. Restore into an empty database, before Trailbeam first starts on it: a server that started first has
+created its tables, and `pg_restore` then fails on them.
+
+If Trailbeam has a schema of its own, add `-n trailbeam` to `pg_dump`, and restore as a role allowed to create
+that schema. As with SQLite, the purge deletes whatever is past retention at its next pass, so set a longer
+`--retention` first if you restored the backup to look at old timelines.
+
+**Team install on a new machine.** Copy `.env` (with `install -m 600`) and the dump, start Postgres alone, restore,
+then start the rest:
+
+```sh
+docker compose up -d --wait postgres
+docker compose exec -T postgres pg_restore -U trailbeam -d trailbeam --no-owner < trailbeam.dump
+docker compose exec -T postgres psql -U trailbeam -d trailbeam -c ANALYZE
+docker compose up -d --build --wait
+```
+
+`python/smoke/backup_restore_check.py --store postgres` runs `pg_dump` while the server ingests, restores with
+`createdb -O`, `pg_restore --no-owner --role` and `ANALYZE` into a new database owned by the same role, and checks
+the restored server as for SQLite (CI runs it on Postgres 16). The team install steps above were run by hand
+(QV-239), not in CI. A `trailbeam backup` command would add nothing here: snapshots, point-in-time
+recovery and `pg_dump` are the tools a Postgres operator already runs, and they are safe while Trailbeam ingests.
 
 #### Upgrades
 
@@ -1013,8 +1043,61 @@ A backup from an older version is upgraded when the server starts ([Upgrading a 
 file](#retention)). The purge then deletes whatever is past retention, so set a longer `--retention` first
 if you restored the backup to look at old timelines.
 
-**What else to keep.** Your configuration file and token file, if you use them; they are not in the
-database. A backup holds the stored message bodies (`--store-bodies`), so protect it like the data.
+**Keep the access token and the receipt-hash key with the backup.** Neither is in the database file, and a
+restore without them doesn't give back a working server:
+
+- **The token.** Without it, a new machine gets a new token (`trailbeam start` makes one), and every service's
+  `OTEL_EXPORTER_OTLP_HEADERS` and every browser signed in to the web screen stop working until they are given it.
+- **The receipt-hash key.** The server never reads it, but every service hashes receipt handles with it, and a
+  delete or visibility change is joined to its delivery by that hash. If the services carry on with a new key
+  after the restore, the deletes of messages received before it don't join their receives: those timelines
+  show `key_mismatch`. `trailbeam start` makes a new key when the data
+  directory has none, so restore the file before the first start.
+
+Where they are: `trailbeam start` keeps both next to the database, as `token` and `receipt-hash-key` in the data
+directory (`~/.trailbeam`; `/data` in the Docker volume of `npx trailbeam start`). With `docker run` they are
+where you keep them: the token in `TRAILBEAM_TOKEN` or `--token-file`, the key in your services' settings. Keep
+your configuration file too, if you use one. Copy the two files with the backup:
+
+```sh
+cp -p ~/.trailbeam/token ~/.trailbeam/receipt-hash-key /backups/
+docker cp trailbeam:/data/token ./token && docker cp trailbeam:/data/receipt-hash-key ./receipt-hash-key   # in Docker
+```
+
+A backup holds the stored message bodies (`--store-bodies`), and with the token anyone can read every timeline,
+so protect the backup like the data: readable by its owner only, and not in the same place as the server.
+
+**Restore on a new machine** (`trailbeam start`). Put the three files in a new data directory, readable by you
+only, then start:
+
+```sh
+install -d -m 700 ~/.trailbeam
+install -m 600 trailbeam-2026-11-19.sqlite ~/.trailbeam/trailbeam.sqlite
+install -m 600 token receipt-hash-key ~/.trailbeam/
+trailbeam start
+```
+
+`trailbeam start` doesn't print the token or key when it finds them (it prints a `cat` command for each): if
+it prints them in full, it has made new ones, so the restore is missing a file. In Docker (the volume of
+`npx trailbeam start`), restore into a new volume and start as before:
+
+```sh
+docker volume create trailbeam-data
+docker run --rm --user root -v trailbeam-data:/data -v "$PWD":/restore:ro --entrypoint sh ghcr.io/nick-lennox/trailbeam -c \
+  'install -m 600 -o trailbeam -g trailbeam /restore/trailbeam-2026-11-19.sqlite /data/trailbeam.sqlite &&
+   install -m 600 -o trailbeam -g trailbeam /restore/token /restore/receipt-hash-key /data/'
+npx trailbeam start
+```
+
+`python/smoke/backup_restore_check.py` runs these steps in CI (with `trailbeam start` and with the image): it
+takes the backup while the server ingests and the API is read, restores it on a new data directory or volume,
+and checks that the restored server serves exactly the exports answered before some moment during the backup,
+that the token still works, and that deletes sent after the restore join receives from before it.
+
+**Why there is no `trailbeam backup` command.** The backup API is SQLite's own consistent snapshot, the
+command above is all it takes, and the check shows it is safe under load. The two ways to get it wrong are a
+plain `cp` of the live file (in the same check, a `cp` passed `integrity_check` but had lost exports already
+answered 200) and leaving out the token or key; both are covered above.
 
 **Continuous replication.** [Litestream](https://litestream.io/) streams a SQLite file's WAL to object storage.
 It should work with Trailbeam, because the server only runs PASSIVE checkpoints, but we haven't tested it.

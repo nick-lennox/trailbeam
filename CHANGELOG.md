@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Backup and restore, documented and tested** (QV-239): the README's SQLite and Postgres sections now say to
+  keep the access token and receipt-hash key with the backup (they aren't in the database), and how to restore
+  onto a new machine with `trailbeam start`, the Docker volume of `npx trailbeam start`, the team install and the
+  Helm chart. CI takes a backup with those commands while the server ingests, restores it, and checks that the
+  restored server serves a consistent moment and that deletes sent after the restore join receives from before it
+  (`python/smoke/backup_restore_check.py`).
+
 ## 0.4.0: set up in one command
 
 Trailbeam 0.4.0 is about getting a server running and the first message on screen without reading the whole
