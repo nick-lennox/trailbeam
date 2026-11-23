@@ -31,7 +31,9 @@
   ingest port accepts connections, that the token is accepted, that a test span sent now is stored and read
   back, and when the last real span arrived. Each failed check prints the likely cause and the fix, and the exit
   code is 1 when one fails. By default it uses the address and token `trailbeam start` created
-  ([README](README.md#troubleshooting-no-data-arriving)). The test span is a *probe* (span contract section 17):
+  ([README](README.md#troubleshooting-no-data-arriving)): without `--url`, the server of
+  `TRAILBEAM_OTLP_TRACES_ENDPOINT`, or the address `trailbeam start` keeps in `address` in its data directory,
+  so `trailbeam start --port N` is checked on N and not on 4318. The test span is a *probe* (span contract section 17):
   the server stores it apart from the spans (new table `probes`: SQLite schema 13, Postgres schema 6, both
   applied on start), so it never shows as a message or in a count, and reads it back at
   `GET /api/probes/{id}` (at most 8 probes an export, in one write). `GET /api/health` also gives `data.last_span_ns`, the time of the span stored last.

@@ -265,11 +265,17 @@ trailbeam doctor: server http://127.0.0.1:4318, ingest http://127.0.0.1:4318/v1/
 Each failed check says the likely cause and the fix ([every failure](https://docs.trailbeam.app/reference/troubleshooting#no-data-arrives)). A check that needs an earlier one that failed is skipped.
 The exit code is 1 when a check failed, so it can run in a script or a CI step.
 
-By default it checks `http://127.0.0.1:4318` with the token `trailbeam start` created (`~/.trailbeam/token`, or
-the one in `TRAILBEAM_DATA_DIR`). For another server, give `--url` (or `TRAILBEAM_URL`), and the token with
-`--token-file` or `TRAILBEAM_TOKEN`. When your services send somewhere else than the server you open, such as
-through a Collector, give that address with `--ingest-url`; it reads `TRAILBEAM_OTLP_TRACES_ENDPOINT` as the
-services do. Run it where your services run to check what they can reach. After `npx trailbeam start` the token
+It uses the token `trailbeam start` created (`~/.trailbeam/token`, or the one in `TRAILBEAM_DATA_DIR`), or the
+one given with `--token-file` or `TRAILBEAM_TOKEN`. It checks the server given with `--url` (or `TRAILBEAM_URL`,
+or the port in `TRAILBEAM_PORT`). Without one, it checks the server `trailbeam start` started: the host and port
+of `TRAILBEAM_OTLP_TRACES_ENDPOINT` (the variable `trailbeam start` prints), or the address it last listened on,
+which it keeps in the data directory (`~/.trailbeam/address`). So after `trailbeam start --port 4319`, with the
+printed variables set, plain `trailbeam doctor` checks 4319. When neither is there, it checks
+`http://127.0.0.1:4318`. The first line says which server it checked and where that address came from. For the
+Compose team install with another `TRAILBEAM_PORT`, give `--url` (or set `TRAILBEAM_PORT` in the shell). When
+your services send somewhere else than the server, such as through a Collector, give that address with
+`--ingest-url`; it reads `TRAILBEAM_OTLP_TRACES_ENDPOINT` as the services do, and then takes the server from
+`--url` or from the address `trailbeam start` kept. Run it where your services run to check what they can reach. After `npx trailbeam start` the token
 is in the Docker volume, so give the one it printed: `TRAILBEAM_TOKEN=<token> trailbeam doctor`. The
 image has the command too: `docker exec <container> trailbeam doctor --token-file /data/token` checks from
 inside the container (`docker ps` gives its name).

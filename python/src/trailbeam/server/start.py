@@ -7,7 +7,9 @@ In a data directory (``--data-dir``, env ``TRAILBEAM_DATA_DIR``, default ``~/.tr
   The server never reads it; it is kept here so that every service is given the same one. If
   ``TRAILBEAM_RECEIPT_HASH_KEY`` is set, that key wins: the services are told to use it, and no file is made (an
   existing file that holds a different key is left alone, with one warning);
-- ``trailbeam.sqlite``: the spans.
+- ``trailbeam.sqlite``: the spans;
+- ``address``: the address the server listens on, written once it listens, so that ``trailbeam doctor`` checks
+  this server and not port 4318 after ``trailbeam start --port N`` (QV-220). It is left in place on exit.
 
 Each secret is created on the first run, 32 random bytes as hex, in a file only its owner can read, and read
 back on every later run, so the token and key never change unless the file is deleted.
@@ -53,6 +55,7 @@ from . import auth
 TOKEN_FILE = "token"
 KEY_FILE = "receipt-hash-key"
 DB_FILE = "trailbeam.sqlite"
+ADDRESS_FILE = "address"
 DATA_DIR_ENV = "TRAILBEAM_DATA_DIR"
 SHOWN_HOST_ENV = "TRAILBEAM_START_SHOWN_HOST"  # set by npx trailbeam start: see the module docstring
 SHOWN_DATA_DIR_ENV = "TRAILBEAM_START_SHOWN_DATA_DIR"
@@ -147,12 +150,23 @@ def start(argv) -> None:
             token_var = "TRAILBEAM_TOKEN"
 
     def announce(host, port, token):
+        write_address(data, f"http://{_url_host(shown_host or host)}:{port}")
         sys.stdout.write(banner(_url_host(shown_host or host), port, token, key, shown_data,
                                 token_cmd=token_cmd, key_cmd=key_cmd, token_var=token_var,
                                 key_var=key_var))
         sys.stdout.flush()
 
     serve(a, on_listening=announce)
+
+
+def write_address(data: Path, url: str) -> None:
+    """Keep the address the server listens on in the data directory, for ``trailbeam doctor``. Not being able
+    to is a warning: the server runs either way."""
+    try:
+        (Path(data) / ADDRESS_FILE).write_text(url + "\n", encoding="utf-8")
+    except OSError as e:
+        log.warning("trailbeam start: cannot write %s (%s): trailbeam doctor needs --url %s to check this server",
+                    Path(data) / ADDRESS_FILE, e.strerror or e, url)
 
 
 def receipt_hash_key(path: Path) -> tuple:

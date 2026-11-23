@@ -413,3 +413,60 @@ def test_defaults_follow_the_environment(monkeypatch):
         "http://127.0.0.1:9999", "http://127.0.0.1:9999/v1/traces", "from-env", "TRAILBEAM_TOKEN")
     monkeypatch.setenv("TRAILBEAM_OTLP_TRACES_ENDPOINT", "collector:4318/v1/traces")
     assert doctor.target_from_args(doctor_args("--url", "trailbeam:8080/")).ingest_url == "http://collector:4318/v1/traces"
+
+
+# ---- which server, when --url is not given (QV-220) -----------------------------------------------------------
+
+def _no_address_env(monkeypatch, tmp_path):
+    for k in ("TRAILBEAM_URL", "TRAILBEAM_PORT", "TRAILBEAM_OTLP_TRACES_ENDPOINT", "TRAILBEAM_TOKEN",
+              "TRAILBEAM_TOKEN_FILE"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("TRAILBEAM_DATA_DIR", str(tmp_path))
+
+
+def test_the_server_comes_from_the_ingest_address_when_no_url_is_given(monkeypatch, tmp_path):
+    _no_address_env(monkeypatch, tmp_path)
+    t = doctor.target_from_args(doctor_args())
+    assert (t.url, t.url_source) == ("http://127.0.0.1:4318", "")  # nothing known: the default
+    monkeypatch.setenv("TRAILBEAM_OTLP_TRACES_ENDPOINT", "http://127.0.0.1:24318/v1/traces")
+    t = doctor.target_from_args(doctor_args())
+    assert (t.url, t.ingest_url, t.url_source) == (
+        "http://127.0.0.1:24318", "http://127.0.0.1:24318/v1/traces", "TRAILBEAM_OTLP_TRACES_ENDPOINT")
+    assert doctor.target_from_args(doctor_args("--ingest-url", "tb:9/v1/traces")).url == "http://tb:9"
+    # Given addresses still win.
+    assert doctor.target_from_args(doctor_args("--url", "http://x:1")).url == "http://x:1"
+    monkeypatch.setenv("TRAILBEAM_PORT", "9999")
+    assert doctor.target_from_args(doctor_args()).url == "http://127.0.0.1:9999"
+
+
+def test_through_a_collector_the_server_is_the_one_trailbeam_start_wrote_down(app, monkeypatch, tmp_path):
+    _no_address_env(monkeypatch, tmp_path)
+    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _NotTrailbeam)  # stands in for a Collector
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        with serve(app) as base:
+            (tmp_path / "address").write_text(base + "\n")
+            monkeypatch.setenv("TRAILBEAM_OTLP_TRACES_ENDPOINT", f"http://127.0.0.1:{httpd.server_address[1]}/v1/traces")
+            t = doctor.target_from_args(doctor_args())
+            assert t.url == base and t.url_source.startswith(str(tmp_path / "address"))
+            assert t.ingest_url.endswith(f":{httpd.server_address[1]}/v1/traces")
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_a_server_found_without_url_that_fails_says_where_the_address_came_from(monkeypatch, tmp_path):
+    _no_address_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("TRAILBEAM_OTLP_TRACES_ENDPOINT", f"http://127.0.0.1:{free_port()}/v1/traces")
+    t = doctor.target_from_args(doctor_args())
+    r = doctor.run(t, now_ns=NOW)[0]
+    assert r.status == "FAIL" and "from TRAILBEAM_OTLP_TRACES_ENDPOINT" in r.fix and "--url" in r.fix
+    out = io.StringIO()
+    doctor.report(t, [r], out)
+    assert f"server {t.url} (from TRAILBEAM_OTLP_TRACES_ENDPOINT)" in out.getvalue()
+
+
+def test_a_token_not_accepted_names_the_address_checked(with_token):
+    with serve(with_token) as base:
+        r = by_name(doctor.run(target(base, "w" * 64), now_ns=NOW))["Token accepted"]
+    assert r.status == "FAIL" and f"at {base}" in r.cause and base in r.fix
