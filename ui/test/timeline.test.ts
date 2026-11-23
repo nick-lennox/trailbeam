@@ -41,7 +41,33 @@ test("an inferred step is marked inferred, and a message without a group still s
 test("the summary says what happened", () => {
   const by = Object.fromEntries(timelines.map((t) => [t.deliveries, answerFor(t)]));
   assert.equal(by[0], "Sent to trailbeam-smoke and not received yet.");
-  assert.equal(by[2], "Received 2 times by trailbeam-smoke-worker, then deleted.");
+});
+
+const twice = (has: (t: Timeline) => boolean) => timelines.find((t) => t.deliveries === 2 && has(t))!;
+const released = twice((t) => t.events.some((e) => e.type === "visibility_changed"));
+const expired = twice((t) => !t.events.some((e) => e.type === "visibility_changed"));
+
+test("the summary says a message released with ChangeMessageVisibility 0 was received again", () => {
+  assert.equal(answerFor(released), "Released with ChangeMessageVisibility after receive 1, received again by trailbeam-smoke-worker and deleted.");
+  assert.ok(text(render(released)).includes("Released with ChangeMessageVisibility after receive 1"), "the headline is on the page");
+});
+
+test("the summary says the visibility timeout expired when no visibility change was seen", () => {
+  assert.equal(answerFor(expired), "The visibility timeout expired during receive 1; received again by trailbeam-smoke-worker and deleted.");
+});
+
+test("other repeat-receive headlines are unchanged", () => {
+  // A change to a non-zero timeout is not a release; without an inferred expiry there is no reason to give.
+  const extended: Timeline = {
+    ...expired,
+    events: expired.events.flatMap((e) =>
+      e.type === "visibility_timeout_expired" ? [] : e.type === "received" && e.delivery === 1
+        ? [e, { ...released.events.find((x) => x.type === "visibility_changed")!, visibility_timeout_s: 30 } as Timeline["events"][number]]
+        : [e]),
+  };
+  assert.equal(answerFor(extended), "Received 2 times by trailbeam-smoke-worker, then deleted.");
+  // Three receives keep the count sentence.
+  assert.equal(answerFor({ ...expired, deliveries: 3 }), "Received 3 times by trailbeam-smoke-worker, then deleted.");
 });
 
 test("the default-key notice is drawn once in the card, with the command as code and a link to why", () => {
