@@ -31,7 +31,8 @@ const HOST_FLAGS = {
 };
 // Not passed into the container: the ones above are translated, and the image sets its own host, port and db.
 const NOT_PASSED = new Set([...Object.values(HOST_FLAGS), 'TRAILBEAM_IMAGE',
-  'TRAILBEAM_START_SHOWN_HOST', 'TRAILBEAM_START_SHOWN_DATA_DIR']);
+  'TRAILBEAM_START_SHOWN_HOST', 'TRAILBEAM_START_SHOWN_DATA_DIR', 'TRAILBEAM_START_SHOWN_CAT',
+  'TRAILBEAM_START_SHOWN_TOKEN_FILE']);
 
 class UsageError extends Error {}
 
@@ -135,6 +136,9 @@ function dockerArgs(argv, { env = process.env, image = (env.TRAILBEAM_IMAGE || '
   } else {
     args.push('-v', `${VOLUME}:/data`);
     shown = `the Docker volume ${VOLUME}`;
+    // After the first run the token and key are not printed, only a command that shows them: here they are in
+    // the volume, so that's a container that prints the file ({} is its name).
+    args.push('-e', `TRAILBEAM_START_SHOWN_CAT=docker run --rm -v ${VOLUME}:/data --entrypoint cat ${image} /data/{}`);
   }
   args.push('-e', `TRAILBEAM_START_SHOWN_DATA_DIR=${shown}`);
   const passed = [];
@@ -161,6 +165,7 @@ function dockerArgs(argv, { env = process.env, image = (env.TRAILBEAM_IMAGE || '
     }
     if (!token) throw new UsageError(`--token-file: ${file} is empty`);
     childEnv.TRAILBEAM_TOKEN = token;
+    args.push('-e', `TRAILBEAM_START_SHOWN_TOKEN_FILE=${file}`);  // the banner names the file, not the token
   }
   // The other TRAILBEAM_ variables (TRAILBEAM_RETENTION, TRAILBEAM_TOKEN, ...) work as with the Python command.
   // By name only, so their values are not on docker's command line.
