@@ -390,7 +390,7 @@ to be gone.
    is in. Reproduced by queueing 9 exports of 512 spans ahead of one, and tested in `test_group_commit.py`.
 3. A client that hung up before its answer printed a `BrokenPipeError` traceback. It now logs one line.
 
-**Filed, for a decision ([QV-300](/QV/issues/QV-300)):** a Postgres statement that runs past `statement_timeout` (60 s) is answered `500`,
+**Filed, for a decision (QV-300):** a Postgres statement that runs past `statement_timeout` (60 s) is answered `500`,
 so the exporter drops the export. A `503` would have it retried, but an export that is always too slow would then
 be retried until the exporter gives up. Not seen in these runs.
 
