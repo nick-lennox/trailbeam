@@ -66,15 +66,55 @@ answers a narrower question: where did this one message go?
 
 ## Quickstart
 
+Start the server. This runs the published 0.3.0 image, keeps its data in a Docker volume and listens on
+this machine only:
+
 ```sh
-pip install "trailbeam[server]"
-trailbeam start
+docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-data:/data ghcr.io/nick-lennox/trailbeam
 ```
 
-On the first run, `trailbeam start` creates an access token and a receipt-hash key in `~/.trailbeam`
-(`--data-dir` or `TRAILBEAM_DATA_DIR` to choose another directory), readable only by you, and keeps the
-spans in a SQLite file there. It then starts Trailbeam on `http://127.0.0.1:4318/` and prints the token
-and the environment variables for your services, like this:
+No Docker? Run `pip install "trailbeam[server]"`, then `trailbeam`. It keeps spans in `trailbeam.sqlite`
+in the current directory.
+
+Install the package in a service that uses SQS:
+
+```sh
+pip install trailbeam      # Python
+npm install trailbeam      # Node.js
+```
+
+Instrument the client where you create it:
+
+```python
+import boto3
+import trailbeam.boto
+
+trailbeam.boto.install()  # once per process
+sqs = boto3.client("sqs")
+```
+
+```js
+const { SQSClient } = require("@aws-sdk/client-sqs");
+const trailbeam = require("trailbeam");
+
+const sqs = trailbeam.instrument(new SQSClient({}));
+```
+
+Send, receive or delete a message, then open http://127.0.0.1:4318/ and click its message ID. A Node.js
+script that exits straight away must call `await trailbeam.forceFlush()` first.
+
+On the same machine nothing else is needed: the packages send to `http://localhost:4318/v1/traces` by
+default. Each service prints a warning that it uses the published default receipt-hash key until you set
+your own. For a server on another machine, an access token and a shared key, see
+[Add it to your services](#add-it-to-your-services) and [Self-hosting](#self-hosting).
+
+### `trailbeam start` (unreleased, on `main`)
+
+The next release adds `trailbeam start`. It is not in 0.3.0: there, `trailbeam start` stops with
+`unrecognized arguments: start`. Installed from a clone of `main`, `trailbeam start` creates an access token
+and a receipt-hash key in `~/.trailbeam` (`--data-dir` or `TRAILBEAM_DATA_DIR` to choose another directory),
+readable only by you, and keeps the SQLite file there. It starts the server on `http://127.0.0.1:4318/` and
+prints the token and the environment variables for your services:
 
 ```sh
 export TRAILBEAM_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces
@@ -83,17 +123,15 @@ export TRAILBEAM_RECEIPT_HASH_KEY=<key>
 export OTEL_SERVICE_NAME=my-python-service
 ```
 
-Paste them into the environment of a service, add the hooks ([below](#add-it-to-your-services)), and
-send a message: it shows up on the web screen, which asks for the token once. Later runs reuse the same
-token and key, so services you set up keep working. Every `trailbeam` flag works after `start` too
-(`trailbeam start --help`). Stop it with Ctrl-C.
-
-No Python? With Docker running, `npx trailbeam start` does the same from the npm package. It runs the
-container image and keeps the data in a Docker volume
+Because the token is on, services need these settings, and the web screen asks for the token once. Later
+runs reuse the same token and key. Every `trailbeam` flag works after `start` (`trailbeam start --help`).
+Stop it with Ctrl-C. Without Python, `npx trailbeam start` does the same with Docker
 ([Node.js README](node/README.md#run-the-server-npx-trailbeam-start)).
 
-To try it without services of your own, the [demo](demo/README.md) runs Trailbeam, an SQS emulator and
-sample services with Docker. It needs no AWS account:
+### See a richer example
+
+The [demo](demo/README.md) runs Trailbeam, an SQS emulator and sample services with Docker and no AWS
+account. It builds images from a clone and starts seven containers:
 
 ```sh
 git clone https://github.com/nick-lennox/trailbeam.git && cd trailbeam
@@ -124,31 +162,8 @@ script that do this end to end are in
 Add the hooks to every service that sends, receives or deletes on the queues you care about. A
 service without them leaves gaps in a message's history.
 
-```sh
-pip install trailbeam      # Python
-npm install trailbeam      # Node.js
-```
-
-**Python (boto3)**
-
-```python
-import boto3
-import trailbeam.boto
-
-trailbeam.boto.install()  # once per process
-sqs = boto3.client("sqs")
-```
-
-**Node.js (AWS SDK v3)**
-
-```js
-const { SQSClient } = require("@aws-sdk/client-sqs");
-const trailbeam = require("trailbeam");
-
-const sqs = trailbeam.instrument(new SQSClient({}));
-```
-
-**AWS Lambda**
+Install and instrument boto3 and AWS SDK v3 clients as in the [Quickstart](#quickstart). For AWS
+Lambda, wrap the handler:
 
 ```python
 import trailbeam.aws_lambda
@@ -158,14 +173,18 @@ def handler(event, context):
     ...
 ```
 
-Point the packages at Trailbeam and give every service on the same queues the same hash key
-(`trailbeam start` prints these with your token and key filled in):
+The packages send to `http://localhost:4318/v1/traces` unless `TRAILBEAM_OTLP_TRACES_ENDPOINT` says
+otherwise, so a service on the server's machine needs no endpoint. Give every service on the same queues
+the same receipt-hash key, and a service name. For a server on another host, set the endpoint too:
 
 ```sh
-export TRAILBEAM_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces
+export TRAILBEAM_OTLP_TRACES_ENDPOINT=http://trailbeam.internal:4318/v1/traces   # only if the server is elsewhere
 export TRAILBEAM_RECEIPT_HASH_KEY=$(openssl rand -hex 32)   # generate once, share with every service
 export OTEL_SERVICE_NAME=orders-worker
 ```
+
+If the server has an [access token](#access-token), also set
+`OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<token>`.
 
 Full guides: [Python](python/README.md), [Node.js](node/README.md), and the Lambda sections in each.
 
@@ -201,19 +220,9 @@ against the same recorded spans.
 Trailbeam is one container. It receives OTLP on `/v1/traces` and serves the web screen and the JSON
 API on the same port.
 
-The list endpoints (`/api/messages`, `/api/duplicates`, `/api/stuck`) return at most `limit` messages
-(default 100, at most 1,000) and a `next_cursor`: pass it back as `cursor` for the next page, `null`
-on the last one. `from_ms`/`to_ms` (milliseconds since the epoch, both included) keep messages last
-seen in that range (Stuck: `from_ms`, first seen). Lists read a per-message summary the server keeps
-up to date as spans arrive, so a page costs about the same however much history is stored.
-
-```sh
-docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-data:/data ghcr.io/nick-lennox/trailbeam
-```
-
-Or without Docker: `pip install "trailbeam[server]"`, then run `trailbeam start` (above), or `trailbeam`
-with the flags you choose and no token or key made for you. To build the image yourself:
-`docker build -t trailbeam .` from a clone.
+The [Quickstart](#quickstart) starts it with `docker run` or with `pip install "trailbeam[server]"` and
+`trailbeam`; both take the flags below. To build the image yourself: `docker build -t trailbeam .` from a
+clone.
 
 ### Team install (Docker Compose with Postgres)
 
@@ -887,6 +896,14 @@ only within its 10 s export timeout, which is why the wait and `Retry-After` are
 retry is rejected too, the SDK drops that batch on its side. Trailbeam counts each rejection in
 `trailbeam_ingest_rejected_requests_total`, so the drop shows up there and isn't silent. To ride out
 longer overloads, send through a Collector with a sending queue ([`collector/`](collector/README.md)).
+
+### List endpoints and pages
+
+The list endpoints (`/api/messages`, `/api/duplicates`, `/api/stuck`) return at most `limit` messages
+(default 100, at most 1,000) and a `next_cursor`: pass it back as `cursor` for the next page, `null`
+on the last one. `from_ms`/`to_ms` (milliseconds since the epoch, both included) keep messages last
+seen in that range (Stuck: `from_ms`, first seen). Lists read a per-message summary the server keeps
+up to date as spans arrive, so a page costs about the same however much history is stored.
 
 ### Metrics: `GET /metrics`
 
