@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceResponse
 
 from . import __version__
-from . import auth as auth_mod, bodies, metrics, queries, ui_files, web
+from . import auth as auth_mod, bodies, metrics, queries, trace_links, ui_files, web
 from .backpressure import GRPC_RESOURCE_EXHAUSTED, GRPC_UNAVAILABLE, IngestGate, Rejected, status_body
 from .store import ExportAbandoned, Store, StoreFull, StoreUnavailable, WriterBusy
 from .otlp import PROBE_NOT_STORED, DecodeError, decode, valid_probe_id
@@ -46,8 +46,11 @@ class App:
     def __init__(self, db: Store, *, stuck_after_s: int = 300,
                  lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S, now: Callable[[], int] = time.time_ns,
                  max_receive_counts: Optional[dict] = None, ui_dir=ui_files.DEFAULT_UI_DIR, purger=None,
-                 auth: Optional[auth_mod.Auth] = None, gate: Optional[IngestGate] = None):
+                 auth: Optional[auth_mod.Auth] = None, gate: Optional[IngestGate] = None,
+                 trace_link: Optional[str] = None):
         self.db = db
+        # --trace-link (trace_links.py): the URL template behind each step's "Open trace"; None: no links
+        self.trace_link = trace_links.check(trace_link) if trace_link else None
         self.auth = auth  # the shared token (auth.py); None: no token, every request is served (the default)
         self.purger = purger  # retention.Purger, for /api/health; None: no retention configured (tests)
         self.gate = gate or IngestGate()
@@ -283,7 +286,7 @@ class App:
                 "config": {"auth": "token" if self.auth else "off",
                            "stuck_after_s": self.stuck_after_s, "lambda_timeout_s": self.lambda_timeout_s,
                            "max_receive_counts": self.max_receive_counts,
-                           "store_bodies": sorted(self.db.store_bodies),
+                           "store_bodies": sorted(self.db.store_bodies), "trace_link": self.trace_link,
                            "retention": self.purger.status() if self.purger else None}}
 
     def ready(self) -> tuple[int, dict]:
@@ -332,7 +335,7 @@ class App:
             t = queries.message(self.db, rest[0], self.now(), self._lambda_timeout(q), self.max_receive_counts)
             if t is None:
                 raise ApiError(404, f"no spans for message ID {rest[0]!r}")
-            return t
+            return trace_links.add_links(t, self.trace_link)
         if q.get("body", "").strip():
             try:
                 terms = bodies.parse_query(q["body"])

@@ -10,6 +10,12 @@
   check and two monitors, a Prometheus scrape config with alert rules and their unit tests, and a Grafana
   dashboard. CI runs the check in a real Datadog Agent (a dry run: no account or key) and the rest in a real
   Prometheus (`deploy/monitoring/check.sh`).
+- **Open trace: from a timeline step to the same trace in your tracing tool** (QV-304). `--trace-link`
+  (`TRAILBEAM_TRACE_LINK`) takes a URL template such as `https://app.datadoghq.com/apm/trace/{trace_id}`; each
+  recorded step then shows **Open trace**, in the web UI and on the server-rendered page, and has the link as
+  `span.trace_url` in `GET /api/messages/{id}`. `/api/health` shows the template under `config.trace_link`. A
+  template that isn't an http or https URL, or names an unknown placeholder, stops the server at start.
+
 - **Tables for people and tokens (users and roles, phase 1).** The store gains `users`, `sessions`,
   `ingest_tokens`, `personal_tokens` and `setup_codes`: SQLite schema 15, Postgres schema 8. They are created
   empty and nothing uses them yet, so the server behaves exactly as before. Emails are unique ignoring case.
