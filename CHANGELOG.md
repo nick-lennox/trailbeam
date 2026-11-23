@@ -12,6 +12,10 @@
   design as the timeline and Tenants, and on an empty store they say no service has sent spans yet instead of
   "No stuck messages." The Tenants page cites the span contract's section 15.2, with a link. Without the UI
   build, the HTML pages answer as before, with the same empty-store wording.
+- **Node.js: `trailbeam.uninstall()` no longer fails when the Trailbeam server is unreachable.** With nothing
+  listening on the OTLP endpoint, `await trailbeam.uninstall()` (and `trailbeam.forceFlush()`) rejected with
+  `ECONNREFUSED`, which ended the process with status 1. Both now resolve; the spans that could not be sent are
+  reported only as drops (the `TRAILBEAM_SPANS_DROPPED` warning and `exportStats()`), as in Python.
 - **`npx trailbeam start`: the server from npm, without Python.** The npm package has a `trailbeam` command.
   `npx trailbeam start` runs the container image of the same version (`ghcr.io/nick-lennox/trailbeam:X.Y.Z`)
   with its data in the Docker volume `trailbeam-data`, and prints the same first-run output as the Python
