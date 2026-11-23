@@ -1003,22 +1003,20 @@ fractional digits, which are cut, not rounded, to milliseconds); a missing or in
 two fields are still recorded. Nothing else in the envelope (`Message`, `Subject`, `MessageAttributes`, the
 signature) is read or exported. Test vectors: `sns.timestamps` and `sns.receive`.
 
-**When the envelope is read.** The envelope is part of the body. For a queue whose body is captured (section 15.1),
-it is read. For other queues it is read only when the queue is in the SNS envelope list (20.4), which is empty by
-default. Whether the three fields should be read on every queue by default is an open product decision (QV-302);
-until it is made, a raw-delivery-off subscription to a queue that is neither captured nor listed shows no publish.
-The publish ID is a message attribute, not the body, so it is read on every queue.
+**When the envelope is read.** On every queue, including queues whose body is not captured (section 15.1). This is
+the one exception to body capture being off by default, and it is limited to the three fields above. The body itself,
+and every other envelope field, is never exported. No option turns it on or off. (Board decision, QV-302,
+2026-11-23.) The publish ID is a message attribute, not the body, and is also read on every queue.
 
 ### 20.4 Configuration
 
 | Option (Python / Node.js) | Environment variable | Default |
 |---|---|---|
 | `sns.inject` / `sns.inject` | `TRAILBEAM_SNS_INJECT`: `off`, `false`, `0` or `no` turn it off | on |
-| `sns.envelope_queues` / `sns.envelopeQueues` | `TRAILBEAM_SNS_ENVELOPE_QUEUES` (comma-separated) | none; queues whose body is captured are read anyway |
 
 The `sns` group is given to `install` and to the Lambda wrappers like the groups of section 15.1, and replaces its
-environment variables as a whole. Injection is configured where messages are published, envelope reading where
-they are received.
+environment variables as a whole. Injection is configured where messages are published. Envelope reading has no
+option (20.3).
 
 ### 20.5 How Trailbeam reads it
 
@@ -1073,7 +1071,7 @@ Not verified:
 |---|---|
 | a message that came through SNS had no sender | `trailbeam publish`, kind `sns.publish`, from SNS clients' `Publish` and `PublishBatch` (20.1) |
 | the packages never changed a message | SNS publishes get one `trailbeam.publish_id` attribute, unless it would cost the message (20.2), or injection is off |
-| | receives carry the publish ID, and on queues whose envelope is read, the SNS envelope's `MessageId`, `TopicArn` and `Timestamp` (20.3) |
+| | receives carry the publish ID and, on every queue, the SNS envelope's `MessageId`, `TopicArn` and `Timestamp`, and nothing else from the body (20.3) |
 | | Trailbeam joins receives to their publish, shows the SNS delivery time, and "Arrived via SNS" for publishers without a package (20.5) |
 
 `trailbeam.schema_version` stays `3`: the span and the receive attributes are optional, Trailbeam requires them for

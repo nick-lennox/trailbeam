@@ -7,9 +7,9 @@
   `Publish` and `PublishBatch` to a topic as a `trailbeam publish` span (`trailbeam.kind = sns.publish`) with the SNS
   message ID and `aws.sns.topic.arn`. Receives carry what joins them to it: the `trailbeam.publish_id` message
   attribute the publish hooks add (raw delivery on; skipped when the message already has 10 attributes, would pass
-  256 KiB or uses `MessageStructure: json`; `TRAILBEAM_SNS_INJECT=off` turns it off), and, on queues whose body is
-  captured or that are listed in `TRAILBEAM_SNS_ENVELOPE_QUEUES`, the SNS envelope's `MessageId`, `TopicArn` and
-  `Timestamp` (raw delivery off). Node.js: pass an `SNSClient` to `instrument`. Until the server reads them, a
+  256 KiB or uses `MessageStructure: json`; `TRAILBEAM_SNS_INJECT=off` turns it off), and, with raw delivery off,
+  three fields of the SNS envelope: `MessageId`, `TopicArn` and `Timestamp`. These three are read on every queue,
+  including queues whose body is not captured. Nothing else in the body is read, and the body is never exported. Node.js: pass an `SNSClient` to `instrument`. Until the server reads them, a
   server rejects the publish span as an unknown kind (one rejected span in `partial_success`) and stores the rest.
 
 - **Purged messages no longer show as stuck** (QV-245, contract revision 3.3). The Python and Node.js packages

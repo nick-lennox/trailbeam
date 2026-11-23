@@ -370,9 +370,9 @@ let state = null;
  * @param {{messageAttribute?: string, bodyPath?: string}} [options.tenant] contract section 15
  * @param {{bodyQueues?: string[], errorQueues?: string[], redactKeys?: string[], redactPatterns?: string[], maxBodyBytes?: number}} [options.capture]
  *   contract section 15; body capture is off unless a queue is listed in `bodyQueues`
- * @param {{inject?: boolean, envelopeQueues?: string[]}} [options.sns] contract section 20: SNS publishes get a
- *   `trailbeam.publish_id` message attribute unless `inject` is false, and receives read the SNS envelope's
- *   MessageId, TopicArn and Timestamp on the listed queues and on queues whose body is captured
+ * @param {{inject?: boolean}} [options.sns] contract section 20: SNS publishes get a `trailbeam.publish_id`
+ *   message attribute unless `inject` is false. Receives on every queue read the SNS envelope's MessageId,
+ *   TopicArn and Timestamp, and nothing else in the body
  */
 function install(options = {}) {
   const config = capture.resolveConfig(options.tenant, options.capture, options.sns);

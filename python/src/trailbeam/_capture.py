@@ -64,7 +64,6 @@ ENV_REDACT_KEYS = "TRAILBEAM_REDACT_KEYS"
 ENV_REDACT_PATTERNS = "TRAILBEAM_REDACT_PATTERNS"
 ENV_MAX_BODY_BYTES = "TRAILBEAM_CAPTURE_MAX_BYTES"
 ENV_SNS_INJECT = "TRAILBEAM_SNS_INJECT"
-ENV_SNS_ENVELOPE_QUEUES = "TRAILBEAM_SNS_ENVELOPE_QUEUES"
 
 
 def _lower(s: str) -> str:
@@ -92,10 +91,9 @@ class Config:
     redact_keys: tuple = DEFAULT_REDACT_KEYS
     redact_patterns: tuple = DEFAULT_PATTERNS
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES
-    # 3.4 (section 20): add trailbeam.publish_id to Publish / PublishBatch, and the queues whose SNS
-    # envelope fields are read when their body is not captured.
+    # 3.4 (section 20): add trailbeam.publish_id to Publish / PublishBatch. The SNS envelope's three
+    # fields are read on every queue (board decision on QV-302), so they have no option.
     sns_inject: bool = True
-    sns_envelope_queues: frozenset = frozenset()
     _key_value_re: Any = field(default=None, compare=False, repr=False)
     _pattern_res: tuple = field(default=(), compare=False, repr=False)
 
@@ -123,12 +121,6 @@ class Config:
     def errors_on(self, queue_name: str) -> bool:
         return bool(queue_name) and ("*" in self.error_queues or queue_name in self.error_queues)
 
-    def sns_envelope_on(self, queue_name: str) -> bool:
-        """3.4: the SNS envelope's MessageId, TopicArn and Timestamp are read for a queue whose body is
-        captured, or that is listed in the envelope queue list."""
-        return self.body_on(queue_name) or (bool(queue_name) and (
-            "*" in self.sns_envelope_queues or queue_name in self.sns_envelope_queues))
-
 
 def _flag_on(value: Optional[str]) -> bool:
     """An on/off environment variable that defaults to on: only off, false, 0 or no turn it off."""
@@ -141,8 +133,7 @@ def resolve_config(tenant: Optional[Mapping] = None, capture: Optional[Mapping] 
     its environment variables as a whole."""
     env = os.environ
     if sns is None:
-        sns = {"inject": _flag_on(env.get(ENV_SNS_INJECT)),
-               "envelope_queues": _csv(env.get(ENV_SNS_ENVELOPE_QUEUES))}
+        sns = {"inject": _flag_on(env.get(ENV_SNS_INJECT))}
     if tenant is None:
         tenant = {"message_attribute": env.get(ENV_TENANT_ATTRIBUTE) or None,
                   "body_path": env.get(ENV_TENANT_BODY_PATH) or None}
@@ -163,7 +154,6 @@ def resolve_config(tenant: Optional[Mapping] = None, capture: Optional[Mapping] 
         redact_patterns=tuple(patterns) if patterns is not None else DEFAULT_PATTERNS,
         max_body_bytes=capture.get("max_body_bytes") or DEFAULT_MAX_BODY_BYTES,
         sns_inject=sns.get("inject", True) is not False,
-        sns_envelope_queues=frozenset(sns.get("envelope_queues") or ()),
     )
 
 
@@ -633,15 +623,15 @@ def sns_envelope(body: Any) -> Optional[dict]:
 
 def sns_receive_attrs(config: Config, queue_name: str, body: Any, attributes: Any, lambda_record: bool = False) -> dict:
     """Section 20.3 attributes of one received message: the publish ID from its message attribute (raw
-    delivery), and the envelope fields if the queue's envelope is read."""
+    delivery), and the three envelope fields if the body is an SNS envelope (raw delivery off). These are
+    read on every queue, whether or not its body is captured; nothing else in the body is."""
     out: dict = {}
     if isinstance(attributes, Mapping):
         a = attributes.get(PUBLISH_ID_ATTRIBUTE)
         v = a.get("stringValue" if lambda_record else "StringValue") if isinstance(a, Mapping) else None
         if isinstance(v, str) and _PUBLISH_ID_RE.match(v):
             out["trailbeam.sns.publish_id"] = v
-    if config.sns_envelope_on(queue_name):
-        env = sns_envelope(body)
-        if env:
-            out.update(env)
+    env = sns_envelope(body)
+    if env:
+        out.update(env)
     return out

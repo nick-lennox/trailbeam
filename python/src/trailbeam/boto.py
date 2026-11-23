@@ -396,10 +396,9 @@ def install(
     ``tenant`` (``{"message_attribute": ..., "body_path": ...}``) and ``capture`` (``{"body_queues":
     [...], "error_queues": [...], "redact_keys": [...], "redact_patterns": [...], "max_body_bytes": n}``)
     are contract section 15; each replaces its TRAILBEAM_* environment variables. Body capture is off
-    unless a queue is listed in ``body_queues``. ``sns`` (``{"inject": bool, "envelope_queues": [...]}``)
-    is section 20: SNS publishes get a ``trailbeam.publish_id`` message attribute unless ``inject`` is
-    False, and receives read the SNS envelope's MessageId, TopicArn and Timestamp on the listed queues
-    and on queues whose body is captured.
+    unless a queue is listed in ``body_queues``. ``sns`` (``{"inject": bool}``) is section 20: SNS
+    publishes get a ``trailbeam.publish_id`` message attribute unless ``inject`` is False. Receives on
+    every queue read the SNS envelope's MessageId, TopicArn and Timestamp, and nothing else in the body.
     Calling ``install`` again replaces the previous installation.
     """
     with _install_lock:

@@ -65,7 +65,6 @@ for (const c of VECTORS.receive) {
     const m = { MessageId: 'sqs-1', ReceiptHandle: 'rh-1', Body: c.body, Attributes: { ApproximateReceiveCount: '1' } };
     if (c.message_attributes) m.MessageAttributes = c.message_attributes;
     const { client, calls, spans } = setup(t, {
-      sns: { envelopeQueues: c.envelope_on ? ['orders'] : [] },
       responses: { ReceiveMessage: () => ({ Messages: [m] }) },
     });
     await client.send(new S.ReceiveMessageCommand({ QueueUrl: URL }));
@@ -77,7 +76,7 @@ for (const c of VECTORS.receive) {
   test(`receive vector (Lambda wrapper): ${c.name}`, async () => {
     const { exporter, spanProcessor } = memoryExporter();
     const handler = trailbeam.wrapHandler(async () => {}, {
-      receiptHashKey: KEY, spanProcessor, sns: { envelopeQueues: c.envelope_on ? ['orders'] : [] },
+      receiptHashKey: KEY, spanProcessor,
     });
     await handler({ Records: [{
       messageId: 'sqs-1', receiptHandle: 'rh-1', body: c.body, attributes: { ApproximateReceiveCount: '1' },
@@ -89,12 +88,14 @@ for (const c of VECTORS.receive) {
   });
 }
 
-test('body capture turns the envelope fields on', () => {
-  const body = VECTORS.receive.find((c) => c.name.startsWith('envelope on')).body;
-  const config = capture.resolveConfig({}, { bodyQueues: ['orders'] }, {});
-  assert.ok(capture.snsReceiveAttrs(config, 'orders', body)['trailbeam.sns.message_id']);
-  assert.deepStrictEqual(capture.snsReceiveAttrs(config, 'other', body), {});
-  assert.ok(capture.snsReceiveAttrs(capture.resolveConfig({}, {}, { envelopeQueues: ['*'] }), 'x', body)['trailbeam.sns.message_id']);
+test('envelope fields are read whether or not the body is captured', () => {
+  const body = VECTORS.receive.find((c) => c.name.startsWith('envelope:')).body;
+  const expected = ['trailbeam.sns.message_id', 'trailbeam.sns.timestamp_ms', 'trailbeam.sns.topic_arn'];
+  for (const config of [capture.resolveConfig({}, {}, {}), capture.resolveConfig({}, { bodyQueues: ['orders'] }, {})]) {
+    for (const queue of ['orders', 'other']) {
+      assert.deepStrictEqual(Object.keys(capture.snsReceiveAttrs(config, queue, body)).sort(), expected);
+    }
+  }
 });
 
 for (const c of VECTORS.inject) {
@@ -190,20 +191,16 @@ test('Publish that throws: no span, and the error reaches the caller', async (t)
 test('environment variables', (t) => {
   const saved = { ...process.env };
   t.after(() => {
-    for (const k of ['TRAILBEAM_SNS_INJECT', 'TRAILBEAM_SNS_ENVELOPE_QUEUES']) {
+    for (const k of ['TRAILBEAM_SNS_INJECT']) {
       if (k in saved) process.env[k] = saved[k]; else delete process.env[k];
     }
   });
   process.env.TRAILBEAM_SNS_INJECT = 'off';
-  process.env.TRAILBEAM_SNS_ENVELOPE_QUEUES = 'a, b';
-  let c = capture.resolveConfig();
-  assert.deepStrictEqual([c.snsInject, [...c.snsEnvelopeQueues]], [false, ['a', 'b']]);
+  assert.strictEqual(capture.resolveConfig().snsInject, false);
   process.env.TRAILBEAM_SNS_INJECT = 'on';
   assert.strictEqual(capture.resolveConfig().snsInject, true);
   delete process.env.TRAILBEAM_SNS_INJECT;
-  delete process.env.TRAILBEAM_SNS_ENVELOPE_QUEUES;
-  c = capture.resolveConfig();
-  assert.deepStrictEqual([c.snsInject, [...c.snsEnvelopeQueues]], [true, []]);
+  assert.strictEqual(capture.resolveConfig().snsInject, true);
   // A group given explicitly replaces its environment variables as a whole.
   process.env.TRAILBEAM_SNS_INJECT = 'off';
   assert.strictEqual(capture.resolveConfig(undefined, undefined, {}).snsInject, true);

@@ -218,16 +218,15 @@ it. Two ways the join works:
   on a copy of your input. It skips a message that already has 10 attributes (with raw delivery on, SNS would drop
   it), would pass 256 KiB, or uses `MessageStructure: 'json'`, and the span says why in
   `trailbeam.sns.publish_id_skipped`.
-- **Raw delivery off**: the SQS body is SNS's envelope. The receive reads its `MessageId`, `TopicArn` and
-  `Timestamp` (nothing else) on queues whose body is captured, and on queues you list:
+- **Raw delivery off**: the SQS body is SNS's envelope. On every queue, the receive reads three of its fields:
+  `MessageId`, `TopicArn` and `Timestamp`. It does this even when body capture is off for the queue. It reads
+  nothing else in the body: not `Message`, `Subject` or `MessageAttributes`, and the body itself is never
+  exported. No option is needed.
 
 ```js
 const { SNSClient } = require('@aws-sdk/client-sns');
 trailbeam.install({
-  sns: {
-    inject: true,                // add trailbeam.publish_id to publishes    (TRAILBEAM_SNS_INJECT=off turns it off)
-    envelopeQueues: ['orders'],  // read the three envelope fields, or '*'   (TRAILBEAM_SNS_ENVELOPE_QUEUES)
-  },
+  sns: { inject: false },  // don't add trailbeam.publish_id to publishes (or TRAILBEAM_SNS_INJECT=off)
 });
 const sns = trailbeam.instrument(new SNSClient({}));
 ```

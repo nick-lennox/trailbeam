@@ -80,7 +80,7 @@ def hooks_with():
 
 @pytest.mark.parametrize("case", VECTORS["receive"], ids=lambda c: c["name"])
 def test_receive_vectors_client_hooks(hooks_with, case):
-    hooks, spans = hooks_with(envelope_queues=["orders"] if case["envelope_on"] else [])
+    hooks, spans = hooks_with()
     span = object()
     params = {"QueueUrl": "http://localhost:9324/000000000000/orders"}
     hooks.request_hook(span, "sqs", "ReceiveMessage", params)
@@ -97,8 +97,7 @@ def test_receive_vectors_client_hooks(hooks_with, case):
 @pytest.mark.parametrize("case", VECTORS["receive"], ids=lambda c: c["name"])
 def test_receive_vectors_lambda_wrapper(case):
     exporter = InMemorySpanExporter()
-    fn = ql.wrap(lambda e, c: None, receipt_hash_key=TEST_KEY, span_processor=SimpleSpanProcessor(exporter),
-                 sns={"envelope_queues": ["orders"] if case["envelope_on"] else []})
+    fn = ql.wrap(lambda e, c: None, receipt_hash_key=TEST_KEY, span_processor=SimpleSpanProcessor(exporter))
     fn({"Records": [{"messageId": "sqs-1", "receiptHandle": "rh-1", "body": case["body"],
                      "attributes": {"ApproximateReceiveCount": "1"},
                      "messageAttributes": lambda_attributes(case["message_attributes"]),
@@ -108,12 +107,12 @@ def test_receive_vectors_lambda_wrapper(case):
     assert sns_only(dict(s.attributes)) == case["attributes"]
 
 
-def test_body_capture_turns_the_envelope_fields_on():
-    config = _capture.resolve_config({}, {"body_queues": ["orders"]}, {})
-    body = next(c["body"] for c in VECTORS["receive"] if c["name"].startswith("envelope on"))
-    assert _capture.sns_receive_attrs(config, "orders", body, None)["trailbeam.sns.message_id"]
-    assert _capture.sns_receive_attrs(config, "other", body, None) == {}
-    assert _capture.sns_receive_attrs(_capture.resolve_config({}, {}, {"envelope_queues": ["*"]}), "x", body, None)
+def test_envelope_fields_are_read_whether_or_not_the_body_is_captured():
+    body = next(c["body"] for c in VECTORS["receive"] if c["name"].startswith("envelope:"))
+    expected = {"trailbeam.sns.message_id", "trailbeam.sns.topic_arn", "trailbeam.sns.timestamp_ms"}
+    for config in (_capture.resolve_config({}, {}, {}), _capture.resolve_config({}, {"body_queues": ["orders"]}, {})):
+        for queue in ("orders", "other"):
+            assert set(_capture.sns_receive_attrs(config, queue, body, None)) == expected
 
 
 @pytest.mark.parametrize("case", VECTORS["inject"], ids=lambda c: c["name"])
@@ -218,7 +217,7 @@ def receive_all(sqs, url):
 
 def test_fanout_joins_both_deliveries_to_the_publish(spans_with_sns, fanout):
     sns, sqs, topic, urls = fanout
-    spans = spans_with_sns(sns={"envelope_queues": ["*"]})
+    spans = spans_with_sns(sns={})
     r = sns.publish(TopicArn=topic, Message='{"order": 1}')
     [pub] = spans("trailbeam publish")
     a = dict(pub.attributes)
@@ -246,21 +245,26 @@ def test_fanout_joins_both_deliveries_to_the_publish(spans_with_sns, fanout):
     assert env["messaging.message.id"] != r["MessageId"] != raw["messaging.message.id"]
 
 
-def test_fanout_without_envelope_reading_joins_only_raw_deliveries(spans_with_sns, fanout):
+def test_fanout_with_body_capture_off_reads_only_the_three_envelope_fields(spans_with_sns, fanout):
     sns, sqs, topic, urls = fanout
-    spans = spans_with_sns()  # the default: envelopes are read only on queues whose body is captured
-    sns.publish(TopicArn=topic, Message="hello")
+    spans = spans_with_sns()  # the defaults: body capture off on every queue
+    r = sns.publish(TopicArn=topic, Message="hello")
     receive_all(sqs, urls[False])
     receive_all(sqs, urls[True])
     receives = {s.attributes["aws.sqs.queue.url"]: dict(s.attributes) for s in spans("trailbeam receive")}
-    assert not set(SNS_NAMES) & set(receives[urls[False]])
+    env = receives[urls[False]]
+    assert env["trailbeam.sns.message_id"] == r["MessageId"]
+    assert env["trailbeam.sns.topic_arn"] == topic
+    # the body itself is not exported: the only body attribute is the status saying capture is off
+    assert {k: v for k, v in env.items() if k.startswith("trailbeam.body")} == {"trailbeam.body.capture_status": "off"}
+    assert "hello" not in repr(env)
     assert receives[urls[True]]["trailbeam.sns.publish_id"] == \
         spans("trailbeam publish")[0].attributes["trailbeam.sns.publish_id"]
 
 
 def test_fanout_with_injection_off_changes_no_message(spans_with_sns, fanout):
     sns, sqs, topic, urls = fanout
-    spans = spans_with_sns(sns={"inject": False, "envelope_queues": ["*"]})
+    spans = spans_with_sns(sns={"inject": False})
     sns.publish(TopicArn=topic, Message="hello")
     [m] = sqs.receive_message(QueueUrl=urls[True], MessageAttributeNames=["All"], WaitTimeSeconds=1)["Messages"]
     assert "trailbeam.publish_id" not in (m.get("MessageAttributes") or {})
@@ -273,7 +277,7 @@ def test_fanout_with_injection_off_changes_no_message(spans_with_sns, fanout):
 
 def test_publish_batch_in_moto(spans_with_sns, fanout):
     sns, sqs, topic, urls = fanout
-    spans = spans_with_sns(sns={"envelope_queues": ["*"]})
+    spans = spans_with_sns(sns={})
     r = sns.publish_batch(TopicArn=topic, PublishBatchRequestEntries=[
         {"Id": "a", "Message": "one"}, {"Id": "b", "Message": "two"}])
     pubs = {s.attributes["trailbeam.batch_entry_id"]: dict(s.attributes) for s in spans("trailbeam publish")}
@@ -325,15 +329,11 @@ def spans_with_sns():
 
 def test_environment_variables(monkeypatch):
     monkeypatch.setenv("TRAILBEAM_SNS_INJECT", "off")
-    monkeypatch.setenv("TRAILBEAM_SNS_ENVELOPE_QUEUES", "a, b")
-    c = _capture.resolve_config()
-    assert (c.sns_inject, c.sns_envelope_queues) == (False, frozenset({"a", "b"}))
+    assert _capture.resolve_config().sns_inject is False
     monkeypatch.setenv("TRAILBEAM_SNS_INJECT", "on")
     assert _capture.resolve_config().sns_inject is True
     monkeypatch.delenv("TRAILBEAM_SNS_INJECT")
-    monkeypatch.delenv("TRAILBEAM_SNS_ENVELOPE_QUEUES")
-    c = _capture.resolve_config()
-    assert (c.sns_inject, c.sns_envelope_queues) == (True, frozenset())
+    assert _capture.resolve_config().sns_inject is True
     # A group given explicitly replaces its environment variables as a whole.
     monkeypatch.setenv("TRAILBEAM_SNS_INJECT", "off")
     assert _capture.resolve_config(sns={}).sns_inject is True

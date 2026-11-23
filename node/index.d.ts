@@ -23,7 +23,7 @@ export interface InstallOptions {
    */
   capture?: CaptureOptions;
   /**
-   * SNS fan-out (contract section 20). Replaces $TRAILBEAM_SNS_INJECT and $TRAILBEAM_SNS_ENVELOPE_QUEUES.
+   * SNS fan-out (contract section 20). Replaces $TRAILBEAM_SNS_INJECT.
    */
   sns?: SnsOptions;
 }
@@ -35,11 +35,6 @@ export interface SnsOptions {
    * already has 10 attributes, would pass 262,144 bytes, or uses `MessageStructure: 'json'`.
    */
   inject?: boolean;
-  /**
-   * Queue names, or `*`, whose SNS envelope MessageId, TopicArn and Timestamp are read when the body is
-   * not captured. Queues in `capture.bodyQueues` always are. Nothing else in the body is exported.
-   */
-  envelopeQueues?: string[];
 }
 
 export interface TenantOptions {

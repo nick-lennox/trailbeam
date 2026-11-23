@@ -52,7 +52,6 @@ const ENV = Object.freeze({
   REDACT_PATTERNS: 'TRAILBEAM_REDACT_PATTERNS',
   MAX_BODY_BYTES: 'TRAILBEAM_CAPTURE_MAX_BYTES',
   SNS_INJECT: 'TRAILBEAM_SNS_INJECT',
-  SNS_ENVELOPE_QUEUES: 'TRAILBEAM_SNS_ENVELOPE_QUEUES',
 });
 
 const lower = (s) => s.replace(/[A-Z]/g, (c) => c.toLowerCase());
@@ -66,7 +65,7 @@ class Config {
   constructor({
     tenantAttribute, tenantBodyPath, bodyQueues = [], errorQueues = [],
     redactKeys = DEFAULT_REDACT_KEYS, redactPatterns = DEFAULT_PATTERNS, maxBodyBytes = DEFAULT_MAX_BODY_BYTES,
-    snsInject = true, snsEnvelopeQueues = [],
+    snsInject = true,
   } = {}) {
     for (const k of redactKeys) {
       if (typeof k !== 'string' || !KEY_RE.test(k)) throw new Error(`trailbeam: redact key ${JSON.stringify(k)} may contain only A-Z a-z 0-9 _ . -`);
@@ -84,10 +83,9 @@ class Config {
     this.redactKeys = [...redactKeys];
     this.redactPatterns = [...redactPatterns];
     this.maxBodyBytes = maxBodyBytes;
-    // 3.4 (section 20): add trailbeam.publish_id to Publish / PublishBatch, and the queues whose SNS
-    // envelope fields are read when their body is not captured.
+    // 3.4 (section 20): add trailbeam.publish_id to Publish / PublishBatch. The SNS envelope's three
+    // fields are read on every queue (board decision on QV-302), so they have no option.
     this.snsInject = snsInject !== false;
-    this.snsEnvelopeQueues = new Set(snsEnvelopeQueues);
     this.names = new Set(this.redactKeys.filter((k) => !k.includes('.')).map(lower));
     this.paths = new Set(this.redactKeys.filter((k) => k.includes('.')).map(lower));
     const names = this.redactKeys.filter((k) => !k.includes('.'));
@@ -104,12 +102,6 @@ class Config {
   errorsOn(queueName) {
     return Boolean(queueName) && (this.errorQueues.has('*') || this.errorQueues.has(queueName));
   }
-
-  /** 3.4: the SNS envelope's MessageId, TopicArn and Timestamp are read for a queue whose body is
-   * captured, or that is listed in the envelope queue list. */
-  snsEnvelopeOn(queueName) {
-    return this.bodyOn(queueName) || (Boolean(queueName) && (this.snsEnvelopeQueues.has('*') || this.snsEnvelopeQueues.has(queueName)));
-  }
 }
 
 /** An on/off environment variable that defaults to on: only off, false, 0 or no turn it off. */
@@ -119,12 +111,12 @@ const flagOn = (v) => !['off', 'false', '0', 'no'].includes(lower((v || '').trim
  * Explicit options, else environment variables (sections 15.1 and 20.4). Each option group replaces its
  * environment variables as a whole.
  * `tenant`: `{ messageAttribute, bodyPath }`. `capture`: `{ bodyQueues, errorQueues, redactKeys,
- * redactPatterns, maxBodyBytes }`. `sns`: `{ inject, envelopeQueues }`.
+ * redactPatterns, maxBodyBytes }`. `sns`: `{ inject }`.
  */
 function resolveConfig(tenant, capture, sns) {
   const env = process.env;
   if (sns === undefined || sns === null) {
-    sns = { inject: flagOn(env[ENV.SNS_INJECT]), envelopeQueues: csv(env[ENV.SNS_ENVELOPE_QUEUES]) };
+    sns = { inject: flagOn(env[ENV.SNS_INJECT]) };
   }
   if (tenant === undefined || tenant === null) {
     tenant = { messageAttribute: env[ENV.TENANT_ATTRIBUTE] || undefined, bodyPath: env[ENV.TENANT_BODY_PATH] || undefined };
@@ -148,7 +140,6 @@ function resolveConfig(tenant, capture, sns) {
     redactPatterns: capture.redactPatterns !== undefined && capture.redactPatterns !== null ? capture.redactPatterns : DEFAULT_PATTERNS,
     maxBodyBytes: capture.maxBodyBytes || DEFAULT_MAX_BODY_BYTES,
     snsInject: sns.inject !== false,
-    snsEnvelopeQueues: sns.envelopeQueues || [],
   });
 }
 
@@ -588,7 +579,8 @@ function snsEnvelope(body) {
 }
 
 /** Section 20.3 attributes of one received message: the publish ID from its message attribute (raw
- * delivery), and the envelope fields if the queue's envelope is read. */
+ * delivery), and the three envelope fields if the body is an SNS envelope (raw delivery off). These are
+ * read on every queue, whether or not its body is captured; nothing else in the body is. */
 function snsReceiveAttrs(config, queueName, body, attributes, lambdaRecord = false) {
   const out = {};
   if (isObject(attributes)) {
@@ -596,7 +588,7 @@ function snsReceiveAttrs(config, queueName, body, attributes, lambdaRecord = fal
     const v = isObject(a) ? a[lambdaRecord ? 'stringValue' : 'StringValue'] : undefined;
     if (typeof v === 'string' && PUBLISH_ID_RE.test(v)) out['trailbeam.sns.publish_id'] = v;
   }
-  if (config.snsEnvelopeOn(queueName)) Object.assign(out, snsEnvelope(body) || {});
+  Object.assign(out, snsEnvelope(body) || {});
   return out;
 }
 
