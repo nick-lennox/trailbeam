@@ -263,7 +263,7 @@ p99 2,660 ms). At 9.4M and 1,000 spans/s, p50 414 ms, p99 1,593 ms and no errors
   rollup (QV-128) for the whole hours of its window (the last day), but every tenant event of the hours at its
   two ends. The ramps had just written 2.55M of the database's 6.0M tenant events into the current hour, so the
   page read those one by one. Its cost now follows how much was ingested in the last hour, not how much is
-  stored. At a steady 2,000 spans/s that's up to about 7M events an hour (estimate). Follow-up: QV-224.
+  stored. At a steady 2,000 spans/s that's up to about 7M events an hour (estimate). Fixed in QV-224 (below).
 
 **Disk:** 2.9 GB per million spans as seeded (11.7 GB at 4.03M, 19.0 GB at 7.03M), and 25.7 GB at 9.42M after
 the ramps. The data directory peaked at 29 GB, with WAL. The database, the container and its data were deleted
@@ -282,3 +282,28 @@ with the old code first (`PYTHONPATH=<old checkout>/python/src`), then with the 
 `--compare` the first run's JSON: the counts must be equal and p95 within the contract's 1 %. The second run
 opens the store with the new code, so it times the schema upgrade too. `--insert N` then times N exports of
 live traffic (it adds spans: run it on a copy). QV-128 measured the hourly tenant rollup with it at 1M spans.
+
+`--current-hour N` first adds N spans of messages sent between the start of the current hour and now, as a heavy
+ingest leaves them, and the ranges then end now, as the page's default does. Run it early in an hour: the spans
+must all be added before the hour ends. With `--compare`, the second run asks exactly the first run's ranges.
+
+**QV-224** (the current hour from the rollup), on the WSL2 desktop, Postgres 16 in Docker (`--memory 3g`,
+`shared_buffers=1GB`), idle, p95 over 10 runs before and 30 after, same data and ranges:
+
+```sh
+python python/bench/tenants_page.py --store-url $PG --schema t224 --spans 2M --out base.json   # 7 days of traffic
+PYTHONPATH=<main>/python/src python python/bench/tenants_page.py --store-url $PG --schema t224 \
+  --current-hour 2.5M --out before.json   # run early in an hour; repeat until enough is in it
+python python/bench/tenants_page.py --store-url $PG --schema t224 --out after.json --compare before.json
+```
+
+| store, data | range | before | after |
+|---|---|---|---|
+| Postgres, 3.32M tenant events, 2.06M of them in the current hour | last hour | 2,193 ms | 21 ms |
+| same | last day | 2,070 ms | 55 ms |
+| same | last 7 days | 2,299 ms | 248 ms |
+| SQLite, 941K tenant events, 626K in the current hour | last day | 646 ms | 9.2 ms |
+
+The answers matched (`--compare`). The page still reads raw events for the hour at the start of its range, up to
+half an hour of them. Forcing that path for the 2.06M events of the current hour took 261 ms on Postgres (p95) and
+314 ms for 626K events on SQLite (p50), against 2,070 ms and 646 ms when they were fetched into Python one by one.

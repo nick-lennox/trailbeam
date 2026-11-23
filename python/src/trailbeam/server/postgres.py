@@ -207,6 +207,12 @@ def _each(places, query: str, params=(), alias: str = "", **aliases: str) -> tup
     return " UNION ALL ".join(f"({q})" for q in parts), list(params) * len(places)
 
 
+# tenant_activity's columns, each part of its UNION naming and typing all of them (the first part names them)
+_NO_COUNTS = "NULL::numeric AS sent, NULL::numeric AS firsts, NULL::numeric AS moves, "
+_NO_WAITS = "NULL::jsonb AS waits, "
+_NO_EVENTS = "NULL::text AS kind, NULL::bigint AS wait_ms, NULL::bigint AS n"
+
+
 def _per_place(jobs, query: str) -> tuple[str, list]:
     """``query`` once per place with that place's own parameters, as one UNION ALL: ``jobs`` is [(place,
     params), ...], ``{p}`` the WHERE term naming the place (a literal, as ``_each``)."""
@@ -1666,23 +1672,35 @@ class PostgresStore(Store):
         return {r["mid"] for r in self._walk_all("SELECT mid FROM message_queues WHERE {p} AND queue = %s", [queue])}
 
     def tenant_activity(self, from_ms: int, to_ms: int) -> list[TenantActivity]:
-        """The rollup for the whole hours in the range, the tenant events of the partial hours at its ends, and the
-        repeat dead-letter moves (rollup.py), a batch of places a statement."""
-        hours, raw = rollup.split(from_ms, to_ms)
-        rows, events, again = [], [], []
+        """The rollup rows and the tenant events ``rollup.plan`` says, then the repeat dead-letter moves
+        (rollup.py), a batch of places a statement. A message's rollup rows and tenant events are in one place, so
+        the events a batch takes out of its rollup rows are in the same snapshot as those rows."""
+        hours, raw = rollup.plan(from_ms, to_ms)
+        parts, params = [], []
         if hours:
             # counts added up in SQL; the sketches here, faster than jsonb_each and a GROUP BY (QV-128)
-            totals: dict = {}
-            waits: dict = {}
-            for r in self._walk_all(
-                    """SELECT tenant, SUM(sent) AS sent, SUM(first_deliveries) AS firsts,
-                              SUM(dead_letter_moves) AS moves, NULL::jsonb AS waits
-                       FROM tenant_rollup WHERE {p} AND hour BETWEEN %s AND %s GROUP BY tenant
-                       UNION ALL
-                       SELECT tenant, NULL, NULL, NULL, waits FROM tenant_rollup WHERE {p} AND hour BETWEEN %s AND %s""",
-                    list(hours) * 2, from_ms * 10 ** 6):
+            parts += ["""SELECT tenant, SUM(sent) AS sent, SUM(first_deliveries) AS firsts,
+                                SUM(dead_letter_moves) AS moves, """ + _NO_WAITS + _NO_EVENTS + """
+                         FROM tenant_rollup WHERE {p} AND hour BETWEEN %s AND %s GROUP BY tenant""",
+                      "SELECT tenant, " + _NO_COUNTS + "waits, " + _NO_EVENTS +
+                      " FROM tenant_rollup WHERE {p} AND hour BETWEEN %s AND %s"]
+            params += list(hours) * 2
+        for a, b, sign in raw:
+            parts.append(f"""SELECT tenant, {_NO_COUNTS}{_NO_WAITS}kind, wait_ms, COUNT(*) * {int(sign)} AS n
+                             FROM tenant_events WHERE {{p}} AND at_ms BETWEEN %s AND %s
+                             AND kind <> '{rollup.DEAD_LETTERED_AGAIN}' GROUP BY tenant, kind, wait_ms""")
+            params += [a, b]
+        # the earliest time read: an hour's rollup rows and events start at the hour
+        lo = min([from_ms] + [a for a, _, _ in raw] + ([hours[0] * rollup.HOUR_MS] if hours else []))
+        totals: dict = {}
+        waits: dict = {}
+        events: list = []
+        if parts:
+            for r in self._walk_all(" UNION ALL ".join(f"({q})" for q in parts), params, lo * 10 ** 6):
                 t = r["tenant"]
-                if r["waits"] is None:
+                if r["n"] is not None:
+                    events.append((t, r["kind"], r["wait_ms"], r["n"]))
+                elif r["waits"] is None:
                     c = totals.setdefault(t, [0, 0, 0])
                     c[0] += int(r["sent"])
                     c[1] += int(r["firsts"])
@@ -1691,11 +1709,7 @@ class PostgresStore(Store):
                     into = waits.setdefault(t, {})
                     for k, n in r["waits"].items():
                         into[k] = into.get(k, 0) + n
-            rows = [(t, c[0], c[1], c[2], waits.get(t, {})) for t, c in totals.items()]
-        for a, b in raw:
-            events += [(r["tenant"], r["kind"], r["wait_ms"]) for r in self._walk_all(
-                "SELECT tenant, kind, wait_ms FROM tenant_events WHERE {p} AND at_ms BETWEEN %s AND %s", [a, b],
-                a * 10 ** 6)]
+        rows = [(t, c[0], c[1], c[2], waits.get(t, {})) for t, c in totals.items()]
         again = [r["tenant"] for r in self._walk_all(
             """SELECT tenant FROM tenant_events WHERE {p} AND kind = 'dead_lettered_again'
                AND at_ms BETWEEN %s AND %s AND at_ms - wait_ms >= %s""", [from_ms, to_ms, from_ms], from_ms * 10 ** 6)]

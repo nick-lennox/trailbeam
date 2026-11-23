@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **The Tenants page no longer slows down after heavy ingest.** It read every raw event of the current hour,
+  so right after a burst of traffic it took 1–2 s on Postgres (QV-180). It now reads the current hour from the
+  hourly rollup, less the few events newer than the window, and adds up the raw events it still reads in SQL.
+  With 2M events in the current hour, the last day went from 2.07 s to 55 ms (p95, Postgres) and from 646 ms
+  to 9 ms (SQLite, 626K events), with the same answers. (QV-224)
 - **Body search takes plain text.** On the Messages page and in `GET /api/messages?body=`, `ord-1003` is
   searched as `body:ord-1003` instead of being refused with a 400. The **Body** field shows an example, and
   on a server that keeps no bodies (`/api/health` lists no `store_bodies`) it is off, with a line saying how to
