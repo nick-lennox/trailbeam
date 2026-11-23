@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Java package, stage 3: tenants and body capture** (QV-319, pre-release, not published). The jar now
+  implements contract section 15 like the Python and Node.js packages, and passes the same `capture` vectors:
+  the tenant from `TRAILBEAM_TENANT_ATTRIBUTE` or `TRAILBEAM_TENANT_BODY_PATH`, opt-in body capture per queue
+  (`TRAILBEAM_CAPTURE_BODY_QUEUES`) with in-process redaction (`TRAILBEAM_REDACT_KEYS`,
+  `TRAILBEAM_REDACT_PATTERNS`, `TRAILBEAM_CAPTURE_MAX_BYTES`), every capture status, the Extended Client's
+  offloaded size, and SNS and EventBridge envelopes. Receives also ask for the tenant attribute and the
+  Extended Client's size attributes. A bad redaction setting can't be refused at install time (the jar has none),
+  so it fails closed: one warning, no body exported, `redaction_failed` on the listed queues.
 - **Java package, stage 1** (QV-319, pre-release, not published). `java/` is a jar for the AWS SDK for Java v2:
   add it as a dependency and a global `ExecutionInterceptor` (registered through the SDK's classpath file, no code)
   emits the contract's send, receive, delete, change-visibility and purge spans, with the keyed receipt-handle
@@ -9,8 +17,7 @@
   has its own always-on tracer provider with a relocated OpenTelemetry SDK (1.4 MB jar). The parent comes from the
   stock instrumentation's trace header, so interceptor order doesn't matter. A hand registration on top of the
   global one emits each span once. A Java driver for the conformance kit passes it in CI alone, beside the
-  OpenTelemetry Java agent 2.34.0 (also sampled to 0) and beside dd-java-agent 1.69.1. Not yet built: body capture
-  and tenants, the Lambda wrapper, the SDK version matrix, a strict parent check for the agent variants, and
+  OpenTelemetry Java agent 2.34.0 (also sampled to 0) and beside dd-java-agent 1.69.1. Not yet built: the Lambda wrapper, the SDK version matrix, a strict parent check for the agent variants, and
   Maven Central.
 
 - **Conformance kit for Trailbeam packages** (QV-318, stage 1). `conformance/` runs a language package's small

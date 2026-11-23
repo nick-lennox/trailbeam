@@ -68,7 +68,8 @@ public final class Trailbeam {
   final String clientId;
   final String endpoint;
   final HandleMap handles = new HandleMap();
-  final Set<String> captureBodyQueues;
+  /** Section 15: tenant and opt-in body capture, from the environment. */
+  final Capture.Config capture;
   private final long pid = ProcessHandle.current().pid();
 
   private Trailbeam(Function<String, String> env, SpanProcessor processor) {
@@ -87,10 +88,10 @@ public final class Trailbeam {
         .build();
     this.tracer = provider.get(SCOPE_NAME, VERSION);
     this.hasher = hasher(env.apply("TRAILBEAM_RECEIPT_HASH_KEY"));
-    this.captureBodyQueues = list(env.apply("TRAILBEAM_CAPTURE_BODY_QUEUES"));
-    if (!captureBodyQueues.isEmpty()) {
-      warnOnce("capture", "trailbeam: TRAILBEAM_CAPTURE_BODY_QUEUES is set, but this version of the Java package "
-          + "does not capture bodies yet; no body is exported");
+    this.capture = Capture.Config.fromEnv(env);
+    if (capture.invalid != null) {
+      warnOnce("capture", "trailbeam: " + capture.invalid + " (TRAILBEAM_REDACT_KEYS, TRAILBEAM_REDACT_PATTERNS or "
+          + "TRAILBEAM_CAPTURE_MAX_BYTES); no body or error text is exported until it is fixed");
     }
   }
 
@@ -283,23 +284,6 @@ public final class Trailbeam {
     } catch (IllegalArgumentException e) {
       return v;
     }
-  }
-
-  static Set<String> list(String raw) {
-    if (raw == null || raw.trim().isEmpty()) {
-      return Collections.emptySet();
-    }
-    Set<String> out = new HashSet<>();
-    for (String s : Arrays.asList(raw.split(","))) {
-      if (!s.trim().isEmpty()) {
-        out.add(s.trim());
-      }
-    }
-    return Collections.unmodifiableSet(out);
-  }
-
-  boolean captures(String queueName) {
-    return captureBodyQueues.contains("*") || captureBodyQueues.contains(queueName);
   }
 
   private static int positiveInt(String raw, int dflt) {

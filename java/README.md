@@ -30,15 +30,16 @@ Requires Java 11 or later and AWS SDK for Java v2.
 
 | SQS call | Spans |
 |---|---|
-| `SendMessage`, `SendMessageBatch` | one `trailbeam send` per message SQS accepted |
+| `SendMessage`, `SendMessageBatch` | one `trailbeam send` per message SQS accepted, with body size, tenant and FIFO fields, and the redacted body if you turned capture on |
 | `ReceiveMessage` | one `trailbeam receive` per message, with the keyed receipt-handle hash, receive count, timestamps and dead-letter source ARN |
 | `DeleteMessage`, `DeleteMessageBatch` | one `trailbeam delete` per receipt handle, with its result and error code |
 | `ChangeMessageVisibility`, `ChangeMessageVisibilityBatch` | one `trailbeam change_visibility` per receipt handle |
 | `PurgeQueue` | one `trailbeam purge` |
 
 To read the receive count and the other system attributes, the interceptor adds their names to each
-`ReceiveMessage` request. It keeps every name you asked for, and leaves `All` alone. It never makes an SQS call
-of its own.
+`ReceiveMessage` request. It also asks for the tenant message attribute (if you configured one) and the SQS
+Extended Client's size attributes. It keeps every name you asked for, and leaves `All` (and `.*`) alone. That
+changes what SQS returns, not the message. It never makes an SQS call of its own.
 
 Each span's parent is the stock SDK span for the same call, read from the trace header the agent puts on the
 request. A `ReceiveMessage` in a polling loop has no stock span (the OpenTelemetry agent creates one only when a
@@ -56,8 +57,32 @@ Environment variables, as for the Python and Node.js packages:
 | `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | `unknown_service`, and a random `service.instance.id` |
 | `TRAILBEAM_MAX_QUEUE_SIZE` | 16384 spans waiting for export |
 
-Body capture, tenants and the Lambda handler wrapper are coming in later stages of QV-319.
-`TRAILBEAM_CAPTURE_BODY_QUEUES` is not supported yet. If you set it, the jar logs a warning and exports no body.
+### Tenants and message bodies
+
+These follow contract section 15, the same rules as the Python and Node.js packages, tested against the same
+vectors. Every send and receive span carries the body's size. The rest is off until you turn it on:
+
+| Variable | Default |
+|---|---|
+| `TRAILBEAM_TENANT_ATTRIBUTE` | none. A message attribute holding the tenant (`trailbeam.tenant`), tried first. |
+| `TRAILBEAM_TENANT_BODY_PATH` | none. A dotted path into a JSON body (`customer.id`). The value must be a string or a number. Reading it doesn't export the body. |
+| `TRAILBEAM_CAPTURE_BODY_QUEUES` | none: no body leaves the process. Comma-separated queue names, or `*`. |
+| `TRAILBEAM_REDACT_KEYS` | added to the default keys (`password`, `secret`, `token`, `authorization`, `api_key`, `ssn`, `card_number`, `cvv` and others). A key with a `.` matches that path only. |
+| `TRAILBEAM_REDACT_PATTERNS` | `aws_access_key,bearer,email,long_number`. Set it to an empty value for none. |
+| `TRAILBEAM_CAPTURE_MAX_BYTES` | 16384, at most 262144. A longer redacted body is not exported, and not cut. |
+
+A captured body is redacted inside your process before it is exported. In JSON, the values of the redact keys
+are replaced by `"[REDACTED]"`, and strings are matched against the patterns. Text bodies get `key=value` pairs
+and the patterns. The span's `trailbeam.body.capture_status` says what happened (`captured`, `off`,
+`md5_mismatch`, `redaction_failed`, `exceeds_capture_limit` or `offloaded_to_s3`). Redaction is pattern
+matching, so turn capture on only for queues whose contents you are willing to store, and check what you get.
+Trailbeam's server stores bodies only for the queues in its own `TRAILBEAM_STORE_BODIES`, so you need both.
+
+The Python and Node.js packages refuse a bad redact key, an unknown pattern or an out-of-range limit when they
+are installed. This jar has no install step, and it never throws into your SQS calls, so it logs one warning
+instead and exports no body at all: a listed queue's spans say `redaction_failed` until the setting is fixed.
+
+The Lambda handler wrapper (and with it `TRAILBEAM_CAPTURE_ERROR_QUEUES`) comes in a later stage of QV-319.
 
 Spans are exported in the background and flushed when the JVM shuts down. A program that has to be sure they
 have left before it continues can call `dev.trailbeam.sqs.Trailbeam.flush(timeout, unit)`.
