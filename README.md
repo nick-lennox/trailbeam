@@ -891,7 +891,7 @@ that schema. As with SQLite, the purge deletes whatever is past retention at its
 **Team install on a new machine.** Copy `.env` (with `install -m 600`) and the dump, start Postgres alone, restore,
 then start the rest:
 
-```sh
+```sh norun="a team install's Compose project; CI runs the same pg_dump and pg_restore (backup-restore, .github/workflows/ci.yml)"
 docker compose up -d --wait postgres
 docker compose exec -T postgres pg_restore -U trailbeam -d trailbeam --no-owner < trailbeam.dump
 docker compose exec -T postgres psql -U trailbeam -d trailbeam -c ANALYZE
@@ -1156,7 +1156,7 @@ directory (`~/.trailbeam`; `/data` in the Docker volume of `npx trailbeam start`
 where you keep them: the token in `TRAILBEAM_TOKEN` or `--token-file`, the key in your services' settings. Keep
 your configuration file too, if you use one. Copy the two files with the backup:
 
-```sh
+```sh norun="the paths of a server's own machine; CI runs these steps (backup-restore, .github/workflows/ci.yml)"
 cp -p ~/.trailbeam/token ~/.trailbeam/receipt-hash-key /backups/
 docker cp trailbeam:/data/token ./token && docker cp trailbeam:/data/receipt-hash-key ./receipt-hash-key   # in Docker
 ```
@@ -1167,7 +1167,7 @@ so protect the backup like the data: readable by its owner only, and not in the 
 **Restore on a new machine** (`trailbeam start`). Put the three files in a new data directory, readable by you
 only, then start:
 
-```sh
+```sh norun="the paths of a server's own machine; CI runs these steps (backup-restore, .github/workflows/ci.yml)"
 install -d -m 700 ~/.trailbeam
 install -m 600 trailbeam-2026-11-19.sqlite ~/.trailbeam/trailbeam.sqlite
 install -m 600 token receipt-hash-key ~/.trailbeam/
@@ -1178,7 +1178,7 @@ trailbeam start
 it prints them in full, it has made new ones, so the restore is missing a file. In Docker (the volume of
 `npx trailbeam start`), restore into a new volume and start as before:
 
-```sh
+```sh norun="CI runs these steps with this checkout's image (backup-restore, .github/workflows/ci.yml)"
 docker volume create trailbeam-data
 docker run --rm --user root -v trailbeam-data:/data -v "$PWD":/restore:ro --entrypoint sh ghcr.io/nick-lennox/trailbeam -c \
   'install -m 600 -o trailbeam -g trailbeam /restore/trailbeam-2026-11-19.sqlite /data/trailbeam.sqlite &&
