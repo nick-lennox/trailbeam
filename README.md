@@ -100,8 +100,9 @@ const trailbeam = require("trailbeam");
 const sqs = trailbeam.instrument(new SQSClient({}));
 ```
 
-Send, receive or delete a message, then open http://127.0.0.1:4318/ and click its message ID. A Node.js
-script that exits straight away must call `await trailbeam.forceFlush()` first.
+Send, receive or delete a message, then open http://127.0.0.1:4318/ and click its message ID. In 0.3.0,
+a Node.js script that exits straight away must call `await trailbeam.forceFlush()` first. On `main`, the
+package flushes when the script ends; only a script that calls `process.exit()` still needs it.
 
 On the same machine nothing else is needed: the packages send to `http://localhost:4318/v1/traces` by
 default. Each service prints a warning that it uses the published default receipt-hash key until you set

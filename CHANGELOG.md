@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Node.js: a short script no longer loses its spans.** When the event loop empties, the package now
+  exports the spans still queued, so a script that sends a message and ends without
+  `await trailbeam.uninstall()` delivers them, as the Python package already did. `process.exit()` and
+  signals skip that step; spans still queued then are lost, and the package now prints one line to stderr
+  with the count and the fix (`await trailbeam.uninstall()` before `process.exit()`)
+  ([Node.js README](node/README.md#client-hooks)). (QV-156)
 - **Node.js: `trailbeam.uninstall()` no longer fails when the Trailbeam server is unreachable.** With nothing
   listening on the OTLP endpoint, `await trailbeam.uninstall()` (and `trailbeam.forceFlush()`) rejected with
   `ECONNREFUSED`, which ended the process with status 1. Both now resolve; the spans that could not be sent are
