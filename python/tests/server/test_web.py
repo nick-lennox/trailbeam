@@ -398,3 +398,16 @@ def test_the_tie_holds_for_nanosecond_starts_as_python_spans_have(server):
     # A step that starts a microsecond after the window's from is listed after it: rows stay by start.
     later = dict(rcv1, start_unix_nano=str(w_from + 1000))
     assert events(web._waterfall([later, expiry], by_id))[0] == ("visibility_timeout_expired", True)
+
+
+def test_an_empty_store_says_nothing_is_connected_yet(server):
+    """QV-147: on a store with no span, an empty list means no service has sent anything, not that all is well."""
+    for path in ("/", "/stuck", "/duplicates"):
+        _, _, html = get(server, path)
+        assert "No messages yet. No service has sent spans here" in html, path
+        assert "No stuck messages." not in html and "No duplicate deliveries." not in html, path
+    _, _, html = get(server, "/tenants")
+    assert "section 15.2</a>" in html and "15.1" not in html and "revision 3.2" not in html
+    post(server, [Consumer("producer").send(T0, "first-one")])
+    _, _, html = get(server, "/stuck?queue=payments")
+    assert "No stuck messages." in html and "No messages yet." not in html

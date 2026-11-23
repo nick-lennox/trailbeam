@@ -233,10 +233,15 @@ volume, health checks and `restart: unless-stopped`. The token and passwords com
 
 ```sh
 git clone https://github.com/nick-lennox/trailbeam.git && cd trailbeam
-cp .env.example .env      # fill in TRAILBEAM_TOKEN, TRAILBEAM_RECEIPT_HASH_KEY and POSTGRES_PASSWORD (openssl rand -hex 32)
+install -m 600 .env.example .env   # only you can read it; fill in TRAILBEAM_TOKEN, TRAILBEAM_RECEIPT_HASH_KEY
+                                   # and POSTGRES_PASSWORD (openssl rand -hex 32)
 docker compose up -d --build --wait
 # then open http://<this machine>:4318/ and sign in with the token
 ```
+
+`.env` holds the token and the Postgres password, so keep it readable by its owner only: `install -m 600`
+does that, where a plain `cp` would leave it readable by every user on the server. For an existing `.env`, run
+`chmod 600 .env`.
 
 In every service that uses the Trailbeam packages, set the endpoint, the token and the same receipt-hash key:
 
@@ -246,9 +251,14 @@ OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<TRAILBEAM_TOKEN>
 TRAILBEAM_RECEIPT_HASH_KEY=<the same key as in .env>
 ```
 
-- **The token is required.** The port listens on every interface (`TRAILBEAM_BIND=0.0.0.0` in `.env`; set
-  `127.0.0.1` for this machine only), so Compose refuses to start without `TRAILBEAM_TOKEN` and
-  `POSTGRES_PASSWORD`. It is plain HTTP: put a TLS proxy in front when it crosses a network you don't trust.
+- **The token is required.** With `TRAILBEAM_BIND=0.0.0.0` (as in `.env.example`) the port listens on every
+  interface; set `127.0.0.1`, or remove the line, for this machine only. Compose refuses to start without
+  `TRAILBEAM_TOKEN` and `POSTGRES_PASSWORD`.
+- **Docker publishes the port past ufw and firewalld**, so a firewall rule on this machine does not close it
+  ([Docker and ufw](https://docs.docker.com/engine/network/packet-filtering-firewalls/)). With `0.0.0.0` it is
+  open on every network the machine is on.
+- **The port is plain HTTP.** The bearer token, the login form and the session cookie (no `Secure` flag) cross
+  the network in clear: put a TLS proxy in front when it crosses a network you don't trust.
 - **The data stays** across `docker compose down` and `up`, and across restarts of the machine: spans are in the
   `postgres-data` volume. `docker compose down -v` deletes them. Back up with `pg_dump`
   ([Backup and restore](#backup-and-restore-postgres)): `docker compose exec -T postgres pg_dump -U trailbeam -Fc trailbeam > trailbeam.dump`.
