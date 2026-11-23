@@ -36,7 +36,8 @@ token and a receipt-hash key there. It then prints the web screen's address (`ht
 token, and the environment variables to set in your services, the same output as the Python
 `trailbeam start`. Later runs reuse the token and key, and don't print them: they print the command that
 shows each one, `docker run --rm -v trailbeam-data:/data --entrypoint cat ghcr.io/nick-lennox/trailbeam:X.Y.Z
-/data/token` (and `/data/receipt-hash-key`), and the export lines run it with `$(...)`. Stop it with Ctrl-C.
+/data/token` (and `/data/receipt-hash-key`), and the export lines run it with `$(...)`. If `TRAILBEAM_RECEIPT_HASH_KEY` is set, that key is used instead of
+the one in the volume, and the export lines say `$TRAILBEAM_RECEIPT_HASH_KEY`. Stop it with Ctrl-C.
 
 Before it starts the server it prints one line to stderr naming the image it runs: the reference, the local
 image ID and the registry digest, for example `trailbeam: running ghcr.io/nick-lennox/trailbeam:0.3.0 (image
