@@ -4,7 +4,9 @@
 // tag matching this package's version), so a Node.js team can try it without Python. Inside the container it
 // runs the Python `trailbeam start`, so the first-run output is the same. It takes the same flags; the ones that
 // name something on this machine (--host, --port, --data-dir, --db, --config, --token-file) are turned into
-// Docker's port mapping, mounts and environment. Nothing here is loaded by require('trailbeam').
+// Docker's port mapping, mounts and environment. Before it runs, one stderr line names the image: the reference,
+// its ID and its registry digest (a tag is only a name; TRAILBEAM_IMAGE replaces it). Nothing here is loaded by
+// require('trailbeam').
 
 const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
@@ -113,7 +115,8 @@ function dockerArgs(argv, { env = process.env, image = (env.TRAILBEAM_IMAGE || '
     throw new UsageError(`--port: expected a port from 1 to 65535, got ${JSON.stringify(port)}`);
   }
   const childEnv = { ...env };
-  const args = ['run', '--rm', '--init', '--pull', 'missing',
+  // --pull never: the image was pulled (if missing) and inspected first, so what runs is what was announced.
+  const args = ['run', '--rm', '--init', '--pull', 'never',
     '-p', `${host.includes(':') ? `[${host}]` : host}:${port}:${port}`,
     // The container listens on every address inside it; Docker publishes the port on --host only.
     '-e', 'TRAILBEAM_HOST=0.0.0.0', '-e', `TRAILBEAM_PORT=${port}`,
@@ -165,7 +168,33 @@ function dockerArgs(argv, { env = process.env, image = (env.TRAILBEAM_IMAGE || '
     if (name.startsWith('TRAILBEAM_') && !NOT_PASSED.has(name)) args.push('-e', name);
   }
   args.push(image, 'start', '--data-dir', '/data', ...passed, ...rest);
-  return { args, env: childEnv, host, port: Number(port) };
+  return { args, env: childEnv, image, host, port: Number(port) };
+}
+
+/** Makes sure `image` is here (docker pull when it isn't, with its progress on stderr) and returns
+ * { line } to print before it runs, naming the reference, the local image ID and the registry digest, or
+ * { problem } when it can't be pulled. A tag is only a name: this says which image it was.
+ * `run` is spawnSync, replaceable in tests. */
+function imageInfo(image, { run = spawnSync, env = process.env, defaultImage = IMAGE } = {}) {
+  const inspect = () => run('docker', ['image', 'inspect', '--format', '{{.Id}} {{join .RepoDigests " "}}', image],
+    { env, encoding: 'utf8' });
+  let r = inspect();
+  if (r.status !== 0) {
+    // docker pull writes its progress to stdout; keep stdout for the server's own output.
+    const pull = run('docker', ['pull', image], { env, stdio: ['ignore', 2, 2] });
+    if (pull.error || pull.status !== 0) {
+      return { problem: `trailbeam: can't pull ${image}`
+        + `${pull.error ? ` (${pull.error.code || pull.error.message})` : ''}: see docker's message above.` };
+    }
+    r = inspect();
+    if (r.status !== 0) return { problem: `trailbeam: pulled ${image} but docker image inspect fails: ${`${r.stderr || ''}`.trim()}` };
+  }
+  const [id, ...digests] = `${r.stdout || ''}`.trim().split(/\s+/);
+  const repo = image.replace(/@.*$/, '').replace(/:[^:/]*$/, '');
+  const digest = digests.find((d) => d.startsWith(`${repo}@`)) || digests[0];
+  const what = `${image} (image ${id}${digest ? `, ${digest}` : ', no registry digest: built here'})`;
+  return { line: image === defaultImage ? `trailbeam: running ${what}`
+    : `trailbeam: TRAILBEAM_IMAGE is set: running ${what} instead of ${defaultImage}` };
 }
 
 /** null when Docker answers, else the one line to print. `run` is spawnSync, replaceable in tests. */
@@ -224,6 +253,9 @@ function main(argv = process.argv.slice(2)) {
   if (problem) { console.error(problem); return 1; }
   portProblem(plan.host, plan.port).then((taken) => {
     if (taken) { console.error(taken); process.exitCode = 2; return; }
+    const info = imageInfo(plan.image, { env: plan.env });
+    if (info.problem) { console.error(info.problem); process.exitCode = 1; return; }
+    console.error(info.line);
     run(plan);
   });
   return undefined;
@@ -239,7 +271,7 @@ function run(plan) {
   child.on('exit', (code, signal) => process.exit(code === null ? (signal === 'SIGINT' ? 130 : 1) : code));
 }
 
-module.exports = { parseArgs, dockerArgs, checkDataDir, dockerProblem, portProblem, main, IMAGE, VOLUME, UsageError };
+module.exports = { parseArgs, dockerArgs, checkDataDir, dockerProblem, portProblem, imageInfo, main, IMAGE, VOLUME, UsageError };
 
 if (require.main === module) {
   const code = main();
