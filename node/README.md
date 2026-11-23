@@ -17,6 +17,12 @@ To install from a clone instead, run `npm install ./trailbeam/node` from your ap
 
 ## Run the server: `npx trailbeam start`
 
+**From the next release.** This does not work with 0.3.0: the published package has no `trailbeam` command,
+and the 0.3.0 container image has no `start` (a launcher run from a clone of `main` uses that image and stops
+at its plain `trailbeam` usage). Until then, use the Python `trailbeam start` from a clone of `main`
+([README](../README.md#trailbeam-start-unreleased-on-main)) or the
+[team install](../README.md#team-install-docker-compose-with-postgres).
+
 To try Trailbeam from a Node.js project you don't need Python: with [Docker](https://docs.docker.com/get-docker/)
 installed and running,
 
