@@ -65,6 +65,7 @@ def start(argv) -> None:
     # None: not given, so the SQLite file goes in the data directory. TRAILBEAM_DB and --db still win.
     p.set_defaults(db=os.environ.get("TRAILBEAM_DB", "").strip() or None)
     a = p.parse_args(argv)
+    a.command = "trailbeam start"  # in the one-line errors serve() prints
     logging.basicConfig(level=a.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
     data = Path(a.data_dir).expanduser()
     try:

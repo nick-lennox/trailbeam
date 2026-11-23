@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Port already in use: one line, not a traceback.** When the listen port is taken (4318 is the standard
+  OTLP/HTTP port, so an OpenTelemetry Collector, Jaeger or another OTLP receiver often holds it), `trailbeam`
+  and `trailbeam start` print `trailbeam: port 4318 on 127.0.0.1 is already in use (another OTLP receiver?).
+  Stop it or run trailbeam --port 4319 and set TRAILBEAM_OTLP_TRACES_ENDPOINT to match.` and exit with status 2.
+  A port it may not use, or a `--host` that isn't an address of the machine, is also one line.
 - **`npx trailbeam start`: the server from npm, without Python.** The npm package has a `trailbeam` command.
   `npx trailbeam start` runs the container image of the same version (`ghcr.io/nick-lennox/trailbeam:X.Y.Z`)
   with its data in the Docker volume `trailbeam-data`, and prints the same first-run output as the Python
