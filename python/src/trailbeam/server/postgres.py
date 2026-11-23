@@ -1767,21 +1767,21 @@ class PostgresStore(Store):
                    default=0)
 
     def last_span_ns(self) -> Optional[int]:
-        n = self.last_row()
-        if not n:
-            return None
-        with self._reading() as c:  # spans_row on every place: one index step each, as last_row
-            r = c.execute('SELECT time_ns FROM spans WHERE "row" = %s', (n,)).fetchone()
-        return None if r is None else int(r["time_ns"])
+        # the span stored last of each place (one spans_row index step), a batch of places a statement as last_row,
+        # never one statement over every place
+        last = max(self._walk_all('SELECT "row", time_ns FROM spans WHERE {p} ORDER BY "row" DESC LIMIT 1'),
+                   key=lambda r: r["row"], default=None)
+        return None if last is None else int(last["time_ns"])
 
-    def record_probe(self, probe_id: str, received_ns: int, *, wait_s: Optional[float] = None) -> None:
+    def record_probes(self, probe_ids: list[str], received_ns: int, *, wait_s: Optional[float] = None) -> None:
         try:
             with self.ingest.connection(timeout=self.INGEST_CONNECTION_WAIT_S if wait_s is None
                                         else min(wait_s, self.INGEST_CONNECTION_WAIT_S)) as conn:
                 with conn.transaction():
-                    conn.execute("""INSERT INTO probes (id, received_ns) VALUES (%s, %s)
-                                    ON CONFLICT (id) DO UPDATE SET received_ns = EXCLUDED.received_ns""",
-                                 (probe_id, received_ns))
+                    with conn.cursor() as cur:
+                        cur.executemany("""INSERT INTO probes (id, received_ns) VALUES (%s, %s)
+                                           ON CONFLICT (id) DO UPDATE SET received_ns = EXCLUDED.received_ns""",
+                                        [(p, received_ns) for p in probe_ids])
                     conn.execute("DELETE FROM probes WHERE received_ns < %s", (received_ns - self.PROBE_KEEP_NS,))
         except psycopg_pool.PoolTimeout as e:
             if wait_s is not None and self._ingest_saturated():

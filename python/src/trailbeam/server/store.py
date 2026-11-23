@@ -33,6 +33,9 @@ from __future__ import annotations
 import abc
 from typing import Any, Callable, Iterable, Mapping, NamedTuple, Optional
 
+# Why a store without probes rejects them (contract section 17: the reason is "probe span not stored: " this).
+NO_PROBES = "this store does not keep probes"
+
 Row = Mapping[str, Any]
 Summary = Mapping[str, Any]  # summary.summarize, as stored
 
@@ -249,16 +252,16 @@ class Store(abc.ABC):
 
     # ---- probes (trailbeam doctor, contract section 17) ---------------------------------------
 
-    # How long a probe is kept: record_probe deletes older ones. Probes are not spans: no page, count, rollup or
+    # How long a probe is kept at least: record_probes deletes older ones when it writes. Probes are not spans: no page, count, rollup or
     # retention pass reads them.
     PROBE_KEEP_NS = 86_400 * 10 ** 9
 
-    def record_probe(self, probe_id: str, received_ns: int, *, wait_s: Optional[float] = None) -> None:
-        """Store a probe's ID with the time this server stored it, replacing one of the same ID, and delete probes
-        older than ``PROBE_KEEP_NS``. One write transaction, on the same writer exports use (``wait_s``, WriterBusy
+    def record_probes(self, probe_ids: list[str], received_ns: int, *, wait_s: Optional[float] = None) -> None:
+        """Store the probes of one export (at most otlp.MAX_PROBES_PER_EXPORT) with the time this server stored
+        them, replacing ones of the same ID, and delete probes older than ``PROBE_KEEP_NS``. One write transaction, on the same writer exports use (``wait_s``, WriterBusy
         and StoreUnavailable as in insert), so a probe stored says that exports can be. A store that does not keep
         probes raises NotImplementedError (the default): the server then rejects the probe span, saying so."""
-        raise NotImplementedError("this store does not keep probes")
+        raise NotImplementedError(NO_PROBES)
 
     def probe(self, probe_id: str) -> Optional[int]:
         """When the probe was stored (``received_ns``), None if it is not."""

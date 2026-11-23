@@ -9,7 +9,7 @@
   ([README](README.md#troubleshooting-no-data-arriving)). The test span is a *probe* (span contract section 17):
   the server stores it apart from the spans (new table `probes`: SQLite schema 13, Postgres schema 6, both
   applied on start), so it never shows as a message or in a count, and reads it back at
-  `GET /api/probes/{id}`. `GET /api/health` also gives `data.last_span_ns`, the time of the span stored last.
+  `GET /api/probes/{id}` (at most 8 probes an export, in one write). `GET /api/health` also gives `data.last_span_ns`, the time of the span stored last.
   A server of 0.3 or before rejects the probe; `trailbeam doctor` says so and the other checks still run.
 
 - **Port already in use: one line, not a traceback.** When the listen port is taken (4318 is the standard

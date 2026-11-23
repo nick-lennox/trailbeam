@@ -694,7 +694,7 @@ paths:
         Returns when the store took the test span (a *probe*, span contract section 17) of this ID.
         `trailbeam doctor` sends one to `POST /v1/traces`, then reads it back here, to check that
         what is sent is stored and can be read. Probes are kept apart from the spans: they never
-        show as messages, in counts or on the Tenants page. Each is kept for a day. Added in 0.4.
+        show as messages, in counts or on the Tenants page. Each is kept at least a day. Added in 0.4.
       parameters:
         - name: probe_id
           in: path

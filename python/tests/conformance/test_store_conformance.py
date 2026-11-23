@@ -385,22 +385,22 @@ def test_last_span_ns_is_the_time_of_the_span_stored_last(new_store):
         pytest.skip("this store does not say when its last span was stored (Store.last_span_ns)")
     records = [r for export in cases.exports("joins") for r in export]
     assert got in {r["time_ns"] for r in records}
-    later = dict(records[0], span_id="0123456789abcdef", time_ns=max(r["time_ns"] for r in records) + 10 ** 9)
+    later = dict(records[0], span_id="0123456789abcdef", time_ns=min(r["time_ns"] for r in records) - 10 ** 9)
     later["start_ns"] = later["time_ns"]
-    s.insert([later])  # one new span, stored last: its time, even though it is not the newest by time alone
+    s.insert([later])  # one new span, stored last but older than every other: its time, not the newest one's
     assert s.last_span_ns() == later["time_ns"]
 
 
 def test_probes_are_kept_apart_from_the_spans(new_store):
     s = new_store()
     try:
-        s.record_probe("doctor-0123456789ab", 1_000)
+        s.record_probes(["doctor-0123456789ab"], 1_000)
     except NotImplementedError:
-        pytest.skip("this store does not keep probes (Store.record_probe): trailbeam doctor's test span is rejected")
+        pytest.skip("this store does not keep probes (Store.record_probes): trailbeam doctor's test span is rejected")
     assert s.probe("doctor-0123456789ab") == 1_000
     assert s.probe("doctor-not-stored") is None
-    s.record_probe("doctor-0123456789ab", 2_000)  # the same ID again: replaced
+    s.record_probes(["doctor-0123456789ab"], 2_000)  # the same ID again: replaced
     assert s.probe("doctor-0123456789ab") == 2_000
     assert s.last_row() == 0 and s.last_span_ns() is None and s.counts()["spans"] == {}
-    s.record_probe("doctor-later-000001", 2_000 + s.PROBE_KEEP_NS + 1)  # a day later: the first is deleted
+    s.record_probes(["doctor-later-000001"], 2_000 + s.PROBE_KEEP_NS + 1)  # a day later: the first is deleted
     assert s.probe("doctor-0123456789ab") is None and s.probe("doctor-later-000001") is not None

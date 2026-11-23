@@ -644,14 +644,15 @@ class SqliteStore(Store):
             r = c.execute("SELECT time_ns FROM spans ORDER BY row DESC LIMIT 1").fetchone()
         return None if r is None else r[0]
 
-    def record_probe(self, probe_id: str, received_ns: int, *, wait_s: Optional[float] = None) -> None:
+    def record_probes(self, probe_ids: list[str], received_ns: int, *, wait_s: Optional[float] = None) -> None:
         if not self.lock.acquire(timeout=-1 if wait_s is None else wait_s):
             raise WriterBusy(f"the writer was busy for {wait_s:g} s")
         try:
             c = self.conn
             c.execute("BEGIN IMMEDIATE")
             try:
-                c.execute("INSERT OR REPLACE INTO probes (id, received_ns) VALUES (?, ?)", (probe_id, received_ns))
+                c.executemany("INSERT OR REPLACE INTO probes (id, received_ns) VALUES (?, ?)",
+                              [(p, received_ns) for p in probe_ids])
                 c.execute("DELETE FROM probes WHERE received_ns < ?", (received_ns - self.PROBE_KEEP_NS,))
                 c.execute("COMMIT")
             except BaseException:

@@ -70,6 +70,13 @@ PROBE_KIND = "trailbeam.probe"
 PROBE_ID = "trailbeam.probe.id"
 PROBE_ID_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
 PROBE_ID_LENGTH = (8, 64)
+# An export carries at most this many probes; the server rejects the rest (each its own write otherwise).
+MAX_PROBES_PER_EXPORT = 8
+# The fixed starts of the reasons a probe is rejected with (contract section 17), which trailbeam doctor tells apart.
+# A server of 0.3 or before answers "unknown trailbeam.kind 'trailbeam.probe'" instead.
+PROBE_NOT_STORED = "probe span not stored:"           # the store keeps no probes
+PROBE_BAD_ID = f"probe span without a {PROBE_ID}"     # no valid ID
+PROBE_OVER_LIMIT = "probe span over the limit of"     # more than MAX_PROBES_PER_EXPORT in the export
 
 
 @dataclass
@@ -231,6 +238,8 @@ def _from_spans(spans: Iterable[tuple]) -> Decoded:
             probe_id, reason = probe_id_of(attrs)
             if probe_id is None:
                 out.rejected.append(reason)
+            elif len(out.probes) >= MAX_PROBES_PER_EXPORT:
+                out.rejected.append(f"{PROBE_OVER_LIMIT} {MAX_PROBES_PER_EXPORT} in one export")
             else:
                 out.probes.append(probe_id)
             continue
@@ -256,5 +265,5 @@ def probe_id_of(attrs: dict) -> tuple[Optional[str], str]:
     v = attrs.get(PROBE_ID)
     if not valid_probe_id(v):
         lo, hi = PROBE_ID_LENGTH
-        return None, f"probe span without a {PROBE_ID} of {lo} to {hi} letters, digits, - or _"
+        return None, f"{PROBE_BAD_ID} of {lo} to {hi} letters, digits, - or _"
     return v, ""

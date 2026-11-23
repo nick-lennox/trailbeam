@@ -235,11 +235,13 @@ The prototype value `success_deleted_by_lambda` is renamed `success`, because th
 ### 4.5 What Trailbeam requires
 
 Trailbeam ([`otlp.py`](../python/src/trailbeam/server/otlp.py)) reads a span only if its instrumentation scope
-is `trailbeam`. It counts spans of other scopes as ignored. It rejects a Trailbeam span, and reports the reason in
-the OTLP `partial_success` field, when any of these is true:
+is `trailbeam`. It counts spans of other scopes as ignored. A span of kind `trailbeam.probe` (the test span of
+`trailbeam doctor`) is checked only as section 17 says; no other rule of this section applies to it. It
+rejects any other Trailbeam span, and reports the reason in the OTLP `partial_success` field, when any of these is
+true:
 
 - `trailbeam.schema_version` is not `2` or `3`;
-- `trailbeam.kind` is unknown (`trailbeam.probe` is known: section 17), or `sqs.settle` comes with a `messaging.operation.name` that is not a delete
+- `trailbeam.kind` is unknown, or `sqs.settle` comes with a `messaging.operation.name` that is not a delete
   or visibility-change action;
 - the trace ID, span ID, start time or end time is missing, or the span ends before it starts;
 - a required field for its kind is missing or has the wrong type:
@@ -802,9 +804,22 @@ retention pass or `last_row`/`last_span_ns`, and it is not counted as inserted. 
 spans of the same export, on the same writer (so a probe stored says the export path works), and are kept for
 at least a day. `GET /api/probes/{id}` answers when it was stored, or 404 ([`openapi.yaml`](openapi.yaml)).
 
-A probe without a valid `trailbeam.probe.id`, and every probe sent to a store that does not keep probes, is
-rejected, with the reason in `partial_success`, as a span would be. A Trailbeam older than this section (0.3 and
-before) rejects it as an unknown `trailbeam.kind`; nothing else in that export is affected. `trailbeam doctor`
-reports both cases as such.
+An export carries at most **8** probes (`trailbeam doctor` sends 1); Trailbeam rejects the rest, with the
+reason. The probes of one export are stored in one write transaction, whose time counts toward backpressure as
+the spans' write does.
+
+A rejected probe is rejected as a span would be: it counts as one rejected span, in
+`partial_success.rejected_spans` and in `GET /api/health` `ingest.rejected`, and its reason is in
+`partial_success.error_message`. Each reason starts with fixed text, so `trailbeam doctor` tells the cases apart:
+
+| Reason starts with | When |
+|---|---|
+| `probe span without a trailbeam.probe.id` | the probe has no valid `trailbeam.probe.id` |
+| `probe span not stored:` | the store does not keep probes |
+| `probe span over the limit of` | the export carries more than 8 probes |
+| `unknown trailbeam.kind 'trailbeam.probe'` | the answer of a Trailbeam older than this section (0.3 and before); nothing else in that export is affected |
+
+A wrong `trailbeam.schema_version` is rejected with the reason any span gets (section 4.5). `trailbeam doctor`
+reports each case as such, and does not count its own rejected probe among the rejected spans it reports.
 
 `trailbeam.schema_version` stays `3`: nothing the packages send changes.

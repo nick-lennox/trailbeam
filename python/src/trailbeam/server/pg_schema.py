@@ -60,7 +60,7 @@ LOOKUPS = ("mid_places", "hash_places")  # partitioned since version 5
 
 # Version 5's other tables (QV-127): the late lookup rows and the filter of the sealed places.
 # Version 6 (QV-148): the test spans of trailbeam doctor (contract section 17), an ID and when a replica stored it.
-# Not partitioned and not spans: no page, count, rollup or retention pass reads it; record_probe keeps a day of them.
+# Not partitioned and not spans: no page, count, rollup or retention pass reads it; record_probes keeps at least a day of them.
 PROBES = """
 CREATE TABLE IF NOT EXISTS probes (id TEXT PRIMARY KEY, received_ns BIGINT NOT NULL);
 """

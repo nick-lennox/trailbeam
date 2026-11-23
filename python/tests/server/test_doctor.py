@@ -100,8 +100,8 @@ def test_the_test_span_never_shows_as_a_message_and_is_read_back(app, db):
 
 
 def test_probes_older_than_a_day_are_deleted_when_one_is_stored(db):
-    db.record_probe("old-probe-1", 1)
-    db.record_probe("new-probe-1", db.PROBE_KEEP_NS + 2)
+    db.record_probes(["old-probe-1"], 1)
+    db.record_probes(["new-probe-1"], db.PROBE_KEEP_NS + 2)
     assert db.probe("old-probe-1") is None and db.probe("new-probe-1") == db.PROBE_KEEP_NS + 2
 
 
@@ -234,13 +234,26 @@ def test_a_server_older_than_doctor_rejects_the_test_span(app, monkeypatch):
         results = doctor.run(target(base), now_ns=NOW)
     r = by_name(results)["Test span stored and read back"]
     assert r.status == "FAIL" and "does not know test spans" in r.detail and "upgrade" in r.fix
+    last = by_name(results)["Last real span"]  # the server counted the test span as rejected: not the user's span
+    assert last.status == "FAIL" and "break the span contract" not in last.cause
+
+
+def test_a_rejected_test_span_is_not_counted_twice_among_real_rejected_ones(app, monkeypatch):
+    monkeypatch.setattr(otlp, "PROBE_KIND", "not-known-to-an-old-server")
+    bad = to_json([Consumer().send(T0, "m-bad")])
+    bad["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"][0]["value"] = {"intValue": "1"}
+    with serve(app) as base:
+        urllib.request.urlopen(urllib.request.Request(base + "/v1/traces", data=json.dumps(bad).encode(),
+                                                      headers={"Content-Type": "application/json"}), timeout=5)
+        r = by_name(doctor.run(target(base), now_ns=NOW))["Last real span"]
+    assert "1 Trailbeam span(s) arrived" in r.cause and "break the span contract" in r.cause
 
 
 @pytest.mark.parametrize("error, said", [(StoreUnavailable("down"), "503"), (WriterBusy(), "503")])
 def test_an_overloaded_or_disconnected_store(app, db, monkeypatch, error, said):
     def fail(*a, **kw):
         raise error
-    monkeypatch.setattr(db, "record_probe", fail)
+    monkeypatch.setattr(db, "record_probes", fail)
     with serve(app) as base:
         results = doctor.run(target(base), now_ns=NOW)
     r = by_name(results)["Test span stored and read back"]
@@ -250,11 +263,65 @@ def test_an_overloaded_or_disconnected_store(app, db, monkeypatch, error, said):
 def test_a_store_that_does_not_keep_probes(app, db, monkeypatch):
     def no(*a, **kw):
         raise NotImplementedError("this store does not keep probes")
-    monkeypatch.setattr(db, "record_probe", no)
+    monkeypatch.setattr(db, "record_probes", no)
+    with serve(app) as base:
+        results = doctor.run(target(base), now_ns=NOW)
+    r = by_name(results)["Test span stored and read back"]
+    assert r.status == "FAIL" and "its store does not keep them" in r.detail and "store" in r.fix
+    # doctor's own rejected test span is not taken for a span of the user's that broke the contract
+    assert "break the span contract" not in by_name(results)["Last real span"].cause
+
+
+def test_a_test_span_id_the_server_does_not_accept(app, monkeypatch):
+    monkeypatch.setattr(otlp, "valid_probe_id", lambda v: False)
     with serve(app) as base:
         r = by_name(doctor.run(target(base), now_ns=NOW))["Test span stored and read back"]
-    assert r.status == "FAIL" and "does not keep probes" in r.detail
+    assert r.status == "FAIL" and "did not accept the test span's ID" in r.detail and "same Trailbeam version" in r.fix
 
+
+def test_the_reasons_doctor_tells_apart_are_the_servers(app, db):
+    """doctor copies the fixed starts of the reasons (contract section 17) so it runs without the server extra."""
+    assert doctor.PROBE_NOT_STORED == otlp.PROBE_NOT_STORED and doctor.PROBE_BAD_ID == otlp.PROBE_BAD_ID
+    assert doctor.PROBE_UNKNOWN == f"unknown trailbeam.kind {otlp.PROBE_KIND!r}"
+
+
+def test_an_export_carries_at_most_8_probes_in_one_write(app, db, monkeypatch):
+    calls = []
+    real = db.record_probes
+    monkeypatch.setattr(db, "record_probes", lambda ids, *a, **kw: (calls.append(list(ids)), real(ids, *a, **kw)))
+    export = json.loads(doctor.probe_export("doctor-0000000000000000"))
+    one = export["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+    spans = []
+    for i in range(otlp.MAX_PROBES_PER_EXPORT + 2):
+        sp = json.loads(json.dumps(one))
+        sp["attributes"] = [a if a["key"] != "trailbeam.probe.id" else
+                            {"key": a["key"], "value": {"stringValue": f"doctor-{i:016d}"}} for a in sp["attributes"]]
+        spans.append(sp)
+    export["resourceSpans"][0]["scopeSpans"][0]["spans"] = spans
+    with serve(app) as base:
+        with urllib.request.urlopen(urllib.request.Request(base + "/v1/traces", data=json.dumps(export).encode(),
+                                    headers={"Content-Type": "application/json"}), timeout=5) as r:
+            answer = json.loads(r.read())
+        health = api(base, "/api/health")
+    assert calls == [[f"doctor-{i:016d}" for i in range(otlp.MAX_PROBES_PER_EXPORT)]]  # one transaction
+    assert answer["partialSuccess"]["rejectedSpans"] == "2"
+    assert f"{otlp.PROBE_OVER_LIMIT} {otlp.MAX_PROBES_PER_EXPORT} in one export" in answer["partialSuccess"]["errorMessage"]
+    assert health["ingest"]["rejected"] == 2
+    assert db.probe(f"doctor-{otlp.MAX_PROBES_PER_EXPORT:016d}") is None
+
+
+
+def test_the_probe_write_counts_toward_backpressure(app, db, monkeypatch):
+    import time
+    real = db.record_probes
+    monkeypatch.setattr(db, "record_probes", lambda *a, **kw: (time.sleep(0.2), real(*a, **kw)))
+    seen = []
+    monkeypatch.setattr(app.gate, "wrote", seen.append)
+    with serve(app) as base:
+        urllib.request.urlopen(urllib.request.Request(base + "/v1/traces",
+                                                      data=doctor.probe_export("doctor-0000000000000001"),
+                                                      headers={"Content-Type": "application/json"}), timeout=5)
+    assert len(seen) == 1 and seen[0] >= 0.2  # the spans' write and the probes' write, reported once
 
 # ---- 5. the last real span ------------------------------------------------------------------------------------
 

@@ -45,6 +45,14 @@ class Result:
     detail: str
     cause: Optional[str] = None
     fix: Optional[str] = None
+    probe_rejected: bool = False  # the test span check only: the server counted doctor's own span as rejected
+
+
+# The fixed starts of the reasons a server rejects the test span with (span contract section 17; otlp.py has the
+# same, and a test checks they match). Copied, not imported: doctor runs without the server extra.
+PROBE_UNKNOWN = "unknown trailbeam.kind 'trailbeam.probe'"  # Trailbeam 0.3 and before
+PROBE_NOT_STORED = "probe span not stored:"                 # the store keeps no probes
+PROBE_BAD_ID = "probe span without a trailbeam.probe.id"    # the ID was not accepted
 
 
 @dataclass
@@ -263,6 +271,7 @@ def run(t: Target, now_ns: Optional[int] = None) -> list[Result]:
         results.append(Result(name, SKIP, "needs the checks above"))
     else:
         results.append(_probe(t))
+    probe_rejected = results[-1].probe_rejected
 
     # 5. the last real span
     name = "Last real span"
@@ -274,7 +283,8 @@ def run(t: Target, now_ns: Optional[int] = None) -> list[Result]:
             health = a.json() if a.status == 200 and isinstance(a.json(), dict) else health
         except Unreachable:
             pass
-        results.append(_last_span(health, now_ns, probe_ok=results[-1].status == OK, t=t))
+        results.append(_last_span(health, now_ns, probe_ok=results[-1].status == OK, t=t,
+                                  probe_rejected=probe_rejected))
     return results
 
 
@@ -300,13 +310,25 @@ def _probe(t: Target) -> Result:
                       "the server could not store it.", "see the server's log for this request.")
     rejected = ((a.json() or {}).get("partialSuccess") or {}).get("errorMessage")
     if rejected:
-        if "trailbeam.probe" in rejected:
+        if PROBE_UNKNOWN in rejected:
             return Result(name, FAIL, "the server took the export but does not know test spans",
                           "the server is older than this trailbeam doctor (Trailbeam 0.3 and before keep no test "
                           "spans). Real spans are not affected.",
-                          "upgrade the server to the version of this command, or skip this check's result.")
+                          "upgrade the server to the version of this command, or skip this check's result.",
+                          probe_rejected=True)
+        if PROBE_NOT_STORED in rejected:
+            return Result(name, FAIL, "the server knows test spans, but its store does not keep them",
+                          "the server runs with a store that has no place for test spans (a custom store, or one "
+                          "not updated for span contract section 17). Real spans are not affected.",
+                          "use the SQLite or Postgres store of this version, or skip this check's result.",
+                          probe_rejected=True)
+        if PROBE_BAD_ID in rejected:
+            return Result(name, FAIL, "the server did not accept the test span's ID",
+                          "this trailbeam doctor and the server disagree on test span IDs (span contract section "
+                          "17): one of them is from a different version.",
+                          "use the same Trailbeam version for the server and this command.", probe_rejected=True)
         return Result(name, FAIL, f"the server rejected it: {rejected}", "the server could not store it.",
-                      "see the server's log for this request.")
+                      "see the server's log for this request.", probe_rejected=True)
     found: Optional[Answer] = None
     while True:
         try:
@@ -336,7 +358,7 @@ def _probe(t: Target) -> Result:
                   "the server could not read it.", "see the server's log for this request.")
 
 
-def _last_span(health: dict, now_ns: int, probe_ok: bool, t: Target) -> Result:
+def _last_span(health: dict, now_ns: int, probe_ok: bool, t: Target, probe_rejected: bool = False) -> Result:
     name = "Last real span"
     data = health.get("data") or {}
     ingest = health.get("ingest") or {}
@@ -349,8 +371,10 @@ def _last_span(health: dict, now_ns: int, probe_ok: bool, t: Target) -> Result:
         return Result(name, OK, f"{last_row} rows stored; this server does not say when the last arrived")
     if last_ns is None:
         why = []
-        if ingest.get("rejected"):
-            why.append(f"{ingest['rejected']} Trailbeam span(s) arrived since the server started but break the span "
+        # the server counts doctor's own rejected test span as a rejected span (span contract section 17)
+        rejected = max((ingest.get("rejected") or 0) - (1 if probe_rejected else 0), 0)
+        if rejected:
+            why.append(f"{rejected} Trailbeam span(s) arrived since the server started but break the span "
                        "contract; the server's log says why (a package much older than the server?)")
         if ingest.get("ignored"):
             why.append(f"{ingest['ignored']} span(s) arrived that are not Trailbeam's: your services send their own "

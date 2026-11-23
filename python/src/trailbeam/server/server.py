@@ -21,7 +21,7 @@ from . import __version__
 from . import auth as auth_mod, bodies, metrics, queries, ui_files, web
 from .backpressure import GRPC_RESOURCE_EXHAUSTED, GRPC_UNAVAILABLE, IngestGate, Rejected, status_body
 from .store import ExportAbandoned, Store, StoreUnavailable, WriterBusy
-from .otlp import DecodeError, decode, valid_probe_id
+from .otlp import PROBE_NOT_STORED, DecodeError, decode, valid_probe_id
 from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
 
 log = logging.getLogger("trailbeam.server")
@@ -163,19 +163,22 @@ class App:
                     raise self.gate.store_unreachable() from None
                 self.m_wait.observe(timings["wait_s"])
                 self.m_write.observe(timings["write_s"])
-                self.gate.wrote(timings["write_s"])
-                for probe_id in d.probes:  # trailbeam doctor's test spans: after the export's spans, on its writer
+                write_s = timings["write_s"]
+                if d.probes:  # trailbeam doctor's test spans: after the export's spans, one transaction on its writer
+                    t = time.perf_counter()
                     try:
-                        self.db.record_probe(probe_id, self.now(), wait_s=self.gate.max_wait_s)
+                        self.db.record_probes(d.probes, self.now(), wait_s=self.gate.max_wait_s)
                     except NotImplementedError as e:
-                        d.rejected.append(f"probe span not stored: {e}")
-                        continue
+                        d.rejected.extend([f"{PROBE_NOT_STORED} {e}"] * len(d.probes))
                     except WriterBusy:
                         raise self.gate.writer_behind(self.gate.max_wait_s) from None
                     except StoreUnavailable as e:
                         log.warning("ingest: %s", e)
                         raise self.gate.store_unreachable() from None
-                    log.info("stored probe %s (trailbeam doctor)", probe_id)
+                    else:
+                        write_s += time.perf_counter() - t
+                        log.info("stored probe(s) %s (trailbeam doctor)", ", ".join(d.probes))
+                self.gate.wrote(write_s)
         except Rejected as e:
             self.m_rejected.inc(reason=e.reason)
             log.info("export answered %d (%s): %s", e.status, e.reason, e.message)

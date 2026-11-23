@@ -107,7 +107,7 @@ SPANS_COLUMNS = ("row, trace_id, span_id, kind, time_ns, start_ns, service_name,
                  "mid, mid_source, receive_row, body_dropped, body_id")
 
 # The test spans of trailbeam doctor (contract section 17): an ID and when this server stored it. Not spans, so no
-# page, count or retention pass reads them; Store.record_probe keeps them a day.
+# page, count or retention pass reads them; Store.record_probes keeps them at least a day.
 PROBES_CREATE = """
 CREATE TABLE IF NOT EXISTS probes (id TEXT PRIMARY KEY, received_ns INTEGER NOT NULL);
 """
