@@ -41,7 +41,7 @@ answers a narrower question: where did this one message go?
 
 - **One timeline per message.** Every message your services send or receive, and every delete and
   visibility change they make, joined into a single history you open by message ID. Failed sends,
-  empty receives, purges and message moves are not recorded
+  empty receives, purges and moves back from a dead-letter queue are not recorded
   ([what is not recorded](https://docs.trailbeam.app/concepts/what-is-recorded#what-is-not-recorded)).
 - **Recorded and inferred steps are kept apart.** Trailbeam orders two events only when an observed
   fact proves the order, and marks every step it inferred, such as a visibility timeout that expired.
