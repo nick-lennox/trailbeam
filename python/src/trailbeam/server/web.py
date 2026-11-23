@@ -60,7 +60,7 @@ DLQ_MOVE_LABELS = {
 
 DUPLICATE_REASONS = {
     "received_more_than_once": "received more than once",
-    "succeeded_more_than_once": "succeeded more than once",
+    "succeeded_more_than_once": "handled more than once",
 }
 
 # A raw string: the CSS has its own escapes (\2191 is the up arrow), which Python must not read as octal.
@@ -211,16 +211,30 @@ def _message(api, q: dict) -> Response:
     return _page(200, f'Message {t["message_id"]}', "".join(parts))
 
 
+def _duplicate_why(m: dict) -> str:
+    """Each reason with its count from the row: receives, or successful handlings."""
+    counts = {"received_more_than_once": ("received", m.get("deliveries")),
+              "succeeded_more_than_once": ("handled", m.get("successful_deliveries"))}
+    out = []
+    for r in m.get("reasons", []):
+        verb, n = counts.get(r, (None, None))
+        out.append(f'{verb} <span class="mono">{int(n)}</span> times' if verb and n is not None
+                   else escape(DUPLICATE_REASONS.get(r, r)))
+    return ", ".join(out)
+
+
 def _duplicates(api, q: dict) -> Response:
     params = _pick(q, "limit", "queue", "reason", "cursor")
     data = api("duplicates", params)
     reason_opts = [("", "any reason")] + list(DUPLICATE_REASONS.items())
     body = ("<h1>Duplicate deliveries</h1>"
-            '<p class="muted">Messages received more than once, or processed successfully more than once.</p>'
+            '<p class="muted">Messages SQS returned more than once, or that more than one consumer handled. '
+            "A second receive is expected after your own <code>ChangeMessageVisibility</code> or a failed "
+            "attempt. It is worth a look when the visibility timeout expired while a consumer was still "
+            "working, or when a message was handled twice.</p>"
             + _filters("/duplicates", q, [("reason", "Reason", reason_opts), ("queue", "Queue", "text"),
                                           ("limit", "Limit", "number")])
-            + _summary_table(data["messages"], extra=("Why", lambda m: ", ".join(
-                escape(DUPLICATE_REASONS.get(r, r)) for r in m.get("reasons", []))),
+            + _summary_table(data["messages"], extra=("Why", _duplicate_why),
                 empty=NO_SPANS if not data["messages"] and _store_empty(api) else "No duplicate deliveries.")
             + _next("/duplicates", q, data))
     return _page(200, "Duplicate deliveries", body)
