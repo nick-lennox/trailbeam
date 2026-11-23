@@ -131,6 +131,38 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  conformance:
+    # conformance/: each package's driver runs the scripted scenario against ElasticMQ, and its spans are
+    # checked against contract/span-contract.md, alone, beside the application's own OpenTelemetry, with the
+    # application's sampler at 0, and with body capture on.
+    name: Conformance kit (Python and Node.js packages)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: pip install -e ./python boto3 pytest
+      - run: npm ci
+        working-directory: node
+      - name: The checker against recorded runs, and against them broken one rule at a time
+        run: pytest -q conformance/tests
+      - name: Python and Node.js packages on the bench (every variant)
+        run: python conformance/kit.py run conformance/drivers/python/driver.json conformance/drivers/node/driver.json --workdir "$RUNNER_TEMP/kit"
+      - name: Keep the report, driver logs and spans (not the ground truth, which holds the bench's raw receipt handles)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-kit
+          path: |
+            ${{ runner.temp }}/kit/report.json
+            ${{ runner.temp }}/kit/bench.log
+            ${{ runner.temp }}/kit/*.driver.log
+            ${{ runner.temp }}/kit/collector/spans.jsonl
+          if-no-files-found: ignore
 
   ui:
     name: Shared UI (@trailbeam/ui)

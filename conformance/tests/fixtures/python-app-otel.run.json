@@ -1,0 +1,7 @@
+{
+  "run": "kit-fixture-python-app-otel",
+  "key": "kit-fixture-key-0123456789abcdef",
+  "variant": "app-otel",
+  "parent": "exported",
+  "capture": false
+}

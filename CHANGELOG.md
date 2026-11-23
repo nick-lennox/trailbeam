@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Conformance kit for Trailbeam packages** (QV-318, stage 1). `conformance/` runs a language package's small
+  driver through one scripted scenario (send, batch send, receive, delete, batch delete with a failed entry,
+  visibility-timeout retry, dead-letter move, ChangeMessageVisibility and its batch form, a failing delete,
+  PurgeQueue) against ElasticMQ, collects its spans through an OpenTelemetry Collector, and checks them against
+  the span contract with no per-language logic: one span per message, required attributes and types, the
+  receipt-handle HMAC recomputed from the driver's ground truth, call-order ticks, no handle or key exported.
+  Each driver runs alone, beside the application's own OpenTelemetry, with the application's sampler at 0, and
+  with body capture on; agents are configured per variant. A failing package gets a report per call. The Python
+  and Node.js packages pass it in CI. The Lambda wrapper (through the Runtime Interface Emulator) is stage 2.
+
 - **Purged messages no longer show as stuck** (QV-245, contract revision 3.3). The Python and Node.js packages
   record `PurgeQueue` calls (a `trailbeam purge` span, `trailbeam.kind = sqs.purge`, contract section 18), and
   the server stores them per queue (SQLite: no schema change; Postgres: schema 9, a `purges` table). A message
