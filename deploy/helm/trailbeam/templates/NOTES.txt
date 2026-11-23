@@ -1,0 +1,23 @@
+Trailbeam {{ .Chart.AppVersion }}: {{ .Values.replicaCount }} replica(s) behind the Service {{ include "trailbeam.fullname" . }}, port {{ .Values.service.port }}.
+{{- if .Values.postgresql.enabled }}
+Store: the trial Postgres {{ include "trailbeam.postgresName" . }} (one pod, no backups). Use your own Postgres for production.
+{{- end }}
+
+1. Wait for it:
+     kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "trailbeam.fullname" . }}
+
+2. The access token:
+     kubectl -n {{ .Release.Namespace }} get secret {{ include "trailbeam.authSecret" . }} -o jsonpath='{.data.token}' | base64 -d; echo
+
+3. In every service that sends or receives SQS messages, from inside the cluster:
+     TRAILBEAM_OTLP_TRACES_ENDPOINT=http://{{ include "trailbeam.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}/v1/traces
+     OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<token>
+     TRAILBEAM_RECEIPT_HASH_KEY=<the key receipt-hash-key in the Secret {{ include "trailbeam.authSecret" . }}>
+
+4. The web screen:
+{{- if .Values.ingress.enabled }}
+     http{{ if .Values.ingress.tls }}s{{ end }}://{{ .Values.ingress.host }}/
+{{- else }}
+     kubectl -n {{ .Release.Namespace }} port-forward service/{{ include "trailbeam.fullname" . }} 4318:{{ .Values.service.port }}
+     then open http://127.0.0.1:4318/ and sign in with the token.
+{{- end }}

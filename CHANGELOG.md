@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Kubernetes: a Helm chart.** `deploy/helm/trailbeam` installs the server as a Deployment of 2 replicas
+  behind a Service, on a Postgres you run (`store.url` or a Secret), or on a trial Postgres in the cluster
+  (`postgresql.enabled=true`). The token and receipt-hash key are generated once into a Secret and kept on
+  upgrade, or come from your own Secret. Liveness probe on `/api/health`, readiness on `/api/ready`, and a
+  startup probe long enough for a schema upgrade. CI installs it on a kind cluster and sends one span. It
+  replaces the example manifest `deploy/kubernetes/trailbeam.yaml`; `helm template` renders plain manifests.
+  Releases now also publish `ghcr.io/nick-lennox/trailbeam:<version>-postgres`, the image with the Postgres
+  driver, which is the chart's default ([Kubernetes](README.md#kubernetes-helm-chart)). (QV-173)
+
 - **Port already in use: one line, not a traceback.** When the listen port is taken (4318 is the standard
   OTLP/HTTP port, so an OpenTelemetry Collector, Jaeger or another OTLP receiver often holds it), `trailbeam`
   and `trailbeam start` print `trailbeam: port 4318 on 127.0.0.1 is already in use (another OTLP receiver?).

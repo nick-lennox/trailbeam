@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "trailbeam.fullname" . }}
+  labels: {{- include "trailbeam.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector: {{- include "trailbeam.selectorLabels" . | nindent 4 }}
+  # Any replica takes any request: no session affinity.
+  ports:
+    - { name: http, port: {{ .Values.service.port }}, targetPort: http }
