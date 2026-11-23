@@ -12,12 +12,22 @@
   design as the timeline and Tenants, and on an empty store they say no service has sent spans yet instead of
   "No stuck messages." The Tenants page cites the span contract's section 15.2, with a link. Without the UI
   build, the HTML pages answer as before, with the same empty-store wording.
+
+- **Port already in use: one line, not a traceback.** When the listen port is taken (4318 is the standard
+  OTLP/HTTP port, so an OpenTelemetry Collector, Jaeger or another OTLP receiver often holds it), `trailbeam`
+  and `trailbeam start` print `trailbeam: port 4318 on 127.0.0.1 is already in use (another OTLP receiver?).
+  Stop it or run trailbeam --port 4319 and set TRAILBEAM_OTLP_TRACES_ENDPOINT to match.` and exit with status 2.
+  A port it may not use, or a `--host` that isn't an address of the machine, is also one line.
+  `npx trailbeam start` checks the port before it runs Docker and prints the same line (with
+  `npx trailbeam start --port 4319`) instead of Docker's "port is already allocated".
+
 - **Node.js: a short script no longer loses its spans.** When the event loop empties, the package now
   exports the spans still queued, so a script that sends a message and ends without
   `await trailbeam.uninstall()` delivers them, as the Python package already did. `process.exit()` and
   signals skip that step; spans still queued then are lost, and the package now prints one line to stderr
   with the count and the fix (`await trailbeam.uninstall()` before `process.exit()`)
   ([Node.js README](node/README.md#client-hooks)). (QV-156)
+
 - **Node.js: `trailbeam.uninstall()` no longer fails when the Trailbeam server is unreachable.** With nothing
   listening on the OTLP endpoint, `await trailbeam.uninstall()` (and `trailbeam.forceFlush()`) rejected with
   `ECONNREFUSED`, which ended the process with status 1. Both now resolve; the spans that could not be sent are
