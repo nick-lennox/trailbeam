@@ -34,7 +34,7 @@ And three lists, kept in their own tables so they can be indexed:
 - ``queues``: every queue the message has a span on;
 - ``tenants``: {tenant: the newest time a span of the message named it} (the tenant filter and search);
 - ``tenant_events``: what the message adds to the Tenants page, as (time in ms, kind, time in queue in ms):
-  ``sent`` per send span, ``first_delivery`` for a first delivery with a time in queue, ``dead_lettered``
+  ``sent`` per send span but those SQS deduplicated (timeline.deduplicated_sends), ``first_delivery`` for a first delivery with a time in queue, ``dead_lettered``
   per observed move to a dead-letter queue, at the receive that reported it (contract/tenants.md), and
   ``dead_lettered_again`` for each move after the first, with the time since the move before it in place of a
   time in queue: the hourly rollup (rollup.py) needs it to count dead-lettered messages, not moves (QV-128).
@@ -129,7 +129,8 @@ def summarize(rows) -> dict:
         if t is not None:
             named[t] = max(named.get(t, r["time_ns"]), r["time_ns"])
 
-    events = [(r["time_ns"] // _NS_PER_MS, SENT, None) for r in sends]
+    deduplicated = timeline.deduplicated_sends(rows)  # enqueued nothing: not a message sent (QV-246)
+    events = [(r["time_ns"] // _NS_PER_MS, SENT, None) for r in sends if r["row"] not in deduplicated]
     if receives and receives[0]["receive_count"] == 1:
         first = receives[0]
         at = first["time_ns"] // _NS_PER_MS
