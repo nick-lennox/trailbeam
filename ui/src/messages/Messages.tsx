@@ -61,6 +61,15 @@ export function fmtAge(s: number | null | undefined): string {
   return `${(s / 86_400).toFixed(1)} days`;
 }
 
+/** A threshold in seconds, in words when it is a whole number of days, hours or minutes: 300 → "5 min". */
+export function fmtThreshold(s: number): string {
+  const unit = (n: number, one: string, many = one) => `${n} ${n === 1 ? one : many}`;
+  if (s > 0 && s % 86_400 === 0) return unit(s / 86_400, "day", "days");
+  if (s > 0 && s % 3600 === 0) return unit(s / 3600, "h");
+  if (s > 0 && s % 60 === 0) return unit(s / 60, "min");
+  return `${s} s`;
+}
+
 const Muted = ({ children }: { children: ReactNode }) => <span className="text-ink-3">{children}</span>;
 
 function Queue({ m }: { m: MessageSummary }) {

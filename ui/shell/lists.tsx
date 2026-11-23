@@ -4,7 +4,7 @@
 */
 import { useEffect, useState, type ReactNode } from "react";
 import {
-  DUPLICATE_REASONS, EmptyState, duplicateWhy, MessagesTable, duplicatesEmpty, fmtAge, messagesEmpty, storeIsEmpty, stuckEmpty,
+  DUPLICATE_REASONS, EmptyState, duplicateWhy, MessagesTable, duplicatesEmpty, fmtAge, fmtThreshold, messagesEmpty, storeIsEmpty, stuckEmpty,
   type Column, type EmptyStateProps, type MessageSummary,
 } from "../src/index.ts";
 import { Frame, Json, getHealth, getJSON, messageHref } from "./chrome.tsx";
@@ -61,11 +61,13 @@ type ListProps = {
   empty: (page: Page, storeEmpty: boolean) => EmptyStateProps | null;
   /** the query for Next page, from the answer; the URL's filters with the cursor by default */
   next?: (page: Page) => Record<string, string>;
+  /** after "Times are in UTC." in the footer */
+  foot?: ReactNode;
   /** told each answer, for what the page around the list says */
   onPage?: (page: Page) => void;
 };
 
-export function MessageList({ action, api, params, fields, defaults = {}, extra, notes, empty, next, onPage }: ListProps) {
+export function MessageList({ action, api, params, fields, defaults = {}, extra, notes, empty, next, foot, onPage }: ListProps) {
   const [state, setState] = useState<ListState>({ kind: "loading" });
   const query = qs(params);
   useEffect(() => {
@@ -103,7 +105,7 @@ export function MessageList({ action, api, params, fields, defaults = {}, extra,
               {state.page.next_cursor && (
                 <><a className="text-dawn hover:underline" href={`${action}?${qs({ ...(next ? next(state.page) : params), cursor: state.page.next_cursor })}`}>Next page</a> · </>
               )}
-              Times are in UTC. <Json href={`/api/${api}${query ? `?${query}` : ""}`} />
+              Times are in UTC. {foot && <>{foot} </>}<Json href={`/api/${api}${query ? `?${query}` : ""}`} />
             </p>
           </>
         )}
@@ -164,12 +166,14 @@ export function DuplicatesPage() {
 export function StuckPage() {
   const params = Object.fromEntries(new URLSearchParams(location.search));
   const [olderThan, setOlderThan] = useState<number | null>(null);
+  const asked = params.older_than_s !== undefined && /^\d+$/.test(params.older_than_s) ? Number(params.older_than_s) : undefined;
+  const threshold = olderThan ?? asked;
   useEffect(() => { document.title = "Stuck messages · Trailbeam"; }, []);
   return (
     <Frame>
       <h1 className="text-[1.75rem] text-sky-ink">Stuck messages</h1>
       <p className="mt-1 max-w-[80ch] text-sky-ink-2">
-        First seen more than {olderThan ?? params.older_than_s ?? "?"} s ago, with no final delete. Oldest first. First seen is the send, on the producer host&rsquo;s clock. Only when the send was not observed is it SQS&rsquo;s SentTimestamp, on SQS&rsquo;s clock; that message&rsquo;s age then compares SQS&rsquo;s clock with this server&rsquo;s, and says so.
+        Messages sent more than {threshold === undefined ? "?" : fmtThreshold(threshold)} ago that no consumer has deleted yet, oldest first. Change the age with Older than, or the server default with <code className="font-mono text-caption">--stuck-after</code> (<code className="font-mono text-caption">TRAILBEAM_STUCK_AFTER_S</code>).
       </p>
       <MessageList action="/stuck" api="stuck" params={pick(params, ["older_than_s", "limit", "queue", "cursor"])}
         defaults={olderThan !== null ? { older_than_s: String(olderThan) } : {}}
@@ -177,6 +181,7 @@ export function StuckPage() {
         extra={{ title: "Age", align: "right", brief: (m) => `${fmtAge(m.age_s)} old${m.age_across_clocks ? " (two clocks)" : ""}`, cell: (m) => (
           <span className="font-mono text-caption tabular-nums">{fmtAge(m.age_s)}{m.age_across_clocks && <span className="text-sky-ink-3" title="this server's clock minus SQS's SentTimestamp: two clocks"> two clocks</span>}</span>
         ) }}
+        foot={<>Age counts from the send, on the sender&rsquo;s clock. If Trailbeam never saw the send, it counts from SQS&rsquo;s <code className="font-mono text-caption">SentTimestamp</code>, and the age says so.</>}
         onPage={(p) => p.older_than_s !== undefined && setOlderThan(p.older_than_s)}
         empty={(p, storeEmpty) => stuckEmpty(p.older_than_s ?? 0, storeEmpty)} />
     </Frame>

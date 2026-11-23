@@ -8,7 +8,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { EXAMPLE, FirstRun, environment, highlight, type FirstRunProps } from "../src/firstrun/FirstRun.tsx";
 import { NO_SPANS_AFTER_MS, announcement, isDefaultEndpoint, retainedFor, storeHasSpans, storeIsEmpty, waitingStatus, type Health } from "../src/firstrun/status.ts";
-import { EmptyState, MessagesTable, duplicateWhy, fmtAge, fmtTime, shortId, type MessageSummary } from "../src/messages/Messages.tsx";
+import { EmptyState, MessagesTable, duplicateWhy, fmtAge, fmtThreshold, fmtTime, shortId, type MessageSummary } from "../src/messages/Messages.tsx";
 import { duplicatesEmpty, lookupEmpty, messagesEmpty, stuckEmpty, tenantsEmpty, without } from "../src/messages/empty.tsx";
 
 /** The page's words: block elements and cells end a phrase, inline ones (code, spans) don't; curly quotes as straight. */
@@ -221,4 +221,8 @@ test("Duplicates: the Why cell gives each reason with its count from the row", (
   const row = { ...msg, deliveries: 3, successful_deliveries: 2, reasons: ["received_more_than_once", "succeeded_more_than_once"] };
   const html = renderToStaticMarkup(createElement("p", null, duplicateWhy(row)));
   assert.equal(html, '<p><span>received <span class="font-mono tabular-nums">3</span> times</span>, <span>handled <span class="font-mono tabular-nums">2</span> times</span></p>');
+});
+
+test("the stuck threshold in words when it is a round number (QV-216)", () => {
+  assert.deepEqual([300, 60, 90, 3600, 7200, 86_400, 172_800, 0].map(fmtThreshold), ["5 min", "1 min", "90 s", "1 h", "2 h", "1 day", "2 days", "0 s"]);
 });
