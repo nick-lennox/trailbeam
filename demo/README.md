@@ -80,7 +80,7 @@ The JSON API is under `/api/` ([API reference](https://docs.trailbeam.app/refere
   [quickstart](https://docs.trailbeam.app/concepts/timelines).
 - **One clock.** All demo containers run on one host and read one clock, so their intervals can be
   compared. Across hosts, Trailbeam relies on the hosts' clocks and does not correct for an offset
-  between them (a known limit of 0.1).
+  between them (a known limit).
 - **Truth files.** With `--truth DIR`, each driver process writes one JSON line per SQS call it makes, to
   its own file. The demo services write none; the [concurrency check](#concurrency-check) uses them.
 - The AWS keys in [`compose.yaml`](compose.yaml) are dummy values for the emulator, not credentials.

@@ -5,18 +5,15 @@ SQS. They emit the spans defined in [`contract/span-contract.md`](../contract/sp
 `trailbeam send`, `trailbeam receive`, `trailbeam delete`, `trailbeam change_visibility` and `trailbeam outcome`, one per
 message, with a keyed hash of each receipt handle and never the handle itself or the message body.
 
-`"private": true` stays in `package.json` until a release decision; 0.1 publishes nothing to npm.
-
-## Install from the repository
+## Install
 
 Plain CommonJS with type declarations; there is no build step. Node.js 20 or later.
 
 ```sh
-gh repo clone nick-lennox/trailbeam   # the repository is private
-npm install ./trailbeam/node          # from your application's directory
+npm install trailbeam
 ```
 
-or `npm pack ./trailbeam/node` and install the tarball.
+To install from a clone instead, run `npm install ./trailbeam/node` from your application's directory.
 
 ## Client hooks
 
