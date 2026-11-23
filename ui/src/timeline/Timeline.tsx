@@ -543,7 +543,7 @@ export function TimelineView({ t, answer, openSteps = [] }: { t: Timeline; answe
           {[
             ["State", <span key="s" className={stateTone}>{STATE_WORDS[t.state]}{t.in_dead_letter_queue ? ", in the DLQ" : ""}</span>],
             ["Queue now", t.current_queue],
-            ["Deliveries", `${t.deliveries} (${t.successful_deliveries} handled)`],
+            ["Receives", `${t.deliveries} (${t.successful_deliveries} handled)`],
             ["First seen", <span key="f">{clock(t.first_seen)} <span className="text-sky-ink-3">{t.first_seen_clock === "sqs" ? "SQS clock" : "host clock"}</span></span>],
           ].map(([k, v]) => (
             <div key={k as string}>
