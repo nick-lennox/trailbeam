@@ -78,13 +78,36 @@ function parseArgs(argv, env = process.env) {
   return { local, rest };
 }
 
+/** Makes the data directory 0700, or checks an existing one (QV-201): mkdirSync leaves its mode alone. It must be
+ * this user's and not writable by every user, or someone else could plant a token in it; one the group or others
+ * can use is made 0700. The Python trailbeam start in the container checks the files in it. */
+function checkDataDir(dir, uid, log = console.error) {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const st = fs.statSync(dir);
+  if (!st.isDirectory()) throw new UsageError(`--data-dir: ${dir} is not a directory`);
+  if (uid === undefined || process.platform === 'win32') return;
+  if (st.uid !== uid) {
+    throw new UsageError(`--data-dir: ${dir} belongs to another user (uid ${st.uid}): use a directory of your own`);
+  }
+  const mode = st.mode & 0o777;
+  if (mode & 0o002) {
+    throw new UsageError(`--data-dir: ${dir} can be written by any user (mode ${mode.toString(8)}): they could `
+      + `plant a token. Check what is in it, then chmod 700 ${dir}, or use another --data-dir`);
+  }
+  if (mode & 0o077) {
+    fs.chmodSync(dir, 0o700);
+    log(`trailbeam start: the data directory ${dir} could be read by other users (mode ${mode.toString(8)}): made it 700`);
+  }
+}
+
 function expand(p) {
   return path.resolve(p.replace(/^~(?=$|[\\/])/, os.homedir()));
 }
 
 /** The `docker run` arguments, and the environment to give the docker command, for `start` with argv. */
 function dockerArgs(argv, { env = process.env, image = (env.TRAILBEAM_IMAGE || '').trim() || IMAGE,
-  uid = process.getuid ? process.getuid() : undefined, gid = process.getgid ? process.getgid() : undefined } = {}) {
+  uid = process.getuid ? process.getuid() : undefined, gid = process.getgid ? process.getgid() : undefined,
+  ownerUid = process.geteuid ? process.geteuid() : undefined, log = console.error } = {}) {
   const { local, rest } = parseArgs(argv, env);
   const host = local['--host'] || '127.0.0.1';
   const port = local['--port'] || '4318';
@@ -105,7 +128,7 @@ function dockerArgs(argv, { env = process.env, image = (env.TRAILBEAM_IMAGE || '
   let shown;
   if (bind) {
     const data = expand(local['--data-dir'] || '~/.trailbeam');
-    fs.mkdirSync(data, { recursive: true, mode: 0o700 });
+    checkDataDir(data, ownerUid, log);
     args.push('-v', `${data}:/data`);
     shown = data;
     if (uid !== undefined) args.push('--user', `${uid}:${gid}`);
@@ -117,7 +140,7 @@ function dockerArgs(argv, { env = process.env, image = (env.TRAILBEAM_IMAGE || '
   const passed = [];
   if (local['--db'] !== undefined) {
     const db = expand(local['--db']);
-    fs.mkdirSync(path.dirname(db), { recursive: true });
+    fs.mkdirSync(path.dirname(db), { recursive: true, mode: 0o700 });
     // The directory, not the file: SQLite writes its journal next to it.
     args.push('-v', `${path.dirname(db)}:/trailbeam-db`);
     passed.push('--db', `/trailbeam-db/${path.basename(db)}`);
@@ -248,7 +271,7 @@ function run(plan) {
   child.on('exit', (code, signal) => process.exit(code === null ? (signal === 'SIGINT' ? 130 : 1) : code));
 }
 
-module.exports = { parseArgs, dockerArgs, dockerProblem, portProblem, imageInfo, main, IMAGE, VOLUME, UsageError };
+module.exports = { parseArgs, dockerArgs, checkDataDir, dockerProblem, portProblem, imageInfo, main, IMAGE, VOLUME, UsageError };
 
 if (require.main === module) {
   const code = main();
