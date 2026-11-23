@@ -631,7 +631,8 @@ paths:
 
         When the server has an access token and the request carries none, the response holds only
         `status` and `version`. Otherwise it also holds the ingest counters since the server
-        started, the highest stored row, and the server's configuration.
+        started, the highest stored row and the time of the span stored last, and the server's
+        configuration.
       responses:
         '200':
           description: The server is running.
@@ -652,6 +653,7 @@ paths:
                       rejected: 0
                     data:
                       last_row: 32
+                      last_span_ns: 1795026191000000000
                     config:
                       auth: 'off'
                       stuck_after_s: 300
@@ -683,6 +685,36 @@ paths:
                 short:
                   summary: Without the access token, on a server that has one
                   value: {"status": "ok", "version": "0.1.0.dev0"}
+  /api/probes/{probe_id}:
+    get:
+      operationId: get-probe
+      tags: [Server]
+      summary: Read back a test span
+      description: |
+        Returns when the store took the test span (a *probe*, span contract section 17) of this ID.
+        `trailbeam doctor` sends one to `POST /v1/traces`, then reads it back here, to check that
+        what is sent is stored and can be read. Probes are kept apart from the spans: they never
+        show as messages, in counts or on the Tenants page. Each is kept for a day. Added in 0.4.
+      parameters:
+        - name: probe_id
+          in: path
+          required: true
+          description: The probe span's `trailbeam.probe.id`.
+          schema: {type: string, pattern: '^[A-Za-z0-9_-]{8,64}$'}
+      responses:
+        '200':
+          description: The probe is stored.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Probe'}
+              example:
+                data:
+                  id: doctor-3f2a9c1e0b7d4e55
+                  received_ns: 1795026196467000000
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/ready:
     get:
       operationId: get-ready
@@ -1576,6 +1608,12 @@ components:
           required: [last_row]
           properties:
             last_row: {type: [integer, 'null'], description: The highest row the store holds. 0 for an empty store. Null while the store is unreachable.}
+            last_span_ns:
+              type: [integer, 'null']
+              description: |
+                The end time (Unix nanoseconds, as the span carried it) of the span stored last. Null for an
+                empty store, while the store is unreachable, or when the store does not say. The test spans of
+                `trailbeam doctor` are probes, not spans, so they never set it. Added in 0.4.
             store: {type: string, const: unreachable, description: Present only while the store is unreachable.}
         config:
           type: object
@@ -1593,6 +1631,18 @@ components:
             store_bodies: {type: array, description: 'The queues whose bodies the server stores. `*` is every queue.', items: {type: string}}
             retention:
               oneOf: [{$ref: '#/components/schemas/Retention'}, {type: 'null'}]
+    Probe:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [id, received_ns]
+          properties:
+            id: {type: string, description: The probe's ID.}
+            received_ns: {type: integer, description: 'When the store took it, Unix nanoseconds, by the server''s clock.'}
     Retention:
       type: object
       description: The retention settings and the state of the purge.

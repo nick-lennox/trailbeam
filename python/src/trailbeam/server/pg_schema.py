@@ -38,6 +38,9 @@ hour and tenant (rollup.py), one row per writing connection (postgres.py, "Tenan
 index on the tenant events of repeat dead-letter moves. Partitioned by place like the rest, so retention drops a
 place's rollup with it.
 
+**Probes** (version 6, QV-148). ``probes``: the test spans ``trailbeam doctor`` sends, kept apart from the spans
+so they never show as messages.
+
 **Message-ID indexes** (version 3, QV-118). ``message_queues``, ``message_tenants`` and ``tenant_events`` are
 indexed by ``mid``, so rewriting a message's summary deletes its old list rows by index instead of scanning its
 place's partition.
@@ -56,6 +59,12 @@ PARTITIONED = ("spans", "messages", "message_queues", "message_tenants", "tenant
 LOOKUPS = ("mid_places", "hash_places")  # partitioned since version 5
 
 # Version 5's other tables (QV-127): the late lookup rows and the filter of the sealed places.
+# Version 6 (QV-148): the test spans of trailbeam doctor (contract section 17), an ID and when a replica stored it.
+# Not partitioned and not spans: no page, count, rollup or retention pass reads it; record_probe keeps a day of them.
+PROBES = """
+CREATE TABLE IF NOT EXISTS probes (id TEXT PRIMARY KEY, received_ns BIGINT NOT NULL);
+"""
+
 SEALING = """
 CREATE TABLE IF NOT EXISTS mid_places_late (       -- lookup rows written to a place once it was sealed
     mid TEXT COLLATE "C" NOT NULL,
@@ -252,7 +261,7 @@ CREATE TABLE IF NOT EXISTS hash_places (
     bucket BIGINT NOT NULL,
     PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
 ) PARTITION BY RANGE (rclass, bucket);
-""" + SEALING + """CREATE TABLE IF NOT EXISTS schema_version (
+""" + SEALING + PROBES + """CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
     name TEXT NOT NULL,
@@ -451,8 +460,9 @@ MIGRATIONS: tuple = (
     ) + tuple(statements(SEALING)), per_place=(_lookups_by_place,), after=(
         "DROP TABLE IF EXISTS mid_places_v4, hash_places_v4",
     )),
+    Migration(6, "probes: the test spans of trailbeam doctor (QV-148)", tuple(statements(PROBES))),
 )
-LATEST = 5
+LATEST = 6
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 

@@ -1,4 +1,5 @@
-"""The trailbeam command, which runs Trailbeam: ``trailbeam --db trailbeam.sqlite --host 127.0.0.1 --port 4318``."""
+"""The trailbeam command, which runs Trailbeam: ``trailbeam --db trailbeam.sqlite --host 127.0.0.1 --port 4318``.
+``trailbeam doctor`` checks why no data is arriving (doctor.py)."""
 from __future__ import annotations
 
 import argparse
@@ -18,7 +19,13 @@ from .retention import DEFAULT as DEFAULT_RETENTION, Purger, Retention, parse_du
 from .server import make_server
 
 
+
+
 def main(argv=None) -> None:
+    args = sys.argv[1:] if argv is None else list(argv)
+    if args and args[0] == "doctor":
+        from . import doctor
+        sys.exit(doctor.main(args[1:]))
     p = argparse.ArgumentParser(prog="trailbeam", description="Trailbeam: OTLP/HTTP ingest, JSON API and web screen on one port.")
     p.add_argument("--db", default=os.environ.get("TRAILBEAM_DB", "trailbeam.sqlite"),
                    help="SQLite file (env TRAILBEAM_DB, default trailbeam.sqlite)")
@@ -103,7 +110,8 @@ def main(argv=None) -> None:
                    help="Postgres only: the most connections a replica reads pages and the API on at once "
                         f"(env TRAILBEAM_PG_READ_CONNECTIONS, default {PG_READ_CONNECTIONS})")
     p.add_argument("--log-level", default=os.environ.get("TRAILBEAM_LOG_LEVEL", "INFO"))
-    a = p.parse_args(argv)
+    p.epilog = "trailbeam doctor --help: check why no data is arriving."
+    a = p.parse_args(args)
     logging.basicConfig(level=a.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
     try:
         cfg = config.load(a.config) if a.config else config.Config()

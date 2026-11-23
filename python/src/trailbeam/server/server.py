@@ -21,7 +21,7 @@ from . import __version__
 from . import auth as auth_mod, bodies, metrics, queries, ui_files, web
 from .backpressure import GRPC_RESOURCE_EXHAUSTED, GRPC_UNAVAILABLE, IngestGate, Rejected, status_body
 from .store import ExportAbandoned, Store, StoreUnavailable, WriterBusy
-from .otlp import DecodeError, decode
+from .otlp import DecodeError, decode, valid_probe_id
 from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
 
 log = logging.getLogger("trailbeam.server")
@@ -59,7 +59,7 @@ class App:
         self.stats = {"requests": 0, "inserted": 0, "duplicates": 0, "ignored": 0, "rejected": 0}
         self.routes: dict[str, Callable[[dict, list[str]], object]] = {
             "health": self.health, "stats": self.stats_counts, "messages": self.messages, "duplicates": self.duplicates,
-            "stuck": self.stuck, "tenants": self.tenants}
+            "stuck": self.stuck, "tenants": self.tenants, "probes": self.probes}
         self._init_metrics()
 
     # ---- /metrics -------------------------------------------------------------------------
@@ -164,6 +164,18 @@ class App:
                 self.m_wait.observe(timings["wait_s"])
                 self.m_write.observe(timings["write_s"])
                 self.gate.wrote(timings["write_s"])
+                for probe_id in d.probes:  # trailbeam doctor's test spans: after the export's spans, on its writer
+                    try:
+                        self.db.record_probe(probe_id, self.now(), wait_s=self.gate.max_wait_s)
+                    except NotImplementedError as e:
+                        d.rejected.append(f"probe span not stored: {e}")
+                        continue
+                    except WriterBusy:
+                        raise self.gate.writer_behind(self.gate.max_wait_s) from None
+                    except StoreUnavailable as e:
+                        log.warning("ingest: %s", e)
+                        raise self.gate.store_unreachable() from None
+                    log.info("stored probe %s (trailbeam doctor)", probe_id)
         except Rejected as e:
             self.m_rejected.inc(reason=e.reason)
             log.info("export answered %d (%s): %s", e.status, e.reason, e.message)
@@ -216,9 +228,9 @@ class App:
         # restarted); /api/ready is the check that fails then.
         try:
             self.db.ping()
-            data = {"last_row": self.db.last_row()}
+            data = {"last_row": self.db.last_row(), "last_span_ns": self.db.last_span_ns()}
         except Exception as e:  # noqa: BLE001
-            data = {"last_row": None, "store": "unreachable"}
+            data = {"last_row": None, "last_span_ns": None, "store": "unreachable"}
             log.warning("health: the store is unreachable: %s", e)
         return {"status": "ok", "version": __version__, "ingest": ingest, "data": data,
                 "config": {"auth": "token" if self.auth else "off",
@@ -237,6 +249,18 @@ class App:
             log.warning("ready: the store is unreachable: %s", e)
             return 503, {"status": "not ready", "error": "the store is unreachable"}
         return 200, {"status": "ready", "version": __version__}
+
+    def probes(self, query: dict, rest: list[str]) -> dict:
+        """``/api/probes/{id}``: when this store took trailbeam doctor's test span of that ID (contract section 17),
+        404 if it has not. Probes are kept a day."""
+        if len(rest) != 1:
+            raise ApiError(404, "no such endpoint")
+        if not valid_probe_id(rest[0]):
+            raise ApiError(400, "a probe ID is 8 to 64 letters, digits, - or _")
+        received_ns = self.db.probe(rest[0])
+        if received_ns is None:
+            raise ApiError(404, f"no probe {rest[0]!r} stored")
+        return {"data": {"id": rest[0], "received_ns": received_ns}}
 
     def stats_counts(self, query: dict, rest: list[str]) -> dict:
         """``/api/stats``: spans by kind, messages and settle spans not joined yet. Exact, so it reads the whole

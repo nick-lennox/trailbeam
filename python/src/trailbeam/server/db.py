@@ -639,6 +639,32 @@ class SqliteStore(Store):
         with self.reader() as c:
             return c.execute("SELECT MAX(row) FROM spans").fetchone()[0] or 0
 
+    def last_span_ns(self) -> Optional[int]:
+        with self.reader() as c:
+            r = c.execute("SELECT time_ns FROM spans ORDER BY row DESC LIMIT 1").fetchone()
+        return None if r is None else r[0]
+
+    def record_probe(self, probe_id: str, received_ns: int, *, wait_s: Optional[float] = None) -> None:
+        if not self.lock.acquire(timeout=-1 if wait_s is None else wait_s):
+            raise WriterBusy(f"the writer was busy for {wait_s:g} s")
+        try:
+            c = self.conn
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                c.execute("INSERT OR REPLACE INTO probes (id, received_ns) VALUES (?, ?)", (probe_id, received_ns))
+                c.execute("DELETE FROM probes WHERE received_ns < ?", (received_ns - self.PROBE_KEEP_NS,))
+                c.execute("COMMIT")
+            except BaseException:
+                c.execute("ROLLBACK")
+                raise
+        finally:
+            self.lock.release()
+
+    def probe(self, probe_id: str) -> Optional[int]:
+        with self.reader() as c:
+            r = c.execute("SELECT received_ns FROM probes WHERE id = ?", (probe_id,)).fetchone()
+        return None if r is None else r[0]
+
     def counts(self) -> dict:
         """Exact counts (``/api/stats``). Each one reads the whole table: seconds at 10M spans."""
         with self.reader() as c:
