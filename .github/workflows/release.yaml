@@ -4,7 +4,7 @@ name: Release
 # "## X.Y.Z" heading in CHANGELOG.md) to publish that version:
 #   - PyPI: trailbeam (wheel with the built UI, and sdist), by trusted publishing (no token stored)
 #   - npm: trailbeam (the Node.js package), with provenance, using the NPM_TOKEN secret
-#   - GitHub Container Registry: ghcr.io/nick-lennox/trailbeam:X.Y.Z and :latest
+#   - GitHub Container Registry: ghcr.io/nick-lennox/trailbeam:X.Y.Z (once: the job stops if it exists) and :latest
 #   - a GitHub release with that version's CHANGELOG section
 on:
   push:
@@ -93,6 +93,20 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # Version tags are write-once: npm X.Y.Z runs ghcr.io/nick-lennox/trailbeam:X.Y.Z, so pushing that tag
+      # again (a re-run of this job, or a stolen token) would change what an already-published npm version runs.
+      # Only "not found" lets the push go ahead; any other answer (auth, network) stops it too.
+      - name: Refuse to replace an image version that is already published
+        run: |
+          ref="ghcr.io/nick-lennox/trailbeam:${{ needs.check.outputs.version }}"
+          if out=$(docker buildx imagetools inspect "$ref" 2>&1); then
+            echo "::error::$ref is already published; version tags are never pushed twice. Release a new version."
+            exit 1
+          fi
+          case "$out" in
+            *"not found"*|*"manifest unknown"*|*MANIFEST_UNKNOWN*) echo "$ref is not published yet" ;;
+            *) echo "::error::can't tell whether $ref is already published: $out"; exit 1 ;;
+          esac
       - uses: docker/build-push-action@v6
         with:
           context: .
