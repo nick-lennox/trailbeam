@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **`trailbeam start`: first-run setup in one command.** On its first run in a data directory (default
+  `~/.trailbeam`, or `--data-dir` / `TRAILBEAM_DATA_DIR`) it creates an access token and a receipt-hash key,
+  each in a file only its owner can read, and keeps the SQLite file there. It then starts the server and prints
+  the web screen's address, the token, and the environment variables to paste into a Python and a Node.js
+  service. Later runs read the same files, so the token and key don't change. Every `trailbeam` flag works
+  after `start`; `--db`, `--store-url` and `--token-file` (or `TRAILBEAM_TOKEN`) replace the file in the data
+  directory. `trailbeam` with flags, as the container image runs it, is unchanged: it creates no files and
+  turns on no token.
 - **Postgres: the lookup tables are time-bucketed (schema 5).** `mid_places` and `hash_places` are partitioned
   by day like the spans, so ingest writes only to recent partitions and retention drops them whole (before, it
   deleted their rows in batches). Older days are sealed into a Bloom filter, about 2.5 bytes per key, kept by
