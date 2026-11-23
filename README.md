@@ -126,9 +126,10 @@ export OTEL_SERVICE_NAME=my-python-service
 
 Because the token is on, services need these settings, and the web screen asks for the token once. Later
 runs reuse the same token and key. Every `trailbeam` flag works after `start` (`trailbeam start --help`).
-Stop it with Ctrl-C. Without Python, `npx trailbeam start` does the same with Docker
-([Node.js README](node/README.md#run-the-server-npx-trailbeam-start)). Nothing on the screen? Run `trailbeam doctor`
-([Troubleshooting](#troubleshooting-no-data-arriving)).
+Stop it with Ctrl-C. From the next release, `npx trailbeam start` does the same with Docker and no Python
+([Node.js README](node/README.md#run-the-server-npx-trailbeam-start)). It does not work with 0.3.0: the npm
+package has no `trailbeam` command yet, and the 0.3.0 image has no `start`. Nothing on the screen? Run
+`trailbeam doctor`, also from the next release ([Troubleshooting](#troubleshooting-no-data-arriving)).
 
 ### See a richer example
 
