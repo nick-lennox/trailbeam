@@ -70,11 +70,17 @@ export function TenantsTable({ rows, href, Link = A, slowMs = 1000 }: TenantsTab
 }
 
 /** The sentence under the table: what the numbers are over. Hosts add where the tenant field is set. */
-export function tenantsFootnote(s: { total_sent: number; untagged_sent: number; capped: boolean }, range: string): string {
+export function tenantsFootnote(s: { total_sent: number; untagged_sent: number; /** ignored: always false (QV-247) */ capped?: boolean }, range: string): string {
   const untagged = s.untagged_sent ? `, ${fmtNum(s.untagged_sent)} of them without a tenant` : "";
-  return `${range}, from ${s.capped ? "the most recent 2,000 messages" : "every message"} in the range. Share is of all ${fmtNum(s.total_sent)} observed sends${untagged}. `
-    + "p95 in queue is from the send to the first receive, over first deliveries only. Dead-lettered counts messages SQS was seen moving to a dead-letter queue.";
+  return `${range}, from every message in the range. Share is of all ${fmtNum(s.total_sent)} observed sends${untagged}. ${P95_NOTE} `
+    + "Dead-lettered counts messages SQS was seen moving to a dead-letter queue.";
 }
+
+/** What p95 in queue is over, and how close it is: shared with the server-rendered page. */
+export const P95_NOTE = "p95 in queue is from the send to the first receive, over first deliveries only. "
+  + "It compares two clocks: the sender's host and the consumer's, or SQS's SentTimestamp when the send wasn't observed "
+  + "(those first deliveries count too, so a tenant can have more first deliveries than sends). "
+  + "Clock skew shows up in it, and a time below 0 counts as 0. It is estimated, within 1% of the exact p95.";
 
 /** The Tenants page with no tenant in its range (QV-217): what a tenant is, and how to set one. */
 export const TENANTS_README = "https://github.com/nick-lennox/trailbeam#tenants";
