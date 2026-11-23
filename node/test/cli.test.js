@@ -139,3 +139,33 @@ test('no command or an unknown one prints the usage', () => {
   assert.strictEqual(runBin(['stop'], { PATH: tmp() }).status, 2);
   assert.strictEqual(runBin(['--version'], { PATH: tmp() }).stdout.trim(), pkg.version);
 });
+
+test('port already in use: one line and exit 2, before docker run', { skip: process.platform === 'win32' }, async () => {
+  const net = require('node:net');
+  const taken = net.createServer();
+  await new Promise((resolve) => taken.listen({ host: '127.0.0.1', port: 0 }, resolve));
+  const { port } = taken.address();
+  const dir = tmp();
+  const ran = path.join(dir, 'ran');
+  // Docker answers `docker version`; a `docker run` would leave a file behind.
+  fs.writeFileSync(path.join(dir, 'docker'), `#!/bin/sh\n[ "$1" = version ] && { echo 29.0.0; exit 0; }\n`
+    + `touch '${ran}'\nexit 0\n`, { mode: 0o755 });
+  try {
+    const r = runBin(['start', '--port', String(port)], { PATH: `${dir}:/usr/bin:/bin`, HOME: dir });
+    assert.strictEqual(r.status, 2, r.stderr);
+    assert.strictEqual(r.stderr, `trailbeam: port ${port} on 127.0.0.1 is already in use (another OTLP receiver?). `
+      + `Stop it or run npx trailbeam start --port ${port + 1} and set TRAILBEAM_OTLP_TRACES_ENDPOINT to match.\n`);
+    assert.ok(!fs.existsSync(ran), 'docker run must not be called');
+  } finally {
+    taken.close();
+  }
+});
+
+test('portProblem: null for a free port', async () => {
+  const net = require('node:net');
+  const probe = net.createServer();
+  await new Promise((resolve) => probe.listen({ host: '127.0.0.1', port: 0 }, resolve));
+  const { port } = probe.address();
+  await new Promise((resolve) => probe.close(resolve));
+  assert.strictEqual(await cli.portProblem('127.0.0.1', port), null);
+});
