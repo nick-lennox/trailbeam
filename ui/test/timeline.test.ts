@@ -70,6 +70,19 @@ test("other repeat-receive headlines are unchanged", () => {
   assert.equal(answerFor({ ...expired, deliveries: 3 }), "Received 3 times by trailbeam-smoke-worker, then deleted.");
 });
 
+test("between steps there is only the rail, and the record keeps the order evidence (QV-212)", () => {
+  const t = timelines.find((x) => x.events.some((e) => e.type === "visibility_changed" && e.delivery === 1))!;
+  const html = render(t);
+  const page = text(html);
+  assert.ok(!/placed after|↓/.test(page), "no connector text between steps");
+  assert.ok(!/visibility change of \d/.test(page), "no clipped 'visibility change of 1'");
+  assert.match(html, /data-connector=/, "the rail between steps is still drawn");
+  const vc = t.events.find((e) => e.type === "visibility_changed")!;
+  if (t.events.some((e) => e.after.some((a) => a.event === vc.id))) {
+    assert.ok(page.includes(`After ${vc.id} (the visibility change on delivery 1)`), "the record names the visibility change in full");
+  }
+});
+
 test("the default-key notice is drawn once in the card, with the command as code and a link to why", () => {
   const t: Timeline = { ...timelines[0], notices: [{ code: "default_key", message:
     "These spans use the package's built-in receipt-hash key, which anyone can read in the source. Generate one key with `openssl rand -hex 32` and set it as `TRAILBEAM_RECEIPT_HASH_KEY` on every service that uses these queues." }] };
