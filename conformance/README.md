@@ -8,16 +8,22 @@ message, the required attributes and their types, the receipt-handle HMAC, call-
 and no receipt handle or key in any attribute. A failing package gets a report that says, call by call,
 what is missing or wrong.
 
-The Python and Node.js packages run it in CI (`Conformance kit` in [`ci.yml`](../.github/workflows/ci.yml)).
-New language packages (Java first, QV-319) add a driver and must pass it.
+The Python and Node.js packages, client hooks and Lambda wrappers, run it in CI (`Conformance kit` in
+[`ci.yml`](../.github/workflows/ci.yml)). New language packages (Java first, QV-319) add a driver and must pass it.
 
 ```
-python conformance/kit.py run conformance/drivers/python/driver.json conformance/drivers/node/driver.json
+python conformance/kit.py run conformance/drivers/python/driver.json conformance/drivers/node/driver.json \
+    conformance/drivers/python-lambda/driver.json conformance/drivers/node-lambda/driver.json
 ```
 
 Needs Docker, Python 3.9+ (standard library only for the kit itself), and whatever the drivers need: for
-these two, a Python with `pip install -e ./python boto3` first on `PATH`, and `npm ci` in `node/`. Each
-variant takes about 10 s, most of it the scenario's visibility-timeout waits.
+these, a Python with `pip install -e ./python boto3` first on `PATH` (the Lambda poller runs on the kit's own
+Python and needs boto3), and `npm ci` in `node/`. Each variant takes about 10 to 15 s, most of it the
+scenarios' visibility-timeout waits; the Lambda drivers first build their function image once (about 15 s
+when the base image is cached).
+
+The Lambda wrappers have a scenario of their own, played against the Lambda base image's Runtime Interface
+Emulator: [SCENARIO-LAMBDA.md](SCENARIO-LAMBDA.md).
 
 ## How it works
 
@@ -32,9 +38,12 @@ variant takes about 10 s, most of it the scenario's visibility-timeout waits.
 ```
 
 1. `kit.py run` starts ElasticMQ and a Collector whose only exporter is a file
-   ([`bench/collector.yaml`](bench/collector.yaml)). Both get random ports on 127.0.0.1 and container names
-   of their own, so several runs can share a machine.
-2. For each **variant** of each driver it runs the driver once with a fresh run name and a fresh random
+   ([`bench/collector.yaml`](bench/collector.yaml)). Both get random ports on 127.0.0.1, container names
+   of their own and a Docker network of their own (as `sqs` and `collector`), so several runs can share a
+   machine. The Collector stamps each span with `kit.collector.received_unix_nano` (when it got it), and
+   changes nothing else.
+2. It runs each driver's `setup` once, if it has one (the Lambda drivers build their function image). For
+   each **variant** of each driver it runs the driver once with a fresh run name and a fresh random
    receipt-hash key, then waits until the run's spans have reached the file.
 3. [`checker.py`](checker.py) builds the spans the contract requires from the ground truth, recomputes
    the HMACs, matches them to the exported spans with scope `trailbeam` and `service.name` = the run name,
@@ -57,11 +66,28 @@ The checker has no per-language code. Everything a language differs in lives in 
 | 18 | one `trailbeam purge` with `trailbeam.result`, no message ID or HMAC |
 | scenario | the truth has every operation, a redelivery, a DLQ receive, a failed batch entry and a failed call, so a driver that skipped a step can't pass by checking less |
 
+For the Lambda wrappers (a truth with `"source": "lambda"`), the checker uses
+[SCENARIO-LAMBDA.md](SCENARIO-LAMBDA.md)'s rules instead:
+
+| Contract | Check |
+|---|---|
+| 1, 4.2, 4.4 | one `trailbeam receive` and one `trailbeam outcome` per record of each invocation, nothing else |
+| 3 | `trailbeam.source = lambda`, `messaging.operation.name = LambdaEvent`, types, no unknown `trailbeam.*` |
+| 2, 3 | receive: `trailbeam.start_observed = false` and zero-length; outcome: zero-length, no `start_observed`; both inside the invocation (after the poller's POST, around the handler's start, before the response) |
+| 2a | receive: `trailbeam.order.returned`, no `issued`; outcome: `issued = returned`, after the receive's tick; one moment and tick per invocation and span name; invocations in order |
+| 4.4 | `trailbeam.outcome` derived from the function's response (`success`, `failed_reported`, `failed_invalid_response`, `failed_exception`), `trailbeam.error_type` = the error type the runtime reported |
+| 4.2, 6 | `faas.name`, `faas.invocation_id` (the request ID the poller gave), `trailbeam.queue.arn` = `eventSourceARN`, `aws.sqs.queue.url` built from it, receive count, HMAC, sent timestamp, DLQ source ARN |
+| 15.2 | `trailbeam.batch.size`, `trailbeam.batch.index`, `trailbeam.batch.reported_failure_count` (omitted after an invalid list or a throw) |
+| 4.2 | flushed before the handler ran: the Collector received every receive span before the handler's first line |
+| 5, 7, 15 | `messaging.client.id` = the log stream name; no raw handle or key; body and error text only when turned on |
+| scenario | the truth has all four outcomes, a batch of two, a reported failure count above 0, a redelivery and a DLQ record; the poller deleted exactly what Lambda would |
+
 A "should" of the contract that is missing (for example `trailbeam.sent_timestamp_ms`, or the message ID
 on a settle span) is a warning, shown with `~`; everything else fails the run.
 
-Not checked in this version: the Lambda wrapper (QV-318 stage 2, with the Runtime Interface Emulator),
-tenant and FIFO attributes, redaction (the contract's shared vectors cover it), `thread.name`.
+Not checked in this version: tenant and FIFO attributes, redaction (the contract's shared vectors cover it),
+`thread.name`; for the Lambda wrappers, a timeout or out-of-memory kill (the RIE can't kill an invocation
+the way Lambda does) and the wrapper beside the stock OpenTelemetry Lambda instrumentation (QV-301 ran it).
 
 ## Variants: the agent matrix
 
@@ -95,6 +121,7 @@ Agents are variants too. A Java driver adds, for example:
 | `command` | the driver's command line, a list |
 | `cwd` | working directory (default: the repository root) |
 | `env` | variables for every variant |
+| `setup` | optional: a command run once before the variants (the Lambda drivers build their image); a failure fails every variant of the driver, with the end of its log |
 | `variants` | list of `{name, env, prefix, parent, capture, about}`: `prefix` is put before `command` (a wrapper such as `opentelemetry-instrument`); `parent` is `any`, `exported` or `unexported` (above); `capture: true` expects captured bodies |
 
 Strings may use `{repo}`, `{kit}`, `{driver_dir}` and `{env:NAME}` (the kit's own environment; a missing
@@ -105,7 +132,10 @@ variable is an error, so a CI job can't skip an agent by accident).
 `KIT_RUN`, `KIT_SQS_ENDPOINT`, `KIT_TRUTH_FILE`, `OTEL_SERVICE_NAME` (= the run name),
 `TRAILBEAM_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_ENDPOINT` (the Collector),
 `TRAILBEAM_RECEIPT_HASH_KEY` (random per run), `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` = `x`,
-`AWS_REGION` = `elasticmq`. Every `TRAILBEAM_*`, `OTEL_*`, `AWS_*` and `KIT_*` variable of the caller's
+`AWS_REGION` = `elasticmq`. For drivers that run code in a container: `KIT_DOCKER_NETWORK` (the bench's
+network), `KIT_OTLP_ENDPOINT_IN_NETWORK` and `KIT_SQS_ENDPOINT_IN_NETWORK` (the bench as seen from it),
+`KIT_BENCH_TAG` (prefix the images you build with `<tag>-`, and the kit removes them at the end) and
+`KIT_WORKDIR`. `setup` gets `KIT_BENCH_TAG`, `KIT_WORKDIR` and `KIT_DOCKER_NETWORK`. Every `TRAILBEAM_*`, `OTEL_*`, `AWS_*` and `KIT_*` variable of the caller's
 environment is removed first; the variant's `env` comes last.
 
 ## Adding a language
@@ -156,5 +186,25 @@ every HMAC recomputed with a fixed key ([`tests/make_fixture.py`](tests/make_fix
 
 ## Tests
 
-`pytest conformance/tests`: the two recorded runs pass, and each of about 27 single-rule breakages of them
-fails with the line that names it.
+`pytest conformance/tests`: the four recorded runs (client hooks and Lambda wrappers, Python and Node.js)
+pass, and each of about 27 single-rule breakages of the client-hook runs and 40 of the Lambda runs fails with
+the line that names it.
+
+A broken Lambda wrapper reads like this (the Node.js recording, with five rules broken):
+
+```
+node-lambda / alone (run kit-fixture-node-lambda-alone): FAIL, 14 of 14 expected spans found, 14 Trailbeam spans exported (7 problems)
+  call 2 invocation (report) on kit-fixture-node-lambda-alone, receive of record 0, message 866ac766-fad8-4a57-91ef-ea7549211f69
+    - times: a zero-length span is required (its start is not observed, and the wrapper must not put any other time in it); got start 1795468038078000000, end 1795468038081000000, 3.000 ms apart  [contract 2]
+    - not flushed before the handler ran: the Collector received this receive span 5000.0 ms after the handler started (a timeout or out-of-memory kill would lose it)  [contract 4.2]
+  ...
+  call 4 invocation (dlq) on kit-fixture-node-lambda-alone-dlq, receive of record 0, message 866ac766-fad8-4a57-91ef-ea7549211f69
+    - trailbeam.queue.arn: missing (expected arn:aws:sqs:elasticmq:000000000000:kit-fixture-node-lambda-alone-dlq)  [contract 4.2, 6]
+  call 5 invocation (invalid) on kit-fixture-node-lambda-alone, outcome of record 0, message 549c11e6-9511-4fec-bb0d-f7bb3ca69aeb, failed_invalid_response
+    - trailbeam.outcome: expected failed_invalid_response, got failed_reported  [contract 4.4]
+  call 6 invocation (throw) on kit-fixture-node-lambda-alone, outcome of record 0, message 3865febc-de50-451c-948c-c8ac8022d4a1, failed_exception
+    - trailbeam.error_type: missing (expected Error)  [contract 4.4]
+```
+
+The work directory also keeps each Lambda run's function log (`<run>.function.log`: the RIE's and the
+handler's output) and each driver's `<driver>.setup.log`.

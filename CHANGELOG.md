@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Conformance kit: the Lambda wrappers** (QV-339, QV-318 stage 2). `trailbeam.aws_lambda.wrap` (Python) and
+  `wrapHandler` (Node.js) run in the AWS Lambda base images, invoked through their Runtime Interface Emulator by
+  a poller that plays Lambda's SQS event source mapping (`conformance/drivers/lambda-poller`). Cases: a success,
+  a reported failure in a batch of two, a redelivery, the move to the dead-letter queue after `maxReceiveCount`
+  and its receive there, an invalid `batchItemFailures`, and a thrown exception. The checker's Lambda rules
+  (`conformance/SCENARIO-LAMBDA.md`): `trailbeam.source = lambda` and `LambdaEvent`, zero-length receives with
+  `trailbeam.start_observed = false` and a `returned` tick only, the four outcome values and `error_type` derived
+  from the function's response, `faas.*`, `trailbeam.queue.arn` and the URL built from it, `trailbeam.batch.*`,
+  and that every receive span reached the Collector before the handler started (the bench's Collector now
+  stamps arrival times). Both wrappers pass in CI, with and without body capture and error text. Drivers can
+  have a `setup` command, run once (the Lambda drivers build their image there).
+
 - **Conformance kit for Trailbeam packages** (QV-318, stage 1). `conformance/` runs a language package's small
   driver through one scripted scenario (send, batch send, receive, delete, batch delete with a failed entry,
   visibility-timeout retry, dead-letter move, ChangeMessageVisibility and its batch form, a failing delete,

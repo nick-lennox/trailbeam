@@ -24,6 +24,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Optional
 
 KIT = Path(__file__).resolve().parent
 REPO = KIT.parent
@@ -34,6 +35,7 @@ ELASTICMQ_IMAGE = "softwaremill/elasticmq-native:1.6.15"
 COLLECTOR_IMAGE = "otel/opentelemetry-collector-contrib:0.165.0"
 PARENT_MODES = ("any", "exported", "unexported")
 DRIVER_TIMEOUT_S = 180
+SETUP_TIMEOUT_S = 900
 
 
 def log(msg: str) -> None:
@@ -44,7 +46,11 @@ def log(msg: str) -> None:
 
 
 class Bench:
-    """ElasticMQ and a Collector (OTLP/HTTP in, file out), on random ports of 127.0.0.1."""
+    """ElasticMQ and a Collector (OTLP/HTTP in, file out), on random ports of 127.0.0.1.
+
+    Both are also on a Docker network of their own (``network``), as ``sqs`` and ``collector``, so a driver
+    that runs the code under test in a container (the Lambda drivers) can reach them from there.
+    """
 
     def __init__(self, workdir: Path):
         self.workdir = workdir
@@ -52,6 +58,9 @@ class Bench:
         self.out = workdir / "collector"
         self.containers: list[str] = []
         self.sqs = self.otlp = ""
+        self.network = f"{self.tag}-net"
+        self.sqs_in_network, self.otlp_in_network = "http://sqs:9324", "http://collector:4318"
+        self.networks: list[str] = []
         self.spans_file = self.out / "spans.jsonl"
 
     def _docker(self, *args: str) -> str:
@@ -66,10 +75,14 @@ class Bench:
         shutil.copy(KIT / "bench" / "collector.yaml", self.out / "collector.yaml")
         sqs, col = f"{self.tag}-sqs", f"{self.tag}-collector"
         log(f"bench: starting {ELASTICMQ_IMAGE} and {COLLECTOR_IMAGE} ({self.tag})")
-        self._docker("run", "-d", "--rm", "--name", sqs, "-p", "127.0.0.1::9324", ELASTICMQ_IMAGE)
+        self._docker("network", "create", self.network)
+        self.networks.append(self.network)
+        self._docker("run", "-d", "--rm", "--name", sqs, "--network", self.network, "--network-alias", "sqs",
+                     "-p", "127.0.0.1::9324", ELASTICMQ_IMAGE)
         self.containers.append(sqs)
         user = f"{os.getuid()}:{os.getgid()}" if hasattr(os, "getuid") else "0:0"
-        self._docker("run", "-d", "--rm", "--name", col, "--user", user, "-p", "127.0.0.1::4318",
+        self._docker("run", "-d", "--rm", "--name", col, "--user", user, "--network", self.network,
+                     "--network-alias", "collector", "-p", "127.0.0.1::4318",
                      "-v", f"{self.out}:/out", COLLECTOR_IMAGE, "--config=/out/collector.yaml")
         self.containers.append(col)
         self.sqs = f"http://127.0.0.1:{self._port(sqs, 9324)}"
@@ -98,9 +111,17 @@ class Bench:
         return "\n".join(out)
 
     def down(self) -> None:
+        # Images a driver's setup built for this bench (README.md, "Driver configuration": KIT_BENCH_TAG).
+        images = subprocess.run(["docker", "images", "-q", "--filter", f"reference={self.tag}-*"],
+                                capture_output=True, text=True).stdout.split()
+        if images:
+            subprocess.run(["docker", "rmi", "-f", *sorted(set(images))], capture_output=True)
         for c in self.containers:
             subprocess.run(["docker", "rm", "-f", c], capture_output=True)
         self.containers = []
+        for n in self.networks:
+            subprocess.run(["docker", "network", "rm", n], capture_output=True)
+        self.networks = []
 
 
 # -- drivers -----------------------------------------------------------------------------------------
@@ -130,14 +151,44 @@ def load_driver(path: Path) -> dict:
     return d
 
 
+def base_env(bench: Bench, workdir: Path) -> dict:
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("TRAILBEAM_", "OTEL_", "KIT_", "AWS_"))}
+    env.update({"KIT_BENCH_TAG": bench.tag, "KIT_WORKDIR": str(workdir), "KIT_DOCKER_NETWORK": bench.network})
+    return env
+
+
+def setup_driver(driver: dict, bench: Bench, workdir: Path) -> Optional[checker.Report]:
+    """Run the driver's `setup` command once (build an image, compile); a failure fails each of its variants."""
+    if not driver.get("setup"):
+        return None
+    cmd = [expand(a, driver["_dir"]) for a in driver["setup"]]
+    cwd = expand(driver.get("cwd", "{repo}"), driver["_dir"])
+    out_log = workdir / f"{driver['name']}.setup.log"
+    log(f"setup {driver['name']}: {' '.join(cmd)}")
+    t0 = time.time()
+    with open(out_log, "w") as fh:
+        try:
+            rc = subprocess.run(cmd, cwd=cwd, env=base_env(bench, workdir), stdout=fh, stderr=subprocess.STDOUT,
+                                timeout=SETUP_TIMEOUT_S).returncode
+        except subprocess.TimeoutExpired:
+            rc = "timeout"
+    log(f"setup {driver['name']}: exited {rc} after {time.time() - t0:.0f} s (log {out_log})")
+    if rc == 0:
+        return None
+    tail = "\n".join(out_log.read_text(errors="replace").splitlines()[-25:])
+    return checker.Report(f"{driver['name']}-setup", "setup", driver["name"], 0, 0, 0, [checker.Problem(
+        "run", f"the driver's setup failed (exit {rc}). Last lines:\n{tail}", rule="kit")])
+
+
 def run_variant(driver: dict, variant: dict, bench: Bench, workdir: Path) -> checker.Report:
     name = f"{driver['name']}-{variant['name']}"
     run = f"kit-{re.sub(r'[^A-Za-z0-9-]', '-', name)}-{secrets.token_hex(3)}"[:60]
     key = "kit-" + secrets.token_hex(16)
     truth = workdir / f"{run}.truth.jsonl"
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("TRAILBEAM_", "OTEL_", "KIT_", "AWS_"))}
+    env = base_env(bench, workdir)
     env.update({
         "KIT_RUN": run, "KIT_SQS_ENDPOINT": bench.sqs, "KIT_TRUTH_FILE": str(truth),
+        "KIT_SQS_ENDPOINT_IN_NETWORK": bench.sqs_in_network, "KIT_OTLP_ENDPOINT_IN_NETWORK": bench.otlp_in_network,
         "OTEL_SERVICE_NAME": run,
         "TRAILBEAM_OTLP_TRACES_ENDPOINT": f"{bench.otlp}/v1/traces",
         "OTEL_EXPORTER_OTLP_ENDPOINT": bench.otlp, "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
@@ -167,7 +218,7 @@ def run_variant(driver: dict, variant: dict, bench: Bench, workdir: Path) -> che
         return checker.Report(run, variant["name"], driver["name"], 0, 0, 0, [problem])
 
     header, calls = checker.read_truth(truth.read_text().splitlines())
-    want = len(checker.build_expected(calls, key))
+    want = checker.expected_count(header, calls, key, bool(variant.get("capture")))
     spans = wait_for_spans(bench.spans_file, run, want)
     settings = {"run": run, "key": key, "variant": variant["name"], "parent": variant.get("parent", "any"),
                 "capture": bool(variant.get("capture"))}
@@ -204,10 +255,13 @@ def cmd_run(args) -> int:
     try:
         bench.up()
         for d in drivers:
-            for v in d["variants"]:
-                if args.variant and v["name"] not in args.variant:
-                    continue
-                reports.append(run_variant(d, v, bench, workdir))
+            chosen = [v for v in d["variants"] if not args.variant or v["name"] in args.variant]
+            failed_setup = setup_driver(d, bench, workdir) if chosen else None
+            for v in chosen:
+                if failed_setup:
+                    reports.append(checker.Report(failed_setup.run, v["name"], d["name"], 0, 0, 0, failed_setup.problems))
+                else:
+                    reports.append(run_variant(d, v, bench, workdir))
                 print(checker.render(reports[-1]), flush=True)
                 print(flush=True)
     finally:

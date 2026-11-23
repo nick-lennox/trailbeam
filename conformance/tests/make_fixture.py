@@ -26,14 +26,14 @@ def main(workdir: str, run: str, name: str) -> None:
 
     handles = []
     for c in calls:
-        for m in c.get("messages", []):
+        for m in c.get("messages", []) + c.get("records", []):  # records: a Lambda invocation's event
             handles.append(m["receipt_handle"])
         for e in c.get("entries", []):
             if e.get("receipt_handle"):
                 handles.append(e["receipt_handle"])
         if c.get("receipt_handle"):
             handles.append(c["receipt_handle"])
-    from_sqs = {m["receipt_handle"] for c in calls for m in c.get("messages", [])}
+    from_sqs = {m["receipt_handle"] for c in calls for m in c.get("messages", []) + c.get("records", [])}
     new_handle = {}
     for h in handles:
         if h not in new_handle:
@@ -49,7 +49,7 @@ def main(workdir: str, run: str, name: str) -> None:
     out_truth = []
     for line in truth_lines:
         row = json.loads(line)
-        for m in row.get("messages", []):
+        for m in row.get("messages", []) + row.get("records", []):
             m["receipt_handle"] = new_handle[m["receipt_handle"]]
         for e in row.get("entries", []):
             if e.get("receipt_handle"):
