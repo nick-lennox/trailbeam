@@ -132,7 +132,9 @@ The body part of the explorer's query language, the same in both products:
 
 Open-source Trailbeam takes the terms in `GET /api/messages?body=...` (with `queue`, `limit`, a time
 window and `cursor`) and on its Messages page. It lists the messages whose kept body matches, most
-recently seen first. Any other kind of term is a `400`. There is no index of body contents, so a
+recently seen first. There, plain text with no field (`ord-1003`, or `"call me"` in quotes) is
+`body:<text>`. A term for any other field (`queue:orders`) is a `400` that reads
+``Can't read `queue:orders`. Use text, or `body.<path>:<value>`.`` There is no index of body contents, so a
 search is bounded instead: it reads the kept bodies of the messages last seen in the window
 (`from_ms`/`to_ms`, or `since_s`, default the last day), on `queue` if given, newest first, and stops
 after `limit` matches or 5,000 messages. `next_cursor` goes on from there. A page can have fewer than

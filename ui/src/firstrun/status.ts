@@ -9,7 +9,7 @@ export type Health = {
   version?: string;
   ingest?: { requests?: number; inserted?: number; ignored?: number; rejected?: number };
   data?: { last_row?: number | null };
-  config?: { auth?: "token" | "off"; retention?: { default?: string; passes?: number; last_pass?: { deleted_spans?: number } | null } | null };
+  config?: { auth?: "token" | "off"; store_bodies?: string[]; retention?: { default?: string; passes?: number; last_pass?: { deleted_spans?: number } | null } | null };
 };
 
 /** The newest message, for "First message received". */
