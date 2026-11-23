@@ -17,10 +17,11 @@ What it does, with one access token throughout:
 2. The old server ingests the first part; everything it serves is recorded (every message's timeline, the
    lists, tenants, stats, a few bodies and web pages), and a session cookie from its login page is kept.
 3. The new server starts on the same file or database. The schema must move forward by itself; every
-   answer the old server gave must come back the same (fields the new one added are ignored), and must
-   equal what a new server given the same spans from empty serves. The token and the old session cookie
-   must still work. With SQLite and commands, the new server runs as ``trailbeam start`` on the data
-   directory the old one used; the token and receipt-hash key files there must be kept and printed.
+   answer the old server gave must come back the same (ignoring fields the new one added, and the wording
+   of a notice, whose ``code`` must stay), and must equal what a new server given the same spans from
+   empty serves. The token and the old session cookie must still work. With SQLite and commands, the new
+   server runs as ``trailbeam start`` on the data directory the old one used; the token and receipt-hash
+   key files there must be kept and printed.
 4. The new server ingests the rest, then everything must equal a new server given all the spans from empty:
    so the in-flight messages joined across the upgrade.
 5. The old server is started again on the upgraded store. Postgres: it must refuse, saying a newer Trailbeam
@@ -37,6 +38,7 @@ import http.client
 import json
 import os
 import random
+import re
 import secrets
 import shutil
 import socket
@@ -205,8 +207,15 @@ def drop_age(page: dict) -> dict:
     return page
 
 
-def diffs(old, new, path="", limit=10) -> list:
-    """Where ``new`` differs from ``old``, ignoring dict keys ``old`` doesn't have (fields added since)."""
+NOTICE = re.compile(r"\.notices\[\d+\]$")
+
+
+def diffs(old, new, path="", limit=10, *, notice_words=True) -> list:
+    """Where ``new`` differs from ``old``, ignoring dict keys ``old`` doesn't have (fields added since).
+
+    ``notice_words=False`` skips the ``message`` of each notice: across versions a notice keeps its
+    ``code`` (the contract), but its wording may be rewritten.
+    """
     out: list = []
 
     def walk(a, b, p):
@@ -214,6 +223,8 @@ def diffs(old, new, path="", limit=10) -> list:
             return
         if isinstance(a, dict) and isinstance(b, dict):
             for k in a:
+                if k == "message" and not notice_words and NOTICE.search(p):
+                    continue
                 if k not in b:
                     out.append(f"{p}.{k}: missing")
                 else:
@@ -231,7 +242,9 @@ def diffs(old, new, path="", limit=10) -> list:
 
 
 def same(what: str, expected: dict, got: dict, *, exact: bool) -> None:
-    d = diffs(expected, got) + (diffs(got, expected) if exact else [])
+    """``exact``: both answers come from this version. Otherwise one is the old server's, and fields added
+    since and the wording of notices are not compared."""
+    d = diffs(expected, got, notice_words=exact) + (diffs(got, expected) if exact else [])
     if d:
         fail(f"{what}:\n    " + "\n    ".join(d))
     else:
