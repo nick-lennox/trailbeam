@@ -44,6 +44,13 @@ def api(base, path, token=None):
         return json.loads(r.read())
 
 
+@pytest.fixture(autouse=True)
+def _no_otlp_headers(monkeypatch):
+    """The exporter headers of the machine running the tests are not the ones a test means."""
+    for k in doctor.OTLP_HEADERS_ENV:
+        monkeypatch.delenv(k, raising=False)
+
+
 @pytest.fixture
 def app(db):
     return server.App(db, ui_dir=None)
@@ -392,6 +399,60 @@ def test_the_command_reads_the_token_trailbeam_start_made_and_exits_1_on_a_failu
         send_real_span(base, TOKEN)
         assert doctor.main(["--url", base]) == 0
         assert "All checks passed." in capsys.readouterr().out
+
+
+def test_with_a_services_environment_the_token_comes_from_otel_exporter_otlp_headers(with_token, tmp_path,
+                                                                                         monkeypatch, capsys):
+    """QV-343: the variables trailbeam start --data-dir prints for services are enough for doctor, and the token
+    is the one in the header the services send, not ~/.trailbeam/token."""
+    for k in ("TRAILBEAM_TOKEN", "TRAILBEAM_TOKEN_FILE", "TRAILBEAM_URL", "TRAILBEAM_PORT"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("TRAILBEAM_DATA_DIR", str(tmp_path))  # holds no token: not where the service's one is
+    with serve(with_token) as base:
+        monkeypatch.setenv("TRAILBEAM_OTLP_TRACES_ENDPOINT", base + "/v1/traces")
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", f"Authorization=Bearer%20{TOKEN}")
+        send_real_span(base, TOKEN)
+        assert doctor.main([]) == 0
+        out = capsys.readouterr().out
+        assert "token: OTEL_EXPORTER_OTLP_HEADERS" in out and "All checks passed." in out
+        # a wrong token in the header is reported as the services' token, not as a missing one
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Bearer%20" + "w" * 64)
+        assert doctor.main([]) == 1
+        out = capsys.readouterr().out
+        assert "not accepted" in out and "token from OTEL_EXPORTER_OTLP_HEADERS" in out
+
+
+@pytest.mark.parametrize("value,token,error", [
+    (f"Authorization=Bearer%20{TOKEN}", TOKEN, None),
+    (f"x-tenant=a,authorization=bearer%20{TOKEN} ", TOKEN, None),
+    (f"Authorization=Bearer {TOKEN}", TOKEN, None),
+    ("x-tenant=a", None, "has no Authorization header"),
+    ("Authorization=Basic%20abc", None, "not 'Bearer <token>'"),
+    ("Authorization=Bearer%20", None, "not 'Bearer <token>'"),
+])
+def test_the_token_in_otlp_headers(value, token, error):
+    got, err = doctor._token_from_headers(value, "OTEL_EXPORTER_OTLP_HEADERS")
+    assert got == token and (err is None if error is None else error in err)
+
+
+def test_otlp_headers_order(monkeypatch, tmp_path):
+    for k in ("TRAILBEAM_TOKEN", "TRAILBEAM_TOKEN_FILE", "TRAILBEAM_URL", "TRAILBEAM_OTLP_TRACES_ENDPOINT"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("TRAILBEAM_DATA_DIR", str(tmp_path))
+    (tmp_path / "token").write_text("from-file\n")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Bearer%20general")
+    t = doctor.target_from_args(doctor_args("--url", "http://x"), discover=False)
+    assert (t.token, t.token_source) == ("general", "OTEL_EXPORTER_OTLP_HEADERS")  # over the default file
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_HEADERS", "Authorization=Bearer%20traces")
+    t = doctor.target_from_args(doctor_args("--url", "http://x"), discover=False)
+    assert (t.token, t.token_source) == ("traces", "OTEL_EXPORTER_OTLP_TRACES_HEADERS")  # as exporters choose
+    monkeypatch.setenv("TRAILBEAM_TOKEN", "given")
+    assert doctor.target_from_args(doctor_args("--url", "http://x"), discover=False).token == "given"
+    monkeypatch.delenv("TRAILBEAM_TOKEN")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_HEADERS", "x-tenant=a")
+    t = doctor.target_from_args(doctor_args("--url", "http://x"), discover=False)
+    assert t.token is None and "no Authorization header" in t.token_error
+    assert "OTEL_EXPORTER_OTLP_TRACES_HEADERS=Authorization=Bearer%20<token>" in doctor._token_cause(t, "the API")[1]
 
 
 def test_trailbeam_doctor_is_a_subcommand(monkeypatch):
