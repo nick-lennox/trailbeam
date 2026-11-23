@@ -1,0 +1,7 @@
+{
+  "run": "kit-fixture-python-lambda-alone",
+  "key": "kit-fixture-key-0123456789abcdef",
+  "variant": "alone",
+  "parent": "any",
+  "capture": false
+}
