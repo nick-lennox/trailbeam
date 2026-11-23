@@ -10,6 +10,11 @@
   what to check for each reason: for `export_failed`, the server's address and the token in
   `OTEL_EXPORTER_OTLP_HEADERS`, instead of advice about high volume. The Python README lists what happens to
   spans in each case. (QV-169)
+- **Node.js: the same.** A short script with the server unreachable took 8 s longer to exit, 10 s with it slow,
+  because the event loop waited for the OTLP exporter's retries and request timeout. `uninstall()` and the
+  export when the event loop empties now keep to `TRAILBEAM_SHUTDOWN_TIMEOUT_MS` (2 s), the drop warning gives
+  the same per-reason advice, and drops held back by the once-a-minute limit are printed at exit instead of
+  being lost from the count. The Node.js README lists what happens to spans in each case. (QV-169)
 - **The Tenants page no longer slows down after heavy ingest.** It read every raw event of the current hour,
   so right after a burst of traffic it took 1–2 s on Postgres (QV-180). It now reads the current hour from the
   hourly rollup, less the few events newer than the window, and adds up the raw events it still reads in SQL.
