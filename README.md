@@ -139,6 +139,24 @@ docker compose -f demo/compose.yaml up -d --build --wait
 # then open http://127.0.0.1:4318/ and click a message ID
 ```
 
+### Try it on your own service without AWS
+
+Run ElasticMQ, an SQS emulator, and point the AWS SDK at it. It accepts any keys:
+
+```sh
+docker run -d --name sqs -p 127.0.0.1:9324:9324 softwaremill/elasticmq-native:1.6.15
+export AWS_ENDPOINT_URL_SQS=http://localhost:9324
+export AWS_REGION=us-east-1           # read by the AWS SDK for JavaScript
+export AWS_DEFAULT_REGION=us-east-1   # read by boto3
+export AWS_ACCESS_KEY_ID=test
+export AWS_SECRET_ACCESS_KEY=test
+```
+
+Keep port 9324: ElasticMQ puts it in queue URLs, and the JavaScript SDK sends requests to that host.
+Create a queue from your code (`CreateQueue`), add the hooks below, and send. A Python and a Node.js
+script that do this end to end are in
+[Try Trailbeam without AWS](https://docs.trailbeam.app/get-started/without-aws).
+
 ## Add it to your services
 
 Add the hooks to every service that sends, receives or deletes on the queues you care about. A
