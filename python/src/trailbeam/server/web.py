@@ -634,13 +634,45 @@ def _page(status: int, title: str, body: str) -> Response:
 
 
 def login_page(next_path: str, error: bool = False, status: int = 401) -> Response:
-    """The page a browser gets without the session cookie when the server has a token (auth.py)."""
+    """The page a browser gets without the session cookie when the server has a token and no admin (auth.py)."""
     body = ("<h1>Sign in</h1><p>This Trailbeam server needs its access token (<code>TRAILBEAM_TOKEN</code>).</p>"
             + ('<p class="notice">That is not the token.</p>' if error else "")
             + '<form method="post" action="/login"><input type="password" name="token" placeholder="Token" '
             'autocomplete="current-password" required autofocus>'
             f'<input type="hidden" name="next" value="{escape(next_path)}"> <button>Sign in</button></form>')
     return _page(status, "Sign in", body)
+
+
+SIGN_IN_NOTICES = {
+    "wrong": "That email and password don't match an account.",
+    "locked": "Too many failed sign-ins: this account is locked for now. Try again in {minutes}.",
+    "slow_down": "Too many failed sign-ins from here. Try again in {minutes}.",
+    "busy": "The server is busy. Try again in a moment.",
+}
+
+
+def _minutes(seconds: Optional[int]) -> str:
+    m = max(1, ((seconds or 60) + 59) // 60)
+    return "1 minute" if m == 1 else f"{m} minutes"
+
+
+def sign_in_page(next_path: str, email: str = "", outcome: Optional[str] = None, retry_after_s: Optional[int] = None,
+                 status: int = 401) -> Response:
+    """The page a browser gets without a session once the server has an admin (access.py): email and password."""
+    notice = SIGN_IN_NOTICES.get(outcome or "")
+    body = ("<h1>Sign in</h1><p>Sign in with your Trailbeam account.</p>"
+            + (f'<p class="notice">{escape(notice.format(minutes=_minutes(retry_after_s)))}</p>' if notice else "")
+            + '<form method="post" action="/login">'
+            f'<input type="email" name="email" placeholder="Email" value="{escape(email)}" autocomplete="username" '
+            'required autofocus> <input type="password" name="password" placeholder="Password" '
+            'autocomplete="current-password" required>'
+            f'<input type="hidden" name="next" value="{escape(next_path)}"> <button>Sign in</button></form>')
+    return _page(status, "Sign in", body)
+
+
+def forbidden_page(message: str) -> Response:
+    return _page(403, "Not allowed", f'<h1>Not allowed</h1><p>{escape(message)}.</p>'
+                 '<p><a href="/logout">Sign out</a></p>')
 
 
 def _dd(name: str, value: str) -> str:

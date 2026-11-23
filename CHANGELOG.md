@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- **Users and roles switch on when the first admin exists** (QV-225). Each replica checks the store at least
+  every 5 seconds for an admin. Until there is one, nothing changes. After that:
+  - The web screen and the API need a person: signing in with an email and password on `/login` (cookie
+    `trailbeam_sid`, or `__Host-trailbeam_sid` over HTTPS), or a personal API token (`tbp_...`) as
+    `Authorization: Bearer`. Admins and members can both read everything. Every route has a fixed level: open,
+    ingest, metrics, member or admin.
+  - **Changed:** `TRAILBEAM_TOKEN` keeps working for ingest and `/metrics` only. It no longer opens the web screen
+    or the API, and its old `trailbeam_session` cookie stops working. The server warns at every start while it
+    is set. Upgrade every replica before creating the first admin: an older replica would still let the token
+    into the web screen.
+  - **Ingest tokens** (`tbi_...`): named service tokens that can only send spans, as `x-trailbeam-key` (the hosted
+    app's header) or `Authorization: Bearer`. `TRAILBEAM_TOKEN` is accepted in `x-trailbeam-key` too. Ingest needs
+    a token when `TRAILBEAM_TOKEN` is set or the store holds an ingest token, revoked or not. **Changed:** creating
+    the first ingest token closes ingest on a server that had no `TRAILBEAM_TOKEN`.
+  - Tokens are stored as SHA-256 and checked through a per-process cache (ingest 30 s, personal 20 s). "Last
+    used" is written at most once a minute per token and replica.
+  - `GET /api/me` says how a request was let in and as whom. `/api/health` gains `config.ingest_auth`
+    (`token` or `open`), and `config.auth` can be `accounts`.
+  - **Changed:** `/metrics` without a valid token answers a plain-text `401`, not the HTML sign-in page.
+  - **Changed:** with neither a token nor an ingest token, the server now warns at every start that ingest is
+    open, also when it listens only on localhost.
+  - Creating people and tokens from the command line comes with `trailbeam users` and `trailbeam tokens`.
+
 - **Conformance kit: the Lambda wrappers** (QV-339, QV-318 stage 2). `trailbeam.aws_lambda.wrap` (Python) and
   `wrapHandler` (Node.js) run in the AWS Lambda base images, invoked through their Runtime Interface Emulator by
   a poller that plays Lambda's SQS event source mapping (`conformance/drivers/lambda-poller`). Cases: a success,
@@ -78,8 +101,8 @@
   which send neither header, are not affected. (QV-225)
 - **Passwords and sessions for users and roles, not switched on yet.** scrypt password hashing (N=2^15,
   r=8, p=3, at most 2 hashes at once per process), sessions in the store with a 20-second cache per process,
-  a lock per account after 10 failed sign-ins in a row and a limit per client address. Nothing uses them
-  until a later release adds sign-in. (QV-225)
+  a lock per account after 10 failed sign-ins in a row and a limit per client address. Signing in (above)
+  uses them. (QV-225)
 - **Tables for people and tokens (users and roles, phase 1).** The store gains `users`, `sessions`,
   `ingest_tokens`, `personal_tokens` and `setup_codes`: SQLite schema 15, Postgres schema 8. They are created
   empty and nothing uses them yet, so the server behaves exactly as before. Emails are unique ignoring case.
