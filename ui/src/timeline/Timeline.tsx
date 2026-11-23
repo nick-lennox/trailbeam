@@ -73,7 +73,7 @@ function title(e: TimelineEvent): string {
   }
 }
 
-/** Short label for an event when another step refers to it ("after e2 · receive 1"). */
+/** Short label for an event, as the concurrent box names its members ("e2 pickup 1"). */
 function shortLabel(e: TimelineEvent): string {
   switch (e.type) {
     case "sent": return "the send";
@@ -89,6 +89,13 @@ function shortLabel(e: TimelineEvent): string {
     case "aws_step": return { trigger_delete: "trigger delete", filter_drop: "filter drop", second_function: "other function",
       timeout: "timed out", out_of_memory: "out of memory", never_handled: "never handled" }[e.aws_kind];
   }
+}
+
+/** How the record names an earlier step ("After e3 (the visibility change on delivery 1)"). */
+function refLabel(e: TimelineEvent): string {
+  if (e.type === "visibility_changed") return `the visibility change${e.delivery ? ` on delivery ${e.delivery}` : ""}`;
+  if (e.type === "deleted") return `the delete${e.delivery ? ` on delivery ${e.delivery}` : ""}`;
+  return shortLabel(e);
 }
 
 /** Who/where, the mono line under the time. */
@@ -188,41 +195,19 @@ function linksInto(members: TimelineEvent[], earlierIds: Set<string>): Link[] {
   return out;
 }
 
-/** The connector between two groups: says what proves the later group comes after. */
-function OrderLink({ entries, byId }: { entries: Link[]; byId: ById }) {
-  const sources = [...new Set(entries.flatMap((x) => x.sources))];
-  const inferred = sources.every((s) => s === "inferred_from");
-  const targets = [...new Set(entries.map((x) => x.target))];
-  // Into a concurrent box, each member gets its own line: sources never blur across members.
-  const lines = targets.map((t) => {
-    const es = entries.filter((x) => x.target === t);
-    return { target: t, froms: [...new Set(es.map((x) => x.event))], sources: [...new Set(es.flatMap((x) => x.sources))] };
-  });
+/**
+ * The connector between two groups: only the rail, dashed when the later group is placed by
+ * inference. What proves the order is in each step's "Why it's here, and the record".
+ */
+function OrderLink({ entries }: { entries: Link[] }) {
+  const inferred = entries.flatMap((x) => x.sources).every((s) => s === "inferred_from");
   return (
-    <li className="grid grid-cols-[1.5rem_1fr] gap-x-3 md:grid-cols-[8.5rem_1.5rem_1fr]" aria-label={`Then. Order from ${sources.map((s) => ORDER_SOURCE[s]?.label ?? s).join(", ")}`}>
+    <li className="grid grid-cols-[1.5rem_1fr] gap-x-3 md:grid-cols-[8.5rem_1.5rem_1fr]" aria-hidden data-connector={inferred ? "inferred" : "observed"}>
       <span className="hidden md:block" />
-      <span className="relative flex justify-center" aria-hidden>
+      <span className="relative flex h-4 justify-center">
         <span className={`absolute inset-y-0 w-0 border-l ${inferred ? "border-dashed border-sky-ink-3/60" : "border-sky-ink-3/60"}`} />
       </span>
-      <ul className="grid gap-1 py-1.5">
-        {lines.map((l) => {
-          const placed = l.sources.every((s) => ORDER_SOURCE[s]?.placement);
-          return (
-            <li key={l.target} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-micro text-sky-ink-3">
-              <span aria-hidden>↓</span>
-              {lines.length > 1 && <span className="text-sky-ink-2">{l.target}</span>}
-              <span>{placed ? "placed after" : "after"} {l.froms.map((f) => `${f} ${shortLabel(byId.get(f)!)}`).join(", ")}</span>
-              <span aria-hidden>·</span>
-              {l.sources.map((s) => (
-                <span key={s} className={`inline-flex items-center gap-1 ${s === "inferred_from" ? "text-sky-ink-3" : "text-sky-ink-2"}`}>
-                  {ORDER_SOURCE[s]?.label ?? s}
-                  {ORDER_SOURCE[s]?.proposed && <span className="text-sky-ink-3">(proposed)</span>}
-                </span>
-              )).reduce<React.ReactNode[]>((acc, el, i) => (i ? [...acc, <span key={`s${i}`} aria-hidden>+</span>, el] : [el]), [])}
-            </li>
-          );
-        })}
-      </ul>
+      <span />
     </li>
   );
 }
@@ -275,8 +260,8 @@ function BlindSpotNote({ spot }: { spot: BlindSpot }) {
 
 function Why({ e, byId }: { e: TimelineEvent; byId: ById }) {
   const rows: { label: string; entry: AfterEntry }[] = [
-    ...e.after.map((a) => ({ label: `After ${a.event} (${shortLabel(byId.get(a.event)!)})`, entry: a })),
-    ...("before" in e && e.before ? [{ label: `Before ${e.before.event} (${shortLabel(byId.get(e.before.event)!)})`, entry: e.before }] : []),
+    ...e.after.map((a) => ({ label: `After ${a.event} (${refLabel(byId.get(a.event)!)})`, entry: a })),
+    ...("before" in e && e.before ? [{ label: `Before ${e.before.event} (${refLabel(byId.get(e.before.event)!)})`, entry: e.before }] : []),
   ];
   return (
     <dl className="grid gap-y-2 text-[13px] leading-[1.45]">
@@ -515,7 +500,7 @@ export function TimelineView({ t, answer, openSteps = [] }: { t: Timeline; answe
     const members = g ? t.events.filter((x) => x.group === g.group) : [e];
     if (earlier.size) {
       const links = linksInto(members, earlier);
-      if (links.length) items.push(<OrderLink key={`o${e.id}`} entries={links} byId={byId} />);
+      if (links.length) items.push(<OrderLink key={`o${e.id}`} entries={links} />);
     }
     if (g?.concurrent) items.push(<ConcurrentBox key={`g${g.group}`} g={g} members={members} byId={byId} />);
     else for (const m of members) items.push(<Step key={m.id} e={m} byId={byId} open={openSteps.includes(m.id)} last={m.id === lastId} />);
