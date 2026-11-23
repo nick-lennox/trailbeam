@@ -8,7 +8,7 @@ export { answerFor, consumersOf } from "./summary.ts";
 export { ErrorCauses } from "./timeline/ErrorCauses.tsx";
 export { errorCauses, type ErrorCause } from "./errors.ts";
 export type * from "./timeline/types.ts";
-export { TenantsTable, TenantSearch, tenantsFootnote, noTenantsText, fmtWait, fmtShare, TENANT_ENV, TENANT_IS, TENANTS_README } from "./tenants/Tenants.tsx";
+export { TenantsTable, TenantSearch, tenantsFootnote, noTenantsText, P95_NOTE, fmtWait, fmtShare, TENANT_ENV, TENANT_IS, TENANTS_README } from "./tenants/Tenants.tsx";
 export type * from "./tenants/types.ts";
 export { BodyPanel, type BodyPanelProps } from "./body/BodyPanel.tsx";
 export { bodyView, NO_BODY_TEXT, noBodyNotes, type BodySpan } from "./body/rules.ts";
@@ -22,7 +22,7 @@ export {
   type FirstMessage, type FirstRunStatus, type Health,
 } from "./firstrun/status.ts";
 export {
-  MessagesTable, EmptyState, SET_UP, STATE_LABELS, DUPLICATE_REASONS, duplicateWhy, fmtAge, fmtThreshold, fmtTime, rowFacts, shortId,
+  MessagesTable, EmptyState, SET_UP, STATE_LABELS, RECEIVES_TITLE, DUPLICATE_REASONS, duplicateWhy, fmtAge, fmtThreshold, fmtTime, rowFacts, shortId,
   type Column, type EmptyStateProps, type MessageSummary, type MessagesTableProps,
 } from "./messages/Messages.tsx";
 export { duplicatesEmpty, lookupEmpty, messagesEmpty, stuckEmpty, tenantsEmpty, without } from "./messages/empty.tsx";
