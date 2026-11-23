@@ -200,7 +200,7 @@ For a team: one server several people's services send to, on its own Postgres, f
 volume, health checks and `restart: unless-stopped`. The token and passwords come from a `.env` file:
 
 ```sh
-gh repo clone nick-lennox/trailbeam && cd trailbeam
+git clone https://github.com/nick-lennox/trailbeam.git && cd trailbeam
 cp .env.example .env      # fill in TRAILBEAM_TOKEN, TRAILBEAM_RECEIPT_HASH_KEY and POSTGRES_PASSWORD (openssl rand -hex 32)
 docker compose up -d --build --wait
 # then open http://<this machine>:4318/ and sign in with the token
