@@ -351,7 +351,7 @@ def test_ready_fails_and_ingest_answers_503_while_postgres_is_unreachable(pg_sto
         assert (status, json.loads(body)["status"]) == (503, "not ready")
         assert time.monotonic() - t0 < 10
         status, _, body = call("/api/health")
-        assert status == 200 and json.loads(body)["data"] == {"last_row": None, "store": "unreachable"}
+        assert status == 200 and json.loads(body)["data"] == {"last_row": None, "last_span_ns": None, "store": "unreachable"}
         status, headers, _ = call("/v1/traces", export)
         assert status == 503 and headers["Retry-After"] == "1"
     finally:
@@ -574,10 +574,10 @@ def test_version_2_fills_the_lookup_tables_place_by_place(pg_store):
         _as_version(c, 1)
     again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
     try:
-        assert again.migrated == [2, 3, 4, 5]
+        assert again.migrated == [2, 3, 4, 5, 6]
         with again.ingest.connection() as c:
             assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
-            assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == [1, 2, 3, 4, 5]
+            assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == list(range(1, pg_schema_latest() + 1))
         again.insert(records([w.delete(T0 + 50 * SEC, "h-late")]))
         rows = again.message_rows("late")
         assert [r["kind"] for r in rows] == ["send", "receive", "delete"] and rows[2]["receive_row"] == rows[1]["row"]
@@ -712,10 +712,18 @@ def test_what_one_page_locks_does_not_grow_with_the_places(pg_store, places, tmp
 _PAGE_LOCKS: dict = {}
 
 
+def pg_schema_latest() -> int:
+    from trailbeam.server import pg_schema
+    return pg_schema.LATEST
+
+
 def _as_version(c, version: int) -> None:
     """Make a current database look as Postgres schema ``version`` left it: 1 is 0.2.0's (no lookup tables, no
     message-ID indexes on the list tables), 2 adds the lookup tables (QV-113), 3 the message-ID indexes (QV-118),
-    4 the tenant rollup (QV-128); 5 partitions the lookup tables (QV-127)."""
+    4 the tenant rollup (QV-128); 5 partitions the lookup tables (QV-127); 6 adds the probes of trailbeam
+    doctor (QV-148)."""
+    if version < 6:
+        c.execute("DROP TABLE probes")
     if version < 5:
         for t, cols in (("mid_places", 'mid TEXT COLLATE "C" NOT NULL'),
                         ("hash_places", "receipt_hmac TEXT NOT NULL, key_id TEXT NOT NULL")):
@@ -834,7 +842,7 @@ def test_version_3_indexes_the_list_tables_place_by_place(pg_store):
     for attempt in range(2):
         again = PostgresStore(s.url, bucket_ns=SEC)
         try:
-            assert again.migrated == [3, 4, 5]
+            assert again.migrated == [3, 4, 5, 6]
             with again.ingest.connection() as c:
                 parts = _list_partitions(c)
                 assert len(parts["message_queues"]) == 11 + attempt  # 12 places less the dropped one, + "after-0"
@@ -842,7 +850,7 @@ def test_version_3_indexes_the_list_tables_place_by_place(pg_store):
                 assert all(r["indisvalid"] for r in c.execute(
                     """SELECT indisvalid FROM pg_index WHERE indexrelid IN
                        ('message_queues_mid'::regclass, 'message_tenants_mid'::regclass, 'tenant_events_mid'::regclass)"""))
-                assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == [1, 2, 3, 4, 5]
+                assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == list(range(1, pg_schema_latest() + 1))
                 if attempt == 0:  # as if stopped before recording 3: 3, 4 and 5 run again
                     c.execute("DELETE FROM schema_version WHERE version >= 3")
             again.insert(records([Consumer().send(T0 + 100 * SEC, f"after-{attempt}")]))
@@ -1075,7 +1083,7 @@ def test_version_4_builds_the_rollup_place_by_place(pg_store):
         _as_version(c, 3)
     again = PostgresStore(s.url, bucket_ns=HOUR_MS * 10 ** 6)
     try:
-        assert again.migrated == [4, 5]
+        assert again.migrated == [4, 5, 6]
         assert [_rollup_page(again, a, b) for a, b in ranges] == want
         with again.ingest.connection() as c:
             assert c.execute("SELECT * FROM tenant_events ORDER BY rclass, bucket, at_ms, mid, seq").fetchall() == events
@@ -1319,7 +1327,7 @@ def test_version_5_partitions_the_lookup_tables_place_by_place(pg_store, tmp_pat
                          "AND relnamespace = current_schema()::regnamespace").fetchone()["relkind"] == "r"
     again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
     try:
-        assert again.migrated == [5]
+        assert again.migrated == [5, 6]
         with again.ingest.connection() as c:
             assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
             assert c.execute("SELECT to_regclass('mid_places_v4') AS t").fetchone()["t"] is None
