@@ -161,8 +161,13 @@ const msg: MessageSummary = {
 test("the message list", () => {
   const html = renderToStaticMarkup(createElement(MessagesTable, { messages: [msg], href: (id: string) => `/message?id=${id}`, extra: { title: "Age", cell: (m: MessageSummary) => fmtAge(m.age_s) } }));
   const t = text(html);
-  for (const s of ["m-2", "not deleted", "orders-dlq (DLQ, from orders)", "3 (0 ok)", "orders-worker", "2026-11-16 18:05:37.429 SQS's clock", "2026-11-16 18:06:00", "Age", "7 min"]) assert.ok(t.includes(s), `missing ${s}: ${t}`);
+  for (const s of ["m-2", "not deleted", "orders-dlq (DLQ, from orders)", "3 · 0 handled", "orders-worker", "2026-11-16 18:05:37.429 SQS's clock", "2026-11-16 18:06:00", "Age", "7 min"]) assert.ok(t.includes(s), `missing ${s}: ${t}`);
   assert.ok(html.includes('href="/message?id=m-2"'));
+  assert.ok(t.includes("Receives") && !t.includes("Deliveries") && !t.includes(" ok)"));
+  assert.match(html, /<th title="How many times SQS returned this message from ReceiveMessage\. Handled: a receive that ended in a delete or a successful Lambda record\."/);
+  assert.match(html, /<span class="text-warning-text">3<\/span>/, "a message received more than once is marked");
+  const once = renderToStaticMarkup(createElement(MessagesTable, { messages: [{ ...msg, deliveries: 1, successful_deliveries: 1 }], href: (id: string) => id }));
+  assert.ok(!once.includes("text-warning-text") && text(once).includes("1 · 1 handled"));
   assert.equal(fmtTime(null), null);
   assert.deepEqual([fmtAge(30), fmtAge(600), fmtAge(9000), fmtAge(200_000), fmtAge(null)], ["30 s", "10 min", "2.5 h", "2.3 days", "?"]);
 });

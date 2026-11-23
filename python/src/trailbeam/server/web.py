@@ -107,7 +107,7 @@ ul.waterfall>li{margin:.3rem 0 !important}
 .track .bar.window{background:repeating-linear-gradient(135deg,#e7b866,#e7b866 4px,#f6dfb4 4px,#f6dfb4 8px)}
 .notice{background:#fff4d6;border:1px solid #e6c25c;padding:.5rem .8rem;margin:.4rem 0;border-radius:3px}
 .error{background:#fde2e2;border:1px solid #d98c8c;padding:.6rem .9rem;border-radius:3px}
-.muted{color:#6b7385}form.filters{margin:.6rem 0 1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
+.muted{color:#6b7385}.repeat{color:#a35a00;font-weight:600}form.filters{margin:.6rem 0 1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
 footer{color:#6b7385;font-size:.8em;padding:1rem 1.2rem}
 """
 
@@ -184,7 +184,7 @@ def _message(api, q: dict) -> Response:
         parts.append(_dd("Dead-letter queue", escape(DLQ_MOVE_LABELS.get(t["dead_letter_queue_move"],
                                                                          t["dead_letter_queue_move"]))))
     parts.append(_dd("Send observed", "yes" if t.get("send_observed") else "no"))
-    parts.append(_dd("Deliveries", f'{t["deliveries"]} ({t["successful_deliveries"]} successful)'))
+    parts.append(_dd("Receives", f'{t["deliveries"]} ({t["successful_deliveries"]} handled)'))
     parts.append(_dd("First seen", _first_seen(t)))
     parts.append(_dd("Last seen", _time(t.get("last_seen"))))
     parts.append("</dl>")
@@ -503,10 +503,21 @@ def _consumer(c: dict) -> str:
     return " ".join(bits[:1]) + (f' ({", ".join(bits[1:])})' if len(bits) > 1 else "")
 
 
+RECEIVES_TITLE = ("How many times SQS returned this message from ReceiveMessage. Handled: a receive that ended in "
+                  "a delete or a successful Lambda record.")
+
+
+def _receives(m: dict) -> str:
+    """``2 · 1 handled``; the count is marked when the message was received more than once."""
+    n = m["deliveries"]
+    count = f'<span class="repeat">{n}</span>' if n > 1 else str(n)
+    return f'{count} <span class="muted">· {m["successful_deliveries"]} handled</span>'
+
+
 def _summary_table(messages: list[dict], *, empty: str, extra: Optional[tuple] = None) -> str:
     if not messages:
         return f'<p class="muted empty">{escape(empty)}</p>'
-    cols = ["Message ID", "State", "Queue", "Deliveries", "Consumers", "First seen", "Last seen"]
+    cols = ["Message ID", "State", "Queue", "Receives", "Consumers", "First seen", "Last seen"]
     if extra:
         cols.append(extra[0])
     rows = []
@@ -520,12 +531,13 @@ def _summary_table(messages: list[dict], *, empty: str, extra: Optional[tuple] =
                               + (f' <span class="muted">{escape(str(c["client_id"]))}</span>' if c.get("client_id") else "")
                               for c in m.get("consumers", []))
         cells = [f'<a class="mono" href="/message?{escape(urlencode({"id": m["message_id"]}))}">{escape(m["message_id"])}</a>',
-                 _state(m["state"]), queue, f'{m["deliveries"]} ({m["successful_deliveries"]} ok)', consumers,
+                 _state(m["state"]), queue, _receives(m), consumers,
                  _first_seen(m, short=True), _time(m.get("last_seen"))]
         if extra:
             cells.append(extra[1](m))
         rows.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
-    return ("<table><thead><tr>" + "".join(f"<th>{escape(c)}</th>" for c in cols) + "</tr></thead><tbody>"
+    return ("<table><thead><tr>" + "".join(
+        f'<th title="{escape(RECEIVES_TITLE)}">{escape(c)}</th>' if c == "Receives" else f"<th>{escape(c)}</th>" for c in cols) + "</tr></thead><tbody>"
             + "".join(rows) + "</tbody></table>")
 
 
