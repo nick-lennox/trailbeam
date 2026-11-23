@@ -82,3 +82,14 @@ test("between steps there is only the rail, and the record keeps the order evide
     assert.ok(page.includes(`After ${vc.id} (the visibility change on delivery 1)`), "the record names the visibility change in full");
   }
 });
+
+test("the default-key notice is drawn once in the card, with the command as code and a link to why", () => {
+  const t: Timeline = { ...timelines[0], notices: [{ code: "default_key", message:
+    "These spans use the package's built-in receipt-hash key, which anyone can read in the source. Generate one key with `openssl rand -hex 32` and set it as `TRAILBEAM_RECEIPT_HASH_KEY` on every service that uses these queues." }] };
+  const html = render(t);
+  assert.equal(html.split("built-in receipt-hash key").length - 1, 1, "one copy of the notice");
+  assert.match(html, /<code[^>]*>openssl rand -hex 32<\/code>/);
+  assert.match(html, /<code[^>]*>TRAILBEAM_RECEIPT_HASH_KEY<\/code>/);
+  assert.ok(!html.includes("`"), "no literal backticks");
+  assert.match(html, /href="https:\/\/github.com\/nick-lennox\/trailbeam#add-it-to-your-services"[^>]*>Why the key matters</);
+});
