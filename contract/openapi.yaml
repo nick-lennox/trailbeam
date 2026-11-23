@@ -688,6 +688,7 @@ paths:
   /api/probes/{probe_id}:
     get:
       operationId: get-probe
+      x-example-request: /api/probes/doctor-3f2a9c1e0b7d4e55
       tags: [Server]
       summary: Read back a test span
       description: |
@@ -1291,6 +1292,17 @@ components:
       properties:
         type: {const: sent}
         batch_entry_id: {type: string, description: The entry's ID in a batch call.}
+        deduplicated:
+          const: true
+          description: >-
+            Present only on a send SQS deduplicated: on a FIFO queue (name ending `.fifo`), a send of a
+            message ID after its first send there. SQS returned the earlier send's MessageId and enqueued
+            nothing, so the step is not another message, and the Tenants page does not count it as sent.
+        reason:
+          type: string
+          description: >-
+            With `deduplicated`: "SQS returned the same MessageId: this send was deduplicated and enqueued
+            nothing".
     ReceivedStep:
       allOf: [{$ref: '#/components/schemas/RecordedStep'}]
       description: One delivery of the message, from `ReceiveMessage` or a Lambda event.
@@ -1308,6 +1320,11 @@ components:
           allOf: [{$ref: '#/components/schemas/Timestamp'}]
           description: 'SQS''s `ApproximateFirstReceiveTimestamp`.'
         first_receive_timestamp_ms: {type: integer, description: '`ApproximateFirstReceiveTimestamp` in Unix milliseconds.'}
+        dlq_source_arn:
+          type: string
+          description: >-
+            SQS's `DeadLetterQueueSourceArn`: on a receive from a dead-letter queue, the ARN of the queue SQS
+            moved the message from. Absent on every other receive.
     DeletedStep:
       allOf: [{$ref: '#/components/schemas/RecordedStep'}]
       description: A `DeleteMessage` or one entry of a `DeleteMessageBatch`.

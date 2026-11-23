@@ -2574,6 +2574,7 @@
        "source": "client"
       },
       "delivery": 3,
+      "dlq_source_arn": "arn:aws:sqs:us-east-1:123456789012:payments",
       "end": "2026-11-16T18:05:37.425000Z",
       "end_unix_nano": "1794852337425000000",
       "first_receive_timestamp": "2026-11-16T18:05:36.919000Z",
@@ -5766,6 +5767,7 @@
        "source": "client"
       },
       "delivery": 3,
+      "dlq_source_arn": "arn:aws:sqs:us-east-1:123456789012:payments",
       "end": "2026-11-16T18:05:37.425000Z",
       "end_unix_nano": "1794852337425000000",
       "first_receive_timestamp": "2026-11-16T18:05:36.919000Z",
@@ -8036,6 +8038,7 @@
        "thread_name": "worker-1"
       },
       "delivery": 4,
+      "dlq_source_arn": "arn:aws:sqs:us-east-1:000000000000:orders",
       "end": "2025-11-14T00:29:50.000000Z",
       "end_unix_nano": "1763080190000000000",
       "group": 4,

@@ -1,5 +1,5 @@
-"""The tables of people and tokens (users and roles, phase 1; proposal on QV-149, section 7): SQLite schema 14,
-Postgres schema 7.
+"""The tables of people and tokens (users and roles, phase 1; proposal on QV-149, section 7): SQLite schema 15,
+Postgres schema 8.
 
 - ``users``: a person. ``email`` is the sign-in name, unique ignoring case (``COLLATE NOCASE`` in SQLite, a
   unique index on ``lower(email)`` in Postgres). ``role`` is ``admin`` or ``member``; it has no CHECK, so a
