@@ -8,6 +8,22 @@ export function consumersOf(t: Timeline): string[] {
   return [...new Set(t.events.flatMap((e) => (e.type === "received" && e.consumer.service_name ? [e.consumer.service_name] : [])))];
 }
 
+/**
+  Why a message received twice was received again: receive 1 released with ChangeMessageVisibility to 0,
+  or its visibility timeout expired. Null when the timeline shows neither, so the headline stays as it was.
+*/
+function againFor(t: Timeline): string | null {
+  if (t.deliveries !== 2) return null;
+  const second = t.events.find((e) => e.type === "received" && e.delivery === 2);
+  const name = second?.type === "received" ? second.consumer.service_name : undefined;
+  const by = name ? ` by ${name}` : "";
+  const released = t.events.some((e) => e.type === "visibility_changed" && e.delivery === 1 && e.result === "ok" && e.visibility_timeout_s === 0);
+  if (released) return `Released with ChangeMessageVisibility after receive 1, received again${by} and deleted.`;
+  const expired = t.events.some((e) => e.type === "visibility_timeout_expired" && e.after_delivery === 1);
+  if (expired) return `The visibility timeout expired during receive 1; received again${by} and deleted.`;
+  return null;
+}
+
 /** The one sentence at the top of a timeline: what happened to the message, from the timeline itself. */
 export function answerFor(t: Timeline): string {
   const consumers = consumersOf(t);
@@ -15,7 +31,9 @@ export function answerFor(t: Timeline): string {
   const n = t.deliveries;
   if (t.in_dead_letter_queue) return `Moved to the dead-letter queue ${t.current_queue} after ${plural(n, "receive")}.`;
   if (t.dead_letter_queue_move === "not_seen_on_dlq_yet") return `Received ${plural(n, "time")}, more than its queue's maxReceiveCount. Not seen on the dead-letter queue yet.`;
-  if (t.state === "deleted") return n === 1 ? `Received once${by} and deleted.` : `Received ${plural(n, "time")}${by}, then deleted.`;
+  if (t.state === "deleted") return n === 1
+      ? `Received once${by} and deleted.`
+      : againFor(t) ?? `Received ${plural(n, "time")}${by}, then deleted.`;
   if (t.state === "deleted_inferred") return n === 1 ? `Handled once${by}. The Lambda trigger deleted it.` : `Received ${plural(n, "time")}${by}. The last invocation succeeded, so the Lambda trigger deleted it.`;
   if (t.state === "processing") return `Being handled${by} now.`;
   if (n === 0) return `Sent to ${t.source_queue} and not received yet.`;
