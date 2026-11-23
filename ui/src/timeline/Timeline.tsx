@@ -483,8 +483,8 @@ export function NoticeText({ n }: { n: Notice }) {
 const STATE_WORDS: Record<Timeline["state"], string> = {
   deleted: "Deleted",
   deleted_inferred: "Deleted (inferred)",
-  processing: "Being handled",
-  not_deleted: "Not deleted",
+  processing: "Being handled (inferred)",
+  not_deleted: "No delete seen",
 };
 
 export function TimelineView({ t, answer, openSteps = [] }: { t: Timeline; answer: string; openSteps?: string[] }) {
@@ -509,7 +509,7 @@ export function TimelineView({ t, answer, openSteps = [] }: { t: Timeline; answe
     for (const m of members) earlier.add(m.id);
   }
   const s = t.scope;
-  const stateTone = t.in_dead_letter_queue || t.state === "not_deleted" ? "text-lost" : t.state === "processing" ? "text-ember" : "text-trail";
+  const stateTone = t.in_dead_letter_queue ? "text-lost" : t.state === "not_deleted" || t.state === "processing" ? "text-ember" : "text-trail";
 
   return (
     <article className="font-serif text-sky-ink">

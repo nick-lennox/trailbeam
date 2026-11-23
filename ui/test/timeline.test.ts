@@ -121,6 +121,37 @@ test("the default-key notice is drawn once in the card, with the command as code
   assert.match(html, /href="https:\/\/github.com\/nick-lennox\/trailbeam#add-it-to-your-services"[^>]*>Why the key matters</);
 });
 
+// QV-247: the summary and the state say no more than the timeline shows.
+const two = timelines.find((t) => t.deliveries === 2)!;
+const received = two.events.filter((e) => e.type === "received");
+
+test("a dead-lettered message counts its receives on the source queue, not the receive from the DLQ", () => {
+  const dlqReceive = { ...received[1], id: "dlq", queue: "orders-dlq", delivery: 3 } as TimelineEvent;
+  const moved = { ...two, source_queue: two.source_queue, current_queue: "orders-dlq", in_dead_letter_queue: true, dead_letter_queue_move: "observed" as const,
+    deliveries: 3, events: [...two.events, dlqReceive] };
+  assert.equal(answerFor(moved), `Moved to the dead-letter queue orders-dlq after 2 observed receives on ${two.source_queue}.`);
+  const none = { ...moved, events: [dlqReceive], deliveries: 1 };
+  assert.equal(answerFor(none), `Moved from ${two.source_queue} to the dead-letter queue orders-dlq. No receive on ${two.source_queue} was observed.`);
+});
+
+test("maxReceiveCount reached: the DLQ move is marked inferred, and the last receive may still delete it", () => {
+  const t = { ...two, state: "not_deleted" as const, dead_letter_queue_move: "not_seen_on_dlq_yet" as const };
+  const a = answerFor(t);
+  assert.equal(a, "SQS's receive count reached its queue's maxReceiveCount. Unless the last receive deletes it, SQS moves it to the dead-letter queue (inferred); not seen there yet.");
+  assert.doesNotMatch(a, /more than/);
+});
+
+test("no delete yet is not drawn as lost; being handled is marked inferred", () => {
+  const open = { ...two, state: "not_deleted" as const, in_dead_letter_queue: false, dead_letter_queue_move: null };
+  assert.match(answerFor(open), /^Received 2 times by .+\. No delete seen yet\.$/);
+  const html = render(open);
+  assert.ok(html.includes('<span class="text-ember">No delete seen</span>') && !html.includes("Not deleted"), "amber, not the red of a lost message");
+  const busy = { ...open, state: "processing" as const };
+  assert.match(answerFor(busy), /^Probably being handled by .+ now \(inferred\): the Lambda invocation has no outcome yet and started less than the Lambda timeout ago\.$/);
+  assert.ok(render(busy).includes('<span class="text-ember">Being handled (inferred)</span>'));
+  const dead = { ...open, in_dead_letter_queue: true };
+  assert.ok(render(dead).includes('<span class="text-lost">No delete seen, in the DLQ</span>'), "a message in the DLQ stays red");
+
 test("a FIFO send SQS deduplicated says so, with the reason, and is not another plain send (QV-246)", () => {
   const base = { inferred: false, group: 0, start: null, start_observed: false, queue: "py-fifo.fifo",
     consumer: { service_name: "orders-api" }, after: [], process_order: null };
