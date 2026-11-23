@@ -7,11 +7,21 @@
   (a receive that ended in a delete or a successful Lambda record). Cells read `2 · 1 handled` instead of
   `2 (1 ok)`, and the count is Ember when the message was received more than once, so that row stands out. The
   timeline summary says **Receives** `2 (1 handled)` too, on the UI and the no-script pages (QV-209).
+- **`trailbeam doctor`: why no data is arriving.** It checks, in plain lines, that the server answers, that the
+  ingest port accepts connections, that the token is accepted, that a test span sent now is stored and read
+  back, and when the last real span arrived. Each failed check prints the likely cause and the fix, and the exit
+  code is 1 when one fails. By default it uses the address and token `trailbeam start` created
+  ([README](README.md#troubleshooting-no-data-arriving)). The test span is a *probe* (span contract section 17):
+  the server stores it apart from the spans (new table `probes`: SQLite schema 13, Postgres schema 6, both
+  applied on start), so it never shows as a message or in a count, and reads it back at
+  `GET /api/probes/{id}` (at most 8 probes an export, in one write). `GET /api/health` also gives `data.last_span_ns`, the time of the span stored last.
+  A server of 0.3 or before rejects the probe; `trailbeam doctor` says so and the other checks still run.
+  Once upgraded, a SQLite file can no longer be opened by 0.3.0, which refuses it at start (restore a backup to go back).
 - **Upgrading from 0.3.0 is checked in CI.** A new job starts 0.3.0 (the PyPI package, and the published image),
   stores 1,200 messages' spans, then runs this version on the same SQLite file, volume or Postgres database. It
   checks that every timeline, list and tenant count reads as before, that messages in flight across the upgrade
-  are joined, that the token and sessions keep working, and that 0.3.0 then refuses a Postgres database it can't
-  read ([Upgrading](README.md#upgrading)).
+  are joined, that the token and sessions keep working, and that 0.3.0 then refuses the upgraded SQLite file or
+  Postgres database, which it can't read ([Upgrading](README.md#upgrading)).
 - **`trailbeam start` on an existing database says what its new token and key change.** On a data directory with
   only a 0.3.0 SQLite file (0.3.0 had no `start`), `start` makes a token and a receipt-hash key, as on a first
   run. Now it also logs a warning: with the token on, services that send without it are refused (401); the
