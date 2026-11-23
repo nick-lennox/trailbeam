@@ -158,7 +158,7 @@ test('ReceiveMessage: asks for the tenant attribute; body, tenant and FIFO field
   }, ON);
   const input = { QueueUrl: FIFO_URL, MessageAttributeNames: ['trace'] };
   await client.send(new S.ReceiveMessageCommand(input));
-  assert.deepStrictEqual(calls[0].input.MessageAttributeNames, ['trace', 'tenant', 'ExtendedPayloadSize', 'SQSLargePayloadSize']);
+  assert.deepStrictEqual(calls[0].input.MessageAttributeNames, ['trace', 'tenant', 'ExtendedPayloadSize', 'SQSLargePayloadSize', 'trailbeam.publish_id']);
   assert.deepStrictEqual(input.MessageAttributeNames, ['trace'], 'caller input not mutated');
   const a = spans('trailbeam receive')[0].attributes;
   assert.strictEqual(a['trailbeam.body'], 'mail [REDACTED]');
@@ -192,7 +192,7 @@ test('S3 pointer: exported unredacted, offloaded size from the send request and 
 });
 
 test('ReceiveMessage: All or .* already asks for every message attribute', async (t) => {
-  for (const names of [['All'], ['.*'], ['tenant', 'ExtendedPayloadSize', 'SQSLargePayloadSize']]) {
+  for (const names of [['All'], ['.*'], ['tenant', 'ExtendedPayloadSize', 'SQSLargePayloadSize', 'trailbeam.publish_id']]) {
     const { client, calls } = setup(t, {}, ON);
     await client.send(new S.ReceiveMessageCommand({ QueueUrl: URL, MessageAttributeNames: names }));
     assert.deepStrictEqual(calls[0].input.MessageAttributeNames, names);

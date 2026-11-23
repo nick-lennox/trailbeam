@@ -152,6 +152,11 @@ class LambdaRecorder {
         debug('content attributes', e);
         attrs['trailbeam.body.capture_status'] = capture.STATUS_REDACTION_FAILED;
       }
+      try { // 3.4 (section 20.3): the SNS publish this record came from
+        Object.assign(attrs, capture.snsReceiveAttrs(this.config, name, r.body, r.messageAttributes, true));
+      } catch (e) {
+        debug('SNS receive attributes', e);
+      }
       this.emitter.emit(SPAN_RECEIVE, OPERATION, name, url, attrs, { parentContext, endTime: t, startObserved: false, order: { returned } });
     }
     await this.flush();
@@ -259,7 +264,7 @@ function wrapHandler(handler, options = {}) {
   const recorder = new LambdaRecorder(provider, emitter, {
     flushTimeoutMs: options.flushTimeoutMs !== undefined ? options.flushTimeoutMs : DEFAULT_FLUSH_TIMEOUT_MS,
     reportBatchItemFailures: options.reportBatchItemFailures !== undefined ? options.reportBatchItemFailures : true,
-    config: capture.resolveConfig(options.tenant, options.capture),
+    config: capture.resolveConfig(options.tenant, options.capture, options.sns),
   });
   // Two declared parameters, so the Lambda runtime treats the wrapper as an async handler.
   const wrapped = async function trailbeamWrappedHandler(event, context, ...rest) {

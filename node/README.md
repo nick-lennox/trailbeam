@@ -208,14 +208,40 @@ the span says why in `trailbeam.body.capture_status`. The package never makes an
 A self-hosted Trailbeam stores the body only if the queue is also in its own `TRAILBEAM_STORE_BODIES`
 ([Message bodies](../README.md#message-bodies)).
 
+### SNS fan-out
+
+Contract section 20. Pass an `SNSClient` to `instrument` too: each `Publish` and `PublishBatch` to a topic records
+a `trailbeam publish` span with the SNS message ID, and a receive of the message on a subscribed queue is joined to
+it. Two ways the join works:
+
+- **Raw delivery on**: the middleware adds one message attribute, `trailbeam.publish_id`, to each published message,
+  on a copy of your input. It skips a message that already has 10 attributes (with raw delivery on, SNS would drop
+  it), would pass 256 KiB, or uses `MessageStructure: 'json'`, and the span says why in
+  `trailbeam.sns.publish_id_skipped`.
+- **Raw delivery off**: the SQS body is SNS's envelope. The receive reads its `MessageId`, `TopicArn` and
+  `Timestamp` (nothing else) on queues whose body is captured, and on queues you list:
+
+```js
+const { SNSClient } = require('@aws-sdk/client-sns');
+trailbeam.install({
+  sns: {
+    inject: true,                // add trailbeam.publish_id to publishes    (TRAILBEAM_SNS_INJECT=off turns it off)
+    envelopeQueues: ['orders'],  // read the three envelope fields, or '*'   (TRAILBEAM_SNS_ENVELOPE_QUEUES)
+  },
+});
+const sns = trailbeam.instrument(new SNSClient({}));
+```
+
+`wrapHandler(fn, { sns })` takes the same options for its receives.
+
 The Node.js package does not set `thread.name` (contract section 3).
 
 ## API reference
 
 | Export | Effect |
 |---|---|
-| `install({ receiptHashKey, spanExporter, spanProcessor })` | Creates the client hooks for this realm and returns the Trailbeam `BasicTracerProvider`. A second call replaces the first and shuts down its provider. All options are optional. |
-| `instrument(client)` | Adds the middleware `trailbeamSqsMiddleware` to an AWS SDK v3 client and returns the client. Calls `install()` first if needed. Throws `TypeError` if the argument has no middleware stack. |
+| `install({ receiptHashKey, spanExporter, spanProcessor, tenant, capture, sns })` | Creates the client hooks for this realm and returns the Trailbeam `BasicTracerProvider`. A second call replaces the first and shuts down its provider. All options are optional. |
+| `instrument(client)` | Adds the middleware `trailbeamSqsMiddleware` to an AWS SDK v3 `SQSClient` or `SNSClient` and returns the client. Calls `install()` first if needed. Throws `TypeError` if the argument has no middleware stack. |
 | `uninstall()` | Turns the hooks off on every instrumented client, then flushes and shuts down the provider. Returns a promise. |
 | `forceFlush()` | Exports the client-hook spans that are waiting. Returns a promise. |
 | `wrapHandler(handler, { receiptHashKey, spanExporter, spanProcessor, flushTimeoutMs = 2000, reportBatchItemFailures = true })` | Returns an async Lambda handler with a `trailbeamTracerProvider` property. Throws `TypeError` if `handler` is not a function. |

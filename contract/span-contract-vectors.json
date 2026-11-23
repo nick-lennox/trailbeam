@@ -475,5 +475,868 @@
         ]
       }
     ]
+  },
+  "sns": {
+    "description": "Test vectors for contract/span-contract.md section 20 (revision 3.4): SNS fan-out. 'timestamps': [envelope Timestamp, epoch ms or null]. 'receive': one received message on a queue whose SNS envelope is read ('envelope_on') or not; 'message_attributes' are in ReceiveMessage form (a Lambda record has the same with 'stringValue' / 'dataType'); a receive span must carry exactly 'attributes' among the trailbeam.sns.* names. 'inject': one Publish ('entries' has one item, the request) or PublishBatch call; 'results' gives, per entry, 'injected' (the entry gets a trailbeam.publish_id String attribute, a UUID, and the span the same value) or the trailbeam.sns.publish_id_skipped reason; the caller's objects must not change. 'publish': whole spans for calls with injection off: each package must emit one span per item of 'spans', in order, whose attributes include exactly those, carry every name in 'present' and none in 'absent'. A 'Message' written as {\"repeat\": c, \"times\": n} stands for the string c repeated n times.",
+    "publish_id_attribute": "trailbeam.publish_id",
+    "max_attributes": 10,
+    "max_message_bytes": 262144,
+    "timestamps": [
+      [
+        "2021-02-16T21:41:19.978Z",
+        1613511679978
+      ],
+      [
+        "2012-05-02T00:54:06.655Z",
+        1335920046655
+      ],
+      [
+        "2026-11-23T20:46:14Z",
+        1795466774000
+      ],
+      [
+        "2026-11-23T20:46:14.1Z",
+        1795466774100
+      ],
+      [
+        "2026-11-23T20:46:14.123456789Z",
+        1795466774123
+      ],
+      [
+        "2026-11-23T20:46:14.9999Z",
+        1795466774999
+      ],
+      [
+        "2024-02-29T00:00:00.000Z",
+        1709164800000
+      ],
+      [
+        "2023-02-29T00:00:00.000Z",
+        null
+      ],
+      [
+        "2026-13-01T00:00:00.000Z",
+        null
+      ],
+      [
+        "2026-11-23T24:00:00.000Z",
+        null
+      ],
+      [
+        "2026-11-23T23:59:60.000Z",
+        null
+      ],
+      [
+        "1969-12-31T23:59:59.999Z",
+        null
+      ],
+      [
+        "0099-01-01T00:00:00.000Z",
+        null
+      ],
+      [
+        "2026-11-23T20:46:14.978+00:00",
+        null
+      ],
+      [
+        "2026-11-23 20:46:14.978Z",
+        null
+      ],
+      [
+        "2026-11-23T20:46:14.Z",
+        null
+      ],
+      [
+        "1613511679978",
+        null
+      ],
+      [
+        "",
+        null
+      ]
+    ],
+    "receive": [
+      {
+        "name": "envelope on a queue whose envelope is read",
+        "envelope_on": true,
+        "body": "{\n  \"Type\": \"Notification\",\n  \"MessageId\": \"dc1e94d9-56c5-5e96-808d-cc7f68faa162\",\n  \"TopicArn\": \"arn:aws:sns:us-east-2:111122223333:orders-topic\",\n  \"Subject\": \"TestSubject\",\n  \"Message\": \"{\\\"customer\\\":{\\\"email\\\":\\\"a@example.com\\\"}}\",\n  \"Timestamp\": \"2021-02-16T21:41:19.978Z\",\n  \"SignatureVersion\": \"1\",\n  \"Signature\": \"EXAMPLE==\",\n  \"SigningCertURL\": \"https://sns.us-east-2.amazonaws.com/SimpleNotificationService-x.pem\",\n  \"UnsubscribeURL\": \"https://sns.us-east-2.amazonaws.com/?Action=Unsubscribe\"\n}",
+        "message_attributes": null,
+        "attributes": {
+          "trailbeam.sns.message_id": "dc1e94d9-56c5-5e96-808d-cc7f68faa162",
+          "trailbeam.sns.topic_arn": "arn:aws:sns:us-east-2:111122223333:orders-topic",
+          "trailbeam.sns.timestamp_ms": 1613511679978
+        }
+      },
+      {
+        "name": "envelope not read: nothing from the body",
+        "envelope_on": false,
+        "body": "{\n  \"Type\": \"Notification\",\n  \"MessageId\": \"dc1e94d9-56c5-5e96-808d-cc7f68faa162\",\n  \"TopicArn\": \"arn:aws:sns:us-east-2:111122223333:orders-topic\",\n  \"Subject\": \"TestSubject\",\n  \"Message\": \"{\\\"customer\\\":{\\\"email\\\":\\\"a@example.com\\\"}}\",\n  \"Timestamp\": \"2021-02-16T21:41:19.978Z\",\n  \"SignatureVersion\": \"1\",\n  \"Signature\": \"EXAMPLE==\",\n  \"SigningCertURL\": \"https://sns.us-east-2.amazonaws.com/SimpleNotificationService-x.pem\",\n  \"UnsubscribeURL\": \"https://sns.us-east-2.amazonaws.com/?Action=Unsubscribe\"\n}",
+        "message_attributes": null,
+        "attributes": {}
+      },
+      {
+        "name": "raw delivery: the publish ID from the message attribute, whatever the queue",
+        "envelope_on": false,
+        "body": "{\"order\": 42}",
+        "message_attributes": {
+          "trailbeam.publish_id": {
+            "DataType": "String",
+            "StringValue": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4"
+          }
+        },
+        "attributes": {
+          "trailbeam.sns.publish_id": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4"
+        }
+      },
+      {
+        "name": "envelope and publish ID together",
+        "envelope_on": true,
+        "body": "{\n  \"Type\": \"Notification\",\n  \"MessageId\": \"dc1e94d9-56c5-5e96-808d-cc7f68faa162\",\n  \"TopicArn\": \"arn:aws:sns:us-east-2:111122223333:orders-topic\",\n  \"Subject\": \"TestSubject\",\n  \"Message\": \"{\\\"customer\\\":{\\\"email\\\":\\\"a@example.com\\\"}}\",\n  \"Timestamp\": \"2021-02-16T21:41:19.978Z\",\n  \"SignatureVersion\": \"1\",\n  \"Signature\": \"EXAMPLE==\",\n  \"SigningCertURL\": \"https://sns.us-east-2.amazonaws.com/SimpleNotificationService-x.pem\",\n  \"UnsubscribeURL\": \"https://sns.us-east-2.amazonaws.com/?Action=Unsubscribe\"\n}",
+        "message_attributes": {
+          "trailbeam.publish_id": {
+            "DataType": "String",
+            "StringValue": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4"
+          }
+        },
+        "attributes": {
+          "trailbeam.sns.message_id": "dc1e94d9-56c5-5e96-808d-cc7f68faa162",
+          "trailbeam.sns.topic_arn": "arn:aws:sns:us-east-2:111122223333:orders-topic",
+          "trailbeam.sns.timestamp_ms": 1613511679978,
+          "trailbeam.sns.publish_id": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4"
+        }
+      },
+      {
+        "name": "envelope without a valid Timestamp keeps the other two fields",
+        "envelope_on": true,
+        "body": "{\n  \"Type\": \"Notification\",\n  \"MessageId\": \"dc1e94d9-56c5-5e96-808d-cc7f68faa162\",\n  \"TopicArn\": \"arn:aws:sns:us-east-2:111122223333:orders-topic\",\n  \"Subject\": \"TestSubject\",\n  \"Message\": \"{\\\"customer\\\":{\\\"email\\\":\\\"a@example.com\\\"}}\",\n  \"Timestamp\": \"yesterday\",\n  \"SignatureVersion\": \"1\",\n  \"Signature\": \"EXAMPLE==\",\n  \"SigningCertURL\": \"https://sns.us-east-2.amazonaws.com/SimpleNotificationService-x.pem\",\n  \"UnsubscribeURL\": \"https://sns.us-east-2.amazonaws.com/?Action=Unsubscribe\"\n}",
+        "message_attributes": null,
+        "attributes": {
+          "trailbeam.sns.message_id": "dc1e94d9-56c5-5e96-808d-cc7f68faa162",
+          "trailbeam.sns.topic_arn": "arn:aws:sns:us-east-2:111122223333:orders-topic"
+        }
+      },
+      {
+        "name": "FIFO topic ARN",
+        "envelope_on": true,
+        "body": "{\n  \"Type\": \"Notification\",\n  \"MessageId\": \"dc1e94d9-56c5-5e96-808d-cc7f68faa162\",\n  \"TopicArn\": \"arn:aws:sns:eu-west-1:111122223333:orders.fifo\",\n  \"Subject\": \"TestSubject\",\n  \"Message\": \"{\\\"customer\\\":{\\\"email\\\":\\\"a@example.com\\\"}}\",\n  \"Timestamp\": \"2021-02-16T21:41:19.978Z\",\n  \"SignatureVersion\": \"1\",\n  \"Signature\": \"EXAMPLE==\",\n  \"SigningCertURL\": \"https://sns.us-east-2.amazonaws.com/SimpleNotificationService-x.pem\",\n  \"UnsubscribeURL\": \"https://sns.us-east-2.amazonaws.com/?Action=Unsubscribe\"\n}",
+        "message_attributes": null,
+        "attributes": {
+          "trailbeam.sns.message_id": "dc1e94d9-56c5-5e96-808d-cc7f68faa162",
+          "trailbeam.sns.topic_arn": "arn:aws:sns:eu-west-1:111122223333:orders.fifo",
+          "trailbeam.sns.timestamp_ms": 1613511679978
+        }
+      },
+      {
+        "name": "GovCloud partition",
+        "envelope_on": true,
+        "body": "{\n  \"Type\": \"Notification\",\n  \"MessageId\": \"dc1e94d9-56c5-5e96-808d-cc7f68faa162\",\n  \"TopicArn\": \"arn:aws-us-gov:sns:us-gov-west-1:111122223333:t\",\n  \"Subject\": \"TestSubject\",\n  \"Message\": \"{\\\"customer\\\":{\\\"email\\\":\\\"a@example.com\\\"}}\",\n  \"Timestamp\": \"2021-02-16T21:41:19.978Z\",\n  \"SignatureVersion\": \"1\",\n  \"Signature\": \"EXAMPLE==\",\n  \"SigningCertURL\": \"https://sns.us-east-2.amazonaws.com/SimpleNotificationService-x.pem\",\n  \"UnsubscribeURL\": \"https://sns.us-east-2.amazonaws.com/?Action=Unsubscribe\"\n}",
+        "message_attributes": null,
+        "attributes": {
+          "trailbeam.sns.message_id": "dc1e94d9-56c5-5e96-808d-cc7f68faa162",
+          "trailbeam.sns.topic_arn": "arn:aws-us-gov:sns:us-gov-west-1:111122223333:t",
+          "trailbeam.sns.timestamp_ms": 1613511679978
+        }
+      },
+      {
+        "name": "not a Notification",
+        "envelope_on": true,
+        "body": "{\n  \"Type\": \"SubscriptionConfirmation\",\n  \"MessageId\": \"dc1e94d9-56c5-5e96-808d-cc7f68faa162\",\n  \"TopicArn\": \"arn:aws:sns:us-east-2:111122223333:orders-topic\",\n  \"Subject\": \"TestSubject\",\n  \"Message\": \"{\\\"customer\\\":{\\\"email\\\":\\\"a@example.com\\\"}}\",\n  \"Timestamp\": \"2021-02-16T21:41:19.978Z\",\n  \"SignatureVersion\": \"1\",\n  \"Signature\": \"EXAMPLE==\",\n  \"SigningCertURL\": \"https://sns.us-east-2.amazonaws.com/SimpleNotificationService-x.pem\",\n  \"UnsubscribeURL\": \"https://sns.us-east-2.amazonaws.com/?Action=Unsubscribe\"\n}",
+        "message_attributes": null,
+        "attributes": {}
+      },
+      {
+        "name": "missing MessageId",
+        "envelope_on": true,
+        "body": "{\n  \"Type\": \"Notification\",\n  \"TopicArn\": \"arn:aws:sns:us-east-2:111122223333:orders-topic\",\n  \"Subject\": \"TestSubject\",\n  \"Message\": \"{\\\"customer\\\":{\\\"email\\\":\\\"a@example.com\\\"}}\",\n  \"Timestamp\": \"2021-02-16T21:41:19.978Z\",\n  \"SignatureVersion\": \"1\",\n  \"Signature\": \"EXAMPLE==\",\n  \"SigningCertURL\": \"https://sns.us-east-2.amazonaws.com/SimpleNotificationService-x.pem\",\n  \"UnsubscribeURL\": \"https://sns.us-east-2.amazonaws.com/?Action=Unsubscribe\"\n}",
+        "message_attributes": null,
+        "attributes": {}
+      },
+      {
+        "name": "MessageId with other characters",
+        "envelope_on": true,
+        "body": "{\n  \"Type\": \"Notification\",\n  \"MessageId\": \"a b\",\n  \"TopicArn\": \"arn:aws:sns:us-east-2:111122223333:orders-topic\",\n  \"Subject\": \"TestSubject\",\n  \"Message\": \"{\\\"customer\\\":{\\\"email\\\":\\\"a@example.com\\\"}}\",\n  \"Timestamp\": \"2021-02-16T21:41:19.978Z\",\n  \"SignatureVersion\": \"1\",\n  \"Signature\": \"EXAMPLE==\",\n  \"SigningCertURL\": \"https://sns.us-east-2.amazonaws.com/SimpleNotificationService-x.pem\",\n  \"UnsubscribeURL\": \"https://sns.us-east-2.amazonaws.com/?Action=Unsubscribe\"\n}",
+        "message_attributes": null,
+        "attributes": {}
+      },
+      {
+        "name": "TopicArn of another service",
+        "envelope_on": true,
+        "body": "{\n  \"Type\": \"Notification\",\n  \"MessageId\": \"dc1e94d9-56c5-5e96-808d-cc7f68faa162\",\n  \"TopicArn\": \"arn:aws:sqs:us-east-2:111122223333:orders\",\n  \"Subject\": \"TestSubject\",\n  \"Message\": \"{\\\"customer\\\":{\\\"email\\\":\\\"a@example.com\\\"}}\",\n  \"Timestamp\": \"2021-02-16T21:41:19.978Z\",\n  \"SignatureVersion\": \"1\",\n  \"Signature\": \"EXAMPLE==\",\n  \"SigningCertURL\": \"https://sns.us-east-2.amazonaws.com/SimpleNotificationService-x.pem\",\n  \"UnsubscribeURL\": \"https://sns.us-east-2.amazonaws.com/?Action=Unsubscribe\"\n}",
+        "message_attributes": null,
+        "attributes": {}
+      },
+      {
+        "name": "TopicArn not a string",
+        "envelope_on": true,
+        "body": "{\n  \"Type\": \"Notification\",\n  \"MessageId\": \"dc1e94d9-56c5-5e96-808d-cc7f68faa162\",\n  \"TopicArn\": 7,\n  \"Subject\": \"TestSubject\",\n  \"Message\": \"{\\\"customer\\\":{\\\"email\\\":\\\"a@example.com\\\"}}\",\n  \"Timestamp\": \"2021-02-16T21:41:19.978Z\",\n  \"SignatureVersion\": \"1\",\n  \"Signature\": \"EXAMPLE==\",\n  \"SigningCertURL\": \"https://sns.us-east-2.amazonaws.com/SimpleNotificationService-x.pem\",\n  \"UnsubscribeURL\": \"https://sns.us-east-2.amazonaws.com/?Action=Unsubscribe\"\n}",
+        "message_attributes": null,
+        "attributes": {}
+      },
+      {
+        "name": "EventBridge envelope",
+        "envelope_on": true,
+        "body": "{\"version\": \"0\", \"id\": \"e1\", \"detail-type\": \"Order\", \"source\": \"shop\", \"detail\": {}}",
+        "message_attributes": null,
+        "attributes": {}
+      },
+      {
+        "name": "a JSON array",
+        "envelope_on": true,
+        "body": "[\"Notification\"]",
+        "message_attributes": null,
+        "attributes": {}
+      },
+      {
+        "name": "text that mentions \"Notification\"",
+        "envelope_on": true,
+        "body": "a \"Notification\" for you",
+        "message_attributes": null,
+        "attributes": {}
+      },
+      {
+        "name": "publish ID with other characters is ignored",
+        "envelope_on": false,
+        "body": "x",
+        "message_attributes": {
+          "trailbeam.publish_id": {
+            "DataType": "String",
+            "StringValue": "a/b"
+          }
+        },
+        "attributes": {}
+      },
+      {
+        "name": "publish ID longer than 64 characters is ignored",
+        "envelope_on": false,
+        "body": "x",
+        "message_attributes": {
+          "trailbeam.publish_id": {
+            "DataType": "String",
+            "StringValue": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        "attributes": {}
+      },
+      {
+        "name": "publish ID that is not a String value is ignored",
+        "envelope_on": false,
+        "body": "x",
+        "message_attributes": {
+          "trailbeam.publish_id": {
+            "DataType": "Binary",
+            "BinaryValue": "eA=="
+          }
+        },
+        "attributes": {}
+      }
+    ],
+    "inject": [
+      {
+        "name": "one Publish",
+        "inject": true,
+        "entries": [
+          {
+            "Message": "hello"
+          }
+        ],
+        "results": [
+          "injected"
+        ]
+      },
+      {
+        "name": "injection off",
+        "inject": false,
+        "entries": [
+          {
+            "Message": "hello"
+          }
+        ],
+        "results": [
+          "off"
+        ]
+      },
+      {
+        "name": "MessageStructure json: SNS sends no attributes",
+        "inject": true,
+        "entries": [
+          {
+            "Message": "{\"default\":\"x\"}",
+            "MessageStructure": "json"
+          }
+        ],
+        "results": [
+          "json_structure"
+        ]
+      },
+      {
+        "name": "nine attributes: room for one more",
+        "inject": true,
+        "entries": [
+          {
+            "Message": "m",
+            "MessageAttributes": {
+              "a0": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a1": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a2": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a3": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a4": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a5": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a6": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a7": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a8": {
+                "DataType": "String",
+                "StringValue": "v"
+              }
+            }
+          }
+        ],
+        "results": [
+          "injected"
+        ]
+      },
+      {
+        "name": "ten attributes: SNS would drop the message on raw delivery",
+        "inject": true,
+        "entries": [
+          {
+            "Message": "m",
+            "MessageAttributes": {
+              "a0": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a1": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a2": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a3": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a4": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a5": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a6": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a7": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a8": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a9": {
+                "DataType": "String",
+                "StringValue": "v"
+              }
+            }
+          }
+        ],
+        "results": [
+          "attribute_limit"
+        ]
+      },
+      {
+        "name": "a publish ID the caller carried over is replaced, not counted",
+        "inject": true,
+        "entries": [
+          {
+            "Message": "m",
+            "MessageAttributes": {
+              "a0": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a1": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a2": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a3": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a4": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a5": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a6": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a7": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a8": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "trailbeam.publish_id": {
+                "DataType": "String",
+                "StringValue": "carried-over"
+              }
+            }
+          }
+        ],
+        "results": [
+          "injected"
+        ]
+      },
+      {
+        "name": "fits the size limit exactly",
+        "inject": true,
+        "entries": [
+          {
+            "Message": {
+              "repeat": "x",
+              "times": 262082
+            }
+          }
+        ],
+        "results": [
+          "injected"
+        ]
+      },
+      {
+        "name": "one byte over the size limit",
+        "inject": true,
+        "entries": [
+          {
+            "Message": {
+              "repeat": "x",
+              "times": 262083
+            }
+          }
+        ],
+        "results": [
+          "size_limit"
+        ]
+      },
+      {
+        "name": "Subject and attribute names, types and values count toward the size",
+        "inject": true,
+        "entries": [
+          {
+            "Message": {
+              "repeat": "x",
+              "times": 262067
+            },
+            "Subject": "ab",
+            "MessageAttributes": {
+              "name": {
+                "DataType": "String",
+                "StringValue": "val"
+              }
+            }
+          }
+        ],
+        "results": [
+          "injected"
+        ]
+      },
+      {
+        "name": "the same, one byte more",
+        "inject": true,
+        "entries": [
+          {
+            "Message": {
+              "repeat": "x",
+              "times": 262068
+            },
+            "Subject": "ab",
+            "MessageAttributes": {
+              "name": {
+                "DataType": "String",
+                "StringValue": "val"
+              }
+            }
+          }
+        ],
+        "results": [
+          "size_limit"
+        ]
+      },
+      {
+        "name": "UTF-8 bytes, not characters",
+        "inject": true,
+        "entries": [
+          {
+            "Message": {
+              "repeat": "é",
+              "times": 131042
+            }
+          }
+        ],
+        "results": [
+          "size_limit"
+        ]
+      },
+      {
+        "name": "PublishBatch: each entry decided on its own",
+        "inject": true,
+        "entries": [
+          {
+            "Id": "1",
+            "Message": "a"
+          },
+          {
+            "Id": "2",
+            "Message": "b",
+            "MessageAttributes": {
+              "a0": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a1": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a2": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a3": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a4": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a5": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a6": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a7": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a8": {
+                "DataType": "String",
+                "StringValue": "v"
+              },
+              "a9": {
+                "DataType": "String",
+                "StringValue": "v"
+              }
+            }
+          },
+          {
+            "Id": "3",
+            "Message": "c",
+            "MessageStructure": "json"
+          }
+        ],
+        "results": [
+          "injected",
+          "attribute_limit",
+          "json_structure"
+        ]
+      },
+      {
+        "name": "PublishBatch: the batch shares one size limit",
+        "inject": true,
+        "entries": [
+          {
+            "Id": "1",
+            "Message": {
+              "repeat": "x",
+              "times": 131010
+            }
+          },
+          {
+            "Id": "2",
+            "Message": {
+              "repeat": "x",
+              "times": 131011
+            }
+          }
+        ],
+        "results": [
+          "size_limit",
+          "size_limit"
+        ]
+      },
+      {
+        "name": "PublishBatch that fits with both IDs",
+        "inject": true,
+        "entries": [
+          {
+            "Id": "1",
+            "Message": {
+              "repeat": "x",
+              "times": 131010
+            }
+          },
+          {
+            "Id": "2",
+            "Message": {
+              "repeat": "x",
+              "times": 131010
+            }
+          }
+        ],
+        "results": [
+          "injected",
+          "injected"
+        ]
+      }
+    ],
+    "publish": {
+      "present": [
+        "messaging.client.id",
+        "process.pid",
+        "trailbeam.order.scope",
+        "trailbeam.order.issued",
+        "trailbeam.order.returned"
+      ],
+      "absent": [
+        "aws.sqs.queue.url",
+        "trailbeam.sns.publish_id",
+        "trailbeam.receipt_handle.hmac",
+        "trailbeam.start_observed"
+      ],
+      "cases": [
+        {
+          "name": "Publish",
+          "operation": "Publish",
+          "request": {
+            "TopicArn": "arn:aws:sns:us-east-2:111122223333:orders-topic",
+            "Message": "hello"
+          },
+          "response": {
+            "MessageId": "11111111-1111-4111-8111-111111111111"
+          },
+          "spans": [
+            {
+              "trailbeam.schema_version": 3,
+              "trailbeam.kind": "sns.publish",
+              "trailbeam.source": "client",
+              "messaging.system.name": "aws.sns",
+              "messaging.operation.type": "send",
+              "messaging.operation.name": "Publish",
+              "messaging.destination.name": "orders-topic",
+              "aws.sns.topic.arn": "arn:aws:sns:us-east-2:111122223333:orders-topic",
+              "messaging.message.id": "11111111-1111-4111-8111-111111111111",
+              "messaging.message.body.size": 5,
+              "trailbeam.sns.publish_id_skipped": "off"
+            }
+          ]
+        },
+        {
+          "name": "Publish to a FIFO topic",
+          "operation": "Publish",
+          "request": {
+            "TopicArn": "arn:aws:sns:us-east-2:111122223333:orders.fifo",
+            "Message": "hé",
+            "MessageGroupId": "g1",
+            "MessageDeduplicationId": "d1"
+          },
+          "response": {
+            "MessageId": "m-fifo",
+            "SequenceNumber": "10000000000000003000"
+          },
+          "spans": [
+            {
+              "trailbeam.schema_version": 3,
+              "trailbeam.kind": "sns.publish",
+              "trailbeam.source": "client",
+              "messaging.system.name": "aws.sns",
+              "messaging.operation.type": "send",
+              "messaging.operation.name": "Publish",
+              "messaging.destination.name": "orders.fifo",
+              "aws.sns.topic.arn": "arn:aws:sns:us-east-2:111122223333:orders.fifo",
+              "messaging.message.id": "m-fifo",
+              "messaging.message.body.size": 3,
+              "trailbeam.message_group_id": "g1",
+              "trailbeam.sequence_number": "10000000000000003000",
+              "trailbeam.sns.publish_id_skipped": "off"
+            }
+          ]
+        },
+        {
+          "name": "Publish with MessageStructure json has no body size",
+          "operation": "Publish",
+          "request": {
+            "TopicArn": "arn:aws:sns:us-east-2:111122223333:orders-topic",
+            "Message": "{\"default\":\"x\"}",
+            "MessageStructure": "json"
+          },
+          "response": {
+            "MessageId": "m-json"
+          },
+          "spans": [
+            {
+              "trailbeam.schema_version": 3,
+              "trailbeam.kind": "sns.publish",
+              "trailbeam.source": "client",
+              "messaging.system.name": "aws.sns",
+              "messaging.operation.type": "send",
+              "messaging.operation.name": "Publish",
+              "messaging.destination.name": "orders-topic",
+              "aws.sns.topic.arn": "arn:aws:sns:us-east-2:111122223333:orders-topic",
+              "messaging.message.id": "m-json",
+              "trailbeam.sns.publish_id_skipped": "off"
+            }
+          ]
+        },
+        {
+          "name": "Publish to a phone number: no span",
+          "operation": "Publish",
+          "request": {
+            "PhoneNumber": "+15555550100",
+            "Message": "hi"
+          },
+          "response": {
+            "MessageId": "m-sms"
+          },
+          "spans": []
+        },
+        {
+          "name": "Publish to a mobile endpoint: no span",
+          "operation": "Publish",
+          "request": {
+            "TargetArn": "arn:aws:sns:us-east-2:111122223333:endpoint/APNS/app/1",
+            "Message": "hi"
+          },
+          "response": {
+            "MessageId": "m-push"
+          },
+          "spans": []
+        },
+        {
+          "name": "Publish that failed: no span",
+          "operation": "Publish",
+          "request": {
+            "TopicArn": "arn:aws:sns:us-east-2:111122223333:orders-topic",
+            "Message": "hello"
+          },
+          "response": {
+            "Error": {
+              "Code": "NotFound"
+            }
+          },
+          "spans": []
+        },
+        {
+          "name": "PublishBatch: one span per Successful entry, matched by Id",
+          "operation": "PublishBatch",
+          "request": {
+            "TopicArn": "arn:aws:sns:us-east-2:111122223333:orders-topic",
+            "PublishBatchRequestEntries": [
+              {
+                "Id": "a",
+                "Message": "1"
+              },
+              {
+                "Id": "b",
+                "Message": "22"
+              },
+              {
+                "Id": "c",
+                "Message": "333"
+              }
+            ]
+          },
+          "response": {
+            "Successful": [
+              {
+                "Id": "c",
+                "MessageId": "m-c"
+              },
+              {
+                "Id": "a",
+                "MessageId": "m-a"
+              }
+            ],
+            "Failed": [
+              {
+                "Id": "b",
+                "Code": "InternalError",
+                "SenderFault": false
+              }
+            ]
+          },
+          "spans": [
+            {
+              "trailbeam.schema_version": 3,
+              "trailbeam.kind": "sns.publish",
+              "trailbeam.source": "client",
+              "messaging.system.name": "aws.sns",
+              "messaging.operation.type": "send",
+              "messaging.operation.name": "PublishBatch",
+              "messaging.destination.name": "orders-topic",
+              "aws.sns.topic.arn": "arn:aws:sns:us-east-2:111122223333:orders-topic",
+              "messaging.message.id": "m-c",
+              "trailbeam.batch_entry_id": "c",
+              "messaging.message.body.size": 3,
+              "trailbeam.sns.publish_id_skipped": "off"
+            },
+            {
+              "trailbeam.schema_version": 3,
+              "trailbeam.kind": "sns.publish",
+              "trailbeam.source": "client",
+              "messaging.system.name": "aws.sns",
+              "messaging.operation.type": "send",
+              "messaging.operation.name": "PublishBatch",
+              "messaging.destination.name": "orders-topic",
+              "aws.sns.topic.arn": "arn:aws:sns:us-east-2:111122223333:orders-topic",
+              "messaging.message.id": "m-a",
+              "trailbeam.batch_entry_id": "a",
+              "messaging.message.body.size": 1,
+              "trailbeam.sns.publish_id_skipped": "off"
+            }
+          ]
+        }
+      ]
+    }
   }
 }

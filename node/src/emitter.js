@@ -9,7 +9,7 @@ const { detectResources, envDetector, resourceFromAttributes } = require('@opent
 const { version } = require('./version');
 const order = require('./order');
 const { CountingSpanProcessor } = require('./export');
-const { DEFAULT_ENDPOINT, ENDPOINT_ENV, KINDS, SCHEMA_VERSION, SCOPE_NAME } = require('./contract');
+const { DEFAULT_ENDPOINT, ENDPOINT_ENV, KINDS, SCHEMA_VERSION, SCOPE_NAME, SYSTEMS } = require('./contract');
 
 const SERVICE_NAME = 'service.name';
 const SERVICE_INSTANCE_ID = 'service.instance.id';
@@ -91,7 +91,7 @@ class Emitter {
       'trailbeam.schema_version': SCHEMA_VERSION,
       'trailbeam.kind': kind,
       'trailbeam.source': this.source,
-      'messaging.system.name': 'aws.sqs',
+      'messaging.system.name': SYSTEMS[name] || 'aws.sqs',
       'messaging.operation.type': opType,
       'messaging.operation.name': operation,
       'process.pid': process.pid,

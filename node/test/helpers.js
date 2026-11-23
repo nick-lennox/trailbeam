@@ -11,11 +11,11 @@ function memoryExporter() {
 /**
  * An SQSClient that never touches the network. `respond(operation, input)` returns the command
  * output or throws. Requests are serialized as usual first; `calls` records each operation with
- * the input the SDK actually sent.
+ * the input the SDK actually sent. `service: 'sns'` makes an SNSClient instead.
  */
-function stubClient(respond) {
-  const { SQSClient } = require('@aws-sdk/client-sqs');
-  const client = new SQSClient({
+function stubClient(respond, { service = 'sqs' } = {}) {
+  const Client = service === 'sns' ? require('@aws-sdk/client-sns').SNSClient : require('@aws-sdk/client-sqs').SQSClient;
+  const client = new Client({
     region: 'us-east-1',
     endpoint: 'http://localhost:9324',
     credentials: { accessKeyId: 'test', secretAccessKey: 'test' },

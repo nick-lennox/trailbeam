@@ -22,6 +22,24 @@ export interface InstallOptions {
    * $TRAILBEAM_CAPTURE_* and $TRAILBEAM_REDACT_* variables. Off unless a queue is listed.
    */
   capture?: CaptureOptions;
+  /**
+   * SNS fan-out (contract section 20). Replaces $TRAILBEAM_SNS_INJECT and $TRAILBEAM_SNS_ENVELOPE_QUEUES.
+   */
+  sns?: SnsOptions;
+}
+
+export interface SnsOptions {
+  /**
+   * Add a `trailbeam.publish_id` message attribute to each SNS Publish / PublishBatch to a topic, so a
+   * receive with raw delivery on can be joined to its publish. Default true. Skipped for a message that
+   * already has 10 attributes, would pass 262,144 bytes, or uses `MessageStructure: 'json'`.
+   */
+  inject?: boolean;
+  /**
+   * Queue names, or `*`, whose SNS envelope MessageId, TopicArn and Timestamp are read when the body is
+   * not captured. Queues in `capture.bodyQueues` always are. Nothing else in the body is exported.
+   */
+  envelopeQueues?: string[];
 }
 
 export interface TenantOptions {
@@ -46,7 +64,7 @@ export interface CaptureOptions {
   maxBodyBytes?: number;
 }
 
-/** Anything with an AWS SDK v3 middleware stack, normally an `SQSClient`. */
+/** Anything with an AWS SDK v3 middleware stack, normally an `SQSClient` or an `SNSClient`. */
 export interface SdkV3Client {
   middlewareStack: { add(middleware: unknown, options: unknown): void };
 }
@@ -56,7 +74,7 @@ export interface SdkV3Client {
  * Calling it again replaces the previous installation.
  */
 export declare function install(options?: InstallOptions): BasicTracerProvider;
-/** Add the Trailbeam hooks to an SQSClient. Installs with defaults first if needed. Returns the client. */
+/** Add the Trailbeam hooks to an SQSClient or SNSClient. Installs with defaults first if needed. Returns the client. */
 export declare function instrument<C extends SdkV3Client>(client: C): C;
 /** Turn the client hooks off, then flush and shut down the Trailbeam tracer provider. */
 export declare function uninstall(): Promise<void>;
