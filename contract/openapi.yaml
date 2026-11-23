@@ -688,6 +688,7 @@ paths:
   /api/probes/{probe_id}:
     get:
       operationId: get-probe
+      x-example-request: /api/probes/doctor-3f2a9c1e0b7d4e55
       tags: [Server]
       summary: Read back a test span
       description: |

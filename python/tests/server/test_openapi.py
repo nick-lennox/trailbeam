@@ -36,6 +36,7 @@ FIXTURE = Path(__file__).resolve().parents[3] / "contract" / "fixtures" / "contr
 EXPORTS = json.loads(FIXTURE.read_text())["exports"]
 TOKEN = "openapi-test-token-0123456789abcdef"
 MID = "m-bill-1"  # a message in the fixture
+PROBE_ID = "doctor-3f2a9c1e0b7d4e55"  # the probe in get-probe's 200 example
 
 # Paths the server matches by name that are not part of the API the file describes, so not in it: the
 # Prometheus text on /metrics, and the token login pages. Every other GET path outside /api/ is the web
@@ -97,6 +98,10 @@ def load_fixture(base, token=None):
     # {path parameter} route has something stored under MID
     status, _, _ = request(base, "POST", "/v1/traces", doctor.probe_export(MID), {"Content-Type": "application/json", **h})
     assert status == 200, "probe"
+    # and the one get-probe's 200 example and x-example-request name
+    status, _, _ = request(base, "POST", "/v1/traces", doctor.probe_export(PROBE_ID),
+                           {"Content-Type": "application/json", **h})
+    assert status == 200, "example probe"
 
 
 @pytest.fixture
@@ -173,6 +178,22 @@ def test_every_x_example_request_answers_200_on_the_fixture(fixture_server, reco
             asked += 1
     assert asked >= 9
     assert not record_api_responses.problems
+
+
+def test_every_operation_with_a_path_parameter_has_an_x_example_request():
+    """docs.trailbeam.app's generator refuses one without: it cannot write the example's request (QV-287)."""
+    missing = [op.key for op in contract().ops if op.n_params and not op.op.get("x-example-request")]
+    assert not missing, missing
+
+
+def test_get_probe_example_is_the_answer_to_its_x_example_request(fixture_server):
+    """The ID in the 200 example is the one its x-example-request asks for, and the server answers with it."""
+    op = next(o for o in contract().ops if o.op.get("operationId") == "get-probe")
+    example = op.op["responses"]["200"]["content"]["application/json"]["example"]
+    assert op.op["x-example-request"] == f"/api/probes/{example['data']['id']}"
+    status, _, body = request(fixture_server, "GET", op.op["x-example-request"])
+    assert status == 200
+    assert json.loads(body)["data"]["id"] == example["data"]["id"]
 
 
 # ---- the checker catches what it must -------------------------------------------------------------------
