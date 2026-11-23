@@ -8,6 +8,7 @@
 
 const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
+const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 
@@ -141,7 +142,7 @@ function dockerArgs(argv, { env = process.env, image = (env.TRAILBEAM_IMAGE || '
     if (name.startsWith('TRAILBEAM_') && !NOT_PASSED.has(name)) args.push('-e', name);
   }
   args.push(image, 'start', '--data-dir', '/data', ...passed, ...rest);
-  return { args, env: childEnv };
+  return { args, env: childEnv, host, port: Number(port) };
 }
 
 /** null when Docker answers, else the one line to print. `run` is spawnSync, replaceable in tests. */
@@ -159,6 +160,22 @@ function dockerProblem(run = spawnSync, env = process.env) {
   }
   return 'trailbeam: Docker is installed but not running: start Docker Desktop (or the Docker service: '
     + 'sudo systemctl start docker), then run npx trailbeam start again.';
+}
+
+/** Resolves to null when host:port is free here, else the one line to print. Docker would otherwise fail to
+ * publish the port with its own message; 4318 is the standard OTLP/HTTP port, so an OpenTelemetry Collector,
+ * Jaeger or another OTLP receiver often holds it. Other errors resolve to null: docker reports those. */
+function portProblem(host, port) {
+  return new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once('error', (e) => {
+      if (e.code !== 'EADDRINUSE') { resolve(null); return; }
+      const other = port < 65535 ? port + 1 : port - 1;
+      resolve(`trailbeam: port ${port} on ${host} is already in use (another OTLP receiver?). Stop it or run `
+        + `npx trailbeam start --port ${other} and set TRAILBEAM_OTLP_TRACES_ENDPOINT to match.`);
+    });
+    srv.listen({ host, port, exclusive: true }, () => srv.close(() => resolve(null)));
+  });
 }
 
 function main(argv = process.argv.slice(2)) {
@@ -182,6 +199,14 @@ function main(argv = process.argv.slice(2)) {
   }
   const problem = dockerProblem();
   if (problem) { console.error(problem); return 1; }
+  portProblem(plan.host, plan.port).then((taken) => {
+    if (taken) { console.error(taken); process.exitCode = 2; return; }
+    run(plan);
+  });
+  return undefined;
+}
+
+function run(plan) {
   const child = spawn('docker', plan.args, { env: plan.env, stdio: 'inherit' });
   // Ctrl-C reaches docker too (same process group), and docker passes it to the server, which stops cleanly:
   // wait for that instead of exiting first. A signal sent to this process only is passed on.
@@ -189,10 +214,9 @@ function main(argv = process.argv.slice(2)) {
   for (const sig of ['SIGTERM', 'SIGHUP']) process.on(sig, () => child.kill(sig));
   child.on('error', (e) => { console.error(`trailbeam: can't run docker: ${e.message}`); process.exit(1); });
   child.on('exit', (code, signal) => process.exit(code === null ? (signal === 'SIGINT' ? 130 : 1) : code));
-  return undefined;
 }
 
-module.exports = { parseArgs, dockerArgs, dockerProblem, main, IMAGE, VOLUME, UsageError };
+module.exports = { parseArgs, dockerArgs, dockerProblem, portProblem, main, IMAGE, VOLUME, UsageError };
 
 if (require.main === module) {
   const code = main();
