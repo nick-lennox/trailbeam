@@ -76,7 +76,8 @@
   restored server serves a consistent moment and that deletes sent after the restore join receives from before it
   (`python/smoke/backup_restore_check.py`).
 - **The UI no longer says more than the data shows.** A message in its dead-letter queue now counts only the
-  receives on its source queue ("after 2 observed receives on orders", not "after 3 receives"). maxReceiveCount
+  receives on its source queue ("after 2 observed receives on orders", not "after 3 receives"); 0.4.0 counted
+  the receive from the dead-letter queue too, so with maxReceiveCount 3 it said "after 4 receives" (QV-341). maxReceiveCount
   reads "reached", not "more than", and the move it predicts is marked inferred. A receive with no delete yet
   reads "No delete seen" in amber rather than a red "Not deleted". "Being handled" is marked inferred. The
   Receives tooltip, the Tenants p95 note, the Stuck age note and the body tab's "not opted in" text say what
