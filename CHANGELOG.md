@@ -24,6 +24,28 @@
   - **Changed:** with neither a token nor an ingest token, the server now warns at every start that ingest is
     open, also when it listens only on localhost.
   - Creating people and tokens from the command line comes with `trailbeam users` and `trailbeam tokens`.
+
+- **Java package, stage 1** (QV-319, pre-release, not published). `java/` is a jar for the AWS SDK for Java v2:
+  add it as a dependency and a global `ExecutionInterceptor` (registered through the SDK's classpath file, no code)
+  emits the contract's send, receive, delete, change-visibility and purge spans, with the keyed receipt-handle
+  hash, receive count, dead-letter source ARN, per-entry results, call-order ticks, body size and FIFO fields. It
+  has its own always-on tracer provider with a relocated OpenTelemetry SDK (1.4 MB jar). The parent comes from the
+  stock instrumentation's trace header, so interceptor order doesn't matter. A hand registration on top of the
+  global one emits each span once. A Java driver for the conformance kit passes it in CI alone, beside the
+  OpenTelemetry Java agent 2.34.0 (also sampled to 0) and beside dd-java-agent 1.69.1. Not yet built: body capture
+  and tenants, the Lambda wrapper, the SDK version matrix, a strict parent check for the agent variants, and
+  Maven Central.
+
+- **Conformance kit for Trailbeam packages** (QV-318, stage 1). `conformance/` runs a language package's small
+  driver through one scripted scenario (send, batch send, receive, delete, batch delete with a failed entry,
+  visibility-timeout retry, dead-letter move, ChangeMessageVisibility and its batch form, a failing delete,
+  PurgeQueue) against ElasticMQ, collects its spans through an OpenTelemetry Collector, and checks them against
+  the span contract with no per-language logic: one span per message, required attributes and types, the
+  receipt-handle HMAC recomputed from the driver's ground truth, call-order ticks, no handle or key exported.
+  Each driver runs alone, beside the application's own OpenTelemetry, with the application's sampler at 0, and
+  with body capture on; agents are configured per variant. A failing package gets a report per call. The Python
+  and Node.js packages pass it in CI. The Lambda wrapper (through the Runtime Interface Emulator) is stage 2.
+
 - **Purged messages no longer show as stuck** (QV-245, contract revision 3.3). The Python and Node.js packages
   record `PurgeQueue` calls (a `trailbeam purge` span, `trailbeam.kind = sqs.purge`, contract section 18), and
   the server stores them per queue (SQLite: no schema change; Postgres: schema 9, a `purges` table). A message
