@@ -27,6 +27,10 @@ sorted keys, bodies removed per ``store_bodies``), and these, which the Store se
 - ``body_dropped``: ``'not_opted_in'`` when the span carried a body for a queue not in ``store_bodies``.
 
 **Messages.** Only rows with a ``mid`` belong to a message. A message's time is its spans' ``time_ns``.
+
+**Purges** (contract section 18, revision 3.3). A ``purge`` record (a ``PurgeQueue`` call) belongs to no message:
+SQS does not say which messages it deleted. A Store keeps it with its queue and times (``purges``) and drops it by
+its own time against its queue's cutoff, like an unjoined settle span; what it means for a message is purge.py.
 """
 from __future__ import annotations
 
@@ -203,7 +207,16 @@ class Store(abc.ABC):
         on SQS's clock: ``on_sqs_clock``), else the earliest send or receive time. Messages with neither a send
         nor a receive are not listed. Ties: by message ID. Final:
         an accepted delete whose ``receive_row`` is the message's latest receive (by time_ns, then row), or a
-        ``success`` outcome with that receive's ``faas_invocation_id``."""
+        ``success`` outcome with that receive's ``faas_invocation_id``.
+
+        Purged messages are not listed (purge.py): those with a purge record of ``result = 'ok'`` on their summary's
+        ``current_queue`` whose ``start_ns`` is after the summary's ``last_ns``. Possibly purged ones are."""
+
+    def purges(self, queues) -> list[Row]:
+        """The purge records (contract section 18) stored for these queues, every column of purge.COLUMNS, by
+        (time_ns, row); ``row`` is unique among purges. Few: one per PurgeQueue call. Not abstract, so a store
+        written before revision 3.3 still loads: by default, none."""
+        return []
 
     @abc.abstractmethod
     def summaries(self, message_ids: list[str]) -> list[Summary]:

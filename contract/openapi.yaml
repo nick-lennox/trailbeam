@@ -1017,8 +1017,39 @@ components:
         Where the message stands. `deleted`: a final delete was recorded. `deleted_inferred`: the
         Lambda invocation for the latest receive reported `success`, so Lambda deletes the message.
         `processing`: the latest receive is a Lambda receive with no outcome yet, within the Lambda
-        timeout. `not_deleted`: none of these.
-      enum: [deleted, deleted_inferred, processing, not_deleted]
+        timeout. `purged`: a recorded `PurgeQueue` call that SQS accepted on the message's queue started
+        after the message's newest step ended, so SQS removed it (contract section 18); `purge` says which
+        call. `not_deleted`: none of these.
+      enum: [deleted, deleted_inferred, purged, processing, not_deleted]
+    Purge:
+      type: object
+      description: |
+        The recorded `PurgeQueue` call that removed the message (`status` `purged`, and `state` is `purged`)
+        or may have (`possibly_purged`: the message's newest step ended during the purge or within 60 s after
+        it, when SQS may still delete messages; `state` is unchanged). Left out for a message that was deleted,
+        or that no recorded purge applies to. Contract section 18.
+      additionalProperties: false
+      required: [status, queue, start, end, window_end, span]
+      properties:
+        status: {type: string, enum: [purged, possibly_purged]}
+        queue: {type: string, description: The purged queue.}
+        start:
+          allOf: [{$ref: '#/components/schemas/Timestamp'}]
+          description: When the `PurgeQueue` request was sent.
+        end:
+          allOf: [{$ref: '#/components/schemas/Timestamp'}]
+          description: When its response arrived.
+        window_end:
+          allOf: [{$ref: '#/components/schemas/Timestamp'}]
+          description: 60 s after `end`. SQS says a purge takes up to 60 seconds.
+        span:
+          type: object
+          description: The `trailbeam purge` span.
+          additionalProperties: false
+          required: [trace_id, span_id]
+          properties:
+            trace_id: {type: string}
+            span_id: {type: string}
     MessageSummary:
       type: object
       description: One message in a list.
@@ -1058,6 +1089,7 @@ components:
         last_seen:
           allOf: [{$ref: '#/components/schemas/Timestamp'}]
           description: The end of the message's newest span.
+        purge: {$ref: '#/components/schemas/Purge'}
     MessagePage:
       type: object
       additionalProperties: false
@@ -1147,6 +1179,7 @@ components:
         last_seen:
           allOf: [{$ref: '#/components/schemas/Timestamp'}]
           description: The end of the message's newest span.
+        purge: {$ref: '#/components/schemas/Purge'}
         concurrent_groups: {type: integer, description: The number of groups with more than one step.}
         groups:
           type: array
@@ -1186,6 +1219,7 @@ components:
         - $ref: '#/components/schemas/DeletedStep'
         - $ref: '#/components/schemas/VisibilityChangedStep'
         - $ref: '#/components/schemas/LambdaOutcomeStep'
+        - $ref: '#/components/schemas/QueuePurgedStep'
         - $ref: '#/components/schemas/MovedToDeadLetterQueueStep'
         - $ref: '#/components/schemas/VisibilityTimeoutExpiredStep'
         - $ref: '#/components/schemas/DeliveriesNotObservedStep'
@@ -1199,6 +1233,7 @@ components:
           deleted: '#/components/schemas/DeletedStep'
           visibility_changed: '#/components/schemas/VisibilityChangedStep'
           lambda_outcome: '#/components/schemas/LambdaOutcomeStep'
+          queue_purged: '#/components/schemas/QueuePurgedStep'
           moved_to_dead_letter_queue: '#/components/schemas/MovedToDeadLetterQueueStep'
           visibility_timeout_expired: '#/components/schemas/VisibilityTimeoutExpiredStep'
           deliveries_not_observed: '#/components/schemas/DeliveriesNotObservedStep'
@@ -1357,6 +1392,26 @@ components:
         error_type: {type: string, description: The type of the error the handler raised.}
         error_message: {type: string, description: 'The error''s message, redacted by the package. Present only for queues with error text turned on.'}
         delivery: {type: integer, description: The delivery the invocation received. Left out when its receive is not stored.}
+    QueuePurgedStep:
+      allOf: [{$ref: '#/components/schemas/RecordedStep'}]
+      description: |
+        A recorded `PurgeQueue` call on the message's queue (contract section 18), shown when it removed the
+        message or may have (`purge` on the timeline). The call is recorded; that it deleted this message is
+        not: SQS does not say which messages a purge deleted.
+      unevaluatedProperties: false
+      required: [source, result, removal, reason]
+      properties:
+        type: {const: queue_purged}
+        source: {type: string, const: purge_queue, description: 'A queue-level step: the span names no message.'}
+        result: {type: string, const: ok, description: Only purges SQS accepted are shown on a message.}
+        removal:
+          type: string
+          description: |
+            `per_sqs_documentation`: the purge started after the message's newest step ended; SQS's
+            documentation says a purge deletes every message in the queue. `possible`: the message's newest
+            step ended during the purge or within 60 s after it, and SQS may or may not have deleted it.
+          enum: [per_sqs_documentation, possible]
+        reason: {type: string, description: The same in words.}
     PlacedStep:
       type: object
       description: The fields of every step that has no span. It has a time window instead of a time.
@@ -1588,6 +1643,7 @@ components:
                 delete: {type: integer}
                 change_visibility: {type: integer}
                 outcome: {type: integer}
+                purge: {type: integer, description: '`PurgeQueue` calls (contract section 18). They belong to no message.'}
             messages: {type: integer, description: Distinct message IDs.}
             unjoined_settles: {type: integer, description: Delete and visibility-change spans not joined to a receive.}
     Health:

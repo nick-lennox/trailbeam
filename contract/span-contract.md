@@ -863,25 +863,25 @@ purged" (checked 2026-11-23). So a successful purge removes every message that w
 remove messages that arrive within 60 seconds of its end. Trailbeam calls that span of time, from the call's
 start to 60 seconds after its end, the purge's **window**.
 
-**How Trailbeam reads it.** Only `trailbeam.result = ok` purges count. A message is on a queue when its latest
-observed step is on that queue. For a message that has no final delete (section 4.3), no inferred delete by
-Lambda and no move to a dead-letter queue after its last step on the queue:
+**How Trailbeam reads it.** Only `trailbeam.result = ok` purges count. A message is on the queue of its latest
+receive, else of its send (its `current_queue` in the API). For a message on a purged queue that has no final
+delete (section 4.3) and no delete inferred from a Lambda outcome:
 
-- **Purged:** every step of the message on the queue is ordered before the purge by a source of section 9a
-  (`clock`: the step ended before the purge started; `process_order`: the step's call returned before the
-  purge was issued). Trailbeam shows it as "Purged (observed: PurgeQueue at *start of the purge*)", not as
-  stuck and not as in the queue. If several purges qualify, the earliest one is shown. The purge is observed;
-  that it removed this message is what SQS's documentation says it does, so the step is marked as such and
-  carries the purge's span.
-- **Possibly purged:** not purged by the rule above, but the message's latest step on the queue started
-  inside a purge's window (or ended inside it, when its start was not observed). SQS may or may not have
-  deleted it. Trailbeam shows "possibly purged (PurgeQueue at *start*)". It stays on the Stuck list, with
-  that label, because a message that was not purged and has no delete really is stuck.
-- A step that starts after the window ends is not affected by the purge.
+- **Purged:** the purge started after the message's newest step ended, on the hosts' clocks (`clock`, section
+  9a: newest step's end < purge's start). Trailbeam shows it as "Purged (observed: PurgeQueue at *start of the
+  purge*)", not as stuck. If several purges qualify, the earliest one is shown. The purge is observed; that it
+  removed this message is what SQS's documentation says it does, so the step says so and carries the purge's
+  span. `process_order` is not used: two calls of one process are on one clock, and a purge made in another
+  process can only be ordered by the clock.
+- **Possibly purged:** not purged by the rule above, but the message's newest step ended inside a purge's window
+  (from its start to 60 seconds after its end). SQS may or may not have deleted it. Trailbeam shows "possibly
+  purged (PurgeQueue at *start*)". It stays on the Stuck list, with that label, because a message that was not
+  purged and has no delete really is stuck.
+- A message whose newest step ended after the window is not affected by the purge.
 
-A step after the purge on the same queue (a later receive) means the message was not purged by it, and the
-rules above are applied to that latest step. A failed purge is stored and shown on the queue, and changes no
-message.
+A step after the purge (a later receive) means the message was not purged by it, and the rules above are
+applied to that newest step. A failed purge is stored and changes no message. The purge is shown on the
+message's timeline as an observed step of the queue (`queue_purged`), placed by the proven order (section 9a).
 
 **Older Trailbeams.** A Trailbeam built before 3.3 rejects the span as an unknown `trailbeam.kind` and says
 so in `partial_success`; the other spans of the export are stored as usual, and its messages show as before.

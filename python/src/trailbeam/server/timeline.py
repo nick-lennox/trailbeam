@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from . import order as order_mod
+from . import purge as purge_mod
 from .otlp import DEFAULT_KEY_ID
 
 DEFAULT_LAMBDA_TIMEOUT_S = 900  # the longest Lambda timeout; Trailbeam does not know the real one
@@ -90,9 +91,10 @@ def _inferred(type_: str, frm: Optional[int], to: Optional[int], reason: str, **
 
 
 def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S,
-          max_receive_counts: Optional[dict] = None) -> dict:
+          max_receive_counts: Optional[dict] = None, purges=()) -> dict:
     """``rows``: every stored row of one message (Store.message_rows), any order. ``max_receive_counts``:
-    queue name -> the maxReceiveCount of its redrive policy, as configured (spans don't carry it)."""
+    queue name -> the maxReceiveCount of its redrive policy, as configured (spans don't carry it). ``purges``:
+    purge rows (Store.purges) that include those of the message's current queue (contract section 18)."""
     rows = sorted(rows, key=lambda r: (r["time_ns"], r["row"]))
     mid = rows[0]["mid"]
     receives = [r for r in rows if r["kind"] == "receive"]
@@ -223,10 +225,8 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
         elif r is latest:
             pending_lambda = True
 
-    evs, n_groups, order_doc = _arrange(rows, observed, inferred, order, idx)
-
     # ---- summary ----------------------------------------------------------------------------
-    final = [e for e in evs if e["type"] == "deleted" and e.get("status") == "final"]
+    final = [e for e in observed if e["type"] == "deleted" and e.get("status") == "final"]
     lambda_ok = latest is not None and latest["source"] == "lambda" and \
         outcomes.get(latest["faas_invocation_id"]) is not None and \
         outcomes[latest["faas_invocation_id"]]["outcome"] == "success"
@@ -239,12 +239,28 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
     else:
         state = "not_deleted"
     current_queue = latest["queue"] if latest else source_queue
+
+    # ---- a PurgeQueue call on the message's queue (contract section 18) ---------------------------
+    # The purge is observed and placed like any observed step, by the proven order; that it removed this
+    # message is what SQS's documentation says a purge does, and the event says so.
+    verdict = purge_mod.classify(rows[-1]["time_ns"], current_queue, purges) if state in purge_mod.APPLIES_TO else None
+    steps = rows
+    if verdict is not None:
+        prow = purge_mod.as_row(verdict.purge)
+        steps = rows + [prow]
+        observed.append(_purge_event(prow, verdict.status))
+        order = order_mod.Order(steps)
+        idx = {r["row"]: i for i, r in enumerate(steps)}
+        if verdict.status == purge_mod.PURGED:
+            state = purge_mod.PURGED
+
+    evs, n_groups, order_doc = _arrange(steps, observed, inferred, order, idx)
     dlqs = {b["queue"] for _, b, _ in moves}
     mrc = (max_receive_counts or {}).get(source_queue)
     src_count = max((r["receive_count"] for r in receives if r["queue"] == source_queue), default=0)
     if moves:
         dlq_move = "observed"
-    elif mrc and src_count >= mrc and state not in ("deleted", "deleted_inferred"):
+    elif mrc and src_count >= mrc and state not in ("deleted", "deleted_inferred", purge_mod.PURGED):
         dlq_move = "not_seen_on_dlq_yet"
     else:
         dlq_move = None
@@ -263,6 +279,7 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
         "first_seen": iso(first_ns),
         "first_seen_clock": first_clock,
         "last_seen": iso(rows[-1]["time_ns"]),
+        **({} if verdict is None else {"purge": purge_mod.describe(verdict)}),
         "concurrent_groups": sum(g["concurrent"] for g in groups),
         "groups": groups,
         "events": evs,
@@ -270,6 +287,28 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
         "notices": _notices(rows, receives, order) + ([_not_seen_notice(source_queue, src_count, mrc)]
                                                        if dlq_move == "not_seen_on_dlq_yet" else []),
     }
+
+
+PURGE_SOURCE = "purge_queue"  # the queue-level step a recorded PurgeQueue call is (contract section 18)
+
+
+def _purge_event(prow, status: str) -> dict:
+    """The observed PurgeQueue call on the message's queue, as a step of its timeline."""
+    when = iso(prow["start_ns"])
+    if status == purge_mod.PURGED:
+        removal = "per_sqs_documentation"
+        reason = (f"PurgeQueue on {prow['queue']} started at {when}, after this message's last observed step "
+                  f"ended. SQS deletes every message in the queue when a purge starts, including messages in "
+                  f"flight; the deletion of this message is not observed, it is what SQS's documentation says a "
+                  f"purge does.")
+    else:
+        removal = "possible"
+        reason = (f"PurgeQueue on {prow['queue']} started at {when}, and this message's last observed step "
+                  f"ended during the purge or within 60 s after it. SQS may delete messages sent or received "
+                  f"while a purge runs (up to 60 s), or may not: Trailbeam can't tell whether this one was.")
+    return {"type": "queue_purged", "inferred": False, "source": PURGE_SOURCE, **_time(prow["start_ns"], prow["time_ns"]),
+            "group": None, "queue": prow["queue"], "consumer": consumer(prow), "span": _span(prow),
+            "process_order": _ticks(prow), "result": prow["result"], "removal": removal, "reason": reason}
 
 
 def _arrange(rows: list, observed: list[dict], inferred: list, order: "order_mod.Order",
@@ -351,6 +390,8 @@ def _label(ev: dict) -> str:
         return "the visibility change" + of
     if t == "lambda_outcome":
         return "the Lambda outcome" + of
+    if t == "queue_purged":
+        return "the purge of the queue"
     return t.replace("_", " ")
 
 

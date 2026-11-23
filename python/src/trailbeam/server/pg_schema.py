@@ -41,6 +41,9 @@ place's rollup with it.
 **Probes** (version 6, QV-148). ``probes``: the test spans ``trailbeam doctor`` sends, kept apart from the spans
 so they never show as messages.
 
+**Purges** (version 7, QV-245). ``purges``: the PurgeQueue calls (contract section 18), not partitioned: they
+belong to no message, and every list page reads them by queue.
+
 **Message-ID indexes** (version 3, QV-118). ``message_queues``, ``message_tenants`` and ``tenant_events`` are
 indexed by ``mid``, so rewriting a message's summary deletes its old list rows by index instead of scanning its
 place's partition.
@@ -63,6 +66,25 @@ LOOKUPS = ("mid_places", "hash_places")  # partitioned since version 5
 # Not partitioned and not spans: no page, count, rollup or retention pass reads it; record_probes keeps at least a day of them.
 PROBES = """
 CREATE TABLE IF NOT EXISTS probes (id TEXT PRIMARY KEY, received_ns BIGINT NOT NULL);
+"""
+
+# Version 7 (QV-245): the PurgeQueue calls (contract section 18), one row a call. A purge belongs to no message and
+# is read by queue on every list page, so it is not partitioned: few rows, one index. Retention deletes a purge by its
+# own time against its queue's cutoff (postgres.py, purge_step). ``id`` orders purges as ``row`` orders spans.
+PURGES = """
+CREATE TABLE IF NOT EXISTS purges (
+    id BIGSERIAL PRIMARY KEY,
+    trace_id TEXT NOT NULL, span_id TEXT NOT NULL,
+    start_ns BIGINT, time_ns BIGINT NOT NULL,
+    service_name TEXT, source TEXT, operation TEXT,
+    queue TEXT NOT NULL, queue_url TEXT,  -- the collation of messages.current_queue, which it is compared with
+    result TEXT NOT NULL, error_code TEXT,
+    client_id TEXT, pid BIGINT, thread_name TEXT,
+    order_scope TEXT, order_issued BIGINT, order_returned BIGINT,
+    attributes TEXT NOT NULL,
+    UNIQUE (trace_id, span_id, time_ns)
+);
+CREATE INDEX IF NOT EXISTS purges_queue ON purges (queue, start_ns);
 """
 
 SEALING = """
@@ -261,7 +283,7 @@ CREATE TABLE IF NOT EXISTS hash_places (
     bucket BIGINT NOT NULL,
     PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
 ) PARTITION BY RANGE (rclass, bucket);
-""" + SEALING + PROBES + """CREATE TABLE IF NOT EXISTS schema_version (
+""" + SEALING + PROBES + PURGES + """CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
     name TEXT NOT NULL,
@@ -461,8 +483,9 @@ MIGRATIONS: tuple = (
         "DROP TABLE IF EXISTS mid_places_v4, hash_places_v4",
     )),
     Migration(6, "probes: the test spans of trailbeam doctor (QV-148)", tuple(statements(PROBES))),
+    Migration(7, "purges: the PurgeQueue calls (QV-245)", tuple(statements(PURGES))),
 )
-LATEST = 6
+LATEST = 7
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 
