@@ -32,10 +32,22 @@ export const STATE_LABELS: Record<string, string> = {
   not_deleted: "not deleted",
 };
 
+/** The Reason filter's options on Duplicates. */
 export const DUPLICATE_REASONS: Record<string, string> = {
   received_more_than_once: "received more than once",
-  succeeded_more_than_once: "succeeded more than once",
+  succeeded_more_than_once: "handled more than once",
 };
+
+/** The Why cell on Duplicates: each reason with its count from the row (receives, or successful handlings). */
+export function duplicateWhy(m: MessageSummary): ReactNode {
+  const parts = (m.reasons ?? []).map((r) => {
+    const n = r === "received_more_than_once" ? m.deliveries : r === "succeeded_more_than_once" ? m.successful_deliveries : null;
+    if (n === null) return <span key={r}>{DUPLICATE_REASONS[r] ?? r}</span>;
+    const verb = r === "received_more_than_once" ? "received" : "handled";
+    return <span key={r}>{verb} <span className="font-mono tabular-nums">{n}</span> times</span>;
+  });
+  return parts.flatMap((p, i) => (i ? [", ", p] : [p]));
+}
 
 /** An API timestamp as the list shows it: UTC, to the millisecond, no "T" or "Z". */
 export const fmtTime = (t: string | null) => (t ? t.replace("T", " ").replace(/(\.\d{3})\d*Z$/, "$1").replace(/Z$/, "") : null);
