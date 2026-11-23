@@ -25,8 +25,19 @@ test("each term case gives what the spec says", () => {
   for (const t of fixture.terms) assert.equal(bodyMatches(parsedBody(t.body, t.format), parseBodyQuery(t.query)), t.matches, `${t.query} on ${t.body}`);
 });
 
-test("a body search takes body terms only", () => {
-  for (const q of ["queue:orders", "acme", "body", "-", ""]) assert.throws(() => parseBodyQuery(q), q);
+test("a body search takes body terms, and plain text as body:<text>", () => {
+  assert.throws(() => parseBodyQuery("queue:orders"), { message: "Can't read `queue:orders`. Use text, or `body.<path>:<value>`." });
+  assert.throws(() => parseBodyQuery("ord-1003 -tenant:acme"), { message: "Can't read `-tenant:acme`. Use text, or `body.<path>:<value>`." });
+  for (const q of ["", "   ", '""']) assert.throws(() => parseBodyQuery(q), { message: "the body search is empty" });
+  assert.deepEqual(parseBodyQuery("ord-1003"), [{ field: "body", value: "ord-1003", neg: false }]);
+  assert.deepEqual(parseBodyQuery('-acme "call me" body.order_id:ord-1003'), [
+    { field: "body", value: "acme", neg: true }, { field: "body", value: "call me", neg: false }, { field: "body.order_id", value: "ord-1003", neg: false },
+  ]);
+  const order = { order_id: "ord-1003", customer: "acme" };
+  assert.equal(bodyMatches(order, parseBodyQuery("ord-1003")), true);
+  assert.equal(bodyMatches(order, parseBodyQuery("ORD-1003")), true);
+  assert.equal(bodyMatches(order, parseBodyQuery("ord-1004")), false);
+  assert.equal(bodyMatches(order, parseBodyQuery("ord-1003 -acme")), false);
 });
 
 test("every view the server gives for the recorded spans is drawn, with its reason or its body", () => {

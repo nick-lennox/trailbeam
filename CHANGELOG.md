@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Body search takes plain text.** On the Messages page and in `GET /api/messages?body=`, `ord-1003` is
+  searched as `body:ord-1003` instead of being refused with a 400. The **Body** field shows an example, and
+  on a server that keeps no bodies (`/api/health` lists no `store_bodies`) it is off, with a line saying how to
+  turn bodies on. A term for another field still fails, now as ``Can't read `queue:orders`. Use text, or
+  `body.<path>:<value>`.``, without the HTTP status. (QV-215)
 - **`trailbeam start` prints the token and key only on the run that created them.** Later runs print the
   command that shows each one (`cat ~/.trailbeam/token`) instead, and the export lines read the files with
   `$(cat ...)`, so a server restarted under systemd, `docker run -d`, nohup or CI no longer writes the token and
