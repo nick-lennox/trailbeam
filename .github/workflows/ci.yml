@@ -101,6 +101,8 @@ jobs:
         run: pytest -q tests/conformance
       - name: Postgres store tests
         run: pytest -q tests/server/test_postgres.py
+      - name: Fault tests on Postgres (SIGKILL, retries, disorder, a replica killed)
+        run: pytest -q tests/server/test_faults.py
 
   node:
     name: Node.js ${{ matrix.node }}

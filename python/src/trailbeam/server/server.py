@@ -20,7 +20,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTrace
 from . import __version__
 from . import auth as auth_mod, bodies, metrics, queries, ui_files, web
 from .backpressure import GRPC_RESOURCE_EXHAUSTED, GRPC_UNAVAILABLE, IngestGate, Rejected, status_body
-from .store import ExportAbandoned, Store, StoreUnavailable, WriterBusy
+from .store import ExportAbandoned, Store, StoreFull, StoreUnavailable, WriterBusy
 from .otlp import PROBE_NOT_STORED, DecodeError, decode, valid_probe_id
 from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
 
@@ -74,7 +74,7 @@ class App:
         self.m_rejected = r.counter(
             "trailbeam_ingest_rejected_requests_total",
             "Exports answered 429 (queue_full), or 503 (writer_behind; store_unreachable: the database can't be "
-            "reached) with Retry-After. Nothing in them was stored; OTLP exporters retry them.", ("reason",))
+            "reached; store_full: its disk is full) with Retry-After. Nothing in them was stored; OTLP exporters retry them.", ("reason",))
         self.m_spans = r.counter(
             "trailbeam_ingest_spans_total",
             "Trailbeam spans in accepted exports: inserted, duplicate (already stored, e.g. a retry), invalid "
@@ -158,6 +158,9 @@ class App:
                 except WriterBusy:
                     self.m_wait.observe(self.gate.max_wait_s)
                     raise self.gate.writer_behind(self.gate.max_wait_s) from None
+                except StoreFull as e:
+                    log.error("ingest: %s", e)
+                    raise self.gate.store_full() from None
                 except StoreUnavailable as e:
                     log.warning("ingest: %s", e)
                     raise self.gate.store_unreachable() from None
@@ -172,6 +175,9 @@ class App:
                         d.rejected.extend([f"{PROBE_NOT_STORED} {e}"] * len(d.probes))
                     except WriterBusy:
                         raise self.gate.writer_behind(self.gate.max_wait_s) from None
+                    except StoreFull as e:
+                        log.error("ingest: %s", e)
+                        raise self.gate.store_full() from None
                     except StoreUnavailable as e:
                         log.warning("ingest: %s", e)
                         raise self.gate.store_unreachable() from None
@@ -501,7 +507,13 @@ def make_handler(app: App):
             except Exception:
                 log.exception("ingest failed")
                 status, ctype, out, headers = 500, "text/plain", b"internal error", {}
-            self._send(status, ctype, out, headers)
+            try:
+                self._send(status, ctype, out, headers)
+            except (BrokenPipeError, ConnectionResetError):
+                # Its spans are committed (on 200), but the client won't know: it sends the export again, and
+                # the copy is skipped as a duplicate. Not a traceback in the log.
+                log.info("the client went away before the %d answer to its export", status)
+                self.close_connection = True
 
         def do_GET(self):
             u = urlsplit(self.path)

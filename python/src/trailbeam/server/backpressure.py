@@ -32,6 +32,7 @@ DEFAULT_MAX_PENDING = 16
 DEFAULT_MAX_WAIT_S = 2.0
 RETRY_AFTER_MAX_S = 3
 STORE_UNREACHABLE_RETRY_AFTER_S = 1
+STORE_FULL_RETRY_AFTER_S = 3  # each try fails fast, but nothing passes until someone frees space
 _EWMA = 0.2  # weight of the newest write time in the estimate
 
 
@@ -41,7 +42,7 @@ class Rejected(Exception):
     def __init__(self, status: int, reason: str, retry_after_s: int, message: str):
         super().__init__(message)
         self.status = status
-        self.reason = reason  # "queue_full" | "writer_behind" | "store_unreachable"
+        self.reason = reason  # "queue_full" | "writer_behind" | "store_unreachable" | "store_full"
         self.retry_after_s = retry_after_s
         self.message = message
 
@@ -86,6 +87,11 @@ class IngestGate:
         return Rejected(503, "store_unreachable", STORE_UNREACHABLE_RETRY_AFTER_S,
                         "Trailbeam can't reach its store (the database is down or unreachable). Nothing in this "
                         f"export was stored. Retry after {STORE_UNREACHABLE_RETRY_AFTER_S} s.")
+
+    def store_full(self) -> Rejected:
+        return Rejected(503, "store_full", STORE_FULL_RETRY_AFTER_S,
+                        "Trailbeam's store is out of disk space. Nothing in this export was stored. "
+                        f"Retry after {STORE_FULL_RETRY_AFTER_S} s.")
 
     def wrote(self, seconds: float) -> None:
         """Record how long one export's write transaction took."""
