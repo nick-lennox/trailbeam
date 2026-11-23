@@ -272,6 +272,52 @@ def test_bad_existing_secret_stops_with_one_line(tmp_path):
     assert (data / "token").read_text() == "short\n"  # never rewritten
 
 
+ENV_KEY = "team-key-0123456789abcdef"
+
+
+def test_receipt_hash_key_from_the_environment_wins_and_no_file_is_made(tmp_path):
+    """QV-206: a team that already has TRAILBEAM_RECEIPT_HASH_KEY is told to keep using it. This run did not
+    make it, so (as with TRAILBEAM_TOKEN) it is not printed: the export lines name the variable."""
+    data = tmp_path / "tb"
+    env = _env(TRAILBEAM_RECEIPT_HASH_KEY=ENV_KEY)
+    s = Started(["start", "--data-dir", str(data), "--port", "0"], env=env)
+    try:
+        assert s.python_env["TRAILBEAM_RECEIPT_HASH_KEY"] == "$TRAILBEAM_RECEIPT_HASH_KEY"
+        assert s.node_env["TRAILBEAM_RECEIPT_HASH_KEY"] == "$TRAILBEAM_RECEIPT_HASH_KEY"
+        assert "Receipt-hash key: the one in TRAILBEAM_RECEIPT_HASH_KEY" in s.text
+        assert ENV_KEY not in s.text and "receipt-hash-key)" not in s.text
+        assert s.exported(env)["TRAILBEAM_RECEIPT_HASH_KEY"] == ENV_KEY
+        assert not (data / "receipt-hash-key").exists() and (data / "token").exists()
+    finally:
+        assert s.stop() == 0
+    assert "differs" not in s.p.stderr.read()
+
+
+def test_receipt_hash_key_from_the_environment_over_a_different_file_warns(tmp_path):
+    data = tmp_path / "tb"
+    data.mkdir(mode=0o700)
+    (data / "receipt-hash-key").write_text("file-key-0123456789abcdef\n")
+    (data / "receipt-hash-key").chmod(0o600)
+    env = _env(TRAILBEAM_RECEIPT_HASH_KEY=ENV_KEY)
+    s = Started(["start", "--data-dir", str(data), "--port", "0"], env=env)
+    try:
+        assert s.python_env["TRAILBEAM_RECEIPT_HASH_KEY"] == "$TRAILBEAM_RECEIPT_HASH_KEY"
+        assert s.exported(env)["TRAILBEAM_RECEIPT_HASH_KEY"] == ENV_KEY  # not the file's
+        assert (data / "receipt-hash-key").read_text() == "file-key-0123456789abcdef\n"  # left alone
+    finally:
+        s.stop()
+    err = s.p.stderr.read()
+    assert "TRAILBEAM_RECEIPT_HASH_KEY differs from the key in" in err and "using TRAILBEAM_RECEIPT_HASH_KEY" in err
+
+
+def test_short_receipt_hash_key_in_the_environment_stops_with_one_line(tmp_path):
+    data = tmp_path / "tb"
+    r = subprocess.run([sys.executable, "-m", "trailbeam.server", "start", "--data-dir", str(data), "--port", "0"],
+                       env=_env(TRAILBEAM_RECEIPT_HASH_KEY="short"), capture_output=True, text=True, timeout=30)
+    assert r.returncode == 2 and "TRAILBEAM_RECEIPT_HASH_KEY: the receipt-hash key must be at least 16" in r.stderr
+    assert "Traceback" not in r.stderr and not (data / "receipt-hash-key").exists()
+
+
 def test_ensure_secret_tightens_a_readable_file_of_ours(tmp_path, caplog):
     p = tmp_path / "receipt-hash-key"
     p.write_text("k" * 32)
