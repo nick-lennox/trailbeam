@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Messages: Receives, not Deliveries.** The column on Messages, Duplicates and Stuck is now **Receives**, with a
+  tooltip that defines it (how many times SQS returned the message from `ReceiveMessage`) and what *handled* means
+  (a receive that ended in a delete or a successful Lambda record). Cells read `2 · 1 handled` instead of
+  `2 (1 ok)`, and the count is Ember when the message was received more than once, so that row stands out. The
+  timeline summary says **Receives** `2 (1 handled)` too, on the UI and the no-script pages (QV-209).
 - **`trailbeam doctor`: why no data is arriving.** It checks, in plain lines, that the server answers, that the
   ingest port accepts connections, that the token is accepted, that a test span sent now is stored and read
   back, and when the last real span arrived. Each failed check prints the likely cause and the fix, and the exit
