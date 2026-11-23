@@ -97,7 +97,7 @@ export function MessageList({ action, api, params, fields, defaults = {}, extra,
             {state.page.messages.length === 0 ? (
               (() => { const e = empty(state.page, state.storeEmpty); return e && <EmptyState {...e} />; })()
             ) : (
-              <div className="overflow-x-auto rounded-[16px] border border-sky-line bg-sky-2/55">
+              <div className="border-y border-sky-line md:overflow-x-auto md:rounded-[16px] md:border md:bg-sky-2/55">
                 <MessagesTable messages={state.page.messages} href={messageHref} extra={extra} />
               </div>
             )}
@@ -178,7 +178,7 @@ export function StuckPage() {
       <MessageList action="/stuck" api="stuck" params={pick(params, ["older_than_s", "limit", "queue", "cursor"])}
         defaults={olderThan !== null ? { older_than_s: String(olderThan) } : {}}
         fields={[{ name: "older_than_s", label: "Older than (s)", kind: "number" }, { name: "queue", label: "Queue", kind: "text" }, { name: "limit", label: "Limit", kind: "number" }]}
-        extra={{ title: "Age", align: "right", cell: (m) => (
+        extra={{ title: "Age", align: "right", brief: (m) => `${fmtAge(m.age_s)} old${m.age_across_clocks ? " (two clocks)" : ""}`, cell: (m) => (
           <span className="font-mono text-caption tabular-nums">{fmtAge(m.age_s)}{m.age_across_clocks && <span className="text-sky-ink-3" title="this server's clock minus SQS's SentTimestamp: two clocks"> two clocks</span>}</span>
         ) }}
         foot={<>Age counts from the send, on the sender&rsquo;s clock. If Trailbeam never saw the send, it counts from SQS&rsquo;s <code className="font-mono text-caption">SentTimestamp</code>, and the age says so.</>}
