@@ -6,7 +6,7 @@ Standard library only. Waits for ``/api/health``, posts ``recorded-spans.pb`` (r
 by ``record_spans.py``) to ``/v1/traces``, then checks each message's timeline through the API (in order,
 with the inferred step marked), that its timeline page loads (the shared UI's shell and its files when
 built, otherwise the server-rendered page, which must show the same steps), and that the duplicates and
-stuck pages list the right messages. Exits non-zero with a message on the first failure.
+stuck pages list the right messages (from the page itself, or for the shell from the API it draws from). Exits non-zero with a message on the first failure.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from html import escape
+from html import unescape
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -61,8 +61,24 @@ def timeline_events(html: str) -> list[tuple[str, bool]]:
             re.findall(r'<li class="[^"]*" data-type="([^"]+)" data-inferred="(\w+)"', html)]
 
 
-def message_href(mid: str) -> str:
-    return 'href="' + escape("/message?" + urllib.parse.urlencode({"id": mid})) + '"'
+def listed(base: str, page: str, query: str) -> set[str]:
+    """The message ids the /duplicates or /stuck page shows for this query."""
+    status, ctype, html = get(base, f"/{page}" + (f"?{query}" if query else ""))
+    check(status == 200 and ctype.startswith("text/html"), f"{page} page loads")
+    if 'id="root"' not in html:  # the server-rendered page lists them as links
+        return set(linked_ids(html))
+    # The shared UI's shell: it passes the page's query to /api/<page> and draws the list in the browser.
+    assets = re.findall(r'(?:src|href)="(/ui/assets/[^"]+)"', html)
+    check(any(a.endswith(".js") for a in assets) and all(get(base, a)[0] == 200 for a in assets),
+          f"{page}: the page's script and styles load")
+    status, _, body = get(base, f"/api/{page}" + (f"?{query}" if query else ""))
+    check(status == 200, f"{page}: the list the page draws loads from the API")
+    return {m["message_id"] for m in json.loads(body)["messages"]}
+
+
+def linked_ids(html: str) -> list[str]:
+    return [urllib.parse.parse_qs(urllib.parse.urlsplit(unescape(h)).query).get("id", [""])[0]
+            for h in re.findall(r'href="(/message\?[^"]+)"', html)]
 
 
 def run(base: str) -> None:
@@ -107,11 +123,11 @@ def run(base: str) -> None:
               and all('<span class="badge">inferred</span>' in li for li in inferred_items),
               f"{name}: every inferred step carries the visible INFERRED label")
 
-    _, _, dup = get(base, "/duplicates")
-    check(message_href(expected["redelivered"]["message_id"]) in dup, "duplicates page lists the redelivered message")
-    _, _, stuck = get(base, "/stuck?older_than_s=0")
-    check(message_href(expected["never_received"]["message_id"]) in stuck, "stuck page lists the never-received message")
-    check(message_href(expected["redelivered"]["message_id"]) not in stuck, "stuck page omits the deleted message")
+    dup = listed(base, "duplicates", "")
+    check(expected["redelivered"]["message_id"] in dup, "duplicates page lists the redelivered message")
+    stuck = listed(base, "stuck", "older_than_s=0")
+    check(expected["never_received"]["message_id"] in stuck, "stuck page lists the never-received message")
+    check(expected["redelivered"]["message_id"] not in stuck, "stuck page omits the deleted message")
     status, _, _ = get(base, "/api/messages/no-such-message")
     check(status == 404, "unknown message gives 404")
 

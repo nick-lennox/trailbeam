@@ -157,7 +157,8 @@ def _index(api, q: dict) -> Response:
             + ("<h2>Messages whose body matches</h2>" if searching else "<h2>Recent messages</h2>")
             + _filters("/", {"since_s": "86400", **q} if searching else q, fields)
             + note
-            + _summary_table(data["messages"], empty="No message body matches." if searching else "No messages stored yet.")
+            + _summary_table(data["messages"], empty="No message body matches." if searching else (
+                NO_SPANS if not data["messages"] and _store_empty(api) else "No messages stored yet."))
             + _next("/", nxt, data))
     return _page(200, "Trailbeam", body)
 
@@ -220,7 +221,7 @@ def _duplicates(api, q: dict) -> Response:
                                           ("limit", "Limit", "number")])
             + _summary_table(data["messages"], extra=("Why", lambda m: ", ".join(
                 escape(DUPLICATE_REASONS.get(r, r)) for r in m.get("reasons", []))),
-                empty="No duplicate deliveries.")
+                empty=NO_SPANS if not data["messages"] and _store_empty(api) else "No duplicate deliveries.")
             + _next("/duplicates", q, data))
     return _page(200, "Duplicate deliveries", body)
 
@@ -235,17 +236,19 @@ def _stuck(api, q: dict) -> Response:
             + _filters("/stuck", {**q, "older_than_s": str(data["older_than_s"])},
                        [("older_than_s", "Older than (s)", "number"), ("queue", "Queue", "text"),
                         ("limit", "Limit", "number")])
-            + _summary_table(data["messages"], extra=("Age", _stuck_age), empty="No stuck messages.")
+            + _summary_table(data["messages"], extra=("Age", _stuck_age),
+                             empty=NO_SPANS if not data["messages"] and _store_empty(api) else "No stuck messages.")
             + _next("/stuck", q, data))
     return _page(200, "Stuck messages", body)
 
 
 TENANT_RANGES = [("3600", "Last hour"), ("86400", "Last 24 hours"), ("604800", "Last 7 days")]
-TENANT_SETUP = ("A tenant comes from a Trailbeam package at contract revision 3.2 with a tenant field set: "
+TENANT_SETUP = ("A tenant comes from a Trailbeam package with a tenant field set: "
                 "<code>TRAILBEAM_TENANT_ATTRIBUTE</code> (a message attribute) or "
                 "<code>TRAILBEAM_TENANT_BODY_PATH</code> (a dotted path in a JSON body), or the package's "
-                "<code>tenant</code> option. Set it in each service that sends or receives. See the span "
-                "contract, section 15.1.")
+                "<code>tenant</code> option. Set it in each service that sends or receives. Spans then carry "
+                "<code>trailbeam.tenant</code>: see <a href=\"https://github.com/nick-lennox/trailbeam/blob/main/"
+                "contract/span-contract.md#152-attributes\">the span contract, section 15.2</a>.")
 
 
 def _tenants(api, q: dict) -> Response:
@@ -626,6 +629,19 @@ def _age(s) -> str:
     if s < 172800:
         return f"{s / 3600:.1f} h"
     return f"{s / 86400:.1f} days"
+
+
+NO_SPANS = ("No messages yet. No service has sent spans here: the packages send them to /v1/traces on this "
+            "server (https://github.com/nick-lennox/trailbeam#quickstart).")
+
+
+def _store_empty(api) -> bool:
+    """Whether the store holds no span at all (/api/health data.last_row is 0), so an empty list means nothing is
+    connected yet rather than nothing is wrong."""
+    try:
+        return api("health", {})["data"]["last_row"] == 0
+    except Exception:  # noqa: BLE001 - a page never fails over its empty-state wording
+        return False
 
 
 def _pick(q: dict, *names: str) -> dict:

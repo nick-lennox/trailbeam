@@ -277,10 +277,15 @@ volume, health checks and `restart: unless-stopped`. The token and passwords com
 
 ```sh
 git clone https://github.com/nick-lennox/trailbeam.git && cd trailbeam
-cp .env.example .env      # fill in TRAILBEAM_TOKEN, TRAILBEAM_RECEIPT_HASH_KEY and POSTGRES_PASSWORD (openssl rand -hex 32)
+install -m 600 .env.example .env   # only you can read it; fill in TRAILBEAM_TOKEN, TRAILBEAM_RECEIPT_HASH_KEY
+                                   # and POSTGRES_PASSWORD (openssl rand -hex 32)
 docker compose up -d --build --wait
 # then open http://<this machine>:4318/ and sign in with the token
 ```
+
+`.env` holds the token and the Postgres password, so keep it readable by its owner only: `install -m 600`
+does that, where a plain `cp` would leave it readable by every user on the server. For an existing `.env`, run
+`chmod 600 .env`.
 
 In every service that uses the Trailbeam packages, set the endpoint, the token and the same receipt-hash key:
 
@@ -290,9 +295,14 @@ OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<TRAILBEAM_TOKEN>
 TRAILBEAM_RECEIPT_HASH_KEY=<the same key as in .env>
 ```
 
-- **The token is required.** The port listens on every interface (`TRAILBEAM_BIND=0.0.0.0` in `.env`; set
-  `127.0.0.1` for this machine only), so Compose refuses to start without `TRAILBEAM_TOKEN` and
-  `POSTGRES_PASSWORD`. It is plain HTTP: put a TLS proxy in front when it crosses a network you don't trust.
+- **The token is required.** With `TRAILBEAM_BIND=0.0.0.0` (as in `.env.example`) the port listens on every
+  interface; set `127.0.0.1`, or remove the line, for this machine only. Compose refuses to start without
+  `TRAILBEAM_TOKEN` and `POSTGRES_PASSWORD`.
+- **Docker publishes the port past ufw and firewalld**, so a firewall rule on this machine does not close it
+  ([Docker and ufw](https://docs.docker.com/engine/network/packet-filtering-firewalls/)). With `0.0.0.0` it is
+  open on every network the machine is on.
+- **The port is plain HTTP.** The bearer token, the login form and the session cookie (no `Secure` flag) cross
+  the network in clear: put a TLS proxy in front when it crosses a network you don't trust.
 - **The data stays** across `docker compose down` and `up`, and across restarts of the machine: spans are in the
   `postgres-data` volume. `docker compose down -v` deletes them. Back up with `pg_dump`
   ([Backup and restore](#backup-and-restore-postgres)): `docker compose exec -T postgres pg_dump -U trailbeam -Fc trailbeam > trailbeam.dump`.
@@ -920,6 +930,34 @@ database. A backup holds the stored message bodies (`--store-bodies`), so protec
 **Continuous replication.** [Litestream](https://litestream.io/) streams a SQLite file's WAL to object storage.
 It should work with Trailbeam, because the server only runs PASSIVE checkpoints, but we haven't tested it.
 With Postgres (`--store-url`), use Postgres' own backups: see [Backup and restore (Postgres)](#backup-and-restore-postgres).
+
+### Upgrading
+
+Take a backup ([SQLite](#backup-and-restore-sqlite), [Postgres](#backup-and-restore-postgres)), stop the
+old server, and start the new version on the same database file, Docker volume or Postgres database, with the
+same flags and token. The new version upgrades the schema by itself at start. CI runs this from 0.3.0 to
+`main` on every change, for SQLite (the PyPI package and the image) and Postgres, and checks that every
+message, list and tenant count reads the same as before
+([`python/smoke/upgrade_check.py`](python/smoke/upgrade_check.py)).
+
+- **SQLite.** The new version moves the file from schema 12 to 13 (a small table for the test span of
+  `trailbeam doctor`; nothing is rewritten). Once it has, a 0.3.0 server stops at start with `the database is
+  at schema version 13, written by a newer Trailbeam ... Refusing to start, so nothing is lost`. To go back,
+  restore the backup you took first.
+- **Postgres.** Stop every replica before you start the new version. It moves the database from schema 4 to 6
+  (about 8 s per 1M spans, see the [changelog](CHANGELOG.md)). Once it has, a 0.3.0 server stops at start
+  with `the database is at Postgres schema version 6, written by a newer Trailbeam ... Refusing to start, so
+  nothing is lost`. To go back, restore the backup you took first.
+- **The token and the receipt-hash key** don't change. Signed-in browsers stay signed in. Services keep their
+  `TRAILBEAM_RECEIPT_HASH_KEY`: the hashing is the same in 0.3.0 and `main`, so services on either package
+  version can send spans for the same messages.
+- **Moving to `trailbeam start`.** `trailbeam start --data-dir DIR` uses `DIR/trailbeam.sqlite`, and
+  `npx trailbeam start` uses the Docker volume `trailbeam-data`, the same volume as the Quickstart's
+  `docker run`. Before the first `start`, put the token your services send in `DIR/token`, or start with
+  `--token-file`. If your 0.3.0 server ran without a token, `start` turns one on, and services that don't
+  send it are refused (401) until they get `OTEL_EXPORTER_OTLP_HEADERS`. Put the key your services use in
+  `DIR/receipt-hash-key`, so `start` prints that key and not a new one. If `start` has to make either file
+  for an existing database, it logs a warning saying so.
 
 ### When Trailbeam is overloaded: 429, 503 and Retry-After
 
