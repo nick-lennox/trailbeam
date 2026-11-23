@@ -1,0 +1,111 @@
+# Trailbeam on Kubernetes (QV-173). Install from a clone of the repository:
+#
+#   helm install trailbeam ./deploy/helm/trailbeam --set store.url='postgresql://trailbeam:<password>@db:5432/trailbeam'
+#   helm install trailbeam ./deploy/helm/trailbeam --set postgresql.enabled=true    # a trial, with Postgres in the cluster
+#
+# Docs: https://docs.trailbeam.app/run/kubernetes
+
+replicaCount: 2
+
+image:
+  # The -postgres image has the Postgres driver; the plain one has SQLite only. The release after 0.3.0 publishes
+  # it; until then build and push it, and set repository and tag:
+  #   docker build --build-arg TRAILBEAM_EXTRAS=server,postgres -t <registry>/trailbeam:<tag> .
+  repository: ghcr.io/nick-lennox/trailbeam
+  # Default: <appVersion>-postgres
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# The access token and the receipt-hash key, from one Secret.
+auth:
+  # The name of a Secret you made, with the keys `token` and `receipt-hash-key`. The chart then makes no Secret.
+  # Use this with Argo CD or Flux: they render without a cluster, so a generated token would change on every sync.
+  existingSecret: ""
+  # Without existingSecret the chart makes the Secret <release>-trailbeam. Empty values are generated once
+  # (64 hex characters) and kept on helm upgrade.
+  token: ""
+  # The server doesn't read this key. Every service that uses the Trailbeam packages needs this same value as
+  # TRAILBEAM_RECEIPT_HASH_KEY; it is kept in the Secret so those services can read it from there.
+  receiptHashKey: ""
+
+# Where the spans are stored: a Postgres you run (14 or later). Set url or existingSecret, or postgresql.enabled.
+store:
+  # postgresql://<user>:<password>@<host>:5432/<database>. Stored in the chart's Secret (key store-url).
+  url: ""
+  # Or a Secret you made that holds the URL. It may be the same Secret as auth.existingSecret.
+  existingSecret: ""
+  existingSecretKey: store-url
+
+# A Postgres in the cluster, for a trial: one pod, one volume, no backups, no replication. For production use
+# your own Postgres (a managed service or an operator) and store.url.
+postgresql:
+  enabled: false
+  image: postgres:16
+  # Generated once and kept on helm upgrade when empty. Set when the volume is first created: changing it later
+  # doesn't change it in the database.
+  password: ""
+  # 256 covers about 250 read connections in all (README: Postgres lock table).
+  maxLocksPerTransaction: 256
+  persistence:
+    size: 8Gi
+    storageClass: ""   # empty: the cluster's default
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { memory: 2Gi }
+
+# Settings passed to every replica (README: Configuration). Every replica must have the same ones.
+retention: 7d        # a duration (7d, 30d, 12h) or "forever"
+storeBodies: ""      # queues whose message bodies are stored, comma-separated, * for all
+# More TRAILBEAM_ settings, as container env entries: [{ name: TRAILBEAM_PG_READ_CONNECTIONS, value: "16" }]
+extraEnv: []
+
+# Requests from the measurements so far (README: Sizing Postgres; QV-173). On the shared desktop benchmark machine
+# the servers used about one CPU core per 5,000-6,000 spans/s in total. On a kind cluster on the same machine, at
+# 1,270 spans/s over 2 replicas for 2 minutes, each replica used about 0.19 core and 30 MiB idle, 50-58 MiB under
+# load. So 250m is about 800-1,250 spans/s per replica. Memory grows with history: each replica keeps a filter of
+# the sealed days' keys, about 3.3 MB per million spans stored (330 MB at 100M). Raise the memory request with
+# the history you keep. No CPU limit: it would throttle ingest spikes.
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits: { memory: 1Gi }
+
+# RollingUpdate keeps ingest up. For a release that upgrades the Postgres schema and says to stop every old
+# replica first (CHANGELOG), use Recreate for that upgrade, or scale to 0 before it.
+strategy:
+  type: RollingUpdate
+  rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+
+# The server creates or upgrades its tables before it listens. A schema upgrade took 8 s per million spans on the
+# test machine, so the startup probe allows 30 minutes (360 x 5 s) before the liveness probe takes over.
+startupProbe: { periodSeconds: 5, failureThreshold: 360, timeoutSeconds: 4 }
+# Alive: the process answers (GET /api/health), whatever the database does: a Postgres outage must not restart
+# every pod.
+livenessProbe: { periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 5 }
+# Ready: the store answers (GET /api/ready). A replica that can't reach Postgres leaves the Service until it can.
+readinessProbe: { periodSeconds: 5, failureThreshold: 2, timeoutSeconds: 4 }
+
+service:
+  type: ClusterIP
+  port: 4318
+
+# For people's browsers (the web screen) and senders outside the cluster. Plain HTTP inside: put TLS on the Ingress.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: trailbeam.example.com
+  tls: []   # [{ secretName: trailbeam-tls, hosts: [trailbeam.example.com] }]
+
+# With 2 or more replicas: keep at least one up during node drains.
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+# Default: spread the replicas over nodes when possible.
+topologySpreadConstraints: []

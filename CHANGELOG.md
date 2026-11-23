@@ -14,6 +14,14 @@
   keep them out of shell history. A token given with `--token-file` or `TRAILBEAM_TOKEN` is never printed.
   `npx trailbeam start` with the Docker volume prints a `docker run ... cat /data/token` command. The first
   run is unchanged. (QV-203)
+- **Kubernetes: a Helm chart.** `deploy/helm/trailbeam` installs the server as a Deployment of 2 replicas
+  behind a Service, on a Postgres you run (`store.url` or a Secret), or on a trial Postgres in the cluster
+  (`postgresql.enabled=true`). The token and receipt-hash key are generated once into a Secret and kept on
+  upgrade, or come from your own Secret. Liveness probe on `/api/health`, readiness on `/api/ready`, and a
+  startup probe long enough for a schema upgrade. CI installs it on a kind cluster and sends one span. It
+  replaces the example manifest `deploy/kubernetes/trailbeam.yaml`; `helm template` renders plain manifests.
+  Releases now also publish `ghcr.io/nick-lennox/trailbeam:<version>-postgres`, the image with the Postgres
+  driver, which is the chart's default ([Kubernetes](README.md#kubernetes-helm-chart)). (QV-173)
 - **Messages: Receives, not Deliveries.** The column on Messages, Duplicates and Stuck is now **Receives**, with a
   tooltip that defines it (how many times SQS returned the message from `ReceiveMessage`) and what *handled* means
   (a receive that ended in a delete or a successful Lambda record). Cells read `2 · 1 handled` instead of

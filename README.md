@@ -342,6 +342,39 @@ timeline, so keep it on `127.0.0.1` or a trusted network, or set a token ([Acces
 [Run Trailbeam](https://docs.trailbeam.app/setup/run) and, to forward spans through an OpenTelemetry Collector, the
 [Collector configuration](collector/README.md).
 
+### Kubernetes (Helm chart)
+
+[`deploy/helm/trailbeam`](deploy/helm/trailbeam) installs the server as a Deployment of 2 replicas behind a
+Service on port 4318, on a Postgres you run, with the token and the receipt-hash key in a Secret. Helm 3 or 4
+(tested with 3.22 and 4.3); from a clone:
+
+```sh
+helm install trailbeam ./deploy/helm/trailbeam \
+  --set store.url='postgresql://trailbeam:<password>@<host>:5432/trailbeam' \
+  --set image.repository=<registry>/trailbeam --set image.tag=<tag>
+kubectl rollout status deployment/trailbeam
+kubectl get secret trailbeam -o jsonpath='{.data.token}' | base64 -d; echo    # the access token
+```
+
+- **Postgres** comes from `store.url`, `store.existingSecret` (a Secret with the key `store-url`), or, for a
+  trial, `postgresql.enabled=true`: one Postgres pod on an 8 GiB volume, with no backups and no replication.
+- **The token and the receipt-hash key** are generated once and kept on `helm upgrade`, or come from your own
+  Secret (`auth.existingSecret`, keys `token` and `receipt-hash-key`). Use your own Secret with Argo CD or Flux,
+  which render without the cluster. Every service that uses the Trailbeam packages needs that same
+  receipt-hash key.
+- **Probes:** liveness on `/api/health`, readiness on `/api/ready`, and a startup probe that allows 30 minutes for
+  a schema upgrade. **Requests:** 250m CPU and 256 MiB per replica, no CPU limit, 1 GiB memory limit; the
+  figures behind them are in [`values.yaml`](deploy/helm/trailbeam/values.yaml).
+- **The image needs the Postgres driver.** Releases after 0.3.0 publish `ghcr.io/nick-lennox/trailbeam:<version>-postgres`,
+  the chart's default. For 0.3.0, build and push it:
+  `docker build --build-arg TRAILBEAM_EXTRAS=server,postgres -t <registry>/trailbeam:<tag> .`
+- **Plain manifests:** `helm template trailbeam ./deploy/helm/trailbeam --set store.existingSecret=<secret>
+  --set auth.existingSecret=<secret> > trailbeam.yaml` renders them once, for `kubectl apply` without Helm.
+
+CI installs the chart on a kind cluster on every change, sends one span with the token and checks that an
+upgrade keeps the token ([`deploy/helm/check.sh`](deploy/helm/check.sh)). Docs:
+[Run on Kubernetes](https://docs.trailbeam.app/run/kubernetes).
+
 ### Access token
 
 One shared token protects ingest, the API and the web screen. It is off by default for local use:
@@ -795,10 +828,8 @@ Kubernetes or for high availability. No sticky sessions are needed.
 - The ingest counters in `/api/health` are per replica: each counts what it received.
 
 Examples: [`deploy/replicas/compose.yaml`](deploy/replicas/compose.yaml), two replicas and Postgres behind
-nginx (`docker compose -f deploy/replicas/compose.yaml up -d --build --wait`). And
-[`deploy/kubernetes/trailbeam.yaml`](deploy/kubernetes/trailbeam.yaml), a Deployment of two replicas with liveness
-and readiness probes and a Service, on a Postgres you run. The image needs the Postgres driver:
-`docker build --build-arg TRAILBEAM_EXTRAS=server,postgres .`
+nginx (`docker compose -f deploy/replicas/compose.yaml up -d --build --wait`). And the
+[Helm chart](#kubernetes-helm-chart), two replicas with liveness and readiness probes and a Service.
 
 ### Durability: `--durability`
 
