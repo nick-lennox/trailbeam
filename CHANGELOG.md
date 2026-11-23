@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Helm chart: a release named `trailbeam` no longer crash-loops** (QV-291). In 0.4.0 its Service, named
+  `trailbeam`, made Kubernetes set `TRAILBEAM_PORT=tcp://<ip>:4318` in every pod of the namespace, and the server
+  exited on it. The pods now have `enableServiceLinks: false` and `TRAILBEAM_PORT=4318`, and CI installs the
+  chart as `trailbeam`. The server's error for a `tcp://` value now says it is a service link and how to fix it.
 - **No spans dropped when the disk fills up** (QV-238). A full disk under SQLite was answered `500`, which OTLP
   exporters don't retry, so those exports were lost. Both stores now answer `503` with `Retry-After: 3`
   (`store_full` in `trailbeam_ingest_rejected_requests_total`) and nothing stored, and the exports are stored

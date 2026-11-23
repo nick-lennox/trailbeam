@@ -435,7 +435,7 @@ jobs:
         run: |
           kubectl get all,pvc,secret -o wide || true
           kubectl describe pods || true
-          kubectl logs -l app.kubernetes.io/instance=tb --all-containers --tail 80 --prefix || true
+          kubectl logs -l app.kubernetes.io/instance=trailbeam --all-containers --tail 80 --prefix || true
       - name: Remove this job's cluster and image
         if: always()
         run: |

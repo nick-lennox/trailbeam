@@ -93,6 +93,18 @@ def test_bad_numeric_env_is_one_line(monkeypatch, name, value):
     assert str(e.value).startswith(f"trailbeam: {name}: ")
 
 
+def test_service_link_port_says_what_it_is(monkeypatch):
+    """QV-291: a Kubernetes Service named trailbeam sets TRAILBEAM_PORT=tcp://<ip>:4318 in every pod of the namespace."""
+    from trailbeam.server import __main__ as m
+
+    monkeypatch.setenv("TRAILBEAM_PORT", "tcp://10.96.24.77:4318")
+    with pytest.raises(SystemExit) as e:
+        m.main([])
+    msg = str(e.value)
+    assert msg.startswith("trailbeam: TRAILBEAM_PORT: ") and "\n" not in msg
+    assert "service link" in msg and "enableServiceLinks: false" in msg
+
+
 @pytest.mark.parametrize("flag,value", [("--purge-duty", "2"), ("--purge-duty", "0"), ("--port", "-1"),
                                         ("--purge-batch", "0"), ("--purge-interval", "0")])
 def test_bad_numeric_flag_is_argparse_error(capsys, flag, value):
