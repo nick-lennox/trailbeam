@@ -33,7 +33,7 @@ Metrics and tracing tools show queues in aggregate, or the spans your code emitt
 answers a narrower question: where did this one message go?
 
 > [!NOTE]
-> The latest release, 0.3.0, is on PyPI and npm (`trailbeam`) and on ghcr.io
+> The latest release, 0.4.0, is on PyPI and npm (`trailbeam`) and on ghcr.io
 > (`ghcr.io/nick-lennox/trailbeam`). This README follows `main`, which can be ahead of the release:
 > see Unreleased in the [CHANGELOG](CHANGELOG.md).
 
@@ -68,7 +68,7 @@ answers a narrower question: where did this one message go?
 
 ## Quickstart
 
-Start the server. This runs the published 0.3.0 image, keeps its data in a Docker volume and listens on
+Start the server. This runs the published image, keeps its data in a Docker volume and listens on
 this machine only:
 
 ```sh
@@ -102,9 +102,9 @@ const trailbeam = require("trailbeam");
 const sqs = trailbeam.instrument(new SQSClient({}));
 ```
 
-Send, receive or delete a message, then open http://127.0.0.1:4318/ and click its message ID. In 0.3.0,
-a Node.js script that exits straight away must call `await trailbeam.forceFlush()` first. On `main`, the
-package flushes when the script ends; only a script that calls `process.exit()` still needs it.
+Send, receive or delete a message, then open http://127.0.0.1:4318/ and click its message ID. A Node.js
+script that ends by calling `process.exit()` must call `await trailbeam.uninstall()` first; otherwise the
+package sends its last spans when the script ends.
 If Trailbeam is down, slow, or given the wrong token, your service keeps running at full speed and its exit
 waits at most 2 s; the lost spans are counted and logged. What happens to spans in each case:
 [Python](python/README.md#when-the-server-is-down-or-the-process-ends),
@@ -115,10 +115,9 @@ default. Each service prints a warning that it uses the published default receip
 your own. For a server on another machine, an access token and a shared key, see
 [Add it to your services](#add-it-to-your-services) and [Self-hosting](#self-hosting).
 
-### `trailbeam start` (unreleased, on `main`)
+### `trailbeam start`: a token and key made for you
 
-The next release adds `trailbeam start`. It is not in 0.3.0: there, `trailbeam start` stops with
-`unrecognized arguments: start`. Installed from a clone of `main`, `trailbeam start` creates an access token
+After `pip install "trailbeam[server]"`, `trailbeam start` creates an access token
 and a receipt-hash key in `~/.trailbeam` (`--data-dir` or `TRAILBEAM_DATA_DIR` to choose another directory),
 readable only by you, and keeps the SQLite file there. It starts the server on `http://127.0.0.1:4318/` and
 prints the token and the environment variables for your services:
@@ -145,10 +144,9 @@ A token you give with `--token-file` or `TRAILBEAM_TOKEN` is never printed. If `
 already set (at least 16 characters), `trailbeam start` uses that key and makes no key file, so services you set
 up before keep joining: the export lines say `$TRAILBEAM_RECEIPT_HASH_KEY`, and if the data directory already
 holds a different key, the environment variable wins and one warning says so. Every `trailbeam` flag works after
-`start` (`trailbeam start --help`). Stop it with Ctrl-C. From the next release, `npx trailbeam start` does the
-same with Docker and no Python ([Node.js README](node/README.md#run-the-server-npx-trailbeam-start)). It does not
-work with 0.3.0: the npm package has no `trailbeam` command yet, and the 0.3.0 image has no `start`. Nothing on
-the screen? Run `trailbeam doctor`, also from the next release ([Troubleshooting](#troubleshooting-no-data-arriving)).
+`start` (`trailbeam start --help`). Stop it with Ctrl-C. `npx trailbeam start` does the
+same with Docker and no Python ([Node.js README](node/README.md#run-the-server-npx-trailbeam-start)). Both need
+0.4.0 or later. Nothing on the screen? Run `trailbeam doctor` ([Troubleshooting](#troubleshooting-no-data-arriving)).
 
 ### Runnable examples
 
@@ -258,8 +256,8 @@ against the same recorded spans.
 
 ## Troubleshooting: no data arriving
 
-Set it up and see nothing? Run `trailbeam doctor`. Like `trailbeam start`, it is on `main` and not in 0.3.0
-(there it stops with `unrecognized arguments: doctor`). It comes with the Python package (installing `trailbeam`
+Set it up and see nothing? Run `trailbeam doctor` (0.4.0 or later; 0.3.0 stops with
+`unrecognized arguments: doctor`). It comes with the Python package (installing `trailbeam`
 is enough, the server extra is not needed) and checks, one line each:
 
 1. **Server reachable**: `GET /api/health` answers, and it is Trailbeam;
@@ -390,8 +388,8 @@ kubectl get secret trailbeam -o jsonpath='{.data.token}' | base64 -d; echo    # 
 - **Probes:** liveness on `/api/health`, readiness on `/api/ready`, and a startup probe that allows 30 minutes for
   a schema upgrade. **Requests:** 250m CPU and 256 MiB per replica, no CPU limit, 1 GiB memory limit; the
   figures behind them are in [`values.yaml`](deploy/helm/trailbeam/values.yaml).
-- **The image needs the Postgres driver.** Releases after 0.3.0 publish `ghcr.io/nick-lennox/trailbeam:<version>-postgres`,
-  the chart's default. For 0.3.0, build and push it:
+- **The image needs the Postgres driver.** Releases from 0.4.0 publish `ghcr.io/nick-lennox/trailbeam:<version>-postgres`,
+  the chart's default. To run your own build, build and push it and set `image.repository` and `image.tag`:
   `docker build --build-arg TRAILBEAM_EXTRAS=server,postgres -t <registry>/trailbeam:<tag> .`
 - **Plain manifests:** `helm template trailbeam ./deploy/helm/trailbeam --set store.existingSecret=<secret>
   --set auth.existingSecret=<secret> > trailbeam.yaml` renders them once, for `kubectl apply` without Helm.
@@ -800,7 +798,7 @@ can't run on the upgraded database either: to go back, restore a backup taken be
 checks the version when it starts. So when a release changes the Postgres schema, stop every replica before you
 start the new version, unless that release's notes say a rolling upgrade is safe ([CHANGELOG](CHANGELOG.md)
 says which releases change it). An older replica still running would store spans the new schema doesn't index.
-This version upgrades a 0.3.0 (or 0.2.0) database to Postgres schema 5: stop every older replica first. Schema 5
+0.4.0 upgrades a 0.3.0 (or 0.2.0) database to Postgres schema 6: stop every older replica first. Schema 5
 partitions the two lookup tables, one day at a time: 8 s for a database of 1M spans on our test machine, and
 about as long again per further million (an estimate). The first retention pass after it then seals the older
 days (4.5 s at 1M).
@@ -1027,7 +1025,7 @@ With Postgres (`--store-url`), use Postgres' own backups: see [Backup and restor
 Take a backup ([SQLite](#backup-and-restore-sqlite), [Postgres](#backup-and-restore-postgres)), stop the
 old server, and start the new version on the same database file, Docker volume or Postgres database, with the
 same flags and token. The new version upgrades the schema by itself at start. CI runs this from 0.3.0 to
-`main` on every change, for SQLite (the PyPI package and the image) and Postgres, and checks that every
+the current version on every change, for SQLite (the PyPI package and the image) and Postgres, and checks that every
 message, list and tenant count reads the same as before
 ([`python/smoke/upgrade_check.py`](python/smoke/upgrade_check.py)).
 
@@ -1040,7 +1038,7 @@ message, list and tenant count reads the same as before
   with `the database is at Postgres schema version 6, written by a newer Trailbeam ... Refusing to start, so
   nothing is lost`. To go back, restore the backup you took first.
 - **The token and the receipt-hash key** don't change. Signed-in browsers stay signed in. Services keep their
-  `TRAILBEAM_RECEIPT_HASH_KEY`: the hashing is the same in 0.3.0 and `main`, so services on either package
+  `TRAILBEAM_RECEIPT_HASH_KEY`: the hashing is the same in 0.3.0 and 0.4.0, so services on either package
   version can send spans for the same messages.
 - **Moving to `trailbeam start`.** `trailbeam start --data-dir DIR` uses `DIR/trailbeam.sqlite`, and
   `npx trailbeam start` uses the Docker volume `trailbeam-data`, the same volume as the Quickstart's

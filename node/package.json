@@ -1,6 +1,6 @@
 {
   "name": "trailbeam",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Message-level timelines for Amazon SQS: OpenTelemetry hooks for AWS SDK v3 and AWS Lambda.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/nick-lennox/trailbeam#readme",
