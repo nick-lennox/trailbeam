@@ -208,6 +208,57 @@ jobs:
           docker volume rm -f "$TB_NAME-data" || true
           docker image rm -f "$TB_NAME:ci" || true
 
+  upgrade:
+    # A store written by the published 0.3.0 keeps working under this checkout, and 0.3.0 can't damage it after.
+    # python/smoke/upgrade_check.py says what is checked.
+    name: Upgrade from 0.3.0 (${{ matrix.store }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        store: [sqlite, sqlite-image, postgres]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432   # random host port: several runners share one machine
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[test,postgres]'
+      - name: 0.3.0 from PyPI, in a venv of its own
+        if: matrix.store != 'sqlite-image'
+        run: |
+          python -m venv "$RUNNER_TEMP/old"
+          "$RUNNER_TEMP/old/bin/pip" install -q 'trailbeam[server,postgres]==0.3.0'
+      - name: SQLite, trailbeam start on the data directory 0.3.0 used
+        if: matrix.store == 'sqlite'
+        run: python smoke/upgrade_check.py --store sqlite --old-cmd "$RUNNER_TEMP/old/bin/trailbeam" --new-cmd trailbeam
+      - name: Postgres
+        if: matrix.store == 'postgres'
+        run: >-
+          python smoke/upgrade_check.py --store postgres --old-cmd "$RUNNER_TEMP/old/bin/trailbeam" --new-cmd trailbeam
+          --pg-url "postgresql://postgres:postgres@localhost:${{ job.services.postgres.ports['5432'] }}/postgres"
+      - name: SQLite, the published 0.3.0 image, then this checkout's image, on one volume
+        if: matrix.store == 'sqlite-image'
+        run: |
+          echo "TB_IMAGE=tbci-${{ github.run_id }}-${{ github.run_attempt }}-upgrade:ci" >> "$GITHUB_ENV"
+          docker build -t "tbci-${{ github.run_id }}-${{ github.run_attempt }}-upgrade:ci" ..
+          python smoke/upgrade_check.py --store sqlite --old-image ghcr.io/nick-lennox/trailbeam:0.3.0 \
+            --new-image "tbci-${{ github.run_id }}-${{ github.run_attempt }}-upgrade:ci"
+      - name: Remove this job's image
+        if: always() && matrix.store == 'sqlite-image'
+        run: docker image rm -f "$TB_IMAGE" || true
+
   demo:
     name: Local demo (Docker Compose)
     runs-on: ubuntu-latest
