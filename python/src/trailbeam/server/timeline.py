@@ -429,9 +429,11 @@ def _dlq_moves(receives: list, sends: list, proven) -> list[tuple]:
 
 def _not_seen_notice(queue: str, count: int, mrc: int) -> dict:
     return {"code": "dlq_move_not_seen", "message":
-            f"Receive count exceeded maxReceiveCount; not seen on the DLQ yet. The last receive on {queue} had "
-            f"receive count {count}, and {queue}'s maxReceiveCount is {mrc}, so SQS moves the message to its "
-            f"dead-letter queue instead of delivering it again. No receive from the dead-letter queue has "
+            f"Receive count reached maxReceiveCount; not seen on the DLQ yet. The last receive on {queue} had "
+            f"receive count {count}, and {queue}'s maxReceiveCount is {mrc} as configured, so unless that receive "
+            f"deletes the message, SQS moves it to its dead-letter queue instead of delivering it again. This is "
+            f"inferred from the configured value, and that receive may still be in progress. No receive from the "
+            f"dead-letter queue has "
             f"reported the move yet, so no move is shown. Trailbeam does not receive from the dead-letter queue to "
             f"check: a receive changes the message's state."}
 

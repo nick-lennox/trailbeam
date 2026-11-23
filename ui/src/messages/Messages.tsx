@@ -28,8 +28,8 @@ export type MessageSummary = {
 export const STATE_LABELS: Record<string, string> = {
   deleted: "deleted",
   deleted_inferred: "deleted by Lambda (inferred)",
-  processing: "processing",
-  not_deleted: "not deleted",
+  processing: "being handled (inferred)",
+  not_deleted: "no delete seen",
 };
 
 /** The Reason filter's options on Duplicates. */
@@ -77,7 +77,7 @@ function Queue({ m }: { m: MessageSummary }) {
     <>
       <span className="font-mono text-caption text-ink">{m.current_queue || m.source_queue || "?"}</span>
       {m.in_dead_letter_queue && <> <Muted>(DLQ, from {m.source_queue || "?"})</Muted></>}
-      {!m.in_dead_letter_queue && m.dead_letter_queue_move === "not_seen_on_dlq_yet" && <> <Muted>(maxReceiveCount reached; not seen on the DLQ yet)</Muted></>}
+      {!m.in_dead_letter_queue && m.dead_letter_queue_move === "not_seen_on_dlq_yet" && <> <Muted>(maxReceiveCount reached; DLQ move inferred, not seen yet)</Muted></>}
     </>
   );
 }
@@ -116,9 +116,14 @@ export type MessagesTableProps = {
   extra?: Column;
 };
 
+/** The Receives head's tooltip: what the count is, and what it is not (SQS's own receive count). */
+export const RECEIVES_TITLE = "Receives Trailbeam observed, on every queue, the receive from a dead-letter queue included. "
+  + "SQS's own receive count can be higher: it counts receives by consumers Trailbeam doesn't see. "
+  + "Handled: a receive that ended in a delete or a successful Lambda record.";
+
 /** The tooltip on a column head, where the word alone needs explaining. */
 const HEAD_TITLES: Record<string, string> = {
-  Receives: "How many times SQS returned this message from ReceiveMessage. Handled: a receive that ended in a delete or a successful Lambda record.",
+  Receives: RECEIVES_TITLE,
 };
 
 /** One row per message, in the API's order. Times are UTC. A message received more than once shows its count
