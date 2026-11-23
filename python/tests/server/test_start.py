@@ -328,3 +328,36 @@ def test_url_host():
     assert st._url_host("::") == "[::1]"
     assert st._url_host("::1") == "[::1]"
     assert st._url_host("127.0.0.1") == "127.0.0.1"
+
+
+def test_start_on_an_existing_database_warns_what_the_new_secrets_change(tmp_path):
+    """A 0.3.0 data directory has the SQLite file only (0.3.0 had no start): the token and key start makes are
+    new to the services sending to it, so start says so (QV-170). A second run, with the files, says nothing."""
+    data = tmp_path / "tb"
+    data.mkdir()
+    import sqlite3
+
+    from trailbeam.server.migrations import open_schema
+    c = sqlite3.connect(data / "trailbeam.sqlite", isolation_level=None)
+    open_schema(c)
+    c.close()
+    s = Started(["start", "--data-dir", str(data), "--port", "0"])
+    s.stop()
+    err = s.p.stderr.read()
+    assert "is an existing database, and the access token is now on" in err
+    assert f"run trailbeam --db {data / 'trailbeam.sqlite'}" in err and "--token-file" in err
+    assert "is an existing database, and a new receipt-hash key was made" in err
+    again = Started(["start", "--data-dir", str(data), "--port", "0"])
+    again.stop()
+    assert "existing database" not in again.p.stderr.read()
+
+
+def test_start_on_an_existing_database_with_its_secrets_does_not_warn(tmp_path):
+    data = tmp_path / "tb"
+    data.mkdir()
+    (data / "trailbeam.sqlite").write_bytes(b"")  # empty: a new database, not an existing one
+    (data / "token").write_text("t" * 32)
+    s = Started(["start", "--data-dir", str(data), "--port", "0"])
+    s.stop()
+    err = s.p.stderr.read()
+    assert "existing database" not in err and "created the receipt-hash key" in err

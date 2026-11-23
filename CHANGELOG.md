@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Upgrading from 0.3.0 is checked in CI.** A new job starts 0.3.0 (the PyPI package, and the published image),
+  stores 1,200 messages' spans, then runs this version on the same SQLite file, volume or Postgres database. It
+  checks that every timeline, list and tenant count reads as before, that messages in flight across the upgrade
+  are joined, that the token and sessions keep working, and that 0.3.0 then refuses a Postgres database it can't
+  read ([Upgrading](README.md#upgrading)).
+- **`trailbeam start` on an existing database says what its new token and key change.** On a data directory with
+  only a 0.3.0 SQLite file (0.3.0 had no `start`), `start` makes a token and a receipt-hash key, as on a first
+  run. Now it also logs a warning: with the token on, services that send without it are refused (401); the
+  services keep the key they had until they are given the new one. The warning says how to keep the old token
+  and key. Nothing else changes. (QV-170)
+- **Team install: `.env` readable by its owner only.** The README, the `docker-compose.yaml` header and
+  `.env.example` now say `install -m 600 .env.example .env` instead of `cp`, which left the token and the
+  Postgres password readable by every user of the server (QV-204).
 - **`trailbeam start` keeps the data directory private.** Others on the machine could read the spans (the
   SQLite file was created with the umask, often 644) or plant a `token` that the server then used. Now an
   existing data directory has to be yours and not writable by every user, else `trailbeam start` (and
@@ -9,7 +22,6 @@
   700. A `token` or `receipt-hash-key` that is a symlink or another user's is refused; one others can read is made
   600 instead of only warned about. The SQLite file and its `-wal` and `-shm` are created 600 (wherever `--db`
   puts them); an existing one of another user's is refused, and one others can read is made 600.
-
 - **A first-run screen, and one design for every page.** While the store holds no span, `/` shows how to send
   the first message: install the package (a Python / Node.js switch), the OTLP endpoint of this server with a
   Copy button, the environment variables (with the token header when the server has a token, never the token),
@@ -83,7 +95,7 @@ retention pass after it sealed the 5 older days into the filter (4.5 s). A 0.3.0
 write lookup rows the filter doesn't know about, so don't run 0.3.0 and this version against one database at
 the same time. Once the database is at schema 5, a 0.3.0 server refuses to start on it. If the upgrade is
 stopped part way, the next start runs it again; rows already copied are left as they are. A database at an older schema (from
-0.2.0) goes through schema 4 first, as the 0.3.0 notes describe. SQLite files are unchanged.
+0.2.0) goes through schema 4 first, as the 0.3.0 notes describe. SQLite files are unchanged: 0.3.0 still opens them.
 
 ## 0.3.0: Postgres for teams that outgrow SQLite
 
