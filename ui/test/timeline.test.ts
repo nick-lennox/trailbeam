@@ -151,6 +151,7 @@ test("no delete yet is not drawn as lost; being handled is marked inferred", () 
   assert.ok(render(busy).includes('<span class="text-ember">Being handled (inferred)</span>'));
   const dead = { ...open, in_dead_letter_queue: true };
   assert.ok(render(dead).includes('<span class="text-lost">No delete seen, in the DLQ</span>'), "a message in the DLQ stays red");
+});
 
 test("a FIFO send SQS deduplicated says so, with the reason, and is not another plain send (QV-246)", () => {
   const base = { inferred: false, group: 0, start: null, start_observed: false, queue: "py-fifo.fifo",
