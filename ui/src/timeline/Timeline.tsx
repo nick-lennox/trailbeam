@@ -17,7 +17,7 @@
   No client JS: details/summary does the expanding, so it works with scripts off.
 */
 import type {
-  AfterEntry, AwsEvent, BlindSpot, Group, Timeline, TimelineEvent,
+  AfterEntry, AwsEvent, BlindSpot, Group, Notice, Timeline, TimelineEvent,
 } from "./types.ts";
 import { ErrorCauses } from "./ErrorCauses.tsx";
 import { errorCauses } from "../errors.ts";
@@ -73,7 +73,7 @@ function title(e: TimelineEvent): string {
   }
 }
 
-/** Short label for an event when another step refers to it ("after e2 · receive 1"). */
+/** Short label for an event, as the concurrent box names its members ("e2 pickup 1"). */
 function shortLabel(e: TimelineEvent): string {
   switch (e.type) {
     case "sent": return "the send";
@@ -91,6 +91,13 @@ function shortLabel(e: TimelineEvent): string {
   }
 }
 
+/** How the record names an earlier step ("After e3 (the visibility change on delivery 1)"). */
+function refLabel(e: TimelineEvent): string {
+  if (e.type === "visibility_changed") return `the visibility change${e.delivery ? ` on delivery ${e.delivery}` : ""}`;
+  if (e.type === "deleted") return `the delete${e.delivery ? ` on delivery ${e.delivery}` : ""}`;
+  return shortLabel(e);
+}
+
 /** Who/where, the mono line under the time. */
 function where(e: TimelineEvent): string {
   if (e.type === "aws_step") return e.aws_kind === "never_handled" ? "AWS side" : e.function_name ? `AWS · ${e.function_name}` : "AWS side";
@@ -100,6 +107,7 @@ function where(e: TimelineEvent): string {
 
 /** The ending a node shows: good (trail), retry (ember), lost (bad ending), plain. */
 function tone(e: TimelineEvent): "trail" | "ember" | "lost" | "plain" {
+  if (e.type === "deleted" && e.result !== "ok") return "lost";
   if (e.type === "deleted" && e.status === "final") return "trail";
   if (e.type === "aws_step" && e.aws_kind === "trigger_delete") return "trail";
   if (e.type === "lambda_outcome") return e.outcome === "success" ? "trail" : "lost";
@@ -133,7 +141,7 @@ const shortId = (id: string) => (id.length > 14 ? `${id.slice(0, 8)}…${id.slic
 export function SourceTag({ kind, children }: { kind: "recorded" | "inferred"; children: React.ReactNode }) {
   return (
     <span className={`inline-flex h-5 shrink-0 items-center rounded-[5px] border px-1.5 font-mono text-micro whitespace-nowrap ${
-      kind === "inferred" ? "border-dashed border-lost/70 text-lost" : "border-sky-ink-3/50 text-sky-ink-2"}`}>
+      kind === "inferred" ? "border-dashed border-sky-ink-3/70 text-sky-ink-3" : "border-sky-ink-3/50 text-sky-ink-2"}`}>
       {children}
     </span>
   );
@@ -162,7 +170,7 @@ export function Node({ e, size = 14 }: { e: TimelineEvent; size?: number }) {
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden className="block shrink-0">
       {e.inferred ? (
-        <circle cx={r} cy={r} r={r - 1.25} fill="var(--color-sky)" stroke="var(--color-lost)" strokeWidth="1.5" strokeDasharray="2.4 2" />
+        <circle cx={r} cy={r} r={r - 1.25} fill="var(--color-sky)" stroke="var(--color-sky-ink-3)" strokeWidth="1.5" strokeDasharray="2.4 2" />
       ) : t === "lost" ? (
         <>
           <circle cx={r} cy={r} r={r - 1.25} fill="var(--color-sky)" stroke={c} strokeWidth="1.5" />
@@ -187,41 +195,19 @@ function linksInto(members: TimelineEvent[], earlierIds: Set<string>): Link[] {
   return out;
 }
 
-/** The connector between two groups: says what proves the later group comes after. */
-function OrderLink({ entries, byId }: { entries: Link[]; byId: ById }) {
-  const sources = [...new Set(entries.flatMap((x) => x.sources))];
-  const inferred = sources.every((s) => s === "inferred_from");
-  const targets = [...new Set(entries.map((x) => x.target))];
-  // Into a concurrent box, each member gets its own line: sources never blur across members.
-  const lines = targets.map((t) => {
-    const es = entries.filter((x) => x.target === t);
-    return { target: t, froms: [...new Set(es.map((x) => x.event))], sources: [...new Set(es.flatMap((x) => x.sources))] };
-  });
+/**
+ * The connector between two groups: only the rail, dashed when the later group is placed by
+ * inference. What proves the order is in each step's "Why it's here, and the record".
+ */
+function OrderLink({ entries }: { entries: Link[] }) {
+  const inferred = entries.flatMap((x) => x.sources).every((s) => s === "inferred_from");
   return (
-    <li className="grid grid-cols-[1.5rem_1fr] gap-x-3 md:grid-cols-[8.5rem_1.5rem_1fr]" aria-label={`Then. Order from ${sources.map((s) => ORDER_SOURCE[s]?.label ?? s).join(", ")}`}>
+    <li className="grid grid-cols-[1.5rem_1fr] gap-x-3 md:grid-cols-[8.5rem_1.5rem_1fr]" aria-hidden data-connector={inferred ? "inferred" : "observed"}>
       <span className="hidden md:block" />
-      <span className="relative flex justify-center" aria-hidden>
-        <span className={`absolute inset-y-0 w-0 border-l ${inferred ? "border-dashed border-lost/60" : "border-sky-ink-3/60"}`} />
+      <span className="relative flex h-4 justify-center">
+        <span className={`absolute inset-y-0 w-0 border-l ${inferred ? "border-dashed border-sky-ink-3/60" : "border-sky-ink-3/60"}`} />
       </span>
-      <ul className="grid gap-1 py-1.5">
-        {lines.map((l) => {
-          const placed = l.sources.every((s) => ORDER_SOURCE[s]?.placement);
-          return (
-            <li key={l.target} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-micro text-sky-ink-3">
-              <span aria-hidden>↓</span>
-              {lines.length > 1 && <span className="text-sky-ink-2">{l.target}</span>}
-              <span>{placed ? "placed after" : "after"} {l.froms.map((f) => `${f} ${shortLabel(byId.get(f)!)}`).join(", ")}</span>
-              <span aria-hidden>·</span>
-              {l.sources.map((s) => (
-                <span key={s} className={`inline-flex items-center gap-1 ${s === "inferred_from" ? "text-lost" : "text-sky-ink-2"}`}>
-                  {ORDER_SOURCE[s]?.label ?? s}
-                  {ORDER_SOURCE[s]?.proposed && <span className="text-sky-ink-3">(proposed)</span>}
-                </span>
-              )).reduce<React.ReactNode[]>((acc, el, i) => (i ? [...acc, <span key={`s${i}`} aria-hidden>+</span>, el] : [el]), [])}
-            </li>
-          );
-        })}
-      </ul>
+      <span />
     </li>
   );
 }
@@ -274,8 +260,8 @@ function BlindSpotNote({ spot }: { spot: BlindSpot }) {
 
 function Why({ e, byId }: { e: TimelineEvent; byId: ById }) {
   const rows: { label: string; entry: AfterEntry }[] = [
-    ...e.after.map((a) => ({ label: `After ${a.event} (${shortLabel(byId.get(a.event)!)})`, entry: a })),
-    ...("before" in e && e.before ? [{ label: `Before ${e.before.event} (${shortLabel(byId.get(e.before.event)!)})`, entry: e.before }] : []),
+    ...e.after.map((a) => ({ label: `After ${a.event} (${refLabel(byId.get(a.event)!)})`, entry: a })),
+    ...("before" in e && e.before ? [{ label: `Before ${e.before.event} (${refLabel(byId.get(e.before.event)!)})`, entry: e.before }] : []),
   ];
   return (
     <dl className="grid gap-y-2 text-[13px] leading-[1.45]">
@@ -440,15 +426,15 @@ function ConcurrentBox({ g, members, byId }: { g: Group; members: TimelineEvent[
                     </>
                   )}
                   {k?.kind === "point" && (
-                    <span className="absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-lost bg-sky" style={{ left: x(k.to) }} />
+                    <span className={`absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 ${m.inferred ? "border-dashed border-sky-ink-3" : tone(m) === "trail" ? "border-trail" : "border-lost"} bg-sky`} style={{ left: x(k.to) }} />
                   )}
                   {k?.kind === "window" && (
-                    <span className={`absolute top-1/2 h-2.5 -translate-y-1/2 border border-dashed border-lost/80 ${k.from !== undefined && k.from < lo ? "rounded-r-full border-l-0" : "rounded-full"}`}
+                    <span className={`absolute top-1/2 h-2.5 -translate-y-1/2 border border-dashed ${m.inferred ? "border-sky-ink-3/80" : "border-lost/80"} ${k.from !== undefined && k.from < lo ? "rounded-r-full border-l-0" : "rounded-full"}`}
                       style={{ left: x(k.from ?? lo), width: `calc(${x(k.to)} - ${x(k.from ?? lo)})` }} />
                   )}
                 </span>
                 {k?.kind === "window" && k.from !== undefined && k.from < lo && (
-                  <span className="font-mono text-micro text-lost sm:col-start-2">← window opens {clock(k.windowFrom!)}, {dur(lo + pad - k.from)} before this scale</span>
+                  <span className={`font-mono text-micro ${m.inferred ? "text-sky-ink-3" : "text-lost"} sm:col-start-2`}>← window opens {clock(k.windowFrom!)}, {dur(lo + pad - k.from)} before this scale</span>
                 )}
                 {k?.kind === "end-only" && (
                   <span className="font-mono text-micro text-sky-ink-3 sm:col-start-2">start not observed: only the end is known</span>
@@ -478,6 +464,21 @@ function ConcurrentBox({ g, members, byId }: { g: Group; members: TimelineEvent[
 
 /* ── The timeline ───────────────────────────────────────────────────────── */
 
+const NOTICE_LINKS: Record<string, [string, string]> = {
+  default_key: ["Why the key matters", "https://github.com/nick-lennox/trailbeam#add-it-to-your-services"],
+};
+
+/** A server notice: `backticked` spans are commands or names, drawn as code; some codes get a docs link. */
+export function NoticeText({ n }: { n: Notice }) {
+  const link = NOTICE_LINKS[n.code];
+  return (
+    <>
+      {n.message.split(/`([^`]+)`/).map((part, i) => (i % 2 ? <code key={i} className="font-mono text-caption text-sky-ink">{part}</code> : part))}
+      {link && <> <a className="text-dawn hover:underline" href={link[1]}>{link[0]}</a></>}
+    </>
+  );
+}
+
 const STATE_WORDS: Record<Timeline["state"], string> = {
   deleted: "Deleted",
   deleted_inferred: "Deleted (inferred)",
@@ -499,7 +500,7 @@ export function TimelineView({ t, answer, openSteps = [] }: { t: Timeline; answe
     const members = g ? t.events.filter((x) => x.group === g.group) : [e];
     if (earlier.size) {
       const links = linksInto(members, earlier);
-      if (links.length) items.push(<OrderLink key={`o${e.id}`} entries={links} byId={byId} />);
+      if (links.length) items.push(<OrderLink key={`o${e.id}`} entries={links} />);
     }
     if (g?.concurrent) items.push(<ConcurrentBox key={`g${g.group}`} g={g} members={members} byId={byId} />);
     else for (const m of members) items.push(<Step key={m.id} e={m} byId={byId} open={openSteps.includes(m.id)} last={m.id === lastId} />);
@@ -527,7 +528,7 @@ export function TimelineView({ t, answer, openSteps = [] }: { t: Timeline; answe
           {[
             ["State", <span key="s" className={stateTone}>{STATE_WORDS[t.state]}{t.in_dead_letter_queue ? ", in the DLQ" : ""}</span>],
             ["Queue now", t.current_queue],
-            ["Deliveries", `${t.deliveries} (${t.successful_deliveries} handled)`],
+            ["Receives", `${t.deliveries} (${t.successful_deliveries} handled)`],
             ["First seen", <span key="f">{clock(t.first_seen)} <span className="text-sky-ink-3">{t.first_seen_clock === "sqs" ? "SQS clock" : "host clock"}</span></span>],
           ].map(([k, v]) => (
             <div key={k as string}>
@@ -539,7 +540,7 @@ export function TimelineView({ t, answer, openSteps = [] }: { t: Timeline; answe
       </header>
       {t.notices.length > 0 && (
         <ul className="grid gap-2 border-b border-sky-line px-4 py-3 md:px-8">
-          {t.notices.map((n) => <li key={n.code} className="border-l-2 border-dawn/70 pl-3 text-[13px] text-sky-ink-2">{n.message}</li>)}
+          {t.notices.map((n) => <li key={n.code} className="border-l-2 border-dawn/70 pl-3 text-[13px] text-sky-ink-2"><NoticeText n={n} /></li>)}
         </ul>
       )}
       <ol className="px-3 pt-5 pb-2 md:px-8" aria-label="Steps, in proven order">

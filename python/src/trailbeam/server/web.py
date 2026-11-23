@@ -60,7 +60,7 @@ DLQ_MOVE_LABELS = {
 
 DUPLICATE_REASONS = {
     "received_more_than_once": "received more than once",
-    "succeeded_more_than_once": "succeeded more than once",
+    "succeeded_more_than_once": "handled more than once",
 }
 
 # A raw string: the CSS has its own escapes (\2191 is the up arrow), which Python must not read as octal.
@@ -107,7 +107,7 @@ ul.waterfall>li{margin:.3rem 0 !important}
 .track .bar.window{background:repeating-linear-gradient(135deg,#e7b866,#e7b866 4px,#f6dfb4 4px,#f6dfb4 8px)}
 .notice{background:#fff4d6;border:1px solid #e6c25c;padding:.5rem .8rem;margin:.4rem 0;border-radius:3px}
 .error{background:#fde2e2;border:1px solid #d98c8c;padding:.6rem .9rem;border-radius:3px}
-.muted{color:#6b7385}form.filters{margin:.6rem 0 1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
+.muted{color:#6b7385}.repeat{color:#a35a00;font-weight:600}form.filters{margin:.6rem 0 1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
 footer{color:#6b7385;font-size:.8em;padding:1rem 1.2rem}
 """
 
@@ -140,8 +140,10 @@ def _index(api, q: dict) -> Response:
                 "<code>TRAILBEAM_STORE_BODIES</code>, as the package redacted them. Anyone who can open this "
                 "page can read them.</p>")
         if not bs["stores_bodies"]:
-            note += ('<p class="notice">This server keeps no bodies: <code>TRAILBEAM_STORE_BODIES</code> is not '
-                     "set, so a body search finds nothing.</p>")
+            note += ('<p class="notice">This server keeps no message bodies, so there&rsquo;s nothing to search. To '
+                     "keep them, set <code>TRAILBEAM_STORE_BODIES</code> on the server and "
+                     "<code>TRAILBEAM_CAPTURE_BODY_QUEUES</code> in the package. "
+                     '<a href="https://github.com/nick-lennox/trailbeam#message-bodies">Message bodies</a></p>')
         elif bs["scanned"]:
             note += (f'<p class="muted">Read the bodies of {bs["scanned"]:,} messages last seen between '
                      f'{escape(_ms(bs["searched_from_ms"]))} and {escape(_ms(bs["to_ms"]))}'
@@ -157,7 +159,8 @@ def _index(api, q: dict) -> Response:
             + ("<h2>Messages whose body matches</h2>" if searching else "<h2>Recent messages</h2>")
             + _filters("/", {"since_s": "86400", **q} if searching else q, fields)
             + note
-            + _summary_table(data["messages"], empty="No message body matches." if searching else "No messages stored yet.")
+            + _summary_table(data["messages"], empty="No message body matches." if searching else (
+                NO_SPANS if not data["messages"] and _store_empty(api) else "No messages stored yet."))
             + _next("/", nxt, data))
     return _page(200, "Trailbeam", body)
 
@@ -181,7 +184,7 @@ def _message(api, q: dict) -> Response:
         parts.append(_dd("Dead-letter queue", escape(DLQ_MOVE_LABELS.get(t["dead_letter_queue_move"],
                                                                          t["dead_letter_queue_move"]))))
     parts.append(_dd("Send observed", "yes" if t.get("send_observed") else "no"))
-    parts.append(_dd("Deliveries", f'{t["deliveries"]} ({t["successful_deliveries"]} successful)'))
+    parts.append(_dd("Receives", f'{t["deliveries"]} ({t["successful_deliveries"]} handled)'))
     parts.append(_dd("First seen", _first_seen(t)))
     parts.append(_dd("Last seen", _time(t.get("last_seen"))))
     parts.append("</dl>")
@@ -210,17 +213,31 @@ def _message(api, q: dict) -> Response:
     return _page(200, f'Message {t["message_id"]}', "".join(parts))
 
 
+def _duplicate_why(m: dict) -> str:
+    """Each reason with its count from the row: receives, or successful handlings."""
+    counts = {"received_more_than_once": ("received", m.get("deliveries")),
+              "succeeded_more_than_once": ("handled", m.get("successful_deliveries"))}
+    out = []
+    for r in m.get("reasons", []):
+        verb, n = counts.get(r, (None, None))
+        out.append(f'{verb} <span class="mono">{int(n)}</span> times' if verb and n is not None
+                   else escape(DUPLICATE_REASONS.get(r, r)))
+    return ", ".join(out)
+
+
 def _duplicates(api, q: dict) -> Response:
     params = _pick(q, "limit", "queue", "reason", "cursor")
     data = api("duplicates", params)
     reason_opts = [("", "any reason")] + list(DUPLICATE_REASONS.items())
     body = ("<h1>Duplicate deliveries</h1>"
-            '<p class="muted">Messages received more than once, or processed successfully more than once.</p>'
+            '<p class="muted">Messages SQS returned more than once, or that more than one consumer handled. '
+            "A second receive is expected after your own <code>ChangeMessageVisibility</code> or a failed "
+            "attempt. It is worth a look when the visibility timeout expired while a consumer was still "
+            "working, or when a message was handled twice.</p>"
             + _filters("/duplicates", q, [("reason", "Reason", reason_opts), ("queue", "Queue", "text"),
                                           ("limit", "Limit", "number")])
-            + _summary_table(data["messages"], extra=("Why", lambda m: ", ".join(
-                escape(DUPLICATE_REASONS.get(r, r)) for r in m.get("reasons", []))),
-                empty="No duplicate deliveries.")
+            + _summary_table(data["messages"], extra=("Why", _duplicate_why),
+                empty=NO_SPANS if not data["messages"] and _store_empty(api) else "No duplicate deliveries.")
             + _next("/duplicates", q, data))
     return _page(200, "Duplicate deliveries", body)
 
@@ -228,24 +245,46 @@ def _duplicates(api, q: dict) -> Response:
 def _stuck(api, q: dict) -> Response:
     data = api("stuck", _pick(q, "older_than_s", "limit", "queue", "cursor"))
     body = ("<h1>Stuck messages</h1>"
-            f'<p class="muted">First seen more than {int(data["older_than_s"])} s ago, with no final delete. '
-            "Oldest first. First seen is the send, on the producer host's clock. Only when the send was not "
-            "observed is it SQS's SentTimestamp, on SQS's clock; that message's age then compares SQS's clock "
-            "with this server's, and says so.</p>"
+            f'<p class="muted">Messages sent more than {_threshold(int(data["older_than_s"]))} ago that no '
+            "consumer has deleted yet, oldest first. Change the age with Older than, or the server default with "
+            "<code>--stuck-after</code> (<code>TRAILBEAM_STUCK_AFTER_S</code>).</p>"
             + _filters("/stuck", {**q, "older_than_s": str(data["older_than_s"])},
                        [("older_than_s", "Older than (s)", "number"), ("queue", "Queue", "text"),
                         ("limit", "Limit", "number")])
-            + _summary_table(data["messages"], extra=("Age", _stuck_age), empty="No stuck messages.")
-            + _next("/stuck", q, data))
+            + _summary_table(data["messages"], extra=("Age", _stuck_age),
+                             empty=NO_SPANS if not data["messages"] and _store_empty(api) else "No stuck messages.")
+            + _next("/stuck", q, data)
+            + '<p class="muted">Times are in UTC. Age counts from the send, on the sender\'s clock. If Trailbeam '
+            "never saw the send, it counts from SQS's <code>SentTimestamp</code>, and the age says so.</p>")
     return _page(200, "Stuck messages", body)
 
 
+def _threshold(s: int) -> str:
+    """A threshold in seconds, in words when it is a whole number of days, hours or minutes: 300 is "5 min"."""
+    for size, one, many in ((86_400, "day", "days"), (3600, "h", "h"), (60, "min", "min")):
+        if s > 0 and s % size == 0:
+            n = s // size
+            return f"{n} {one if n == 1 else many}"
+    return f"{s} s"
+
+
 TENANT_RANGES = [("3600", "Last hour"), ("86400", "Last 24 hours"), ("604800", "Last 7 days")]
-TENANT_SETUP = ("A tenant comes from a Trailbeam package at contract revision 3.2 with a tenant field set: "
-                "<code>TRAILBEAM_TENANT_ATTRIBUTE</code> (a message attribute) or "
-                "<code>TRAILBEAM_TENANT_BODY_PATH</code> (a dotted path in a JSON body), or the package's "
-                "<code>tenant</code> option. Set it in each service that sends or receives. See the span "
-                "contract, section 15.1.")
+TENANT_IS = "A tenant is your own customer or account ID, read from each message."
+TENANTS_README = '<a href="https://github.com/nick-lennox/trailbeam#tenants">Tenants in the README</a>'
+TENANT_ENV = ("export TRAILBEAM_TENANT_ATTRIBUTE=tenant        # a message attribute\n"
+              "export TRAILBEAM_TENANT_BODY_PATH=customer.id   # or a path in a JSON body")
+
+
+def _no_tenants(total_sent: int, label: str) -> str:
+    """The Tenants page with no tenant in its range (QV-217): what a tenant is, and how to set one."""
+    when = "in the " + label.replace("Last ", "last ", 1)
+    if not total_sent:
+        seen = f"No messages were sent {when}."
+    else:
+        seen = f'{total_sent:,} {"message was" if total_sent == 1 else "messages were"} sent {when}, none with one.'
+    return (f'<div class="notice"><p><strong>No tenants yet</strong></p><p>{TENANT_IS} {seen} To split traffic by '
+            f"customer, set one of these in every service that sends or receives:</p>"
+            f"<pre><code>{escape(TENANT_ENV)}</code></pre><p>{TENANTS_README}</p></div>")
 
 
 def _tenants(api, q: dict) -> Response:
@@ -255,9 +294,7 @@ def _tenants(api, q: dict) -> Response:
     head = ("<h1>Tenants</h1><p class=\"muted\">Which of your customers are sending the traffic, and who is "
             "waiting longest.</p>" + _filters("/tenants", {"since_s": since}, [("since_s", "Range", TENANT_RANGES)]))
     if not d["rows"]:
-        seen = f'{d["total_sent"]:,} sends were seen, none with a tenant. ' if d["total_sent"] else ""
-        return _page(200, "Tenants", head + f'<p class="notice"><strong>No tenants in this range.</strong> {seen}'
-                     + TENANT_SETUP + "</p>")
+        return _page(200, "Tenants", head + _no_tenants(d["total_sent"], label))
     rows = []
     for r in d["rows"]:
         share = "&lt;1" if 0 < r["share"] < 0.01 else str(round(r["share"] * 100))
@@ -271,7 +308,7 @@ def _tenants(api, q: dict) -> Response:
     note = (f'<p class="muted">{escape(label)}, from {"the most recent 2,000 messages" if d["capped"] else "every message"} '
             f'in the range. Share is of all {d["total_sent"]:,} observed sends{untagged}. p95 in queue is from the '
             "send to the first receive, over first deliveries only. Dead-lettered counts messages SQS was seen "
-            "moving to a dead-letter queue. " + TENANT_SETUP + "</p>")
+            f"moving to a dead-letter queue. {TENANT_IS} How to set one: {TENANTS_README}.</p>")
     table = ("<table><tr><th>Tenant</th><th>Messages sent</th><th>Share</th><th>p95 in queue</th>"
              "<th>Dead-lettered</th></tr>" + "".join(rows) + "</table>")
     return _page(200, "Tenants", head + table + note)
@@ -484,10 +521,21 @@ def _consumer(c: dict) -> str:
     return " ".join(bits[:1]) + (f' ({", ".join(bits[1:])})' if len(bits) > 1 else "")
 
 
+RECEIVES_TITLE = ("How many times SQS returned this message from ReceiveMessage. Handled: a receive that ended in "
+                  "a delete or a successful Lambda record.")
+
+
+def _receives(m: dict) -> str:
+    """``2 · 1 handled``; the count is marked when the message was received more than once."""
+    n = m["deliveries"]
+    count = f'<span class="repeat">{n}</span>' if n > 1 else str(n)
+    return f'{count} <span class="muted">· {m["successful_deliveries"]} handled</span>'
+
+
 def _summary_table(messages: list[dict], *, empty: str, extra: Optional[tuple] = None) -> str:
     if not messages:
         return f'<p class="muted empty">{escape(empty)}</p>'
-    cols = ["Message ID", "State", "Queue", "Deliveries", "Consumers", "First seen", "Last seen"]
+    cols = ["Message ID", "State", "Queue", "Receives", "Consumers", "First seen", "Last seen"]
     if extra:
         cols.append(extra[0])
     rows = []
@@ -501,12 +549,13 @@ def _summary_table(messages: list[dict], *, empty: str, extra: Optional[tuple] =
                               + (f' <span class="muted">{escape(str(c["client_id"]))}</span>' if c.get("client_id") else "")
                               for c in m.get("consumers", []))
         cells = [f'<a class="mono" href="/message?{escape(urlencode({"id": m["message_id"]}))}">{escape(m["message_id"])}</a>',
-                 _state(m["state"]), queue, f'{m["deliveries"]} ({m["successful_deliveries"]} ok)', consumers,
+                 _state(m["state"]), queue, _receives(m), consumers,
                  _first_seen(m, short=True), _time(m.get("last_seen"))]
         if extra:
             cells.append(extra[1](m))
         rows.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
-    return ("<table><thead><tr>" + "".join(f"<th>{escape(c)}</th>" for c in cols) + "</tr></thead><tbody>"
+    return ("<table><thead><tr>" + "".join(
+        f'<th title="{escape(RECEIVES_TITLE)}">{escape(c)}</th>' if c == "Receives" else f"<th>{escape(c)}</th>" for c in cols) + "</tr></thead><tbody>"
             + "".join(rows) + "</tbody></table>")
 
 
@@ -626,6 +675,19 @@ def _age(s) -> str:
     if s < 172800:
         return f"{s / 3600:.1f} h"
     return f"{s / 86400:.1f} days"
+
+
+NO_SPANS = ("No messages yet. No service has sent spans here: the packages send them to /v1/traces on this "
+            "server (https://github.com/nick-lennox/trailbeam#quickstart).")
+
+
+def _store_empty(api) -> bool:
+    """Whether the store holds no span at all (/api/health data.last_row is 0), so an empty list means nothing is
+    connected yet rather than nothing is wrong."""
+    try:
+        return api("health", {})["data"]["last_row"] == 0
+    except Exception:  # noqa: BLE001 - a page never fails over its empty-state wording
+        return False
 
 
 def _pick(q: dict, *names: str) -> dict:

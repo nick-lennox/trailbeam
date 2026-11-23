@@ -82,6 +82,19 @@ def gate_body(attributes: dict, queue: Optional[str], store_bodies: frozenset) -
     return {k: v for k, v in attributes.items() if k not in BODY_ATTRIBUTES}, BODY_DROPPED_NOT_OPTED_IN
 
 
+
+@contextlib.contextmanager
+def _snapshot(c: sqlite3.Connection):
+    """Its reads in one read transaction (one snapshot of a WAL file), unless one is open already."""
+    if c.in_transaction:
+        yield
+        return
+    c.execute("BEGIN")
+    try:
+        yield
+    finally:
+        c.execute("COMMIT")
+
 class SqliteStore(Store):
     """Thread-safe. One writer connection, serialised by ``lock``; on a file, reads use separate read-only
     connections and never take that lock.
@@ -544,10 +557,10 @@ class SqliteStore(Store):
         return {r["mid"] for r in self.query("SELECT mid FROM message_queues NOT INDEXED WHERE queue = ?", (queue,))}
 
     def tenant_activity(self, from_ms: int, to_ms: int) -> list[TenantActivity]:
-        """The hourly rollup for the whole hours in the range, the tenant events of the partial hours at its
-        ends, and the repeat dead-letter moves (rollup.py)."""
-        hours, raw = rollup.split(from_ms, to_ms)
-        with self.reader() as c:
+        """The hourly rollup and the tenant events ``rollup.plan`` says, and the repeat dead-letter moves
+        (rollup.py). One read transaction: the rollup rows and the events taken out of them agree."""
+        hours, raw = rollup.plan(from_ms, to_ms)
+        with self.reader() as c, _snapshot(c):
             rows = []
             if hours:  # counts added up in SQL; the sketches here, faster than json_each (QV-128)
                 waits: dict = {}
@@ -558,8 +571,9 @@ class SqliteStore(Store):
                 rows = [(t, sent, firsts, moves, waits.get(t, {})) for t, sent, firsts, moves in c.execute(
                     """SELECT tenant, SUM(sent), SUM(first_deliveries), SUM(dead_letter_moves) FROM tenant_rollup
                        WHERE hour BETWEEN ? AND ? GROUP BY tenant""", hours)]
-            events = [r for a, b in raw for r in c.execute(
-                "SELECT tenant, kind, wait_ms FROM tenant_events WHERE at_ms BETWEEN ? AND ?", (a, b))]
+            events = [(t, kind, wait, n * sign) for a, b, sign in raw for t, kind, wait, n in c.execute(
+                f"""SELECT tenant, kind, wait_ms, COUNT(*) FROM tenant_events WHERE at_ms BETWEEN ? AND ?
+                    AND kind <> '{rollup.DEAD_LETTERED_AGAIN}' GROUP BY tenant, kind, wait_ms""", (a, b))]
             again = [r[0] for r in c.execute(
                 """SELECT tenant FROM tenant_events INDEXED BY tenant_events_again
                    WHERE kind = 'dead_lettered_again' AND at_ms BETWEEN ? AND ? AND at_ms - wait_ms >= ?""",
@@ -638,6 +652,33 @@ class SqliteStore(Store):
         """The highest row ID stored, 0 if none: one step down the primary key."""
         with self.reader() as c:
             return c.execute("SELECT MAX(row) FROM spans").fetchone()[0] or 0
+
+    def last_span_ns(self) -> Optional[int]:
+        with self.reader() as c:
+            r = c.execute("SELECT time_ns FROM spans ORDER BY row DESC LIMIT 1").fetchone()
+        return None if r is None else r[0]
+
+    def record_probes(self, probe_ids: list[str], received_ns: int, *, wait_s: Optional[float] = None) -> None:
+        if not self.lock.acquire(timeout=-1 if wait_s is None else wait_s):
+            raise WriterBusy(f"the writer was busy for {wait_s:g} s")
+        try:
+            c = self.conn
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                c.executemany("INSERT OR REPLACE INTO probes (id, received_ns) VALUES (?, ?)",
+                              [(p, received_ns) for p in probe_ids])
+                c.execute("DELETE FROM probes WHERE received_ns < ?", (received_ns - self.PROBE_KEEP_NS,))
+                c.execute("COMMIT")
+            except BaseException:
+                c.execute("ROLLBACK")
+                raise
+        finally:
+            self.lock.release()
+
+    def probe(self, probe_id: str) -> Optional[int]:
+        with self.reader() as c:
+            r = c.execute("SELECT received_ns FROM probes WHERE id = ?", (probe_id,)).fetchone()
+        return None if r is None else r[0]
 
     def counts(self) -> dict:
         """Exact counts (``/api/stats``). Each one reads the whole table: seconds at 10M spans."""

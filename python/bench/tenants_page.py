@@ -9,13 +9,19 @@ with the old code and one with the new code on the same data can be compared:
     PYTHONPATH=<old checkout>/python/src python python/bench/tenants_page.py --db /tmp/t.sqlite --spans 1M --out before.json
     python python/bench/tenants_page.py --db /tmp/t.sqlite --out after.json --compare before.json
 
-The second run opens the store with the new code, so it also migrates it (the time is reported). Counts must
+The second run opens the store with the new code, so it also migrates it (the time is reported), and asks the
+first run's ranges. Counts must
 be equal; p95 within the contract's bound (contract/tenants.md). ``--insert N`` then times N exports of live
 traffic, one at a time, to see what keeping the rollup adds to ingest; it adds spans, so run it on a copy.
+
+``--current-hour N`` first adds N spans of messages sent between the start of the current hour and now, as a
+heavy ingest leaves them (QV-180: 2.55M of 6.0M tenant events in the current hour), and the ranges then end
+now: the page's default, whose end is a partial hour (QV-224). Adding them must finish within the hour.
 """
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import statistics
 import sys
@@ -68,13 +74,24 @@ def run(args) -> dict:
         seeded = seed(s, args)
         if not args.store_url:
             s, _ = open_store(args)
+    if args.current_hour:
+        out_current = current_hour(s, args.current_hour)
     newest_ms = s.newest_messages(1)[0][0] // 1_000_000
     to_ms = newest_ms + 60_000
+    if args.current_hour:
+        to_ms = int(time.time() * 1000)
+        if to_ms // HOUR_MS != out_current["hour"] and not args.compare:
+            sys.exit("the hour ended while the spans were added: run again early in an hour")
     out = {"store": "postgres" if args.store_url else "sqlite", "open_s": round(open_s, 2), "migrated": migrated,
            "seeded": seeded, "spans": sum(s.counts()["spans"].values()) if hasattr(s, "counts") else None,
            "ranges": {}}
+    if args.current_hour:
+        out["current_hour"] = out_current
+    before = json.loads(Path(args.compare).read_text())["ranges"] if args.compare else None
     for name, width in RANGES.items():
         frm = to_ms - width
+        if before:  # the same ranges as the run compared with, which may have ended at its own now
+            frm, to_ms = before[name]["from_ms"], before[name]["to_ms"]
         queries.tenants(s, 0, 900, frm, to_ms)  # warm
         lat, ans = [], None
         for _ in range(args.repeats):
@@ -103,6 +120,33 @@ def run(args) -> dict:
                          "spans_per_s": round(spans / (sum(lat) / 1000))}
         print(f"{out['store']:8} insert       {out['insert']}", flush=True)
     s.close()
+    return out
+
+
+def current_hour(s, spans: int, threads: int = 8) -> dict:
+    """Adds about ``spans`` spans of messages sent between the start of the hour and now (spread evenly)."""
+    now = time.time_ns()
+    start = now // (HOUR_MS * 10 ** 6) * HOUR_MS * 10 ** 6
+    n_msgs = int(spans / PROFILE.mean_spans_per_message()) + 1
+    step = (now - start) / n_msgs
+    i = [0]
+
+    def clock() -> int:
+        i[0] += 1
+        return start + int(i[0] * step)
+
+    stream = loadgen.Stream(PROFILE, seed=now % 1_000_003, worker=224, clock=clock)  # new messages every run
+    t0, added = time.monotonic(), 0
+    with concurrent.futures.ThreadPoolExecutor(threads) as pool:
+        pending = set()
+        for batch in stream.batches_of_messages(n_msgs):
+            pending.add(pool.submit(s.insert, loadgen.records(batch)))
+            if len(pending) >= threads * 2:
+                done, pending = concurrent.futures.wait(pending, return_when=concurrent.futures.FIRST_COMPLETED)
+                added += sum(f.result()[0] for f in done)
+        added += sum(f.result()[0] for f in concurrent.futures.as_completed(pending))
+    out = {"hour": start // (HOUR_MS * 10 ** 6), "spans": added, "seconds": round(time.monotonic() - t0, 1)}
+    print(f"current hour: added {added:,} spans in {out['seconds']} s", flush=True)
     return out
 
 
@@ -138,6 +182,8 @@ def main(argv=None) -> None:
     p.add_argument("--spans", type=harness.parse_size, default=0, help="seed to this many spans first (e.g. 1M)")
     p.add_argument("--repeats", type=int, default=30)
     p.add_argument("--insert", type=int, default=0, help="then time this many exports of ~512 spans (changes the data)")
+    p.add_argument("--current-hour", type=harness.parse_size, default=0,
+                   help="first add this many spans sent this hour (changes the data), and end the ranges now")
     p.add_argument("--out", required=True)
     p.add_argument("--compare", help="a previous run's JSON: check the answers match")
     args = p.parse_args(argv)

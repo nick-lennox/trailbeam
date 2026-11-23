@@ -174,6 +174,15 @@ jobs:
           echo "TB_NAME=tbci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}" >> "$GITHUB_ENV"
       - name: Build the image (local only, not pushed)
         run: docker build -t "$TB_NAME:ci" .
+      # npx trailbeam start runs the image of the package's version with `start` (node/bin/trailbeam.js), so an
+      # image without the start command would ship a launcher that can't run (QV-207: image 0.3.0 has none and
+      # prints the plain `usage: trailbeam`). Checked through the launcher itself, pointed at this build.
+      - name: The launcher's start --help is answered by the image's trailbeam start
+        run: |
+          TRAILBEAM_IMAGE="$TB_NAME:ci" node node/bin/trailbeam.js start --port "$TB_PORT" --help > "$RUNNER_TEMP/start-help.txt"
+          cat "$RUNNER_TEMP/start-help.txt"
+          grep -q '^usage: trailbeam start ' "$RUNNER_TEMP/start-help.txt" \
+            || { echo "::error::the image has no trailbeam start command (start --help printed something else)"; exit 1; }
       - name: Run it with SQLite on a volume
         run: |
           docker volume create "$TB_NAME-data"
@@ -198,6 +207,57 @@ jobs:
           docker rm -f "$TB_NAME" || true
           docker volume rm -f "$TB_NAME-data" || true
           docker image rm -f "$TB_NAME:ci" || true
+
+  upgrade:
+    # A store written by the published 0.3.0 keeps working under this checkout, and 0.3.0 can't damage it after.
+    # python/smoke/upgrade_check.py says what is checked.
+    name: Upgrade from 0.3.0 (${{ matrix.store }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        store: [sqlite, sqlite-image, postgres]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432   # random host port: several runners share one machine
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[test,postgres]'
+      - name: 0.3.0 from PyPI, in a venv of its own
+        if: matrix.store != 'sqlite-image'
+        run: |
+          python -m venv "$RUNNER_TEMP/old"
+          "$RUNNER_TEMP/old/bin/pip" install -q 'trailbeam[server,postgres]==0.3.0'
+      - name: SQLite, trailbeam start on the data directory 0.3.0 used
+        if: matrix.store == 'sqlite'
+        run: python smoke/upgrade_check.py --store sqlite --old-cmd "$RUNNER_TEMP/old/bin/trailbeam" --new-cmd trailbeam
+      - name: Postgres
+        if: matrix.store == 'postgres'
+        run: >-
+          python smoke/upgrade_check.py --store postgres --old-cmd "$RUNNER_TEMP/old/bin/trailbeam" --new-cmd trailbeam
+          --pg-url "postgresql://postgres:postgres@localhost:${{ job.services.postgres.ports['5432'] }}/postgres"
+      - name: SQLite, the published 0.3.0 image, then this checkout's image, on one volume
+        if: matrix.store == 'sqlite-image'
+        run: |
+          echo "TB_IMAGE=tbci-${{ github.run_id }}-${{ github.run_attempt }}-upgrade:ci" >> "$GITHUB_ENV"
+          docker build -t "tbci-${{ github.run_id }}-${{ github.run_attempt }}-upgrade:ci" ..
+          python smoke/upgrade_check.py --store sqlite --old-image ghcr.io/nick-lennox/trailbeam:0.3.0 \
+            --new-image "tbci-${{ github.run_id }}-${{ github.run_attempt }}-upgrade:ci"
+      - name: Remove this job's image
+        if: always() && matrix.store == 'sqlite-image'
+        run: docker image rm -f "$TB_IMAGE" || true
 
   demo:
     name: Local demo (Docker Compose)
@@ -277,6 +337,50 @@ jobs:
         run: |
           docker compose down -v --remove-orphans || true
           docker image rm -f "$COMPOSE_PROJECT_NAME-trailbeam:local" || true
+
+  kubernetes:
+    # The Helm chart (deploy/helm, QV-173) on a kind cluster of its own: lint, install with the trial Postgres,
+    # one span with the token through the Service, an upgrade that keeps the token (deploy/helm/check.sh).
+    name: Kubernetes (Helm chart on kind)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Names of its own (runners share one machine)
+        run: |
+          echo "TB_NAME=tbci-${{ github.run_id }}-${{ github.run_attempt }}-k8s" >> "$GITHUB_ENV"
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
+      - name: kind, kubectl and helm (pinned, checksums checked)
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin" && cd "$RUNNER_TEMP/bin"
+          curl -fsSLo kind https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64
+          curl -fsSLo kubectl https://dl.k8s.io/release/v1.37.2/bin/linux/amd64/kubectl
+          curl -fsSLo helm.tgz https://get.helm.sh/helm-v4.3.2-linux-amd64.tar.gz
+          sha256sum -c - <<'SUMS'
+          aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d  kind
+          c04487523e7aa7d1493f7808174c899db93d7a9cf57531420cd76b9bd415f8f4  kubectl
+          d1c0278d46beab79582d7e50f5b3dc206944ba8e577cde618513fd07daa53983  helm.tgz
+          SUMS
+          tar xzf helm.tgz --strip-components=1 linux-amd64/helm && rm helm.tgz
+          chmod +x kind kubectl helm
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Build the image with the Postgres driver (local only, not pushed)
+        run: docker build --build-arg TRAILBEAM_EXTRAS=server,postgres -t "$TB_NAME:ci" .
+      - name: Create the kind cluster
+        # The node image is kept on the machine between runs (about 1.3 GB), so a run doesn't download it again.
+        run: kind create cluster --name "$TB_NAME" --wait 120s --image kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+      - name: Install the chart, send one span, upgrade
+        run: deploy/helm/check.sh "$TB_NAME" "$TB_NAME:ci"
+      - name: Cluster state and logs
+        if: failure()
+        run: |
+          kubectl get all,pvc,secret -o wide || true
+          kubectl describe pods || true
+          kubectl logs -l app.kubernetes.io/instance=tb --all-containers --tail 80 --prefix || true
+      - name: Remove this job's cluster and image
+        if: always()
+        run: |
+          kind delete cluster --name "$TB_NAME" || true
+          docker image rm -f "$TB_NAME:ci" || true
 
   concurrency-check:
     name: Concurrency check (3 processes x 4 consumers, 200 messages)

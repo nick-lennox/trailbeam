@@ -17,6 +17,12 @@ To install from a clone instead, run `npm install ./trailbeam/node` from your ap
 
 ## Run the server: `npx trailbeam start`
 
+**From the next release.** This does not work with 0.3.0: the published package has no `trailbeam` command,
+and the 0.3.0 container image has no `start` (a launcher run from a clone of `main` uses that image and stops
+at its plain `trailbeam` usage). Until then, use the Python `trailbeam start` from a clone of `main`
+([README](../README.md#trailbeam-start-unreleased-on-main)) or the
+[team install](../README.md#team-install-docker-compose-with-postgres).
+
 To try Trailbeam from a Node.js project you don't need Python: with [Docker](https://docs.docker.com/get-docker/)
 installed and running,
 
@@ -28,7 +34,15 @@ runs the Trailbeam server from its container image, `ghcr.io/nick-lennox/trailbe
 package's version, and keeps its data in the Docker volume `trailbeam-data`. The first run creates an access
 token and a receipt-hash key there. It then prints the web screen's address (`http://127.0.0.1:4318/`), the
 token, and the environment variables to set in your services, the same output as the Python
-`trailbeam start`. Later runs reuse the token and key. Stop it with Ctrl-C.
+`trailbeam start`. Later runs reuse the token and key, and don't print them: they print the command that
+shows each one, `docker run --rm -v trailbeam-data:/data --entrypoint cat ghcr.io/nick-lennox/trailbeam:X.Y.Z
+/data/token` (and `/data/receipt-hash-key`), and the export lines run it with `$(...)`. If `TRAILBEAM_RECEIPT_HASH_KEY` is set, that key is used instead of
+the one in the volume, and the export lines say `$TRAILBEAM_RECEIPT_HASH_KEY`. Stop it with Ctrl-C.
+
+Before it starts the server it prints one line to stderr naming the image it runs: the reference, the local
+image ID and the registry digest, for example `trailbeam: running ghcr.io/nick-lennox/trailbeam:0.3.0 (image
+sha256:…, ghcr.io/nick-lennox/trailbeam@sha256:…)`. It pulls the image only when it isn't on this machine.
+`TRAILBEAM_IMAGE=REF` runs another image instead (a local build, a mirror), and the line then says so.
 
 It takes the same flags as the Python command (`npx trailbeam start --help` lists them), and the same
 `TRAILBEAM_` environment variables. The flags that name something on your machine work like this:

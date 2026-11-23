@@ -1,17 +1,22 @@
 /*
-  Self-hosted Trailbeam's pages drawn with the shared views (../src): the message page at /message?id=<message ID>
+  Self-hosted Trailbeam's pages drawn with the shared views (../src): Messages at / (the first-run screen while
+  no span is stored: home.tsx), Duplicates and Stuck (lists.tsx), the message page at /message?id=<message ID>
   (the timeline, and with &tab=body the Body tab) and the Tenants page at /tenants. They read Trailbeam's own
-  API on the same origin. The other pages are still Trailbeam's server-rendered HTML for now; these link back
-  to them.
+  API on the same origin. Without the build, or with scripts off, the server's HTML pages answer instead.
 */
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  BodyPanel, TenantSearch, TenantsTable, TimelineView, answerFor, tenantsFootnote, type MessageBody, type TenantStats, type Timeline,
+  BodyPanel, CodeWindow, EmptyState, NoticeText, TENANT_ENV, TENANT_IS, TENANTS_README, TenantsTable, TimelineView, answerFor, lookupEmpty,
+  noTenantsText, storeIsEmpty, tenantsEmpty, tenantsFootnote,
+  type EmptyStateProps, type MessageBody, type TenantStats, type Timeline,
 } from "../src/index.ts";
+import { ApiError, Header, getHealth, getJSON, tenantHref } from "./chrome.tsx";
+import { HomePage } from "./home.tsx";
+import { DuplicatesPage, StuckPage } from "./lists.tsx";
 import "./styles.css";
 
-type State = { kind: "loading" } | { kind: "missing" } | { kind: "error"; message: string } | { kind: "ok"; t: Timeline };
+type State = { kind: "loading" } | { kind: "missing" } | { kind: "error"; message: string } | { kind: "not-found"; empty: EmptyStateProps } | { kind: "ok"; t: Timeline };
 type BodyState = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ok"; v: MessageBody };
 
 /* Self-hosted Trailbeam has no logins: the only gates are TRAILBEAM_STORE_BODIES and who can reach it. */
@@ -20,55 +25,24 @@ const HINTS = {
   not_opted_in: <>To keep this queue&rsquo;s bodies from now on, add it to <code className="font-mono text-caption">TRAILBEAM_STORE_BODIES</code> on the server.</>,
 };
 
-/** A tenant's messages: the server-rendered list, filtered (contract/tenants.md, "Tenant filter"). */
-const tenantHref = (t: string) => `/?tenant=${encodeURIComponent(t)}`;
-/** Suggestions from the tenants named in the Tenants page's range: the one shown, else its default (a day). */
-const suggest = (text: string) => {
-  const since = location.pathname === "/tenants" ? new URLSearchParams(location.search).get("since_s") : null;
-  const range = since ? `&since_s=${encodeURIComponent(since)}` : "";
-  return fetch(`/api/tenants/search?q=${encodeURIComponent(text)}${range}`).then((r) => (r.ok ? r.json() : { tenants: [] })).then((d: { tenants: string[] }) => d.tenants);
-};
-
-function Header({ id = "" }: { id?: string }) {
-  return (
-    <header className="flex flex-wrap items-center gap-4 border-b border-sky-line py-4">
-      <a href="/" className="text-[1.25rem] text-sky-ink">Trailbeam</a>
-      <nav className="flex gap-4 text-sm text-sky-ink-2">
-        <a href="/" className="hover:text-sky-ink">Messages</a>
-        <a href="/duplicates" className="hover:text-sky-ink">Duplicates</a>
-        <a href="/stuck" className="hover:text-sky-ink">Stuck</a>
-        <a href="/tenants" className="hover:text-sky-ink">Tenants</a>
-      </nav>
-      <div className="ml-auto flex min-w-0 flex-1 basis-80 justify-end gap-2">
-        <TenantSearch suggest={suggest} href={tenantHref} className="w-40 shrink-0" />
-        <form action="/message" className="flex min-w-0 flex-1 justify-end">
-          <label className="sr-only" htmlFor="id">Message ID</label>
-          <input id="id" name="id" defaultValue={id} placeholder="Message ID"
-            className="w-full max-w-sm rounded-full border border-sky-line bg-sky-2 px-4 py-1.5 font-mono text-caption text-sky-ink placeholder:text-sky-ink-3" />
-        </form>
-      </div>
-    </header>
-  );
-}
-
 const RANGES = [["3600", "Last hour"], ["86400", "Last 24 hours"], ["604800", "Last 7 days"]] as const;
-type TenantsState = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ok"; s: TenantStats };
+type TenantsState = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ok"; s: TenantStats; storeEmpty: boolean };
 
 function TenantsPage() {
   const asked = new URLSearchParams(location.search).get("since_s");
   const range = RANGES.find((r) => r[0] === asked) ?? RANGES[1];
   const [state, setState] = useState<TenantsState>({ kind: "loading" });
   useEffect(() => {
-    document.title = "Tenants";
-    fetch(`/api/tenants?since_s=${range[0]}`)
-      .then(async (r) => (r.ok ? setState({ kind: "ok", s: (await r.json()) as TenantStats }) : setState({ kind: "error", message: `Trailbeam answered ${r.status}: ${(await r.text()).slice(0, 200)}` })))
-      .catch(() => setState({ kind: "error", message: "Couldn't reach Trailbeam's API." }));
+    document.title = "Tenants · Trailbeam";
+    getJSON<TenantStats>(`/api/tenants?since_s=${range[0]}`)
+      .then(async (s) => {
+        const storeEmpty = s.rows.length === 0 && s.total_sent === 0 ? await getHealth(5000).then(storeIsEmpty, () => false) : false;
+        setState({ kind: "ok", s, storeEmpty });
+      })
+      .catch((e: Error) => setState({ kind: "error", message: e.message }));
   }, [range[0]]);
-  const setup = (
-    <>A tenant comes from a Trailbeam package at contract revision 3.2 with a tenant field set: <code className="font-mono text-caption">TRAILBEAM_TENANT_ATTRIBUTE</code> (a
-      message attribute) or <code className="font-mono text-caption">TRAILBEAM_TENANT_BODY_PATH</code> (a dotted path in a JSON body), or the package's <code className="font-mono text-caption">tenant</code> option,
-      in each service that sends or receives. See the span contract, section 15.1.</>
-  );
+  const [copied, setCopied] = useState("");
+  const readme = <a className="text-dawn hover:underline" href={TENANTS_README}>Tenants in the README</a>;
   return (
     <div className="mx-auto max-w-[1100px] px-4 pb-16 md:px-8">
       <Header />
@@ -88,10 +62,14 @@ function TenantsPage() {
         <div className="mt-5">
           {state.kind === "loading" && <p className="text-sky-ink-3">Loading tenants</p>}
           {state.kind === "error" && <p className="text-sky-ink-2" role="alert">{state.message}</p>}
-          {state.kind === "ok" && state.s.rows.length === 0 && (
+          {state.kind === "ok" && state.storeEmpty && <EmptyState {...tenantsEmpty()} />}
+          {state.kind === "ok" && !state.storeEmpty && state.s.rows.length === 0 && (
             <div className="rounded-[16px] border border-sky-line bg-sky-2/55 px-5 py-4 text-[15px] leading-[1.5] text-sky-ink-2">
-              <p className="text-sky-ink">No tenants in this range</p>
-              <p className="mt-1 max-w-[72ch]">{state.s.total_sent > 0 ? `${state.s.total_sent.toLocaleString("en-US")} sends were seen, none with a tenant. ` : ""}{setup}</p>
+              <p className="text-sky-ink">No tenants yet</p>
+              <p className="mt-1 max-w-[72ch]">{noTenantsText(state.s.total_sent, range[1])}</p>
+              <CodeWindow caption="shell" code={TENANT_ENV} copyName="Copy the tenant settings" onCopied={setCopied} />
+              <p className="sr-only" aria-live="polite">{copied}</p>
+              <p className="mt-3">{readme}</p>
             </div>
           )}
           {state.kind === "ok" && state.s.rows.length > 0 && (
@@ -100,7 +78,7 @@ function TenantsPage() {
                 <TenantsTable rows={state.s.rows} href={tenantHref} />
               </div>
               <p className="mt-3 max-w-[80ch] text-sm text-sky-ink-3">
-                {tenantsFootnote(state.s, range[1])} {setup} The same data as JSON: <a className="font-mono text-caption text-dawn hover:underline" href={`/api/tenants?since_s=${range[0]}`}>/api/tenants</a>
+                {tenantsFootnote(state.s, range[1])} {TENANT_IS} How to set one: {readme}. The same data as JSON: <a className="font-mono text-caption text-dawn hover:underline" href={`/api/tenants?since_s=${range[0]}`}>/api/tenants</a>
               </p>
             </>
           )}
@@ -119,14 +97,14 @@ function MessagePage() {
 
   useEffect(() => {
     if (!id) return;
-    document.title = `Message ${id}`;
-    fetch(`/api/messages/${encodeURIComponent(id)}`)
-      .then(async (r) => {
-        if (r.status === 404) return setState({ kind: "error", message: `No message with the ID ${id} has reached Trailbeam.` });
-        if (!r.ok) return setState({ kind: "error", message: `Trailbeam answered ${r.status}: ${(await r.text()).slice(0, 200)}` });
-        setState({ kind: "ok", t: (await r.json()) as Timeline });
-      })
-      .catch(() => setState({ kind: "error", message: "Couldn't reach Trailbeam's API." }));
+    document.title = `Message ${id} · Trailbeam`;
+    getJSON<Timeline>(`/api/messages/${encodeURIComponent(id)}`)
+      .then((t) => setState({ kind: "ok", t }))
+      .catch(async (e: Error) => {
+        if (!(e instanceof ApiError && e.status === 404)) return setState({ kind: "error", message: e.message });
+        const empty = await getHealth(5000).then(storeIsEmpty, () => false);
+        setState({ kind: "not-found", empty: lookupEmpty(id, empty) });
+      });
   }, [id]);
 
   useEffect(() => {
@@ -146,12 +124,14 @@ function MessagePage() {
         {state.kind === "loading" && <p className="text-sky-ink-3">Loading the timeline</p>}
         {state.kind === "missing" && <p className="text-sky-ink-2">Enter a message ID to see its timeline.</p>}
         {state.kind === "error" && <p className="text-sky-ink-2" role="alert">{state.message}</p>}
+        {state.kind === "not-found" && <EmptyState {...state.empty} />}
         {state.kind === "ok" && (
           <>
-            {state.t.notices.length > 0 && (
+            {/* The timeline card draws its own notices; only the Body tab needs them here. */}
+            {tab === "body" && state.t.notices.length > 0 && (
               <ul className="mb-4 grid gap-2">
                 {state.t.notices.map((n) => (
-                  <li key={n.code} className="rounded-[12px] border border-sky-line bg-sky-2 px-4 py-3 text-[15px] leading-[1.5] text-sky-ink-2">{n.message}</li>
+                  <li key={n.code} className="rounded-[12px] border border-sky-line bg-sky-2 px-4 py-3 text-[15px] leading-[1.5] text-sky-ink-2"><NoticeText n={n} /></li>
                 ))}
               </ul>
             )}
@@ -192,5 +172,6 @@ function MessagePage() {
   );
 }
 
-const App = location.pathname === "/tenants" ? TenantsPage : MessagePage;
+const PAGES: Record<string, () => React.JSX.Element> = { "/": HomePage, "/duplicates": DuplicatesPage, "/stuck": StuckPage, "/tenants": TenantsPage };
+const App = PAGES[location.pathname] ?? MessagePage;
 createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);

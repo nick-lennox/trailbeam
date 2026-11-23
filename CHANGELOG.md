@@ -7,6 +7,84 @@
   Lambda function with an SQS trigger. Each runs with one `docker compose` command against ElasticMQ and a
   local Trailbeam, and sends three orders: one processed, one retried after the visibility timeout, one
   moved to the dead-letter queue. CI runs every example and checks the three timelines. (QV-172)
+- **The Tenants page no longer slows down after heavy ingest.** It read every raw event of the current hour,
+  so right after a burst of traffic it took 1–2 s on Postgres (QV-180). It now reads the current hour from the
+  hourly rollup, less the few events newer than the window, and adds up the raw events it still reads in SQL.
+  With 2M events in the current hour, the last day went from 2.07 s to 55 ms (p95, Postgres) and from 646 ms
+  to 9 ms (SQLite, 626K events), with the same answers. (QV-224)
+- **Body search takes plain text.** On the Messages page and in `GET /api/messages?body=`, `ord-1003` is
+  searched as `body:ord-1003` instead of being refused with a 400. The **Body** field shows an example, and
+  on a server that keeps no bodies (`/api/health` lists no `store_bodies`) it is off, with a line saying how to
+  turn bodies on. A term for another field still fails, now as ``Can't read `queue:orders`. Use text, or
+  `body.<path>:<value>`.``, without the HTTP status. (QV-215)
+- **`trailbeam start` prints the token and key only on the run that created them.** Later runs print the
+  command that shows each one (`cat ~/.trailbeam/token`) instead, and the export lines read the files with
+  `$(cat ...)`, so a server restarted under systemd, `docker run -d`, nohup or CI no longer writes the token and
+  the receipt-hash key into journald, `docker logs` or the build log on every start, and pasted export lines
+  keep them out of shell history. A token given with `--token-file` or `TRAILBEAM_TOKEN` is never printed.
+  `npx trailbeam start` with the Docker volume prints a `docker run ... cat /data/token` command. The first
+  run is unchanged. (QV-203)
+- **Kubernetes: a Helm chart.** `deploy/helm/trailbeam` installs the server as a Deployment of 2 replicas
+  behind a Service, on a Postgres you run (`store.url` or a Secret), or on a trial Postgres in the cluster
+  (`postgresql.enabled=true`). The token and receipt-hash key are generated once into a Secret and kept on
+  upgrade, or come from your own Secret. Liveness probe on `/api/health`, readiness on `/api/ready`, and a
+  startup probe long enough for a schema upgrade. CI installs it on a kind cluster and sends one span. It
+  replaces the example manifest `deploy/kubernetes/trailbeam.yaml`; `helm template` renders plain manifests.
+  Releases now also publish `ghcr.io/nick-lennox/trailbeam:<version>-postgres`, the image with the Postgres
+  driver, which is the chart's default ([Kubernetes](README.md#kubernetes-helm-chart)). (QV-173)
+- **Messages: Receives, not Deliveries.** The column on Messages, Duplicates and Stuck is now **Receives**, with a
+  tooltip that defines it (how many times SQS returned the message from `ReceiveMessage`) and what *handled* means
+  (a receive that ended in a delete or a successful Lambda record). Cells read `2 · 1 handled` instead of
+  `2 (1 ok)`, and the count is Ember when the message was received more than once, so that row stands out. The
+  timeline summary says **Receives** `2 (1 handled)` too, on the UI and the no-script pages (QV-209).
+- **`trailbeam doctor`: why no data is arriving.** It checks, in plain lines, that the server answers, that the
+  ingest port accepts connections, that the token is accepted, that a test span sent now is stored and read
+  back, and when the last real span arrived. Each failed check prints the likely cause and the fix, and the exit
+  code is 1 when one fails. By default it uses the address and token `trailbeam start` created
+  ([README](README.md#troubleshooting-no-data-arriving)): without `--url`, the server of
+  `TRAILBEAM_OTLP_TRACES_ENDPOINT`, or the address `trailbeam start` keeps in `address` in its data directory,
+  so `trailbeam start --port N` is checked on N and not on 4318. The test span is a *probe* (span contract section 17):
+  the server stores it apart from the spans (new table `probes`: SQLite schema 13, Postgres schema 6, both
+  applied on start), so it never shows as a message or in a count, and reads it back at
+  `GET /api/probes/{id}` (at most 8 probes an export, in one write). `GET /api/health` also gives `data.last_span_ns`, the time of the span stored last.
+  A server of 0.3 or before rejects the probe; `trailbeam doctor` says so and the other checks still run.
+  Once upgraded, a SQLite file can no longer be opened by 0.3.0, which refuses it at start (restore a backup to go back).
+- **Upgrading from 0.3.0 is checked in CI.** A new job starts 0.3.0 (the PyPI package, and the published image),
+  stores 1,200 messages' spans, then runs this version on the same SQLite file, volume or Postgres database. It
+  checks that every timeline, list and tenant count reads as before, that messages in flight across the upgrade
+  are joined, that the token and sessions keep working, and that 0.3.0 then refuses the upgraded SQLite file or
+  Postgres database, which it can't read ([Upgrading](README.md#upgrading)).
+- **`trailbeam start` on an existing database says what its new token and key change.** On a data directory with
+  only a 0.3.0 SQLite file (0.3.0 had no `start`), `start` makes a token and a receipt-hash key, as on a first
+  run. Now it also logs a warning: with the token on, services that send without it are refused (401); the
+  services keep the key they had until they are given the new one. The warning says how to keep the old token
+  and key. Nothing else changes. (QV-170)
+- **Team install: `.env` readable by its owner only.** The README, the `docker-compose.yaml` header and
+  `.env.example` now say `install -m 600 .env.example .env` instead of `cp`, which left the token and the
+  Postgres password readable by every user of the server (QV-204).
+- **`npx trailbeam start` says which image it runs; image versions are write-once.** Before the server starts,
+  one stderr line names the image: its reference, local image ID and registry digest, and, when
+  `TRAILBEAM_IMAGE` is set, that it replaces the default image. The image is pulled (only when missing) and
+  inspected first, then run with `--pull never`, so the line names what runs. The release workflow now stops
+  before pushing `ghcr.io/nick-lennox/trailbeam:X.Y.Z` when that tag is already published, so re-running a
+  release can't change what an already-published npm version runs (QV-205).
+- **`trailbeam start` keeps the data directory private.** Others on the machine could read the spans (the
+  SQLite file was created with the umask, often 644) or plant a `token` that the server then used. Now an
+  existing data directory has to be yours and not writable by every user, else `trailbeam start` (and
+  `npx trailbeam start --data-dir`) stops with one line and status 2; one the group or others can use is made
+  700. A `token` or `receipt-hash-key` that is a symlink or another user's is refused; one others can read is made
+  600 instead of only warned about. The SQLite file and its `-wal` and `-shm` are created 600 (wherever `--db`
+  puts them); an existing one of another user's is refused, and one others can read is made 600.
+- **A first-run screen, and one design for every page.** While the store holds no span, `/` shows how to send
+  the first message: install the package (a Python / Node.js switch), the OTLP endpoint of this server with a
+  Copy button, the environment variables (with the token header when the server has a token, never the token),
+  and a five-line example. A waiting line polls `/api/health` every 2 s and says why nothing has arrived yet when
+  the ingest counters show a reason (spans from other instrumentation set aside, spans rejected, nothing at all
+  after 2 minutes). When the first span is stored the page shows that message, a link to its timeline and the
+  Messages list, without a reload. Messages, Duplicates and Stuck are now drawn by the shared UI in the same dark
+  design as the timeline and Tenants, and on an empty store they say no service has sent spans yet instead of
+  "No stuck messages." The Tenants page cites the span contract's section 15.2, with a link. Without the UI
+  build, the HTML pages answer as before, with the same empty-store wording.
 
 - **Port already in use: one line, not a traceback.** When the listen port is taken (4318 is the standard
   OTLP/HTTP port, so an OpenTelemetry Collector, Jaeger or another OTLP receiver often holds it), `trailbeam`
@@ -27,7 +105,6 @@
   listening on the OTLP endpoint, `await trailbeam.uninstall()` (and `trailbeam.forceFlush()`) rejected with
   `ECONNREFUSED`, which ended the process with status 1. Both now resolve; the spans that could not be sent are
   reported only as drops (the `TRAILBEAM_SPANS_DROPPED` warning and `exportStats()`), as in Python.
-
 - **`npx trailbeam start`: the server from npm, without Python.** The npm package has a `trailbeam` command.
   `npx trailbeam start` runs the container image of the same version (`ghcr.io/nick-lennox/trailbeam:X.Y.Z`)
   with its data in the Docker volume `trailbeam-data`, and prints the same first-run output as the Python
@@ -71,7 +148,7 @@ retention pass after it sealed the 5 older days into the filter (4.5 s). A 0.3.0
 write lookup rows the filter doesn't know about, so don't run 0.3.0 and this version against one database at
 the same time. Once the database is at schema 5, a 0.3.0 server refuses to start on it. If the upgrade is
 stopped part way, the next start runs it again; rows already copied are left as they are. A database at an older schema (from
-0.2.0) goes through schema 4 first, as the 0.3.0 notes describe. SQLite files are unchanged.
+0.2.0) goes through schema 4 first, as the 0.3.0 notes describe. SQLite files are unchanged: 0.3.0 still opens them.
 
 ## 0.3.0: Postgres for teams that outgrow SQLite
 
