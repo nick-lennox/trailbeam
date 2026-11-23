@@ -101,6 +101,8 @@ jobs:
         run: pytest -q tests/conformance
       - name: Postgres store tests
         run: pytest -q tests/server/test_postgres.py
+      - name: People, sessions and sign-in on Postgres
+        run: pytest -q tests/server/test_account_tables.py tests/server/test_accounts.py
 
   node:
     name: Node.js ${{ matrix.node }}
