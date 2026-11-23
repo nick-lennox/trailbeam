@@ -22,7 +22,7 @@ export {
   type FirstMessage, type FirstRunStatus, type Health,
 } from "./firstrun/status.ts";
 export {
-  MessagesTable, EmptyState, SET_UP, STATE_LABELS, DUPLICATE_REASONS, fmtAge, fmtTime,
+  MessagesTable, EmptyState, SET_UP, STATE_LABELS, DUPLICATE_REASONS, fmtAge, fmtTime, rowFacts, shortId,
   type Column, type EmptyStateProps, type MessageSummary, type MessagesTableProps,
 } from "./messages/Messages.tsx";
 export { duplicatesEmpty, lookupEmpty, messagesEmpty, stuckEmpty, tenantsEmpty, without } from "./messages/empty.tsx";

@@ -8,7 +8,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { EXAMPLE, FirstRun, environment, highlight, type FirstRunProps } from "../src/firstrun/FirstRun.tsx";
 import { NO_SPANS_AFTER_MS, announcement, isDefaultEndpoint, retainedFor, storeHasSpans, storeIsEmpty, waitingStatus, type Health } from "../src/firstrun/status.ts";
-import { EmptyState, MessagesTable, fmtAge, fmtTime, type MessageSummary } from "../src/messages/Messages.tsx";
+import { EmptyState, MessagesTable, fmtAge, fmtTime, shortId, type MessageSummary } from "../src/messages/Messages.tsx";
 import { duplicatesEmpty, lookupEmpty, messagesEmpty, stuckEmpty, tenantsEmpty, without } from "../src/messages/empty.tsx";
 
 /** The page's words: block elements and cells end a phrase, inline ones (code, spans) don't; curly quotes as straight. */
@@ -162,6 +162,22 @@ test("the message list", () => {
   assert.ok(html.includes('href="/message?id=m-2"'));
   assert.equal(fmtTime(null), null);
   assert.deepEqual([fmtAge(30), fmtAge(600), fmtAge(9000), fmtAge(200_000), fmtAge(null)], ["30 s", "10 min", "2.5 h", "2.3 days", "?"]);
+});
+
+test("the message list below md: three lines per row, the ID on one line", () => {
+  const id = "22e15633-1b7c-4d6e-9a1f-0c3b8e29707e";
+  const m: MessageSummary = { ...msg, message_id: id, state: "deleted", current_queue: "orders", in_dead_letter_queue: false, deliveries: 2, successful_deliveries: 1, first_seen_clock: "host", reasons: ["received_more_than_once"] };
+  assert.equal(shortId(id), "22e15633\u20269707e");
+  assert.equal(shortId("m-2"), "m-2");
+  const html = renderToStaticMarkup(createElement(MessagesTable, { messages: [m], href: (i: string) => `/message?id=${i}`, extra: { title: "Why", cell: () => "x", brief: () => "received more than once" } }));
+  const phone = /<ul class="md:hidden"[^>]*>(.*?)<\/ul>/.exec(html)?.[1] ?? "";
+  const lines = [...phone.matchAll(/<li[^>]*>(.*?)<\/li>/g)][0][1].split(/(?=<a |<p )/);
+  assert.equal(lines.length, 3, phone);
+  assert.ok(lines[0].includes(`href="/message?id=${id}"`) && lines[0].includes(`title="${id}"`) && text(lines[0]).trim() === "22e15633\u20269707e");
+  assert.equal(text(lines[1]).trim(), "deleted · orders · 2 receives · 1 handled · received more than once");
+  assert.equal(text(lines[2]).trim(), "2026-11-16 18:05:37.429");
+  for (const l of lines) assert.match(l, /class="[^"]*truncate/, "each line stays on one line");
+  assert.match(html, /<table class="hidden w-full text-\[15px\] md:table">/, "the table from md up");
 });
 
 const empty = (e: Parameters<typeof EmptyState>[0] | null) => (e ? text(renderToStaticMarkup(createElement(EmptyState, e))) : "");
