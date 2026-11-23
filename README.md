@@ -17,7 +17,8 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
-  <img src="https://img.shields.io/badge/status-pre--release%200.1-orange" alt="Status: pre-release 0.1">
+  <a href="https://pypi.org/project/trailbeam/"><img src="https://img.shields.io/pypi/v/trailbeam" alt="PyPI version"></a>
+  <a href="https://www.npmjs.com/package/trailbeam"><img src="https://img.shields.io/npm/v/trailbeam" alt="npm version"></a>
   <img src="https://img.shields.io/badge/python-3.10%2B-3776AB" alt="Python 3.10 or later">
   <img src="https://img.shields.io/badge/node.js-20%2B-5FA04E" alt="Node.js 20 or later">
 </p>
@@ -32,8 +33,9 @@ Metrics and tracing tools show queues in aggregate, or the spans your code emitt
 answers a narrower question: where did this one message go?
 
 > [!NOTE]
-> Trailbeam is pre-release 0.1. This repository is private, and nothing is published to PyPI, npm or
-> a container registry yet. Install the packages and build the image from a clone.
+> The latest release, 0.3.0, is on PyPI and npm (`trailbeam`) and on ghcr.io
+> (`ghcr.io/nick-lennox/trailbeam`). This README follows `main`, which can be ahead of the release:
+> see Unreleased in the [CHANGELOG](CHANGELOG.md).
 
 ## Features
 
@@ -68,7 +70,7 @@ The [quickstart](https://docs.trailbeam.app/quickstart) runs Trailbeam on your l
 It needs no AWS account.
 
 ```sh
-gh repo clone nick-lennox/trailbeam && cd trailbeam
+git clone https://github.com/nick-lennox/trailbeam.git && cd trailbeam
 docker compose -f demo/compose.yaml up -d --build --wait
 # then open http://127.0.0.1:4318/ and click a message ID
 ```
