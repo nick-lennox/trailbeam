@@ -148,7 +148,9 @@ def test_empty_lookup_redirects_home(site):
 def test_duplicates_page(site):
     _, _, html = get(site, "/duplicates")
     assert f'href="{page(MID)}"' in html and f'href="{page(POISON)}"' in html
-    assert "received more than once" in html
+    assert "A second receive is expected after your own <code>ChangeMessageVisibility</code>" in html
+    assert 'received <span class="mono">2</span> times' in html
+    assert '<option value="succeeded_more_than_once">handled more than once</option>' in html
     _, _, html = get(site, "/duplicates?reason=succeeded_more_than_once")
     assert "No duplicate deliveries." in html
     assert '<option value="succeeded_more_than_once" selected>' in html
