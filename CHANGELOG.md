@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **A first-run screen, and one design for every page.** While the store holds no span, `/` shows how to send
+  the first message: install the package (a Python / Node.js switch), the OTLP endpoint of this server with a
+  Copy button, the environment variables (with the token header when the server has a token, never the token),
+  and a five-line example. A waiting line polls `/api/health` every 2 s and says why nothing has arrived yet when
+  the ingest counters show a reason (spans from other instrumentation set aside, spans rejected, nothing at all
+  after 2 minutes). When the first span is stored the page shows that message, a link to its timeline and the
+  Messages list, without a reload. Messages, Duplicates and Stuck are now drawn by the shared UI in the same dark
+  design as the timeline and Tenants, and on an empty store they say no service has sent spans yet instead of
+  "No stuck messages." The Tenants page cites the span contract's section 15.2, with a link. Without the UI
+  build, the HTML pages answer as before, with the same empty-store wording.
 - **`npx trailbeam start`: the server from npm, without Python.** The npm package has a `trailbeam` command.
   `npx trailbeam start` runs the container image of the same version (`ghcr.io/nick-lennox/trailbeam:X.Y.Z`)
   with its data in the Docker volume `trailbeam-data`, and prints the same first-run output as the Python
