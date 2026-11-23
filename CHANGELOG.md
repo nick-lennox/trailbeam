@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Tables for people and tokens (users and roles, phase 1).** The store gains `users`, `sessions`,
+  `ingest_tokens`, `personal_tokens` and `setup_codes`: SQLite schema 15, Postgres schema 8. They are created
+  empty and nothing uses them yet, so the server behaves exactly as before. Emails are unique ignoring case.
+  Retention and `--vacuum` leave the tables alone. With `--db :memory:`, people and tokens are lost on every
+  restart, like the spans. **A database upgraded to this version can't be opened by 0.3.0 or 0.4.0 again**:
+  back it up before upgrading. (QV-225)
 - **Helm chart: a release named `trailbeam` no longer crash-loops** (QV-291). In 0.4.0 its Service, named
   `trailbeam`, made Kubernetes set `TRAILBEAM_PORT=tcp://<ip>:4318` in every pod of the namespace, and the server
   exited on it. The pods now have `enableServiceLinks: false` and `TRAILBEAM_PORT=4318`, and CI installs the

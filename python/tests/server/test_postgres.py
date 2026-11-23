@@ -574,7 +574,7 @@ def test_version_2_fills_the_lookup_tables_place_by_place(pg_store):
         _as_version(c, 1)
     again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
     try:
-        assert again.migrated == [2, 3, 4, 5, 6, 7]
+        assert again.migrated == [2, 3, 4, 5, 6, 7, 8]
         with again.ingest.connection() as c:
             assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
             assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == list(range(1, pg_schema_latest() + 1))
@@ -721,7 +721,10 @@ def _as_version(c, version: int) -> None:
     """Make a current database look as Postgres schema ``version`` left it: 1 is 0.2.0's (no lookup tables, no
     message-ID indexes on the list tables), 2 adds the lookup tables (QV-113), 3 the message-ID indexes (QV-118),
     4 the tenant rollup (QV-128); 5 partitions the lookup tables (QV-127); 6 adds the probes of trailbeam
-    doctor (QV-148)."""
+    doctor (QV-148); 7 takes deduplicated FIFO sends out of the tenant events (QV-246, no table change); 8 the
+    tables of people and tokens (QV-225)."""
+    if version < 8:
+        c.execute("DROP TABLE setup_codes, personal_tokens, ingest_tokens, sessions, users")
     if version < 6:
         c.execute("DROP TABLE probes")
     if version < 5:
@@ -842,7 +845,7 @@ def test_version_3_indexes_the_list_tables_place_by_place(pg_store):
     for attempt in range(2):
         again = PostgresStore(s.url, bucket_ns=SEC)
         try:
-            assert again.migrated == [3, 4, 5, 6, 7]
+            assert again.migrated == [3, 4, 5, 6, 7, 8]
             with again.ingest.connection() as c:
                 parts = _list_partitions(c)
                 assert len(parts["message_queues"]) == 11 + attempt  # 12 places less the dropped one, + "after-0"
@@ -1083,7 +1086,7 @@ def test_version_4_builds_the_rollup_place_by_place(pg_store):
         _as_version(c, 3)
     again = PostgresStore(s.url, bucket_ns=HOUR_MS * 10 ** 6)
     try:
-        assert again.migrated == [4, 5, 6, 7]
+        assert again.migrated == [4, 5, 6, 7, 8]
         assert [_rollup_page(again, a, b) for a, b in ranges] == want
         with again.ingest.connection() as c:
             assert c.execute("SELECT * FROM tenant_events ORDER BY rclass, bucket, at_ms, mid, seq").fetchall() == events
@@ -1118,7 +1121,7 @@ def test_version_7_takes_deduplicated_fifo_sends_out_of_the_tenant_events(pg_sto
         _as_version(c, 6)
     again = PostgresStore(s.url, bucket_ns=SEC)
     try:
-        assert again.migrated == [7]
+        assert again.migrated == [7, 8]
         assert queries.tenants(again, T0, 900, ms - 3_600_000, ms + 3_600_000) == want
         with again.ingest.connection() as c:
             assert [r["kind"] for r in c.execute("SELECT kind FROM tenant_events ORDER BY at_ms, kind")] == \
@@ -1365,7 +1368,7 @@ def test_version_5_partitions_the_lookup_tables_place_by_place(pg_store, tmp_pat
                          "AND relnamespace = current_schema()::regnamespace").fetchone()["relkind"] == "r"
     again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
     try:
-        assert again.migrated == [5, 6, 7]
+        assert again.migrated == [5, 6, 7, 8]
         with again.ingest.connection() as c:
             assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
             assert c.execute("SELECT to_regclass('mid_places_v4') AS t").fetchone()["t"] is None
@@ -1381,5 +1384,43 @@ def test_version_5_partitions_the_lookup_tables_place_by_place(pg_store, tmp_pat
         again.insert(records([Consumer().delete(T0 + 50 * SEC, "h-late")]))
         rows = again.message_rows("late")
         assert [r["kind"] for r in rows] == ["send", "receive", "delete"] and rows[2]["receive_row"] == rows[1]["row"]
+    finally:
+        again.close()
+
+
+# ---- QV-225: the tables of people and tokens --------------------------------------------------------------
+
+def _account_schema(c) -> dict:
+    """Columns (name, type, nullable, default) and index definitions of the tables of people and tokens."""
+    from trailbeam.server import account_tables
+    cols = {t: sorted(tuple(r.values()) for r in c.execute(
+        """SELECT column_name, data_type, is_nullable, is_identity, column_default FROM information_schema.columns
+           WHERE table_schema = current_schema() AND table_name = %s""", (t,)).fetchall())
+        for t in account_tables.TABLES}
+    indexes = sorted((r["tablename"], r["indexname"], r["indexdef"].replace(r["schemaname"] + ".", ""))
+                     for r in c.execute("SELECT schemaname, tablename, indexname, indexdef FROM pg_indexes "
+                                        "WHERE schemaname = current_schema() AND tablename = ANY(%s)",
+                                        (list(account_tables.TABLES),)).fetchall())
+    return {"columns": cols, "indexes": indexes}
+
+
+@needs_pg
+@pytest.mark.parametrize("version", range(1, 8))
+def test_every_older_version_gets_the_tables_of_people_and_tokens_a_new_database_has(pg_store, version):
+    from trailbeam.server.postgres import PostgresStore
+
+    s = pg_store(bucket_ns=SEC)
+    s.insert(records([Consumer().send(T0, "m1")]))
+    with s.ingest.connection() as c:
+        new = _account_schema(c)
+        assert all(new["columns"].values()) and len(new["indexes"]) == 11
+        _as_version(c, version)
+        assert not any(_account_schema(c)["columns"].values())
+    again = PostgresStore(s.url, bucket_ns=SEC)
+    try:
+        assert again.migrated == list(range(version + 1, pg_schema_latest() + 1))
+        with again.ingest.connection() as c:
+            assert _account_schema(c) == new
+        assert len(again.message_rows("m1")) == 1
     finally:
         again.close()

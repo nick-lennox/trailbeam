@@ -1252,13 +1252,14 @@ the current version on every change, for SQLite (the PyPI package and the image)
 message, list and tenant count reads the same as before
 ([`python/smoke/upgrade_check.py`](python/smoke/upgrade_check.py)).
 
-- **SQLite.** The new version moves the file from schema 12 to 13 (a small table for the test span of
-  `trailbeam doctor`; nothing is rewritten). Once it has, a 0.3.0 server stops at start with `the database is
-  at schema version 13, written by a newer Trailbeam ... Refusing to start, so nothing is lost`. To go back,
-  restore the backup you took first.
-- **Postgres.** Stop every replica before you start the new version. It moves the database from schema 4 to 6
+- **SQLite.** The new version moves the file from schema 12 to 15 (a small table for the test span of
+  `trailbeam doctor`, corrected counts for FIFO sends SQS deduplicated, and the empty tables of people and
+  tokens; only the summaries of FIFO messages sent more than once are rewritten). Once it has, a 0.3.0 server
+  stops at start with `the database is at schema version 15, written by a newer Trailbeam ... Refusing to
+  start, so nothing is lost`. To go back, restore the backup you took first.
+- **Postgres.** Stop every replica before you start the new version. It moves the database from schema 4 to 8
   (about 8 s per 1M spans, see the [changelog](CHANGELOG.md)). Once it has, a 0.3.0 server stops at start
-  with `the database is at Postgres schema version 6, written by a newer Trailbeam ... Refusing to start, so
+  with `the database is at Postgres schema version 8, written by a newer Trailbeam ... Refusing to start, so
   nothing is lost`. To go back, restore the backup you took first.
 - **The token and the receipt-hash key** don't change. Signed-in browsers stay signed in. Services keep their
   `TRAILBEAM_RECEIPT_HASH_KEY`: the hashing is the same in 0.3.0 and 0.4.0, so services on either package
