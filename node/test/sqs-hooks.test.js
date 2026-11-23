@@ -492,7 +492,7 @@ test('Trailbeam spans are children of the active span (the stock SDK span when i
 test('other SQS commands produce no Trailbeam span', async (t) => {
   const { client, spans } = setup(t, { GetQueueUrl: () => ({ QueueUrl: URL }) });
   await client.send(new S.GetQueueUrlCommand({ QueueName: 'orders' }));
-  await client.send(new S.PurgeQueueCommand({ QueueUrl: URL }));
+  await client.send(new S.GetQueueAttributesCommand({ QueueUrl: URL, AttributeNames: ['All'] }));
   assert.strictEqual(spans().length, 0);
 });
 
@@ -526,4 +526,43 @@ test('without OTEL_RESOURCE_ATTRIBUTES, a UUID v4 is both service.instance.id an
   assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   assert.strictEqual(s.resource.attributes['service.instance.id'], id);
   assert.strictEqual(s.resource.attributes['service.name'], 'unknown_service');
+});
+
+// -- purge (revision 3.3, section 18) ------------------------------------------------------------
+
+const fs = require('node:fs');
+const path = require('node:path');
+const PURGE = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'contract', 'span-contract-vectors.json'), 'utf8')).purge;
+
+for (const c of PURGE.cases) {
+  test(`PurgeQueue matches the contract vector: ${c.name}`, async (t) => {
+    const { client, spans } = setup(t, {
+      PurgeQueue: () => {
+        if (c.response.thrown) throw Object.assign(new Error('no response'), { name: c.response.thrown });
+        if (c.response.error_code) throw serviceError(c.response.error_code);
+        return {};
+      },
+    });
+    const call = client.send(new S.PurgeQueueCommand({ QueueUrl: c.queue_url }));
+    if (c.response.ok) await call; else await assert.rejects(call);
+    const all = spans();
+    assert.strictEqual(all.length, 1);
+    const [s] = all;
+    assert.strictEqual(s.name, PURGE.span_name);
+    const a = s.attributes;
+    assert.deepStrictEqual(Object.fromEntries(Object.keys(c.attributes).map((k) => [k, a[k]])), c.attributes);
+    for (const k of PURGE.present) assert.ok(k in a, k);
+    for (const k of c.absent) assert.ok(!(k in a), k);
+    assert.ok(a['trailbeam.order.issued'] < a['trailbeam.order.returned']);
+  });
+}
+
+test('PurgeQueue: ordered after a send that returned before it was issued', async (t) => {
+  const { client, spans } = setup(t, { SendMessage: () => ({ MessageId: 'mid-1' }) });
+  await client.send(new S.SendMessageCommand({ QueueUrl: URL, MessageBody: 'x' }));
+  await client.send(new S.PurgeQueueCommand({ QueueUrl: URL }));
+  const [send] = byName(spans(), 'trailbeam send');
+  const [purge] = byName(spans(), 'trailbeam purge');
+  assert.ok(send.attributes['trailbeam.order.returned'] < purge.attributes['trailbeam.order.issued']);
+  assert.ok(!('messaging.message.id' in purge.attributes));
 });

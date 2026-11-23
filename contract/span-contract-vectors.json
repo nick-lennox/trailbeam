@@ -372,5 +372,108 @@
         "expected": 300000
       }
     ]
+  },
+  "purge": {
+    "description": "Test vectors for contract/span-contract.md section 18 (revision 3.3): the trailbeam purge span. Each case is one PurgeQueue call on 'queue_url'. 'response' is what the call returned: {\"ok\": true} for success, {\"error_code\": c} for an SQS error response with code c, or {\"thrown\": n} for an error named n raised before any response. Each package must emit exactly one span named 'span_name' whose attributes include exactly 'attributes', carry every name in 'present' (values depend on the process) and none in 'absent'. trailbeam.order.issued must be lower than trailbeam.order.returned.",
+    "span_name": "trailbeam purge",
+    "present": [
+      "messaging.client.id",
+      "process.pid",
+      "trailbeam.order.scope",
+      "trailbeam.order.issued",
+      "trailbeam.order.returned"
+    ],
+    "cases": [
+      {
+        "name": "success",
+        "queue_url": "http://localhost:9324/000000000000/orders",
+        "response": {
+          "ok": true
+        },
+        "attributes": {
+          "trailbeam.schema_version": 3,
+          "trailbeam.kind": "sqs.purge",
+          "trailbeam.source": "client",
+          "messaging.system.name": "aws.sqs",
+          "messaging.operation.type": "purge",
+          "messaging.operation.name": "PurgeQueue",
+          "messaging.destination.name": "orders",
+          "aws.sqs.queue.url": "http://localhost:9324/000000000000/orders",
+          "trailbeam.result": "ok"
+        },
+        "absent": [
+          "trailbeam.error_code",
+          "messaging.message.id",
+          "trailbeam.receipt_handle.hmac",
+          "trailbeam.start_observed"
+        ]
+      },
+      {
+        "name": "purge already in progress",
+        "queue_url": "http://localhost:9324/000000000000/orders",
+        "response": {
+          "error_code": "PurgeQueueInProgress"
+        },
+        "attributes": {
+          "trailbeam.schema_version": 3,
+          "trailbeam.kind": "sqs.purge",
+          "trailbeam.source": "client",
+          "messaging.system.name": "aws.sqs",
+          "messaging.operation.type": "purge",
+          "messaging.operation.name": "PurgeQueue",
+          "messaging.destination.name": "orders",
+          "aws.sqs.queue.url": "http://localhost:9324/000000000000/orders",
+          "trailbeam.result": "failed",
+          "trailbeam.error_code": "PurgeQueueInProgress"
+        },
+        "absent": [
+          "messaging.message.id"
+        ]
+      },
+      {
+        "name": "error code with a protocol namespace",
+        "queue_url": "http://localhost:9324/000000000000/orders",
+        "response": {
+          "error_code": "com.amazonaws.sqs#QueueDoesNotExist"
+        },
+        "attributes": {
+          "trailbeam.schema_version": 3,
+          "trailbeam.kind": "sqs.purge",
+          "trailbeam.source": "client",
+          "messaging.system.name": "aws.sqs",
+          "messaging.operation.type": "purge",
+          "messaging.operation.name": "PurgeQueue",
+          "messaging.destination.name": "orders",
+          "aws.sqs.queue.url": "http://localhost:9324/000000000000/orders",
+          "trailbeam.result": "failed",
+          "trailbeam.error_code": "QueueDoesNotExist"
+        },
+        "absent": [
+          "messaging.message.id"
+        ]
+      },
+      {
+        "name": "no response",
+        "queue_url": "http://localhost:9324/000000000000/orders",
+        "response": {
+          "thrown": "EndpointConnectionError"
+        },
+        "attributes": {
+          "trailbeam.schema_version": 3,
+          "trailbeam.kind": "sqs.purge",
+          "trailbeam.source": "client",
+          "messaging.system.name": "aws.sqs",
+          "messaging.operation.type": "purge",
+          "messaging.operation.name": "PurgeQueue",
+          "messaging.destination.name": "orders",
+          "aws.sqs.queue.url": "http://localhost:9324/000000000000/orders",
+          "trailbeam.result": "failed",
+          "trailbeam.error_code": "EndpointConnectionError"
+        },
+        "absent": [
+          "messaging.message.id"
+        ]
+      }
+    ]
   }
 }

@@ -1,5 +1,5 @@
 'use strict';
-// Trailbeam hooks for AWS SDK v3 SQS clients (contract sections 4.1 to 4.3).
+// Trailbeam hooks for AWS SDK v3 SQS clients (contract sections 4.1 to 4.3, and 18 for PurgeQueue).
 //
 // The hooks are a middleware on each SQSClient's middleware stack. When the application uses
 // @opentelemetry/instrumentation-aws-sdk, that instrumentation runs the whole stack inside the
@@ -14,6 +14,7 @@ const api = require('@opentelemetry/api');
 const {
   SPAN_CHANGE_VISIBILITY,
   SPAN_DELETE,
+  SPAN_PURGE,
   SPAN_RECEIVE,
   SPAN_SEND,
   intOrUndefined,
@@ -47,7 +48,7 @@ const SETTLE_OPS = {
   ChangeMessageVisibility: [SPAN_CHANGE_VISIBILITY, false],
   ChangeMessageVisibilityBatch: [SPAN_CHANGE_VISIBILITY, true],
 };
-const OPS = new Set(['SendMessage', 'SendMessageBatch', 'ReceiveMessage', ...Object.keys(SETTLE_OPS)]);
+const OPS = new Set(['SendMessage', 'SendMessageBatch', 'ReceiveMessage', 'PurgeQueue', ...Object.keys(SETTLE_OPS)]);
 
 function debug(what, err) {
   api.diag.debug(`trailbeam: ${what} failed`, err);
@@ -183,6 +184,15 @@ class SqsHooks {
     }
   }
 
+  /** 3.3 (section 18): one span per PurgeQueue call. `output` is the response, or undefined if the call threw `err`. */
+  onPurge(input, output, err, parentContext, times = {}) {
+    const url = input.QueueUrl;
+    const error = output === undefined ? errorCode(err) : undefined;
+    const attrs = { 'trailbeam.result': error === undefined ? 'ok' : 'failed' };
+    put(attrs, 'trailbeam.error_code', error);
+    this.emitter.emit(SPAN_PURGE, 'PurgeQueue', queueNameFromUrl(url), url, attrs, { parentContext, ...spanTimes(times) });
+  }
+
   /** `output` is the response, or undefined if the call threw `err`. */
   onSettle(operation, input, output, err, parentContext, times = {}) {
     const [spanName, batch] = SETTLE_OPS[operation];
@@ -251,6 +261,8 @@ function sqsMiddleware(getHooks) {
       const times = { startTime, endTime: nowMs(), issued, returned: order.tick() };
       if (SETTLE_OPS[operation]) {
         try { hooks.onSettle(operation, input, undefined, err, parentContext, times); } catch (e) { debug('settle hook', e); }
+      } else if (operation === 'PurgeQueue') {
+        try { hooks.onPurge(input, undefined, err, parentContext, times); } catch (e) { debug('purge hook', e); }
       }
       throw err;
     }
@@ -259,6 +271,7 @@ function sqsMiddleware(getHooks) {
       const output = result && result.output;
       if (operation === 'ReceiveMessage') hooks.onReceive(input, output, parentContext, times);
       else if (operation === 'SendMessage' || operation === 'SendMessageBatch') hooks.onSend(operation, input, output, parentContext, times);
+      else if (operation === 'PurgeQueue') hooks.onPurge(input, output || {}, undefined, parentContext, times);
       else hooks.onSettle(operation, input, output || {}, undefined, parentContext, times);
     } catch (e) {
       debug(`${operation} hook`, e);

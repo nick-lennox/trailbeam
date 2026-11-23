@@ -1,11 +1,11 @@
-# Trailbeam span contract, schema version 3 (revision 3.2)
+# Trailbeam span contract, schema version 3 (revision 3.3)
 
 This file defines the OpenTelemetry spans that the `trailbeam` Python package and the `trailbeam` Node.js
 package emit, and that the Trailbeam reads. Both packages and Trailbeam are built and tested against
 it. A change to anything below is a contract change: bump `trailbeam.schema_version`, and update this file,
 both packages and Trailbeam in the same change. A revision (3.1) only adds an optional attribute that
-older stores ignore and that Trailbeam does not require; it keeps `trailbeam.schema_version = 3` (sections 14
-and 16). Section 17 (the test span of `trailbeam doctor`) is not emitted by the packages and changes nothing they
+older stores ignore and that Trailbeam does not require, or (3.3) an optional span; it keeps
+`trailbeam.schema_version = 3` (sections 14, 16 and 19). Section 17 (the test span of `trailbeam doctor`) is not emitted by the packages and changes nothing they
 send.
 
 The keywords **must**, **must not**, **should** and **may** are used as in RFC 2119.
@@ -19,6 +19,7 @@ The keywords **must**, **must not**, **should** and **may** are used as in RFC 2
 | `trailbeam delete` | `sqs.settle` | `settle` | client hooks | once per receipt handle in `DeleteMessage` / `DeleteMessageBatch` |
 | `trailbeam change_visibility` | `sqs.settle` | `settle` | client hooks | once per receipt handle in `ChangeMessageVisibility` / `ChangeMessageVisibilityBatch` |
 | `trailbeam outcome` | `sqs.outcome` | `process` | Lambda wrapper | once per record, after the handler returns or throws |
+| `trailbeam purge` | `sqs.purge` | `purge` | client hooks | once per `PurgeQueue` call, after the response or error (3.3, section 18) |
 
 "Client hooks" are the boto3 hooks (Python) and the AWS SDK v3 hooks (Node.js). "Lambda wrapper" is
 the handler wrapper in each package. In 0.1, `trailbeam outcome` comes only from the Lambda wrappers; for
@@ -120,11 +121,11 @@ don't order anything before it either, because its start is not observed (`trail
 | Attribute | Type | Req. | Value |
 |---|---|---|---|
 | `trailbeam.schema_version` | int | must | `3` |
-| `trailbeam.kind` | string | must | `sqs.send`, `sqs.receive`, `sqs.settle` or `sqs.outcome` |
+| `trailbeam.kind` | string | must | `sqs.send`, `sqs.receive`, `sqs.settle`, `sqs.outcome` or (3.3) `sqs.purge` |
 | `trailbeam.source` | string | must | `client` (client hooks) or `lambda` (Lambda wrapper) |
 | `messaging.system.name` | string | must | `aws.sqs` |
 | `messaging.operation.type` | string | must | from the table in section 1 |
-| `messaging.operation.name` | string | must | the SQS API action: `SendMessage`, `SendMessageBatch`, `ReceiveMessage`, `DeleteMessage`, `DeleteMessageBatch`, `ChangeMessageVisibility`, `ChangeMessageVisibilityBatch`; or `LambdaEvent` for spans from the Lambda wrapper |
+| `messaging.operation.name` | string | must | the SQS API action: `SendMessage`, `SendMessageBatch`, `ReceiveMessage`, `DeleteMessage`, `DeleteMessageBatch`, `ChangeMessageVisibility`, `ChangeMessageVisibilityBatch`, (3.3) `PurgeQueue`; or `LambdaEvent` for spans from the Lambda wrapper |
 | `messaging.destination.name` | string | must | queue name, the last path segment of the queue URL, or the last `:` field of the event source ARN |
 | `aws.sqs.queue.url` | string | must | queue URL (section 6) |
 | `messaging.client.id` | string | must | consumer or producer identity (section 5) |
@@ -241,8 +242,8 @@ rejects any other Trailbeam span, and reports the reason in the OTLP `partial_su
 true:
 
 - `trailbeam.schema_version` is not `2` or `3`;
-- `trailbeam.kind` is unknown, or `sqs.settle` comes with a `messaging.operation.name` that is not a delete
-  or visibility-change action;
+- `trailbeam.kind` is unknown, `sqs.settle` comes with a `messaging.operation.name` that is not a delete
+  or visibility-change action, or (3.3) `sqs.purge` comes with one that is not `PurgeQueue`;
 - the trace ID, span ID, start time or end time is missing, or the span ends before it starts;
 - a required field for its kind is missing or has the wrong type:
 
@@ -252,8 +253,12 @@ true:
   | receive | `messaging.destination.name`, `messaging.message.id`, `trailbeam.receive_count`, `trailbeam.receipt_handle.hmac`, `trailbeam.receipt_handle.key_id` |
   | delete, change_visibility | `messaging.destination.name`, `trailbeam.receipt_handle.hmac`, `trailbeam.receipt_handle.key_id`, `trailbeam.result` |
   | outcome | `messaging.destination.name`, `messaging.message.id`, `trailbeam.outcome` |
+  | purge (3.3) | `messaging.destination.name`, `trailbeam.result` |
 
 - `trailbeam.result` is not `ok` or `failed`, or `trailbeam.outcome` is not one of the four values in section 4.4.
+
+A Trailbeam built before revision 3.3 rejects a `trailbeam purge` as an unknown kind, with that reason; nothing else
+in the export is affected (section 18).
 
 Trailbeam reads integer attributes sent as decimal strings as integers. It keeps every attribute of
 the span as JSON in the row, and uses only the ones this contract names.
@@ -360,7 +365,12 @@ These events have no span. Trailbeam shows each one as **inferred**, never as ob
   real timeout.
 
 The move to a dead-letter queue is **not** inferred (3.1). It is shown only when SQS reports it
-(section 9b).
+(section 9b). A `PurgeQueue` call is observed from 3.3 (section 18).
+
+**Not seen at all: the end of the retention period.** SQS deletes a message that is still in the queue when
+the queue's `MessageRetentionPeriod` (1 minute to 14 days) ends. No API call is made and no later receive
+reports it, so no span can observe it and Trailbeam does not infer it. Such a message keeps its last observed
+step, with no delete; Trailbeam's Stuck list says this can be the reason.
 
 ## 9a. Order of steps in Trailbeam
 
@@ -823,3 +833,70 @@ A wrong `trailbeam.schema_version` is rejected with the reason any span gets (se
 reports each case as such, and does not count its own rejected probe among the rejected spans it reports.
 
 `trailbeam.schema_version` stays `3`: nothing the packages send changes.
+
+## 18. `trailbeam purge` (revision 3.3)
+
+`PurgeQueue` deletes every message in a queue, including messages in flight, without a receipt handle and
+without a `DeleteMessage` per message. Before 3.3 no span recorded it, so a message sent and then purged kept
+one "Sent" step and no delete, and Trailbeam showed it as stuck until retention removed it (QV-245).
+
+The client hooks emit one `trailbeam purge` per `PurgeQueue` call, after the response or the error, with the
+attributes of section 3 (its `messaging.operation.name` is `PurgeQueue`, its interval and call-order ticks
+are the call's, section 2 and 2a) and these:
+
+| Attribute | Type | Req. | Value |
+|---|---|---|---|
+| `trailbeam.result` | string | must | `ok` if SQS returned success, `failed` otherwise |
+| `trailbeam.error_code` | string | must if failed | the SQS error code as the SDK reports it, without a protocol namespace, such as `PurgeQueueInProgress` (an SDK may report the legacy query code instead, such as `AWS.SimpleQueueService.NonExistentQueue` for `QueueDoesNotExist`), or the SDK error name if there is no code |
+
+A purge span carries no `messaging.message.id` and no receipt-handle hash: SQS does not say which messages it
+deleted. If the call throws before any response, the span is still emitted, with `trailbeam.result = failed`.
+`messaging.operation.type` is `purge`, a custom value: the OpenTelemetry messaging conventions define none for
+purging a queue. Test vectors: `purge` in [`span-contract-vectors.json`](span-contract-vectors.json); each
+package **must** produce exactly the attributes of each case.
+
+**What SQS does.** The
+[PurgeQueue API reference](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/APIReference/API_PurgeQueue.html)
+says the deletion "takes up to 60 seconds", that messages sent before the call "might be received but are
+deleted within the next minute", and that messages sent after it "might be deleted while the queue is being
+purged" (checked 2026-11-23). So a successful purge removes every message that was in the queue when the call started, and may
+remove messages that arrive within 60 seconds of its end. Trailbeam calls that span of time, from the call's
+start to 60 seconds after its end, the purge's **window**.
+
+**How Trailbeam reads it.** Only `trailbeam.result = ok` purges count. A message is on a queue when its latest
+observed step is on that queue. For a message that has no final delete (section 4.3), no inferred delete by
+Lambda and no move to a dead-letter queue after its last step on the queue:
+
+- **Purged:** every step of the message on the queue is ordered before the purge by a source of section 9a
+  (`clock`: the step ended before the purge started; `process_order`: the step's call returned before the
+  purge was issued). Trailbeam shows it as "Purged (observed: PurgeQueue at *start of the purge*)", not as
+  stuck and not as in the queue. If several purges qualify, the earliest one is shown. The purge is observed;
+  that it removed this message is what SQS's documentation says it does, so the step is marked as such and
+  carries the purge's span.
+- **Possibly purged:** not purged by the rule above, but the message's latest step on the queue started
+  inside a purge's window (or ended inside it, when its start was not observed). SQS may or may not have
+  deleted it. Trailbeam shows "possibly purged (PurgeQueue at *start*)". It stays on the Stuck list, with
+  that label, because a message that was not purged and has no delete really is stuck.
+- A step that starts after the window ends is not affected by the purge.
+
+A step after the purge on the same queue (a later receive) means the message was not purged by it, and the
+rules above are applied to that latest step. A failed purge is stored and shown on the queue, and changes no
+message.
+
+**Older Trailbeams.** A Trailbeam built before 3.3 rejects the span as an unknown `trailbeam.kind` and says
+so in `partial_success`; the other spans of the export are stored as usual, and its messages show as before.
+A 3.3 Trailbeam reads spans from older packages, which never purge.
+
+**Not observed.** A purge made by a client without Trailbeam (the AWS console, the CLI, another SDK) is not
+seen; its messages still show as stuck.
+
+## 19. Changes in revision 3.3
+
+| 3.2 | 3.3 |
+|---|---|
+| `PurgeQueue` was not hooked: purged messages showed as stuck | `trailbeam purge`, kind `sqs.purge`, one per call, with `trailbeam.result` and the call's interval and ticks (section 18) |
+| | Trailbeam shows messages a purge removed as "Purged", and messages in its window as "possibly purged" |
+| | the end of the retention period is named as unobservable (section 9) |
+
+`trailbeam.schema_version` stays `3`: the span is optional, Trailbeam requires it for nothing, and spans of
+3.2 and before are read as they were.

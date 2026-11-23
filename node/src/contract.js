@@ -18,6 +18,7 @@ const SPAN_RECEIVE = 'trailbeam receive';
 const SPAN_DELETE = 'trailbeam delete';
 const SPAN_CHANGE_VISIBILITY = 'trailbeam change_visibility';
 const SPAN_OUTCOME = 'trailbeam outcome';
+const SPAN_PURGE = 'trailbeam purge'; // revision 3.3, section 18
 
 // [trailbeam.kind, messaging.operation.type] per span name.
 const KINDS = {
@@ -26,6 +27,7 @@ const KINDS = {
   [SPAN_DELETE]: ['sqs.settle', 'settle'],
   [SPAN_CHANGE_VISIBILITY]: ['sqs.settle', 'settle'],
   [SPAN_OUTCOME]: ['sqs.outcome', 'process'],
+  [SPAN_PURGE]: ['sqs.purge', 'purge'], // a custom operation type: semconv defines none for a purge
 };
 
 const OUTCOME_SUCCESS = 'success';
@@ -129,6 +131,7 @@ module.exports = {
   SPAN_DELETE,
   SPAN_CHANGE_VISIBILITY,
   SPAN_OUTCOME,
+  SPAN_PURGE,
   KINDS,
   OUTCOME_SUCCESS,
   OUTCOME_FAILED_REPORTED,
