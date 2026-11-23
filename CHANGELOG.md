@@ -7,6 +7,13 @@
   on a server that keeps no bodies (`/api/health` lists no `store_bodies`) it is off, with a line saying how to
   turn bodies on. A term for another field still fails, now as ``Can't read `queue:orders`. Use text, or
   `body.<path>:<value>`.``, without the HTTP status. (QV-215)
+- **`trailbeam start` prints the token and key only on the run that created them.** Later runs print the
+  command that shows each one (`cat ~/.trailbeam/token`) instead, and the export lines read the files with
+  `$(cat ...)`, so a server restarted under systemd, `docker run -d`, nohup or CI no longer writes the token and
+  the receipt-hash key into journald, `docker logs` or the build log on every start, and pasted export lines
+  keep them out of shell history. A token given with `--token-file` or `TRAILBEAM_TOKEN` is never printed.
+  `npx trailbeam start` with the Docker volume prints a `docker run ... cat /data/token` command. The first
+  run is unchanged. (QV-203)
 - **Messages: Receives, not Deliveries.** The column on Messages, Duplicates and Stuck is now **Receives**, with a
   tooltip that defines it (how many times SQS returned the message from `ReceiveMessage`) and what *handled* means
   (a receive that ended in a delete or a successful Lambda record). Cells read `2 · 1 handled` instead of
