@@ -71,7 +71,7 @@ answers a narrower question: where did this one message go?
 Start the server. This runs the published image, keeps its data in a Docker volume and listens on
 this machine only:
 
-```sh
+```sh run variant=docker wait=http://127.0.0.1:4318/api/ready
 docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-data:/data ghcr.io/nick-lennox/trailbeam
 ```
 
@@ -80,14 +80,14 @@ in the current directory.
 
 Install the package in a service that uses SQS:
 
-```sh
+```sh run variant=docker
 pip install trailbeam      # Python
 npm install trailbeam      # Node.js
 ```
 
 Instrument the client where you create it:
 
-```python
+```python file=app.py variant=docker
 import boto3
 import trailbeam.boto
 
@@ -95,7 +95,7 @@ trailbeam.boto.install()  # once per process
 sqs = boto3.client("sqs")
 ```
 
-```js
+```js file=app.js variant=docker
 const { SQSClient } = require("@aws-sdk/client-sqs");
 const trailbeam = require("trailbeam");
 
@@ -122,7 +122,12 @@ and a receipt-hash key in `~/.trailbeam` (`--data-dir` or `TRAILBEAM_DATA_DIR` t
 readable only by you, and keeps the SQLite file there. It starts the server on `http://127.0.0.1:4318/` and
 prints the token and the environment variables for your services:
 
-```sh
+<!-- doc-test variant=start bg wait=http://127.0.0.1:4318/api/ready
+pip install "trailbeam[server]"
+trailbeam start
+-->
+
+```sh expect variant=start
 export TRAILBEAM_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces
 export OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<token>
 export TRAILBEAM_RECEIPT_HASH_KEY=<key>
@@ -135,7 +140,7 @@ up in a log (systemd, `docker run -d`, nohup, CI). A later run prints the comman
 (`cat ~/.trailbeam/token`, `cat ~/.trailbeam/receipt-hash-key`), and its export lines read the files, so
 pasting them doesn't put the secrets in your shell history either:
 
-```sh
+```sh run variant=start
 export OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20$(cat ~/.trailbeam/token)
 export TRAILBEAM_RECEIPT_HASH_KEY=$(cat ~/.trailbeam/receipt-hash-key)
 ```
@@ -159,7 +164,7 @@ with one command against an SQS emulator and a local Trailbeam (Docker, no AWS a
 timelines show a message processed, a retry after the visibility timeout, and a move to the dead-letter
 queue. CI runs every one of them.
 
-```sh
+```sh norun="CI runs every example in its own job (examples, .github/workflows/ci.yml)"
 git clone https://github.com/nick-lennox/trailbeam.git && cd trailbeam
 docker compose -f examples/python-boto3/compose.yaml up --build
 # then open the links it prints
@@ -170,7 +175,7 @@ docker compose -f examples/python-boto3/compose.yaml up --build
 The [demo](demo/README.md) runs Trailbeam, an SQS emulator and sample services with Docker and no AWS
 account. It builds images from a clone and starts seven containers:
 
-```sh
+```sh norun="CI runs the demo in its own job (demo, .github/workflows/ci.yml)"
 git clone https://github.com/nick-lennox/trailbeam.git && cd trailbeam
 docker compose -f demo/compose.yaml up -d --build --wait
 # then open http://127.0.0.1:4318/ and click a message ID
@@ -180,7 +185,7 @@ docker compose -f demo/compose.yaml up -d --build --wait
 
 Run ElasticMQ, an SQS emulator, and point the AWS SDK at it. It accepts any keys:
 
-```sh
+```sh run variant=docker wait=http://127.0.0.1:9324/?Action=ListQueues
 docker run -d --name sqs -p 127.0.0.1:9324:9324 softwaremill/elasticmq-native:1.6.15
 export AWS_ENDPOINT_URL_SQS=http://localhost:9324
 export AWS_REGION=us-east-1           # read by the AWS SDK for JavaScript
@@ -194,6 +199,31 @@ Create a queue from your code (`CreateQueue`), add the hooks below, and send. A 
 script that do this end to end are in
 [Try Trailbeam without AWS](https://docs.trailbeam.app/get-started/without-aws).
 
+<!-- doc-test variant=docker
+pip install boto3
+npm install @aws-sdk/client-sqs
+cat app.py - > send.py <<'EOF'
+url = sqs.create_queue(QueueName="orders")["QueueUrl"]
+sqs.send_message(QueueUrl=url, MessageBody="from python")
+for m in sqs.receive_message(QueueUrl=url, WaitTimeSeconds=1).get("Messages", []):
+    sqs.delete_message(QueueUrl=url, ReceiptHandle=m["ReceiptHandle"])
+EOF
+python send.py
+cat app.js - > send.js <<'EOF'
+const { CreateQueueCommand, SendMessageCommand } = require("@aws-sdk/client-sqs");
+(async () => {
+  const { QueueUrl } = await sqs.send(new CreateQueueCommand({ QueueName: "orders" }));
+  await sqs.send(new SendMessageCommand({ QueueUrl, MessageBody: "from node" }));
+})();
+EOF
+node send.js
+for i in $(seq 20); do
+  n=$(curl -fsS http://127.0.0.1:4318/api/messages | python -c 'import json, sys; print(len(json.load(sys.stdin)["messages"]))')
+  [ "$n" = 2 ] && break; sleep 1
+done
+test "$n" = 2
+-->
+
 ## Add it to your services
 
 Add the hooks to every service that sends, receives or deletes on the queues you care about. A
@@ -204,7 +234,7 @@ package instruments every boto3 and botocore client in the process, but not aiob
 package instruments only the clients you pass to `trailbeam.instrument()`, and only AWS SDK v3. For AWS
 Lambda, wrap the handler:
 
-```python
+```python file=handler.py variant=docker
 import trailbeam.aws_lambda
 
 @trailbeam.aws_lambda.wrap
@@ -212,11 +242,15 @@ def handler(event, context):
     ...
 ```
 
+<!-- doc-test variant=docker
+python -c 'import handler'
+-->
+
 The packages send to `http://localhost:4318/v1/traces` unless `TRAILBEAM_OTLP_TRACES_ENDPOINT` says
 otherwise, so a service on the server's machine needs no endpoint. Give every service on the same queues
 the same receipt-hash key, and a service name. For a server on another host, set the endpoint too:
 
-```sh
+```sh run variant=docker
 export TRAILBEAM_OTLP_TRACES_ENDPOINT=http://trailbeam.internal:4318/v1/traces   # only if the server is elsewhere
 export TRAILBEAM_RECEIPT_HASH_KEY=$(openssl rand -hex 32)   # generate once, share with every service
 export OTEL_SERVICE_NAME=orders-worker
@@ -232,7 +266,7 @@ Full guides: [Python](python/README.md), [Node.js](node/README.md), and the Lamb
 To see traffic per customer, tell the packages where the tenant is. Set the same value in every
 service that sends or receives on those queues:
 
-```sh
+```sh run variant=docker
 export TRAILBEAM_TENANT_ATTRIBUTE=tenant        # a message attribute, tried first
 export TRAILBEAM_TENANT_BODY_PATH=customer.id   # else a dotted path in a JSON body
 ```
@@ -270,7 +304,7 @@ is enough, the server extra is not needed) and checks, one line each:
 5. **Last real span**: when the newest span from your services was stored. If none was, it says whether spans
    arrived that are not Trailbeam's (the hooks are not installed) or broke the span contract.
 
-```console
+```console norun="sample output: the hidden steps after it run trailbeam doctor and check these lines"
 $ trailbeam doctor
 trailbeam doctor: server http://127.0.0.1:4318, ingest http://127.0.0.1:4318/v1/traces, token: /home/me/.trailbeam/token
 
@@ -284,6 +318,19 @@ trailbeam doctor: server http://127.0.0.1:4318, ingest http://127.0.0.1:4318/v1/
 
 1 of 5 checks failed.
 ```
+
+<!-- doc-test variant=start
+trailbeam doctor || test $? = 1
+-->
+
+<!-- doc-test expect variant=start
+ok    Server reachable: Trailbeam <version> answers at http://127.0.0.1:4318
+ok    Ingest port accepts connections: 127.0.0.1:4318 accepts connections (http://127.0.0.1:4318/v1/traces)
+ok    Token accepted: the API and ingest accept the token from <path>/.trailbeam/token
+ok    Test span stored and read back
+FAIL  Last real span: no span stored yet
+1 of 5 checks failed.
+-->
 
 Each failed check says the likely cause and the fix ([every failure](https://docs.trailbeam.app/reference/troubleshooting#no-data-arrives)). A check that needs an earlier one that failed is skipped.
 The exit code is 1 when a check failed, so it can run in a script or a CI step.
@@ -318,10 +365,22 @@ For a team: one server several people's services send to, on its own Postgres, f
 [`docker-compose.yaml`](docker-compose.yaml) runs the Trailbeam server and Postgres 16, each with a named
 volume, health checks and `restart: unless-stopped`. The token and passwords come from a `.env` file:
 
-```sh
+```sh run variant=team
 git clone https://github.com/nick-lennox/trailbeam.git && cd trailbeam
-install -m 600 .env.example .env   # only you can read it; fill in TRAILBEAM_TOKEN, TRAILBEAM_RECEIPT_HASH_KEY
-                                   # and POSTGRES_PASSWORD (openssl rand -hex 32)
+install -m 600 .env.example .env   # only you can read it
+```
+
+Fill in `TRAILBEAM_TOKEN`, `TRAILBEAM_RECEIPT_HASH_KEY` and `POSTGRES_PASSWORD` in `.env` (make each with
+`openssl rand -hex 32`), then start it:
+
+<!-- doc-test variant=team
+sed -i -e "s/^TRAILBEAM_TOKEN=.*/TRAILBEAM_TOKEN=$DOC_TOKEN/" \
+  -e "s/^TRAILBEAM_RECEIPT_HASH_KEY=.*/TRAILBEAM_RECEIPT_HASH_KEY=$DOC_RECEIPT_HASH_KEY/" \
+  -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 32)/" \
+  -e "s/^TRAILBEAM_BIND=.*/TRAILBEAM_BIND=127.0.0.1/" .env
+-->
+
+```sh run variant=team timeout=1200
 docker compose up -d --build --wait
 # then open http://<this machine>:4318/ and sign in with the token
 ```
@@ -332,11 +391,15 @@ does that, where a plain `cp` would leave it readable by every user on the serve
 
 In every service that uses the Trailbeam packages, set the endpoint, the token and the same receipt-hash key:
 
-```sh
+```sh norun="settings for your services, not commands; the hidden step after it sends a span with the token"
 TRAILBEAM_OTLP_TRACES_ENDPOINT=http://<this machine>:4318/v1/traces
 OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<TRAILBEAM_TOKEN>
 TRAILBEAM_RECEIPT_HASH_KEY=<the same key as in .env>
 ```
+
+<!-- doc-test variant=team
+TRAILBEAM_TOKEN=$DOC_TOKEN python3 python/smoke/team_check.py http://127.0.0.1:4318 send readme-team-check
+-->
 
 - **The token is required.** With `TRAILBEAM_BIND=0.0.0.0` (as in `.env.example`) the port listens on every
   interface; set `127.0.0.1`, or remove the line, for this machine only. Compose refuses to start without
@@ -371,7 +434,7 @@ timeline, so keep it on `127.0.0.1` or a trusted network, or set a token ([Acces
 Service on port 4318, on a Postgres you run, with the token and the receipt-hash key in a Secret. Helm 3 or 4
 (tested with 3.22 and 4.3); from a clone:
 
-```sh
+```sh norun="needs a Kubernetes cluster: CI installs the chart on kind (kubernetes, .github/workflows/ci.yml)"
 helm install trailbeam ./deploy/helm/trailbeam \
   --set store.url='postgresql://trailbeam:<password>@<host>:5432/trailbeam' \
   --set image.repository=<registry>/trailbeam --set image.tag=<tag>
@@ -402,7 +465,7 @@ upgrade keeps the token ([`deploy/helm/check.sh`](deploy/helm/check.sh)). Docs:
 
 One shared token protects ingest, the API and the web screen. It is off by default for local use:
 
-```sh
+```sh norun="docker run ... stands for the Quickstart's command"
 openssl rand -hex 32 > trailbeam.token
 docker run ... -v $PWD/trailbeam.token:/run/secrets/trailbeam-token:ro \
   -e TRAILBEAM_TOKEN_FILE=/run/secrets/trailbeam-token ghcr.io/nick-lennox/trailbeam
@@ -431,7 +494,11 @@ token for everyone: no users, roles or audit log (those are in the hosted app).
 
 Per-queue settings go in a TOML file, so a few hundred queues don't turn into a few hundred flags:
 
-```toml
+<!-- doc-test variant=config
+pip install "trailbeam[server]"
+-->
+
+```toml file=trailbeam.toml variant=config
 # trailbeam.toml
 [defaults]
 retention = "7d"            # every queue; a duration or "forever" (default 7d)
@@ -446,10 +513,21 @@ retention = "30d"
 retention = "forever"
 ```
 
-```sh
+```sh norun="docker run ... stands for the Quickstart's command"
 docker run ... -v $PWD/trailbeam.toml:/etc/trailbeam.toml:ro -e TRAILBEAM_CONFIG=/etc/trailbeam.toml ghcr.io/nick-lennox/trailbeam
 # or trailbeam --config trailbeam.toml
 ```
+
+<!-- doc-test variant=config bg wait=http://127.0.0.1:4318/api/ready
+trailbeam --config trailbeam.toml
+-->
+
+<!-- doc-test variant=config
+curl -fsS http://127.0.0.1:4318/api/health | python -c '
+import json, sys
+config = json.dumps(json.load(sys.stdin)["config"])
+assert "orders-dlq" in config and "30d" in config, config'
+-->
 
 Trailbeam reads the file once, at start. It checks the whole file before it opens the database: an
 unknown table or setting (a typo), a wrong type or a bad value stops it with exit status 2. The error
@@ -465,7 +543,7 @@ set but empty counts as not set. `GET /api/health` shows the result under `confi
 
 Trailbeam stores no message body unless you opt queues in on the server as well as in the package:
 
-```sh
+```sh norun="docker run ... stands for the Quickstart's command"
 docker run ... -e TRAILBEAM_STORE_BODIES=orders,payments ghcr.io/nick-lennox/trailbeam   # or trailbeam --store-bodies orders,payments
 ```
 
@@ -511,7 +589,7 @@ they go when retention deletes their messages ([Retention](#retention)).
 Trailbeam keeps spans for **7 days** by default, then deletes them, bodies included. Set a different
 retention for every queue, override it for some queues, or keep data forever:
 
-```sh
+```sh norun="docker run ... stands for the Quickstart's command"
 docker run ... -e TRAILBEAM_RETENTION=14d -e TRAILBEAM_RETENTION_QUEUES=orders-dlq=30d,audit=forever ghcr.io/nick-lennox/trailbeam
 # or trailbeam --retention 14d --retention-queues orders-dlq=30d,audit=forever
 ```
@@ -554,7 +632,7 @@ give different numbers. Raising `TRAILBEAM_PURGE_DUTY` deletes faster but makes 
 reuses the freed space for new spans, so it stops growing, but it does not shrink. To shrink it, run a
 one-time rewrite while the server is stopped:
 
-```sh
+```sh norun="/data is the container's volume, and the server must be stopped"
 trailbeam --db /data/trailbeam.sqlite --vacuum
 ```
 
@@ -576,7 +654,7 @@ time, as an exporter retry sends it.
 
 SQLite is the default and needs nothing else. Postgres is optional: point Trailbeam at a Postgres you already run.
 
-```sh
+```sh norun="needs your own Postgres server"
 pip install "trailbeam[server,postgres]"
 TRAILBEAM_STORE_URL=postgres://trailbeam:<password>@db.internal:5432/trailbeam trailbeam
 # or trailbeam --store-url postgres://...
@@ -628,7 +706,7 @@ Trailbeams can share one database this way, each in its own schema:
 CREATE SCHEMA trailbeam AUTHORIZATION trailbeam;
 ```
 
-```sh
+```sh norun="needs your own Postgres server"
 TRAILBEAM_STORE_URL='postgres://trailbeam@db.internal:5432/shared?options=-csearch_path%3Dtrailbeam'
 ```
 
@@ -770,7 +848,7 @@ message bodies.
 - **`pg_dump`** works while Trailbeam ingests, at any time of day, and doesn't stop Trailbeam creating partitions
   or storing exports.
 
-```sh
+```sh norun="needs your own Postgres server"
 pg_dump -Fc -f trailbeam-$(date +%F).dump "postgres://trailbeam@db.internal/trailbeam"
 ```
 
@@ -778,7 +856,7 @@ To restore, create an empty database owned by the role, restore into it as that 
 statistics, which a dump doesn't carry. Without that, Postgres has no statistics for the restored tables until
 autovacuum analyzes them, and it can pick slow plans meanwhile.
 
-```sh
+```sh norun="needs your own Postgres server"
 createdb -O trailbeam trailbeam_restored        # as an administrator
 pg_restore --no-owner --role=trailbeam -d "postgres://trailbeam@db.internal/trailbeam_restored" trailbeam-2026-11-19.dump
 psql "postgres://trailbeam@db.internal/trailbeam_restored" -c ANALYZE
@@ -960,14 +1038,14 @@ without its `-wal`, or of both at slightly different moments, can be missing rec
 **Backup, with the server running.** Use SQLite's backup API, which copies one consistent snapshot. Python's
 `sqlite3` module is all it needs, and the container has it:
 
-```sh
+```sh norun="the paths of a server's own machine; the Docker form below is run"
 python3 -c 'import sqlite3, sys; s = sqlite3.connect(sys.argv[1]); d = sqlite3.connect(sys.argv[2]); s.backup(d); d.close(); s.close()' \
     /data/trailbeam.sqlite /backups/trailbeam-$(date +%F).sqlite
 ```
 
 In Docker, write the copy to the volume, take it out, and delete it there:
 
-```sh
+```sh run variant=docker
 docker exec trailbeam python -c 'import sqlite3, sys; s = sqlite3.connect(sys.argv[1]); d = sqlite3.connect(sys.argv[2]); s.backup(d); d.close(); s.close()' \
     /data/trailbeam.sqlite /data/backup.sqlite
 docker cp trailbeam:/data/backup.sqlite ./trailbeam-$(date +%F).sqlite
@@ -986,28 +1064,40 @@ to 747 ms and the log reached about 210 MB.
 
 **Check a backup** before you rely on it. This prints `ok` (about a minute for a 2 GB file here):
 
-```sh
+<!-- doc-test variant=docker
+cp "trailbeam-$(date +%F).sqlite" trailbeam-2026-11-19.sqlite
+-->
+
+```sh run variant=docker
 python3 -c 'import sqlite3, sys; print(sqlite3.connect(sys.argv[1]).execute("PRAGMA integrity_check").fetchone()[0])' \
     trailbeam-2026-11-19.sqlite
 ```
+
+<!-- doc-test expect variant=docker
+ok
+-->
 
 **Restore.** Stop the server, delete the old `-wal` and `-shm` files, put the backup in place of the file,
 and start the server. Delete those two files first: SQLite would apply a leftover log from the old file to
 the restored one and corrupt it.
 
-```sh
+```sh norun="the paths of a server's own machine; the Docker form below is run"
 rm -f /data/trailbeam.sqlite-wal /data/trailbeam.sqlite-shm
 cp trailbeam-2026-11-19.sqlite /data/trailbeam.sqlite
 ```
 
 In Docker, from the directory that has the backup:
 
-```sh
+```sh run variant=docker wait=http://127.0.0.1:4318/api/ready
 docker stop trailbeam
 docker run --rm --user root -v trailbeam-data:/data -v "$PWD":/restore:ro --entrypoint sh ghcr.io/nick-lennox/trailbeam -c \
   'rm -f /data/trailbeam.sqlite-wal /data/trailbeam.sqlite-shm && cp /restore/trailbeam-2026-11-19.sqlite /data/trailbeam.sqlite && chown trailbeam: /data/trailbeam.sqlite'
 docker start trailbeam
 ```
+
+<!-- doc-test variant=docker
+test "$(curl -fsS http://127.0.0.1:4318/api/messages | python -c 'import json, sys; print(len(json.load(sys.stdin)["messages"]))')" = 2
+-->
 
 A backup from an older version is upgraded when the server starts ([Upgrading a database
 file](#retention)). The purge then deletes whatever is past retention, so set a longer `--retention` first
@@ -1105,7 +1195,7 @@ There are no retention purge metrics yet: the server logs each purge pass that d
 
 A scrape config for Prometheus:
 
-```yaml
+```yaml norun="a Prometheus configuration; the hidden step after it reads /metrics"
 scrape_configs:
   - job_name: trailbeam
     scrape_interval: 15s
@@ -1113,6 +1203,10 @@ scrape_configs:
     static_configs:
       - targets: ["trailbeam:4318"]   # host:port Trailbeam listens on
 ```
+
+<!-- doc-test variant=docker
+curl -fsS http://127.0.0.1:4318/metrics | grep '^trailbeam_build_info'
+-->
 
 Useful alerts and queries:
 
@@ -1225,7 +1319,7 @@ contract, the specification the packages and Trailbeam both follow, is
 
 Run each line from the repository root:
 
-```sh
+```sh norun="the repository's tests: CI runs them in its python, node and ui jobs"
 (cd python && pip install -e '.[test]' && pytest)   # the Python package and Trailbeam itself
 (cd node && npm ci && npm test)
 (cd ui && npm ci && npm test && npm run build)   # the shared UI, built into the Python package
@@ -1235,6 +1329,8 @@ pytest demo/check/tests
 The Node.js tests that need an SQS emulator are skipped unless `TRAILBEAM_TEST_SQS_ENDPOINT` is set, for
 example to `http://localhost:9324`. [`.github/workflows/ci.yml`](.github/workflows/ci.yml) also runs
 the Collector tests, the container smoke test, the demo and the concurrency check.
+[`.github/workflows/docs.yml`](.github/workflows/docs.yml) runs this README's commands and samples, and those
+of the docs pages, against the commit; a block that isn't run says why (`norun="..."` after its language).
 
 ## Contributing
 

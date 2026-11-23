@@ -1,0 +1,92 @@
+# Docs commands (QV-274): run the marked commands and samples in README.md, and on the docs pages of
+# docs.trailbeam.app, against Trailbeam built from this commit. Fails when the README or a page tells
+# readers to do something that doesn't work, or names a flag, TRAILBEAM_* variable or endpoint this
+# commit doesn't have. How to mark a block: scripts/doc-snippets/README.md in nick-lennox/trailbeam-app.
+#
+# The runner and the docs pages are in nick-lennox/trailbeam-app, which is private. This job reads its
+# main with a read-only deploy key ("trailbeam CI: docs commands" there), whose private half is the
+# DOCS_DEPLOY_KEY secret here. Pull requests from forks get no secrets, so for them the job says so and
+# does nothing.
+#
+# The nightly run catches docs pages changed in trailbeam-app since the last Trailbeam change.
+name: Docs commands
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  docs:
+    name: README and docs pages commands
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: The deploy key for trailbeam-app is there
+        id: key
+        env:
+          KEY: ${{ secrets.DOCS_DEPLOY_KEY }}
+          FORK: ${{ github.event.pull_request.head.repo.fork }}
+        run: |
+          if [ -n "$KEY" ]; then echo "run=true" >> "$GITHUB_OUTPUT"
+          elif [ "$FORK" = true ]; then echo "::notice::A pull request from a fork gets no DOCS_DEPLOY_KEY, so the docs commands are not run."
+          else echo "::error::The DOCS_DEPLOY_KEY secret is not set (see the top of .github/workflows/docs.yml)."; exit 1; fi
+
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.run
+
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.run
+        with:
+          repository: nick-lennox/trailbeam-app
+          ref: main
+          path: _docs
+          ssh-key: ${{ secrets.DOCS_DEPLOY_KEY }}
+          sparse-checkout: |
+            scripts/doc-snippets
+            content/docs
+
+      - uses: actions/setup-python@v5
+        if: steps.key.outputs.run
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        if: steps.key.outputs.run
+        with:
+          node-version: "22"
+
+      - name: Build Trailbeam (wheelhouse, Node.js package, image)
+        if: steps.key.outputs.run
+        run: _docs/scripts/doc-snippets/prepare.sh . "$RUNNER_TEMP/doc-test"
+
+      - name: README names only flags, variables and endpoints this commit has
+        if: steps.key.outputs.run
+        run: node _docs/scripts/doc-snippets/check-names.mjs --artifacts "$RUNNER_TEMP/doc-test" README.md
+
+      - name: Docs pages name only flags, variables and endpoints this commit has
+        if: steps.key.outputs.run && (success() || failure())
+        run: node _docs/scripts/doc-snippets/check-names.mjs --artifacts "$RUNNER_TEMP/doc-test"
+
+      - name: Run the README's commands
+        if: steps.key.outputs.run && (success() || failure())
+        run: node _docs/scripts/doc-snippets/run.mjs --artifacts "$RUNNER_TEMP/doc-test" --out "$RUNNER_TEMP/doc-test/runs" README.md
+
+      - name: Run the docs pages' commands
+        if: steps.key.outputs.run && (success() || failure())
+        run: node _docs/scripts/doc-snippets/run.mjs --artifacts "$RUNNER_TEMP/doc-test" --out "$RUNNER_TEMP/doc-test/runs"
+
+      - uses: actions/upload-artifact@v4
+        if: steps.key.outputs.run && failure()
+        with:
+          name: docs-commands-logs
+          path: ${{ runner.temp }}/doc-test/runs/*.log
