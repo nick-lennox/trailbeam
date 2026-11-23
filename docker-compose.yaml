@@ -44,11 +44,13 @@ services:
       # The password comes from PGPASSWORD (libpq), so it needs no escaping in the URL.
       TRAILBEAM_STORE_URL: postgresql://trailbeam@postgres:5432/trailbeam
       PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
-      # Required: the port is reachable from other machines, so ingest, the API and the screen need the token.
+      # Required: with TRAILBEAM_BIND=0.0.0.0 the port is reachable from other machines, so ingest, the API and
+      # the screen need the token.
       TRAILBEAM_TOKEN: ${TRAILBEAM_TOKEN:?set TRAILBEAM_TOKEN in .env (see .env.example)}
       TRAILBEAM_RETENTION: ${TRAILBEAM_RETENTION:-7d}
       TRAILBEAM_STORE_BODIES: ${TRAILBEAM_STORE_BODIES:-}
-    ports: ["${TRAILBEAM_BIND:-0.0.0.0}:${TRAILBEAM_PORT:-4318}:4318"]
+    # TRAILBEAM_BIND unset: this machine only (127.0.0.1). Docker publishes ports past ufw/firewalld (QV-202).
+    ports: ["${TRAILBEAM_BIND:-127.0.0.1}:${TRAILBEAM_PORT:-4318}:4318"]
     # Holds nothing with Postgres as the store; kept so the image's /data is never an anonymous volume.
     volumes: [trailbeam-data:/data]
     depends_on:
