@@ -150,8 +150,12 @@ jobs:
         working-directory: node
       - name: The checker against recorded runs, and against them broken one rule at a time
         run: pytest -q conformance/tests
-      - name: Python and Node.js packages on the bench (every variant)
-        run: python conformance/kit.py run conformance/drivers/python/driver.json conformance/drivers/node/driver.json --workdir "$RUNNER_TEMP/kit"
+      - name: Python and Node.js packages on the bench, client hooks and Lambda wrappers (every variant)
+        run: >-
+          python conformance/kit.py run
+          conformance/drivers/python/driver.json conformance/drivers/node/driver.json
+          conformance/drivers/python-lambda/driver.json conformance/drivers/node-lambda/driver.json
+          --workdir "$RUNNER_TEMP/kit"
       - name: Keep the report, driver logs and spans (not the ground truth, which holds the bench's raw receipt handles)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -161,6 +165,8 @@ jobs:
             ${{ runner.temp }}/kit/report.json
             ${{ runner.temp }}/kit/bench.log
             ${{ runner.temp }}/kit/*.driver.log
+            ${{ runner.temp }}/kit/*.setup.log
+            ${{ runner.temp }}/kit/*.function.log
             ${{ runner.temp }}/kit/collector/spans.jsonl
           if-no-files-found: ignore
 
