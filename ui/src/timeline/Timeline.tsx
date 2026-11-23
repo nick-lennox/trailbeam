@@ -17,7 +17,7 @@
   No client JS: details/summary does the expanding, so it works with scripts off.
 */
 import type {
-  AfterEntry, AwsEvent, BlindSpot, Group, Timeline, TimelineEvent,
+  AfterEntry, AwsEvent, BlindSpot, Group, Notice, Timeline, TimelineEvent,
 } from "./types.ts";
 import { ErrorCauses } from "./ErrorCauses.tsx";
 import { errorCauses } from "../errors.ts";
@@ -479,6 +479,21 @@ function ConcurrentBox({ g, members, byId }: { g: Group; members: TimelineEvent[
 
 /* ── The timeline ───────────────────────────────────────────────────────── */
 
+const NOTICE_LINKS: Record<string, [string, string]> = {
+  default_key: ["Why the key matters", "https://github.com/nick-lennox/trailbeam#add-it-to-your-services"],
+};
+
+/** A server notice: `backticked` spans are commands or names, drawn as code; some codes get a docs link. */
+export function NoticeText({ n }: { n: Notice }) {
+  const link = NOTICE_LINKS[n.code];
+  return (
+    <>
+      {n.message.split(/`([^`]+)`/).map((part, i) => (i % 2 ? <code key={i} className="font-mono text-caption text-sky-ink">{part}</code> : part))}
+      {link && <> <a className="text-dawn hover:underline" href={link[1]}>{link[0]}</a></>}
+    </>
+  );
+}
+
 const STATE_WORDS: Record<Timeline["state"], string> = {
   deleted: "Deleted",
   deleted_inferred: "Deleted (inferred)",
@@ -540,7 +555,7 @@ export function TimelineView({ t, answer, openSteps = [] }: { t: Timeline; answe
       </header>
       {t.notices.length > 0 && (
         <ul className="grid gap-2 border-b border-sky-line px-4 py-3 md:px-8">
-          {t.notices.map((n) => <li key={n.code} className="border-l-2 border-dawn/70 pl-3 text-[13px] text-sky-ink-2">{n.message}</li>)}
+          {t.notices.map((n) => <li key={n.code} className="border-l-2 border-dawn/70 pl-3 text-[13px] text-sky-ink-2"><NoticeText n={n} /></li>)}
         </ul>
       )}
       <ol className="px-3 pt-5 pb-2 md:px-8" aria-label="Steps, in proven order">
