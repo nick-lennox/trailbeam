@@ -125,14 +125,24 @@ export OTEL_SERVICE_NAME=my-python-service
 ```
 
 Because the token is on, services need these settings, and the web screen asks for the token once. Later
-runs reuse the same token and key. If `TRAILBEAM_RECEIPT_HASH_KEY` is already set (at least 16 characters),
-`trailbeam start` prints that key instead and makes no key file, so services you set up before keep
-joining; if the data directory already holds a different key, the environment variable wins and one
-warning says so. Every `trailbeam` flag works after `start` (`trailbeam start --help`).
-Stop it with Ctrl-C. From the next release, `npx trailbeam start` does the same with Docker and no Python
-([Node.js README](node/README.md#run-the-server-npx-trailbeam-start)). It does not work with 0.3.0: the npm
-package has no `trailbeam` command yet, and the 0.3.0 image has no `start`. Nothing on the screen? Run
-`trailbeam doctor`, also from the next release ([Troubleshooting](#troubleshooting-no-data-arriving)).
+runs reuse the same token and key, and print them in full only on the run that created them: stdout often ends
+up in a log (systemd, `docker run -d`, nohup, CI). A later run prints the command that shows each one
+(`cat ~/.trailbeam/token`, `cat ~/.trailbeam/receipt-hash-key`), and its export lines read the files, so
+pasting them doesn't put the secrets in your shell history either:
+
+```sh
+export OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20$(cat ~/.trailbeam/token)
+export TRAILBEAM_RECEIPT_HASH_KEY=$(cat ~/.trailbeam/receipt-hash-key)
+```
+
+A token you give with `--token-file` or `TRAILBEAM_TOKEN` is never printed. If `TRAILBEAM_RECEIPT_HASH_KEY` is
+already set (at least 16 characters), `trailbeam start` uses that key and makes no key file, so services you set
+up before keep joining: the export lines say `$TRAILBEAM_RECEIPT_HASH_KEY`, and if the data directory already
+holds a different key, the environment variable wins and one warning says so. Every `trailbeam` flag works after
+`start` (`trailbeam start --help`). Stop it with Ctrl-C. From the next release, `npx trailbeam start` does the
+same with Docker and no Python ([Node.js README](node/README.md#run-the-server-npx-trailbeam-start)). It does not
+work with 0.3.0: the npm package has no `trailbeam` command yet, and the 0.3.0 image has no `start`. Nothing on
+the screen? Run `trailbeam doctor`, also from the next release ([Troubleshooting](#troubleshooting-no-data-arriving)).
 
 ### See a richer example
 
