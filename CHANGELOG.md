@@ -21,6 +21,17 @@
   `deploy/helm/check.sh` now runs the documented port-forward, checks what each selector picks, and upgrades a
   release installed by the 0.4.0 chart.
 
+- **Java package, stage 1** (QV-319, pre-release, not published). `java/` is a jar for the AWS SDK for Java v2:
+  add it as a dependency and a global `ExecutionInterceptor` (registered through the SDK's classpath file, no code)
+  emits the contract's send, receive, delete, change-visibility and purge spans, with the keyed receipt-handle
+  hash, receive count, dead-letter source ARN, per-entry results, call-order ticks, body size and FIFO fields. It
+  has its own always-on tracer provider with a relocated OpenTelemetry SDK (1.4 MB jar). The parent comes from the
+  stock instrumentation's trace header, so interceptor order doesn't matter. A hand registration on top of the
+  global one emits each span once. A Java driver for the conformance kit passes it in CI alone, beside the
+  OpenTelemetry Java agent 2.34.0 (also sampled to 0) and beside dd-java-agent 1.69.1. Not yet built: body capture
+  and tenants, the Lambda wrapper, the SDK version matrix, a strict parent check for the agent variants, and
+  Maven Central.
+
 - **Conformance kit for Trailbeam packages** (QV-318, stage 1). `conformance/` runs a language package's small
   driver through one scripted scenario (send, batch send, receive, delete, batch delete with a failed entry,
   visibility-timeout retry, dead-letter move, ChangeMessageVisibility and its batch form, a failing delete,
