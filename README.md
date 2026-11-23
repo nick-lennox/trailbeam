@@ -66,8 +66,30 @@ answers a narrower question: where did this one message go?
 
 ## Quickstart
 
-The [quickstart](https://docs.trailbeam.app/quickstart) runs Trailbeam on your laptop with Docker and an SQS emulator.
-It needs no AWS account.
+```sh
+pip install "trailbeam[server]"
+trailbeam start
+```
+
+On the first run, `trailbeam start` creates an access token and a receipt-hash key in `~/.trailbeam`
+(`--data-dir` or `TRAILBEAM_DATA_DIR` to choose another directory), readable only by you, and keeps the
+spans in a SQLite file there. It then starts Trailbeam on `http://127.0.0.1:4318/` and prints the token
+and the environment variables for your services, like this:
+
+```sh
+export TRAILBEAM_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces
+export OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<token>
+export TRAILBEAM_RECEIPT_HASH_KEY=<key>
+export OTEL_SERVICE_NAME=my-python-service
+```
+
+Paste them into the environment of a service, add the hooks ([below](#add-it-to-your-services)), and
+send a message: it shows up on the web screen, which asks for the token once. Later runs reuse the same
+token and key, so services you set up keep working. Every `trailbeam` flag works after `start` too
+(`trailbeam start --help`). Stop it with Ctrl-C.
+
+To try it without services of your own, the [demo](demo/README.md) runs Trailbeam, an SQS emulator and
+sample services with Docker. It needs no AWS account:
 
 ```sh
 git clone https://github.com/nick-lennox/trailbeam.git && cd trailbeam
@@ -114,7 +136,8 @@ def handler(event, context):
     ...
 ```
 
-Point the packages at Trailbeam and give every service on the same queues the same hash key:
+Point the packages at Trailbeam and give every service on the same queues the same hash key
+(`trailbeam start` prints these with your token and key filled in):
 
 ```sh
 export TRAILBEAM_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces
@@ -166,7 +189,8 @@ up to date as spans arrive, so a page costs about the same however much history 
 docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-data:/data ghcr.io/nick-lennox/trailbeam
 ```
 
-Or without Docker: `pip install "trailbeam[server]"`, then run `trailbeam`. To build the image yourself:
+Or without Docker: `pip install "trailbeam[server]"`, then run `trailbeam start` (above), or `trailbeam`
+with the flags you choose and no token or key made for you. To build the image yourself:
 `docker build -t trailbeam .` from a clone.
 
 ### Team install (Docker Compose with Postgres)

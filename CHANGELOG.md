@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **`trailbeam start`: first-run setup in one command.** On its first run in a data directory (default
+  `~/.trailbeam`, or `--data-dir` / `TRAILBEAM_DATA_DIR`) it creates an access token and a receipt-hash key,
+  each in a file only its owner can read, and keeps the SQLite file there. It then starts the server and prints
+  the web screen's address, the token, and the environment variables to paste into a Python and a Node.js
+  service. Later runs read the same files, so the token and key don't change. Every `trailbeam` flag works
+  after `start`; `--db`, `--store-url` and `--token-file` (or `TRAILBEAM_TOKEN`) replace the file in the data
+  directory. `trailbeam` with flags, as the container image runs it, is unchanged: it creates no files and
+  turns on no token.
 - **A team install from one file: `docker-compose.yaml`.** `cp .env.example .env`, fill in the token, the
   receipt-hash key and the Postgres password, then `docker compose up -d --build --wait`: the Trailbeam server
   and Postgres 16, a named volume for each, health checks, `restart: unless-stopped`, and
