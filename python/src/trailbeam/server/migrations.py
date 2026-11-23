@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from .. import __version__
-from . import body_table, summary_table
+from . import account_tables, body_table, summary_table
 
 
 class SchemaError(RuntimeError):
@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
     name TEXT NOT NULL,              -- the migration's name; 'create' for a file made at this version
     trailbeam_version TEXT           -- the Trailbeam that ran it; NULL for versions reached before 6
 );
-""" + summary_table.CREATE + body_table.CREATE + PROBES_CREATE
+""" + summary_table.CREATE + body_table.CREATE + PROBES_CREATE + account_tables.SQLITE_CREATE
 
 # Schema 1 was the first released (the CREATE of version 1 is in tests/server/test_migrations.py).
 # Schema 1 had no start_ns. Its rows came from contract v1 spans, stamped only when the response arrived,
@@ -164,6 +164,8 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # longer a ``sent`` tenant event, so the summaries of messages with more than one sent event and a FIFO queue are
 # rewritten from their spans, which takes their extra sends out of the Tenants rollup too (refresh applies the
 # rollup's deltas). Rare: other messages are not read past their summary row.
+# Schema 15 (QV-225) adds the tables of people and tokens (account_tables.py), empty. It changes no span data. A
+# Trailbeam before it (0.3.0 and earlier) refuses the file from then on.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new"))
                   + [f"INSERT INTO spans_new ({SPANS_COLUMNS}) SELECT {SPANS_COLUMNS} FROM spans ORDER BY row",
                      "DROP TABLE spans",
@@ -234,6 +236,7 @@ MIGRATIONS = (
     Migration(12, "hourly tenant rollup", tuple(statements(summary_table.ROLLUP_CREATE)), run=_to_12),
     Migration(13, "probes (trailbeam doctor)", tuple(statements(PROBES_CREATE))),
     Migration(14, "FIFO deduplicated sends out of the tenant events", (), run=_to_14),
+    Migration(15, "users, sessions and tokens", tuple(statements(account_tables.SQLITE_CREATE))),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

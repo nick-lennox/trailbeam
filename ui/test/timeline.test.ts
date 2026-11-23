@@ -175,3 +175,25 @@ test("a FIFO send SQS deduplicated says so, with the reason, and is not another 
   assert.ok(html.includes(reason));
   assert.ok(html.includes("deduplicated · enqueued nothing") && !html.includes("e2 Sent to"), "the second send is not drawn as a plain send");
 });
+
+test("with a trace link, each recorded step offers Open trace; without one, none does (QV-304)", () => {
+  const t = timelines[0];
+  assert.ok(!render(t).includes("Open trace"), "the recorded fixtures have no trace link");
+  const withLinks: Timeline = structuredClone(t);
+  let n = 0;
+  for (const e of withLinks.events) {
+    if ("span" in e && e.span) {
+      e.span.trace_url = `https://app.datadoghq.com/apm/trace/${e.span.trace_id}`;
+      n++;
+    }
+  }
+  assert.ok(n > 0);
+  const html = render(withLinks);
+  assert.equal(html.match(/>Open trace<\/a>/g)?.length, n);
+  assert.match(html, /href="https:\/\/app\.datadoghq\.com\/apm\/trace\/[0-9a-f]{32}" target="_blank" rel="noopener noreferrer"/);
+  // a link that isn't http(s) is never drawn, whatever the data says
+  const bad: Timeline = structuredClone(t);
+  const s = bad.events.find((e) => "span" in e && e.span) as { span: { trace_url?: string } };
+  s.span.trace_url = "javascript:alert(1)";
+  assert.ok(!render(bad).includes("Open trace"));
+});

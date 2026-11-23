@@ -3,7 +3,7 @@
   and the hosted app. A view takes the API's data as props and knows nothing about where it runs.
   Plan: the hosted app's docs/plans/shared-ui.md.
 */
-export { TimelineView, NoticeText, Node, SourceTag, ORDER_SOURCE, BLIND_SPOTS, clock, purgeNote } from "./timeline/Timeline.tsx";
+export { TimelineView, NoticeText, Node, SourceTag, ORDER_SOURCE, BLIND_SPOTS, clock, traceUrl, purgeNote } from "./timeline/Timeline.tsx";
 export { answerFor, consumersOf } from "./summary.ts";
 export { ErrorCauses } from "./timeline/ErrorCauses.tsx";
 export { errorCauses, type ErrorCause } from "./errors.ts";

@@ -40,6 +40,9 @@ type Observed = {
   start_observed: boolean;
   queue: string;
   consumer: Consumer;
+  /** The span behind the step. ``trace_url``: its trace in the team's tracing tool, when the server has a
+   *  trace link template (TRAILBEAM_TRACE_LINK); the step then shows "Open trace". */
+  span?: { trace_id: string; span_id: string; trace_url?: string };
   after: AfterEntry[];
 };
 

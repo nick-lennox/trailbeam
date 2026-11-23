@@ -44,7 +44,10 @@ one send are worked out again, without the sends SQS deduplicated, and the rollu
 **Probes** (version 6, QV-148). ``probes``: the test spans ``trailbeam doctor`` sends, kept apart from the spans
 so they never show as messages.
 
-**Purges** (version 8, QV-245). ``purges``: the PurgeQueue calls (contract section 18), not partitioned: they
+**People and tokens** (version 8, QV-225). ``users``, ``sessions``, ``ingest_tokens``, ``personal_tokens`` and
+``setup_codes`` (account_tables.py). Not partitioned and not spans: retention never touches them. A Trailbeam
+before this version (0.3.0 and earlier) refuses the database from then on.
+**Purges** (version 9, QV-245). ``purges``: the PurgeQueue calls (contract section 18), not partitioned: they
 belong to no message, and every list page reads them by queue.
 
 **Message-ID indexes** (version 3, QV-118). ``message_queues``, ``message_tenants`` and ``tenant_events`` are
@@ -57,6 +60,7 @@ import time
 from dataclasses import dataclass
 
 from .. import __version__
+from . import account_tables
 from .migrations import SchemaError, SchemaTooNew
 
 # Partitioned tables: one partition of each per place.
@@ -71,7 +75,7 @@ PROBES = """
 CREATE TABLE IF NOT EXISTS probes (id TEXT PRIMARY KEY, received_ns BIGINT NOT NULL);
 """
 
-# Version 8 (QV-245): the PurgeQueue calls (contract section 18), one row a call. A purge belongs to no message and
+# Version 9 (QV-245): the PurgeQueue calls (contract section 18), one row a call. A purge belongs to no message and
 # is read by queue on every list page, so it is not partitioned: few rows, one index. Retention deletes a purge by its
 # own time against its queue's cutoff (postgres.py, purge_step). ``id`` orders purges as ``row`` orders spans.
 PURGES = """
@@ -286,7 +290,7 @@ CREATE TABLE IF NOT EXISTS hash_places (
     bucket BIGINT NOT NULL,
     PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
 ) PARTITION BY RANGE (rclass, bucket);
-""" + SEALING + PROBES + PURGES + """CREATE TABLE IF NOT EXISTS schema_version (
+""" + SEALING + PROBES + account_tables.PG_CREATE + PURGES + """CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
     name TEXT NOT NULL,
@@ -537,9 +541,10 @@ MIGRATIONS: tuple = (
     )),
     Migration(6, "probes: the test spans of trailbeam doctor (QV-148)", tuple(statements(PROBES))),
     Migration(7, "FIFO deduplicated sends out of the tenant events (QV-246)", (), per_place=(_dedup_place,)),
-    Migration(8, "purges: the PurgeQueue calls (QV-245)", tuple(statements(PURGES))),
+    Migration(8, "users, sessions and tokens (QV-225)", tuple(statements(account_tables.PG_CREATE))),
+    Migration(9, "purges: the PurgeQueue calls (QV-245)", tuple(statements(PURGES))),
 )
-LATEST = 8
+LATEST = 9
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 
