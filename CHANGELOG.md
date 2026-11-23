@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Python: a down or slow Trailbeam server no longer holds up your process's exit.** Shutdown
+  (`uninstall()`, or interpreter exit) waited for the OTLP exporter's retries and 10 s request timeout, so a
+  short script took 6 s longer to exit with the server unreachable and 10 s longer with it slow. It now waits
+  at most `TRAILBEAM_SHUTDOWN_TIMEOUT_MS` (default 2000) and counts what is left as `shutdown` drops. The
+  Lambda wrapper's flushes now keep to `flush_timeout_millis` (the SDK ignored it). The drop warning now says
+  what to check for each reason: for `export_failed`, the server's address and the token in
+  `OTEL_EXPORTER_OTLP_HEADERS`, instead of advice about high volume. The Python README lists what happens to
+  spans in each case. (QV-169)
 - **The Tenants page no longer slows down after heavy ingest.** It read every raw event of the current hour,
   so right after a burst of traffic it took 1–2 s on Postgres (QV-180). It now reads the current hour from the
   hourly rollup, less the few events newer than the window, and adds up the raw events it still reads in SQL.
