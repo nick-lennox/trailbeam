@@ -28,7 +28,7 @@ from openapi_spec_validator import validate as validate_openapi
 
 from openapi_contract import Contract, contract, pointer
 from spans import SEC, T0, Consumer, to_json, to_proto
-from trailbeam.server import auth as auth_mod, server
+from trailbeam.server import auth as auth_mod, doctor, server
 from trailbeam.server.backpressure import IngestGate
 from trailbeam.server.store import StoreUnavailable, WriterBusy
 
@@ -93,6 +93,10 @@ def load_fixture(base, token=None):
         status, _, _ = request(base, "POST", "/v1/traces", base64.b64decode(e["base64"]),
                                {"Content-Type": e["contentType"], **h})
         assert status == 200, e["service"]
+    # trailbeam doctor's test span (contract section 17), with the fixture message's ID, so that every
+    # {path parameter} route has something stored under MID
+    status, _, _ = request(base, "POST", "/v1/traces", doctor.probe_export(MID), {"Content-Type": "application/json", **h})
+    assert status == 200, "probe"
 
 
 @pytest.fixture
@@ -514,6 +518,7 @@ def test_every_status_the_file_lists_is_answered_and_matches_it(db, record_api_r
                     if "minimum" in p.get("schema", {}):
                         request(base, "GET", f"{path}?{name}={p['schema']['minimum'] - 1}")
                 request(base, "GET", f"{path}?cursor=not-a-cursor")
+        request(base, "GET", "/api/probes/short")  # under 8 characters: not a probe ID, 400
         # ingest: JSON, a rejected span, every error the handler has
         ok = to_json([Consumer().send(T0, "m-json")])
         request(base, "POST", "/v1/traces", json.dumps(ok).encode(), {"Content-Type": "application/json"})

@@ -25,6 +25,9 @@ def main(argv=None) -> None:
     if argv[:1] == ["start"]:
         from .start import start
         return start(argv[1:])
+    if argv[:1] == ["doctor"]:
+        from . import doctor
+        sys.exit(doctor.main(argv[1:]))
     serve(build_parser().parse_args(argv))
 
 
@@ -33,7 +36,8 @@ def build_parser(prog: str = "trailbeam", description: str = "") -> argparse.Arg
     p = argparse.ArgumentParser(
         prog=prog, description=description or "Trailbeam: OTLP/HTTP ingest, JSON API and web screen on one port.",
         epilog="First time? trailbeam start creates an access token and a receipt-hash key, starts the server and "
-               "prints the environment variables for your services (trailbeam start --help).")
+               "prints the environment variables for your services (trailbeam start --help). "
+               "No data arriving? trailbeam doctor checks why (trailbeam doctor --help).")
     p.add_argument("--db", default=os.environ.get("TRAILBEAM_DB", "trailbeam.sqlite"),
                    help="SQLite file (env TRAILBEAM_DB, default trailbeam.sqlite)")
     p.add_argument("--store-url", default=os.environ.get("TRAILBEAM_STORE_URL") or None,
