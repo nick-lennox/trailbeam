@@ -1,10 +1,13 @@
 name: Release
 
-# Push a tag vX.Y.Z (matching python/pyproject.toml, trailbeam.__version__, node/package.json and a
-# "## X.Y.Z" heading in CHANGELOG.md) to publish that version:
+# Push a tag vX.Y.Z (matching python/pyproject.toml, trailbeam.__version__, node/package.json, the Helm chart's
+# version and appVersion in deploy/helm/trailbeam/Chart.yaml and a "## X.Y.Z" heading in CHANGELOG.md) to publish
+# that version:
 #   - PyPI: trailbeam (wheel with the built UI, and sdist), by trusted publishing (no token stored)
 #   - npm: trailbeam (the Node.js package), with provenance, using the NPM_TOKEN secret
-#   - GitHub Container Registry: ghcr.io/nick-lennox/trailbeam:X.Y.Z (once: the job stops if it exists) and :latest
+#   - GitHub Container Registry: ghcr.io/nick-lennox/trailbeam:X.Y.Z and :latest (SQLite only), and
+#     :X.Y.Z-postgres and :latest-postgres (with the Postgres driver; the Helm chart's default image).
+#     Once per version: the job stops before pushing either image if :X.Y.Z is already published
 #   - a GitHub release with that version's CHANGELOG section
 on:
   push:
@@ -27,6 +30,8 @@ jobs:
           grep -qx "version = \"$v\"" python/pyproject.toml || { echo "python/pyproject.toml is not $v"; exit 1; }
           grep -qx "__version__ = \"$v\"" python/src/trailbeam/__init__.py || { echo "trailbeam.__version__ is not $v"; exit 1; }
           test "$(node -p 'require("./node/package.json").version')" = "$v" || { echo "node/package.json is not $v"; exit 1; }
+          grep -qx "version: $v" deploy/helm/trailbeam/Chart.yaml || { echo "Chart.yaml version is not $v"; exit 1; }
+          grep -qx "appVersion: \"$v\"" deploy/helm/trailbeam/Chart.yaml || { echo "Chart.yaml appVersion is not $v"; exit 1; }
           grep -q "^## $v" CHANGELOG.md || { echo "CHANGELOG.md has no '## $v' section"; exit 1; }
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
@@ -114,6 +119,15 @@ jobs:
           tags: |
             ghcr.io/nick-lennox/trailbeam:${{ needs.check.outputs.version }}
             ghcr.io/nick-lennox/trailbeam:latest
+      - name: The image with the Postgres driver (the Helm chart's default)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: TRAILBEAM_EXTRAS=server,postgres
+          tags: |
+            ghcr.io/nick-lennox/trailbeam:${{ needs.check.outputs.version }}-postgres
+            ghcr.io/nick-lennox/trailbeam:latest-postgres
 
   github-release:
     needs: [check, pypi, npm, image]

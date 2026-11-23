@@ -1,0 +1,126 @@
+{{- $pg := include "trailbeam.postgresName" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "trailbeam.fullname" . }}
+  labels: {{- include "trailbeam.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels: {{- include "trailbeam.selectorLabels" . | nindent 6 }}
+  strategy: {{- toYaml .Values.strategy | nindent 4 }}
+  template:
+    metadata:
+      labels:
+        {{- include "trailbeam.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}{{ toYaml . | nindent 8 }}{{ end }}
+      annotations:
+        {{- if not .Values.auth.existingSecret }}
+        # A changed token or URL in the chart's Secret restarts the pods, which read it at start.
+        checksum/config: {{ printf "%s|%s|%s" .Values.auth.token .Values.auth.receiptHashKey .Values.store.url | sha256sum | trunc 16 }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}{{ toYaml . | nindent 8 }}{{ end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      # Long enough for the in-flight exports to commit (SIGTERM stops the server the way Ctrl-C does).
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      {{- if .Values.postgresql.enabled }}
+      initContainers:
+        # The trial Postgres starts at the same time: wait for it rather than crash-loop until it is up.
+        - name: wait-for-postgres
+          image: {{ include "trailbeam.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - python
+            - -c
+            - |
+              import socket, time
+              while True:
+                  try:
+                      socket.create_connection(("{{ $pg }}", 5432), timeout=3).close(); break
+                  except OSError as e:
+                      print("waiting for {{ $pg }}:5432:", e, flush=True); time.sleep(2)
+          securityContext: {{- include "trailbeam.containerSecurity" . | nindent 12 }}
+          resources: { requests: { cpu: 10m, memory: 32Mi }, limits: { memory: 64Mi } }
+      {{- end }}
+      containers:
+        - name: trailbeam
+          image: {{ include "trailbeam.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports: [{ name: http, containerPort: 4318 }]
+          env:
+            {{- if .Values.postgresql.enabled }}
+            # The password comes from PGPASSWORD (libpq), so it needs no escaping in the URL.
+            - name: TRAILBEAM_STORE_URL
+              value: postgresql://trailbeam@{{ $pg }}:5432/trailbeam
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: {{ $pg }}, key: password } }
+            {{- else }}
+            - name: TRAILBEAM_STORE_URL
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.store.url }}
+                  name: {{ include "trailbeam.fullname" . }}
+                  key: store-url
+                  {{- else }}
+                  name: {{ .Values.store.existingSecret }}
+                  key: {{ .Values.store.existingSecretKey }}
+                  {{- end }}
+            {{- end }}
+            - name: TRAILBEAM_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ include "trailbeam.authSecret" . }}, key: token } }
+            - name: TRAILBEAM_RETENTION
+              value: {{ .Values.retention | quote }}
+            {{- if .Values.storeBodies }}
+            - name: TRAILBEAM_STORE_BODIES
+              value: {{ .Values.storeBodies | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}{{ toYaml . | nindent 12 }}{{ end }}
+          startupProbe:
+            httpGet: { path: /api/health, port: http }
+            {{- toYaml .Values.startupProbe | nindent 12 }}
+          livenessProbe:
+            httpGet: { path: /api/health, port: http }
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /api/ready, port: http }
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          lifecycle:
+            # Let the Service stop sending to this pod before the server stops listening.
+            preStop: { exec: { command: [sleep, "5"] } }
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          securityContext: {{- include "trailbeam.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            # The image's /data (its SQLite default) and /tmp. Nothing is kept there with Postgres as the store.
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: data, emptyDir: { sizeLimit: 64Mi } }
+        - { name: tmp, emptyDir: { sizeLimit: 64Mi } }
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      topologySpreadConstraints:
+        {{- if .Values.topologySpreadConstraints }}
+        {{- toYaml .Values.topologySpreadConstraints | nindent 8 }}
+        {{- else }}
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {{- include "trailbeam.selectorLabels" . | nindent 14 }}
+        {{- end }}
