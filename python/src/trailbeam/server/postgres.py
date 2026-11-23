@@ -137,7 +137,7 @@ from .lookup_filter import LookupFilter, hash_key, mid_key
 from .db import gate_body
 from .otlp import RECORD_FIELDS
 from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Cutoffs, ExportAbandoned, PurgeStep, Store,
-                    StoreUnavailable, StuckCandidate, TenantActivity, WriterBusy)
+                    StoreFull, StoreUnavailable, StuckCandidate, TenantActivity, WriterBusy)
 from .summary_table import COLUMNS, FIELDS, LISTS, ascii_lower
 
 log = logging.getLogger("trailbeam.server.postgres")
@@ -802,6 +802,8 @@ class PostgresStore(Store):
         except (psycopg.OperationalError, psycopg_pool.PoolTimeout) as e:
             if isinstance(e, errors.QueryCanceled):
                 raise  # a statement timeout: the database is there, the export is too slow
+            if isinstance(e, errors.DiskFull):
+                raise StoreFull(f"Postgres is out of disk space: {e}") from None
             full = self._lock_table_full(e)
             if full is not None:  # the database is there, and the export may pass when it is sent again
                 log.error("export not stored: %s", full)
@@ -1804,6 +1806,8 @@ class PostgresStore(Store):
         except psycopg.OperationalError as e:
             if isinstance(e, errors.QueryCanceled):
                 raise
+            if isinstance(e, errors.DiskFull):
+                raise StoreFull(f"Postgres is out of disk space: {e}") from None
             raise StoreUnavailable(f"Postgres is unreachable: {e}") from None
 
     def probe(self, probe_id: str) -> Optional[int]:

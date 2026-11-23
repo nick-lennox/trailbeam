@@ -33,7 +33,7 @@ from typing import Callable, Iterable, Iterator, Optional
 
 from . import body_table, migrations, rollup, summary_table
 from .otlp import RECORD_FIELDS
-from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store,
+from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store, StoreFull,
                     StuckCandidate, TenantActivity, WriterBusy)
 
 # The body and the attributes that describe it (contract 15.2). trailbeam.body.capture_status is kept:
@@ -94,6 +94,17 @@ def _snapshot(c: sqlite3.Connection):
         yield
     finally:
         c.execute("COMMIT")
+
+SQLITE_FULL = 13  # https://www.sqlite.org/rescode.html#full
+
+
+def _disk_full(e: BaseException) -> bool:
+    """SQLite's "database or disk is full" (the file system is out of space, or max_page_count is reached)."""
+    if not isinstance(e, sqlite3.OperationalError):
+        return False
+    code = getattr(e, "sqlite_errorcode", None)  # Python 3.11+
+    return (code & 0xFF) == SQLITE_FULL if code is not None else "database or disk is full" in str(e)
+
 
 class SqliteStore(Store):
     """Thread-safe. One writer connection, serialised by ``lock``; on a file, reads use separate read-only
@@ -249,8 +260,14 @@ class SqliteStore(Store):
             self._queue.append(job)
         if self.lock.acquire(timeout=-1 if wait_s is None else wait_s):
             try:
-                if not job.done:  # else a writer before us took it, and committed it
-                    self._write_group()
+                # Not done: a writer before us didn't take it. A group takes the queue from its head, up to
+                # GROUP_MAX_SPANS, so with more queued ahead of ours it may take several to reach it.
+                # Each round takes at least one export, so this ends.
+                while not job.done:
+                    try:
+                        self._write_group()
+                    except Exception:  # noqa: BLE001  each export of the failed group has the error (ours: below)
+                        pass
             finally:
                 self.lock.release()
         else:
@@ -265,6 +282,8 @@ class SqliteStore(Store):
             timings["wait_s"] = job.started - t0
             timings["write_s"] = job.ended - job.started
         if job.error is not None:
+            if _disk_full(job.error):
+                raise StoreFull(f"{self.path}: the disk is full ({job.error}); nothing was stored") from job.error
             raise job.error
         return job.result
 
@@ -289,6 +308,8 @@ class SqliteStore(Store):
                     try:
                         job.result = self._insert_rows(job.records, mine)
                     except Exception as e:  # this export only: the others in the group still commit
+                        if not c.in_transaction:  # SQLite rolled back the whole transaction (SQLITE_FULL can)
+                            raise
                         c.execute("ROLLBACK TO export")
                         job.error = e
                     else:
@@ -298,7 +319,10 @@ class SqliteStore(Store):
                 summary_table.refresh(c, changes)
                 c.execute("COMMIT")
             except BaseException:
-                c.execute("ROLLBACK")
+                # A failed COMMIT (SQLITE_FULL: the disk is full) may have rolled back already; a ROLLBACK then
+                # raises "no transaction is active", which would hide why.
+                if c.in_transaction:
+                    c.execute("ROLLBACK")
                 raise
         except BaseException as e:  # nothing of the group was stored: every export in it fails
             for job in group:
@@ -669,8 +693,11 @@ class SqliteStore(Store):
                               [(p, received_ns) for p in probe_ids])
                 c.execute("DELETE FROM probes WHERE received_ns < ?", (received_ns - self.PROBE_KEEP_NS,))
                 c.execute("COMMIT")
-            except BaseException:
-                c.execute("ROLLBACK")
+            except BaseException as e:
+                if c.in_transaction:
+                    c.execute("ROLLBACK")
+                if _disk_full(e):
+                    raise StoreFull(f"{self.path}: the disk is full ({e}); the probe was not stored") from e
                 raise
         finally:
             self.lock.release()
