@@ -1443,7 +1443,7 @@ components:
           type: string
           description: |
             `order_conflict`: recorded facts contradict each other about the order of some steps.
-            `default_key`: some spans hash receipt handles with the published default key.
+            `default_key`: some spans hash receipt handles with the package's built-in (published) key.
             `key_mismatch`: a delete or visibility change used a different receipt-hash key than the
             receives. `unmatched_handle`: a delete or visibility change matches no stored receive.
             `send_not_observed`: no send span was recorded. `dlq_move_not_seen`: the receive count
