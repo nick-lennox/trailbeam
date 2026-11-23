@@ -132,6 +132,7 @@ class CountingSpanProcessor {
     this.limit = options.maxQueueSize || configuredMaxQueueSize();
     this.queued = 0;
     this._shutdown = false;
+    this._exporter = exporter;
     const exportTimeoutMillis = options.exportTimeoutMillis
       || envInt('OTEL_BSP_EXPORT_TIMEOUT', DEFAULT_EXPORT_TIMEOUT_MS);
     const maxExportBatchSize = Math.min(options.maxExportBatchSize
@@ -185,13 +186,30 @@ class CountingSpanProcessor {
     else addDropped('export_failed', n, this.limit);
   }
 
-  forceFlush() { return this.batch.forceFlush(); }
+  // The SDK's processor rejects forceFlush and shutdown when a batch fails to export (an unreachable
+  // endpoint: ECONNREFUSED). Those spans are already counted as export_failed drops and warned about, so
+  // the rejection is not passed on: an unreachable Trailbeam server must not fail the application (QV-157).
+  async forceFlush() {
+    try {
+      await this.batch.forceFlush();
+    } catch (e) {
+      api.diag.debug('trailbeam: flush failed', e);
+    }
+  }
 
   async shutdown() {
     if (this._shutdown) return;
     this._shutdown = true;
     try {
       await this.batch.shutdown();
+    } catch (e) {
+      api.diag.debug('trailbeam: shutdown failed', e); // see forceFlush
+      // The SDK skips the exporter's shutdown when the final flush fails; release the exporter anyway.
+      try {
+        await this._exporter.shutdown();
+      } catch (e2) {
+        api.diag.debug('trailbeam: exporter shutdown failed', e2);
+      }
     } finally {
       this._final = true;
       const left = this.queued;
