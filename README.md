@@ -795,6 +795,11 @@ pg_restore --no-owner --role=trailbeam -d "postgres://trailbeam@db.internal/trai
 psql "postgres://trailbeam@db.internal/trailbeam_restored" -c ANALYZE
 ```
 
+Use `pg_dump` and `pg_restore` of the same major version as the server you restore onto (on Debian or Ubuntu,
+`postgresql-client-16` for Postgres 16, in `/usr/lib/postgresql/16/bin`), or run them in a `postgres:16` container.
+A newer `pg_restore` sends settings an older server doesn't know: version 18 restoring into Postgres 16 reports
+`unrecognized configuration parameter "transaction_timeout"` and exits 1.
+
 Then point `TRAILBEAM_STORE_URL` at the restored database, give the server the same token, and the services the
 same key. Restore into an empty database, before Trailbeam first starts on it: a server that started first has
 created its tables, and `pg_restore` then fails on them.

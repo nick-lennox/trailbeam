@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -351,8 +352,14 @@ class Postgres:
     def source(self) -> Server:
         import psycopg
         with psycopg.connect(self.a.pg_url) as c:
-            print(f"   Postgres server {c.info.server_version // 10000}; "
-                  f"{sh([self.bin('pg_dump'), '--version']).stdout.strip()}", flush=True)
+            server = c.info.server_version // 10000
+        tools = sh([self.bin("pg_restore"), "--version"]).stdout.strip()
+        print(f"   Postgres server {server}; {tools}", flush=True)
+        client = int(re.search(r"(\d+)", tools.split(")", 1)[-1]).group(1))
+        # A newer pg_restore sends settings an older server rejects (18 into 16: transaction_timeout); the README
+        # says to use the server's major version, so a mismatch is the setup's fault, not the backup's.
+        assert client <= server, (f"pg_restore {client} is newer than the Postgres {server} server; pass --pg-bin "
+                                  f"with the {server} client tools (e.g. /usr/lib/postgresql/{server}/bin)")
         self.admin(f"CREATE ROLE {self.role} LOGIN PASSWORD '{self.password}'")
         self.made_role = True
         self.src_db = self._db("old", owner=self.role)
