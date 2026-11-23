@@ -48,6 +48,13 @@
   and tenants, the Lambda wrapper, the SDK version matrix, a strict parent check for the agent variants, and
   Maven Central.
 
+- **`trailbeam doctor` reads the token the services send** (QV-343). With no `--token-file` or `TRAILBEAM_TOKEN`,
+  it takes the Bearer token from `OTEL_EXPORTER_OTLP_TRACES_HEADERS` or `OTEL_EXPORTER_OTLP_HEADERS` (URL-decoded,
+  as the exporters read it) before falling back to `~/.trailbeam/token`, and its header line says
+  `token: OTEL_EXPORTER_OTLP_HEADERS`. So on a service's host, with exactly the variables `trailbeam start`
+  prints, it no longer reports the token missing. A header with no `Authorization=Bearer%20<token>` is reported
+  as such.
+
 - **Conformance kit for Trailbeam packages** (QV-318, stage 1). `conformance/` runs a language package's small
   driver through one scripted scenario (send, batch send, receive, delete, batch delete with a failed entry,
   visibility-timeout retry, dead-letter move, ChangeMessageVisibility and its batch form, a failing delete,

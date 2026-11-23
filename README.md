@@ -311,11 +311,11 @@ is enough, the server extra is not needed) and checks, one line each:
 
 ```console norun="sample output: the hidden steps after it run trailbeam doctor and check these lines"
 $ trailbeam doctor
-trailbeam doctor: server http://127.0.0.1:4318, ingest http://127.0.0.1:4318/v1/traces, token: /home/me/.trailbeam/token
+trailbeam doctor: server http://127.0.0.1:4318, ingest http://127.0.0.1:4318/v1/traces, token: OTEL_EXPORTER_OTLP_HEADERS
 
   ok    Server reachable: Trailbeam X.Y.Z answers at http://127.0.0.1:4318
   ok    Ingest port accepts connections: 127.0.0.1:4318 accepts connections (http://127.0.0.1:4318/v1/traces)
-  ok    Token accepted: the API and ingest accept the token from /home/me/.trailbeam/token
+  ok    Token accepted: the API and ingest accept the token from OTEL_EXPORTER_OTLP_HEADERS
   ok    Test span stored and read back: sent to http://127.0.0.1:4318/v1/traces and read back from http://127.0.0.1:4318 in 7 ms
   FAIL  Last real span: no span stored yet
         Likely cause: Trailbeam works (the test span went through), so your services are not sending to it: ...
@@ -331,7 +331,7 @@ trailbeam doctor || test $? = 1
 <!-- doc-test expect variant=start
 ok    Server reachable: Trailbeam <version> answers at http://127.0.0.1:4318
 ok    Ingest port accepts connections: 127.0.0.1:4318 accepts connections (http://127.0.0.1:4318/v1/traces)
-ok    Token accepted: the API and ingest accept the token from <path>/.trailbeam/token
+ok    Token accepted: the API and ingest accept the token from OTEL_EXPORTER_OTLP_HEADERS
 ok    Test span stored and read back
 FAIL  Last real span: no span stored yet
 1 of 5 checks failed.
@@ -340,8 +340,10 @@ FAIL  Last real span: no span stored yet
 Each failed check says the likely cause and the fix ([every failure](https://docs.trailbeam.app/reference/troubleshooting#no-data-arrives)). A check that needs an earlier one that failed is skipped.
 The exit code is 1 when a check failed, so it can run in a script or a CI step.
 
-It uses the token `trailbeam start` created (`~/.trailbeam/token`, or the one in `TRAILBEAM_DATA_DIR`), or the
-one given with `--token-file` or `TRAILBEAM_TOKEN`. It checks the server given with `--url` (or `TRAILBEAM_URL`,
+It uses the token given with `--token-file` or `TRAILBEAM_TOKEN`; else the one your services send, the Bearer
+token in `OTEL_EXPORTER_OTLP_HEADERS` (or `OTEL_EXPORTER_OTLP_TRACES_HEADERS`), so with the variables
+`trailbeam start` prints set it checks the exact header the services send; else the token `trailbeam start`
+created (`~/.trailbeam/token`, or the one in `TRAILBEAM_DATA_DIR`). It checks the server given with `--url` (or `TRAILBEAM_URL`,
 or the port in `TRAILBEAM_PORT`). Without one, it checks the server `trailbeam start` started: the host and port
 of `TRAILBEAM_OTLP_TRACES_ENDPOINT` (the variable `trailbeam start` prints), or the address it last listened on,
 which it keeps in the data directory (`~/.trailbeam/address`). So after `trailbeam start --port 4319`, with the
