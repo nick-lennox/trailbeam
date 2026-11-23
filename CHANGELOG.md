@@ -11,6 +11,10 @@
   Releases now also publish `ghcr.io/nick-lennox/trailbeam:<version>-postgres`, the image with the Postgres
   driver, which is the chart's default ([Kubernetes](README.md#kubernetes-helm-chart)). (QV-173)
 
+- **Team install: `.env` readable by its owner only.** The README, the `docker-compose.yaml` header and
+  `.env.example` now say `install -m 600 .env.example .env` instead of `cp`, which left the token and the
+  Postgres password readable by every user of the server (QV-204).
+
 - **A first-run screen, and one design for every page.** While the store holds no span, `/` shows how to send
   the first message: install the package (a Python / Node.js switch), the OTLP endpoint of this server with a
   Copy button, the environment variables (with the token header when the server has a token, never the token),
