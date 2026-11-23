@@ -29,13 +29,19 @@ export function answerFor(t: Timeline): string {
   const consumers = consumersOf(t);
   const by = consumers.length ? ` by ${names(consumers)}` : "";
   const n = t.deliveries;
-  if (t.in_dead_letter_queue) return `Moved to the dead-letter queue ${t.current_queue} after ${plural(n, "receive")}.`;
-  if (t.dead_letter_queue_move === "not_seen_on_dlq_yet") return `Received ${plural(n, "time")}, more than its queue's maxReceiveCount. Not seen on the dead-letter queue yet.`;
+  if (t.in_dead_letter_queue) {
+    // Receives on the source queue only: the receive from the dead-letter queue is how the move was seen, not one before it.
+    const before = t.events.filter((e) => e.type === "received" && e.queue === t.source_queue).length;
+    return before
+      ? `Moved to the dead-letter queue ${t.current_queue} after ${plural(before, "observed receive")} on ${t.source_queue}.`
+      : `Moved from ${t.source_queue} to the dead-letter queue ${t.current_queue}. No receive on ${t.source_queue} was observed.`;
+  }
+  if (t.dead_letter_queue_move === "not_seen_on_dlq_yet") return "SQS's receive count reached its queue's maxReceiveCount. Unless the last receive deletes it, SQS moves it to the dead-letter queue (inferred); not seen there yet.";
   if (t.state === "deleted") return n === 1
       ? `Received once${by} and deleted.`
       : againFor(t) ?? `Received ${plural(n, "time")}${by}, then deleted.`;
   if (t.state === "deleted_inferred") return n === 1 ? `Handled once${by}. The Lambda trigger deleted it.` : `Received ${plural(n, "time")}${by}. The last invocation succeeded, so the Lambda trigger deleted it.`;
-  if (t.state === "processing") return `Being handled${by} now.`;
+  if (t.state === "processing") return `Probably being handled${by} now (inferred): the Lambda invocation has no outcome yet and started less than the Lambda timeout ago.`;
   if (n === 0) return `Sent to ${t.source_queue} and not received yet.`;
-  return `Received ${plural(n, "time")}${by} and not deleted.`;
+  return `Received ${plural(n, "time")}${by}. No delete seen yet.`;
 }

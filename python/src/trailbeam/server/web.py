@@ -36,8 +36,8 @@ Response = tuple[int, dict, bytes]
 STATE_LABELS = {
     "deleted": "deleted",
     "deleted_inferred": "deleted by Lambda (inferred)",
-    "processing": "processing",
-    "not_deleted": "not deleted",
+    "processing": "being handled (inferred)",
+    "not_deleted": "no delete seen",
 }
 
 EVENT_LABELS = {
@@ -55,7 +55,7 @@ EVENT_LABELS = {
 
 DLQ_MOVE_LABELS = {
     "observed": "moved, reported by SQS (DeadLetterQueueSourceArn on the DLQ receive)",
-    "not_seen_on_dlq_yet": "receive count exceeded maxReceiveCount; not seen on the DLQ yet",
+    "not_seen_on_dlq_yet": "receive count reached maxReceiveCount, so a move is inferred; not seen on the DLQ yet",
 }
 
 DUPLICATE_REASONS = {
@@ -245,7 +245,7 @@ def _duplicates(api, q: dict) -> Response:
 def _stuck(api, q: dict) -> Response:
     data = api("stuck", _pick(q, "older_than_s", "limit", "queue", "cursor"))
     body = ("<h1>Stuck messages</h1>"
-            f'<p class="muted">Messages sent more than {_threshold(int(data["older_than_s"]))} ago that no '
+            f'<p class="muted">Messages first seen more than {_threshold(int(data["older_than_s"]))} ago that no '
             "consumer has deleted yet, oldest first. Change the age with Older than, or the server default with "
             "<code>--stuck-after</code> (<code>TRAILBEAM_STUCK_AFTER_S</code>).</p>"
             + _filters("/stuck", {**q, "older_than_s": str(data["older_than_s"])},
@@ -254,8 +254,10 @@ def _stuck(api, q: dict) -> Response:
             + _summary_table(data["messages"], extra=("Age", _stuck_age),
                              empty=NO_SPANS if not data["messages"] and _store_empty(api) else "No stuck messages.")
             + _next("/stuck", q, data)
-            + '<p class="muted">Times are in UTC. Age counts from the send, on the sender\'s clock. If Trailbeam '
-            "never saw the send, it counts from SQS's <code>SentTimestamp</code>, and the age says so.</p>")
+            + '<p class="muted">Times are in UTC. Age is this server\'s clock now minus the send\'s time on the '
+            "sender's clock, so skew between the two clocks shows up in it. If Trailbeam never saw the send, it "
+            "counts from SQS's <code>SentTimestamp</code>, and the age says so; with neither, from the first "
+            "receive, on the consumer's clock.</p>")
     return _page(200, "Stuck messages", body)
 
 
@@ -271,6 +273,11 @@ def _threshold(s: int) -> str:
 TENANT_RANGES = [("3600", "Last hour"), ("86400", "Last 24 hours"), ("604800", "Last 7 days")]
 TENANT_IS = "A tenant is your own customer or account ID, read from each message."
 TENANTS_README = '<a href="https://github.com/nick-lennox/trailbeam#tenants">Tenants in the README</a>'
+# ui/src/tenants/Tenants.tsx P95_NOTE: what p95 in queue is over, and how close it is (QV-247)
+P95_NOTE = ("p95 in queue is from the send to the first receive, over first deliveries only. It compares two "
+            "clocks: the sender's host and the consumer's, or SQS's SentTimestamp when the send wasn't observed "
+            "(those first deliveries count too, so a tenant can have more first deliveries than sends). Clock skew "
+            "shows up in it, and a time below 0 counts as 0. It is estimated, within 1% of the exact p95.")
 TENANT_ENV = ("export TRAILBEAM_TENANT_ATTRIBUTE=tenant        # a message attribute\n"
               "export TRAILBEAM_TENANT_BODY_PATH=customer.id   # or a path in a JSON body")
 
@@ -305,10 +312,9 @@ def _tenants(api, q: dict) -> Response:
                     f'<td class="mono" title="over {r["first_deliveries"]} first deliveries">{p95}</td>'
                     f'<td class="mono">{r["dead_lettered"]:,}</td></tr>')
     untagged = f', {d["untagged_sent"]:,} of them without a tenant' if d["untagged_sent"] else ""
-    note = (f'<p class="muted">{escape(label)}, from {"the most recent 2,000 messages" if d["capped"] else "every message"} '
-            f'in the range. Share is of all {d["total_sent"]:,} observed sends{untagged}. p95 in queue is from the '
-            "send to the first receive, over first deliveries only. Dead-lettered counts messages SQS was seen "
-            f"moving to a dead-letter queue. {TENANT_IS} How to set one: {TENANTS_README}.</p>")
+    note = (f'<p class="muted">{escape(label)}, from every message in the range. Share is of all '
+            f'{d["total_sent"]:,} observed sends{untagged}. {escape(P95_NOTE)} Dead-lettered counts messages SQS '
+            f"was seen moving to a dead-letter queue. {TENANT_IS} How to set one: {TENANTS_README}.</p>")
     table = ("<table><tr><th>Tenant</th><th>Messages sent</th><th>Share</th><th>p95 in queue</th>"
              "<th>Dead-lettered</th></tr>" + "".join(rows) + "</table>")
     return _page(200, "Tenants", head + table + note)
@@ -521,8 +527,9 @@ def _consumer(c: dict) -> str:
     return " ".join(bits[:1]) + (f' ({", ".join(bits[1:])})' if len(bits) > 1 else "")
 
 
-RECEIVES_TITLE = ("How many times SQS returned this message from ReceiveMessage. Handled: a receive that ended in "
-                  "a delete or a successful Lambda record.")
+RECEIVES_TITLE = ("Receives Trailbeam observed, on every queue, the receive from a dead-letter queue included. "
+                  "SQS's own receive count can be higher: it counts receives by consumers Trailbeam doesn't see. "
+                  "Handled: a receive that ended in a delete or a successful Lambda record.")
 
 
 def _receives(m: dict) -> str:
@@ -544,7 +551,7 @@ def _summary_table(messages: list[dict], *, empty: str, extra: Optional[tuple] =
         if m.get("in_dead_letter_queue"):
             queue += f' <span class="muted">(DLQ, from {escape(m.get("source_queue") or "?")})</span>'
         elif m.get("dead_letter_queue_move") == "not_seen_on_dlq_yet":
-            queue += ' <span class="muted">(maxReceiveCount reached; not seen on the DLQ yet)</span>'
+            queue += ' <span class="muted">(maxReceiveCount reached; DLQ move inferred, not seen yet)</span>'
         consumers = ", ".join(escape(str(c.get("service_name") or "?"))
                               + (f' <span class="muted">{escape(str(c["client_id"]))}</span>' if c.get("client_id") else "")
                               for c in m.get("consumers", []))

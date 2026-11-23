@@ -1308,6 +1308,11 @@ components:
           allOf: [{$ref: '#/components/schemas/Timestamp'}]
           description: 'SQS''s `ApproximateFirstReceiveTimestamp`.'
         first_receive_timestamp_ms: {type: integer, description: '`ApproximateFirstReceiveTimestamp` in Unix milliseconds.'}
+        dlq_source_arn:
+          type: string
+          description: >-
+            SQS's `DeadLetterQueueSourceArn`: on a receive from a dead-letter queue, the ARN of the queue SQS
+            moved the message from. Absent on every other receive.
     DeletedStep:
       allOf: [{$ref: '#/components/schemas/RecordedStep'}]
       description: A `DeleteMessage` or one entry of a `DeleteMessageBatch`.
