@@ -8,7 +8,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { EXAMPLE, FirstRun, environment, highlight, type FirstRunProps } from "../src/firstrun/FirstRun.tsx";
 import { NO_SPANS_AFTER_MS, announcement, isDefaultEndpoint, retainedFor, storeHasSpans, storeIsEmpty, waitingStatus, type Health } from "../src/firstrun/status.ts";
-import { EmptyState, MessagesTable, fmtAge, fmtTime, type MessageSummary } from "../src/messages/Messages.tsx";
+import { EmptyState, MessagesTable, duplicateWhy, fmtAge, fmtTime, type MessageSummary } from "../src/messages/Messages.tsx";
 import { duplicatesEmpty, lookupEmpty, messagesEmpty, stuckEmpty, tenantsEmpty, without } from "../src/messages/empty.tsx";
 
 /** The page's words: block elements and cells end a phrase, inline ones (code, spans) don't; curly quotes as straight. */
@@ -178,9 +178,9 @@ test("empty states while no span is stored point to setup", () => {
 
 test("empty states once spans exist", () => {
   assert.equal(empty(stuckEmpty(300, false)), "No stuck messages. Every message first seen more than 300 s ago has a final delete.");
-  assert.equal(empty(duplicatesEmpty({}, false)), "No duplicate deliveries. No message was received more than once or processed successfully more than once.");
+  assert.equal(empty(duplicatesEmpty({}, false)), "No duplicate deliveries. No message was received more than once or handled more than once.");
   const byReason = duplicatesEmpty({ reason: "succeeded_more_than_once", queue: "q" }, false);
-  assert.equal(empty(byReason), 'No duplicate deliveries for "succeeded more than once". Show every reason');
+  assert.equal(empty(byReason), 'No duplicate deliveries for "handled more than once". Show every reason');
   assert.equal(link(byReason), "/duplicates?queue=q");
   const q = messagesEmpty({ queue: "orders", tenant: "acme", limit: "10", cursor: "c" }, { empty: false });
   assert.ok(empty(q).startsWith("No messages on orders. Trailbeam has seen messages, none on this queue."));
@@ -191,4 +191,10 @@ test("empty states once spans exist", () => {
   assert.equal(messagesEmpty({ body: "x" }, { empty: false, storesBodies: false }), null);
   assert.ok(empty(lookupEmpty("abc", false)).includes("Message IDs are the MessageId SQS returns from SendMessage, not a receipt handle."));
   assert.equal(without("/", { a: "1", b: "" }, "a"), "/");
+});
+
+test("Duplicates: the Why cell gives each reason with its count from the row", () => {
+  const row = { ...msg, deliveries: 3, successful_deliveries: 2, reasons: ["received_more_than_once", "succeeded_more_than_once"] };
+  const html = renderToStaticMarkup(createElement("p", null, duplicateWhy(row)));
+  assert.equal(html, '<p><span>received <span class="font-mono tabular-nums">3</span> times</span>, <span>handled <span class="font-mono tabular-nums">2</span> times</span></p>');
 });

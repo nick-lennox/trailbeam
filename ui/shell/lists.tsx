@@ -4,7 +4,7 @@
 */
 import { useEffect, useState, type ReactNode } from "react";
 import {
-  DUPLICATE_REASONS, EmptyState, MessagesTable, duplicatesEmpty, fmtAge, messagesEmpty, parseBodyQuery, storeIsEmpty, stuckEmpty,
+  DUPLICATE_REASONS, EmptyState, duplicateWhy, MessagesTable, duplicatesEmpty, fmtAge, messagesEmpty, parseBodyQuery, storeIsEmpty, stuckEmpty,
   type Column, type EmptyStateProps, type MessageSummary,
 } from "../src/index.ts";
 import { Frame, Json, getHealth, getJSON, messageHref } from "./chrome.tsx";
@@ -185,10 +185,10 @@ export function DuplicatesPage() {
   return (
     <Frame>
       <h1 className="text-[1.75rem] text-sky-ink">Duplicate deliveries</h1>
-      <p className="mt-1 text-sky-ink-2">Messages received more than once, or processed successfully more than once.</p>
+      <p className="mt-1 max-w-[80ch] text-sky-ink-2">Messages SQS returned more than once, or that more than one consumer handled. A second receive is expected after your own <code className="font-mono text-caption">ChangeMessageVisibility</code> or a failed attempt. It is worth a look when the visibility timeout expired while a consumer was still working, or when a message was handled twice.</p>
       <MessageList action="/duplicates" api="duplicates" params={pick(params, ["limit", "queue", "reason", "cursor"])}
         fields={[{ name: "reason", label: "Reason", kind: reasons }, { name: "queue", label: "Queue", kind: "text" }, { name: "limit", label: "Limit", kind: "number" }]}
-        extra={{ title: "Why", cell: (m) => (m.reasons ?? []).map((r) => DUPLICATE_REASONS[r] ?? r).join(", ") }}
+        extra={{ title: "Why", cell: duplicateWhy }}
         empty={(_, storeEmpty) => duplicatesEmpty(params, storeEmpty)} />
     </Frame>
   );
