@@ -1,4 +1,4 @@
-"""The tables of people and tokens (account_tables.py; SQLite schema 14, Postgres schema 7), on both stores:
+"""The tables of people and tokens (account_tables.py; SQLite schema 15, Postgres schema 8), on both stores:
 emails unique ignoring case, what removing a person removes, and retention and --vacuum leaving them alone.
 Upgrades from every older version are in test_migrations.py and test_postgres.py.
 

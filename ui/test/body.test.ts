@@ -106,3 +106,9 @@ test("an S3 pointer says the payload is in S3, with its size, and is not called 
   const captured = text(render({ ...v, body: { ...keptPointer, capture_status: "captured" }, offloaded_size: null }));
   assert.ok(!captured.includes("The payload is in S3.") && captured.includes("0 values redacted"));
 });
+
+test("not opted in: the body is not shown, and may still be stored (QV-247)", () => {
+  const s = NO_BODY_TEXT.not_opted_in;
+  assert.doesNotMatch(s, /dropped before it was stored/);
+  assert.match(s, /isn't shown\. Either it was dropped when it arrived, or .* is still stored, only hidden\.$/);
+});

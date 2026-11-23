@@ -161,3 +161,21 @@ def _raised(fn):
         return fn()
     except Exception as e:  # noqa: BLE001 - the test looks at it
         return e
+
+
+def test_an_export_queued_behind_more_than_one_group_is_written_before_its_call_returns(db):
+    """A group takes the queue from its head, up to GROUP_MAX_SPANS. The writer whose own export is further
+    back writes groups until it is in one: before QV-238 it wrote one and returned None, an export not yet
+    stored (the server answered 500, and stored it later)."""
+    from trailbeam.server.db import _Export
+
+    c = Consumer()
+    per = 64
+    n_ahead = db.GROUP_MAX_SPANS // per + 3  # more than one group's worth
+    ahead = [_Export(records([c.receive(T0 + (i * per + j) * SEC, f"a{i}-{j}", f"rh-a{i}-{j}") for j in range(per)]))
+             for i in range(n_ahead)]
+    db._queue.extend(ahead)  # queued by threads that haven't got the writer lock yet
+    mine = records([c.send(T0, "mine")])
+    assert db.insert(mine) == (1, 0)
+    assert db._queue == [] or all(j not in db._queue for j in ahead[:-1])
+    assert [r["mid"] for r in db.query("SELECT mid FROM spans WHERE mid = 'mine'")] == ["mine"]

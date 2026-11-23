@@ -194,13 +194,14 @@ def p95(values: list) -> Optional[int]:
 
 def tenant_counts(timeline_events: list, tenant: Optional[str], from_ms: int, to_ms: int) -> dict:
     """What one message adds to the Tenants page: its sends, first deliveries' times in queue and
-    whether it was dead-lettered, each only when its time is in [from_ms, to_ms]."""
+    whether it was dead-lettered, each only when its time is in [from_ms, to_ms]. A send SQS deduplicated
+    enqueued nothing, so it is not counted."""
     sends = [e for e in timeline_events if e["type"] == "sent"]
     first_send = _ms(sends[0]["end_unix_nano"]) if sends else None
     out = {"tenant": tenant, "sent": 0, "waits": [], "dead_lettered": False}
     for e in timeline_events:
         if e["type"] == "sent":
-            if from_ms <= _ms(e["end_unix_nano"]) <= to_ms:
+            if not e.get("deduplicated") and from_ms <= _ms(e["end_unix_nano"]) <= to_ms:
                 out["sent"] += 1
         elif e["type"] == "received":
             at = _ms(e["end_unix_nano"])

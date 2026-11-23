@@ -25,6 +25,9 @@ spec:
       imagePullSecrets: {{- toYaml . | nindent 8 }}
       {{- end }}
       automountServiceAccountToken: false
+      # No service-link variables (QV-291): a Service named trailbeam (this chart's, with the release named
+      # trailbeam, or any other in the namespace) would set TRAILBEAM_PORT=tcp://<ip>:4318, which the server reads.
+      enableServiceLinks: false
       # Long enough for the in-flight exports to commit (SIGTERM stops the server the way Ctrl-C does).
       terminationGracePeriodSeconds: 30
       securityContext:
@@ -57,6 +60,9 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports: [{ name: http, containerPort: 4318 }]
           env:
+            # The port the probes and the Service use, whatever else is in the environment.
+            - name: TRAILBEAM_PORT
+              value: "4318"
             {{- if .Values.postgresql.enabled }}
             # The password comes from PGPASSWORD (libpq), so it needs no escaping in the URL.
             - name: TRAILBEAM_STORE_URL

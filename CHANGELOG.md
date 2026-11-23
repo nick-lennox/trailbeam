@@ -18,11 +18,104 @@
   a lock per account after 10 failed sign-ins in a row and a limit per client address. Nothing uses them
   until a later release adds sign-in. (QV-225)
 - **Tables for people and tokens (users and roles, phase 1).** The store gains `users`, `sessions`,
-  `ingest_tokens`, `personal_tokens` and `setup_codes`: SQLite schema 14, Postgres schema 7. They are created
+  `ingest_tokens`, `personal_tokens` and `setup_codes`: SQLite schema 15, Postgres schema 8. They are created
   empty and nothing uses them yet, so the server behaves exactly as before. Emails are unique ignoring case.
   Retention and `--vacuum` leave the tables alone. With `--db :memory:`, people and tokens are lost on every
   restart, like the spans. **A database upgraded to this version can't be opened by 0.3.0 or 0.4.0 again**:
   back it up before upgrading. (QV-225)
+- **Helm chart: a release named `trailbeam` no longer crash-loops** (QV-291). In 0.4.0 its Service, named
+  `trailbeam`, made Kubernetes set `TRAILBEAM_PORT=tcp://<ip>:4318` in every pod of the namespace, and the server
+  exited on it. The pods now have `enableServiceLinks: false` and `TRAILBEAM_PORT=4318`, and CI installs the
+  chart as `trailbeam`. The server's error for a `tcp://` value now says it is a service link and how to fix it.
+- **No spans dropped when the disk fills up** (QV-238). A full disk under SQLite was answered `500`, which OTLP
+  exporters don't retry, so those exports were lost. Both stores now answer `503` with `Retry-After: 3`
+  (`store_full` in `trailbeam_ingest_rejected_requests_total`) and nothing stored, and the exports are stored
+  once space is freed, with no restart. Also fixed: under heavy concurrent ingest, a SQLite export queued
+  behind more than one group commit's worth of others could be answered `500` and stored later anyway. The
+  README now says what a `200` survives for each durability setting ("Delivery guarantee"). The fault tests
+  behind it (SIGKILL mid-write, Postgres down for a minute, a full disk, Postgres restarted during a retention
+  pass, a replica killed, every export sent twice, spans far out of order from skewed clocks) are
+  `python/bench/faults.py`; the quick ones run in CI.
+- **Backup and restore, documented and tested** (QV-239): the README's SQLite and Postgres sections now say to
+  keep the access token and receipt-hash key with the backup (they aren't in the database), and how to restore
+  onto a new machine with `trailbeam start`, the Docker volume of `npx trailbeam start`, the team install and the
+  Helm chart. CI takes a backup with those commands while the server ingests, restores it, and checks that the
+  restored server serves a consistent moment and that deletes sent after the restore join receives from before it
+  (`python/smoke/backup_restore_check.py`).
+- **The UI no longer says more than the data shows.** A message in its dead-letter queue now counts only the
+  receives on its source queue ("after 2 observed receives on orders", not "after 3 receives"). maxReceiveCount
+  reads "reached", not "more than", and the move it predicts is marked inferred. A receive with no delete yet
+  reads "No delete seen" in amber rather than a red "Not deleted". "Being handled" is marked inferred. The
+  Receives tooltip, the Tenants p95 note, the Stuck age note and the body tab's "not opted in" text say what
+  they are computed from. The Tenants note no longer mentions a 2,000-message cap that no longer applies. (QV-247)
+- FIFO queues: a second send that SQS deduplicated (same MessageId within the 5-minute deduplication window, nothing
+  enqueued) is now marked `deduplicated: true` on the timeline, with the reason, instead of showing as a second
+  plain "Sent" step. It no longer counts in the Tenants page's `total_sent`, a tenant's `sent` or its share. On
+  upgrade, SQLite schema 14 and Postgres schema 7 fix the counts of messages already stored (QV-246).
+
+## 0.4.0: set up in one command
+
+Trailbeam 0.4.0 is about getting a server running and the first message on screen without reading the whole
+README. `trailbeam start` (Python) and `npx trailbeam start` (Node.js, with Docker) make the access token and
+receipt-hash key for you and print the settings to paste into your services. A first-run screen shows how to
+send the first message and says why nothing has arrived yet, and `trailbeam doctor` checks each link from your
+service to the store when nothing shows up. Teams get a `docker-compose.yaml` with Postgres, and a Helm chart for Kubernetes.
+
+### What's new
+
+- **`trailbeam start`** and **`npx trailbeam start`**: first-run setup in one command, with the token and key
+  kept in `~/.trailbeam` (or the Docker volume `trailbeam-data`) and reused on later runs. The token and key
+  are printed only on the run that made them, the data directory is kept private, and an existing
+  `TRAILBEAM_RECEIPT_HASH_KEY` is used instead of making a new key.
+- **`trailbeam doctor`**: checks that the server answers, the ingest port is open, the token is accepted and a
+  test span is stored, and prints the likely cause and fix for a check that fails.
+- **A first-run screen** at `/` while the store is empty, and one dark design for every page.
+- **A team install from one file**: `docker-compose.yaml` runs the server with Postgres 16.
+- **Kubernetes**: a Helm chart in `deploy/helm/trailbeam`, and a `<version>-postgres` image for it.
+- **Clearer failures**: a port already in use is one line, not a traceback.
+- **Node.js**: a short script no longer loses its last spans, and `trailbeam.uninstall()` no longer fails
+  when the server is unreachable. `await trailbeam.forceFlush()` before a script ends is no longer needed,
+  except before `process.exit()`.
+- **Postgres**: the lookup tables are partitioned by day, so ingest and retention touch only recent data.
+- **A down or slow server no longer holds up your service's exit**: the Python and Node.js packages wait at
+  most 2 s (`TRAILBEAM_SHUTDOWN_TIMEOUT_MS`), and the drop warning says what to check.
+- **Runnable examples** in [`examples/`](examples/README.md) for boto3, AWS SDK v3 and Lambda with an SQS
+  trigger, each started with one `docker compose` command.
+
+### Upgrading from 0.3.0
+
+Take a backup ([SQLite](README.md#backup-and-restore-sqlite), [Postgres](README.md#backup-and-restore-postgres)),
+stop the 0.3.0 server, then start 0.4.0 on the same SQLite file, Docker volume or Postgres database, with the
+same flags and token. It upgrades the database by itself at start. CI checks this upgrade on every change
+([Upgrading](README.md#upgrading)).
+
+- **pip:** `pip install -U "trailbeam[server]"` (add `postgres` to the extras for Postgres).
+  **Docker:** `docker pull ghcr.io/nick-lennox/trailbeam:0.4.0`, then recreate the container with the same
+  volume. **npm** (the package in your services): `npm install trailbeam@0.4.0`. The packages in your services
+  and the server can be upgraded in either order.
+- **There is no going back without the backup.** SQLite moves from schema 12 to 13 and Postgres from schema 4
+  to 6. Afterwards a 0.3.0 server refuses to start on that database (`written by a newer Trailbeam`), so it
+  can't damage it.
+- **Postgres: stop every 0.3.0 replica first**, then start 0.4.0. See the Postgres notes below.
+- **The token and receipt-hash key don't change**, and signed-in browsers stay signed in.
+- **Moving to `trailbeam start`** on an existing database: put your token in `DIR/token` and your key in
+  `DIR/receipt-hash-key` first (or pass `--token-file`), so `start` doesn't make new ones. If your 0.3.0 server
+  ran without a token, `start` turns one on and services that don't send it get 401
+  ([Upgrading](README.md#upgrading)).
+
+### Upgrading from 0.3.0 (Postgres)
+
+**Stop every 0.3.0 replica, then start 0.4.0.** At start the server upgrades the database from Postgres
+schema 4 to 5, one day partition at a time, then to 6, which only adds the small `probes` table. For schema 5 it copies each day's lookup rows into that day's new
+partitions, then drops the old tables. On our test machine that took 8 s for 1M spans, and the first
+retention pass after it sealed the 5 older days into the filter (4.5 s). A 0.3.0 replica left running would
+write lookup rows the filter doesn't know about, so don't run 0.3.0 and 0.4.0 against one database at
+the same time. Once the database is at schema 5 or later, a 0.3.0 server refuses to start on it. If the upgrade is
+stopped part way, the next start runs it again; rows already copied are left as they are. A database at an older schema (from
+0.2.0) goes through schema 4 first, as the 0.3.0 notes describe.
+
+### All changes
+
 - **Python: a down or slow Trailbeam server no longer holds up your process's exit.** Shutdown
   (`uninstall()`, or interpreter exit) waited for the OTLP exporter's retries and 10 s request timeout, so a
   short script took 6 s longer to exit with the server unreachable and 10 s longer with it slow. It now waits
@@ -156,7 +249,7 @@
   after `start`; `--db`, `--store-url` and `--token-file` (or `TRAILBEAM_TOKEN`) replace the file in the data
   directory. `trailbeam` with flags, as the container image runs it, is unchanged: it creates no files and
   turns on no token.
-- **A team install from one file: `docker-compose.yaml`.** `cp .env.example .env`, fill in the token, the
+- **A team install from one file: `docker-compose.yaml`.** `install -m 600 .env.example .env`, fill in the token, the
   receipt-hash key and the Postgres password, then `docker compose up -d --build --wait`: the Trailbeam server
   and Postgres 16, a named volume for each, health checks, `restart: unless-stopped`, and
   `max_locks_per_transaction = 256` on Postgres. Compose refuses to start without the token. CI starts it from
@@ -172,17 +265,6 @@
   settles still join their receive from any day. At 1M spans over 7 days, ingest touches 25 MB of lookup
   indexes instead of 92 MB. Upgrading a 1M-span database took 8 s. The effect at 4M–100M spans hasn't been
   measured.
-
-### Upgrading from 0.3.0 (Postgres)
-
-**Stop every 0.3.0 replica, then start the new version.** At start the server upgrades the database from
-Postgres schema 4 to 5, one day partition at a time: it copies each day's lookup rows into that day's new
-partitions, then drops the old tables. On our test machine that took 8 s for 1M spans, and the first
-retention pass after it sealed the 5 older days into the filter (4.5 s). A 0.3.0 replica left running would
-write lookup rows the filter doesn't know about, so don't run 0.3.0 and this version against one database at
-the same time. Once the database is at schema 5, a 0.3.0 server refuses to start on it. If the upgrade is
-stopped part way, the next start runs it again; rows already copied are left as they are. A database at an older schema (from
-0.2.0) goes through schema 4 first, as the 0.3.0 notes describe. SQLite files are unchanged: 0.3.0 still opens them.
 
 ## 0.3.0: Postgres for teams that outgrow SQLite
 

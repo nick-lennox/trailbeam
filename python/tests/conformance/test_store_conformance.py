@@ -404,3 +404,36 @@ def test_probes_are_kept_apart_from_the_spans(new_store):
     assert s.last_row() == 0 and s.last_span_ns() is None and s.counts()["spans"] == {}
     s.record_probes(["doctor-later-000001"], 2_000 + s.PROBE_KEEP_NS + 1)  # a day later: the first is deleted
     assert s.probe("doctor-0123456789ab") is None and s.probe("doctor-later-000001") is not None
+
+
+# ---- a FIFO send SQS deduplicated (QV-246) ---------------------------------------------------------------
+
+def _fifo_dedup_spans():
+    """Two sends of one message ID on a FIFO queue (the second deduplicated: SQS returned the first's MessageId and
+    enqueued nothing), then its one delivery; and a standard queue's message sent once, for a second tenant."""
+    from cases import SEC, T0, Consumer  # noqa: PLC0415
+    p = Consumer(client_id="producer-1", service="orders-api", queue="orders.fifo")
+    c = Consumer(queue="orders.fifo")
+    spans = [p.send(T0, "f1"), p.send(T0 + SEC, "f1"), c.receive(T0 + 2 * SEC, "f1", "hf1"),
+             c.delete(T0 + 3 * SEC, "hf1", mid="f1"), p.send(T0 + SEC, "s1", queue="orders")]
+    for sp, tenant in zip(spans, ("acme", "acme", "acme", None, "globex")):
+        if tenant:
+            sp.attrs["trailbeam.tenant"] = tenant
+    return spans
+
+
+def test_a_deduplicated_fifo_send_is_marked_and_not_counted_as_sent(new_store):
+    from cases import T0, to_proto  # noqa: PLC0415
+    from trailbeam.server import timeline  # noqa: PLC0415
+    s = new_store()
+    s.insert(decode(to_proto(_fifo_dedup_spans()).SerializeToString(), "application/x-protobuf").records)
+    t = timeline.build(s.message_rows("f1"), T0 + 3600 * 10 ** 9)
+    sends = [e for e in t["events"] if e["type"] == "sent"]
+    assert [e.get("deduplicated", False) for e in sends] == [False, True]
+    assert sends[1]["reason"] == timeline.DEDUPLICATED_REASON and "reason" not in sends[0]
+    assert t["first_seen"] == sends[0]["end"] and t["deliveries"] == 1
+    assert not any(e.get("deduplicated") for e in timeline.build(s.message_rows("s1"), T0)["events"])
+    ms = T0 // 10 ** 6
+    got = queries.tenants(s, T0, 900, ms - 3_600_000, ms + 3_600_000)
+    assert got["total_sent"] == 2 and got["untagged_sent"] == 0
+    assert {r["tenant"]: (r["sent"], r["share"]) for r in got["rows"]} == {"acme": (1, 0.5), "globex": (1, 0.5)}

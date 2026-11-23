@@ -362,7 +362,12 @@ def _port(text: str) -> int:
     except ValueError:
         n = -1
     if not 0 <= n <= 65535:
-        raise argparse.ArgumentTypeError(f"expected a port from 0 to 65535, got {text!r}")
+        hint = ""
+        if text.strip().startswith("tcp://"):
+            # QV-291: Kubernetes service links set <SERVICE>_PORT=tcp://<ip>:<port> for each Service in the namespace.
+            hint = (" (a Kubernetes service link from a Service named trailbeam: set enableServiceLinks: false "
+                    "in the pod spec, or TRAILBEAM_PORT to the port)")
+        raise argparse.ArgumentTypeError(f"expected a port from 0 to 65535, got {text!r}{hint}")
     return n
 
 

@@ -27,7 +27,7 @@ What it does, with one access token throughout:
    so the in-flight messages joined across the upgrade.
 5. The old server is started again on the upgraded store. Postgres: it must refuse, saying a newer Trailbeam
    wrote it, and leave the database as it is. SQLite: the same, when the new server moved the file's schema
-   (0.4 adds schema 13, the probes of ``trailbeam doctor``; then 14, the tables of people and tokens); when it left the schema as it was, the old server
+   (0.4 adds schema 13, the probes of ``trailbeam doctor``; then 14, deduplicated FIFO sends, and 15, the tables of people and tokens); when it left the schema as it was, the old server
    must start and serve the same data. Then the new server must again serve exactly step 4.
 
 Exit status 0 when every check passes; each failure is printed. Leaves nothing behind but ``--workdir``
