@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Check the Helm chart on a kind cluster (QV-173): lint, install with the trial Postgres, one span with the token
 # through the Service, the span in Postgres, then an upgrade that keeps the generated token and the data.
+# The release is named trailbeam, as the docs and values.yaml suggest: its Service is then named trailbeam too,
+# whose service-link variables (TRAILBEAM_PORT=tcp://...) crash-looped the server in 0.4.0 (QV-291).
 # CI runs it (.github/workflows/ci.yml, job "kubernetes"). Locally, from the repository root:
 #
 #   docker build --build-arg TRAILBEAM_EXTRAS=server,postgres -t trailbeam-k8s:check .
@@ -16,6 +18,7 @@ image=${2:?usage: check.sh <kind cluster> <image:tag>}
 here=$(cd "$(dirname "$0")" && pwd)
 chart=$here/trailbeam
 root=$(cd "$here/../.." && pwd)
+rel=trailbeam   # the release, and with it the Deployment, the Service and the Secret (trailbeam.fullname)
 img=(--set "image.repository=${image%:*}" --set "image.tag=${image##*:}" --set image.pullPolicy=Never)
 
 step() { printf '\n== %s\n' "$*"; }
@@ -39,7 +42,7 @@ done
 
 step "install, with the trial Postgres"
 kind load docker-image "$image" --name "$cluster"
-helm install tb "$chart" --set postgresql.enabled=true "${img[@]}" --wait --timeout 5m
+helm install "$rel" "$chart" --set postgresql.enabled=true "${img[@]}" --wait --timeout 5m
 kubectl create configmap tb-check --from-file="$root/python/smoke/team_check.py"
 
 # One pod in the cluster runs team_check.py against the Service, with the token from the chart's Secret.
@@ -58,10 +61,10 @@ spec:
         - name: check
           image: $image
           imagePullPolicy: Never
-          command: [python, /check/team_check.py, "http://tb-trailbeam:4318", "$1", "$2"]
+          command: [python, /check/team_check.py, "http://$rel:4318", "$1", "$2"]
           env:
             - name: TRAILBEAM_TOKEN
-              valueFrom: { secretKeyRef: { name: tb-trailbeam, key: token } }
+              valueFrom: { secretKeyRef: { name: $rel, key: token } }
           volumeMounts: [{ name: check, mountPath: /check }]
       volumes: [{ name: check, configMap: { name: tb-check } }]
 EOF
@@ -71,7 +74,12 @@ EOF
   fi
   kubectl logs "job/$job"
 }
-psql() { kubectl exec tb-trailbeam-postgres-0 -- psql -U trailbeam -tAc "$1"; }
+psql() { kubectl exec "$rel-postgres-0" -- psql -U trailbeam -tAc "$1"; }
+
+step "no service-link variables in the server's environment (QV-291)"
+pod=$(kubectl get pod -l "app.kubernetes.io/instance=$rel,app.kubernetes.io/name=trailbeam" -o jsonpath='{.items[0].metadata.name}')
+same "$(kubectl exec "$pod" -c trailbeam -- printenv TRAILBEAM_PORT)" 4318 "TRAILBEAM_PORT in the pod"
+same "$(kubectl exec "$pod" -c trailbeam -- printenv TRAILBEAM_SERVICE_HOST || true)" "" "no TRAILBEAM_SERVICE_HOST"
 
 step "one span with the token, through the Service"
 check send k8s-check-1
@@ -79,10 +87,10 @@ same "$(psql "SELECT count(*) FROM spans WHERE mid = 'k8s-check-1'")" 1 "the spa
 same "$(psql 'SHOW max_locks_per_transaction')" 256 "max_locks_per_transaction"
 
 step "helm upgrade keeps the generated token and the data"
-token=$(kubectl get secret tb-trailbeam -o jsonpath='{.data.token}')
-helm upgrade tb "$chart" --set postgresql.enabled=true "${img[@]}" --set retention=14d --wait --timeout 5m
-same "$(kubectl get secret tb-trailbeam -o jsonpath='{.data.token}')" "$token" "the token is the same after the upgrade"
-kubectl rollout status deployment/tb-trailbeam --timeout=180s
+token=$(kubectl get secret "$rel" -o jsonpath='{.data.token}')
+helm upgrade "$rel" "$chart" --set postgresql.enabled=true "${img[@]}" --set retention=14d --wait --timeout 5m
+same "$(kubectl get secret "$rel" -o jsonpath='{.data.token}')" "$token" "the token is the same after the upgrade"
+kubectl rollout status "deployment/$rel" --timeout=180s
 check check k8s-check-1
 
 step "all checks passed"

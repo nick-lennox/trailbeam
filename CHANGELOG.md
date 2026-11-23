@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Helm chart: a release named `trailbeam` no longer crash-loops** (QV-291). In 0.4.0 its Service, named
+  `trailbeam`, made Kubernetes set `TRAILBEAM_PORT=tcp://<ip>:4318` in every pod of the namespace, and the server
+  exited on it. The pods now have `enableServiceLinks: false` and `TRAILBEAM_PORT=4318`, and CI installs the
+  chart as `trailbeam`. The server's error for a `tcp://` value now says it is a service link and how to fix it.
 - **Backup and restore, documented and tested** (QV-239): the README's SQLite and Postgres sections now say to
   keep the access token and receipt-hash key with the backup (they aren't in the database), and how to restore
   onto a new machine with `trailbeam start`, the Docker volume of `npx trailbeam start`, the team install and the
