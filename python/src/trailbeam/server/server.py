@@ -28,6 +28,9 @@ log = logging.getLogger("trailbeam.server")
 
 MAX_BODY = 32 * 1024 * 1024  # bytes, after decompression
 DEFAULT_WINDOW_S = 86_400  # the time window of the Tenants page and the searches, unless given
+STUCK_COUNT_CAP = 1000  # trailbeam_stuck_messages counts up to this many
+DEAD_LETTER_WINDOW_S = 900  # trailbeam_dead_lettered_messages_recent: moves in the last 15 minutes
+QUEUE_GAUGES_TTL_S = 10.0
 
 
 class ApiError(Exception):
@@ -112,6 +115,41 @@ class App:
                 self._file_sizes, ("file",))
         r.gauge("trailbeam_db_last_row", "The highest span row ID stored, 0 if none (one index step, not a count).",
                 self.db.last_row)
+        # What a team alerts on (QV-304). Read from the store, so every replica of one store serves the same
+        # value: aggregate replicas with max, not sum. Cached for QUEUE_GAUGES_TTL_S, so a scrape every few
+        # seconds, or several scrapers, read the store at most that often.
+        self._queue_gauges_lock = threading.Lock()
+        self._queue_gauges_at: Optional[float] = None
+        self._queue_gauges_value: dict = {}
+        r.gauge("trailbeam_stuck_messages",
+                f"Messages stuck now, as the Stuck page lists them: first seen more than TRAILBEAM_STUCK_AFTER_S ago "
+                f"and no final delete. Counted up to {STUCK_COUNT_CAP}: {STUCK_COUNT_CAP} means at least that many.",
+                lambda: self._queue_gauges()["stuck"])
+        r.gauge("trailbeam_stuck_oldest_age_seconds",
+                "How long ago the oldest stuck message was first seen, 0 when none is stuck.",
+                lambda: self._queue_gauges()["oldest_age_s"])
+        r.gauge("trailbeam_dead_lettered_messages_recent",
+                f"Messages moved to a dead-letter queue in the last {DEAD_LETTER_WINDOW_S // 60} minutes, by the time "
+                f"of the receive on the dead-letter queue that reported the move.",
+                lambda: self._queue_gauges()["dead_lettered"])
+        r.gauge("trailbeam_stuck_after_seconds", "When a message without a final delete counts as stuck "
+                "(TRAILBEAM_STUCK_AFTER_S).", lambda: self.stuck_after_s)
+
+    def _queue_gauges(self) -> dict:
+        """Stuck messages and recent dead-letter moves, from the store at most every QUEUE_GAUGES_TTL_S. A read
+        that fails is not cached: the gauges are left out of that scrape (metrics.Gauge) and read again next time."""
+        with self._queue_gauges_lock:
+            t = time.monotonic()
+            if self._queue_gauges_at is not None and t - self._queue_gauges_at < QUEUE_GAUGES_TTL_S:
+                return self._queue_gauges_value
+            now_ns = self.now()
+            found = self.db.stuck_messages(now_ns - self.stuck_after_s * 1_000_000_000, STUCK_COUNT_CAP)
+            oldest = max(0.0, round((now_ns - found[0].first_ns) / 1e9, 3)) if found else 0
+            now_ms = now_ns // 1_000_000
+            moved = sum(a.dead_lettered for a in self.db.tenant_activity(now_ms - DEAD_LETTER_WINDOW_S * 1000, now_ms))
+            self._queue_gauges_value = {"stuck": len(found), "oldest_age_s": oldest, "dead_lettered": moved}
+            self._queue_gauges_at = t
+            return self._queue_gauges_value
 
     def _file_sizes(self):
         sizes = self.db.file_sizes()

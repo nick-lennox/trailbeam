@@ -1,0 +1,45 @@
+# Alert rules for Trailbeam (QV-304), for Prometheus or Grafana's alerting with a Prometheus data source.
+# Unit-tested by trailbeam-alerts.test.yml (promtool test rules), run by deploy/monitoring/check.sh.
+#
+# The stuck and dead-letter gauges are read from the store, so every replica of one store serves the same value:
+# take max across replicas, never sum.
+groups:
+  - name: trailbeam
+    rules:
+      - alert: TrailbeamMessagesStuck
+        expr: max(trailbeam_stuck_messages) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} message(s) stuck in SQS"
+          description: >-
+            Messages with no final delete for longer than TRAILBEAM_STUCK_AFTER_S. See each one's timeline on
+            Trailbeam's Stuck page (/stuck).
+      - alert: TrailbeamMessagesDeadLettered
+        expr: max(trailbeam_dead_lettered_messages_recent) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} message(s) moved to a dead-letter queue in the last 15 minutes"
+          description: >-
+            SQS moved them after maxReceiveCount receives without a delete. Open the dead-letter queue's
+            messages in Trailbeam to see each attempt.
+      - alert: TrailbeamRejectingExports
+        expr: sum by (reason) (rate(trailbeam_ingest_rejected_requests_total[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Trailbeam is answering exports 429 or 503 ({{ $labels.reason }})"
+          description: >-
+            Exporters retry these, but spans are delayed and a full exporter queue drops them. reason
+            queue_full or writer_behind: the store can't keep up; store_unreachable or store_full: check the database.
+      - alert: TrailbeamDown
+        expr: up{job="trailbeam"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus can't scrape Trailbeam ({{ $labels.instance }})"
+          description: "Spans sent now are retried by exporters until they give up."

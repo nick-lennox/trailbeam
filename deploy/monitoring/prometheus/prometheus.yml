@@ -1,0 +1,17 @@
+# Prometheus scraping Trailbeam's /metrics, with the alert rules next to it (QV-304). Checked with promtool and a
+# real scrape by deploy/monitoring/check.sh.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - trailbeam-alerts.yml
+
+scrape_configs:
+  - job_name: trailbeam
+    metrics_path: /metrics
+    # With an access token (TRAILBEAM_TOKEN), /metrics needs it:
+    # authorization:
+    #   credentials_file: /etc/prometheus/trailbeam-token
+    static_configs:
+      - targets: ["localhost:4318"]
