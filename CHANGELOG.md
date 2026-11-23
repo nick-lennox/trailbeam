@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Backup and restore, documented and tested** (QV-239): the README's SQLite and Postgres sections now say to
+  keep the access token and receipt-hash key with the backup (they aren't in the database), and how to restore
+  onto a new machine with `trailbeam start`, the Docker volume of `npx trailbeam start`, the team install and the
+  Helm chart. CI takes a backup with those commands while the server ingests, restores it, and checks that the
+  restored server serves a consistent moment and that deletes sent after the restore join receives from before it
+  (`python/smoke/backup_restore_check.py`).
+- **The UI no longer says more than the data shows.** A message in its dead-letter queue now counts only the
+  receives on its source queue ("after 2 observed receives on orders", not "after 3 receives"). maxReceiveCount
+  reads "reached", not "more than", and the move it predicts is marked inferred. A receive with no delete yet
+  reads "No delete seen" in amber rather than a red "Not deleted". "Being handled" is marked inferred. The
+  Receives tooltip, the Tenants p95 note, the Stuck age note and the body tab's "not opted in" text say what
+  they are computed from. The Tenants note no longer mentions a 2,000-message cap that no longer applies. (QV-247)
+
 ## 0.4.0: set up in one command
 
 Trailbeam 0.4.0 is about getting a server running and the first message on screen without reading the whole
