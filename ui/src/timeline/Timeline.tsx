@@ -107,6 +107,7 @@ function where(e: TimelineEvent): string {
 
 /** The ending a node shows: good (trail), retry (ember), lost (bad ending), plain. */
 function tone(e: TimelineEvent): "trail" | "ember" | "lost" | "plain" {
+  if (e.type === "deleted" && e.result !== "ok") return "lost";
   if (e.type === "deleted" && e.status === "final") return "trail";
   if (e.type === "aws_step" && e.aws_kind === "trigger_delete") return "trail";
   if (e.type === "lambda_outcome") return e.outcome === "success" ? "trail" : "lost";
@@ -140,7 +141,7 @@ const shortId = (id: string) => (id.length > 14 ? `${id.slice(0, 8)}…${id.slic
 export function SourceTag({ kind, children }: { kind: "recorded" | "inferred"; children: React.ReactNode }) {
   return (
     <span className={`inline-flex h-5 shrink-0 items-center rounded-[5px] border px-1.5 font-mono text-micro whitespace-nowrap ${
-      kind === "inferred" ? "border-dashed border-lost/70 text-lost" : "border-sky-ink-3/50 text-sky-ink-2"}`}>
+      kind === "inferred" ? "border-dashed border-sky-ink-3/70 text-sky-ink-3" : "border-sky-ink-3/50 text-sky-ink-2"}`}>
       {children}
     </span>
   );
@@ -169,7 +170,7 @@ export function Node({ e, size = 14 }: { e: TimelineEvent; size?: number }) {
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden className="block shrink-0">
       {e.inferred ? (
-        <circle cx={r} cy={r} r={r - 1.25} fill="var(--color-sky)" stroke="var(--color-lost)" strokeWidth="1.5" strokeDasharray="2.4 2" />
+        <circle cx={r} cy={r} r={r - 1.25} fill="var(--color-sky)" stroke="var(--color-sky-ink-3)" strokeWidth="1.5" strokeDasharray="2.4 2" />
       ) : t === "lost" ? (
         <>
           <circle cx={r} cy={r} r={r - 1.25} fill="var(--color-sky)" stroke={c} strokeWidth="1.5" />
@@ -204,7 +205,7 @@ function OrderLink({ entries }: { entries: Link[] }) {
     <li className="grid grid-cols-[1.5rem_1fr] gap-x-3 md:grid-cols-[8.5rem_1.5rem_1fr]" aria-hidden data-connector={inferred ? "inferred" : "observed"}>
       <span className="hidden md:block" />
       <span className="relative flex h-4 justify-center">
-        <span className={`absolute inset-y-0 w-0 border-l ${inferred ? "border-dashed border-lost/60" : "border-sky-ink-3/60"}`} />
+        <span className={`absolute inset-y-0 w-0 border-l ${inferred ? "border-dashed border-sky-ink-3/60" : "border-sky-ink-3/60"}`} />
       </span>
       <span />
     </li>
@@ -425,15 +426,15 @@ function ConcurrentBox({ g, members, byId }: { g: Group; members: TimelineEvent[
                     </>
                   )}
                   {k?.kind === "point" && (
-                    <span className="absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-lost bg-sky" style={{ left: x(k.to) }} />
+                    <span className={`absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 ${m.inferred ? "border-dashed border-sky-ink-3" : tone(m) === "trail" ? "border-trail" : "border-lost"} bg-sky`} style={{ left: x(k.to) }} />
                   )}
                   {k?.kind === "window" && (
-                    <span className={`absolute top-1/2 h-2.5 -translate-y-1/2 border border-dashed border-lost/80 ${k.from !== undefined && k.from < lo ? "rounded-r-full border-l-0" : "rounded-full"}`}
+                    <span className={`absolute top-1/2 h-2.5 -translate-y-1/2 border border-dashed ${m.inferred ? "border-sky-ink-3/80" : "border-lost/80"} ${k.from !== undefined && k.from < lo ? "rounded-r-full border-l-0" : "rounded-full"}`}
                       style={{ left: x(k.from ?? lo), width: `calc(${x(k.to)} - ${x(k.from ?? lo)})` }} />
                   )}
                 </span>
                 {k?.kind === "window" && k.from !== undefined && k.from < lo && (
-                  <span className="font-mono text-micro text-lost sm:col-start-2">← window opens {clock(k.windowFrom!)}, {dur(lo + pad - k.from)} before this scale</span>
+                  <span className={`font-mono text-micro ${m.inferred ? "text-sky-ink-3" : "text-lost"} sm:col-start-2`}>← window opens {clock(k.windowFrom!)}, {dur(lo + pad - k.from)} before this scale</span>
                 )}
                 {k?.kind === "end-only" && (
                   <span className="font-mono text-micro text-sky-ink-3 sm:col-start-2">start not observed: only the end is known</span>
