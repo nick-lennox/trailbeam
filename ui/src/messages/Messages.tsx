@@ -84,7 +84,29 @@ function Queue({ m }: { m: MessageSummary }) {
 
 const Time = ({ t }: { t: string | null }) => (t ? <time dateTime={t} className="font-mono text-caption tabular-nums text-ink-2">{fmtTime(t)}</time> : <Muted>unknown</Muted>);
 
-export type Column = { title: string; cell: (m: MessageSummary) => ReactNode; align?: "right" };
+export type Column = {
+  title: string;
+  cell: (m: MessageSummary) => ReactNode;
+  align?: "right";
+  /** the same fact as plain text, for a row's second line below `md` (the reason, the age); `cell` when absent */
+  brief?: (m: MessageSummary) => string;
+};
+
+/** A message ID on one line: the first 8 and last 5 characters around an ellipsis, when it is longer than that. */
+export const shortId = (id: string) => (id.length > 16 ? `${id.slice(0, 8)}\u2026${id.slice(-5)}` : id);
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** A row's second line below `md`: state · queue · receives · handled, then the extra column's fact. */
+export function rowFacts(m: MessageSummary): string[] {
+  const queue = m.current_queue || m.source_queue || "?";
+  return [
+    STATE_LABELS[m.state] ?? m.state,
+    m.in_dead_letter_queue ? `${queue} (DLQ)` : queue,
+    plural(m.deliveries, "receive", "receives"),
+    `${m.successful_deliveries} handled`,
+  ];
+}
 
 export type MessagesTableProps = {
   messages: MessageSummary[];
@@ -100,11 +122,30 @@ const HEAD_TITLES: Record<string, string> = {
 };
 
 /** One row per message, in the API's order. Times are UTC. A message received more than once shows its count
- *  in warning-text (Ember on the sky, the timeline's colour for a repeat attempt). */
+ *  in warning-text (Ember on the sky, the timeline's colour for a repeat attempt). Below `md`, three lines per
+ *  row instead of the table. */
 export function MessagesTable({ messages, href, extra }: MessagesTableProps) {
   const heads = ["Message ID", "State", "Queue", "Receives", "Consumers", "First seen", "Last seen", ...(extra ? [extra.title] : [])];
   return (
-    <table className="w-full text-[15px]">
+    <>
+      <ul className="md:hidden" data-phone-list>
+        {messages.map((m) => {
+          const facts = rowFacts(m);
+          const more = extra && (extra.brief ? extra.brief(m) : extra.cell(m));
+          return (
+            <li key={m.message_id} className="border-b border-line/60 py-3 leading-[1.45] last:border-0">
+              <a href={href(m.message_id)} title={m.message_id} className="block truncate whitespace-nowrap font-mono text-caption text-ink hover:text-brand">{shortId(m.message_id)}</a>
+              <p className="truncate text-[15px] text-ink-2" title={[...facts, ...(typeof more === "string" ? [more] : [])].join(" · ")}>
+                {facts.join(" · ")}{more !== undefined && more !== "" && <> · {more}</>}
+              </p>
+              <p className="truncate font-mono text-caption tabular-nums text-ink-3">
+                {m.first_seen ? <time dateTime={m.first_seen}>{fmtTime(m.first_seen)}</time> : "first seen unknown"}{m.first_seen_clock === "sqs" && " SQS\u2019s clock"}
+              </p>
+            </li>
+          );
+        })}
+      </ul>
+    <table className="hidden w-full text-[15px] md:table">
       <thead>
         <tr className="border-b border-line text-left font-mono text-caption text-ink-3">
           {heads.map((h, i) => <th key={h} title={HEAD_TITLES[h]} className={`py-2 font-medium ${i === 0 ? "pl-5 pr-3" : i === heads.length - 1 ? "pl-3 pr-5" : "px-3"}`}>{h}</th>)}
@@ -129,6 +170,7 @@ export function MessagesTable({ messages, href, extra }: MessagesTableProps) {
         ))}
       </tbody>
     </table>
+    </>
   );
 }
 
