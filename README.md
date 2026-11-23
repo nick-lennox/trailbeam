@@ -249,7 +249,7 @@ trailbeam doctor: server http://127.0.0.1:4318, ingest http://127.0.0.1:4318/v1/
 1 of 5 checks failed.
 ```
 
-Each failed check says the likely cause and the fix. A check that needs an earlier one that failed is skipped.
+Each failed check says the likely cause and the fix ([every failure](https://docs.trailbeam.app/reference/troubleshooting#no-data-arrives)). A check that needs an earlier one that failed is skipped.
 The exit code is 1 when a check failed, so it can run in a script or a CI step.
 
 It uses the token `trailbeam start` created (`~/.trailbeam/token`, or the one in `TRAILBEAM_DATA_DIR`), or the
@@ -278,7 +278,7 @@ clone.
 
 ### Team install (Docker Compose with Postgres)
 
-For a team: one server several people's services send to, on its own Postgres, from one file.
+For a team: one server several people's services send to, on its own Postgres, from one file. The [team guide](https://docs.trailbeam.app/get-started/team) takes you from here to the first instrumented services.
 [`docker-compose.yaml`](docker-compose.yaml) runs the Trailbeam server and Postgres 16, each with a named
 volume, health checks and `restart: unless-stopped`. The token and passwords come from a `.env` file:
 
@@ -1112,10 +1112,12 @@ The documentation is at [docs.trailbeam.app](https://docs.trailbeam.app).
 | Page | Contents |
 |---|---|
 | [Quickstart](https://docs.trailbeam.app/quickstart) | From a clone to one message's timeline, on the local demo |
+| [Set up Trailbeam for your team](https://docs.trailbeam.app/get-started/team) | One server for a team, the token shared, the first services instrumented and checked with `trailbeam doctor` |
 | [How Trailbeam works](https://docs.trailbeam.app/concepts/how-it-works) | Components, data flow, what is recorded and what is inferred |
 | [Run Trailbeam](https://docs.trailbeam.app/setup/run) | Run Trailbeam, natively or in a container |
 | [HTTP API](https://docs.trailbeam.app/reference/api) | Trailbeam's JSON API |
 | [Vocabulary](https://docs.trailbeam.app/concepts/vocabulary) | Terms |
+| [Troubleshooting](https://docs.trailbeam.app/reference/troubleshooting) | Every `trailbeam doctor` failure, and other symptoms, with the cause and the fix |
 
 What changed in each release, with upgrade notes: [CHANGELOG.md](CHANGELOG.md).
 
