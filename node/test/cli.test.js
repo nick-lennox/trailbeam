@@ -77,6 +77,9 @@ test('default: the Docker volume, 127.0.0.1:4318, the matching image', () => {
   assert.ok(s.includes('-v trailbeam-data:/data'), s);
   assert.ok(s.includes('-e TRAILBEAM_START_SHOWN_DATA_DIR=the Docker volume trailbeam-data'), s);
   assert.ok(!args.includes('--user'), 'the volume belongs to the image user');
+  // Later runs print this command instead of the token and key (QV-203).
+  assert.ok(args.includes(
+    `TRAILBEAM_START_SHOWN_CAT=docker run --rm -v trailbeam-data:/data --entrypoint cat ${cli.IMAGE} /data/{}`), s);
   assert.deepStrictEqual(args.slice(-4), [cli.IMAGE, 'start', '--data-dir', '/data']);
 });
 
@@ -91,12 +94,14 @@ test('flags pass through; --host and --port become the published port', () => {
 
 test('TRAILBEAM_ variables: translated or passed by name, never by value', () => {
   const { args } = cli.dockerArgs([], {
-    env: { TRAILBEAM_PORT: '4400', TRAILBEAM_RETENTION: '3d', TRAILBEAM_TOKEN: 'secret-token-0123456789', PATH: '/x' },
+    env: { TRAILBEAM_START_SHOWN_CAT: 'x', TRAILBEAM_START_SHOWN_TOKEN_FILE: 'y',
+      TRAILBEAM_PORT: '4400', TRAILBEAM_RETENTION: '3d', TRAILBEAM_TOKEN: 'secret-token-0123456789', PATH: '/x' },
     uid: 1, gid: 1,
   });
   assert.ok(args.join(' ').includes('-p 127.0.0.1:4400:4400'));
   assert.ok(args.includes('TRAILBEAM_RETENTION') && args.includes('TRAILBEAM_TOKEN'));
   assert.ok(!args.join(' ').includes('secret-token') && !args.includes('PATH'));
+  assert.ok(!args.includes('TRAILBEAM_START_SHOWN_CAT') && !args.includes('TRAILBEAM_START_SHOWN_TOKEN_FILE'));
 });
 
 test('--data-dir and --db: mounted from this machine, run as this user', () => {
@@ -108,6 +113,7 @@ test('--data-dir and --db: mounted from this machine, run as this user', () => {
   assert.ok(args.join(' ').includes(`-v ${path.join(dir, 'db')}:/trailbeam-db`));
   assert.ok(args.join(' ').includes('--user 501:20'));
   assert.ok(args.join(' ').includes(`TRAILBEAM_START_SHOWN_DATA_DIR=${path.join(dir, 'tb')}`));
+  assert.ok(!args.join(' ').includes('TRAILBEAM_START_SHOWN_CAT'), 'the files are on this machine: cat them');
   assert.deepStrictEqual(args.slice(-6), [cli.IMAGE, 'start', '--data-dir', '/data', '--db', '/trailbeam-db/x.sqlite']);
 });
 
@@ -119,6 +125,7 @@ test('--token-file is read here and given as TRAILBEAM_TOKEN; --config is mounte
     path.join(dir, 'trailbeam.toml')], { env: {}, uid: 1, gid: 1 });
   assert.strictEqual(env.TRAILBEAM_TOKEN, 'my-own-token-0123456789');
   assert.ok(args.includes('TRAILBEAM_TOKEN') && !args.join(' ').includes('my-own-token'));
+  assert.ok(args.includes(`TRAILBEAM_START_SHOWN_TOKEN_FILE=${path.join(dir, 'token')}`));
   assert.ok(args.join(' ').includes(`-v ${path.join(dir, 'trailbeam.toml')}:/run/trailbeam/trailbeam.toml:ro`));
   assert.deepStrictEqual(args.slice(-2), ['--config', '/run/trailbeam/trailbeam.toml']);
 });

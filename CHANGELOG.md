@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **`trailbeam start` prints the token and key only on the run that created them.** Later runs print the
+  command that shows each one (`cat ~/.trailbeam/token`) instead, and the export lines read the files with
+  `$(cat ...)`, so a server restarted under systemd, `docker run -d`, nohup or CI no longer writes the token and
+  the receipt-hash key into journald, `docker logs` or the build log on every start, and pasted export lines
+  keep them out of shell history. A token given with `--token-file` or `TRAILBEAM_TOKEN` is never printed.
+  `npx trailbeam start` with the Docker volume prints a `docker run ... cat /data/token` command. The first
+  run is unchanged. (QV-203)
+
 - **A first-run screen, and one design for every page.** While the store holds no span, `/` shows how to send
   the first message: install the package (a Python / Node.js switch), the OTLP endpoint of this server with a
   Copy button, the environment variables (with the token header when the server has a token, never the token),
