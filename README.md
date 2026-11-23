@@ -796,7 +796,9 @@ psql "postgres://trailbeam@db.internal/trailbeam_restored" -c ANALYZE
 ```
 
 Use `pg_dump` and `pg_restore` of the same major version as the server you restore onto (on Debian or Ubuntu,
-`postgresql-client-16` for Postgres 16, in `/usr/lib/postgresql/16/bin`), or run them in a `postgres:16` container.
+`postgresql-client-16` for Postgres 16, in `/usr/lib/postgresql/16/bin`; it comes from the
+[PostgreSQL apt repository](https://www.postgresql.org/download/linux/ubuntu/) when your release's own default is
+another version), or run them in a `postgres:16` container.
 A newer `pg_restore` sends settings an older server doesn't know: version 18 restoring into Postgres 16 reports
 `unrecognized configuration parameter "transaction_timeout"` and exits 1.
 

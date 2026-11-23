@@ -297,9 +297,16 @@ jobs:
           python smoke/backup_restore_check.py --store sqlite --image "tbci-${{ github.run_id }}-${{ github.run_attempt }}-backup:ci"
       # The runner's default pg_dump/pg_restore can be newer than the server (18 on Postgres 16); a newer
       # pg_restore sends settings an older server rejects (transaction_timeout), so use the server's major version.
+      # Ubuntu's own archive carries only its default major version; postgresql-client-16 comes from the
+      # PostgreSQL apt repository (apt.postgresql.org), added with postgresql-common's script.
       - name: Postgres client tools of the server's major version
         if: matrix.store == 'postgres'
-        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends postgresql-client-16
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends postgresql-common ca-certificates
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y -q --no-install-recommends postgresql-client-16
+          /usr/lib/postgresql/16/bin/pg_restore --version
       - name: Postgres, pg_dump and pg_restore (client 16, server 16)
         if: matrix.store == 'postgres'
         run: >-
