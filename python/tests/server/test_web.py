@@ -71,6 +71,18 @@ def test_index_lists_recent_messages_and_has_lookup(site):
     assert f'href="{page(MID)}"' in html and f'href="{page(POISON)}"' in html
 
 
+def test_receives_column_marks_a_message_received_more_than_once(site):
+    for path in ("/", "/duplicates", "/stuck?older_than_s=60"):
+        _, _, html = get(site, path)
+        assert '<th title="How many times SQS returned this message from ReceiveMessage. Handled: a receive' in html
+        assert ">Receives</th>" in html and "Deliveries" not in html and " ok)" not in html
+    _, _, html = get(site, "/")
+    assert '<span class="repeat">2</span> <span class="muted">\u00b7 1 handled</span>' in html  # MID
+    assert '0 <span class="muted">\u00b7 0 handled</span>' in html  # ODD, never received: no mark
+    _, _, html = get(site, page(MID))
+    assert "<dt>Receives</dt><dd>2 (1 handled)</dd>" in html
+
+
 def test_timeline_in_order_with_inferred_steps_marked(site):
     status, _, html = get(site, page(MID))
     assert status == 200
