@@ -39,8 +39,10 @@ answers a narrower question: where did this one message go?
 
 ## Features
 
-- **One timeline per message.** Every send, receive, delete and visibility change your services
-  make, joined into a single history you open by message ID.
+- **One timeline per message.** Every message your services send or receive, and every delete and
+  visibility change they make, joined into a single history you open by message ID. Failed sends,
+  empty receives, purges and moves back from a dead-letter queue are not recorded
+  ([what is not recorded](https://docs.trailbeam.app/concepts/what-is-recorded#what-is-not-recorded)).
 - **Recorded and inferred steps are kept apart.** Trailbeam orders two events only when an observed
   fact proves the order, and marks every step it inferred, such as a visibility timeout that expired.
 - **Deletes joined to their receives.** A delete carries a receipt handle, not a message ID. Trailbeam
@@ -195,7 +197,9 @@ script that do this end to end are in
 Add the hooks to every service that sends, receives or deletes on the queues you care about. A
 service without them leaves gaps in a message's history.
 
-Install and instrument boto3 and AWS SDK v3 clients as in the [Quickstart](#quickstart). For AWS
+Install and instrument boto3 and AWS SDK v3 clients as in the [Quickstart](#quickstart). The Python
+package instruments every boto3 and botocore client in the process, but not aiobotocore. The Node.js
+package instruments only the clients you pass to `trailbeam.instrument()`, and only AWS SDK v3. For AWS
 Lambda, wrap the handler:
 
 ```python
