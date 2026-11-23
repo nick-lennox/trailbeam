@@ -262,3 +262,41 @@ def test_start_on_an_existing_database_with_its_secrets_does_not_warn(tmp_path):
     s.stop()
     err = s.p.stderr.read()
     assert "existing database" not in err and "created the receipt-hash key" in err
+
+
+def test_doctor_checks_the_server_trailbeam_start_started_on_another_port(tmp_path, monkeypatch, capsys):
+    """QV-220: after trailbeam start --port N, plain trailbeam doctor with the printed variables checks port N
+    (not 4318, where another server may answer) and passes. Without the variables it finds the port in the
+    address file that trailbeam start writes in its data directory."""
+    import socket
+    import urllib.request
+    from spans import Consumer, to_proto
+    from trailbeam.server import doctor
+    s0 = socket.socket()
+    s0.bind(("127.0.0.1", 0))
+    port = s0.getsockname()[1]
+    s0.close()
+    data = tmp_path / "tb"
+    s = Started(["start", "--data-dir", str(data), "--port", str(port)])
+    try:
+        assert (data / "address").read_text().strip() == f"http://127.0.0.1:{port}" == s.url
+        for k in [k for k in os.environ if k.startswith(("TRAILBEAM_", "OTEL_"))]:
+            monkeypatch.delenv(k)
+        monkeypatch.setenv("TRAILBEAM_DATA_DIR", str(data))
+        body = to_proto([Consumer().receive(time.time_ns(), "m-1", "rh-1")]).SerializeToString()
+        req = urllib.request.Request(s.python_env["TRAILBEAM_OTLP_TRACES_ENDPOINT"], data=body, headers={
+            "Content-Type": "application/x-protobuf", "Authorization": f"Bearer {s.token}"})
+        with urllib.request.urlopen(req, timeout=5) as r:
+            assert r.status == 200
+        # The variables trailbeam start printed, and no --url: doctor checks port N.
+        monkeypatch.setenv("TRAILBEAM_OTLP_TRACES_ENDPOINT", s.python_env["TRAILBEAM_OTLP_TRACES_ENDPOINT"])
+        assert doctor.main([]) == 0, capsys.readouterr().out
+        out = capsys.readouterr().out
+        assert f"server http://127.0.0.1:{port} (from TRAILBEAM_OTLP_TRACES_ENDPOINT)" in out
+        assert f"answers at http://127.0.0.1:{port}" in out and "4318" not in out
+        # No variables: the address trailbeam start wrote down.
+        monkeypatch.delenv("TRAILBEAM_OTLP_TRACES_ENDPOINT")
+        assert doctor.main([]) == 0
+        assert f"server http://127.0.0.1:{port} (from {data / 'address'}" in capsys.readouterr().out
+    finally:
+        assert s.stop() == 0

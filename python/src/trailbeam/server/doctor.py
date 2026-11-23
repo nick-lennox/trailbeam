@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 from urllib.parse import urlsplit
 
-from .start import TOKEN_FILE, default_data_dir
+from .start import ADDRESS_FILE, TOKEN_FILE, default_data_dir
 
 DEFAULT_PORT = 4318
 INGEST_PATH = "/v1/traces"
@@ -61,6 +61,7 @@ class Target:
     ingest_url: str  # where services send spans
     token: Optional[str] = None
     token_source: str = "none"  # said in the header line: where the token came from
+    url_source: str = ""  # said in the header line when the server's address was not given: where it came from
     token_error: Optional[str] = None  # the token file could not be read or the token is unusable
     timeout_s: float = 5.0
 
@@ -173,8 +174,11 @@ def _token_cause(t: Target, where: str) -> tuple[str, str]:
                 f"pass --token-file PATH, or set TRAILBEAM_TOKEN, to the token the server was started with "
                 f"(trailbeam start prints it, and keeps it in {_default_token_path()}). Services need it too: "
                 "OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<token>.")
-    return (f"{where} does not accept the token from {t.token_source}: the server was started with another one.",
-            "use the token the server was started with (its --token-file or TRAILBEAM_TOKEN). After the token "
+    at, flag = (t.ingest_url, "--ingest-url") if where == "ingest" else (t.url, "--url")
+    return (f"{where} at {at} does not accept the token from {t.token_source}: that server was started with "
+            "another one, or it is not the server you mean.",
+            f"check that {at} is your server (else give {flag}), and use the token it was started with (its "
+            "--token-file or TRAILBEAM_TOKEN). After the token "
             "changes, give services the new one in OTEL_EXPORTER_OTLP_HEADERS and restart them.")
 
 
@@ -210,6 +214,9 @@ def run(t: Target, now_ns: Optional[int] = None) -> list[Result]:
             results.append(Result(name, OK, f"Trailbeam {doc['version']} answers at {t.url}"))
     except Unreachable as e:
         results.append(Result(name, FAIL, e.summary, e.cause, e.fix))
+    if results[-1].status == FAIL and t.url_source:
+        results[-1].fix = (results[-1].fix or "") + (f" doctor took {t.url} from {t.url_source}; if your server "
+                                                     "is elsewhere, give its address with --url.")
 
     # 2. the ingest port
     name = "Ingest port accepts connections"
@@ -404,7 +411,8 @@ def _last_span(health: dict, now_ns: int, probe_ok: bool, t: Target, probe_rejec
 
 def report(t: Target, results: list[Result], out=None) -> int:
     out = out or sys.stdout
-    out.write(f"trailbeam doctor: server {t.url}, ingest {t.ingest_url}, token: {t.token_source}\n\n")
+    shown = f"{t.url} (from {t.url_source})" if t.url_source else t.url
+    out.write(f"trailbeam doctor: server {shown}, ingest {t.ingest_url}, token: {t.token_source}\n\n")
     for r in results:
         out.write(f"  {r.status:<5} {r.name}: {r.detail}\n")
         if r.cause:
@@ -416,16 +424,90 @@ def report(t: Target, results: list[Result], out=None) -> int:
     return 1 if failed else 0
 
 
-def target_from_args(a) -> Target:
-    url = (a.url or os.environ.get("TRAILBEAM_URL", "").strip()
-           or f"http://127.0.0.1:{os.environ.get('TRAILBEAM_PORT', '').strip() or DEFAULT_PORT}").rstrip("/")
-    if "://" not in url:
-        url = "http://" + url
-    ingest = (a.ingest_url or os.environ.get("TRAILBEAM_OTLP_TRACES_ENDPOINT", "").strip()
-              or url + INGEST_PATH)
-    if "://" not in ingest:
-        ingest = "http://" + ingest
+def _with_scheme(url: str) -> str:
+    return url if "://" in url else "http://" + url
+
+
+def _base_of(url: str) -> Optional[str]:
+    """Scheme, host and port of a URL (the default port of its scheme when it has none), or None."""
+    try:
+        u = urlsplit(_with_scheme(url))
+        host = u.hostname
+        port = u.port or (443 if u.scheme == "https" else 80)
+    except ValueError:
+        return None
+    if not host:
+        return None
+    return f"{u.scheme}://{f'[{host}]' if ':' in host else host}:{port}"
+
+
+def _address_file():
+    from pathlib import Path
+    return Path(default_data_dir()) / ADDRESS_FILE
+
+
+def url_candidates(ingest: str, ingest_given: str) -> list[tuple[str, str]]:
+    """Where the server may be when --url, TRAILBEAM_URL and TRAILBEAM_PORT are not given, with where each came
+    from (QV-220): the server of the ingest address the services were given, and the address trailbeam start
+    last listened on. Port 4318 only when neither is known: after ``trailbeam start --port N`` another
+    server on 4318 must not be taken for this one."""
+    out: list[tuple[str, str]] = []
+    if ingest_given:
+        base = _base_of(ingest)
+        if base:
+            out.append((base, ingest_given))
+    path = _address_file()
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        text = ""
+    base = _base_of(text) if text else None
+    if base and base not in [u for u, _ in out]:
+        out.append((base, f"{path}, written by trailbeam start"))
+    return out
+
+
+def _is_trailbeam(url: str, timeout_s: float) -> bool:
+    try:
+        a = _request(Target(url=url, ingest_url=url + INGEST_PATH, timeout_s=timeout_s), "GET", url + "/api/health")
+        doc = a.json()
+        return a.status == 200 and isinstance(doc, dict) and doc.get("status") == "ok" and "version" in doc
+    except (Unreachable, OSError, ValueError):
+        return False
+
+
+def choose_url(t: Target, candidates: list[tuple[str, str]]) -> Target:
+    """Of two candidates, the first that answers as Trailbeam, else the first: when services send through a
+    Collector, the ingest address is the Collector and the server is the one trailbeam start wrote down."""
+    if len(candidates) > 1:
+        for url, source in candidates:
+            if _is_trailbeam(url, min(t.timeout_s, 2.0)):
+                t.url, t.url_source = url, source
+                return t
+    if candidates:
+        t.url, t.url_source = candidates[0]
+    return t
+
+
+def target_from_args(a, discover: bool = True) -> Target:
+    """The target from the flags and the environment. With ``discover`` and no server address given, the
+    candidates of url_candidates() are looked at (one GET /api/health each when there are two)."""
+    explicit = (a.url or os.environ.get("TRAILBEAM_URL", "").strip()
+                or (f"http://127.0.0.1:{os.environ['TRAILBEAM_PORT'].strip()}"
+                    if os.environ.get("TRAILBEAM_PORT", "").strip() else ""))
+    ingest_given = ("--ingest-url" if a.ingest_url else "TRAILBEAM_OTLP_TRACES_ENDPOINT"
+                    if os.environ.get("TRAILBEAM_OTLP_TRACES_ENDPOINT", "").strip() else "")
+    ingest_env = a.ingest_url or os.environ.get("TRAILBEAM_OTLP_TRACES_ENDPOINT", "").strip()
+    candidates = [] if explicit else url_candidates(ingest_env, ingest_given)
+    url = _with_scheme(explicit or f"http://127.0.0.1:{DEFAULT_PORT}").rstrip("/")
+    ingest = _with_scheme(ingest_env) if ingest_env else ""
     t = Target(url=url, ingest_url=ingest, timeout_s=a.timeout)
+    if candidates:
+        if discover:
+            choose_url(t, candidates)
+        else:
+            t.url, t.url_source = candidates[0]
+    t.ingest_url = t.ingest_url or t.url + INGEST_PATH
     path = a.token_file or os.environ.get("TRAILBEAM_TOKEN_FILE", "").strip()
     if path:
         t.token_source = path
@@ -452,8 +534,9 @@ def parser() -> argparse.ArgumentParser:
         prog="trailbeam doctor",
         description="Check why no data is arriving: the server, the ingest port, the token, a test span sent and "
                     "read back, and the last real span. Exit code 1 when a check fails.")
-    p.add_argument("--url", help="the server's address (env TRAILBEAM_URL; default http://127.0.0.1:4318, or the "
-                                 "port in TRAILBEAM_PORT)")
+    p.add_argument("--url", help="the server's address (env TRAILBEAM_URL, or the port in TRAILBEAM_PORT; default "
+                                 "the server of TRAILBEAM_OTLP_TRACES_ENDPOINT, or the address trailbeam start last "
+                                 "listened on, else http://127.0.0.1:4318)")
     p.add_argument("--ingest-url", help="where services send spans (env TRAILBEAM_OTLP_TRACES_ENDPOINT, as the "
                                         "services read it; default the server's /v1/traces)")
     p.add_argument("--token-file", help="a file holding the access token (env TRAILBEAM_TOKEN_FILE, or the token "
