@@ -76,6 +76,20 @@ export function tenantsFootnote(s: { total_sent: number; untagged_sent: number; 
     + "p95 in queue is from the send to the first receive, over first deliveries only. Dead-lettered counts messages SQS was seen moving to a dead-letter queue.";
 }
 
+/** The Tenants page with no tenant in its range (QV-217): what a tenant is, and how to set one. */
+export const TENANTS_README = "https://github.com/nick-lennox/trailbeam#tenants";
+export const TENANT_ENV = "export TRAILBEAM_TENANT_ATTRIBUTE=tenant        # a message attribute\n"
+  + "export TRAILBEAM_TENANT_BODY_PATH=customer.id   # or a path in a JSON body";
+export const TENANT_IS = "A tenant is your own customer or account ID, read from each message.";
+
+/** The empty state's text before the code window. `range` is a range label such as "Last 24 hours". */
+export function noTenantsText(totalSent: number, range: string): string {
+  const when = `in the ${range.replace(/^Last /, "last ")}`;
+  const seen = totalSent === 0 ? `No messages were sent ${when}.`
+    : `${fmtNum(totalSent)} ${totalSent === 1 ? "message was" : "messages were"} sent ${when}, none with one.`;
+  return `${TENANT_IS} ${seen} To split traffic by customer, set one of these in every service that sends or receives:`;
+}
+
 export type TenantSearchProps = {
   /** tenant names for the text so far (GET /api/tenants/search?q=) */
   suggest: (text: string) => Promise<string[]>;
@@ -87,7 +101,7 @@ export type TenantSearchProps = {
 };
 
 /** A search box with suggestions; Enter or a suggestion goes to href(tenant). Works as a plain form without scripts. */
-export function TenantSearch({ suggest, href, defaultValue = "", placeholder = "Tenant", className = "" }: TenantSearchProps) {
+export function TenantSearch({ suggest, href, defaultValue = "", placeholder = "Tenant (customer ID)", className = "" }: TenantSearchProps) {
   const id = useId();
   const [text, setText] = useState(defaultValue);
   const [options, setOptions] = useState<string[]>([]);

@@ -8,7 +8,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { EXAMPLE, FirstRun, environment, highlight, type FirstRunProps } from "../src/firstrun/FirstRun.tsx";
 import { NO_SPANS_AFTER_MS, announcement, isDefaultEndpoint, retainedFor, storeHasSpans, storeIsEmpty, waitingStatus, type Health } from "../src/firstrun/status.ts";
-import { EmptyState, MessagesTable, duplicateWhy, fmtAge, fmtTime, type MessageSummary } from "../src/messages/Messages.tsx";
+import { EmptyState, MessagesTable, duplicateWhy, fmtAge, fmtThreshold, fmtTime, shortId, type MessageSummary } from "../src/messages/Messages.tsx";
 import { duplicatesEmpty, lookupEmpty, messagesEmpty, stuckEmpty, tenantsEmpty, without } from "../src/messages/empty.tsx";
 
 /** The page's words: block elements and cells end a phrase, inline ones (code, spans) don't; curly quotes as straight. */
@@ -75,6 +75,8 @@ test("State A: the three steps, the endpoint and the waiting line", () => {
   assert.ok(html.includes("<h1") && (html.match(/<h2/g) ?? []).length === 3, "one h1, a h2 per step");
   assert.ok(html.includes("<output") && html.includes("http://localhost:4318/v1/traces</output>"));
   assert.ok(!t.includes("OTEL_EXPORTER_OTLP_HEADERS"), "no token header when the server has no token");
+  assert.ok(t.includes("Spans go out in batches every few seconds, and any still waiting go out when the process exits."));
+  assert.ok(!t.includes("forceFlush"), "forceFlush is the Node.js API; the Python package has no such function");
   assert.ok(!t.includes("Show setup"), "nothing hidden behind a click");
   // the runtime switch is a tab list that controls both code windows
   assert.match(html, /role="tablist"/);
@@ -97,6 +99,7 @@ test("State A, Node.js, a token and another origin", () => {
     "export TRAILBEAM_OTLP_TRACES_ENDPOINT=http://10.0.0.5:4318/v1/traces",
   ]) assert.ok(t.includes(s), `missing: ${s}`);
   assert.ok(!t.includes("pip install"));
+  assert.ok(t.includes("In a long-running service you don't need forceFlush: spans go out in batches every few seconds."));
   assert.equal(isDefaultEndpoint("http://127.0.0.1:4318/v1/traces"), true);
   assert.equal(isDefaultEndpoint("https://localhost:4318/v1/traces"), false);
 });
@@ -158,10 +161,31 @@ const msg: MessageSummary = {
 test("the message list", () => {
   const html = renderToStaticMarkup(createElement(MessagesTable, { messages: [msg], href: (id: string) => `/message?id=${id}`, extra: { title: "Age", cell: (m: MessageSummary) => fmtAge(m.age_s) } }));
   const t = text(html);
-  for (const s of ["m-2", "not deleted", "orders-dlq (DLQ, from orders)", "3 (0 ok)", "orders-worker", "2026-11-16 18:05:37.429 SQS's clock", "2026-11-16 18:06:00", "Age", "7 min"]) assert.ok(t.includes(s), `missing ${s}: ${t}`);
+  for (const s of ["m-2", "not deleted", "orders-dlq (DLQ, from orders)", "3 · 0 handled", "orders-worker", "2026-11-16 18:05:37.429 SQS's clock", "2026-11-16 18:06:00", "Age", "7 min"]) assert.ok(t.includes(s), `missing ${s}: ${t}`);
   assert.ok(html.includes('href="/message?id=m-2"'));
+  assert.ok(t.includes("Receives") && !t.includes("Deliveries") && !t.includes(" ok)"));
+  assert.match(html, /<th title="How many times SQS returned this message from ReceiveMessage\. Handled: a receive that ended in a delete or a successful Lambda record\."/);
+  assert.match(html, /<span class="text-warning-text">3<\/span>/, "a message received more than once is marked");
+  const once = renderToStaticMarkup(createElement(MessagesTable, { messages: [{ ...msg, deliveries: 1, successful_deliveries: 1 }], href: (id: string) => id }));
+  assert.ok(!once.includes("text-warning-text") && text(once).includes("1 · 1 handled"));
   assert.equal(fmtTime(null), null);
   assert.deepEqual([fmtAge(30), fmtAge(600), fmtAge(9000), fmtAge(200_000), fmtAge(null)], ["30 s", "10 min", "2.5 h", "2.3 days", "?"]);
+});
+
+test("the message list below md: three lines per row, the ID on one line", () => {
+  const id = "22e15633-1b7c-4d6e-9a1f-0c3b8e29707e";
+  const m: MessageSummary = { ...msg, message_id: id, state: "deleted", current_queue: "orders", in_dead_letter_queue: false, deliveries: 2, successful_deliveries: 1, first_seen_clock: "host", reasons: ["received_more_than_once"] };
+  assert.equal(shortId(id), "22e15633\u20269707e");
+  assert.equal(shortId("m-2"), "m-2");
+  const html = renderToStaticMarkup(createElement(MessagesTable, { messages: [m], href: (i: string) => `/message?id=${i}`, extra: { title: "Why", cell: () => "x", brief: () => "received more than once" } }));
+  const phone = /<ul class="md:hidden"[^>]*>(.*?)<\/ul>/.exec(html)?.[1] ?? "";
+  const lines = [...phone.matchAll(/<li[^>]*>(.*?)<\/li>/g)][0][1].split(/(?=<a |<p )/);
+  assert.equal(lines.length, 3, phone);
+  assert.ok(lines[0].includes(`href="/message?id=${id}"`) && lines[0].includes(`title="${id}"`) && text(lines[0]).trim() === "22e15633\u20269707e");
+  assert.equal(text(lines[1]).trim(), "deleted · orders · 2 receives · 1 handled · received more than once");
+  assert.equal(text(lines[2]).trim(), "2026-11-16 18:05:37.429");
+  for (const l of lines) assert.match(l, /class="[^"]*truncate/, "each line stays on one line");
+  assert.match(html, /<table class="hidden w-full text-\[15px\] md:table">/, "the table from md up");
 });
 
 const empty = (e: Parameters<typeof EmptyState>[0] | null) => (e ? text(renderToStaticMarkup(createElement(EmptyState, e))) : "");
@@ -197,4 +221,8 @@ test("Duplicates: the Why cell gives each reason with its count from the row", (
   const row = { ...msg, deliveries: 3, successful_deliveries: 2, reasons: ["received_more_than_once", "succeeded_more_than_once"] };
   const html = renderToStaticMarkup(createElement("p", null, duplicateWhy(row)));
   assert.equal(html, '<p><span>received <span class="font-mono tabular-nums">3</span> times</span>, <span>handled <span class="font-mono tabular-nums">2</span> times</span></p>');
+});
+
+test("the stuck threshold in words when it is a round number (QV-216)", () => {
+  assert.deepEqual([300, 60, 90, 3600, 7200, 86_400, 172_800, 0].map(fmtThreshold), ["5 min", "1 min", "90 s", "1 h", "2 h", "1 day", "2 days", "0 s"]);
 });

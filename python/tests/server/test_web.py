@@ -71,6 +71,18 @@ def test_index_lists_recent_messages_and_has_lookup(site):
     assert f'href="{page(MID)}"' in html and f'href="{page(POISON)}"' in html
 
 
+def test_receives_column_marks_a_message_received_more_than_once(site):
+    for path in ("/", "/duplicates", "/stuck?older_than_s=60"):
+        _, _, html = get(site, path)
+        assert '<th title="How many times SQS returned this message from ReceiveMessage. Handled: a receive' in html
+        assert ">Receives</th>" in html and "Deliveries" not in html and " ok)" not in html
+    _, _, html = get(site, "/")
+    assert '<span class="repeat">2</span> <span class="muted">\u00b7 1 handled</span>' in html  # MID
+    assert '0 <span class="muted">\u00b7 0 handled</span>' in html  # ODD, never received: no mark
+    _, _, html = get(site, page(MID))
+    assert "<dt>Receives</dt><dd>2 (1 handled)</dd>" in html
+
+
 def test_timeline_in_order_with_inferred_steps_marked(site):
     status, _, html = get(site, page(MID))
     assert status == 200
@@ -409,7 +421,26 @@ def test_an_empty_store_says_nothing_is_connected_yet(server):
         assert "No messages yet. No service has sent spans here" in html, path
         assert "No stuck messages." not in html and "No duplicate deliveries." not in html, path
     _, _, html = get(server, "/tenants")
-    assert "section 15.2</a>" in html and "15.1" not in html and "revision 3.2" not in html
+    assert "No tenants yet" in html and "15.2" not in html and "revision 3.2" not in html
     post(server, [Consumer("producer").send(T0, "first-one")])
     _, _, html = get(server, "/stuck?queue=payments")
     assert "No stuck messages." in html and "No messages yet." not in html
+
+
+def test_stuck_intro_says_the_threshold_in_words_and_how_to_change_it(site):
+    """QV-216: the intro leads with what stuck means and the settings; the clock note is in the footer."""
+    _, _, html = get(site, "/stuck?older_than_s=300")
+    assert "Messages sent more than 5 min ago that no consumer has deleted yet, oldest first." in html
+    assert "<code>--stuck-after</code> (<code>TRAILBEAM_STUCK_AFTER_S</code>)" in html
+    assert 'name="older_than_s" value="300"' in html  # the field stays in seconds
+    foot = "Times are in UTC. Age counts from the send, on the sender's clock."
+    assert html.index("</table>") < html.index(foot)
+    assert "producer host" not in html
+    _, _, html = get(site, "/stuck?older_than_s=90")
+    assert "more than 90 s ago" in html
+
+
+def test_threshold_in_words():
+    from trailbeam.server.web import _threshold
+    assert [_threshold(s) for s in (300, 60, 90, 3600, 7200, 86_400, 172_800, 0)] == [
+        "5 min", "1 min", "90 s", "1 h", "2 h", "1 day", "2 days", "0 s"]

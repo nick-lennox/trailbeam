@@ -13,9 +13,14 @@ A row's tenant is the message's tenant (``""`` for none: tenant names are never 
 added before, whenever it rewrites the message's summary, and taking it all away when retention removes the
 message. Counts subtract exactly, and so does the sketch: it is a count per bucket.
 
-**The page** (``tenant_page``) reads the rollup for the whole hours in its range and the raw tenant events for
-the parts of an hour at either end (at most two partial hours), so its cost is the number of (hour, tenant)
-rows in the range plus two hours of events, not every event in the range.
+**The page** (``tenant_page``) reads the rollup for the whole hours in its range. It reads a part of an hour at
+either end (at most two) the cheaper way (``plan``): either its own tenant events, or the hour's rollup rows less
+the events of the rest of that hour. Both give exact counts, and an exact sketch too, since sketches subtract
+exactly. Until QV-224 it always read the part's events. The default range ends now, so the page read every event
+of the current hour: 2.06M of 3.3M tenant events after a heavy ingest (QV-224's bench; 2.55M of 6.0M in QV-180),
+and took 1.1-2.1 s. Now the current hour costs its rollup rows less the events newer than now (next to none), and
+the hour at the start of the range at most half an hour of events. The events are added up in SQL, by (tenant,
+kind, time in queue), instead of being fetched one by one.
 
 **No queue in the key.** The plan (QV-67) had rows per hour, queue and tenant, for a queue filter the page
 doesn't have. Measured at 1M spans (50 queues, 50 tenants, 7 days; QV-128 report), that made 154,390 rows for
@@ -43,6 +48,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from typing import Iterable, Mapping, Optional
 
 from .store import TenantActivity
@@ -159,14 +165,15 @@ class Agg:
         self.waits.merge(other.waits, sign)
         return self
 
-    def add_event(self, kind: str, wait: Optional[int]) -> None:
+    def add_event(self, kind: str, wait: Optional[int], n: int = 1) -> None:
+        """``n`` such events (negative: taken out)."""
         if kind == SENT:
-            self.sent += 1
+            self.sent += n
         elif kind == FIRST_DELIVERY:
-            self.first_deliveries += 1
-            self.waits.add(wait)
+            self.first_deliveries += n
+            self.waits.add(wait, n)
         elif kind == DEAD_LETTERED:
-            self.dead_letter_moves += 1
+            self.dead_letter_moves += n
 
     def __bool__(self):
         return bool(self.sent or self.first_deliveries or self.dead_letter_moves or self.waits)
@@ -233,18 +240,36 @@ class Deltas:
         return any(a for a in self.by.values())
 
 
-def split(from_ms: int, to_ms: int) -> tuple:
-    """[from_ms, to_ms] as (whole hours (first, last) or None, the raw ms ranges left at either end)."""
-    first = -(-from_ms // HOUR_MS)               # the first hour starting at or after from_ms
-    last = (to_ms + 1) // HOUR_MS - 1            # the last hour ending at or before to_ms
-    if first > last:
-        return None, [(from_ms, to_ms)]
-    raw = []
-    if from_ms < first * HOUR_MS:
-        raw.append((from_ms, first * HOUR_MS - 1))
-    if (last + 1) * HOUR_MS <= to_ms:
-        raw.append(((last + 1) * HOUR_MS, to_ms))
-    return (first, last), raw
+def plan(from_ms: int, to_ms: int, now_ms: Optional[int] = None) -> tuple:
+    """How to read [from_ms, to_ms]: (the hours (first, last) whose rollup rows to add, or None; the
+    [(from_ms, to_ms, sign)] whose tenant events to add (sign 1) or take out (sign -1)).
+
+    The rollup hours are the whole hours, and each partial hour whose part in the range is longer than the rest of
+    it, less the events of that rest. Only time up to ``now_ms`` (default: now) counts in the lengths, since later
+    there are next to no events (only from clocks that run ahead). So the current hour is always its rollup rows
+    less what is newer than ``to_ms``, and an earlier partial hour costs at most half an hour of events. The hours
+    are consecutive: partial hours are only at the two ends."""
+    if from_ms > to_ms:
+        return None, []
+    now_ms = int(time.time() * 1000) if now_ms is None else now_ms
+
+    def past(x, y):  # how much of [x, y] is not in the future
+        return max(0, min(y, now_ms) - x + 1)
+
+    first, last = from_ms // HOUR_MS, to_ms // HOUR_MS
+    hours, events = [], []
+    for h in sorted({first, last}):
+        lo, hi = h * HOUR_MS, (h + 1) * HOUR_MS - 1
+        a, b = max(from_ms, lo), min(to_ms, hi)
+        rest = [(x, y) for x, y in ((lo, a - 1), (b + 1, hi)) if x <= y]
+        if rest and past(a, b) <= sum(past(x, y) for x, y in rest):
+            events.append((a, b, 1))
+            continue
+        hours.append(h)
+        events += [(x, y, -1) for x, y in rest]
+    if last - first >= 2:
+        hours += [first + 1, last - 1]  # the whole hours between
+    return ((min(hours), max(hours)) if hours else None), events
 
 
 def tenant_page(rollup_rows: Iterable, raw_events: Iterable, repeats: Iterable) -> list:
@@ -253,8 +278,8 @@ def tenant_page(rollup_rows: Iterable, raw_events: Iterable, repeats: Iterable) 
     - ``rollup_rows``: (tenant, sent, first_deliveries, dead_letter_moves, waits: JSON or {bucket: count}) for
       the whole hours
       (any number of rows per tenant: hours, and on Postgres places and writers);
-    - ``raw_events``: (tenant, kind, wait_ms) of the tenant events in the partial hours (every kind may come;
-      only sent, first_delivery and dead_lettered count);
+    - ``raw_events``: (tenant, kind, wait_ms, n) for the tenant events ``plan`` reads, added up: n of them, negative
+      for those taken out (every kind may come; only sent, first_delivery and dead_lettered count);
     - ``repeats``: the tenant of each ``dead_lettered_again`` event in the range whose previous move is in it too.
 
     Tenants are the message's (None for none); a tenant with nothing in the range is left out."""
@@ -269,8 +294,8 @@ def tenant_page(rollup_rows: Iterable, raw_events: Iterable, repeats: Iterable) 
 
     for t, sent, firsts, moves, waits in rollup_rows:
         g(t).merge(Agg(int(sent), int(firsts), int(moves), Sketch(waits) if isinstance(waits, dict) else Sketch.loads(waits)))
-    for t, kind, wait in raw_events:
-        g(t).add_event(kind, wait)
+    for t, kind, wait, n in raw_events:
+        g(t).add_event(kind, wait, int(n))
     again: dict = {}
     for t in repeats:
         t = None if t == NO_TENANT else t

@@ -35,12 +35,13 @@ PROFILE = pg_smoke.PROFILE
 BODIES = tuple(loadgen.body_queue_names(PROFILE))
 
 
-def db_state(url: str) -> dict:
+def db_state(url: str, exact: bool = False) -> dict:
+    """``spans`` is the planner's estimate unless ``exact`` or PG_MEDIUM_EXACT (a count takes seconds at 7M)."""
     import psycopg
     with psycopg.connect(url, autocommit=True) as c:
         one = lambda q: c.execute(q).fetchone()[0]  # noqa: E731
         return {
-            "spans": one("SELECT count(*) FROM spans") if os.environ.get("PG_MEDIUM_EXACT") else
+            "spans": one("SELECT count(*) FROM spans") if exact or os.environ.get("PG_MEDIUM_EXACT") else
             int(one("SELECT coalesce(sum(reltuples), 0) FROM pg_class c JOIN pg_inherits i ON i.inhrelid = c.oid "
                     "WHERE i.inhparent = 'spans'::regclass")),
             "database_gb": round(one("SELECT pg_database_size(current_database())") / 1e9, 2),
@@ -169,7 +170,9 @@ def cmd_seed(a) -> None:
     """``--seed-procs`` processes, each a slice of the window. Resumable: it adds what is missing, its slices
     over the whole window again (a resumed seed is denser in time, not shifted)."""
     import multiprocessing
-    have = db_state(a.store_url)["spans"] if _has_schema(a.store_url) else 0
+    # counted, not estimated: right after a seed nothing has analyzed the new partitions, and the estimate was far
+    # below the spans stored, so a resumed seed overshot (QV-180: asked for 4M, got 5.5M)
+    have = db_state(a.store_url, exact=True)["spans"] if _has_schema(a.store_url) else 0
     target = harness.parse_size(a.spans)
     if a.add:  # --spans is what to add, not the size to reach
         target += have

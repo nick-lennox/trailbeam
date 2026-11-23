@@ -8,16 +8,19 @@ Trailbeam 0.4.0 is about getting a server running and the first message on scree
 README. `trailbeam start` (Python) and `npx trailbeam start` (Node.js, with Docker) make the access token and
 receipt-hash key for you and print the settings to paste into your services. A first-run screen shows how to
 send the first message and says why nothing has arrived yet, and `trailbeam doctor` checks each link from your
-service to the store when nothing shows up. Teams get a `docker-compose.yaml` with Postgres.
+service to the store when nothing shows up. Teams get a `docker-compose.yaml` with Postgres, and a Helm chart for Kubernetes.
 
 ### What's new
 
 - **`trailbeam start`** and **`npx trailbeam start`**: first-run setup in one command, with the token and key
-  kept in `~/.trailbeam` (or the Docker volume `trailbeam-data`) and reused on later runs.
+  kept in `~/.trailbeam` (or the Docker volume `trailbeam-data`) and reused on later runs. The token and key
+  are printed only on the run that made them, the data directory is kept private, and an existing
+  `TRAILBEAM_RECEIPT_HASH_KEY` is used instead of making a new key.
 - **`trailbeam doctor`**: checks that the server answers, the ingest port is open, the token is accepted and a
   test span is stored, and prints the likely cause and fix for a check that fails.
 - **A first-run screen** at `/` while the store is empty, and one dark design for every page.
 - **A team install from one file**: `docker-compose.yaml` runs the server with Postgres 16.
+- **Kubernetes**: a Helm chart in `deploy/helm/trailbeam`, and a `<version>-postgres` image for it.
 - **Clearer failures**: a port already in use is one line, not a traceback.
 - **Node.js**: a short script no longer loses its last spans, and `trailbeam.uninstall()` no longer fails
   when the server is unreachable. `await trailbeam.forceFlush()` before a script ends is no longer needed,
@@ -58,11 +61,43 @@ stopped part way, the next start runs it again; rows already copied are left as 
 
 ### All changes
 
+- **The Tenants page no longer slows down after heavy ingest.** It read every raw event of the current hour,
+  so right after a burst of traffic it took 1–2 s on Postgres (QV-180). It now reads the current hour from the
+  hourly rollup, less the few events newer than the window, and adds up the raw events it still reads in SQL.
+  With 2M events in the current hour, the last day went from 2.07 s to 55 ms (p95, Postgres) and from 646 ms
+  to 9 ms (SQLite, 626K events), with the same answers. (QV-224)
+- **Body search takes plain text.** On the Messages page and in `GET /api/messages?body=`, `ord-1003` is
+  searched as `body:ord-1003` instead of being refused with a 400. The **Body** field shows an example, and
+  on a server that keeps no bodies (`/api/health` lists no `store_bodies`) it is off, with a line saying how to
+  turn bodies on. A term for another field still fails, now as ``Can't read `queue:orders`. Use text, or
+  `body.<path>:<value>`.``, without the HTTP status. (QV-215)
+- **`trailbeam start` prints the token and key only on the run that created them.** Later runs print the
+  command that shows each one (`cat ~/.trailbeam/token`) instead, and the export lines read the files with
+  `$(cat ...)`, so a server restarted under systemd, `docker run -d`, nohup or CI no longer writes the token and
+  the receipt-hash key into journald, `docker logs` or the build log on every start, and pasted export lines
+  keep them out of shell history. A token given with `--token-file` or `TRAILBEAM_TOKEN` is never printed.
+  `npx trailbeam start` with the Docker volume prints a `docker run ... cat /data/token` command. The first
+  run is unchanged. (QV-203)
+- **Kubernetes: a Helm chart.** `deploy/helm/trailbeam` installs the server as a Deployment of 2 replicas
+  behind a Service, on a Postgres you run (`store.url` or a Secret), or on a trial Postgres in the cluster
+  (`postgresql.enabled=true`). The token and receipt-hash key are generated once into a Secret and kept on
+  upgrade, or come from your own Secret. Liveness probe on `/api/health`, readiness on `/api/ready`, and a
+  startup probe long enough for a schema upgrade. CI installs it on a kind cluster and sends one span. It
+  replaces the example manifest `deploy/kubernetes/trailbeam.yaml`; `helm template` renders plain manifests.
+  Releases now also publish `ghcr.io/nick-lennox/trailbeam:<version>-postgres`, the image with the Postgres
+  driver, which is the chart's default ([Kubernetes](README.md#kubernetes-helm-chart)). (QV-173)
+- **Messages: Receives, not Deliveries.** The column on Messages, Duplicates and Stuck is now **Receives**, with a
+  tooltip that defines it (how many times SQS returned the message from `ReceiveMessage`) and what *handled* means
+  (a receive that ended in a delete or a successful Lambda record). Cells read `2 · 1 handled` instead of
+  `2 (1 ok)`, and the count is Ember when the message was received more than once, so that row stands out. The
+  timeline summary says **Receives** `2 (1 handled)` too, on the UI and the no-script pages (QV-209).
 - **`trailbeam doctor`: why no data is arriving.** It checks, in plain lines, that the server answers, that the
   ingest port accepts connections, that the token is accepted, that a test span sent now is stored and read
   back, and when the last real span arrived. Each failed check prints the likely cause and the fix, and the exit
   code is 1 when one fails. By default it uses the address and token `trailbeam start` created
-  ([README](README.md#troubleshooting-no-data-arriving)). The test span is a *probe* (span contract section 17):
+  ([README](README.md#troubleshooting-no-data-arriving)): without `--url`, the server of
+  `TRAILBEAM_OTLP_TRACES_ENDPOINT`, or the address `trailbeam start` keeps in `address` in its data directory,
+  so `trailbeam start --port N` is checked on N and not on 4318. The test span is a *probe* (span contract section 17):
   the server stores it apart from the spans (new table `probes`: SQLite schema 13, Postgres schema 6, both
   applied on start), so it never shows as a message or in a count, and reads it back at
   `GET /api/probes/{id}` (at most 8 probes an export, in one write). `GET /api/health` also gives `data.last_span_ns`, the time of the span stored last.
@@ -81,6 +116,19 @@ stopped part way, the next start runs it again; rows already copied are left as 
 - **Team install: `.env` readable by its owner only.** The README, the `docker-compose.yaml` header and
   `.env.example` now say `install -m 600 .env.example .env` instead of `cp`, which left the token and the
   Postgres password readable by every user of the server (QV-204).
+- **`npx trailbeam start` says which image it runs; image versions are write-once.** Before the server starts,
+  one stderr line names the image: its reference, local image ID and registry digest, and, when
+  `TRAILBEAM_IMAGE` is set, that it replaces the default image. The image is pulled (only when missing) and
+  inspected first, then run with `--pull never`, so the line names what runs. The release workflow now stops
+  before pushing `ghcr.io/nick-lennox/trailbeam:X.Y.Z` when that tag is already published, so re-running a
+  release can't change what an already-published npm version runs (QV-205).
+- **`trailbeam start` keeps the data directory private.** Others on the machine could read the spans (the
+  SQLite file was created with the umask, often 644) or plant a `token` that the server then used. Now an
+  existing data directory has to be yours and not writable by every user, else `trailbeam start` (and
+  `npx trailbeam start --data-dir`) stops with one line and status 2; one the group or others can use is made
+  700. A `token` or `receipt-hash-key` that is a symlink or another user's is refused; one others can read is made
+  600 instead of only warned about. The SQLite file and its `-wal` and `-shm` are created 600 (wherever `--db`
+  puts them); an existing one of another user's is refused, and one others can read is made 600.
 - **A first-run screen, and one design for every page.** While the store holds no span, `/` shows how to send
   the first message: install the package (a Python / Node.js switch), the OTLP endpoint of this server with a
   Copy button, the environment variables (with the token header when the server has a token, never the token),

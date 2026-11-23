@@ -110,7 +110,8 @@ function CopyButton({ text, target, name, onCopied }: { text: string; target: Re
   );
 }
 
-function CodeWindow({ id, caption, code, copyName, onCopied }: { id?: string; caption: string; code: string; copyName: string; onCopied: (m: string) => void }) {
+/** A captioned code block with a Copy button. */
+export function CodeWindow({ id, caption, code, copyName, onCopied }: { id?: string; caption: string; code: string; copyName: string; onCopied: (m: string) => void }) {
   const ref = useRef<HTMLPreElement>(null);
   return (
     <div id={id} className="mt-3 overflow-hidden rounded-[12px] border border-sky-line bg-sky-2">
@@ -307,7 +308,7 @@ export function FirstRun({ endpoint, auth, status, version, runtime, onRuntime, 
               </p>
               <CodeWindow id={exampleId} caption={example.caption} code={example.code} copyName="Copy the example" onCopied={setCopied} />
               <p className="mt-2 max-w-[72ch] text-[13px] leading-[1.5] text-sky-ink-3">
-                Replace <C>&lt;queue URL&gt;</C> with a queue you can send to. In a long-running service you don&rsquo;t need <C>forceFlush</C>: spans go out in batches every few seconds. On AWS Lambda, wrap the handler instead: <Ext href={LINKS.python}>Python</Ext> · <Ext href={LINKS.node}>Node.js</Ext>.
+                Replace <C>&lt;queue URL&gt;</C> with a queue you can send to. {runtime === "python" ? <>Spans go out in batches every few seconds, and any still waiting go out when the process exits.</> : <>In a long-running service you don&rsquo;t need <C>forceFlush</C>: spans go out in batches every few seconds.</>} On AWS Lambda, wrap the handler instead: <Ext href={LINKS.python}>Python</Ext> · <Ext href={LINKS.node}>Node.js</Ext>.
               </p>
             </Row>
 

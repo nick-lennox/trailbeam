@@ -57,7 +57,13 @@ export function bodyHit(body: unknown, field: string, value: string): boolean {
 
 export type BodyTerm = { field: string; value: string; neg: boolean };
 
-/** A query of body terms only, as self-hosted Trailbeam's ?body= takes it. Throws on any other term. */
+/** The words for a term ?body= can't read, the same on the server (server/bodies.py). */
+export const badBodyTerm = (raw: string) => `Can't read \`${raw}\`. Use text, or \`body.<path>:<value>\`.`;
+
+/**
+  A query of body terms, as self-hosted Trailbeam's ?body= takes it. Plain text with no field (ord-1003, or
+  "call me" in quotes) is body:<text>. Throws on a term for another field (queue:orders).
+*/
 export function parseBodyQuery(q: string): BodyTerm[] {
   const terms: BodyTerm[] = [];
   for (const m of q.matchAll(/(?:[^\s"]+|"[^"]*"?)+/g)) {
@@ -66,7 +72,12 @@ export function parseBodyQuery(q: string): BodyTerm[] {
     const term = neg ? raw.slice(1) : raw;
     const i = term.indexOf(":");
     const name = i > 0 && !term.startsWith('"') ? term.slice(0, i) : "";
-    if (!isBodyField(name)) throw new Error(`${raw}: a body search takes body:<text> or body.<path>:<value> terms only`);
+    if (!name) {
+      const value = term.replace(/"/g, "");
+      if (value) terms.push({ field: "body", value, neg });
+      continue;
+    }
+    if (!isBodyField(name)) throw new Error(badBodyTerm(raw));
     terms.push({ field: `body${name.slice(4)}`, value: term.slice(i + 1).replace(/"/g, ""), neg });
   }
   if (!terms.length) throw new Error("the body search is empty");

@@ -183,7 +183,7 @@ def test_api_bad_parameters(fixture_db, path, q):
 def test_tenants_page_without_the_shell(fixture_db, server):
     """Without the shared UI's build, /tenants is a server-rendered table from the same API."""
     with urllib.request.urlopen(server + "/tenants", timeout=5) as r:  # the server fixture's own, empty db
-        assert r.status == 200 and "No tenants in this range" in r.read().decode()
+        assert r.status == 200 and "No tenants yet" in r.read().decode()
     from trailbeam.server import web
     app = App(fixture_db, now=lambda: NOW, ui_dir=None)
     status, _, body = web.handle(app.api, ApiError, "/tenants", {"since_s": "3600"})
@@ -191,7 +191,27 @@ def test_tenants_page_without_the_shell(fixture_db, server):
     assert status == 200
     for t, sent, share, dlq in [("globex", 2, 29, 1), ("acme", 2, 29, 0), ("initech", 2, 29, 0), ("hooli", 0, 0, 0)]:
         assert f'href="/?tenant={t}">{t}</a></td><td class="mono">{sent}</td><td class="mono">{share}%</td>' in html
-    assert "1 of them without a tenant" in html and "TRAILBEAM_TENANT_ATTRIBUTE" in html
+    assert "1 of them without a tenant" in html and "Tenants in the README</a>" in html and "15.2" not in html
     assert html.index(">globex<") < html.index(">acme<") < html.index(">initech<") < html.index(">hooli<")
     status, _, body = web.handle(app.api, ApiError, "/", {"tenant": "initech"})
     assert "m-fifo-1" in body.decode() and "m-orders-1" not in body.decode()
+
+
+@pytest.mark.parametrize("sent,label,since,line", [
+    (10, "Last 24 hours", "86400", "10 messages were sent in the last 24 hours, none with one."),
+    (1, "Last hour", "3600", "1 message was sent in the last hour, none with one."),
+    (0, "Last 7 days", "604800", "No messages were sent in the last 7 days."),
+])
+def test_tenants_page_with_no_tenant_says_what_one_is(sent, label, since, line):
+    """QV-217: the empty Tenants page says what a tenant is and how to set one, in plain words, not the span contract."""
+    from trailbeam.server import web
+    d = {"rows": [], "total_sent": sent, "untagged_sent": sent, "capped": False}
+    _, _, body = web.handle(lambda name, q: d, ApiError, "/tenants", {"since_s": since})
+    html = body.decode()
+    assert "<strong>No tenants yet</strong>" in html
+    assert ("A tenant is your own customer or account ID, read from each message. " + line
+            + " To split traffic by customer, set one of these in every service that sends or receives:") in html
+    assert "export TRAILBEAM_TENANT_ATTRIBUTE=tenant        # a message attribute\n" in html
+    assert "export TRAILBEAM_TENANT_BODY_PATH=customer.id   # or a path in a JSON body</code></pre>" in html
+    assert '<a href="https://github.com/nick-lennox/trailbeam#tenants">Tenants in the README</a>' in html
+    assert "15.2" not in html and "span contract" not in html and "trailbeam.tenant" not in html

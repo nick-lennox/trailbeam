@@ -4,13 +4,30 @@ In a data directory (``--data-dir``, env ``TRAILBEAM_DATA_DIR``, default ``~/.tr
 
 - ``token``: the access token. Ingest, the API and the web screen need it;
 - ``receipt-hash-key``: the key every service hashes receipt handles with (``TRAILBEAM_RECEIPT_HASH_KEY``).
-  The server never reads it; it is kept here so that every service is given the same one;
-- ``trailbeam.sqlite``: the spans.
+  The server never reads it; it is kept here so that every service is given the same one. If
+  ``TRAILBEAM_RECEIPT_HASH_KEY`` is set, that key wins: the services are told to use it, and no file is made (an
+  existing file that holds a different key is left alone, with one warning);
+- ``trailbeam.sqlite``: the spans;
+- ``address``: the address the server listens on, written once it listens, so that ``trailbeam doctor`` checks
+  this server and not port 4318 after ``trailbeam start --port N`` (QV-220). It is left in place on exit.
 
 Each secret is created on the first run, 32 random bytes as hex, in a file only its owner can read, and read
-back on every later run, so the token and key never change unless the file is deleted. Then the server starts
+back on every later run, so the token and key never change unless the file is deleted.
+
+Others on the machine must not be able to read the spans or plant a token (QV-201). On POSIX the data directory
+has to be the user's own and not writable by every user, else ``trailbeam start`` stops; one the group or
+others can use is made 0700. A secret file has to be a regular file (not a symlink) of the user's; one others
+can read is made 0600. Files are created with a 077 umask, so the SQLite file (and its -wal and -shm) is 0600
+wherever it is; an existing one must be the user's too, and is made 0600. Then the server starts
 as ``trailbeam`` would, and once it listens, the address, the token and the environment variables for a Python
 and a Node.js service are printed on stdout (the logs stay on stderr).
+
+The token and the key are printed in full only by the run that created them. A later run (under systemd,
+``docker run -d``, nohup or CI, whose stdout often ends up in a log) prints the command that shows each one
+instead (``cat ~/.trailbeam/token``), and the environment variable lines read the files with ``$(cat ...)``, so
+the secrets reach neither the log nor the shell history. A token given with ``--token-file`` or
+``TRAILBEAM_TOKEN`` was not created here, so it is never printed, and nor is a key given with
+``TRAILBEAM_RECEIPT_HASH_KEY``: the lines say ``$TRAILBEAM_TOKEN`` or ``$TRAILBEAM_RECEIPT_HASH_KEY`` instead.
 
 Every flag of ``trailbeam`` works here too. ``--db`` or ``--store-url`` replaces the SQLite file in the data
 directory, and ``--token-file`` or ``TRAILBEAM_TOKEN`` replaces the token file.
@@ -18,13 +35,17 @@ directory, and ``--token-file`` or ``TRAILBEAM_TOKEN`` replaces the token file.
 ``npx trailbeam start`` (the npm package) runs this in the container image. Inside it the server listens on
 0.0.0.0 and the data directory is ``/data``, so it sets ``TRAILBEAM_START_SHOWN_HOST`` and
 ``TRAILBEAM_START_SHOWN_DATA_DIR`` to what the banner should say instead: the address on the developer's
-machine and the Docker volume (or directory) the data is in.
+machine and the Docker volume (or directory) the data is in. With the data in a Docker volume it also sets
+``TRAILBEAM_START_SHOWN_CAT``, the command that prints a file of the data directory on the developer's machine
+(``{}`` where the file name goes), and with ``--token-file`` it sets ``TRAILBEAM_START_SHOWN_TOKEN_FILE`` to that
+file's path on the developer's machine (the token itself reaches the container as ``TRAILBEAM_TOKEN``).
 """
 from __future__ import annotations
 
 import logging
 import os
 import secrets
+import shlex
 import stat
 import sys
 from pathlib import Path
@@ -34,9 +55,13 @@ from . import auth
 TOKEN_FILE = "token"
 KEY_FILE = "receipt-hash-key"
 DB_FILE = "trailbeam.sqlite"
+ADDRESS_FILE = "address"
 DATA_DIR_ENV = "TRAILBEAM_DATA_DIR"
 SHOWN_HOST_ENV = "TRAILBEAM_START_SHOWN_HOST"  # set by npx trailbeam start: see the module docstring
 SHOWN_DATA_DIR_ENV = "TRAILBEAM_START_SHOWN_DATA_DIR"
+KEY_ENV = "TRAILBEAM_RECEIPT_HASH_KEY"
+SHOWN_CAT_ENV = "TRAILBEAM_START_SHOWN_CAT"
+SHOWN_TOKEN_FILE_ENV = "TRAILBEAM_START_SHOWN_TOKEN_FILE"
 MIN_KEY_LENGTH = 16  # the packages warn below 16 bytes
 
 log = logging.getLogger("trailbeam.server")
@@ -68,14 +93,15 @@ def start(argv) -> None:
     a.command = "trailbeam start"  # in the one-line errors serve() prints
     logging.basicConfig(level=a.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
     data = Path(a.data_dir).expanduser()
+    if os.name == "posix":
+        os.umask(0o077)  # everything this process creates (the SQLite file, -wal, -shm) is the user's only
     db_file = None if a.store_url else Path(a.db).expanduser() if a.db else data / DB_FILE
     had_data = db_file is not None and db_file.is_file() and db_file.stat().st_size > 0
     try:
         _make_dir(data)
-        key, made_key = ensure_secret(data / KEY_FILE)
-        if len(key) < MIN_KEY_LENGTH:
-            raise SetupError(f"{data / KEY_FILE}: the receipt-hash key must be at least {MIN_KEY_LENGTH} characters")
+        key, made_key = receipt_hash_key(data / KEY_FILE)
         made_token = False
+        token_file = a.token_file  # given with --token-file; None with TRAILBEAM_TOKEN or the data directory's
         if not a.token_file and not os.environ.get("TRAILBEAM_TOKEN", "").strip():
             a.token_file = str(data / TOKEN_FILE)
             _, made_token = ensure_secret(a.token_file)
@@ -89,15 +115,79 @@ def start(argv) -> None:
         warn_existing_data(db_file, made_token and a.token_file, made_key and data / KEY_FILE)
     if a.db is None:
         a.db = str(data / DB_FILE)
+    if not a.store_url:
+        try:
+            _tighten_db(a.db)
+        except (OSError, SetupError) as e:
+            log.error("trailbeam start: %s", e)
+            sys.exit(2)
 
     shown_host = os.environ.get(SHOWN_HOST_ENV, "").strip()
-    shown_data = os.environ.get(SHOWN_DATA_DIR_ENV, "").strip() or data
+    shown_data_env = os.environ.get(SHOWN_DATA_DIR_ENV, "").strip()
+    shown_data = shown_data_env or data
+    cat = os.environ.get(SHOWN_CAT_ENV, "").strip()
+
+    def show(name):
+        """The shell command that prints the file ``name`` of the data directory, on the developer's machine."""
+        if cat:
+            return cat.replace("{}", name)
+        return "cat " + _shell_path(Path(shown_data_env) / name if shown_data_env else data / name)
+
+    key_var = KEY_ENV if os.environ.get(KEY_ENV, "").strip() else None  # receipt_hash_key() used it
+    key_cmd = None if made_key or key_var else show(KEY_FILE)
+    token_cmd = token_var = None
+    if made_token:
+        pass
+    elif token_file:
+        token_cmd = "cat " + _shell_path(token_file)
+    elif a.token_file:  # the data directory's
+        token_cmd = show(TOKEN_FILE)
+    else:
+        shown_file = os.environ.get(SHOWN_TOKEN_FILE_ENV, "").strip()
+        if shown_file:
+            token_cmd = "cat " + _shell_path(shown_file)
+        else:
+            token_var = "TRAILBEAM_TOKEN"
 
     def announce(host, port, token):
-        sys.stdout.write(banner(_url_host(shown_host or host), port, token, key, shown_data))
+        write_address(data, f"http://{_url_host(shown_host or host)}:{port}")
+        sys.stdout.write(banner(_url_host(shown_host or host), port, token, key, shown_data,
+                                token_cmd=token_cmd, key_cmd=key_cmd, token_var=token_var,
+                                key_var=key_var))
         sys.stdout.flush()
 
     serve(a, on_listening=announce)
+
+
+def write_address(data: Path, url: str) -> None:
+    """Keep the address the server listens on in the data directory, for ``trailbeam doctor``. Not being able
+    to is a warning: the server runs either way."""
+    try:
+        (Path(data) / ADDRESS_FILE).write_text(url + "\n", encoding="utf-8")
+    except OSError as e:
+        log.warning("trailbeam start: cannot write %s (%s): trailbeam doctor needs --url %s to check this server",
+                    Path(data) / ADDRESS_FILE, e.strerror or e, url)
+
+
+def receipt_hash_key(path: Path) -> tuple:
+    """The key to give the services, and whether its file was just created. $TRAILBEAM_RECEIPT_HASH_KEY wins
+    over the file, so that services already set up with it keep joining; then the file is not created."""
+    env = os.environ.get(KEY_ENV, "").strip()
+    if env:
+        if len(env) < MIN_KEY_LENGTH:
+            raise SetupError(f"{KEY_ENV}: the receipt-hash key must be at least {MIN_KEY_LENGTH} characters")
+        try:
+            in_file = path.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            in_file = None
+        if in_file and in_file != env:
+            log.warning("%s differs from the key in %s: using %s; services set up with the file's key will not "
+                        "join timelines with the others until they use it too", KEY_ENV, path, KEY_ENV)
+        return env, False
+    key, made = ensure_secret(path)
+    if len(key) < MIN_KEY_LENGTH:
+        raise SetupError(f"{path}: the receipt-hash key must be at least {MIN_KEY_LENGTH} characters")
+    return key, made
 
 
 def warn_existing_data(db_file, new_token_file, new_key_file) -> None:
@@ -116,24 +206,23 @@ def warn_existing_data(db_file, new_token_file, new_key_file) -> None:
         log.warning("trailbeam start: %s is an existing database, and a new receipt-hash key was made (%s). Your "
                     "services keep hashing with the key they have (TRAILBEAM_RECEIPT_HASH_KEY, or the published "
                     "default key if none is set) until you change it; messages in flight while services change keys "
-                    "are not joined. To keep the key they use, put it in %s and start again.",
-                    db_file, new_key_file, new_key_file)
+                    "are not joined. To keep the key they use, set %s to it (or put it in %s) and start again.",
+                    db_file, new_key_file, KEY_ENV, new_key_file)
 
 
 def ensure_secret(path) -> tuple:
     """The secret in ``path``, and whether it was just created. A missing file is created, readable and writable
-    by its owner only, holding 32 random bytes as hex; an existing one is read and never rewritten."""
+    by its owner only, holding 32 random bytes as hex; an existing one is read and never rewritten. On POSIX an
+    existing one must be a regular file (a symlink is not followed) owned by this user, else SetupError; one
+    others can read is made 0600."""
     path = Path(path)
     value = secrets.token_hex(32)
     try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW, 0o600)
     except FileExistsError:
-        text = path.read_text(encoding="utf-8").strip()
+        text = _read_own_secret(path)
         if not text:
             raise SetupError(f"{path} is empty: delete it to have a new secret made, or put one in it") from None
-        mode = path.stat().st_mode
-        if os.name == "posix" and mode & (stat.S_IRWXG | stat.S_IRWXO):
-            log.warning("%s can be read by other users (mode %o): chmod 600 %s", path, stat.S_IMODE(mode), path)
         return auth.check_token(text) if path.name == TOKEN_FILE else text, False
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(value + "\n")
@@ -142,10 +231,86 @@ def ensure_secret(path) -> tuple:
     return value, True
 
 
+_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+
+
+def _read_own_secret(path: Path) -> str:
+    try:
+        fd = os.open(path, os.O_RDONLY | _NOFOLLOW)
+    except OSError as e:
+        if path.is_symlink():
+            raise SetupError(f"{path} is a symlink: a secret file must be a regular file of yours. Delete it to "
+                             "have a new one made") from None
+        raise
+    with os.fdopen(fd, "r", encoding="utf-8") as f:
+        st = os.fstat(f.fileno())
+        if not stat.S_ISREG(st.st_mode):
+            raise SetupError(f"{path} is not a regular file")
+        if os.name == "posix":
+            if st.st_uid != os.geteuid():
+                raise SetupError(f"{path} belongs to another user (uid {st.st_uid}): it can't be trusted as a "
+                                 "secret. Delete it to have a new one made")
+            mode = stat.S_IMODE(st.st_mode)
+            if mode & 0o077:
+                os.fchmod(f.fileno(), 0o600)
+                log.warning("%s could be read by other users (mode %o): made it 600. If they could, make a new "
+                            "secret: delete it and run trailbeam start again", path, mode)
+        return f.read().strip()
+
+
 def _make_dir(path: Path) -> None:
+    """Creates the data directory 0700, or checks an existing one: on POSIX it must be this user's and not
+    writable by every user (else SetupError); one the group or others can use is made 0700."""
     if path.exists() and not path.is_dir():
         raise SetupError(f"the data directory {path} is a file")
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.name != "posix":
+        return
+    st = os.stat(path)
+    if st.st_uid != os.geteuid():
+        raise SetupError(f"the data directory {path} belongs to another user (uid {st.st_uid}): use a directory "
+                         "of your own (--data-dir)")
+    mode = stat.S_IMODE(st.st_mode)
+    if mode & stat.S_IWOTH:
+        raise SetupError(f"the data directory {path} can be written by any user (mode {mode:o}): they could plant "
+                         f"a token. Check what is in it, then chmod 700 {path}, or use another --data-dir")
+    if mode & 0o077:
+        # Group-writable is the usual with a 002 umask (a group of one's own). What a group member may have put
+        # here is caught file by file: a secret or SQLite file that isn't this user's is refused.
+        os.chmod(path, 0o700)
+        log.info("the data directory %s could be read by other users (mode %o): made it 700", path, mode)
+
+
+def _tighten_db(db: str) -> None:
+    """An existing SQLite file (or its -wal, -shm) must be a regular file of this user's (else SetupError: whoever
+    owns it can read every span); one others can read is made 0600. New ones are 0600 already (the umask)."""
+    if os.name != "posix":
+        return
+    for p in (db, db + "-wal", db + "-shm"):
+        try:
+            st = os.lstat(p)
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISREG(st.st_mode):
+            raise SetupError(f"{p} is not a regular file (a symlink?): the SQLite file must be a file of yours")
+        if st.st_uid != os.geteuid():
+            raise SetupError(f"{p} belongs to another user (uid {st.st_uid}), who can read every span in it: use "
+                             "a file of your own (--db)")
+        mode = stat.S_IMODE(st.st_mode)
+        if mode & 0o077:
+            os.chmod(p, 0o600)
+            log.info("%s could be read by other users (mode %o): made it 600", p, mode)
+
+
+def _shell_path(path) -> str:
+    """``path`` for a shell command: ``~/...`` under the home directory when that needs no quoting."""
+    text = str(path)
+    home = str(Path.home())
+    if home not in ("", "/") and text.startswith(home + "/"):
+        rest = text[len(home) + 1:]
+        if rest and shlex.quote(rest) == rest:
+            return "~/" + rest
+    return shlex.quote(text)
 
 
 def _url_host(host: str) -> str:
@@ -158,18 +323,35 @@ def _url_host(host: str) -> str:
 
 
 def service_env(url: str, token, key: str, service: str) -> list:
+    """``token`` and ``key`` are what goes after ``=`` in a shell: the secret itself, ``$(cat ...)`` or ``$VAR``."""
     env = [("TRAILBEAM_OTLP_TRACES_ENDPOINT", f"{url}/v1/traces")]
     if token:
         env.append(("OTEL_EXPORTER_OTLP_HEADERS", f"Authorization=Bearer%20{token}"))
-    env += [("TRAILBEAM_RECEIPT_HASH_KEY", key), ("OTEL_SERVICE_NAME", service)]
+    env += [(KEY_ENV, key), ("OTEL_SERVICE_NAME", service)]
     return env
 
 
-def banner(host: str, port: int, token, key: str, data) -> str:
+def banner(host: str, port: int, token, key: str, data, token_cmd=None, key_cmd=None, token_var=None,
+           key_var=None) -> str:
+    """The text printed once the server listens. When the token (key) was not created by this run, it is not in
+    the text: ``token_cmd`` (``key_cmd``) is the shell command that prints it, or ``token_var`` (``key_var``) the
+    environment variable that holds it, and the environment variable lines use that."""
     url = f"http://{host}:{port}"
     lines = ["", f"Trailbeam is running: open {url}/"]
     if token:
-        lines.append(f"  Access token (the web screen asks for it once): {token}")
+        if token_cmd:
+            token, shown = f"$({token_cmd})", f"show it with: {token_cmd}"
+        elif token_var:
+            token, shown = f"${token_var}", f"the one in {token_var}"
+        else:
+            shown = token
+        lines.append(f"  Access token (the web screen asks for it once): {shown}")
+    if key_cmd:
+        key = f"$({key_cmd})"
+        lines.append(f"  Receipt-hash key: show it with: {key_cmd}")
+    elif key_var:
+        key = f"${key_var}"
+        lines.append(f"  Receipt-hash key: the one in {key_var}")
     lines += [f"  Data directory: {data} (keep it private: it holds the token and the receipt-hash key)", ""]
     for lang, install, service, code in (
             ("Python", "pip install trailbeam", "my-python-service",
@@ -181,5 +363,6 @@ def banner(host: str, port: int, token, key: str, data) -> str:
         lines += [f"  export {k}={v}" for k, v in service_env(url, token, key, service)]
         lines += ["", f"  and in its code: {code}", ""]
     lines += ["Give every service its own OTEL_SERVICE_NAME, and the same receipt-hash key. Running trailbeam start "
-              "again keeps this token and key. Stop with Ctrl-C.", ""]
+              "again keeps this token and key, and prints them in full only on the run that created them. "
+              "Stop with Ctrl-C.", ""]
     return "\n".join(lines) + "\n"

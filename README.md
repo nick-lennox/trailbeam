@@ -124,10 +124,23 @@ export OTEL_SERVICE_NAME=my-python-service
 ```
 
 Because the token is on, services need these settings, and the web screen asks for the token once. Later
-runs reuse the same token and key. Every `trailbeam` flag works after `start` (`trailbeam start --help`).
-Stop it with Ctrl-C. `npx trailbeam start` does the same with Docker and no Python
-([Node.js README](node/README.md#run-the-server-npx-trailbeam-start)). Both need 0.4.0 or later. Nothing on
-the screen? Run `trailbeam doctor` ([Troubleshooting](#troubleshooting-no-data-arriving)).
+runs reuse the same token and key, and print them in full only on the run that created them: stdout often ends
+up in a log (systemd, `docker run -d`, nohup, CI). A later run prints the command that shows each one
+(`cat ~/.trailbeam/token`, `cat ~/.trailbeam/receipt-hash-key`), and its export lines read the files, so
+pasting them doesn't put the secrets in your shell history either:
+
+```sh
+export OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20$(cat ~/.trailbeam/token)
+export TRAILBEAM_RECEIPT_HASH_KEY=$(cat ~/.trailbeam/receipt-hash-key)
+```
+
+A token you give with `--token-file` or `TRAILBEAM_TOKEN` is never printed. If `TRAILBEAM_RECEIPT_HASH_KEY` is
+already set (at least 16 characters), `trailbeam start` uses that key and makes no key file, so services you set
+up before keep joining: the export lines say `$TRAILBEAM_RECEIPT_HASH_KEY`, and if the data directory already
+holds a different key, the environment variable wins and one warning says so. Every `trailbeam` flag works after
+`start` (`trailbeam start --help`). Stop it with Ctrl-C. `npx trailbeam start` does the
+same with Docker and no Python ([Node.js README](node/README.md#run-the-server-npx-trailbeam-start)). Both need
+0.4.0 or later. Nothing on the screen? Run `trailbeam doctor` ([Troubleshooting](#troubleshooting-no-data-arriving)).
 
 ### See a richer example
 
@@ -247,14 +260,20 @@ trailbeam doctor: server http://127.0.0.1:4318, ingest http://127.0.0.1:4318/v1/
 1 of 5 checks failed.
 ```
 
-Each failed check says the likely cause and the fix. A check that needs an earlier one that failed is skipped.
+Each failed check says the likely cause and the fix ([every failure](https://docs.trailbeam.app/reference/troubleshooting#no-data-arrives)). A check that needs an earlier one that failed is skipped.
 The exit code is 1 when a check failed, so it can run in a script or a CI step.
 
-By default it checks `http://127.0.0.1:4318` with the token `trailbeam start` created (`~/.trailbeam/token`, or
-the one in `TRAILBEAM_DATA_DIR`). For another server, give `--url` (or `TRAILBEAM_URL`), and the token with
-`--token-file` or `TRAILBEAM_TOKEN`. When your services send somewhere else than the server you open, such as
-through a Collector, give that address with `--ingest-url`; it reads `TRAILBEAM_OTLP_TRACES_ENDPOINT` as the
-services do. Run it where your services run to check what they can reach. After `npx trailbeam start` the token
+It uses the token `trailbeam start` created (`~/.trailbeam/token`, or the one in `TRAILBEAM_DATA_DIR`), or the
+one given with `--token-file` or `TRAILBEAM_TOKEN`. It checks the server given with `--url` (or `TRAILBEAM_URL`,
+or the port in `TRAILBEAM_PORT`). Without one, it checks the server `trailbeam start` started: the host and port
+of `TRAILBEAM_OTLP_TRACES_ENDPOINT` (the variable `trailbeam start` prints), or the address it last listened on,
+which it keeps in the data directory (`~/.trailbeam/address`). So after `trailbeam start --port 4319`, with the
+printed variables set, plain `trailbeam doctor` checks 4319. When neither is there, it checks
+`http://127.0.0.1:4318`. The first line says which server it checked and where that address came from. For the
+Compose team install with another `TRAILBEAM_PORT`, give `--url` (or set `TRAILBEAM_PORT` in the shell). When
+your services send somewhere else than the server, such as through a Collector, give that address with
+`--ingest-url`; it reads `TRAILBEAM_OTLP_TRACES_ENDPOINT` as the services do, and then takes the server from
+`--url` or from the address `trailbeam start` kept. Run it where your services run to check what they can reach. After `npx trailbeam start` the token
 is in the Docker volume, so give the one it printed: `TRAILBEAM_TOKEN=<token> trailbeam doctor`. The
 image has the command too: `docker exec <container> trailbeam doctor --token-file /data/token` checks from
 inside the container (`docker ps` gives its name).
@@ -270,7 +289,7 @@ clone.
 
 ### Team install (Docker Compose with Postgres)
 
-For a team: one server several people's services send to, on its own Postgres, from one file.
+For a team: one server several people's services send to, on its own Postgres, from one file. The [team guide](https://docs.trailbeam.app/get-started/team) takes you from here to the first instrumented services.
 [`docker-compose.yaml`](docker-compose.yaml) runs the Trailbeam server and Postgres 16, each with a named
 volume, health checks and `restart: unless-stopped`. The token and passwords come from a `.env` file:
 
@@ -320,6 +339,39 @@ With no access token set (the default), anyone who can reach the port can send s
 timeline, so keep it on `127.0.0.1` or a trusted network, or set a token ([Access token](#access-token)). See
 [Run Trailbeam](https://docs.trailbeam.app/setup/run) and, to forward spans through an OpenTelemetry Collector, the
 [Collector configuration](collector/README.md).
+
+### Kubernetes (Helm chart)
+
+[`deploy/helm/trailbeam`](deploy/helm/trailbeam) installs the server as a Deployment of 2 replicas behind a
+Service on port 4318, on a Postgres you run, with the token and the receipt-hash key in a Secret. Helm 3 or 4
+(tested with 3.22 and 4.3); from a clone:
+
+```sh
+helm install trailbeam ./deploy/helm/trailbeam \
+  --set store.url='postgresql://trailbeam:<password>@<host>:5432/trailbeam' \
+  --set image.repository=<registry>/trailbeam --set image.tag=<tag>
+kubectl rollout status deployment/trailbeam
+kubectl get secret trailbeam -o jsonpath='{.data.token}' | base64 -d; echo    # the access token
+```
+
+- **Postgres** comes from `store.url`, `store.existingSecret` (a Secret with the key `store-url`), or, for a
+  trial, `postgresql.enabled=true`: one Postgres pod on an 8 GiB volume, with no backups and no replication.
+- **The token and the receipt-hash key** are generated once and kept on `helm upgrade`, or come from your own
+  Secret (`auth.existingSecret`, keys `token` and `receipt-hash-key`). Use your own Secret with Argo CD or Flux,
+  which render without the cluster. Every service that uses the Trailbeam packages needs that same
+  receipt-hash key.
+- **Probes:** liveness on `/api/health`, readiness on `/api/ready`, and a startup probe that allows 30 minutes for
+  a schema upgrade. **Requests:** 250m CPU and 256 MiB per replica, no CPU limit, 1 GiB memory limit; the
+  figures behind them are in [`values.yaml`](deploy/helm/trailbeam/values.yaml).
+- **The image needs the Postgres driver.** Releases from 0.4.0 publish `ghcr.io/nick-lennox/trailbeam:<version>-postgres`,
+  the chart's default. To run your own build, build and push it and set `image.repository` and `image.tag`:
+  `docker build --build-arg TRAILBEAM_EXTRAS=server,postgres -t <registry>/trailbeam:<tag> .`
+- **Plain manifests:** `helm template trailbeam ./deploy/helm/trailbeam --set store.existingSecret=<secret>
+  --set auth.existingSecret=<secret> > trailbeam.yaml` renders them once, for `kubectl apply` without Helm.
+
+CI installs the chart on a kind cluster on every change, sends one span with the token and checks that an
+upgrade keeps the token ([`deploy/helm/check.sh`](deploy/helm/check.sh)). Docs:
+[Run on Kubernetes](https://docs.trailbeam.app/run/kubernetes).
 
 ### Access token
 
@@ -408,8 +460,9 @@ per million spans. A file from an earlier version is converted when this version
 The bodies it keeps are on the message page's **Body** tab, one per message (the send's copy, else the
 first receive's). A message with no body says why: the package's capture status, a producer that isn't
 instrumented, a package from before 3.2, or a body this server dropped because its queue isn't in
-`TRAILBEAM_STORE_BODIES`. The Messages page searches them with `body.*` terms such as
-`body.order.sku:A-100` or `body.amount:>=100`, and so does `GET /api/messages?body=...`. The rules are in
+`TRAILBEAM_STORE_BODIES`. The Messages page searches them with plain text (`ord-1003`, the same as
+`body:ord-1003`) or `body.*` terms such as `body.order.sku:A-100` or `body.amount:>=100`, and so does
+`GET /api/messages?body=...`. On a server that keeps no bodies, the page's **Body** field is off and says so. The rules are in
 [`contract/body-view.md`](contract/body-view.md); the hosted app follows the same ones and draws the same view.
 
 **A body search is bounded.** Bodies have no index, so a search reads them. It reads only the messages
@@ -649,9 +702,15 @@ with `shared_buffers = 1GB`:
   partition is read only for the rare keys the filter can't rule out, such as a late settle or a false
   positive (about 1 in 15,000 keys). At 1M spans over 7 days, ingest touches 25 MB of lookup indexes instead
   of 92 MB. So give Postgres enough memory for the last three days' indexes, not for all of history. This holds with
-  `forever` retention too: retention's passes seal the older days whether or not anything expires. We
-  haven't re-run the 4M–7M measurement with this change, so its effect at scale is **not measured**, and the
-  100M figure stays an estimate: 12–16 GB, from before this change.
+  `forever` retention too: retention's passes seal the older days whether or not anything expires.
+- **Measured with this change, from 4M to 9.4M spans** (QV-180, same machine and settings, on a quieter day):
+  ingest held 6,000 spans/s at every size with no errors, where before it didn't hold 2,000 at 7M. Export p99
+  at 6,000 spans/s was 241 ms at 4–5M and 1.1–1.3 s at 7–9M, so the p99 ≤ 500 ms target holds only to about
+  5M here. Near 8,000 spans/s the two replicas ran out of CPU. The machine had more free RAM than in the
+  earlier run, and the run can't separate that from the change
+  ([details](python/bench/README.md#4m-and-7m-spans-before-and-after-qv-127-qv-180)). **The largest size we
+  have measured is 9.4M spans (26 GB).** Above that it's not measured, and the 100M figure stays an estimate:
+  12–16 GB of RAM, from before this change.
 - **Commit latency adds to export latency.** An export keeps its locks on the messages it touches until it
   commits, so a slow WAL flush holds up the exports behind it. Put the database on storage with a fast
   fsync: local NVMe, EBS gp3, or a managed service's SSD.
@@ -660,7 +719,15 @@ with `shared_buffers = 1GB`:
 - **The tenants page** added up every tenant event in its time window on each request, so it got slower as
   data grew: p95 1.5 s at 4M spans and 2.8 s at 7M. The other pages stayed under 500 ms (p95) under ingest. It
   now reads an hourly rollup per tenant: at 1M spans on the same desktop, idle, p95 went from 184 ms to 44 ms
-  for the last day and from 670 ms to 193 ms for the last 7 days. It hasn't been measured at 4M or 7M since.
+  for the last day and from 670 ms to 193 ms for the last 7 days. That rollup covers only the whole hours of the
+  window, though, and the page still read every raw event of the current hour. Right after heavy ingest that
+  made it slow again: 1.1 s at 5.3M spans and 1.9–2.1 s at 9.4M in QV-180, with 2.5M events in the current
+  hour. Since QV-224 the current hour is read from the rollup too, less the few events newer than the window. With
+  2.06M of 3.3M tenant events in the current hour, idle, p95 for the last day went from 2.07 s to 55 ms, for the last hour
+  from 2.19 s to 21 ms and for the last 7 days from 2.30 s to 248 ms, with the same answers. The hour at the start
+  of the window still reads up to half an hour of raw events, which Postgres added up at about 2M per 250 ms
+  here. At a steady 2,000 spans/s that is about 3.6M events, or roughly 450 ms (an estimate; not measured under
+  ingest).
 
 To trade durability for latency, as `--durability relaxed` does for SQLite, set it on Trailbeam's role:
 `ALTER ROLE trailbeam SET synchronous_commit = off;`. A crash of Postgres can then lose the exports answered `200`
@@ -773,10 +840,8 @@ Kubernetes or for high availability. No sticky sessions are needed.
 - The ingest counters in `/api/health` are per replica: each counts what it received.
 
 Examples: [`deploy/replicas/compose.yaml`](deploy/replicas/compose.yaml), two replicas and Postgres behind
-nginx (`docker compose -f deploy/replicas/compose.yaml up -d --build --wait`). And
-[`deploy/kubernetes/trailbeam.yaml`](deploy/kubernetes/trailbeam.yaml), a Deployment of two replicas with liveness
-and readiness probes and a Service, on a Postgres you run. The image needs the Postgres driver:
-`docker build --build-arg TRAILBEAM_EXTRAS=server,postgres .`
+nginx (`docker compose -f deploy/replicas/compose.yaml up -d --build --wait`). And the
+[Helm chart](#kubernetes-helm-chart), two replicas with liveness and readiness probes and a Service.
 
 ### Durability: `--durability`
 
@@ -1104,10 +1169,12 @@ The documentation is at [docs.trailbeam.app](https://docs.trailbeam.app).
 | Page | Contents |
 |---|---|
 | [Quickstart](https://docs.trailbeam.app/quickstart) | From a clone to one message's timeline, on the local demo |
+| [Set up Trailbeam for your team](https://docs.trailbeam.app/get-started/team) | One server for a team, the token shared, the first services instrumented and checked with `trailbeam doctor` |
 | [How Trailbeam works](https://docs.trailbeam.app/concepts/how-it-works) | Components, data flow, what is recorded and what is inferred |
 | [Run Trailbeam](https://docs.trailbeam.app/setup/run) | Run Trailbeam, natively or in a container |
 | [HTTP API](https://docs.trailbeam.app/reference/api) | Trailbeam's JSON API |
 | [Vocabulary](https://docs.trailbeam.app/concepts/vocabulary) | Terms |
+| [Troubleshooting](https://docs.trailbeam.app/reference/troubleshooting) | Every `trailbeam doctor` failure, and other symptoms, with the cause and the fix |
 
 What changed in each release, with upgrade notes: [CHANGELOG.md](CHANGELOG.md).
 
