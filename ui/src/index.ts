@@ -8,7 +8,7 @@ export { answerFor, consumersOf } from "./summary.ts";
 export { ErrorCauses } from "./timeline/ErrorCauses.tsx";
 export { errorCauses, type ErrorCause } from "./errors.ts";
 export type * from "./timeline/types.ts";
-export { TenantsTable, TenantSearch, tenantsFootnote, fmtWait, fmtShare } from "./tenants/Tenants.tsx";
+export { TenantsTable, TenantSearch, tenantsFootnote, noTenantsText, fmtWait, fmtShare, TENANT_ENV, TENANT_IS, TENANTS_README } from "./tenants/Tenants.tsx";
 export type * from "./tenants/types.ts";
 export { BodyPanel, type BodyPanelProps } from "./body/BodyPanel.tsx";
 export { bodyView, NO_BODY_TEXT, noBodyNotes, type BodySpan } from "./body/rules.ts";
@@ -16,7 +16,7 @@ export {
   bodyHit, bodyMatches, bodyPath, bodyValues, isBodyField, numHit, parseBodyQuery, parsedBody, textHit, NUM, RANGE, type BodyTerm,
 } from "./body/search.ts";
 export type * from "./body/types.ts";
-export { FirstRun, highlight, environment, EXAMPLE, INSTALL, RUNTIMES, RUNTIME_KEY, type FirstRunProps, type Runtime } from "./firstrun/FirstRun.tsx";
+export { FirstRun, CodeWindow, highlight, environment, EXAMPLE, INSTALL, RUNTIMES, RUNTIME_KEY, type FirstRunProps, type Runtime } from "./firstrun/FirstRun.tsx";
 export {
   announcement, isDefaultEndpoint, retainedFor, storeHasSpans, storeIsEmpty, waitingStatus, NO_SPANS_AFTER_MS,
   type FirstMessage, type FirstRunStatus, type Health,

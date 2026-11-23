@@ -1,5 +1,5 @@
 /* What every shell page shares: the header, the page frame, and reading Trailbeam's API on the same origin. */
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { TenantSearch, type Health } from "../src/index.ts";
 
 /** A tenant's messages: the Messages list, filtered (contract/tenants.md, "Tenant filter"). */
@@ -41,7 +41,28 @@ export const getHealth = (timeoutMs?: number) => getJSON<Health>("/api/health", 
 
 const NAV = [["/", "Messages"], ["/duplicates", "Duplicates"], ["/stuck", "Stuck"], ["/tenants", "Tenants"]] as const;
 
+/* The header's tenant box shows only once a tenant has been seen in the last 7 days (QV-217): on an install
+   without tenants it is a box that can find nothing. Remembered for the tab, so pages don't flicker. */
+const SEEN_KEY = "trailbeam.tenantSeen";
+const remembered = () => { try { return sessionStorage.getItem(SEEN_KEY) === "1"; } catch { return false; } };
+const remember = () => { try { sessionStorage.setItem(SEEN_KEY, "1"); } catch { /* storage off: ask again next page */ } };
+function useTenantSeen(): boolean {
+  const [seen, setSeen] = useState(remembered);
+  useEffect(() => {
+    if (seen) return;
+    let live = true;
+    getJSON<{ rows: unknown[] }>("/api/tenants?since_s=604800").then((d) => {
+      if (!live || d.rows.length === 0) return;
+      remember();
+      setSeen(true);
+    }, () => {});
+    return () => { live = false; };
+  }, [seen]);
+  return seen;
+}
+
 export function Header({ id = "" }: { id?: string }) {
+  const tenantSeen = useTenantSeen();
   return (
     <header className="flex flex-wrap items-center gap-4 border-b border-sky-line py-4">
       <a href="/" className="text-[1.25rem] text-sky-ink">Trailbeam</a>
@@ -52,7 +73,7 @@ export function Header({ id = "" }: { id?: string }) {
         ))}
       </nav>
       <div className="ml-auto flex min-w-0 flex-1 basis-80 justify-end gap-2">
-        <TenantSearch suggest={suggest} href={tenantHref} className="w-40 shrink-0" />
+        {tenantSeen && <TenantSearch suggest={suggest} href={tenantHref} className="w-52 shrink-0" />}
         <form action="/message" className="flex min-w-0 flex-1 justify-end">
           <label className="sr-only" htmlFor="id">Message ID</label>
           <input id="id" name="id" defaultValue={id} placeholder="Message ID"

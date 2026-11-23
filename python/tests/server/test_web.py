@@ -421,7 +421,7 @@ def test_an_empty_store_says_nothing_is_connected_yet(server):
         assert "No messages yet. No service has sent spans here" in html, path
         assert "No stuck messages." not in html and "No duplicate deliveries." not in html, path
     _, _, html = get(server, "/tenants")
-    assert "section 15.2</a>" in html and "15.1" not in html and "revision 3.2" not in html
+    assert "No tenants yet" in html and "15.2" not in html and "revision 3.2" not in html
     post(server, [Consumer("producer").send(T0, "first-one")])
     _, _, html = get(server, "/stuck?queue=payments")
     assert "No stuck messages." in html and "No messages yet." not in html
