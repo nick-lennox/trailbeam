@@ -24,8 +24,9 @@ What it does, with one access token throughout:
 4. The new server ingests the rest, then everything must equal a new server given all the spans from empty:
    so the in-flight messages joined across the upgrade.
 5. The old server is started again on the upgraded store. Postgres: it must refuse, saying a newer Trailbeam
-   wrote it, and leave the database as it is. SQLite: 0.3.0 and this version have the same SQLite schema
-   (12), so it must start and serve the same data. Then the new server must again serve exactly step 4.
+   wrote it, and leave the database as it is. SQLite: the same, when the new server moved the file's schema
+   (0.4 adds schema 13, the probes of ``trailbeam doctor``); when it left the schema as it was, the old server
+   must start and serve the same data. Then the new server must again serve exactly step 4.
 
 Exit status 0 when every check passes; each failure is printed. Leaves nothing behind but ``--workdir``
 (removed unless ``--keep``), and with images, removes the containers and volume it made.
@@ -404,6 +405,7 @@ def run(a) -> int:
     token_file = workdir / "token"
     token_file.write_text(token + "\n")
     token_file.chmod(0o600)
+    sqlite_old = sqlite_new = None  # the SQLite file's schema under the old and the new server, when it is at hand
     try:
         # What this version serves for the same spans, from empty: after the first part, and after all of them.
         refs = {}
@@ -435,7 +437,8 @@ def run(a) -> int:
             v = stores.pg_version(upgraded)
             print(f"   Postgres schema after the old server: {v}")
         elif "file" in upgraded:
-            print(f"   SQLite schema after the old server: {sqlite_version(upgraded['file'])}")
+            sqlite_old = sqlite_version(upgraded["file"])
+            print(f"   SQLite schema after the old server: {sqlite_old}")
 
         new = server("new", new_kw, upgraded, **({"start_dir": upgraded["dir"]} if use_start else {})).run(workdir)
         new_version = api(new.port, "/api/health", token).get("version")
@@ -444,7 +447,8 @@ def run(a) -> int:
             v = stores.pg_version(upgraded)
             (ok if v == a.expect_pg_schema else fail)(f"Postgres schema moved to {v} (expected {a.expect_pg_schema})")
         elif "file" in upgraded:
-            print(f"   SQLite schema under the new server: {sqlite_version(upgraded['file'])}")
+            sqlite_new = sqlite_version(upgraded["file"])
+            print(f"   SQLite schema under the new server: {sqlite_new}")
         after = snapshot(new.port, token, window)
         same("every answer of the old server is the same after the upgrade", before, after, exact=False)
         same("after the upgrade = this version from empty, same spans", refs["ref_part"], after, exact=True)
@@ -469,7 +473,10 @@ def run(a) -> int:
 
         # Downgrade.
         down = server("downgrade", old_kw, upgraded).run(workdir, wait=False)
-        if a.store == "postgres":
+        # Without the file at hand (the image's volume) the schema can't be read: a refusal is then expected,
+        # as this version's SQLite schema is newer than 0.3.0's.
+        schema_moved = a.store == "postgres" or sqlite_new is None or sqlite_new != sqlite_old
+        if schema_moved:
             code = down.wait_exit(90)
             logs = down.logs()
             if code is None:
@@ -481,8 +488,12 @@ def run(a) -> int:
             else:
                 line = next(l for l in logs.splitlines() if "newer Trailbeam" in l)
                 ok(f"downgrade refused, status {code}: {line.strip()[-220:]}")
-            v = stores.pg_version(upgraded)
-            (ok if v == a.expect_pg_schema else fail)(f"the database is still at schema {v} after the refused downgrade")
+            if a.store == "postgres":
+                v = stores.pg_version(upgraded)
+                (ok if v == a.expect_pg_schema else fail)(f"the database is still at schema {v} after the refused downgrade")
+            else:
+                v = sqlite_version(upgraded["file"]) if "file" in upgraded else None
+                (ok if v == sqlite_new else fail)(f"the file is still at schema {v} after the refused downgrade")
         else:
             wait_ready(down.port, down.alive)
             same("downgrade (same SQLite schema): the old server serves what it served before, and the new spans",
