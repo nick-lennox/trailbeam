@@ -243,12 +243,22 @@ def _stuck(api, q: dict) -> Response:
 
 
 TENANT_RANGES = [("3600", "Last hour"), ("86400", "Last 24 hours"), ("604800", "Last 7 days")]
-TENANT_SETUP = ("A tenant comes from a Trailbeam package with a tenant field set: "
-                "<code>TRAILBEAM_TENANT_ATTRIBUTE</code> (a message attribute) or "
-                "<code>TRAILBEAM_TENANT_BODY_PATH</code> (a dotted path in a JSON body), or the package's "
-                "<code>tenant</code> option. Set it in each service that sends or receives. Spans then carry "
-                "<code>trailbeam.tenant</code>: see <a href=\"https://github.com/nick-lennox/trailbeam/blob/main/"
-                "contract/span-contract.md#152-attributes\">the span contract, section 15.2</a>.")
+TENANT_IS = "A tenant is your own customer or account ID, read from each message."
+TENANTS_README = '<a href="https://github.com/nick-lennox/trailbeam#tenants">Tenants in the README</a>'
+TENANT_ENV = ("export TRAILBEAM_TENANT_ATTRIBUTE=tenant        # a message attribute\n"
+              "export TRAILBEAM_TENANT_BODY_PATH=customer.id   # or a path in a JSON body")
+
+
+def _no_tenants(total_sent: int, label: str) -> str:
+    """The Tenants page with no tenant in its range (QV-217): what a tenant is, and how to set one."""
+    when = "in the " + label.replace("Last ", "last ", 1)
+    if not total_sent:
+        seen = f"No messages were sent {when}."
+    else:
+        seen = f'{total_sent:,} {"message was" if total_sent == 1 else "messages were"} sent {when}, none with one.'
+    return (f'<div class="notice"><p><strong>No tenants yet</strong></p><p>{TENANT_IS} {seen} To split traffic by '
+            f"customer, set one of these in every service that sends or receives:</p>"
+            f"<pre><code>{escape(TENANT_ENV)}</code></pre><p>{TENANTS_README}</p></div>")
 
 
 def _tenants(api, q: dict) -> Response:
@@ -258,9 +268,7 @@ def _tenants(api, q: dict) -> Response:
     head = ("<h1>Tenants</h1><p class=\"muted\">Which of your customers are sending the traffic, and who is "
             "waiting longest.</p>" + _filters("/tenants", {"since_s": since}, [("since_s", "Range", TENANT_RANGES)]))
     if not d["rows"]:
-        seen = f'{d["total_sent"]:,} sends were seen, none with a tenant. ' if d["total_sent"] else ""
-        return _page(200, "Tenants", head + f'<p class="notice"><strong>No tenants in this range.</strong> {seen}'
-                     + TENANT_SETUP + "</p>")
+        return _page(200, "Tenants", head + _no_tenants(d["total_sent"], label))
     rows = []
     for r in d["rows"]:
         share = "&lt;1" if 0 < r["share"] < 0.01 else str(round(r["share"] * 100))
@@ -274,7 +282,7 @@ def _tenants(api, q: dict) -> Response:
     note = (f'<p class="muted">{escape(label)}, from {"the most recent 2,000 messages" if d["capped"] else "every message"} '
             f'in the range. Share is of all {d["total_sent"]:,} observed sends{untagged}. p95 in queue is from the '
             "send to the first receive, over first deliveries only. Dead-lettered counts messages SQS was seen "
-            "moving to a dead-letter queue. " + TENANT_SETUP + "</p>")
+            f"moving to a dead-letter queue. {TENANT_IS} How to set one: {TENANTS_README}.</p>")
     table = ("<table><tr><th>Tenant</th><th>Messages sent</th><th>Share</th><th>p95 in queue</th>"
              "<th>Dead-lettered</th></tr>" + "".join(rows) + "</table>")
     return _page(200, "Tenants", head + table + note)

@@ -110,7 +110,8 @@ function CopyButton({ text, target, name, onCopied }: { text: string; target: Re
   );
 }
 
-function CodeWindow({ id, caption, code, copyName, onCopied }: { id?: string; caption: string; code: string; copyName: string; onCopied: (m: string) => void }) {
+/** A captioned code block with a Copy button. */
+export function CodeWindow({ id, caption, code, copyName, onCopied }: { id?: string; caption: string; code: string; copyName: string; onCopied: (m: string) => void }) {
   const ref = useRef<HTMLPreElement>(null);
   return (
     <div id={id} className="mt-3 overflow-hidden rounded-[12px] border border-sky-line bg-sky-2">

@@ -7,7 +7,8 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  BodyPanel, EmptyState, TenantsTable, TimelineView, answerFor, lookupEmpty, storeIsEmpty, tenantsEmpty, tenantsFootnote,
+  BodyPanel, CodeWindow, EmptyState, TENANT_ENV, TENANT_IS, TENANTS_README, TenantsTable, TimelineView, answerFor, lookupEmpty, noTenantsText,
+  storeIsEmpty, tenantsEmpty, tenantsFootnote,
   type EmptyStateProps, type MessageBody, type TenantStats, type Timeline,
 } from "../src/index.ts";
 import { ApiError, Header, getHealth, getJSON, tenantHref } from "./chrome.tsx";
@@ -26,7 +27,6 @@ const HINTS = {
 
 const RANGES = [["3600", "Last hour"], ["86400", "Last 24 hours"], ["604800", "Last 7 days"]] as const;
 type TenantsState = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ok"; s: TenantStats; storeEmpty: boolean };
-const CONTRACT_15_2 = "https://github.com/nick-lennox/trailbeam/blob/main/contract/span-contract.md#152-attributes";
 
 function TenantsPage() {
   const asked = new URLSearchParams(location.search).get("since_s");
@@ -41,11 +41,8 @@ function TenantsPage() {
       })
       .catch((e: Error) => setState({ kind: "error", message: e.message }));
   }, [range[0]]);
-  const setup = (
-    <>A tenant comes from a Trailbeam package with a tenant field set: <code className="font-mono text-caption">TRAILBEAM_TENANT_ATTRIBUTE</code> (a
-      message attribute) or <code className="font-mono text-caption">TRAILBEAM_TENANT_BODY_PATH</code> (a dotted path in a JSON body), or the package's <code className="font-mono text-caption">tenant</code> option,
-      in each service that sends or receives. Spans then carry <code className="font-mono text-caption">trailbeam.tenant</code>: see <a className="text-dawn hover:underline" href={CONTRACT_15_2}>the span contract, section 15.2</a>.</>
-  );
+  const [copied, setCopied] = useState("");
+  const readme = <a className="text-dawn hover:underline" href={TENANTS_README}>Tenants in the README</a>;
   return (
     <div className="mx-auto max-w-[1100px] px-4 pb-16 md:px-8">
       <Header />
@@ -68,8 +65,11 @@ function TenantsPage() {
           {state.kind === "ok" && state.storeEmpty && <EmptyState {...tenantsEmpty()} />}
           {state.kind === "ok" && !state.storeEmpty && state.s.rows.length === 0 && (
             <div className="rounded-[16px] border border-sky-line bg-sky-2/55 px-5 py-4 text-[15px] leading-[1.5] text-sky-ink-2">
-              <p className="text-sky-ink">No tenants in this range</p>
-              <p className="mt-1 max-w-[72ch]">{state.s.total_sent > 0 ? `${state.s.total_sent.toLocaleString("en-US")} sends were seen, none with a tenant. ` : ""}{setup}</p>
+              <p className="text-sky-ink">No tenants yet</p>
+              <p className="mt-1 max-w-[72ch]">{noTenantsText(state.s.total_sent, range[1])}</p>
+              <CodeWindow caption="shell" code={TENANT_ENV} copyName="Copy the tenant settings" onCopied={setCopied} />
+              <p className="sr-only" aria-live="polite">{copied}</p>
+              <p className="mt-3">{readme}</p>
             </div>
           )}
           {state.kind === "ok" && state.s.rows.length > 0 && (
@@ -78,7 +78,7 @@ function TenantsPage() {
                 <TenantsTable rows={state.s.rows} href={tenantHref} />
               </div>
               <p className="mt-3 max-w-[80ch] text-sm text-sky-ink-3">
-                {tenantsFootnote(state.s, range[1])} {setup} The same data as JSON: <a className="font-mono text-caption text-dawn hover:underline" href={`/api/tenants?since_s=${range[0]}`}>/api/tenants</a>
+                {tenantsFootnote(state.s, range[1])} {TENANT_IS} How to set one: {readme}. The same data as JSON: <a className="font-mono text-caption text-dawn hover:underline" href={`/api/tenants?since_s=${range[0]}`}>/api/tenants</a>
               </p>
             </>
           )}
