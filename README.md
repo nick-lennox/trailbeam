@@ -698,9 +698,15 @@ with `shared_buffers = 1GB`:
   partition is read only for the rare keys the filter can't rule out, such as a late settle or a false
   positive (about 1 in 15,000 keys). At 1M spans over 7 days, ingest touches 25 MB of lookup indexes instead
   of 92 MB. So give Postgres enough memory for the last three days' indexes, not for all of history. This holds with
-  `forever` retention too: retention's passes seal the older days whether or not anything expires. We
-  haven't re-run the 4M–7M measurement with this change, so its effect at scale is **not measured**, and the
-  100M figure stays an estimate: 12–16 GB, from before this change.
+  `forever` retention too: retention's passes seal the older days whether or not anything expires.
+- **Measured with this change, from 4M to 9.4M spans** (QV-180, same machine and settings, on a quieter day):
+  ingest held 6,000 spans/s at every size with no errors, where before it didn't hold 2,000 at 7M. Export p99
+  at 6,000 spans/s was 241 ms at 4–5M and 1.1–1.3 s at 7–9M, so the p99 ≤ 500 ms target holds only to about
+  5M here. Near 8,000 spans/s the two replicas ran out of CPU. The machine had more free RAM than in the
+  earlier run, and the run can't separate that from the change
+  ([details](python/bench/README.md#4m-and-7m-spans-before-and-after-qv-127-qv-180)). **The largest size we
+  have measured is 9.4M spans (26 GB).** Above that it's not measured, and the 100M figure stays an estimate:
+  12–16 GB of RAM, from before this change.
 - **Commit latency adds to export latency.** An export keeps its locks on the messages it touches until it
   commits, so a slow WAL flush holds up the exports behind it. Put the database on storage with a fast
   fsync: local NVMe, EBS gp3, or a managed service's SSD.
@@ -709,7 +715,10 @@ with `shared_buffers = 1GB`:
 - **The tenants page** added up every tenant event in its time window on each request, so it got slower as
   data grew: p95 1.5 s at 4M spans and 2.8 s at 7M. The other pages stayed under 500 ms (p95) under ingest. It
   now reads an hourly rollup per tenant: at 1M spans on the same desktop, idle, p95 went from 184 ms to 44 ms
-  for the last day and from 670 ms to 193 ms for the last 7 days. It hasn't been measured at 4M or 7M since.
+  for the last day and from 670 ms to 193 ms for the last 7 days. At 5.3M and 9.4M (QV-180) it was still 1.1 s
+  and 1.9–2.1 s (p95, last day), because it reads the raw events of the window's partial hours, and the current
+  hour held 2.5M events just after heavy ingest. So it slows with the last hour's ingest rate, not with the data
+  stored. A fix is tracked as QV-224.
 
 To trade durability for latency, as `--durability relaxed` does for SQLite, set it on Trailbeam's role:
 `ALTER ROLE trailbeam SET synchronous_commit = off;`. A crash of Postgres can then lose the exports answered `200`

@@ -167,6 +167,113 @@ export p50 297 ms, p99 456 ms, no errors. List pages p95 under that ingest: Mess
 Stuck 5.1, message detail 2.1, Tenants 298, tenant search 41, body search 124 (one queue 209). The first run
 straight after seeding, during a 125 s checkpoint, had an export p99 of 4.1 s.
 
+## Postgres with several replicas: `pg_medium.py`
+
+The medium-tier run (QV-82): `--replicas` servers on one Postgres, each sent an equal share of the rate by its
+own load generator, as a load balancer would. Subcommands: `seed` (parallel, resumable), `ramp` (ingest at each
+of `--spans-per-s` for `--step-seconds`), `pages` (the pages idle, then in a loop under ingest), `retention`
+(a partition drop while ingest runs) and `state`. Each appends to `--out`/results.jsonl. The module docstring
+has the commands.
+
+### 4M and 7M spans, before and after QV-127 (QV-180)
+
+QV-82 found ingest falling off between 1M and 4M spans on our desktop. QV-127 then time-bucketed the two lookup
+tables (Postgres schema 5). QV-180 repeated QV-82's 4M and 7M runs with the same settings on `main` at `3559c67`.
+
+**Same as QV-82:** the shared WSL2 desktop (Ryzen 7 7700X, 16 threads, 11.7 GB RAM, virtual disk). Postgres 16.16
+in Docker with `--memory 5g`, `shared_buffers=1GB`, `max_wal_size=4GB`, `checkpoint_timeout=15min` and
+`effective_cache_size=3GB`, with `fsync` and `synchronous_commit` on. 2 replicas, each with its own load
+generator (2 processes × 4 concurrent exports, 10 s export timeout). Seed and servers both use `6d` retention.
+The seed is spread over 5.5 days and ends an hour ago. Steps are 60 s at 2,000, 4,000, 6,000 and 8,000 spans/s,
+and the ramp is run twice per size: cold (the first after seeding) and warm.
+
+```sh
+python python/bench/pg_medium.py seed --store-url "$URL" --out "$OUT" --replicas 2 --seed-days 5.5 \
+    --seed-retention 6d --server-retention 6d --seed-procs 6 --spans 4M      # then 7M
+python python/bench/pg_medium.py ramp  … --spans-per-s 2000,4000,6000,8000 --step-seconds 60 --max-export-p99-ms 9000
+python python/bench/pg_medium.py pages … --spans-per-s 2000 --seconds 120 --page-repeats 10   # 1000 at 7M
+```
+
+**Not the same as QV-82**, so read the comparison with these in mind:
+
+- **The machine was quieter.** During QV-82, about 30 CI containers and other agents used most of the RAM:
+  100–700 MB free and a load average of 6–12. During QV-180, no other containers were running and the load
+  average was 2.5–4.5 outside my own seeding: 2.3 GB free and 7.7 GB available (checked at the start and
+  between steps, not continuously). Another agent's run (QV-173) was active at the same time. I didn't check
+  what it ran.
+- **After each seed, `VACUUM ANALYZE` and a `CHECKPOINT`** before the first ramp. QV-82 measured after
+  autovacuum had caught up instead, which should come to the same state.
+- **Ingest adds spans.** Every ramp step writes into the database, so the "4M" ramps ran from 4.03M to 5.34M
+  spans, and the "7M" ramps from 7.03M to 9.42M. All of that lands in today's partitions, so they're far
+  larger than in real traffic, as in QV-82.
+
+Ingest ramp. Cells: achieved spans/s, export p50 / p99 in ms. Errors are 503s or export timeouts.
+
+| size | run | 2,000 | 4,000 | 6,000 | 8,000 | server CPU per replica |
+|---|---|---|---|---|---|---|
+| ~4M | QV-82, warm | 2,000; 528 / **1,716** | 3,967; 397 / 2,614 | 5,448; 991 / 3,828, 20 errors | — | 14 / 29 / 45% |
+| 4.0M | QV-180, cold | 1,991; 197 / 2,631, 1 error (ramp stops) | | | | 28 and 18% (the two replicas) |
+| 4.1–5.3M | QV-180, warm | 2,000; 190 / **275** | 4,000; 193 / 236 | 6,000; 193 / **241** | 7,879; 828 / 1,862 | 17 / 35 / 51 / 93% |
+| ~7M | QV-82, warm | 1,931; 1,010 / **4,627**, 8 errors | 3,375; 2,058 / 4,790, 55 errors | — | — | 16 / 33% |
+| 7.0–8.2M | QV-180, cold | 2,000; 254 / **1,332** | 4,000; 207 / 308 | 5,998; 202 / **1,086** | 7,617; 939 / 2,171 | 16 / 33 / 50 / 93% |
+| 8.2–9.4M | QV-180, warm | 2,000; 289 / 1,540 | 4,000; 241 / 997 | 5,984; 219 / **1,261** | 7,380; 695 / 2,333, under 95% | 15 / 32 / 51 / 72% |
+
+- **Throughput no longer falls off from 4M to 9.4M spans** on this machine. 6,000 spans/s held at every size
+  with no errors. At 7M, QV-82 didn't hold 2,000. 8,000 spans/s reached 7,400–7,900, with the replicas at
+  93% of a core in three of the four steps, so near 8,000 the two replicas are the limit.
+- **Export p99 still grows with size:** at 6,000 spans/s it was 241 ms at 4–5M and 1.1–1.3 s at 7–9M. The
+  medium tier's p99 ≤ 500 ms held at up to 6,000 spans/s at 4–5M, and at 7–9M only at 4,000 spans/s in the cold
+  run (308 ms). The 2,000 step's p99 at 7M (1.3–1.5 s) is above the 4,000 step's in both runs. It's the first
+  step on freshly started servers, so it probably includes their warm-up (estimate, not checked).
+- **How much of this is QV-127, and how much the quieter machine, this run can't separate.** Postgres'
+  statement statistics for both 7M ramps (`pg_stat_statements`), per export, QV-180 against QV-82:
+
+  | statement | mean | blocks read from outside `shared_buffers` |
+  |---|---|---|
+  | span `INSERT` | 34 ms (QV-82: 300–400) | 339 (270–310) |
+  | `pg_advisory_xact_lock` (waits behind the inserts) | 44 ms (240–320) | 0 |
+  | `INSERT INTO hash_places` | 5.0 ms (120–150) | 91 (130) |
+  | `UPDATE spans` | 32 ms (100–120) | 45 |
+
+  The span `INSERT` doesn't touch the lookup tables, and it read about as many blocks as before, yet took
+  a tenth of the time. So those reads were mostly served by the OS page cache, which had more room this time.
+  The `hash_places` insert reads fewer blocks, as QV-127 intended: only the last 3 days' lookup partitions are
+  live (checked: the 4 older days were sealed). To separate the two causes,
+  run QV-82's commit (`39718ce`) on the same quiet machine.
+
+Pages, p95 in ms, from the first replica. Idle has 10 samples per page, so its p95 is close to the slowest call.
+
+| page | QV-82 4M idle / under 2,000 spans/s | QV-180 5.3M idle / under 2,000 | QV-82 7M idle / under 1,000 | QV-180 9.4M idle / under 1,000 |
+|---|---|---|---|---|
+| messages | 19 / 30 | 43 / 23 | 395 / 10 | 113 / 19 |
+| messages, one queue | 194 / 10 | 117 / 16 | 310 / 6 | 167 / 29 |
+| message detail | 15 / 13 | 6 / 6 | 22 / 26 | 6 / 11 |
+| duplicates | 11 / 8 | 10 / 14 | 12 / 8 | 11 / 11 |
+| stuck | 234 / 7 | 163 / 21 | 316 / 20 | 194 / 49 |
+| **tenants** | **1,697 / 1,502** | **1,200 / 1,115** | **2,837 / 2,770** | **2,083 / 1,857** |
+| tenant search | 179 / 49 | 13 / 31 | 195 / 41 | 22 / 24 |
+| body search | 1,372 / 222 | 1,266 / 404 | 2,065 / 214 | 2,055 / 495 |
+| body search, one queue | 14,139 / 460 | 1,336 / 566 | 27,777 / 503 | 1,761 / 681 |
+
+Export during the page loop: at 5.3M and 2,000 spans/s, p50 261 ms, p99 952 ms and no errors (QV-82 at 4M:
+p99 2,660 ms). At 9.4M and 1,000 spans/s, p50 414 ms, p99 1,593 ms and no errors (QV-82 at 7M: 941 spans/s, p99
+9,935 ms, 13 errors).
+
+- **The Tenants page is still over 1 s here, for a different reason than before.** It reads the hourly
+  rollup (QV-128) for the whole hours of its window (the last day), but every tenant event of the hours at its
+  two ends. The ramps had just written 2.55M of the database's 6.0M tenant events into the current hour, so the
+  page read those one by one. Its cost now follows how much was ingested in the last hour, not how much is
+  stored. At a steady 2,000 spans/s that's up to about 7M events an hour (estimate). Follow-up: QV-224.
+
+**Disk:** 2.9 GB per million spans as seeded (11.7 GB at 4.03M, 19.0 GB at 7.03M), and 25.7 GB at 9.42M after
+the ramps. The data directory peaked at 29 GB, with WAL. The database, the container and its data were deleted
+afterwards. `df` showed 110 GB used before the run and 110 GB after.
+
+**Seeding** ran at 18,100 spans/s to 2M, 14,300 from 2M to 4M and 8,400 from 4M to 7M (6 processes), against
+QV-82's 12,200, 6,600 and 3,700–3,900. `seed` now counts the spans stored instead of using the planner's
+estimate: right after a seed nothing has analyzed the new partitions, and a resumed seed asked for 4M stored
+5.5M.
+
 ## Tenants page before and after: `tenants_page.py`
 
 Seeds harness traffic (50 queues, 50 tenants, 1 KB bodies on 5 queues, 7 days) into a SQLite file or a
