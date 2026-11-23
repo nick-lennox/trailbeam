@@ -71,6 +71,8 @@ def start(argv) -> None:
     a.command = "trailbeam start"  # in the one-line errors serve() prints
     logging.basicConfig(level=a.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
     data = Path(a.data_dir).expanduser()
+    db_file = None if a.store_url else Path(a.db).expanduser() if a.db else data / DB_FILE
+    had_data = db_file is not None and db_file.is_file() and db_file.stat().st_size > 0
     try:
         _make_dir(data)
         key, made_key = receipt_hash_key(data / KEY_FILE)
@@ -84,6 +86,8 @@ def start(argv) -> None:
     for what, made, path in (("access token", made_token, a.token_file), ("receipt-hash key", made_key, data / KEY_FILE)):
         if made:
             log.info("created the %s in %s", what, path)
+    if had_data:
+        warn_existing_data(db_file, made_token and a.token_file, made_key and data / KEY_FILE)
     if a.db is None:
         a.db = str(data / DB_FILE)
 
@@ -116,6 +120,26 @@ def receipt_hash_key(path: Path) -> tuple:
     if len(key) < MIN_KEY_LENGTH:
         raise SetupError(f"{path}: the receipt-hash key must be at least {MIN_KEY_LENGTH} characters")
     return key, made
+
+
+def warn_existing_data(db_file, new_token_file, new_key_file) -> None:
+    """``trailbeam start`` made a secret for a database that already existed: most likely one an earlier
+    ``trailbeam`` (0.3.0 had no ``start``) ran on without that file. Say what changes for the services sending
+    to it, which keep sending as before until they are given the new values."""
+    npx = bool(os.environ.get(SHOWN_DATA_DIR_ENV, "").strip())  # in the image: the user runs docker, not trailbeam
+    as_before = ("docker run the image as before, without start" if npx else f"run trailbeam --db {db_file}")
+    if new_token_file:
+        log.warning("trailbeam start: %s is an existing database, and the access token is now on (new token in %s): "
+                    "services that send without it are refused (401) and their spans are lost. Give each one "
+                    "OTEL_EXPORTER_OTLP_HEADERS as printed below. If this server had a token before, start with "
+                    "--token-file and a file holding it instead. To run without a token as before, %s.",
+                    db_file, new_token_file, as_before)
+    if new_key_file:
+        log.warning("trailbeam start: %s is an existing database, and a new receipt-hash key was made (%s). Your "
+                    "services keep hashing with the key they have (TRAILBEAM_RECEIPT_HASH_KEY, or the published "
+                    "default key if none is set) until you change it; messages in flight while services change keys "
+                    "are not joined. To keep the key they use, set %s to it (or put it in %s) and start again.",
+                    db_file, new_key_file, KEY_ENV, new_key_file)
 
 
 def ensure_secret(path) -> tuple:

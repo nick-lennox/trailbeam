@@ -129,8 +129,9 @@ runs reuse the same token and key. If `TRAILBEAM_RECEIPT_HASH_KEY` is already se
 `trailbeam start` prints that key instead and makes no key file, so services you set up before keep
 joining; if the data directory already holds a different key, the environment variable wins and one
 warning says so. Every `trailbeam` flag works after `start` (`trailbeam start --help`).
-Stop it with Ctrl-C. Without Python, `npx trailbeam start` does the same with Docker
-([Node.js README](node/README.md#run-the-server-npx-trailbeam-start)).
+Stop it with Ctrl-C. From the next release, `npx trailbeam start` does the same with Docker and no Python
+([Node.js README](node/README.md#run-the-server-npx-trailbeam-start)). It does not work with 0.3.0: the npm
+package has no `trailbeam` command yet, and the 0.3.0 image has no `start`.
 
 ### See a richer example
 
@@ -889,6 +890,31 @@ database. A backup holds the stored message bodies (`--store-bodies`), so protec
 **Continuous replication.** [Litestream](https://litestream.io/) streams a SQLite file's WAL to object storage.
 It should work with Trailbeam, because the server only runs PASSIVE checkpoints, but we haven't tested it.
 With Postgres (`--store-url`), use Postgres' own backups: see [Backup and restore (Postgres)](#backup-and-restore-postgres).
+
+### Upgrading
+
+Take a backup ([SQLite](#backup-and-restore-sqlite), [Postgres](#backup-and-restore-postgres)), stop the
+old server, and start the new version on the same database file, Docker volume or Postgres database, with the
+same flags and token. The new version upgrades the schema by itself at start. CI runs this from 0.3.0 to
+`main` on every change, for SQLite (the PyPI package and the image) and Postgres, and checks that every
+message, list and tenant count reads the same as before
+([`python/smoke/upgrade_check.py`](python/smoke/upgrade_check.py)).
+
+- **SQLite.** From 0.3.0 to `main` the file is unchanged (schema 12), so you can also go back to 0.3.0.
+- **Postgres.** Stop every replica before you start the new version. It moves the database from schema 4 to 5
+  (about 8 s per 1M spans, see the [changelog](CHANGELOG.md)). Once it has, a 0.3.0 server stops at start
+  with `the database is at Postgres schema version 5, written by a newer Trailbeam ... Refusing to start, so
+  nothing is lost`. To go back, restore the backup you took first.
+- **The token and the receipt-hash key** don't change. Signed-in browsers stay signed in. Services keep their
+  `TRAILBEAM_RECEIPT_HASH_KEY`: the hashing is the same in 0.3.0 and `main`, so services on either package
+  version can send spans for the same messages.
+- **Moving to `trailbeam start`.** `trailbeam start --data-dir DIR` uses `DIR/trailbeam.sqlite`, and
+  `npx trailbeam start` uses the Docker volume `trailbeam-data`, the same volume as the Quickstart's
+  `docker run`. Before the first `start`, put the token your services send in `DIR/token`, or start with
+  `--token-file`. If your 0.3.0 server ran without a token, `start` turns one on, and services that don't
+  send it are refused (401) until they get `OTEL_EXPORTER_OTLP_HEADERS`. Put the key your services use in
+  `DIR/receipt-hash-key`, so `start` prints that key and not a new one. If `start` has to make either file
+  for an existing database, it logs a warning saying so.
 
 ### When Trailbeam is overloaded: 429, 503 and Retry-After
 
