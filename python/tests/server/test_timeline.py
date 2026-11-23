@@ -144,7 +144,7 @@ def test_receive_count_reached_max_but_not_seen_on_the_dead_letter_queue(db, ing
     assert "moved_to_dead_letter_queue" not in [e["type"] for e in t["events"]]
     assert (t["dead_letter_queue_move"], t["in_dead_letter_queue"]) == ("not_seen_on_dlq_yet", False)
     [n] = [n for n in t["notices"] if n["code"] == "dlq_move_not_seen"]
-    assert n["message"].startswith("Receive count exceeded maxReceiveCount; not seen on the DLQ yet.")
+    assert n["message"].startswith("Receive count reached maxReceiveCount; not seen on the DLQ yet.")
     assert "receive count 3" in n["message"] and "maxReceiveCount is 3" in n["message"]
     assert "does not receive from the dead-letter queue" in n["message"]
     # Not configured, or below the limit: nothing to say.

@@ -8,7 +8,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { EXAMPLE, FirstRun, environment, highlight, type FirstRunProps } from "../src/firstrun/FirstRun.tsx";
 import { NO_SPANS_AFTER_MS, announcement, isDefaultEndpoint, retainedFor, storeHasSpans, storeIsEmpty, waitingStatus, type Health } from "../src/firstrun/status.ts";
-import { EmptyState, MessagesTable, duplicateWhy, fmtAge, fmtThreshold, fmtTime, shortId, type MessageSummary } from "../src/messages/Messages.tsx";
+import { EmptyState, MessagesTable, RECEIVES_TITLE, duplicateWhy, fmtAge, fmtThreshold, fmtTime, shortId, type MessageSummary } from "../src/messages/Messages.tsx";
 import { duplicatesEmpty, lookupEmpty, messagesEmpty, stuckEmpty, tenantsEmpty, without } from "../src/messages/empty.tsx";
 
 /** The page's words: block elements and cells end a phrase, inline ones (code, spans) don't; curly quotes as straight. */
@@ -161,10 +161,11 @@ const msg: MessageSummary = {
 test("the message list", () => {
   const html = renderToStaticMarkup(createElement(MessagesTable, { messages: [msg], href: (id: string) => `/message?id=${id}`, extra: { title: "Age", cell: (m: MessageSummary) => fmtAge(m.age_s) } }));
   const t = text(html);
-  for (const s of ["m-2", "not deleted", "orders-dlq (DLQ, from orders)", "3 · 0 handled", "orders-worker", "2026-11-16 18:05:37.429 SQS's clock", "2026-11-16 18:06:00", "Age", "7 min"]) assert.ok(t.includes(s), `missing ${s}: ${t}`);
+  for (const s of ["m-2", "no delete seen", "orders-dlq (DLQ, from orders)", "3 · 0 handled", "orders-worker", "2026-11-16 18:05:37.429 SQS's clock", "2026-11-16 18:06:00", "Age", "7 min"]) assert.ok(t.includes(s), `missing ${s}: ${t}`);
   assert.ok(html.includes('href="/message?id=m-2"'));
   assert.ok(t.includes("Receives") && !t.includes("Deliveries") && !t.includes(" ok)"));
-  assert.match(html, /<th title="How many times SQS returned this message from ReceiveMessage\. Handled: a receive that ended in a delete or a successful Lambda record\."/);
+  assert.ok(html.includes(`<th title="${RECEIVES_TITLE.replace(/'/g, "&#x27;")}"`), "the Receives head says what it counts");
+  assert.match(RECEIVES_TITLE, /^Receives Trailbeam observed, on every queue, the receive from a dead-letter queue included\. SQS's own receive count can be higher/);
   assert.match(html, /<span class="text-warning-text">3<\/span>/, "a message received more than once is marked");
   const once = renderToStaticMarkup(createElement(MessagesTable, { messages: [{ ...msg, deliveries: 1, successful_deliveries: 1 }], href: (id: string) => id }));
   assert.ok(!once.includes("text-warning-text") && text(once).includes("1 · 1 handled"));

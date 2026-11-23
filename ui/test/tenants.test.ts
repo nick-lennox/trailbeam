@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { TENANT_ENV, TenantSearch, TenantsTable, fmtShare, fmtWait, noTenantsText, tenantsFootnote } from "../src/tenants/Tenants.tsx";
+import { P95_NOTE, TENANT_ENV, TenantSearch, TenantsTable, fmtShare, fmtWait, noTenantsText, tenantsFootnote } from "../src/tenants/Tenants.tsx";
 import type { TenantStats } from "../src/tenants/types.ts";
 
 const expected = JSON.parse(readFileSync(new URL("../../contract/fixtures/tenants-expected.json", import.meta.url), "utf8")) as { stats: (TenantStats & { name: string })[] };
@@ -38,7 +38,11 @@ test("formats: share, p95 and the footnote", () => {
   assert.deepEqual([fmtWait(430), fmtWait(1500), fmtWait(12_000), fmtWait(90_000)], ["430 ms", "1.5 s", "12 s", "1.5 min"]);
   const whole = expected.stats[0];
   assert.match(tenantsFootnote(whole, "Last 24 hours"), /^Last 24 hours, from every message in the range\. Share is of all 7 observed sends, 1 of them without a tenant\./);
-  assert.match(tenantsFootnote({ ...whole, capped: true }, "Last hour"), /the most recent 2,000 messages/);
+  assert.doesNotMatch(tenantsFootnote({ ...whole, capped: true }, "Last hour"), /2,000/, "capped is always false: no capped wording (QV-247)");
+  const foot = tenantsFootnote(whole, "Last hour");
+  assert.ok(foot.includes(P95_NOTE));
+  for (const s of ["two clocks", "SentTimestamp when the send wasn't observed", "more first deliveries than sends", "below 0 counts as 0", "within 1% of the exact p95"])
+    assert.ok(P95_NOTE.includes(s), `p95 note says ${s}`);
 });
 
 test("the tenants views use role tokens, which theme.css defines, so a light host page can define its own", () => {

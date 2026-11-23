@@ -49,7 +49,8 @@ export function bodyView(messageId: string, kept: StoredBody | null, spans: Body
 
 /** Each reason in words. Each product adds a hint saying where its own server setting is. */
 export const NO_BODY_TEXT: Record<BodyReason, string> = {
-  not_opted_in: "The package captured this body, but this Trailbeam doesn't keep bodies for this queue, so it was dropped before it was stored.",
+  not_opted_in: "The package captured this body, but this Trailbeam doesn't keep bodies for this queue, so it isn't shown. "
+    + "Either it was dropped when it arrived, or it arrived before the queue was taken off the list and is still stored, only hidden.",
   producer_not_instrumented: "The producer runs no Trailbeam package, so there is no send, and no receive's copy of the body was kept.",
   package_too_old: "The package that sent this message is from before contract revision 3.2, which added payload capture. Update it to capture bodies.",
   off: "Payload capture is off for this queue in the producer's package: the queue is not in its body queue list (TRAILBEAM_CAPTURE_BODY_QUEUES).",

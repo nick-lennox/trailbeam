@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **The UI no longer says more than the data shows.** A message in its dead-letter queue now counts only the
+  receives on its source queue ("after 2 observed receives on orders", not "after 3 receives"). maxReceiveCount
+  reads "reached", not "more than", and the move it predicts is marked inferred. A receive with no delete yet
+  reads "No delete seen" in amber rather than a red "Not deleted". "Being handled" is marked inferred. The
+  Receives tooltip, the Tenants p95 note, the Stuck age note and the body tab's "not opted in" text say what
+  they are computed from. The Tenants note no longer mentions a 2,000-message cap that no longer applies. (QV-247)
 - **Python: a down or slow Trailbeam server no longer holds up your process's exit.** Shutdown
   (`uninstall()`, or interpreter exit) waited for the OTLP exporter's retries and 10 s request timeout, so a
   short script took 6 s longer to exit with the server unreachable and 10 s longer with it slow. It now waits
