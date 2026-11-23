@@ -1,6 +1,7 @@
 # Trailbeam for a team: one Trailbeam server on its own Postgres, data on named volumes (QV-145).
 #
-#   cp .env.example .env      # then fill in the token, the Postgres password and the receipt-hash key
+#   install -m 600 .env.example .env   # readable by you only; then fill in the token, the Postgres password
+#                                      # and the receipt-hash key
 #   docker compose up -d --build --wait
 #   open http://127.0.0.1:4318/   (or this machine's address, see TRAILBEAM_BIND in .env)
 #

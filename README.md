@@ -233,10 +233,15 @@ volume, health checks and `restart: unless-stopped`. The token and passwords com
 
 ```sh
 git clone https://github.com/nick-lennox/trailbeam.git && cd trailbeam
-cp .env.example .env      # fill in TRAILBEAM_TOKEN, TRAILBEAM_RECEIPT_HASH_KEY and POSTGRES_PASSWORD (openssl rand -hex 32)
+install -m 600 .env.example .env   # only you can read it; fill in TRAILBEAM_TOKEN, TRAILBEAM_RECEIPT_HASH_KEY
+                                   # and POSTGRES_PASSWORD (openssl rand -hex 32)
 docker compose up -d --build --wait
 # then open http://<this machine>:4318/ and sign in with the token
 ```
+
+`.env` holds the token and the Postgres password, so keep it readable by its owner only: `install -m 600`
+does that, where a plain `cp` would leave it readable by every user on the server. For an existing `.env`, run
+`chmod 600 .env`.
 
 In every service that uses the Trailbeam packages, set the endpoint, the token and the same receipt-hash key:
 
