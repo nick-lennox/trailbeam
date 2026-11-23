@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Runnable examples.** [`examples/`](examples/README.md) has one small service for each common setup:
+  Python with boto3, a Python Lambda function with an SQS trigger, Node.js with AWS SDK v3, and a Node.js
+  Lambda function with an SQS trigger. Each runs with one `docker compose` command against ElasticMQ and a
+  local Trailbeam, and sends three orders: one processed, one retried after the visibility timeout, one
+  moved to the dead-letter queue. CI runs every example and checks the three timelines. (QV-172)
+
 - **Port already in use: one line, not a traceback.** When the listen port is taken (4318 is the standard
   OTLP/HTTP port, so an OpenTelemetry Collector, Jaeger or another OTLP receiver often holds it), `trailbeam`
   and `trailbeam start` print `trailbeam: port 4318 on 127.0.0.1 is already in use (another OTLP receiver?).

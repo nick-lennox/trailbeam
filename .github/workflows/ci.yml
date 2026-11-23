@@ -219,6 +219,24 @@ jobs:
         if: always()
         run: COMPOSE_PROJECT_NAME="$TB_NAME" docker compose -f demo/compose.yaml down -v --remove-orphans || true
 
+  examples:
+    # Every example in examples/ against ElasticMQ and a Trailbeam built from this commit: one order deleted,
+    # one retried after the visibility timeout, one moved to the dead-letter queue (examples/check.py).
+    name: Example ${{ matrix.example }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        example: [python-boto3, python-lambda, node-sdk-v3, node-lambda]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pick a free port and names of its own (runners share one machine)
+        run: |
+          echo "TRAILBEAM_EXAMPLE_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')" >> "$GITHUB_ENV"
+          echo "COMPOSE_PROJECT_NAME=tbci-${{ github.run_id }}-${{ github.run_attempt }}-example-${{ matrix.example }}" >> "$GITHUB_ENV"
+      - name: Run the example, check its spans arrived, remove it (images local only, not pushed)
+        run: examples/run.sh ${{ matrix.example }}
+
   team-install:
     # docker-compose.yaml (QV-145): a clean start from .env.example, one span with the token, and the data
     # still there after docker compose down && up.

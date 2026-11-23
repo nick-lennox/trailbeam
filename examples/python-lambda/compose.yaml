@@ -1,0 +1,55 @@
+# docker compose -f examples/python-lambda/compose.yaml up --build
+name: trailbeam-example-python-lambda
+
+include:
+  - ../shared/compose.yaml
+
+x-aws: &aws
+  AWS_REGION: us-east-1
+  AWS_DEFAULT_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: example-not-a-real-key        # dummy values for the emulator
+  AWS_SECRET_ACCESS_KEY: example-not-a-real-secret
+
+x-trailbeam: &trailbeam
+  TRAILBEAM_OTLP_TRACES_ENDPOINT: http://trailbeam:4318/v1/traces
+  # Every service on the same queues needs the same key. Make your own with `openssl rand -hex 32` and
+  # keep it secret; this one is for the example only.
+  TRAILBEAM_RECEIPT_HASH_KEY: example-only-receipt-hash-key-do-not-reuse
+
+services:
+  producer:
+    build: { context: ../.., dockerfile: examples/python-lambda/producer.Dockerfile }
+    command: ["python", "producer.py"]
+    depends_on:
+      sqs: { condition: service_healthy }
+      trailbeam: { condition: service_healthy }
+      event-source-mapping: { condition: service_started }
+    environment:
+      <<: [*aws, *trailbeam]
+      SQS_ENDPOINT: http://sqs:9324
+      OTEL_SERVICE_NAME: orders-producer
+      TRAILBEAM_UI: http://127.0.0.1:${TRAILBEAM_EXAMPLE_PORT:-4318}
+
+  # The function, in the AWS Lambda base image. Its Runtime Interface Emulator takes invocations on port
+  # 8080 the way the Lambda service would deliver them.
+  function:
+    build: { context: ../.., dockerfile: examples/python-lambda/Dockerfile }
+    depends_on:
+      trailbeam: { condition: service_healthy }
+    environment:
+      <<: [*aws, *trailbeam]
+      OTEL_SERVICE_NAME: orders-function
+      AWS_LAMBDA_FUNCTION_NAME: orders-function
+
+  # Stands in for Lambda's SQS triggers on `orders` and `orders-dlq` (see ../shared/event-source-mapping).
+  event-source-mapping:
+    build: ../shared/event-source-mapping
+    init: true
+    depends_on:
+      sqs: { condition: service_healthy }
+      function: { condition: service_started }
+    environment:
+      <<: *aws
+      SQS_ENDPOINT: http://sqs:9324
+      QUEUES: orders,orders-dlq
+      FUNCTION_URL: http://function:8080/2015-03-31/functions/function/invocations

@@ -1,0 +1,11 @@
+{
+  "name": "trailbeam-example-node-lambda",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Trailbeam example: a Node.js Lambda function with SQS triggers, and a producer with AWS SDK v3",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@aws-sdk/client-sqs": "^3.1169.0",
+    "trailbeam": "file:../../node"
+  }
+}
