@@ -404,7 +404,10 @@ def test_every_observed_event_has_start_end_and_group(db, ingest):
 def test_notices(db, ingest):
     dflt = Consumer(key="trailbeam-default-receipt-hash-key")
     ingest(dflt.receive(T0, "m1", "rh-1"), dflt.delete(T0 + SEC, "rh-1"))
-    assert [n["code"] for n in tl(db, "m1")["notices"]] == ["default_key", "send_not_observed"]
+    notices = tl(db, "m1")["notices"]
+    assert [n["code"] for n in notices] == ["default_key", "send_not_observed"]
+    assert "`openssl rand -hex 32`" in notices[0]["message"]  # the command that fixes it (QV-210)
+    assert "`TRAILBEAM_RECEIPT_HASH_KEY`" in notices[0]["message"]
 
     c, wrong = Consumer(), Consumer("w", key="another-key-000000")
     ingest(c.send(T0, "m2"), c.receive(T0, "m2", "rh-2"), wrong.delete(T0 + SEC, "rh-2", mid="m2"))
