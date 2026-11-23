@@ -114,6 +114,7 @@ The wrapped function has a `trailbeam_tracer_provider` attribute.
 | `OTEL_SERVICE_NAME` | `service.name` = `unknown_service` |
 | `OTEL_RESOURCE_ATTRIBUTES` | `service.instance.id`, which becomes `messaging.client.id`. Default: a random UUID v4 per tracer provider. |
 | `TRAILBEAM_MAX_QUEUE_SIZE` | `16384` spans waiting for export, per tracer provider ([Dropped spans](#dropped-spans)). The other `OTEL_BSP_*` variables apply as usual. |
+| `TRAILBEAM_SHUTDOWN_TIMEOUT_MS` | `2000`: the longest that shutdown (`uninstall()`, or interpreter exit) waits for queued spans to be exported ([When the server is down, or the process ends](#when-the-server-is-down-or-the-process-ends)). |
 
 ### Dropped spans
 
@@ -132,9 +133,29 @@ dropped. The messages they belong to then have gaps in their timelines. Drops ar
   for this process.
 
 `queue_full` means the queue was full. `export_failed` means an export failed after the OTLP exporter's
-own retries (the batch is not tried again). `shutdown` means spans that were still queued when the
-provider shut down, or that ended after it shut down. Spans of a `span_processor` you pass in are not
+own retries (the batch is not tried again): the server was unreachable, too slow, or refused the spans.
+`shutdown` means spans that were still queued when shutdown gave up (after `TRAILBEAM_SHUTDOWN_TIMEOUT_MS`),
+or that ended after it shut down. Spans of a `span_processor` you pass in are not
 counted.
+
+### When the server is down, or the process ends
+
+Spans are exported from a background thread, so a down, slow or misconfigured Trailbeam server never
+raises in your code and never slows your SQS calls. At the end of the process, Trailbeam waits at most
+`TRAILBEAM_SHUTDOWN_TIMEOUT_MS` (2 s) for the queue to be exported, so a down or slow server delays your
+exit by at most that much. In each case:
+
+| Case | What happens to the spans |
+|---|---|
+| A short script that ends normally (falls off the end, or calls `sys.exit()`) | Exported when the interpreter exits. No `uninstall()` call is needed. |
+| `os._exit()`, a signal with no handler (`SIGTERM`, `SIGKILL`), or a crash of the interpreter | Spans still queued are lost without a log line: Python skips its exit hooks then. At most the last 5 s of spans (`OTEL_BSP_SCHEDULE_DELAY`) are queued. Call `trailbeam.boto.uninstall()` in your `SIGTERM` handler, or let your server framework turn `SIGTERM` into a normal exit (Gunicorn and Uvicorn do). |
+| The server is unreachable from the start | Your code runs as normal. Each batch fails after the exporter's retries (up to 10 s, in the background) and is dropped as `export_failed`; at exit, what is still queued is dropped as `shutdown` after 2 s. Both are counted and logged. |
+| The server goes away mid-run | Spans exported before that are kept. Later batches are dropped as `export_failed`, and at exit what is left as `shutdown`, as above. Once the server is back, new spans are exported again; dropped ones are not resent. |
+| A wrong or missing token | The server answers `401` and the batch is dropped as `export_failed` at once (no retry). The OTLP exporter logs `Failed to export spans batch code: 401`, and the Trailbeam line names `OTEL_EXPORTER_OTLP_HEADERS`. |
+| A slow server | Your SQS calls are not slowed. A request that takes longer than the exporter's timeout (10 s, `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT`) is dropped as `export_failed`. At exit, what has not been exported after 2 s is dropped as `shutdown`. |
+| More spans than the server takes | The queue fills up and new spans are dropped as `queue_full` ([Dropped spans](#dropped-spans)). |
+
+The Lambda wrapper's flushes keep to `flush_timeout_millis` in the same way.
 
 The queue holds `TRAILBEAM_MAX_QUEUE_SIZE` spans, 16,384 by default (the SDK's default is 2,048). That is
 about 16 seconds of 1,000 spans/s, and about 50 MB of memory when full, more with captured bodies. A
