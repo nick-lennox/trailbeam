@@ -80,6 +80,10 @@ active span, if any. Trailbeam uses its own always-on tracer provider, so the ap
 never drops Trailbeam spans, and it does not register anything globally. For parent spans to be found,
 the application needs an OpenTelemetry context manager (any `NodeSDK` setup registers one).
 
+When the event loop empties, the package exports the spans still queued, so a script that ends on
+its own loses nothing. `process.exit()` and signals skip that step: call `await trailbeam.uninstall()`
+before `process.exit()`. Spans still queued at exit are lost, and the package prints how many to stderr.
+
 ## Lambda wrapper
 
 ```js
@@ -171,9 +175,6 @@ export. A body that fails redaction, fails the MD5 check or is over the limit is
 the span says why in `trailbeam.body.capture_status`. The package never makes an SQS call of its own.
 A self-hosted Trailbeam stores the body only if the queue is also in its own `TRAILBEAM_STORE_BODIES`
 ([Message bodies](../README.md#message-bodies)).
-
-Call `await trailbeam.forceFlush()` before a short-lived process exits, or `await trailbeam.uninstall()`.
-Spans still in the batch span processor when the process exits are lost.
 
 The Node.js package does not set `thread.name` (contract section 3).
 
