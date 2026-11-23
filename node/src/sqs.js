@@ -312,16 +312,19 @@ function instrument(client) {
   return client;
 }
 
-/** Turn the hooks off on every instrumented client, then flush and shut down the Trailbeam provider. */
+/**
+ * Turn the hooks off on every instrumented client, then flush and shut down the Trailbeam provider.
+ * Never rejects: spans that could not be exported are reported as drops (TRAILBEAM_SPANS_DROPPED).
+ */
 async function uninstall() {
   const previous = state;
   state = null;
-  if (previous) await previous.provider.shutdown();
+  if (previous) await previous.provider.shutdown().catch((e) => debug('provider shutdown', e));
 }
 
-/** Flush Trailbeam spans that are waiting to be exported. */
+/** Flush Trailbeam spans that are waiting to be exported. Never rejects, as `uninstall`. */
 async function forceFlush() {
-  if (state) await state.provider.forceFlush();
+  if (state) await state.provider.forceFlush().catch((e) => debug('flush', e));
 }
 
 module.exports = {
