@@ -997,6 +997,49 @@ Trailbeam process loses nothing that was answered 200. An OS crash or power loss
 answered 200 in the last moments before it, and the file stays consistent. The server logs a warning at
 start when it's set. It applies to the SQLite file only; with Postgres, use its `synchronous_commit` ([Sizing Postgres](#sizing-postgres)).
 
+### Delivery guarantee: what a `200` promises
+
+Trailbeam answers an export `200` only after its spans are committed. Any other answer (`429`, `503`, or no
+answer at all because the connection dropped) means "send it again", and OTLP exporters do. If the first copy
+was stored after all (it was committed, but the answer was lost), the copy is skipped as a duplicate. SQLite
+matches on trace ID, span ID and end time; Postgres on trace ID and span ID within the span's day. So with
+an exporter that retries, delivery is at least once and each span is stored once. What a `200` survives
+depends on the store and its setting:
+
+| Store, setting | Trailbeam process killed | Postgres killed | OS crash or power loss |
+|---|---|---|---|
+| SQLite, `--durability full` (default) | nothing answered `200` lost | n/a | nothing answered `200` lost: synced per export |
+| SQLite, `--durability relaxed` | nothing answered `200` lost | n/a | the exports answered in the last moments before it (about a second) can be lost; the file stays consistent |
+| Postgres, `synchronous_commit = on` (Postgres' default) | nothing answered `200` lost | nothing answered `200` lost | nothing answered `200` lost |
+| Postgres, `synchronous_commit = off` | nothing answered `200` lost | up to 3 × `wal_writer_delay` (600 ms by default) of exports | the same |
+
+The first two columns are tested (QV-238; [fault tests](python/bench/README.md#fault-tests-faultspy)): SIGKILL
+of the server mid-write, three times, for both SQLite settings and Postgres, and Postgres killed during a
+retention pass. No answered span was lost or stored twice. The OS-crash column is what SQLite's
+[`synchronous`](https://www.sqlite.org/pragma.html#pragma_synchronous) and Postgres'
+[asynchronous commit](https://www.postgresql.org/docs/current/wal-async-commit.html) promise. It is not tested
+here, and it assumes the disk honours fsync. The same tests cover the other failures:
+
+- **Postgres down** (stopped for a minute): exports are answered `503` (`store_unreachable`, `Retry-After: 1`)
+  and `/api/ready` is `503`. When Postgres is back, the server takes exports again within seconds, with no
+  restart.
+- **Disk full**, on either store: exports are answered `503` (`store_full`, `Retry-After: 3`) with nothing
+  stored. Once space is freed they are stored again, with no restart. Until QV-238, SQLite answered a full disk
+  with `500`, which exporters don't retry, so those spans were dropped. `/api/ready` stays `200` while a SQLite
+  disk is full; watch `trailbeam_ingest_rejected_requests_total{reason="store_full"}` and the disk itself.
+- **Several replicas**: a killed replica loses nothing it answered, and the load balancer sends the retries to
+  the others ([Several replicas](#several-replicas-on-one-postgres)).
+- **Order and clocks**: arrival order doesn't change what is stored or shown. Spans shuffled across 40 exports,
+  some from clocks an hour ahead or behind, give the same timelines as the same spans sent in order. A span is
+  stored with the times it was sent with. One already older than the retention is stored, then deleted by the
+  next pass.
+
+What a `200` can't cover is an export that is never answered `200`: then the exporter's retry budget decides.
+The Python OTel exporter retries only within its 10 s export timeout. The Collector's `retry_on_failure`
+retries for 5 minutes by default, from a sending queue in memory. Send through a Collector to ride out outages
+longer than a few seconds ([`collector/`](collector/README.md)). One more answer isn't retried: a Postgres
+statement that runs past `statement_timeout` (60 s) is answered `500`, and the exporter drops that export.
+
 ### Sizing one SQLite server
 
 **Disk is the limit to plan for.** One SQLite server holds *average ingest × retention* spans, at about
@@ -1268,7 +1311,7 @@ without one, anyone who can reach the port can read it. Labels never hold span d
 |---|---|---|
 | `trailbeam_ingest_spans_total{result}` | counter | Spans in accepted exports: `inserted`, `duplicate` (already stored, e.g. a retry), `invalid` (rejected by the span contract), `ignored` (not Trailbeam spans). `rate()` gives spans/s |
 | `trailbeam_ingest_requests_total{code}` | counter | Exports to `/v1/traces` by response status |
-| `trailbeam_ingest_rejected_requests_total{reason}` | counter | 429s (`queue_full`) and 503s (`writer_behind`) |
+| `trailbeam_ingest_rejected_requests_total{reason}` | counter | 429s (`queue_full`) and 503s (`writer_behind`; `store_unreachable`: the database can't be reached; `store_full`: its disk is full) |
 | `trailbeam_ingest_request_duration_seconds{outcome}` | histogram | Export latency, from body received to response: `accepted`, `rejected`, `error` |
 | `trailbeam_ingest_writer_wait_seconds` | histogram | Time an export waited for the SQLite writer |
 | `trailbeam_ingest_write_duration_seconds` | histogram | One export's write transaction |

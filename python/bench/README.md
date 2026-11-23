@@ -307,3 +307,93 @@ python python/bench/tenants_page.py --store-url $PG --schema t224 --out after.js
 The answers matched (`--compare`). The page still reads raw events for the hour at the start of its range, up to
 half an hour of them. Forcing that path for the 2.06M events of the current hour took 261 ms on Postgres (p95) and
 314 ms for 626K events on SQLite (p50), against 2,070 ms and 646 ms when they were fetched into Python one by one.
+
+## Fault tests: `faults.py`
+
+What is stored and shown when things break under steady ingest (QV-238). Each case starts a server, sends
+steady traffic from 4 exporter threads (64-span exports, about 2,000–5,000 spans/s here), injects one fault,
+lets the server recover with no help, then checks:
+
+- **stored**: every span answered `200` is in the database exactly once (*lost* and *doubled* must be 0). A
+  span never answered `200` may be stored or not; the exporter sends it again, and a stored copy is skipped.
+- **shown**: `/api/stats` and up to 200 sampled timelines (`/api/messages/{id}`) equal what a clean SQLite
+  server shows for the same stored spans, sent once and in order.
+- **recovered**: `/api/ready` is `200` and new exports are answered `200` after the fault ends, with no
+  restart or other action by hand. For SIGKILL the process is started again at once, as a restart policy does.
+
+The exporter threads retry the way an OTLP exporter with the Collector's `retry_on_failure` does: on a connection
+error or `429`/`502`/`503`/`504`, with backoff and `Retry-After`, for up to 300 s. Any other status is final and
+the export is *dropped*, and the case fails.
+
+```sh
+python bench/faults.py --list
+python bench/faults.py                                   # every case, both stores: about 12 minutes
+python bench/faults.py --case disk-full --backend sqlite --out /tmp/faults
+```
+
+Postgres runs in a container of its own (`postgres:16`), started and removed by the script. The SQLite disk-full
+case runs the server in an image built from the checkout. A full disk is a size-limited tmpfs for the data
+directory: a real `ENOSPC`, with no root needed. With `--postgres-url` (or `TRAILBEAM_TEST_POSTGRES_URL`) the
+cases that don't stop or fill Postgres use that server instead, one database per case, dropped afterwards.
+Docker objects are named `qv238-*` and removed at the end (`--keep` keeps them).
+
+| Case | What happens |
+|---|---|
+| `kill9` | SIGKILL the server 3 times mid-write, each time starting it again 1 s later |
+| `kill9-relaxed` | the same with `--durability relaxed` (SQLite) |
+| `pg-down` | `docker stop` Postgres for 60 s, then start it; the server is not touched |
+| `disk-full` | a ballast file fills the store's disk to the last 2 MB for 60 s, then is deleted |
+| `retention-restart` | spans 10–13 days old are stored with a 2-day retention; while the pass deletes them, Postgres is killed and restarted (`docker restart -t 0`), or for SQLite the server is SIGKILLed |
+| `replicas` | two replicas on one Postgres behind a round-robin balancer that skips a dead one; SIGKILL one, start it 8 s later |
+| `duplicate` | every export answered `200` is sent again (a client retry after a lost answer) |
+| `disorder` | spans shuffled over a window of 40 exports, so settles come before receives before sends, from 8 services with clocks off by 0 s to ±1 h |
+
+**In CI** (`tests/server/test_faults.py`, 2 s phases): `kill9`, `kill9-relaxed`, `duplicate` and `disorder` on
+SQLite in the Python job; `kill9`, `duplicate`, `disorder` and `replicas` on Postgres in the Postgres job; and a
+full SQLite disk through `max_page_count`, which gives the same `SQLITE_FULL`. `pg-down`, `disk-full` with a
+real disk, and `retention-restart` need Docker and a minute or more each, so they run from this script only.
+
+### Results (2026-11-23, QV-238)
+
+On a desktop with 16 threads and 11 GB of RAM under WSL2, the data on its virtual disk, `postgres:16`, the default settings above.
+*Unacked, stored* is 0 in every case: whatever was cut off was sent again and answered `200` in the end.
+
+| Case | Store | Result | Spans sent | Answered 200 | Lost | Doubled | Dropped | Shown = reference | Recovered after (s) |
+|---|---|---|---:|---:|---:|---:|---:|---|---|
+| kill9 | SQLite | pass | 113,344 | 113,344 | 0 | 0 | 0 | yes | 0.6, 0.6, 0.6 |
+| kill9 | Postgres | pass | 57,344 | 57,344 | 0 | 0 | 0 | yes | 0.6, 0.6, 0.6 |
+| kill9-relaxed | SQLite | pass | 104,512 | 104,512 | 0 | 0 | 0 | yes | 0.6, 2.2, 0.8 |
+| pg-down (60 s) | Postgres | pass | 35,648 | 35,648 | 0 | 0 | 0 | yes | 5.2 after Postgres was back; `/api/ready` 503 while down |
+| disk-full (60 s) | SQLite | pass | 70,400 | 70,400 | 0 | 0 | 0 | yes | 0.2 after space was freed |
+| disk-full (60 s) | Postgres | pass | 26,816 | 26,816 | 0 | 0 | 0 | yes | 0.6 after space was freed |
+| retention-restart | SQLite | pass | 148,032 | 148,032 | 0 | 0 | 0 | yes | 0.2; every expired span deleted 30 s later |
+| retention-restart | Postgres | pass | 70,080 | 70,080 | 0 | 0 | 0 | yes | 2.4; every expired span deleted 31 s later |
+| replicas | Postgres | pass | 55,808 | 55,808 | 0 | 0 | 0 | yes | 0.2 via the other replica; 0.2 for the killed one, once started |
+| duplicate | SQLite | pass | 38,656 | 38,656 | 0 | 0 | 0 | yes | n/a; `/api/health` counted 38,656 duplicates |
+| duplicate | Postgres | pass | 26,176 | 26,176 | 0 | 0 | 0 | yes | n/a; 26,176 duplicates counted |
+| disorder | SQLite | pass | 52,672 | 52,672 | 0 | 0 | 0 | yes | n/a |
+| disorder | Postgres | pass | 24,000 | 24,000 | 0 | 0 | 0 | yes | n/a |
+
+"Spans sent" for retention-restart includes the expired ones, which are meant to be deleted. Each one was checked
+to be gone.
+
+**Faults found, and fixed in QV-238:**
+
+1. **A full SQLite disk lost exports.** It was answered `500 internal error`, which OTLP exporters don't retry. In
+   the first `disk-full` run, 1,982 exports (about 127,000 spans) were dropped by the exporters in 60 s. The failed
+   `COMMIT` had already rolled back, so the `ROLLBACK` after it raised "no transaction is active" and hid the
+   cause in the log. Now both stores answer `503` `store_full` with `Retry-After: 3`, and Postgres' disk-full
+   error is logged as "out of disk space", not "unreachable". Postgres was already answered `503`, as unreachable.
+2. **An export queued behind more than one group commit could be answered `500`.** The writer whose own export
+   wasn't in the first `GROUP_MAX_SPANS` (4,096) queued spans committed one group and returned nothing. The
+   server answered `500` and the export was stored later by another writer. Now it writes groups until its own
+   is in. Reproduced by queueing 9 exports of 512 spans ahead of one, and tested in `test_group_commit.py`.
+3. A client that hung up before its answer printed a `BrokenPipeError` traceback. It now logs one line.
+
+**Filed, for a decision ([QV-300](/QV/issues/QV-300)):** a Postgres statement that runs past `statement_timeout` (60 s) is answered `500`,
+so the exporter drops the export. A `503` would have it retried, but an export that is always too slow would then
+be retried until the exporter gives up. Not seen in these runs.
+
+**Not tested here:** an OS crash or power loss (the README's guarantee for it comes from SQLite's and Postgres'
+documentation), a network partition between replicas and Postgres (`pg-down` covers Postgres being unreachable),
+and Postgres failover to a standby.

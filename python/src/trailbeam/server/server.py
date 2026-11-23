@@ -507,7 +507,13 @@ def make_handler(app: App):
             except Exception:
                 log.exception("ingest failed")
                 status, ctype, out, headers = 500, "text/plain", b"internal error", {}
-            self._send(status, ctype, out, headers)
+            try:
+                self._send(status, ctype, out, headers)
+            except (BrokenPipeError, ConnectionResetError):
+                # Its spans are committed (on 200), but the client won't know: it sends the export again, and
+                # the copy is skipped as a duplicate. Not a traceback in the log.
+                log.info("the client went away before the %d answer to its export", status)
+                self.close_connection = True
 
         def do_GET(self):
             u = urlsplit(self.path)

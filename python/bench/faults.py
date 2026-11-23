@@ -316,8 +316,19 @@ class Server:
 
     def errors(self) -> list[str]:
         """Tracebacks and ERROR lines in its log."""
-        text = self.log_path.read_text(errors="replace") if self.log_path.exists() else ""
-        return [l for l in text.splitlines() if " ERROR " in l or l.startswith("Traceback")]
+        lines = (self.log_path.read_text(errors="replace") if self.log_path.exists() else "").splitlines()
+        out = []
+        for i, line in enumerate(lines):
+            if " ERROR " in line:
+                out.append(line)
+            elif line.startswith("Traceback"):  # its last line: the exception
+                j = i + 1
+                while j < len(lines) and (lines[j].startswith(" ") or not lines[j].strip()
+                                          or lines[j].startswith("During handling") or lines[j].startswith("The above")
+                                          or lines[j].startswith("Traceback")):
+                    j += 1
+                out.append("Traceback: " + (lines[j] if j < len(lines) else "?"))
+        return out
 
 
 class Postgres:
@@ -744,8 +755,10 @@ def case_disk_full(c: Case, backend: str) -> dict:
     time.sleep(c.a.phase_s)
     # leave ~2 MB, so the next exports fill it
     for margin_kb in (2048, 8192, 32768):  # the store grows meanwhile: leave a little more if it beat us to it
+        if free_kb() <= margin_kb:  # the store has (nearly) filled it by itself
+            break
         try:
-            run("fallocate", "-l", f"{max(0, free_kb() - margin_kb)}k", ballast)
+            run("fallocate", "-l", f"{free_kb() - margin_kb}k", ballast)
             break
         except RuntimeError:
             run("rm", "-f", ballast)
@@ -809,7 +822,7 @@ def main(argv=None) -> int:
     p.add_argument("--phase-s", type=float, default=8.0, help="seconds of ingest before and after each fault")
     p.add_argument("--outage-s", type=float, default=60.0, help="how long Postgres stays down, or the disk full")
     p.add_argument("--kills", type=int, default=3)
-    p.add_argument("--disk-mb", type=int, default=256, help="size of the disk that fills up")
+    p.add_argument("--disk-mb", type=int, default=512, help="size of the disk that fills up")
     p.add_argument("--give-up-s", type=float, default=300, help="an exporter's retry budget (Collector: 300 s)")
     p.add_argument("--sample", type=int, default=200, help="timelines compared with the reference per case")
     p.add_argument("--out", default=None, help="directory for faults.json and faults.md")
