@@ -39,6 +39,23 @@ CONCURRENT_LABEL = "concurrent, order unknown"
 # The source of an observed move to a dead-letter queue (contract section 9b), in the API and on the screen.
 DLQ_SOURCE = "sqs_dlq_source"
 DLQ_REPORTED_BY = "reported by SQS (DeadLetterQueueSourceArn on the DLQ receive)"
+# A FIFO send SQS deduplicated (QV-246): it returned the MessageId of the earlier send and enqueued nothing.
+DEDUPLICATED_REASON = "SQS returned the same MessageId: this send was deduplicated and enqueued nothing"
+
+
+def deduplicated_sends(rows) -> set:
+    """The row IDs of the sends SQS deduplicated. A FIFO queue (name ending ``.fifo``) accepts a second send
+    with the same MessageDeduplicationId within its 5-minute window and returns the first send's MessageId, but
+    enqueues nothing; a standard queue never returns one MessageId twice. So every send of a message on a FIFO
+    queue after its first there (by end time, then row) was deduplicated."""
+    seen: set = set()
+    out: set = set()
+    for r in sorted((r for r in rows if r["kind"] == "send"), key=lambda r: (r["time_ns"], r["row"])):
+        q = r["queue"] or ""
+        if q.endswith(".fifo") and q in seen:
+            out.add(r["row"])
+        seen.add(q)
+    return out
 
 
 def _time(start_ns: Optional[int], end_ns: int) -> dict:
@@ -104,6 +121,7 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
     # Proven order between the observed rows (row list index = position in ``rows``).
     order = order_mod.Order(rows)
     idx = {r["row"]: i for i, r in enumerate(rows)}
+    deduplicated = deduplicated_sends(rows)
 
     def proven(a, b) -> bool:
         return order.before(idx[a["row"]], idx[b["row"]])
@@ -123,6 +141,9 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
                 "queue": r["queue"], "consumer": consumer(r), "span": _span(r), "process_order": _ticks(r)}
         if k == "send":
             ev = {"type": "sent", **base, **({"batch_entry_id": r["batch_entry_id"]} if r["batch_entry_id"] else {})}
+            if r["row"] in deduplicated:
+                ev["deduplicated"] = True
+                ev["reason"] = DEDUPLICATED_REASON
         elif k == "receive":
             ev = {"type": "received", **base, "delivery": by_row[r["row"]], "receive_count": r["receive_count"]}
             if r["sent_ts_ms"] is not None:

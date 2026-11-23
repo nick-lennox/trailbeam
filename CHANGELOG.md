@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- FIFO queues: a second send that SQS deduplicated (same MessageId within the 5-minute deduplication window, nothing
+  enqueued) is now marked `deduplicated: true` on the timeline, with the reason, instead of showing as a second
+  plain "Sent" step. It no longer counts in the Tenants page's `total_sent`, a tenant's `sent` or its share. On
+  upgrade, SQLite schema 14 and Postgres schema 7 fix the counts of messages already stored (QV-246).
+
 ## 0.4.0: set up in one command
 
 Trailbeam 0.4.0 is about getting a server running and the first message on screen without reading the whole

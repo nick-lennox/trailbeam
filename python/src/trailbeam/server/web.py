@@ -447,6 +447,9 @@ def _why(e: dict, by_id: dict) -> list[str]:
 def _event(e: dict, by_id: Optional[dict] = None, bar: str = "") -> str:
     inferred = bool(e.get("inferred"))
     label = escape(EVENT_LABELS.get(e["type"], e["type"]))
+    dedup = e["type"] == "sent" and bool(e.get("deduplicated"))  # a FIFO send SQS deduplicated (QV-246)
+    if dedup:
+        label = "Sent again, deduplicated by SQS"
     failed = e.get("result") == "failed" or (e["type"] == "lambda_outcome" and e.get("outcome") != "success")
     cls = ["event", "inferred" if inferred else "observed"] + (["failed"] if failed else [])
     head = []
@@ -470,7 +473,7 @@ def _event(e: dict, by_id: Optional[dict] = None, bar: str = "") -> str:
         out.append(f'<div class="reported-by"><strong>{escape(e.get("reported_by") or "")}</strong></div>')
     if details:
         out.append(f'<div class="detail">{" · ".join(details)}</div>')
-    if (inferred or reported) and e.get("reason"):
+    if (inferred or reported or dedup) and e.get("reason"):
         out.append(f'<div class="reason">{escape(e["reason"])}</div>')
     out.extend(_why(e, by_id or {}))
     out.append("</li>")

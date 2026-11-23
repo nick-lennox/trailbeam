@@ -1291,6 +1291,17 @@ components:
       properties:
         type: {const: sent}
         batch_entry_id: {type: string, description: The entry's ID in a batch call.}
+        deduplicated:
+          const: true
+          description: >-
+            Present only on a send SQS deduplicated: on a FIFO queue (name ending `.fifo`), a send of a
+            message ID after its first send there. SQS returned the earlier send's MessageId and enqueued
+            nothing, so the step is not another message, and the Tenants page does not count it as sent.
+        reason:
+          type: string
+          description: >-
+            With `deduplicated`: "SQS returned the same MessageId: this send was deduplicated and enqueued
+            nothing".
     ReceivedStep:
       allOf: [{$ref: '#/components/schemas/RecordedStep'}]
       description: One delivery of the message, from `ReceiveMessage` or a Lambda event.
