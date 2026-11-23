@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { TenantSearch, TenantsTable, fmtShare, fmtWait, tenantsFootnote } from "../src/tenants/Tenants.tsx";
+import { TENANT_ENV, TenantSearch, TenantsTable, fmtShare, fmtWait, noTenantsText, tenantsFootnote } from "../src/tenants/Tenants.tsx";
 import type { TenantStats } from "../src/tenants/types.ts";
 
 const expected = JSON.parse(readFileSync(new URL("../../contract/fixtures/tenants-expected.json", import.meta.url), "utf8")) as { stats: (TenantStats & { name: string })[] };
@@ -55,4 +55,20 @@ test("the tenants views use role tokens, which theme.css defines, so a light hos
     assert.ok(!/^(sky|dawn|wait|ember|lost)/.test(t), `${t} is the night palette; use a role token`);
     assert.match(theme, new RegExp(`--color-${t}:`), `theme.css defines --color-${t}`);
   }
+});
+
+test("no tenants: what a tenant is and how to set one, in plain words (QV-217)", () => {
+  const head = "A tenant is your own customer or account ID, read from each message. ";
+  const tail = " To split traffic by customer, set one of these in every service that sends or receives:";
+  assert.equal(noTenantsText(10, "Last 24 hours"), `${head}10 messages were sent in the last 24 hours, none with one.${tail}`);
+  assert.equal(noTenantsText(1, "Last hour"), `${head}1 message was sent in the last hour, none with one.${tail}`);
+  assert.equal(noTenantsText(2500, "Last 7 days"), `${head}2,500 messages were sent in the last 7 days, none with one.${tail}`);
+  assert.equal(noTenantsText(0, "Last 7 days"), `${head}No messages were sent in the last 7 days.${tail}`);
+  assert.equal(TENANT_ENV, "export TRAILBEAM_TENANT_ATTRIBUTE=tenant        # a message attribute\nexport TRAILBEAM_TENANT_BODY_PATH=customer.id   # or a path in a JSON body");
+  for (const s of [noTenantsText(10, "Last hour"), TENANT_ENV]) assert.ok(!/15\.2|span contract|trailbeam\.tenant/.test(s));
+});
+
+test("the tenant search box says what to type", () => {
+  const html = renderToStaticMarkup(createElement(TenantSearch, { suggest: async () => [], href: (t: string) => t }));
+  assert.match(html, /placeholder="Tenant \(customer ID\)"/);
 });
