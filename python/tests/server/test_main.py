@@ -176,3 +176,52 @@ def test_pool_sizes_are_postgres_only(tmp_path):
                        capture_output=True, text=True, timeout=30)
     assert r.returncode == 2 and "Traceback" not in r.stderr and "TRAILBEAM_STORE_URL" in r.stderr
     assert not (tmp_path / "x.sqlite").exists()
+
+
+def _taken_port():
+    """A socket listening on a free 127.0.0.1 port, as another OTLP receiver would."""
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    s.listen()
+    return s
+
+
+@pytest.mark.parametrize("command", [[], ["start"]])
+def test_port_in_use_is_one_line(tmp_path, command):
+    taken = _taken_port()
+    port = taken.getsockname()[1]
+    env = {**os.environ, "TRAILBEAM_DB": str(tmp_path / "q.sqlite"), "TRAILBEAM_PORT": str(port),
+           "TRAILBEAM_HOST": "127.0.0.1"}
+    env.pop("TRAILBEAM_TOKEN", None)
+    argv = command + (["--data-dir", str(tmp_path / "data")] if command else [])
+    try:
+        p = subprocess.run([sys.executable, "-m", "trailbeam.server", *argv], env=env, capture_output=True,
+                           text=True, timeout=30)
+    finally:
+        taken.close()
+    assert p.returncode == 2
+    assert "Traceback" not in p.stderr
+    last = p.stderr.strip().splitlines()[-1]
+    prog = "trailbeam start" if command else "trailbeam"
+    assert last == (f"trailbeam: port {port} on 127.0.0.1 is already in use (another OTLP receiver?). Stop it or "
+                    f"run {prog} --port {port + 1} and set TRAILBEAM_OTLP_TRACES_ENDPOINT to match.")
+    assert p.stdout == ""  # no banner for a server that isn't running
+
+
+def test_bind_error_messages():
+    import errno
+    import socket
+
+    from trailbeam.server.__main__ import bind_error
+
+    assert bind_error(OSError(errno.EADDRINUSE, "Address already in use"), "127.0.0.1", 4318) == (
+        "trailbeam: port 4318 on 127.0.0.1 is already in use (another OTLP receiver?). Stop it or run trailbeam "
+        "--port 4319 and set TRAILBEAM_OTLP_TRACES_ENDPOINT to match.")
+    assert "--port 65534" in bind_error(OSError(errno.EADDRINUSE, "in use"), "0.0.0.0", 65535)
+    assert "ports below 1024" in bind_error(OSError(errno.EACCES, "Permission denied"), "127.0.0.1", 80)
+    assert "not an address of this machine" in bind_error(OSError(errno.EADDRNOTAVAIL, "x"), "10.9.9.9", 4318)
+    assert bind_error(socket.gaierror(-2, "Name or service not known"), "nohost", 4318).startswith(
+        "trailbeam: --host nohost: Name or service not known.")
+    assert bind_error(OSError(errno.ENOBUFS, "No buffer space"), "127.0.0.1", 4318) == (
+        "trailbeam: can't listen on port 4318 on 127.0.0.1: No buffer space")

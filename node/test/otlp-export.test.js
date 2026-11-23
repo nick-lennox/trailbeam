@@ -38,3 +38,29 @@ test('spans are posted as OTLP/HTTP protobuf to TRAILBEAM_OTLP_TRACES_ENDPOINT',
     assert.ok(requests[0].body.includes(Buffer.from(s)), s);
   }
 });
+
+// QV-157: with nothing listening on the endpoint, uninstall resolves and the spans are reported as drops.
+test('uninstall and forceFlush resolve when the OTLP endpoint is unreachable', async (t) => {
+  const exp = require('../src/export');
+  const warnings = [];
+  exp._setForTest({ warnFn: (m) => warnings.push(m) });
+  t.after(() => exp._setForTest({}));
+  // A port that was just free: connecting to it is refused.
+  const probe = http.createServer();
+  await new Promise((r) => probe.listen(0, '127.0.0.1', r));
+  const { port } = probe.address();
+  await new Promise((r) => probe.close(r));
+  process.env.TRAILBEAM_OTLP_TRACES_ENDPOINT = `http://127.0.0.1:${port}/v1/traces`;
+  t.after(() => { delete process.env.TRAILBEAM_OTLP_TRACES_ENDPOINT; });
+
+  trailbeam.install({ receiptHashKey: 'otlp-test-key-0123456789' });
+  const { client } = stubClient(() => ({ MessageId: 'mid-otlp-down' }));
+  trailbeam.instrument(client);
+  await client.send(new S.SendMessageCommand({ QueueUrl: 'http://localhost:9324/000000000000/orders', MessageBody: 'x' }));
+  await trailbeam.forceFlush();
+  await client.send(new S.SendMessageCommand({ QueueUrl: 'http://localhost:9324/000000000000/orders', MessageBody: 'y' }));
+  await trailbeam.uninstall();
+
+  assert.strictEqual(trailbeam.exportStats().droppedByReason.export_failed, 2);
+  assert.ok(warnings.some((w) => /dropped \d+ spans/.test(w)), 'the failure is reported as a drop warning');
+});

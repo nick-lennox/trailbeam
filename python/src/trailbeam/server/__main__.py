@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import logging
 import math
 import os
 import signal
+import socket
 import sqlite3
 import sys
 import time
@@ -181,10 +183,15 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
             "%s was created without incremental vacuum: retention deletes old spans and new spans reuse the "
             "space, but the file does not shrink. To give the space back, stop the server and run trailbeam "
             "--db %s --vacuum once (it rewrites the file)", a.db, a.db)
-    httpd = make_server(db, a.host, a.port, stuck_after_s=a.stuck_after,
-                        lambda_timeout_s=a.lambda_timeout, max_receive_counts=a.max_receive_count,
-                        purger=purger, auth=auth.Auth(token) if token else None,
-                        gate=IngestGate(a.ingest_max_pending, a.ingest_max_wait))
+    try:
+        httpd = make_server(db, a.host, a.port, stuck_after_s=a.stuck_after,
+                            lambda_timeout_s=a.lambda_timeout, max_receive_counts=a.max_receive_count,
+                            purger=purger, auth=auth.Auth(token) if token else None,
+                            gate=IngestGate(a.ingest_max_pending, a.ingest_max_wait))
+    except OSError as e:
+        db.close()
+        sys.stderr.write(bind_error(e, a.host, a.port, getattr(a, "command", "trailbeam")) + "\n")
+        sys.exit(2)
     if token:
         logging.getLogger("trailbeam.server").info("access token set: ingest, the API and the web screen need it")
     elif a.host not in ("127.0.0.1", "localhost", "::1"):
@@ -209,6 +216,24 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
         purger.stop()
         httpd.server_close()
         db.close()
+
+
+def bind_error(e: OSError, host: str, port: int, command: str = "trailbeam") -> str:
+    """The one line printed when the listen port can't be bound, instead of a traceback. 4318 is the standard
+    OTLP/HTTP port, so the usual cause is an OpenTelemetry Collector, Jaeger or another OTLP receiver."""
+    if e.errno == errno.EADDRINUSE or getattr(e, "winerror", None) == 10048:  # WSAEADDRINUSE
+        other = port + 1 if port < 65535 else port - 1
+        return (f"trailbeam: port {port} on {host} is already in use (another OTLP receiver?). Stop it or run "
+                f"{command} --port {other} and set TRAILBEAM_OTLP_TRACES_ENDPOINT to match.")
+    if e.errno == errno.EACCES:
+        return (f"trailbeam: not allowed to listen on port {port} on {host} (ports below 1024 need root). "
+                f"Run {command} --port 4318, or another port from 1024.")
+    if isinstance(e, socket.gaierror):
+        return f"trailbeam: --host {host}: {e.strerror or e}. Use --host 127.0.0.1, or 0.0.0.0 for every address."
+    if e.errno == errno.EADDRNOTAVAIL:
+        return (f"trailbeam: can't listen on {host}: it is not an address of this machine. Use --host 127.0.0.1, "
+                f"or 0.0.0.0 for every address.")
+    return f"trailbeam: can't listen on port {port} on {host}: {e.strerror or e}"
 
 
 class StoreUrlError(ValueError):

@@ -25,6 +25,7 @@ const { Emitter, makeProvider, nowMs, SERVICE_INSTANCE_ID } = require('./emitter
 const { HandleMap } = require('./handles');
 const order = require('./order');
 const capture = require('./capture');
+const { stats: exportStats } = require('./export');
 
 const MIDDLEWARE_NAME = 'trailbeamSqsMiddleware';
 
@@ -290,8 +291,28 @@ function install(options = {}) {
   const clientId = resource.attributes[SERVICE_INSTANCE_ID];
   const emitter = new Emitter(provider, resolveHasher(options.receiptHashKey), 'client', clientId);
   state = { provider, hooks: new SqsHooks(emitter, new HandleMap(), config) };
+  addExitHooks();
   if (previous) previous.provider.shutdown().catch((e) => debug('provider shutdown', e));
   return provider;
+}
+
+// A script that sends a message and ends must not lose its spans (QV-156). The batch processor's timer
+// does not keep the process alive, so when the event loop empties ('beforeExit') we flush. A flush with
+// nothing queued schedules no work, so Node.js does not fire 'beforeExit' again and the process exits.
+// process.exit() and signals skip 'beforeExit': at 'exit' we can only say what was lost, in one line.
+let exitHooksAdded = false;
+function addExitHooks() {
+  if (exitHooksAdded) return;
+  exitHooksAdded = true;
+  process.on('beforeExit', () => {
+    if (state) state.provider.forceFlush().catch((e) => debug('flush at exit', e));
+  });
+  process.on('exit', () => {
+    const { queued } = exportStats();
+    if (queued === 0) return;
+    process.stderr.write(`trailbeam: ${queued} span${queued === 1 ? ' was' : 's were'} not exported because the ` +
+      'process exited; call `await trailbeam.uninstall()` before process.exit()\n');
+  });
 }
 
 /**
@@ -312,16 +333,19 @@ function instrument(client) {
   return client;
 }
 
-/** Turn the hooks off on every instrumented client, then flush and shut down the Trailbeam provider. */
+/**
+ * Turn the hooks off on every instrumented client, then flush and shut down the Trailbeam provider.
+ * Never rejects: spans that could not be exported are reported as drops (TRAILBEAM_SPANS_DROPPED).
+ */
 async function uninstall() {
   const previous = state;
   state = null;
-  if (previous) await previous.provider.shutdown();
+  if (previous) await previous.provider.shutdown().catch((e) => debug('provider shutdown', e));
 }
 
-/** Flush Trailbeam spans that are waiting to be exported. */
+/** Flush Trailbeam spans that are waiting to be exported. Never rejects, as `uninstall`. */
 async function forceFlush() {
-  if (state) await state.provider.forceFlush();
+  if (state) await state.provider.forceFlush().catch((e) => debug('flush', e));
 }
 
 module.exports = {
