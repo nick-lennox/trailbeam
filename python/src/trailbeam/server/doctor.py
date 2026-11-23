@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 from urllib.parse import urlsplit
 
-from . import home
+from .start import TOKEN_FILE, default_data_dir
 
 DEFAULT_PORT = 4318
 INGEST_PATH = "/v1/traces"
@@ -150,6 +150,12 @@ def probe_export(probe_id: str, now_ns: Optional[int] = None) -> bytes:
         "scopeSpans": [{"scope": {"name": "trailbeam"}, "spans": [span]}]}]}).encode()
 
 
+def _default_token_path():
+    """Where trailbeam start keeps the token: TOKEN_FILE in its data directory (TRAILBEAM_DATA_DIR)."""
+    from pathlib import Path
+    return Path(default_data_dir()) / TOKEN_FILE
+
+
 def _token_cause(t: Target, where: str) -> tuple[str, str]:
     if t.token_error:
         return (f"the token could not be used: {t.token_error}.",
@@ -157,7 +163,7 @@ def _token_cause(t: Target, where: str) -> tuple[str, str]:
     if not t.token:
         return (f"the server has an access token and {where} needs it, but none was given.",
                 f"pass --token-file PATH, or set TRAILBEAM_TOKEN, to the token the server was started with "
-                f"(trailbeam start prints it, and keeps it in {home.token_path()}). Services need it too: "
+                f"(trailbeam start prints it, and keeps it in {_default_token_path()}). Services need it too: "
                 "OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<token>.")
     return (f"{where} does not accept the token from {t.token_source}: the server was started with another one.",
             "use the token the server was started with (its --token-file or TRAILBEAM_TOKEN). After the token "
@@ -372,7 +378,8 @@ def _last_span(health: dict, now_ns: int, probe_ok: bool, t: Target) -> Result:
     return Result(name, OK, f"newest span {when}, {_ago(age_s)} ago")
 
 
-def report(t: Target, results: list[Result], out=sys.stdout) -> int:
+def report(t: Target, results: list[Result], out=None) -> int:
+    out = out or sys.stdout
     out.write(f"trailbeam doctor: server {t.url}, ingest {t.ingest_url}, token: {t.token_source}\n\n")
     for r in results:
         out.write(f"  {r.status:<5} {r.name}: {r.detail}\n")
@@ -401,8 +408,8 @@ def target_from_args(a) -> Target:
     elif os.environ.get("TRAILBEAM_TOKEN", "").strip():
         t.token, t.token_source = os.environ["TRAILBEAM_TOKEN"].strip(), "TRAILBEAM_TOKEN"
         return t
-    elif home.token_path().is_file():
-        path = str(home.token_path())
+    elif _default_token_path().is_file():
+        path = str(_default_token_path())
         t.token_source = path
     else:
         return t
@@ -416,7 +423,7 @@ def target_from_args(a) -> Target:
     return t
 
 
-def main(argv=None) -> int:
+def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="trailbeam doctor",
         description="Check why no data is arriving: the server, the ingest port, the token, a test span sent and "
@@ -426,11 +433,14 @@ def main(argv=None) -> int:
     p.add_argument("--ingest-url", help="where services send spans (env TRAILBEAM_OTLP_TRACES_ENDPOINT, as the "
                                         "services read it; default the server's /v1/traces)")
     p.add_argument("--token-file", help="a file holding the access token (env TRAILBEAM_TOKEN_FILE, or the token "
-                                        f"itself in TRAILBEAM_TOKEN; default {home.token_path()}, which trailbeam "
+                                        f"itself in TRAILBEAM_TOKEN; default {_default_token_path()}, which trailbeam "
                                         "start creates, if it exists)")
     p.add_argument("--timeout", type=float, default=5.0, help="seconds to wait for each answer (default 5)")
-    a = p.parse_args(argv)
-    t = target_from_args(a)
+    return p
+
+
+def main(argv=None) -> int:
+    t = target_from_args(parser().parse_args(argv))
     return report(t, run(t))
 
 

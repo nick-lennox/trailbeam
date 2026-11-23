@@ -5,7 +5,8 @@ package emit, and that the Trailbeam reads. Both packages and Trailbeam are buil
 it. A change to anything below is a contract change: bump `trailbeam.schema_version`, and update this file,
 both packages and Trailbeam in the same change. A revision (3.1) only adds an optional attribute that
 older stores ignore and that Trailbeam does not require; it keeps `trailbeam.schema_version = 3` (sections 14
-and 16).
+and 16). Section 17 (the test span of `trailbeam doctor`) is not emitted by the packages and changes nothing they
+send.
 
 The keywords **must**, **must not**, **should** and **may** are used as in RFC 2119.
 
@@ -238,7 +239,7 @@ is `trailbeam`. It counts spans of other scopes as ignored. It rejects a Trailbe
 the OTLP `partial_success` field, when any of these is true:
 
 - `trailbeam.schema_version` is not `2` or `3`;
-- `trailbeam.kind` is unknown, or `sqs.settle` comes with a `messaging.operation.name` that is not a delete
+- `trailbeam.kind` is unknown (`trailbeam.probe` is known: section 17), or `sqs.settle` comes with a `messaging.operation.name` that is not a delete
   or visibility-change action;
 - the trace ID, span ID, start time or end time is missing, or the span ends before it starts;
 - a required field for its kind is missing or has the wrong type:
@@ -782,3 +783,28 @@ Not verified:
 
 `trailbeam.schema_version` stays `3`: every new attribute is optional, Trailbeam requires none of them
 (section 4.5 is unchanged), and a Trailbeam built for 3.1 ignores them.
+
+## 17. The test span of `trailbeam doctor` (QV-148)
+
+`trailbeam doctor` checks that a span sent to ingest is stored and can be read back. It sends one **probe**: a
+span in the `trailbeam` scope that the packages never emit, which Trailbeam stores apart from the spans so it
+never shows as a message.
+
+| Attribute | Type | Req. | Value |
+|---|---|---|---|
+| `trailbeam.schema_version` | int | must | `2` or `3`, as any span (section 4.5) |
+| `trailbeam.kind` | string | must | `trailbeam.probe` |
+| `trailbeam.probe.id` | string | must | 8 to 64 characters, each a letter, a digit, `-` or `_` |
+
+Trailbeam reads no other attribute of a probe, and not its times or trace: it records the probe's ID and when it
+stored it (its own clock). A probe is **not** a span: it has no row, it is in no message, page, count, rollup,
+retention pass or `last_row`/`last_span_ns`, and it is not counted as inserted. Probes are stored after the
+spans of the same export, on the same writer (so a probe stored says the export path works), and are kept for
+at least a day. `GET /api/probes/{id}` answers when it was stored, or 404 ([`openapi.yaml`](openapi.yaml)).
+
+A probe without a valid `trailbeam.probe.id`, and every probe sent to a store that does not keep probes, is
+rejected, with the reason in `partial_success`, as a span would be. A Trailbeam older than this section (0.3 and
+before) rejects it as an unknown `trailbeam.kind`; nothing else in that export is affected. `trailbeam doctor`
+reports both cases as such.
+
+`trailbeam.schema_version` stays `3`: nothing the packages send changes.

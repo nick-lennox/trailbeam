@@ -5,18 +5,46 @@ SQS. They emit the spans defined in [`contract/span-contract.md`](../contract/sp
 `trailbeam send`, `trailbeam receive`, `trailbeam delete`, `trailbeam change_visibility` and `trailbeam outcome`, one per
 message, with a keyed hash of each receipt handle and never the handle itself or the message body.
 
-`"private": true` stays in `package.json` until a release decision; 0.1 publishes nothing to npm.
-
-## Install from the repository
+## Install
 
 Plain CommonJS with type declarations; there is no build step. Node.js 20 or later.
 
 ```sh
-gh repo clone nick-lennox/trailbeam   # the repository is private
-npm install ./trailbeam/node          # from your application's directory
+npm install trailbeam
 ```
 
-or `npm pack ./trailbeam/node` and install the tarball.
+To install from a clone instead, run `npm install ./trailbeam/node` from your application's directory.
+
+## Run the server: `npx trailbeam start`
+
+To try Trailbeam from a Node.js project you don't need Python: with [Docker](https://docs.docker.com/get-docker/)
+installed and running,
+
+```sh
+npx trailbeam start
+```
+
+runs the Trailbeam server from its container image, `ghcr.io/nick-lennox/trailbeam` with the tag of this
+package's version, and keeps its data in the Docker volume `trailbeam-data`. The first run creates an access
+token and a receipt-hash key there. It then prints the web screen's address (`http://127.0.0.1:4318/`), the
+token, and the environment variables to set in your services, the same output as the Python
+`trailbeam start`. Later runs reuse the token and key. Stop it with Ctrl-C.
+
+It takes the same flags as the Python command (`npx trailbeam start --help` lists them), and the same
+`TRAILBEAM_` environment variables. The flags that name something on your machine work like this:
+
+- `--host` and `--port`: the address and port Docker publishes (default `127.0.0.1:4318`). Use
+  `--host 0.0.0.0` to let other machines reach it.
+- `--data-dir DIR`: keep the data in that directory instead of the volume. The container then runs as
+  you, so the files are yours, readable only by you. `--db FILE` does the same with the SQLite file (with the
+  token and key in `~/.trailbeam`, as in the Python command, unless `--data-dir` is set).
+- `--config FILE` is mounted read-only. `--token-file FILE` is read by `npx` and given to the server as
+  `TRAILBEAM_TOKEN`.
+- `--store-url` is not available: the image has SQLite only. For Postgres, use the
+  [team install](../README.md#team-install-docker-compose-with-postgres).
+
+If Docker is missing, not running, or this user can't use it, it says so in one line and exits.
+Nothing of this is loaded by `require('trailbeam')`, and it adds no dependencies.
 
 ## Client hooks
 

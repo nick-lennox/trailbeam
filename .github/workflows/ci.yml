@@ -219,6 +219,47 @@ jobs:
         if: always()
         run: COMPOSE_PROJECT_NAME="$TB_NAME" docker compose -f demo/compose.yaml down -v --remove-orphans || true
 
+  team-install:
+    # docker-compose.yaml (QV-145): a clean start from .env.example, one span with the token, and the data
+    # still there after docker compose down && up.
+    name: Team install (Docker Compose, Postgres)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pick a free port and names of its own (runners share one machine)
+        run: |
+          echo "TB_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')" >> "$GITHUB_ENV"
+          echo "COMPOSE_PROJECT_NAME=tbci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}" >> "$GITHUB_ENV"
+      - name: .env from .env.example, with new secrets
+        run: |
+          token=$(openssl rand -hex 32); echo "::add-mask::$token"; echo "TRAILBEAM_TOKEN=$token" >> "$GITHUB_ENV"
+          sed -e "s/^TRAILBEAM_TOKEN=.*/TRAILBEAM_TOKEN=$token/" \
+              -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 24)/" \
+              -e "s/^TRAILBEAM_RECEIPT_HASH_KEY=.*/TRAILBEAM_RECEIPT_HASH_KEY=$(openssl rand -hex 32)/" \
+              -e "s/^TRAILBEAM_BIND=.*/TRAILBEAM_BIND=127.0.0.1/" -e "s/^TRAILBEAM_PORT=.*/TRAILBEAM_PORT=$TB_PORT/" \
+              .env.example > .env
+      - name: Build and start (image local only, not pushed)
+        run: docker compose up -d --build --wait
+      - name: Send one span with the token, read its timeline
+        run: python3 python/smoke/team_check.py "http://127.0.0.1:$TB_PORT" send team-check-1
+      - name: The span is in Postgres, with the lock setting
+        run: |
+          test "$(docker compose exec -T postgres psql -U trailbeam -tAc "SELECT count(*) FROM spans WHERE mid = 'team-check-1'")" = 1
+          test "$(docker compose exec -T postgres psql -U trailbeam -tAc 'SHOW max_locks_per_transaction')" = 256
+      - name: docker compose down && up keeps the data
+        run: |
+          docker compose down
+          docker compose up -d --wait
+          python3 python/smoke/team_check.py "http://127.0.0.1:$TB_PORT" check team-check-1
+      - name: Logs
+        if: always()
+        run: docker compose logs --tail 50 || true
+      - name: Remove this job's containers, volumes and image
+        if: always()
+        run: |
+          docker compose down -v --remove-orphans || true
+          docker image rm -f "$COMPOSE_PROJECT_NAME-trailbeam:local" || true
+
   concurrency-check:
     name: Concurrency check (3 processes x 4 consumers, 200 messages)
     runs-on: ubuntu-latest

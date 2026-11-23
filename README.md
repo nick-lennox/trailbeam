@@ -17,7 +17,8 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
-  <img src="https://img.shields.io/badge/status-pre--release%200.1-orange" alt="Status: pre-release 0.1">
+  <a href="https://pypi.org/project/trailbeam/"><img src="https://img.shields.io/pypi/v/trailbeam" alt="PyPI version"></a>
+  <a href="https://www.npmjs.com/package/trailbeam"><img src="https://img.shields.io/npm/v/trailbeam" alt="npm version"></a>
   <img src="https://img.shields.io/badge/python-3.10%2B-3776AB" alt="Python 3.10 or later">
   <img src="https://img.shields.io/badge/node.js-20%2B-5FA04E" alt="Node.js 20 or later">
 </p>
@@ -32,8 +33,9 @@ Metrics and tracing tools show queues in aggregate, or the spans your code emitt
 answers a narrower question: where did this one message go?
 
 > [!NOTE]
-> Trailbeam is pre-release 0.1. This repository is private, and nothing is published to PyPI, npm or
-> a container registry yet. Install the packages and build the image from a clone.
+> The latest release, 0.3.0, is on PyPI and npm (`trailbeam`) and on ghcr.io
+> (`ghcr.io/nick-lennox/trailbeam`). This README follows `main`, which can be ahead of the release:
+> see Unreleased in the [CHANGELOG](CHANGELOG.md).
 
 ## Features
 
@@ -64,11 +66,38 @@ answers a narrower question: where did this one message go?
 
 ## Quickstart
 
-The [quickstart](https://docs.trailbeam.app/quickstart) runs Trailbeam on your laptop with Docker and an SQS emulator.
-It needs no AWS account.
+```sh
+pip install "trailbeam[server]"
+trailbeam start
+```
+
+On the first run, `trailbeam start` creates an access token and a receipt-hash key in `~/.trailbeam`
+(`--data-dir` or `TRAILBEAM_DATA_DIR` to choose another directory), readable only by you, and keeps the
+spans in a SQLite file there. It then starts Trailbeam on `http://127.0.0.1:4318/` and prints the token
+and the environment variables for your services, like this:
 
 ```sh
-gh repo clone nick-lennox/trailbeam && cd trailbeam
+export TRAILBEAM_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces
+export OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<token>
+export TRAILBEAM_RECEIPT_HASH_KEY=<key>
+export OTEL_SERVICE_NAME=my-python-service
+```
+
+Paste them into the environment of a service, add the hooks ([below](#add-it-to-your-services)), and
+send a message: it shows up on the web screen, which asks for the token once. Later runs reuse the same
+token and key, so services you set up keep working. Every `trailbeam` flag works after `start` too
+(`trailbeam start --help`). Stop it with Ctrl-C. Nothing on the screen? Run `trailbeam doctor`
+([Troubleshooting](#troubleshooting-no-data-arriving)).
+
+No Python? With Docker running, `npx trailbeam start` does the same from the npm package. It runs the
+container image and keeps the data in a Docker volume
+([Node.js README](node/README.md#run-the-server-npx-trailbeam-start)).
+
+To try it without services of your own, the [demo](demo/README.md) runs Trailbeam, an SQS emulator and
+sample services with Docker. It needs no AWS account:
+
+```sh
+git clone https://github.com/nick-lennox/trailbeam.git && cd trailbeam
 docker compose -f demo/compose.yaml up -d --build --wait
 # then open http://127.0.0.1:4318/ and click a message ID
 ```
@@ -112,7 +141,8 @@ def handler(event, context):
     ...
 ```
 
-Point the packages at Trailbeam and give every service on the same queues the same hash key:
+Point the packages at Trailbeam and give every service on the same queues the same hash key
+(`trailbeam start` prints these with your token and key filled in):
 
 ```sh
 export TRAILBEAM_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces
@@ -149,6 +179,48 @@ named in the page's range (default the last day) as you type. The same data is i
 [`contract/tenants.md`](contract/tenants.md). The hosted app counts them the same way and is tested
 against the same recorded spans.
 
+## Troubleshooting: no data arriving
+
+Set it up and see nothing? Run `trailbeam doctor`. It comes with the Python package (`pip install trailbeam` is
+enough, the server extra is not needed) and checks, one line each:
+
+1. **Server reachable**: `GET /api/health` answers, and it is Trailbeam;
+2. **Ingest port accepts connections**: the address your services send to (4318 by default) is open and is
+   Trailbeam's `/v1/traces`;
+3. **Token accepted**: by the API and by ingest (or the server has no token);
+4. **Test span stored and read back**: it sends a test span and reads it back. The test span is marked as such
+   (span contract, [section 17](contract/span-contract.md#17-the-test-span-of-trailbeam-doctor-qv-148)), so it
+   never shows as a message or in any count;
+5. **Last real span**: when the newest span from your services was stored. If none was, it says whether spans
+   arrived that are not Trailbeam's (the hooks are not installed) or broke the span contract.
+
+```console
+$ trailbeam doctor
+trailbeam doctor: server http://127.0.0.1:4318, ingest http://127.0.0.1:4318/v1/traces, token: /home/me/.trailbeam/token
+
+  ok    Server reachable: Trailbeam X.Y.Z answers at http://127.0.0.1:4318
+  ok    Ingest port accepts connections: 127.0.0.1:4318 accepts connections (http://127.0.0.1:4318/v1/traces)
+  ok    Token accepted: the API and ingest accept the token from /home/me/.trailbeam/token
+  ok    Test span stored and read back: sent to http://127.0.0.1:4318/v1/traces and read back from http://127.0.0.1:4318 in 7 ms
+  FAIL  Last real span: no span stored yet
+        Likely cause: Trailbeam works (the test span went through), so your services are not sending to it: ...
+        Fix: in each service, call trailbeam.boto.install() (Python), ... and set TRAILBEAM_OTLP_TRACES_ENDPOINT=...
+
+1 of 5 checks failed.
+```
+
+Each failed check says the likely cause and the fix. A check that needs an earlier one that failed is skipped.
+The exit code is 1 when a check failed, so it can run in a script or a CI step.
+
+By default it checks `http://127.0.0.1:4318` with the token `trailbeam start` created (`~/.trailbeam/token`, or
+the one in `TRAILBEAM_DATA_DIR`). For another server, give `--url` (or `TRAILBEAM_URL`), and the token with
+`--token-file` or `TRAILBEAM_TOKEN`. When your services send somewhere else than the server you open, such as
+through a Collector, give that address with `--ingest-url`; it reads `TRAILBEAM_OTLP_TRACES_ENDPOINT` as the
+services do. Run it where your services run to check what they can reach. After `npx trailbeam start` the token
+is in the Docker volume, so give the one it printed: `TRAILBEAM_TOKEN=<token> pipx run trailbeam doctor`. The
+image has the command too: `docker exec <container> trailbeam doctor --token-file /data/token` checks from
+inside the container (`docker ps` gives its name).
+
 ## Self-hosting
 
 Trailbeam is one container. It receives OTLP on `/v1/traces` and serves the web screen and the JSON
@@ -164,8 +236,47 @@ up to date as spans arrive, so a page costs about the same however much history 
 docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-data:/data ghcr.io/nick-lennox/trailbeam
 ```
 
-Or without Docker: `pip install "trailbeam[server]"`, then run `trailbeam`. To build the image yourself:
+Or without Docker: `pip install "trailbeam[server]"`, then run `trailbeam start` (above), or `trailbeam`
+with the flags you choose and no token or key made for you. To build the image yourself:
 `docker build -t trailbeam .` from a clone.
+
+### Team install (Docker Compose with Postgres)
+
+For a team: one server several people's services send to, on its own Postgres, from one file.
+[`docker-compose.yaml`](docker-compose.yaml) runs the Trailbeam server and Postgres 16, each with a named
+volume, health checks and `restart: unless-stopped`. The token and passwords come from a `.env` file:
+
+```sh
+git clone https://github.com/nick-lennox/trailbeam.git && cd trailbeam
+cp .env.example .env      # fill in TRAILBEAM_TOKEN, TRAILBEAM_RECEIPT_HASH_KEY and POSTGRES_PASSWORD (openssl rand -hex 32)
+docker compose up -d --build --wait
+# then open http://<this machine>:4318/ and sign in with the token
+```
+
+In every service that uses the Trailbeam packages, set the endpoint, the token and the same receipt-hash key:
+
+```sh
+TRAILBEAM_OTLP_TRACES_ENDPOINT=http://<this machine>:4318/v1/traces
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<TRAILBEAM_TOKEN>
+TRAILBEAM_RECEIPT_HASH_KEY=<the same key as in .env>
+```
+
+- **The token is required.** The port listens on every interface (`TRAILBEAM_BIND=0.0.0.0` in `.env`; set
+  `127.0.0.1` for this machine only), so Compose refuses to start without `TRAILBEAM_TOKEN` and
+  `POSTGRES_PASSWORD`. It is plain HTTP: put a TLS proxy in front when it crosses a network you don't trust.
+- **The data stays** across `docker compose down` and `up`, and across restarts of the machine: spans are in the
+  `postgres-data` volume. `docker compose down -v` deletes them. Back up with `pg_dump`
+  ([Backup and restore](#backup-and-restore-postgres)): `docker compose exec -T postgres pg_dump -U trailbeam -Fc trailbeam > trailbeam.dump`.
+- **Postgres starts with `max_locks_per_transaction = 256`** instead of the stock 64, so a larger read pool or a
+  second server on the same database needs no Postgres restart ([lock table](#postgres-lock-table-max_locks_per_transaction)).
+  Its port is not published: only the Trailbeam container connects.
+- **Settings** in `.env`: `TRAILBEAM_RETENTION` (default `7d`), `TRAILBEAM_STORE_BODIES` and the port. For
+  per-queue settings, mount a [configuration file](#configuration-file) in `docker-compose.yaml`.
+- **Upgrading:** `git pull`, then `docker compose up -d --build --wait` ([Upgrades](#upgrades)). The image is
+  built from the checkout with the Postgres driver, because the published image has SQLite only.
+
+CI starts it from `.env.example` on every change, sends a span with the token and checks it is still there
+after `docker compose down && up`.
 
 With no access token set (the default), anyone who can reach the port can send spans and read every
 timeline, so keep it on `127.0.0.1` or a trusted network, or set a token ([Access token](#access-token)). See

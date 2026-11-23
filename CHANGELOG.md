@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+- **`trailbeam doctor`: why no data is arriving.** It checks, in plain lines, that the server answers, that the
+  ingest port accepts connections, that the token is accepted, that a test span sent now is stored and read
+  back, and when the last real span arrived. Each failed check prints the likely cause and the fix, and the exit
+  code is 1 when one fails. By default it uses the address and token `trailbeam start` created
+  ([README](README.md#troubleshooting-no-data-arriving)). The test span is a *probe* (span contract section 17):
+  the server stores it apart from the spans (new table `probes`: SQLite schema 13, Postgres schema 6, both
+  applied on start), so it never shows as a message or in a count, and reads it back at
+  `GET /api/probes/{id}`. `GET /api/health` also gives `data.last_span_ns`, the time of the span stored last.
+  A server of 0.3 or before rejects the probe; `trailbeam doctor` says so and the other checks still run.
+- **`npx trailbeam start`: the server from npm, without Python.** The npm package has a `trailbeam` command.
+  `npx trailbeam start` runs the container image of the same version (`ghcr.io/nick-lennox/trailbeam:X.Y.Z`)
+  with its data in the Docker volume `trailbeam-data`, and prints the same first-run output as the Python
+  `trailbeam start`: the address, the token and the environment variables for your services. It takes the
+  same flags and `TRAILBEAM_` variables; `--host`/`--port` become the published port, and `--data-dir`, `--db`,
+  `--config` and `--token-file` name files on your machine (`--store-url` is not available: the image has
+  SQLite only). If Docker is missing or not running it says so in one line. `require('trailbeam')` is
+  unchanged and there are no new dependencies
+  ([Node.js README](node/README.md#run-the-server-npx-trailbeam-start)).
+- **`trailbeam start`: first-run setup in one command.** On its first run in a data directory (default
+  `~/.trailbeam`, or `--data-dir` / `TRAILBEAM_DATA_DIR`) it creates an access token and a receipt-hash key,
+  each in a file only its owner can read, and keeps the SQLite file there. It then starts the server and prints
+  the web screen's address, the token, and the environment variables to paste into a Python and a Node.js
+  service. Later runs read the same files, so the token and key don't change. Every `trailbeam` flag works
+  after `start`; `--db`, `--store-url` and `--token-file` (or `TRAILBEAM_TOKEN`) replace the file in the data
+  directory. `trailbeam` with flags, as the container image runs it, is unchanged: it creates no files and
+  turns on no token.
+- **A team install from one file: `docker-compose.yaml`.** `cp .env.example .env`, fill in the token, the
+  receipt-hash key and the Postgres password, then `docker compose up -d --build --wait`: the Trailbeam server
+  and Postgres 16, a named volume for each, health checks, `restart: unless-stopped`, and
+  `max_locks_per_transaction = 256` on Postgres. Compose refuses to start without the token. CI starts it from
+  `.env.example`, sends a span and checks the data survives `docker compose down && up`
+  ([Team install](README.md#team-install-docker-compose-with-postgres)).
 - **Postgres: the lookup tables are time-bucketed (schema 5).** `mid_places` and `hash_places` are partitioned
   by day like the spans, so ingest writes only to recent partitions and retention drops them whole (before, it
   deleted their rows in batches). Older days are sealed into a Bloom filter, about 2.5 bytes per key, kept by

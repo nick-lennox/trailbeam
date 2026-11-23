@@ -1,0 +1,67 @@
+# Trailbeam for a team: one Trailbeam server on its own Postgres, data on named volumes (QV-145).
+#
+#   cp .env.example .env      # then fill in the token, the Postgres password and the receipt-hash key
+#   docker compose up -d --build --wait
+#   open http://127.0.0.1:4318/   (or this machine's address, see TRAILBEAM_BIND in .env)
+#
+# Point every service (TRAILBEAM_OTLP_TRACES_ENDPOINT) or the Collector at http://<this machine>:4318/v1/traces with
+# OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<TRAILBEAM_TOKEN>, and give them all the same
+# TRAILBEAM_RECEIPT_HASH_KEY. `docker compose down` keeps the data (the volumes); `docker compose down -v`
+# deletes it. Upgrading: git pull, then `docker compose up -d --build --wait` (README: Upgrades).
+#
+# The server image is built from this checkout with the Postgres driver; the published
+# ghcr.io/nick-lennox/trailbeam image has SQLite only.
+name: trailbeam
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: trailbeam
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
+      POSTGRES_DB: trailbeam
+    # max_locks_per_transaction: the stock 64 covers one server with up to about 60 read connections. Trailbeam
+    # warns at start when it is short, and Postgres must restart to change it (QV-107; README: Postgres lock
+    # table). 256 covers about 250 read connections in all, so TRAILBEAM_PG_READ_CONNECTIONS or a second server
+    # on this database needs no Postgres change.
+    command: ["postgres", "-c", "max_locks_per_transaction=256"]
+    shm_size: 256mb
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "trailbeam", "-d", "trailbeam"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    # No ports: only Trailbeam reaches it, on this Compose project's network.
+
+  trailbeam:
+    build:
+      context: .
+      args: { TRAILBEAM_EXTRAS: "server,postgres" }
+    image: ${COMPOSE_PROJECT_NAME:-trailbeam}-trailbeam:local
+    environment:
+      # The password comes from PGPASSWORD (libpq), so it needs no escaping in the URL.
+      TRAILBEAM_STORE_URL: postgresql://trailbeam@postgres:5432/trailbeam
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
+      # Required: the port is reachable from other machines, so ingest, the API and the screen need the token.
+      TRAILBEAM_TOKEN: ${TRAILBEAM_TOKEN:?set TRAILBEAM_TOKEN in .env (see .env.example)}
+      TRAILBEAM_RETENTION: ${TRAILBEAM_RETENTION:-7d}
+      TRAILBEAM_STORE_BODIES: ${TRAILBEAM_STORE_BODIES:-}
+    ports: ["${TRAILBEAM_BIND:-0.0.0.0}:${TRAILBEAM_PORT:-4318}:4318"]
+    # Holds nothing with Postgres as the store; kept so the image's /data is never an anonymous volume.
+    volumes: [trailbeam-data:/data]
+    depends_on:
+      postgres: { condition: service_healthy }
+    # Ready: the store answers (GET /api/ready, no token needed). The image's own HEALTHCHECK is liveness.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4318/api/ready', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  trailbeam-data:
