@@ -18,9 +18,10 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceResponse
 
 from . import __version__
-from . import auth as auth_mod, bodies, metrics, queries, trace_links, ui_files, web
+from . import auth as auth_mod, bodies, csrf, metrics, queries, trace_links, ui_files, web
 from .backpressure import GRPC_RESOURCE_EXHAUSTED, GRPC_UNAVAILABLE, IngestGate, Rejected, status_body
 from .store import ExportAbandoned, Store, StoreFull, StoreUnavailable, WriterBusy
+from .proxy import TrustedProxies
 from .otlp import PROBE_NOT_STORED, DecodeError, decode, valid_probe_id
 from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
 
@@ -47,8 +48,10 @@ class App:
                  lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S, now: Callable[[], int] = time.time_ns,
                  max_receive_counts: Optional[dict] = None, ui_dir=ui_files.DEFAULT_UI_DIR, purger=None,
                  auth: Optional[auth_mod.Auth] = None, gate: Optional[IngestGate] = None,
-                 trace_link: Optional[str] = None):
+                 trusted_proxies: Optional[TrustedProxies] = None, trace_link: Optional[str] = None):
         self.db = db
+        # --trusted-proxy (proxy.py): whose X-Forwarded-For/-Proto/-Host is believed; empty: nobody's
+        self.proxies = trusted_proxies or TrustedProxies()
         # --trace-link (trace_links.py): the URL template behind each step's "Open trace"; None: no links
         self.trace_link = trace_links.check(trace_link) if trace_link else None
         self.auth = auth  # the shared token (auth.py); None: no token, every request is served (the default)
@@ -519,9 +522,28 @@ def make_handler(app: App):
         def _unauthorized(self, ctype: str, body: bytes):
             self._send(401, ctype, body, {"WWW-Authenticate": 'Bearer realm="trailbeam"'})
 
+        def _peer(self) -> str:
+            return self.client_address[0] if isinstance(self.client_address, tuple) else str(self.client_address)
+
+        def _client(self) -> str:
+            """The client's address: the TCP peer, or the client a --trusted-proxy names (proxy.py)."""
+            return app.proxies.client_address(self._peer(), self.headers.get_all("X-Forwarded-For") or [])
+
+        def _scheme(self) -> str:
+            return app.proxies.scheme(self._peer(), self.headers.get("X-Forwarded-Proto"))
+
         def do_POST(self):
             self._status = 500
             path = urlsplit(self.path).path
+            if path != "/v1/traces":  # everything but ingest: refused when another site's page sent it (csrf.py)
+                why = csrf.check(self.headers, self._scheme(),
+                                 app.proxies.host(self._peer(), self.headers.get("Host"),
+                                                  self.headers.get("X-Forwarded-Host")))
+                if why is not None:
+                    log.warning("refused POST %s from %s: %s", path, self._client(), why)
+                    self.close_connection = True  # the request body is not read
+                    self._send(403, "text/plain; charset=utf-8", f"forbidden: {why}".encode())
+                    return
             if path == "/login" and app.auth is not None:
                 self._login()
                 return
@@ -619,10 +641,10 @@ def make_handler(app: App):
             form = {k: v[-1] for k, v in parse_qs(self.rfile.read(int(n)).decode("utf-8", "replace")).items()}
             nxt = auth_mod.safe_next(form.get("next"))
             if not app.auth.token_ok(form.get("token", "")):
-                log.warning("login with a wrong token from %s", self.address_string())
+                log.warning("login with a wrong token from %s", self._client())
                 self._send_page(web.login_page(nxt, error=True))
                 return
-            secure = (self.headers.get("X-Forwarded-Proto") or "").lower() == "https"
+            secure = self._scheme() == "https"  # X-Forwarded-Proto counts only from a --trusted-proxy
             self._send(303, "text/plain", b"", {"Location": nxt, "Set-Cookie": app.auth.set_cookie(secure)})
 
         def _send_page(self, r):
