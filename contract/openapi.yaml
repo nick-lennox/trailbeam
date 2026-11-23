@@ -896,7 +896,7 @@ paths:
             Nothing was stored. Send the export again after `Retry-After`; OTLP/HTTP exporters do. Either the
             writer is behind (the exports ahead of this one did not finish writing in
             `TRAILBEAM_INGEST_MAX_WAIT_S`, default 2 s; `Retry-After` is the estimated backlog, 1 to 3 s), or
-            the store is unreachable (`Retry-After: 1`). The body is a `google.rpc.Status` in the request's
+            the store is unreachable (`Retry-After: 1`), or the store's disk is full (`Retry-After: 3`). The body is a `google.rpc.Status` in the request's
             encoding.
           headers:
             Retry-After:

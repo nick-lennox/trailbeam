@@ -12,6 +12,15 @@
   `trailbeam`, made Kubernetes set `TRAILBEAM_PORT=tcp://<ip>:4318` in every pod of the namespace, and the server
   exited on it. The pods now have `enableServiceLinks: false` and `TRAILBEAM_PORT=4318`, and CI installs the
   chart as `trailbeam`. The server's error for a `tcp://` value now says it is a service link and how to fix it.
+- **No spans dropped when the disk fills up** (QV-238). A full disk under SQLite was answered `500`, which OTLP
+  exporters don't retry, so those exports were lost. Both stores now answer `503` with `Retry-After: 3`
+  (`store_full` in `trailbeam_ingest_rejected_requests_total`) and nothing stored, and the exports are stored
+  once space is freed, with no restart. Also fixed: under heavy concurrent ingest, a SQLite export queued
+  behind more than one group commit's worth of others could be answered `500` and stored later anyway. The
+  README now says what a `200` survives for each durability setting ("Delivery guarantee"). The fault tests
+  behind it (SIGKILL mid-write, Postgres down for a minute, a full disk, Postgres restarted during a retention
+  pass, a replica killed, every export sent twice, spans far out of order from skewed clocks) are
+  `python/bench/faults.py`; the quick ones run in CI.
 - **Backup and restore, documented and tested** (QV-239): the README's SQLite and Postgres sections now say to
   keep the access token and receipt-hash key with the backup (they aren't in the database), and how to restore
   onto a new machine with `trailbeam start`, the Docker volume of `npx trailbeam start`, the team install and the
