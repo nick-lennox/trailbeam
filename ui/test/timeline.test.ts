@@ -120,3 +120,15 @@ test("the default-key notice is drawn once in the card, with the command as code
   assert.ok(!html.includes("`"), "no literal backticks");
   assert.match(html, /href="https:\/\/github.com\/nick-lennox\/trailbeam#add-it-to-your-services"[^>]*>Why the key matters</);
 });
+
+test("a receive from a dead-letter queue is titled as one, not as a retry (QV-244)", () => {
+  // contract-3.2-timelines.json is what Trailbeam's server returns for the Node.js package's recorded spans
+  const all = (JSON.parse(readFileSync(new URL("./fixtures/contract-3.2-timelines.json", import.meta.url), "utf8")) as { timelines: Timeline[] }).timelines;
+  const t = all.find((x) => x.message_id === "m-pay-2")!;
+  const dlq = t.events.find((e) => e.type === "received" && e.queue === "payments-dlq")! as TimelineEvent & { dlq_source_arn?: string };
+  assert.equal(dlq.dlq_source_arn, "arn:aws:sqs:us-east-1:123456789012:payments", "the server puts the ARN on the receive");
+  const html = text(renderToStaticMarkup(createElement(TimelineView, { t, answer: answerFor(t), openSteps: [dlq.id] })));
+  assert.ok(html.includes("Picked up from the dead-letter queue"));
+  assert.ok(!html.includes(`Picked up, attempt ${(dlq as { receive_count: number }).receive_count}`));
+  assert.ok(html.includes("DeadLetterQueueSourceArn"), "the detail row shows the ARN");
+});
