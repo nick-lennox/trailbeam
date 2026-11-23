@@ -152,3 +152,21 @@ test('one warning per interval, with the count since the last one', async (t) =>
   assert.strictEqual(trailbeam.exportStats().dropped, 500);
   assert.strictEqual(510 - exporter.received, 500);
 });
+
+// QV-157: an unreachable Trailbeam server must not fail the application. The SDK's processor rejects
+// forceFlush and shutdown when a batch fails; Trailbeam reports those spans as drops and resolves.
+test('flush and shutdown resolve when every export fails', async (t) => {
+  const { lines } = setup(t);
+  const exporter = new Gate();
+  exporter.fail = true;
+  let exporterShutdown = 0;
+  exporter.shutdown = () => { exporterShutdown += 1; return Promise.resolve(); };
+  const { provider } = makeProvider({ spanExporter: exporter });
+  emit(provider, 3);
+  await provider.forceFlush(); // must not reject
+  emit(provider, 2);
+  await provider.shutdown(); // must not reject
+  assert.strictEqual(exporterShutdown, 1, 'the exporter is shut down even though the final flush failed');
+  assert.deepStrictEqual(trailbeam.exportStats().droppedByReason, { queue_full: 0, export_failed: 5, shutdown: 0 });
+  assert.strictEqual(lines().reduce((a, m) => a + Number(m[1]), 0), 5);
+});
