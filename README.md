@@ -1031,13 +1031,13 @@ same flags and token. The new version upgrades the schema by itself at start. CI
 message, list and tenant count reads the same as before
 ([`python/smoke/upgrade_check.py`](python/smoke/upgrade_check.py)).
 
-- **SQLite.** The new version moves the file from schema 12 to 13 (a small table for the test span of
-  `trailbeam doctor`; nothing is rewritten). Once it has, a 0.3.0 server stops at start with `the database is
-  at schema version 13, written by a newer Trailbeam ... Refusing to start, so nothing is lost`. To go back,
-  restore the backup you took first.
-- **Postgres.** Stop every replica before you start the new version. It moves the database from schema 4 to 6
+- **SQLite.** The new version moves the file from schema 12 to 14 (a small table for the test span of
+  `trailbeam doctor`, and the empty tables of people and tokens; nothing is rewritten). Once it has, a 0.3.0
+  server stops at start with `the database is at schema version 14, written by a newer Trailbeam ... Refusing
+  to start, so nothing is lost`. To go back, restore the backup you took first.
+- **Postgres.** Stop every replica before you start the new version. It moves the database from schema 4 to 7
   (about 8 s per 1M spans, see the [changelog](CHANGELOG.md)). Once it has, a 0.3.0 server stops at start
-  with `the database is at Postgres schema version 6, written by a newer Trailbeam ... Refusing to start, so
+  with `the database is at Postgres schema version 7, written by a newer Trailbeam ... Refusing to start, so
   nothing is lost`. To go back, restore the backup you took first.
 - **The token and the receipt-hash key** don't change. Signed-in browsers stay signed in. Services keep their
   `TRAILBEAM_RECEIPT_HASH_KEY`: the hashing is the same in 0.3.0 and `main`, so services on either package

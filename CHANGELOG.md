@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Tables for people and tokens (users and roles, phase 1).** The store gains `users`, `sessions`,
+  `ingest_tokens`, `personal_tokens` and `setup_codes`: SQLite schema 14, Postgres schema 7. They are created
+  empty and nothing uses them yet, so the server behaves exactly as before. Emails are unique ignoring case.
+  Retention and `--vacuum` leave the tables alone. With `--db :memory:`, people and tokens are lost on every
+  restart, like the spans. **A database upgraded to this version can't be opened by 0.3.0 or 0.4.0 again**:
+  back it up before upgrading. (QV-225)
 - **Python: a down or slow Trailbeam server no longer holds up your process's exit.** Shutdown
   (`uninstall()`, or interpreter exit) waited for the OTLP exporter's retries and 10 s request timeout, so a
   short script took 6 s longer to exit with the server unreachable and 10 s longer with it slow. It now waits
