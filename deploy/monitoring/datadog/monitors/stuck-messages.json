@@ -1,0 +1,18 @@
+{
+  "name": "Trailbeam: messages stuck",
+  "type": "query alert",
+  "query": "max(last_5m):max:trailbeam.stuck_messages{*} > 0",
+  "message": "{{#is_alert}}{{value}} message(s) have had no final delete for longer than Trailbeam's stuck threshold (TRAILBEAM_STUCK_AFTER_S, 300 s unless you changed it). The graph of trailbeam.stuck_oldest_age_seconds shows how long the oldest has waited.\n\nOpen the Stuck page to see each one's timeline: https://trailbeam.example.com/stuck{{/is_alert}}\n{{#is_recovery}}No message is stuck now.{{/is_recovery}}",
+  "tags": [
+    "service:trailbeam"
+  ],
+  "options": {
+    "thresholds": {
+      "critical": 0
+    },
+    "notify_no_data": false,
+    "require_full_window": false,
+    "include_tags": false
+  },
+  "priority": 3
+}

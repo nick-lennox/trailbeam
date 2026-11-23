@@ -1,0 +1,64 @@
+# promtool test rules trailbeam-alerts.test.yml
+rule_files:
+  - trailbeam-alerts.yml
+evaluation_interval: 15s
+tests:
+  - interval: 15s
+    input_series:
+      # two replicas of one store report the same count
+      - series: 'trailbeam_stuck_messages{instance="a:4318",job="trailbeam"}'
+        values: '0 0 2 2 2 2 2 2 0'
+      - series: 'trailbeam_stuck_messages{instance="b:4318",job="trailbeam"}'
+        values: '0 0 2 2 2 2 2 2 0'
+      - series: 'trailbeam_dead_lettered_messages_recent{instance="a:4318",job="trailbeam"}'
+        values: '0 1 1 0'
+      - series: 'up{instance="a:4318",job="trailbeam"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 45s  # stuck since 30 s: not yet for 1m
+        alertname: TrailbeamMessagesStuck
+        exp_alerts: []
+      - eval_time: 90s
+        alertname: TrailbeamMessagesStuck
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations:
+              summary: "2 message(s) stuck in SQS"
+              description: "Messages with no final delete for longer than TRAILBEAM_STUCK_AFTER_S. See each one's timeline on Trailbeam's Stuck page (/stuck)."
+      - eval_time: 120s
+        alertname: TrailbeamMessagesStuck
+        exp_alerts: []
+      - eval_time: 15s
+        alertname: TrailbeamMessagesDeadLettered
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations:
+              summary: "1 message(s) moved to a dead-letter queue in the last 15 minutes"
+              description: "SQS moved them after maxReceiveCount receives without a delete. Open the dead-letter queue's messages in Trailbeam to see each attempt."
+      - eval_time: 45s
+        alertname: TrailbeamMessagesDeadLettered
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: TrailbeamDown
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'trailbeam_ingest_rejected_requests_total{reason="writer_behind",instance="a:4318",job="trailbeam"}'
+        values: '0+10x20'
+      - series: 'up{instance="a:4318",job="trailbeam"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: TrailbeamRejectingExports
+        exp_alerts:
+          - exp_labels: {severity: warning, reason: writer_behind}
+            exp_annotations:
+              summary: "Trailbeam is answering exports 429 or 503 (writer_behind)"
+              description: "Exporters retry these, but spans are delayed and a full exporter queue drops them. reason queue_full or writer_behind: the store can't keep up; store_unreachable or store_full: check the database."
+      - eval_time: 6m
+        alertname: TrailbeamDown
+        exp_alerts:
+          - exp_labels: {severity: critical, instance: "a:4318", job: trailbeam}
+            exp_annotations:
+              summary: "Prometheus can't scrape Trailbeam (a:4318)"
+              description: "Spans sent now are retried by exporters until they give up."

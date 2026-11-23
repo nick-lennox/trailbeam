@@ -237,6 +237,21 @@ function facts(e: TimelineEvent): string[] {
   return out;
 }
 
+/** The step's trace in the team's tracing tool (TRAILBEAM_TRACE_LINK), when there is one. Only http(s) links. */
+export function traceUrl(e: TimelineEvent): string | null {
+  const url = "span" in e ? e.span?.trace_url : undefined;
+  return url && /^https?:\/\//i.test(url) ? url : null;
+}
+
+function TraceLink({ e }: { e: TimelineEvent }) {
+  const url = traceUrl(e);
+  if (!url) return null;
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer" aria-label={`Open trace for step ${e.id}`}
+      className="text-[13px] text-dawn hover:underline">Open trace</a>
+  );
+}
+
 function TimeCell({ e }: { e: TimelineEvent }) {
   if (e.time === null) {
     return <span className="font-mono text-caption text-sky-ink-3">no time</span>;
@@ -339,6 +354,7 @@ function Step({ e, byId, open = false, compact = false, last = false }: { e: Tim
           <span className="font-mono text-micro text-sky-ink-3">{e.id}</span>
           <h4 className={`text-[15px] leading-[1.45] font-medium ${attempt ? "text-ember" : "text-sky-ink"}`}>{title(e)}</h4>
           {sourceTags(e)}
+          <TraceLink e={e} />
         </div>
         {f.length > 0 && <p className="mt-1 font-mono text-caption text-sky-ink-3">{f.join(" · ")}</p>}
         {reason && <p className="mt-1.5 max-w-[38rem] text-[15px] leading-[1.5] text-sky-ink-2">{reason}</p>}

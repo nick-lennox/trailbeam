@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Alert on stuck messages and dead-letter moves from Datadog, Prometheus or Grafana** (QV-304). `/metrics` has
+  four new gauges: `trailbeam_stuck_messages` (as the Stuck page counts them, up to 1000),
+  `trailbeam_stuck_oldest_age_seconds`, `trailbeam_dead_lettered_messages_recent` (moves in the last 15 minutes)
+  and `trailbeam_stuck_after_seconds`. They are read from the store at most every 10 seconds, and carry no queue
+  or tenant label, so the number of series stays fixed. `deploy/monitoring` has the Datadog Agent's OpenMetrics
+  check and two monitors, a Prometheus scrape config with alert rules and their unit tests, and a Grafana
+  dashboard. CI runs the check in a real Datadog Agent (a dry run: no account or key) and the rest in a real
+  Prometheus (`deploy/monitoring/check.sh`).
+- **Open trace: from a timeline step to the same trace in your tracing tool** (QV-304). `--trace-link`
+  (`TRAILBEAM_TRACE_LINK`) takes a URL template such as `https://app.datadoghq.com/apm/trace/{trace_id}`; each
+  recorded step then shows **Open trace**, in the web UI and on the server-rendered page, and has the link as
+  `span.trace_url` in `GET /api/messages/{id}`. `/api/health` shows the template under `config.trace_link`. A
+  template that isn't an http or https URL, or names an unknown placeholder, stops the server at start.
+
 - **Tables for people and tokens (users and roles, phase 1).** The store gains `users`, `sessions`,
   `ingest_tokens`, `personal_tokens` and `setup_codes`: SQLite schema 15, Postgres schema 8. They are created
   empty and nothing uses them yet, so the server behaves exactly as before. Emails are unique ignoring case.

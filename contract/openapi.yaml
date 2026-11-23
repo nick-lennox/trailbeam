@@ -1236,6 +1236,12 @@ components:
           properties:
             trace_id: {type: string}
             span_id: {type: string}
+            trace_url:
+              type: string
+              format: uri
+              description: |
+                This span's trace in the team's tracing tool: the server's `--trace-link` template
+                (`TRAILBEAM_TRACE_LINK`) filled in with this span. Present only when the template is set. Added in 0.5.
         process_order:
           type: [object, 'null']
           description: The call order inside one process. Null for spans that carry none.
@@ -1648,6 +1654,11 @@ components:
             store_bodies: {type: array, description: 'The queues whose bodies the server stores. `*` is every queue.', items: {type: string}}
             retention:
               oneOf: [{$ref: '#/components/schemas/Retention'}, {type: 'null'}]
+            trace_link:
+              type: [string, 'null']
+              description: |
+                The URL template of `--trace-link` (`TRAILBEAM_TRACE_LINK`) that each step's `span.trace_url` is
+                made from, null when none is set. Added in 0.5.
     Probe:
       type: object
       additionalProperties: false

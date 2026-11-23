@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceResponse
 
 from . import __version__
-from . import auth as auth_mod, bodies, metrics, queries, ui_files, web
+from . import auth as auth_mod, bodies, metrics, queries, trace_links, ui_files, web
 from .backpressure import GRPC_RESOURCE_EXHAUSTED, GRPC_UNAVAILABLE, IngestGate, Rejected, status_body
 from .store import ExportAbandoned, Store, StoreFull, StoreUnavailable, WriterBusy
 from .otlp import PROBE_NOT_STORED, DecodeError, decode, valid_probe_id
@@ -28,6 +28,9 @@ log = logging.getLogger("trailbeam.server")
 
 MAX_BODY = 32 * 1024 * 1024  # bytes, after decompression
 DEFAULT_WINDOW_S = 86_400  # the time window of the Tenants page and the searches, unless given
+STUCK_COUNT_CAP = 1000  # trailbeam_stuck_messages counts up to this many
+DEAD_LETTER_WINDOW_S = 900  # trailbeam_dead_lettered_messages_recent: moves in the last 15 minutes
+QUEUE_GAUGES_TTL_S = 10.0
 
 
 class ApiError(Exception):
@@ -43,8 +46,11 @@ class App:
     def __init__(self, db: Store, *, stuck_after_s: int = 300,
                  lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S, now: Callable[[], int] = time.time_ns,
                  max_receive_counts: Optional[dict] = None, ui_dir=ui_files.DEFAULT_UI_DIR, purger=None,
-                 auth: Optional[auth_mod.Auth] = None, gate: Optional[IngestGate] = None):
+                 auth: Optional[auth_mod.Auth] = None, gate: Optional[IngestGate] = None,
+                 trace_link: Optional[str] = None):
         self.db = db
+        # --trace-link (trace_links.py): the URL template behind each step's "Open trace"; None: no links
+        self.trace_link = trace_links.check(trace_link) if trace_link else None
         self.auth = auth  # the shared token (auth.py); None: no token, every request is served (the default)
         self.purger = purger  # retention.Purger, for /api/health; None: no retention configured (tests)
         self.gate = gate or IngestGate()
@@ -112,6 +118,41 @@ class App:
                 self._file_sizes, ("file",))
         r.gauge("trailbeam_db_last_row", "The highest span row ID stored, 0 if none (one index step, not a count).",
                 self.db.last_row)
+        # What a team alerts on (QV-304). Read from the store, so every replica of one store serves the same
+        # value: aggregate replicas with max, not sum. Cached for QUEUE_GAUGES_TTL_S, so a scrape every few
+        # seconds, or several scrapers, read the store at most that often.
+        self._queue_gauges_lock = threading.Lock()
+        self._queue_gauges_at: Optional[float] = None
+        self._queue_gauges_value: dict = {}
+        r.gauge("trailbeam_stuck_messages",
+                f"Messages stuck now, as the Stuck page lists them: first seen more than TRAILBEAM_STUCK_AFTER_S ago "
+                f"and no final delete. Counted up to {STUCK_COUNT_CAP}: {STUCK_COUNT_CAP} means at least that many.",
+                lambda: self._queue_gauges()["stuck"])
+        r.gauge("trailbeam_stuck_oldest_age_seconds",
+                "How long ago the oldest stuck message was first seen, 0 when none is stuck.",
+                lambda: self._queue_gauges()["oldest_age_s"])
+        r.gauge("trailbeam_dead_lettered_messages_recent",
+                f"Messages moved to a dead-letter queue in the last {DEAD_LETTER_WINDOW_S // 60} minutes, by the time "
+                f"of the receive on the dead-letter queue that reported the move.",
+                lambda: self._queue_gauges()["dead_lettered"])
+        r.gauge("trailbeam_stuck_after_seconds", "When a message without a final delete counts as stuck "
+                "(TRAILBEAM_STUCK_AFTER_S).", lambda: self.stuck_after_s)
+
+    def _queue_gauges(self) -> dict:
+        """Stuck messages and recent dead-letter moves, from the store at most every QUEUE_GAUGES_TTL_S. A read
+        that fails is not cached: the gauges are left out of that scrape (metrics.Gauge) and read again next time."""
+        with self._queue_gauges_lock:
+            t = time.monotonic()
+            if self._queue_gauges_at is not None and t - self._queue_gauges_at < QUEUE_GAUGES_TTL_S:
+                return self._queue_gauges_value
+            now_ns = self.now()
+            found = self.db.stuck_messages(now_ns - self.stuck_after_s * 1_000_000_000, STUCK_COUNT_CAP)
+            oldest = max(0.0, round((now_ns - found[0].first_ns) / 1e9, 3)) if found else 0
+            now_ms = now_ns // 1_000_000
+            moved = sum(a.dead_lettered for a in self.db.tenant_activity(now_ms - DEAD_LETTER_WINDOW_S * 1000, now_ms))
+            self._queue_gauges_value = {"stuck": len(found), "oldest_age_s": oldest, "dead_lettered": moved}
+            self._queue_gauges_at = t
+            return self._queue_gauges_value
 
     def _file_sizes(self):
         sizes = self.db.file_sizes()
@@ -245,7 +286,7 @@ class App:
                 "config": {"auth": "token" if self.auth else "off",
                            "stuck_after_s": self.stuck_after_s, "lambda_timeout_s": self.lambda_timeout_s,
                            "max_receive_counts": self.max_receive_counts,
-                           "store_bodies": sorted(self.db.store_bodies),
+                           "store_bodies": sorted(self.db.store_bodies), "trace_link": self.trace_link,
                            "retention": self.purger.status() if self.purger else None}}
 
     def ready(self) -> tuple[int, dict]:
@@ -294,7 +335,7 @@ class App:
             t = queries.message(self.db, rest[0], self.now(), self._lambda_timeout(q), self.max_receive_counts)
             if t is None:
                 raise ApiError(404, f"no spans for message ID {rest[0]!r}")
-            return t
+            return trace_links.add_links(t, self.trace_link)
         if q.get("body", "").strip():
             try:
                 terms = bodies.parse_query(q["body"])

@@ -542,3 +542,17 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose -f demo/compose.yaml down -v --remove-orphans || true
+
+  monitoring:
+    # The Datadog Agent check, Prometheus configuration, alert rules and Grafana dashboard in deploy/monitoring
+    # (QV-304), against real tools: the Agent's OpenMetrics check in a dry run (no Datadog account or key), promtool
+    # and a real Prometheus scrape (deploy/monitoring/check.sh).
+    name: Monitoring (Datadog Agent, Prometheus)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e 'python[server]'
+      - run: deploy/monitoring/check.sh

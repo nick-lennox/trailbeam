@@ -517,6 +517,9 @@ def _details(e: dict) -> list[str]:
     s = e.get("span")
     if s:
         d.append(f'span <code title="trace {escape(str(s.get("trace_id")))}">{escape(str(s.get("span_id")))}</code>')
+        if s.get("trace_url"):  # --trace-link (trace_links.py): an http(s) URL the server built
+            d.append(f'<a href="{escape(str(s["trace_url"]), quote=True)}" target="_blank" rel="noopener noreferrer">'
+                     'Open trace</a>')
     return d
 
 
