@@ -107,9 +107,16 @@ export type MessagesTableProps = {
   extra?: Column;
 };
 
-/** One row per message, in the API's order. Times are UTC. Below `md`, three lines per row instead of the table. */
+/** The tooltip on a column head, where the word alone needs explaining. */
+const HEAD_TITLES: Record<string, string> = {
+  Receives: "How many times SQS returned this message from ReceiveMessage. Handled: a receive that ended in a delete or a successful Lambda record.",
+};
+
+/** One row per message, in the API's order. Times are UTC. A message received more than once shows its count
+ *  in warning-text (Ember on the sky, the timeline's colour for a repeat attempt). Below `md`, three lines per
+ *  row instead of the table. */
 export function MessagesTable({ messages, href, extra }: MessagesTableProps) {
-  const heads = ["Message ID", "State", "Queue", "Deliveries", "Consumers", "First seen", "Last seen", ...(extra ? [extra.title] : [])];
+  const heads = ["Message ID", "State", "Queue", "Receives", "Consumers", "First seen", "Last seen", ...(extra ? [extra.title] : [])];
   return (
     <>
       <ul className="md:hidden" data-phone-list>
@@ -132,7 +139,7 @@ export function MessagesTable({ messages, href, extra }: MessagesTableProps) {
     <table className="hidden w-full text-[15px] md:table">
       <thead>
         <tr className="border-b border-line text-left font-mono text-caption text-ink-3">
-          {heads.map((h, i) => <th key={h} className={`py-2 font-medium ${i === 0 ? "pl-5 pr-3" : i === heads.length - 1 ? "pl-3 pr-5" : "px-3"}`}>{h}</th>)}
+          {heads.map((h, i) => <th key={h} title={HEAD_TITLES[h]} className={`py-2 font-medium ${i === 0 ? "pl-5 pr-3" : i === heads.length - 1 ? "pl-3 pr-5" : "px-3"}`}>{h}</th>)}
         </tr>
       </thead>
       <tbody>
@@ -141,7 +148,7 @@ export function MessagesTable({ messages, href, extra }: MessagesTableProps) {
             <td className="py-3 pl-5 pr-3"><a href={href(m.message_id)} className="break-all font-mono text-caption text-ink hover:text-brand">{m.message_id}</a></td>
             <td className="px-3 py-3 text-ink-2">{STATE_LABELS[m.state] ?? m.state}</td>
             <td className="px-3 py-3"><Queue m={m} /></td>
-            <td className="px-3 py-3 font-mono text-caption tabular-nums text-ink-2">{m.deliveries} <Muted>({m.successful_deliveries} ok)</Muted></td>
+            <td className="px-3 py-3 font-mono text-caption tabular-nums text-ink-2"><span className={m.deliveries > 1 ? "text-warning-text" : undefined}>{m.deliveries}</span> <Muted>· {m.successful_deliveries} handled</Muted></td>
             <td className="px-3 py-3 text-ink-2">
               {m.consumers.length === 0 ? <Muted>none yet</Muted> : m.consumers.map((c, i) => (
                 <span key={i}>{i > 0 && ", "}{c.service_name ?? "?"}</span>
