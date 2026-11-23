@@ -174,6 +174,15 @@ jobs:
           echo "TB_NAME=tbci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}" >> "$GITHUB_ENV"
       - name: Build the image (local only, not pushed)
         run: docker build -t "$TB_NAME:ci" .
+      # npx trailbeam start runs the image of the package's version with `start` (node/bin/trailbeam.js), so an
+      # image without the start command would ship a launcher that can't run (QV-207: image 0.3.0 has none and
+      # prints the plain `usage: trailbeam`). Checked through the launcher itself, pointed at this build.
+      - name: The launcher's start --help is answered by the image's trailbeam start
+        run: |
+          TRAILBEAM_IMAGE="$TB_NAME:ci" node node/bin/trailbeam.js start --port "$TB_PORT" --help > "$RUNNER_TEMP/start-help.txt"
+          cat "$RUNNER_TEMP/start-help.txt"
+          grep -q '^usage: trailbeam start ' "$RUNNER_TEMP/start-help.txt" \
+            || { echo "::error::the image has no trailbeam start command (start --help printed something else)"; exit 1; }
       - name: Run it with SQLite on a volume
         run: |
           docker volume create "$TB_NAME-data"
