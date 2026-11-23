@@ -492,8 +492,9 @@ def _notices(rows, receives, order=None) -> list[dict]:
                     "are listed in order.conflicts."})
     if any(r["key_id"] == DEFAULT_KEY_ID for r in rows):
         out.append({"code": "default_key", "message":
-                    "Some spans hash receipt handles with the published default key. Set TRAILBEAM_RECEIPT_HASH_KEY "
-                    "to the same secret in every service."})
+                    "These spans use the package's built-in receipt-hash key, which anyone can read in the source. "
+                    "Generate one key with `openssl rand -hex 32` and set it as `TRAILBEAM_RECEIPT_HASH_KEY` on "
+                    "every service that uses these queues."})
     unmatched = [r for r in rows if r["kind"] in ("delete", "change_visibility") and r["receive_row"] is None]
     if unmatched:
         rkeys = {r["key_id"] for r in receives}
