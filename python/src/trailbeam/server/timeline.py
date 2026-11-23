@@ -131,6 +131,8 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
             if r["first_receive_ts_ms"] is not None:
                 ev["first_receive_timestamp"] = iso(r["first_receive_ts_ms"] * 1_000_000)
                 ev["first_receive_timestamp_ms"] = r["first_receive_ts_ms"]
+            if r["dlq_source_arn"]:  # a receive on a dead-letter queue: the queue SQS moved it from (3.1, 9b)
+                ev["dlq_source_arn"] = r["dlq_source_arn"]
         elif k in ("delete", "change_visibility"):
             ev = {"type": "deleted" if k == "delete" else "visibility_changed", **base,
                   "delivery": by_row.get(r["receive_row"]), "result": r["result"]}

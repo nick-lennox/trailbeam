@@ -111,6 +111,9 @@ def test_move_to_dead_letter_queue_is_observed_from_dead_letter_queue_source_arn
     assert (move["from_queue"], move["to_queue"]) == ("orders", "orders-dlq")
     assert move["source_arn"] == "arn:aws:sqs:us-east-1:000000000000:orders"
     assert move["reported_on_delivery"] == dlq_rcv["delivery"] == 4
+    # The DLQ receive itself carries the ARN, so a UI can say "picked up from the dead-letter queue" (QV-244).
+    assert dlq_rcv["dlq_source_arn"] == "arn:aws:sqs:us-east-1:000000000000:orders"
+    assert not [e for e in t["events"][:7] if "dlq_source_arn" in e]
     # Placed after the last receive on orders and before the DLQ receive that reports it, by those two only.
     assert [(a["event"], a["sources"]) for a in move["after"]] == [(last_src["id"], ["sqs_dlq_source"])]
     assert (move["before"]["event"], move["before"]["sources"]) == (dlq_rcv["id"], ["sqs_dlq_source"])
