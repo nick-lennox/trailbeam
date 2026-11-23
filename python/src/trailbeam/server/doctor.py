@@ -253,7 +253,13 @@ def run(t: Target, now_ns: Optional[int] = None) -> list[Result]:
             results.append(Result(name, FAIL, "the API answers without the server's details: the token is "
                                               + ("missing" if not t.token else "not accepted"), cause, fix))
         elif empty.status == 401:
-            if auth == "off":
+            if auth == "off" and (health.get("config") or {}).get("ingest_auth") == "token":
+                results.append(Result(name, FAIL, "ingest answers 401: the server has ingest tokens",
+                                      "the server has no TRAILBEAM_TOKEN, but it holds at least one ingest token "
+                                      "(tbi_...), so ingest needs one.",
+                                      "give doctor and your services an ingest token (--token-file, or "
+                                      "x-trailbeam-key in OTEL_EXPORTER_OTLP_HEADERS)."))
+            elif auth == "off":
                 results.append(Result(name, FAIL, "the server at --url has no token, but ingest answers 401",
                                       "the ingest address is another server, with a token of its own.",
                                       "point --ingest-url (and your services) at the same server as --url, or "
