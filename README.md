@@ -88,6 +88,10 @@ send a message: it shows up on the web screen, which asks for the token once. La
 token and key, so services you set up keep working. Every `trailbeam` flag works after `start` too
 (`trailbeam start --help`). Stop it with Ctrl-C.
 
+No Python? With Docker running, `npx trailbeam start` does the same from the npm package. It runs the
+container image and keeps the data in a Docker volume
+([Node.js README](node/README.md#run-the-server-npx-trailbeam-start)).
+
 To try it without services of your own, the [demo](demo/README.md) runs Trailbeam, an SQS emulator and
 sample services with Docker. It needs no AWS account:
 

@@ -23,7 +23,11 @@
   },
   "main": "src/index.js",
   "types": "index.d.ts",
+  "bin": {
+    "trailbeam": "bin/trailbeam.js"
+  },
   "files": [
+    "bin",
     "src",
     "index.d.ts"
   ],

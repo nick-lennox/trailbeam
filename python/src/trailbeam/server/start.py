@@ -14,6 +14,11 @@ and a Node.js service are printed on stdout (the logs stay on stderr).
 
 Every flag of ``trailbeam`` works here too. ``--db`` or ``--store-url`` replaces the SQLite file in the data
 directory, and ``--token-file`` or ``TRAILBEAM_TOKEN`` replaces the token file.
+
+``npx trailbeam start`` (the npm package) runs this in the container image. Inside it the server listens on
+0.0.0.0 and the data directory is ``/data``, so it sets ``TRAILBEAM_START_SHOWN_HOST`` and
+``TRAILBEAM_START_SHOWN_DATA_DIR`` to what the banner should say instead: the address on the developer's
+machine and the Docker volume (or directory) the data is in.
 """
 from __future__ import annotations
 
@@ -30,6 +35,8 @@ TOKEN_FILE = "token"
 KEY_FILE = "receipt-hash-key"
 DB_FILE = "trailbeam.sqlite"
 DATA_DIR_ENV = "TRAILBEAM_DATA_DIR"
+SHOWN_HOST_ENV = "TRAILBEAM_START_SHOWN_HOST"  # set by npx trailbeam start: see the module docstring
+SHOWN_DATA_DIR_ENV = "TRAILBEAM_START_SHOWN_DATA_DIR"
 MIN_KEY_LENGTH = 16  # the packages warn below 16 bytes
 
 log = logging.getLogger("trailbeam.server")
@@ -78,8 +85,11 @@ def start(argv) -> None:
     if a.db is None:
         a.db = str(data / DB_FILE)
 
+    shown_host = os.environ.get(SHOWN_HOST_ENV, "").strip()
+    shown_data = os.environ.get(SHOWN_DATA_DIR_ENV, "").strip() or data
+
     def announce(host, port, token):
-        sys.stdout.write(banner(_url_host(host), port, token, key, data))
+        sys.stdout.write(banner(_url_host(shown_host or host), port, token, key, shown_data))
         sys.stdout.flush()
 
     serve(a, on_listening=announce)
@@ -130,7 +140,7 @@ def service_env(url: str, token, key: str, service: str) -> list:
     return env
 
 
-def banner(host: str, port: int, token, key: str, data: Path) -> str:
+def banner(host: str, port: int, token, key: str, data) -> str:
     url = f"http://{host}:{port}"
     lines = ["", f"Trailbeam is running: open {url}/"]
     if token:
