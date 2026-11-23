@@ -131,6 +131,8 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
             if r["first_receive_ts_ms"] is not None:
                 ev["first_receive_timestamp"] = iso(r["first_receive_ts_ms"] * 1_000_000)
                 ev["first_receive_timestamp_ms"] = r["first_receive_ts_ms"]
+            if r["dlq_source_arn"]:  # a receive on a dead-letter queue: the queue SQS moved it from (3.1, 9b)
+                ev["dlq_source_arn"] = r["dlq_source_arn"]
         elif k in ("delete", "change_visibility"):
             ev = {"type": "deleted" if k == "delete" else "visibility_changed", **base,
                   "delivery": by_row.get(r["receive_row"]), "result": r["result"]}
@@ -427,9 +429,11 @@ def _dlq_moves(receives: list, sends: list, proven) -> list[tuple]:
 
 def _not_seen_notice(queue: str, count: int, mrc: int) -> dict:
     return {"code": "dlq_move_not_seen", "message":
-            f"Receive count exceeded maxReceiveCount; not seen on the DLQ yet. The last receive on {queue} had "
-            f"receive count {count}, and {queue}'s maxReceiveCount is {mrc}, so SQS moves the message to its "
-            f"dead-letter queue instead of delivering it again. No receive from the dead-letter queue has "
+            f"Receive count reached maxReceiveCount; not seen on the DLQ yet. The last receive on {queue} had "
+            f"receive count {count}, and {queue}'s maxReceiveCount is {mrc} as configured, so unless that receive "
+            f"deletes the message, SQS moves it to its dead-letter queue instead of delivering it again. This is "
+            f"inferred from the configured value, and that receive may still be in progress. No receive from the "
+            f"dead-letter queue has "
             f"reported the move yet, so no move is shown. Trailbeam does not receive from the dead-letter queue to "
             f"check: a receive changes the message's state."}
 

@@ -8,8 +8,8 @@
 replicaCount: 2
 
 image:
-  # The -postgres image has the Postgres driver; the plain one has SQLite only. The release after 0.3.0 publishes
-  # it; until then build and push it, and set repository and tag:
+  # The -postgres image has the Postgres driver; the plain one has SQLite only. Releases from 0.4.0 publish
+  # it. To run your own build, build and push it, and set repository and tag:
   #   docker build --build-arg TRAILBEAM_EXTRAS=server,postgres -t <registry>/trailbeam:<tag> .
   repository: ghcr.io/nick-lennox/trailbeam
   # Default: <appVersion>-postgres
