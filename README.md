@@ -144,6 +144,23 @@ same with Docker and no Python ([Node.js README](node/README.md#run-the-server-n
 work with 0.3.0: the npm package has no `trailbeam` command yet, and the 0.3.0 image has no `start`. Nothing on
 the screen? Run `trailbeam doctor`, also from the next release ([Troubleshooting](#troubleshooting-no-data-arriving)).
 
+### Runnable examples
+
+[`examples/`](examples/README.md) has the smallest complete service for each common setup, each started
+with one command against an SQS emulator and a local Trailbeam (Docker, no AWS account):
+[Python with boto3](examples/python-boto3/README.md),
+[Python Lambda with an SQS trigger](examples/python-lambda/README.md),
+[Node.js with AWS SDK v3](examples/node-sdk-v3/README.md) and
+[Node.js Lambda with an SQS trigger](examples/node-lambda/README.md). Each sends three orders whose
+timelines show a message processed, a retry after the visibility timeout, and a move to the dead-letter
+queue. CI runs every one of them.
+
+```sh
+git clone https://github.com/nick-lennox/trailbeam.git && cd trailbeam
+docker compose -f examples/python-boto3/compose.yaml up --build
+# then open the links it prints
+```
+
 ### See a richer example
 
 The [demo](demo/README.md) runs Trailbeam, an SQS emulator and sample services with Docker and no AWS
@@ -1181,7 +1198,8 @@ The documentation is at [docs.trailbeam.app](https://docs.trailbeam.app).
 What changed in each release, with upgrade notes: [CHANGELOG.md](CHANGELOG.md).
 
 The reference for each part of this repository is next to its code: [`python/`](python/README.md),
-[`node/`](node/README.md), [`collector/`](collector/README.md) and [`demo/`](demo/README.md). The span
+[`node/`](node/README.md), [`collector/`](collector/README.md), [`demo/`](demo/README.md) and
+[`examples/`](examples/README.md). The span
 contract, the specification the packages and Trailbeam both follow, is
 [`contract/span-contract.md`](contract/span-contract.md).
 

@@ -1,0 +1,25 @@
+# What every example runs on: an SQS emulator and Trailbeam. Each example's compose.yaml includes this file
+# and adds its own services. No AWS account: the SDKs get dummy keys and talk only to the emulator.
+services:
+  sqs:
+    image: softwaremill/elasticmq-native:1.6.15
+    volumes:
+      - ./elasticmq.conf:/opt/elasticmq.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9324/?Action=ListQueues"]
+      interval: 1s
+      retries: 30
+
+  trailbeam:
+    # Trailbeam built from this checkout, so the examples test the code next to them. To use the release
+    # instead: image: ghcr.io/nick-lennox/trailbeam
+    build: { context: ../.., dockerfile: Dockerfile }
+    ports:
+      - "127.0.0.1:${TRAILBEAM_EXAMPLE_PORT:-4318}:4318"
+    environment:
+      # The redrive policy of `orders`, so a timeline can say how many receives are left before the DLQ.
+      TRAILBEAM_MAX_RECEIVE_COUNT: orders=3
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4318/api/health', timeout=2)"]
+      interval: 1s
+      retries: 60

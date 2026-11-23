@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Runnable examples.** [`examples/`](examples/README.md) has one small service for each common setup:
+  Python with boto3, a Python Lambda function with an SQS trigger, Node.js with AWS SDK v3, and a Node.js
+  Lambda function with an SQS trigger. Each runs with one `docker compose` command against ElasticMQ and a
+  local Trailbeam, and sends three orders: one processed, one retried after the visibility timeout, one
+  moved to the dead-letter queue. CI runs every example and checks the three timelines. (QV-172)
 - **The Tenants page no longer slows down after heavy ingest.** It read every raw event of the current hour,
   so right after a burst of traffic it took 1–2 s on Postgres (QV-180). It now reads the current hour from the
   hourly rollup, less the few events newer than the window, and adds up the raw events it still reads in SQL.
