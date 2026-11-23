@@ -75,6 +75,8 @@ test("State A: the three steps, the endpoint and the waiting line", () => {
   assert.ok(html.includes("<h1") && (html.match(/<h2/g) ?? []).length === 3, "one h1, a h2 per step");
   assert.ok(html.includes("<output") && html.includes("http://localhost:4318/v1/traces</output>"));
   assert.ok(!t.includes("OTEL_EXPORTER_OTLP_HEADERS"), "no token header when the server has no token");
+  assert.ok(t.includes("Spans go out in batches every few seconds, and any still waiting go out when the process exits."));
+  assert.ok(!t.includes("forceFlush"), "forceFlush is the Node.js API; the Python package has no such function");
   assert.ok(!t.includes("Show setup"), "nothing hidden behind a click");
   // the runtime switch is a tab list that controls both code windows
   assert.match(html, /role="tablist"/);
@@ -97,6 +99,7 @@ test("State A, Node.js, a token and another origin", () => {
     "export TRAILBEAM_OTLP_TRACES_ENDPOINT=http://10.0.0.5:4318/v1/traces",
   ]) assert.ok(t.includes(s), `missing: ${s}`);
   assert.ok(!t.includes("pip install"));
+  assert.ok(t.includes("In a long-running service you don't need forceFlush: spans go out in batches every few seconds."));
   assert.equal(isDefaultEndpoint("http://127.0.0.1:4318/v1/traces"), true);
   assert.equal(isDefaultEndpoint("https://localhost:4318/v1/traces"), false);
 });
