@@ -2356,6 +2356,7 @@
      "sent_timestamp_ms": 1794852336914,
      "first_receive_timestamp": "2026-11-16T18:05:36.919000Z",
      "first_receive_timestamp_ms": 1794852336919,
+     "dlq_source_arn": "arn:aws:sqs:us-east-1:123456789012:payments",
      "after": [
       {
        "event": "e4",

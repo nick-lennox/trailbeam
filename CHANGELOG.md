@@ -24,6 +24,15 @@
   - **Changed:** with neither a token nor an ingest token, the server now warns at every start that ingest is
     open, also when it listens only on localhost.
   - Creating people and tokens from the command line comes with `trailbeam users` and `trailbeam tokens`.
+- **Purged messages no longer show as stuck** (QV-245, contract revision 3.3). The Python and Node.js packages
+  record `PurgeQueue` calls (a `trailbeam purge` span, `trailbeam.kind = sqs.purge`, contract section 18), and
+  the server stores them per queue (SQLite: no schema change; Postgres: schema 9, a `purges` table). A message
+  whose last step ended before a purge SQS accepted started is `purged`, reads "purged (observed: PurgeQueue at
+  …)", gets a "Queue purged" step on its timeline and leaves Stuck. One whose last step ended during the purge or
+  within 60 s after it keeps its state and stays on Stuck, marked "possibly purged". The API adds the `purged`
+  state, an optional `purge` field and the `queue_purged` step. Stuck's footnote now says a message can also
+  leave SQS when its retention period ends, which Trailbeam cannot see. A server older than 3.3 rejects the purge
+  span (one rejected span in `partial_success`) and stores the rest of the export as before.
 
 - **Alert on stuck messages and dead-letter moves from Datadog, Prometheus or Grafana** (QV-304). `/metrics` has
   four new gauges: `trailbeam_stuck_messages` (as the Stuck page counts them, up to 1000),

@@ -31,7 +31,7 @@ import threading
 import time
 from typing import Callable, Iterable, Iterator, Optional
 
-from . import body_table, migrations, rollup, summary_table
+from . import body_table, migrations, purge, rollup, summary_table
 from .otlp import RECORD_FIELDS
 from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store, StoreFull,
                     StuckCandidate, TenantActivity, WriterBusy)
@@ -53,6 +53,12 @@ BODY_DROPPED_NOT_OPTED_IN = "not_opted_in"  # spans.body_dropped: the queue is n
 # The two hash indexes are partial (migrations.SPANS_INDEXES): spans_receive_hash holds receives only, and
 # spans_unjoined_hash settle spans with no receive yet. A settle span is joined before its row is inserted, so
 # one that finds its receive never has an entry in spans_unjoined_hash (QV-78: a page fewer per span).
+# A PurgeQueue call SQS accepted on the message's queue that started after its newest step ended (contract
+# section 18, purge.classify): the message is purged, not stuck. spans_kind_time holds the few purge rows; a purge
+# that started after last_ns also ended after it, so the time range narrows the scan. ``s``: the messages row.
+_PURGED_SQL = """SELECT 1 FROM spans p INDEXED BY spans_kind_time
+   WHERE p.kind = 'purge' AND p.time_ns > s.last_ns AND p.start_ns > s.last_ns
+     AND p.result = 'ok' AND p.queue = s.current_queue"""
 SETTLE_JOIN_SQL = """SELECT row, message_id FROM spans INDEXED BY spans_receive_hash
    WHERE kind = 'receive' AND receipt_hmac = ? AND key_id = ?
    ORDER BY (time_ns <= ?) DESC,
@@ -396,7 +402,8 @@ class SqliteStore(Store):
 
         Each step reads on a read connection, without the writer lock: the spans in the window (spans_kind_time,
         every kind), then which of their messages are expired. The write deletes those messages and the window's
-        expired unjoined settle spans, each checked again in the write transaction."""
+        expired unjoined settle spans and purge spans (which belong to no message), each checked again in the write
+        transaction."""
         latest = _latest(cutoffs)
         cut, cut_p = _cutoff_sql(cutoffs)
         qcut, _ = _cutoff_sql(cutoffs, "value")  # the same cutoffs, of a queue in a message's queues_json
@@ -418,7 +425,7 @@ class SqliteStore(Store):
                     WHERE kind IN {SPAN_KINDS!r} AND time_ns >= ? AND time_ns < ?""", cut_p + (start, end)).fetchall()
             mids = sorted({r["mid"] for r in rows if r["mid"] is not None})
             expired = [r["mid"] for r in c.execute(_EXPIRED_SQL.format(cut=qcut), (json.dumps(mids),) + cut_p)] if mids else []
-            unjoined = [r["row"] for r in rows if r["mid"] is None and r["kind"] in SETTLE_KINDS and r["old"]]
+            unjoined = [r["row"] for r in rows if r["mid"] is None and r["kind"] in LOOSE_KINDS and r["old"]]
             if self.shared_reads and (expired or unjoined):
                 _prefetch_delete(c, expired, unjoined)
         n, write_ms = 0, 0.0
@@ -563,8 +570,17 @@ class SqliteStore(Store):
         rows = self.query(
             f"""SELECT s.mid, s.stuck_first_ns, s.stuck_sqs_clock FROM messages s INDEXED BY messages_stuck
                 WHERE s.stuck_open AND s.stuck_first_ns IS NOT NULL AND s.stuck_first_ns < ?{where}
+                AND NOT EXISTS ({_PURGED_SQL})
                 ORDER BY s.stuck_first_ns, s.mid LIMIT ?""", tuple(p) + (limit,))
         return [StuckCandidate(r["mid"], r["stuck_first_ns"], bool(r["stuck_sqs_clock"])) for r in rows]
+
+    def purges(self, queues: Iterable[str]) -> list[sqlite3.Row]:
+        queues = sorted(set(queues))
+        if not queues:
+            return []
+        return self.query(f"SELECT {', '.join(purge.COLUMNS)} FROM spans INDEXED BY spans_kind_time "
+                          f"WHERE kind = 'purge' AND queue IN ({', '.join('?' * len(queues))}) ORDER BY time_ns, row",
+                          tuple(queues))
 
     def summaries(self, message_ids: list[str]) -> list[sqlite3.Row]:
         if not message_ids:
@@ -735,7 +751,9 @@ _INSERT_COLUMNS = RECORD_FIELDS + ["attributes", "mid", "mid_source", "receive_r
 _INSERT_SQL = f"INSERT OR IGNORE INTO spans ({', '.join(_INSERT_COLUMNS)}) VALUES ({', '.join('?' * len(_INSERT_COLUMNS))})"
 
 AUTO_VACUUM_INCREMENTAL = 2  # PRAGMA auto_vacuum
-SPAN_KINDS = ("send", "receive", "delete", "change_visibility", "outcome")  # every kind a row can have
+SPAN_KINDS = ("send", "receive", "delete", "change_visibility", "outcome", "purge")  # every kind a row can have
+# Rows that belong to no message by design or until joined: retention takes each by its own time and queue.
+LOOSE_KINDS = SETTLE_KINDS + ("purge",)
 def _prefetch_delete(c: sqlite3.Connection, mids: list, rows: list) -> None:
     """Read every page purge_step's delete of these messages and unjoined rows will change: the rows, an entry
     in each index of spans (the UNIQUE one too), the foreign-key lookup of their settle spans, and the summary

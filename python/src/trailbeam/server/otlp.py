@@ -62,6 +62,7 @@ _REQUIRED = {
     "delete": ("queue", "receipt_hmac", "key_id", "result"),
     "change_visibility": ("queue", "receipt_hmac", "key_id", "result"),
     "outcome": ("queue", "message_id", "outcome"),
+    "purge": ("queue", "result"),  # revision 3.3, section 18: no message ID, no receipt hash
 }
 
 
@@ -185,6 +186,8 @@ def _event_kind(attrs: dict) -> Optional[str]:
         return "receive"
     if kind == "sqs.outcome":
         return "outcome"
+    if kind == "sqs.purge" and attrs.get("messaging.operation.name") == "PurgeQueue":
+        return "purge"
     if kind == "sqs.settle":
         op = attrs.get("messaging.operation.name")
         if op in DELETE_OPS:
@@ -208,6 +211,8 @@ def to_record(resource: dict, trace_id: str, span_id: str, start_ns: int, end_ns
         return None, "span without trace ID, span ID, start time or end time"
     if end_ns < start_ns:
         return None, "span ends before it starts"
+    if kind == "purge" and attrs.get("trailbeam.start_observed") is False:
+        return None, "purge span without an observed start"  # a purge is always a client call (section 18)
     observed = attrs.get("trailbeam.start_observed") is not False
     rec = {"trace_id": trace_id, "span_id": span_id, "kind": kind, "time_ns": int(end_ns),
            "start_ns": int(start_ns) if observed else None,
@@ -220,7 +225,7 @@ def to_record(resource: dict, trace_id: str, span_id: str, start_ns: int, end_ns
     missing = [f for f in _REQUIRED[kind] if rec[f] is None]
     if missing:
         return None, f"{kind} span without {', '.join(missing)}"
-    if kind in ("delete", "change_visibility") and rec["result"] not in ("ok", "failed"):
+    if kind in ("delete", "change_visibility", "purge") and rec["result"] not in ("ok", "failed"):
         return None, f"trailbeam.result {rec['result']!r} is not ok or failed"
     if kind == "outcome" and rec["outcome"] not in OUTCOMES:
         return None, f"unknown trailbeam.outcome {rec['outcome']!r}"

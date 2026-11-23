@@ -4,6 +4,7 @@
   take the host page's theme. Links come from href().
 */
 import type { ReactNode } from "react";
+import type { Purge } from "../timeline/types.ts";
 
 export type MessageSummary = {
   message_id: string;
@@ -18,6 +19,8 @@ export type MessageSummary = {
   first_seen: string | null;
   first_seen_clock: "host" | "sqs";
   last_seen: string | null;
+  /** contract 3.3: the recorded PurgeQueue call that removed the message, or may have */
+  purge?: Purge;
   /** /api/duplicates */
   reasons?: string[];
   /** /api/stuck */
@@ -30,7 +33,21 @@ export const STATE_LABELS: Record<string, string> = {
   deleted_inferred: "deleted by Lambda (inferred)",
   processing: "being handled (inferred)",
   not_deleted: "no delete seen",
+  purged: "purged",
 };
+
+/** A message's state as the lists say it, with what a recorded PurgeQueue call says about it (contract 3.3). */
+export function stateText(m: Pick<MessageSummary, "state" | "purge">): string {
+  const label = STATE_LABELS[m.state] ?? m.state;
+  const p = m.purge;
+  if (!p) return label;
+  const at = `PurgeQueue at ${fmtTime(p.start)}`;
+  return p.status === "purged" ? `${label} (observed: ${at})` : `${label}, possibly purged (${at})`;
+}
+
+/** The tooltip on "possibly purged". */
+export const POSSIBLY_PURGED_TITLE = "The last observed step ended while a purge of the queue was running, or within 60 s after it. "
+  + "SQS may or may not have deleted this message.";
 
 /** The Reason filter's options on Duplicates. */
 export const DUPLICATE_REASONS: Record<string, string> = {
@@ -101,7 +118,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 export function rowFacts(m: MessageSummary): string[] {
   const queue = m.current_queue || m.source_queue || "?";
   return [
-    STATE_LABELS[m.state] ?? m.state,
+    stateText(m),
     m.in_dead_letter_queue ? `${queue} (DLQ)` : queue,
     plural(m.deliveries, "receive", "receives"),
     `${m.successful_deliveries} handled`,
@@ -160,7 +177,7 @@ export function MessagesTable({ messages, href, extra }: MessagesTableProps) {
         {messages.map((m) => (
           <tr key={m.message_id} className="border-b border-line/60 align-top last:border-0">
             <td className="py-3 pl-5 pr-3"><a href={href(m.message_id)} className="break-all font-mono text-caption text-ink hover:text-brand">{m.message_id}</a></td>
-            <td className="px-3 py-3 text-ink-2">{STATE_LABELS[m.state] ?? m.state}</td>
+            <td className="px-3 py-3 text-ink-2" data-purge={m.purge?.status} title={m.purge?.status === "possibly_purged" ? POSSIBLY_PURGED_TITLE : undefined}>{stateText(m)}</td>
             <td className="px-3 py-3"><Queue m={m} /></td>
             <td className="px-3 py-3 font-mono text-caption tabular-nums text-ink-2"><span className={m.deliveries > 1 ? "text-warning-text" : undefined}>{m.deliveries}</span> <Muted>· {m.successful_deliveries} handled</Muted></td>
             <td className="px-3 py-3 text-ink-2">

@@ -23,6 +23,7 @@ SPAN_RECEIVE = "trailbeam receive"
 SPAN_DELETE = "trailbeam delete"
 SPAN_CHANGE_VISIBILITY = "trailbeam change_visibility"
 SPAN_OUTCOME = "trailbeam outcome"
+SPAN_PURGE = "trailbeam purge"  # revision 3.3, section 18
 
 # (trailbeam.kind, messaging.operation.type) per span name.
 KINDS = {
@@ -31,6 +32,7 @@ KINDS = {
     SPAN_DELETE: ("sqs.settle", "settle"),
     SPAN_CHANGE_VISIBILITY: ("sqs.settle", "settle"),
     SPAN_OUTCOME: ("sqs.outcome", "process"),
+    SPAN_PURGE: ("sqs.purge", "purge"),  # a custom operation type: semconv defines none for a purge
 }
 
 OUTCOME_SUCCESS = "success"

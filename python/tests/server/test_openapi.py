@@ -652,6 +652,9 @@ def _scenario_spans():
         dlq.delete(T0 + 201 * SEC, "rh-dlq"),
         # visibility_changed
         p.send(T0, "vis"), c.receive(T0 + SEC, "vis", "rh-v"), c.change_visibility(T0 + 2 * SEC, "rh-v", 30),
+        # purged and queue_purged (removal per_sqs_documentation, then possible): on a queue of their own
+        p.send(T0, "purged", queue="scratch"), p.purge(T0 + 10 * SEC, queue="scratch", start=T0 + 9 * SEC),
+        p.send(T0 + 30 * SEC, "maybe-purged", queue="scratch"),
     ]
 
 

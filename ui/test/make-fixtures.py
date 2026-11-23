@@ -4,12 +4,15 @@ is tested on what Trailbeam really returns.
 - test/fixtures/timelines.json: the smoke-test spans (python/smoke/recorded-spans.pb)
 - test/fixtures/contract-3.2-timelines.json: the contract 3.2 spans the Node.js package recorded
   (contract/fixtures/contract-3.2-spans.json), which the hosted app's tests read too
+- test/fixtures/purge-timelines.json: contract 3.3 PurgeQueue (section 18): a message sent before a purge (purged),
+  one sent during it (possibly purged), and one received after it (not purged), from the server tests' span builder
 
     pip install -e "python[server]"   # from the repository root
     python ui/test/make-fixtures.py
 """
 import base64
 import json
+import sys
 from pathlib import Path
 
 from trailbeam.server import queries
@@ -43,3 +46,16 @@ write("contract-3.2-timelines.json",
       "GET /api/messages/{id} for the messages in contract/fixtures/contract-3.2-spans.json, made by Trailbeam itself "
       "(ui/test/make-fixtures.py), one hour after the last span, with the default Lambda timeout of 900 s.",
       timelines([(base64.b64decode(e["base64"]), e["contentType"]) for e in spans["exports"]]))
+sys.path.insert(0, str(ROOT / "python" / "tests" / "server"))
+from spans import SEC, T0, Consumer, to_proto  # noqa: E402
+
+P, C = Consumer("producer", service="orders-api"), Consumer("orders-worker")
+write("purge-timelines.json",
+      "GET /api/messages/{id} after a PurgeQueue call (contract 3.3, section 18), made by Trailbeam itself "
+      "(ui/test/make-fixtures.py) from python/tests/server/spans.py: purge-sent-before is purged, purge-sent-during "
+      "possibly purged, purge-received-after (received after the 60 s window) not affected.",
+      timelines([(to_proto([P.send(T0, "purge-sent-before"), C.receive(T0 + SEC, "purge-sent-before", "rh-1"),
+                            P.send(T0 + 9 * SEC + 1, "purge-sent-during"), P.send(T0, "purge-received-after"),
+                            P.purge(T0 + 10 * SEC, start=T0 + 9 * SEC),
+                            C.receive(T0 + 80 * SEC, "purge-received-after", "rh-2")]).SerializeToString(),
+                  "application/x-protobuf")]))

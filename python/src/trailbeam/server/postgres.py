@@ -132,7 +132,7 @@ import psycopg_pool
 from psycopg import errors, sql
 from psycopg.rows import dict_row
 
-from . import body_table, pg_schema, rollup, summary
+from . import body_table, pg_schema, purge, rollup, summary
 from .lookup_filter import LookupFilter, hash_key, mid_key
 from .db import gate_body
 from .otlp import RECORD_FIELDS
@@ -894,6 +894,31 @@ class PostgresStore(Store):
         raise RuntimeError(f"insert did not complete after {self.INGEST_ATTEMPTS} attempts")
 
     def _insert(self, conn, prepared, more_locks=frozenset()) -> tuple[int, int]:
+        """One attempt at an export, in ``conn``'s transaction: its purges (``purges``, by themselves: they belong
+        to no message and no place), then its spans."""
+        purges = [x for x in prepared if x[0]["kind"] == "purge"]
+        if not purges:
+            return self._insert_spans(conn, prepared, more_locks)
+        inserted, dupes = self._insert_purges(conn, purges)
+        rest = [x for x in prepared if x[0]["kind"] != "purge"]
+        if rest:
+            i, d = self._insert_spans(conn, rest, more_locks)
+            inserted, dupes = inserted + i, dupes + d
+        return inserted, dupes
+
+    def _insert_purges(self, conn, purges) -> tuple[int, int]:
+        """PurgeQueue calls (contract section 18). The same span again (trace, span and end time) is a duplicate."""
+        cols = {c: [] for c in _PURGE_INSERT}
+        for r, _own, attrs, *_ in purges:
+            for c in _PURGE_INSERT:
+                cols[c].append(attrs if c == "attributes" else r.get(c))
+        names = ", ".join(_PURGE_INSERT)
+        types = ", ".join(f"%s::{'bigint' if c in _PURGE_INT else 'text'}[]" for c in _PURGE_INSERT)
+        got = conn.execute(f"INSERT INTO purges ({names}) SELECT {names} FROM unnest({types}) AS u({names}) "
+                           "ON CONFLICT DO NOTHING RETURNING id", [cols[c] for c in _PURGE_INSERT]).fetchall()
+        return len(got), len(purges) - len(got)
+
+    def _insert_spans(self, conn, prepared, more_locks=frozenset()) -> tuple[int, int]:
         keys = set(more_locks)
         for r, own, *_ in prepared:
             if own:
@@ -1277,9 +1302,30 @@ class PostgresStore(Store):
         """Store.purge_step, by place (module docstring). ``resume``: ``<bucket>:<rclass>`` of the next place to
         look at, and for a sweep in progress ``:<last_ns>:<mid>`` of the last message it looked at. Only on the
         replica holding the retention lease (holds_retention_lease); on another, a step does nothing and ends the
-        pass."""
+        pass. The first step of a pass also deletes the expired PurgeQueue calls (``purges``)."""
         if not self.holds_retention_lease():
             return PurgeStep(0, 0, None)
+        if resume is None:
+            n = self._expire_purges(cutoffs)
+            step = self._place_step(cutoffs, None, limit)
+            return step._replace(deleted=step.deleted + n) if n else step
+        return self._place_step(cutoffs, resume, limit)
+
+    def _expire_purges(self, cutoffs: Cutoffs) -> int:
+        """Delete the purges whose own time expired on their queue, as an unjoined settle span's would: with the
+        store's granularity, at the end of the time's bucket. Few rows: one per PurgeQueue call."""
+        if cutoffs.keeps_everything():
+            return 0
+        g = self.retention_granularity_ns
+        with self._reading() as c:
+            rows = c.execute("SELECT id, queue, time_ns FROM purges").fetchall()
+        gone = [r["id"] for r in rows if _expired(cutoffs.of(r["queue"]), (r["time_ns"] // g + 1) * g)]
+        if not gone:
+            return 0
+        with self.ingest.connection() as w:
+            return w.execute("DELETE FROM purges WHERE id = ANY(%s)", (gone,)).rowcount
+
+    def _place_step(self, cutoffs: Cutoffs, resume: Optional[str], limit: int) -> PurgeStep:
         if resume is None:
             start, sweep_after = (-(2 ** 63), -(2 ** 63)), None
         else:
@@ -1654,8 +1700,18 @@ class PostgresStore(Store):
         rows = self._walk_first(
             f"""SELECT s.mid, s.stuck_first_ns, s.stuck_sqs_clock, s.rclass, s.bucket FROM messages s
                 WHERE {{p}} AND s.stuck_open <> 0 AND s.stuck_first_ns IS NOT NULL AND s.stuck_first_ns < %s{where}
+                AND NOT EXISTS ({_PURGED_SQL})
                 ORDER BY s.stuck_first_ns, s.mid LIMIT %s""", p, lambda r: (r["stuck_first_ns"], r["mid"]), limit)
         return [StuckCandidate(r["mid"], r["stuck_first_ns"], bool(r["stuck_sqs_clock"])) for r in rows]
+
+    def purges(self, queues) -> list[dict]:
+        queues = sorted(set(queues))
+        if not queues:
+            return []
+        cols = ", ".join(c for c in purge.COLUMNS if c != "row")
+        with self._reading() as c:
+            return c.execute(f'SELECT id AS "row", {cols} FROM purges WHERE queue = ANY(%s) ORDER BY time_ns, id',
+                             (queues,)).fetchall()
 
     def summaries(self, message_ids: list[str]) -> list[dict]:
         if not message_ids:
@@ -1829,6 +1885,10 @@ class PostgresStore(Store):
                 unjoined += r["n"]
             else:
                 kinds[r["kind"]] = kinds.get(r["kind"], 0) + r["n"]
+        with self._reading() as c:
+            purges = c.execute("SELECT COUNT(*) AS n FROM purges").fetchone()["n"]
+        if purges:
+            kinds["purge"] = purges
         return {"spans": kinds, "messages": messages, "unjoined_settles": unjoined}
 
 def _apply_rollup(conn, deltas: "rollup.Deltas") -> None:
@@ -1879,6 +1939,14 @@ def _lists(s) -> tuple:
 
 def _events(s, events: list) -> list:
     return [(at, s["mid"], i, kind, s["tenant"], wait) for i, (at, kind, wait) in enumerate(events)]
+
+
+# The columns of a purge row written (purge.COLUMNS but its id), and those that are integers.
+_PURGE_INSERT = [c for c in purge.COLUMNS if c != "row"]
+_PURGE_INT = {"start_ns", "time_ns", "pid", "order_issued", "order_returned"}
+# A PurgeQueue call SQS accepted on the message's queue that started after its newest step ended (contract section 18,
+# purge.classify): the message is purged, not stuck. ``s``: the messages row.
+_PURGED_SQL = """SELECT 1 FROM purges pg WHERE pg.queue = s.current_queue AND pg.result = 'ok' AND pg.start_ns > s.last_ns"""
 
 
 def _expired(cutoff: Optional[int], bucket_end: int) -> bool:

@@ -72,7 +72,8 @@ def check_common(span, op, queue_url, kind, op_type):
     for k, v in a.items():  # absent values are omitted, never "" or -1
         assert v != "" and v != -1, k
     # The span name never carries the queue name.
-    assert span.name in ("trailbeam send", "trailbeam receive", "trailbeam delete", "trailbeam change_visibility")
+    assert span.name in ("trailbeam send", "trailbeam receive", "trailbeam delete", "trailbeam change_visibility",
+                         "trailbeam purge")
 
 
 def check_parent(span, exporter):
@@ -657,3 +658,77 @@ def test_default_export_is_otlp_http_to_the_configured_endpoint(monkeypatch, mak
     names = [(ss.scope.name, s.name) for _, _, req in got for rs in req.resource_spans
              for ss in rs.scope_spans for s in ss.spans]
     assert ("trailbeam", "trailbeam send") in names
+
+
+# -- purge (revision 3.3, section 18) ------------------------------------------------------------
+
+PURGE_VECTORS = json.loads(
+    (Path(__file__).resolve().parents[2] / "contract" / "span-contract-vectors.json").read_text("utf-8"))["purge"]
+
+
+class _Thrown(Exception):
+    pass
+
+
+@pytest.mark.parametrize("case", PURGE_VECTORS["cases"], ids=lambda c: c["name"])
+def test_purge_matches_contract_vectors(trailbeam_spans, case):
+    hooks = trailbeam.boto._state["hooks"]
+    span = object()
+    hooks.request_hook(span, "sqs", "PurgeQueue", {"QueueUrl": case["queue_url"]})
+    response = case["response"]
+    if "thrown" in response:
+        # The instrumentation calls the hook from a ``finally`` while the exception is in flight.
+        err = type(response["thrown"], (_Thrown,), {})
+        try:
+            raise err()
+        except _Thrown:
+            hooks.response_hook(span, "sqs", "PurgeQueue", None)
+    elif "error_code" in response:
+        hooks.response_hook(span, "sqs", "PurgeQueue", {"Error": {"Code": response["error_code"]}})
+    else:
+        hooks.response_hook(span, "sqs", "PurgeQueue", {"ResponseMetadata": {"HTTPStatusCode": 200}})
+    [s] = trailbeam_spans()
+    assert s.name == PURGE_VECTORS["span_name"]
+    a = dict(s.attributes)
+    assert {k: a.get(k) for k in case["attributes"]} == case["attributes"]
+    assert set(PURGE_VECTORS["present"]) <= set(a)
+    assert not set(case["absent"]) & set(a)
+    assert a["trailbeam.order.issued"] < a["trailbeam.order.returned"]
+    assert hooks._pending == {}
+
+
+def test_purge_queue_against_the_emulator(trailbeam_spans, make_client, queue_url):
+    c = make_client()
+    c.send_message(QueueUrl=queue_url, MessageBody="x")
+    c.purge_queue(QueueUrl=queue_url)
+    [send] = trailbeam_spans("trailbeam send")
+    [s] = trailbeam_spans("trailbeam purge")
+    check_common(s, "PurgeQueue", queue_url, "sqs.purge", "purge")
+    check_parent(s, trailbeam_spans.exporter)
+    assert s.attributes["trailbeam.result"] == "ok"
+    assert "trailbeam.error_code" not in s.attributes
+    assert "messaging.message.id" not in s.attributes
+    # The send returned before the purge was issued: section 18's "purged" rule can order them.
+    assert send.attributes["trailbeam.order.returned"] < s.attributes["trailbeam.order.issued"]
+
+
+def test_purge_that_throws_before_a_response(trailbeam_spans, make_client):
+    c = make_client("http://127.0.0.1:9", retries={"max_attempts": 1}, connect_timeout=1)
+    url = "http://127.0.0.1:9/000000000000/nowhere"
+    with pytest.raises(EndpointConnectionError):
+        c.purge_queue(QueueUrl=url)
+    [s] = trailbeam_spans("trailbeam purge")
+    assert s.attributes["trailbeam.result"] == "failed"
+    assert s.attributes["trailbeam.error_code"] == "EndpointConnectionError"
+    assert s.start_time < s.end_time
+    assert trailbeam.boto._state["hooks"]._pending == {}
+
+
+def test_purge_of_a_missing_queue_is_failed(trailbeam_spans, make_client, sqs_endpoint):
+    url = f"{sqs_endpoint}/000000000000/no-such-queue-{os.getpid()}"
+    with pytest.raises(ClientError):
+        make_client().purge_queue(QueueUrl=url)
+    [s] = trailbeam_spans("trailbeam purge")
+    assert s.attributes["trailbeam.result"] == "failed"
+    # The code as the SDK reports it: moto sends the legacy query code (AWS.SimpleQueueService.NonExistentQueue).
+    assert s.attributes["trailbeam.error_code"] in ("QueueDoesNotExist", "AWS.SimpleQueueService.NonExistentQueue")
