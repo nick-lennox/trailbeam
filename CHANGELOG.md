@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Messages: Receives, not Deliveries.** The column on Messages, Duplicates and Stuck is now **Receives**, with a
+  tooltip that defines it (how many times SQS returned the message from `ReceiveMessage`) and what *handled* means
+  (a receive that ended in a delete or a successful Lambda record). Cells read `2 · 1 handled` instead of
+  `2 (1 ok)`, and the count is Ember when the message was received more than once, so that row stands out. The
+  timeline summary says **Receives** `2 (1 handled)` too, on the UI and the no-script pages (QV-209).
 - **Team install: `.env` readable by its owner only.** The README, the `docker-compose.yaml` header and
   `.env.example` now say `install -m 600 .env.example .env` instead of `cp`, which left the token and the
   Postgres password readable by every user of the server (QV-204).
