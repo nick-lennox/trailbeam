@@ -193,12 +193,111 @@ def test_bad_existing_secret_stops_with_one_line(tmp_path):
     assert (data / "token").read_text() == "short\n"  # never rewritten
 
 
-def test_ensure_secret_warns_about_a_readable_file(tmp_path, caplog):
+def test_ensure_secret_tightens_a_readable_file_of_ours(tmp_path, caplog):
     p = tmp_path / "receipt-hash-key"
     p.write_text("k" * 32)
     p.chmod(0o644)
     assert st.ensure_secret(p) == ("k" * 32, False)
-    assert "can be read by other users" in caplog.text and _mode(p) == 0o644
+    assert "could be read by other users" in caplog.text and _mode(p) == 0o600
+
+
+def _run_start(data, *extra):
+    return subprocess.run([sys.executable, "-m", "trailbeam.server", "start", "--data-dir", str(data), "--port", "0",
+                           *extra], env=_env(), capture_output=True, text=True, timeout=30)
+
+
+def test_existing_readable_data_dir_is_made_700_and_the_db_600(tmp_path):
+    """QV-201: mkdir -m 755 d; trailbeam start --data-dir d left d 755 and the SQLite file 644 (umask 022)."""
+    data = tmp_path / "tb"
+    data.mkdir(mode=0o755)
+    data.chmod(0o755)
+    old = os.umask(0o022)
+    try:
+        s = Started(["start", "--data-dir", str(data), "--port", "0"])
+    finally:
+        os.umask(old)
+    try:
+        assert _mode(data) == 0o700
+        assert s.get("/api/messages", s.token)[0] == 200
+        for name in ("trailbeam.sqlite", "trailbeam.sqlite-wal", "trailbeam.sqlite-shm"):
+            if (data / name).exists() or name == "trailbeam.sqlite":
+                assert _mode(data / name) == 0o600, name
+    finally:
+        assert s.stop() == 0
+    assert "made it 700" in s.p.stderr.read()
+
+
+def test_db_elsewhere_is_600_and_an_existing_readable_one_is_tightened(tmp_path):
+    db = tmp_path / "shared" / "x.sqlite"
+    db.parent.mkdir()
+    s = Started(["start", "--data-dir", str(tmp_path / "tb"), "--port", "0", "--db", str(db)])
+    s.stop()
+    assert _mode(db) == 0o600
+    db.chmod(0o644)
+    s = Started(["start", "--data-dir", str(tmp_path / "tb"), "--port", "0", "--db", str(db)])
+    s.stop()
+    assert _mode(db) == 0o600
+
+
+def test_group_writable_data_dir_of_ours_is_made_700(tmp_path):
+    """A 002 umask gives 775 directories: tightened, not refused."""
+    data = tmp_path / "tb"
+    data.mkdir()
+    data.chmod(0o775)
+    s = Started(["start", "--data-dir", str(data), "--port", "0"])
+    s.stop()
+    assert _mode(data) == 0o700
+
+
+def test_db_of_another_user_is_refused(tmp_path, monkeypatch):
+    db = tmp_path / "x.sqlite"
+    db.write_bytes(b"")
+    uid = os.geteuid()
+    monkeypatch.setattr(os, "geteuid", lambda: uid + 1)
+    with pytest.raises(st.SetupError, match="belongs to another user"):
+        st._tighten_db(str(db))
+
+
+def test_data_dir_others_can_write_is_refused(tmp_path):
+    data = tmp_path / "tb"
+    data.mkdir()
+    data.chmod(0o777)
+    r = _run_start(data)
+    assert r.returncode == 2 and "can be written by any user" in r.stderr and "Traceback" not in r.stderr
+    assert list(data.iterdir()) == [] and _mode(data) == 0o777  # nothing created, nothing changed
+
+
+def test_planted_symlink_token_is_refused(tmp_path):
+    """A token planted as a symlink to a file the planter knows is not followed."""
+    data = tmp_path / "tb"
+    data.mkdir(mode=0o700)
+    planted = tmp_path / "planted"
+    planted.write_text("planted-token-0123456789\n")
+    (data / "token").symlink_to(planted)
+    r = _run_start(data)
+    assert r.returncode == 2 and "is a symlink" in r.stderr and "Traceback" not in r.stderr
+    assert "planted-token" not in r.stdout
+
+
+def test_secret_owned_by_another_user_is_refused(tmp_path, monkeypatch):
+    """Without root no test can chown a file to someone else, so this user's files look like another's."""
+    p = tmp_path / "token"
+    p.write_text("planted-token-0123456789\n")
+    p.chmod(0o644)
+    uid = os.geteuid()
+    monkeypatch.setattr(os, "geteuid", lambda: uid + 1)
+    with pytest.raises(st.SetupError, match="belongs to another user"):
+        st.ensure_secret(p)
+    assert _mode(p) == 0o644
+
+
+def test_data_dir_owned_by_another_user_is_refused(tmp_path, monkeypatch):
+    data = tmp_path / "tb"
+    data.mkdir(mode=0o700)
+    uid = os.geteuid()
+    monkeypatch.setattr(os, "geteuid", lambda: uid + 1)
+    with pytest.raises(st.SetupError, match="belongs to another user"):
+        st._make_dir(data)
 
 
 def test_legacy_invocation_is_unchanged(tmp_path):
