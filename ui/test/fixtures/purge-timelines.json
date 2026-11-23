@@ -1,0 +1,438 @@
+{
+ "note": "GET /api/messages/{id} after a PurgeQueue call (contract 3.3, section 18), made by Trailbeam itself (ui/test/make-fixtures.py) from python/tests/server/spans.py: purge-sent-before is purged, purge-sent-during possibly purged, purge-received-after (received after the 60 s window) not affected.",
+ "timelines": [
+  {
+   "message_id": "purge-received-after",
+   "state": "not_deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "deliveries": 1,
+   "successful_deliveries": 0,
+   "first_seen": "2025-11-14T00:26:40.000000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-14T00:28:00.000000Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:40.000000Z",
+     "end": "2025-11-14T00:26:40.000000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:28:00.000000Z",
+     "end": "2025-11-14T00:28:00.000000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2025-11-14T00:26:40.000000Z",
+     "time_unix_nano": "1763080000000000000",
+     "start": "2025-11-14T00:26:40.000000Z",
+     "start_unix_nano": "1763080000000000000",
+     "end": "2025-11-14T00:26:40.000000Z",
+     "end_unix_nano": "1763080000000000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-api",
+      "client_id": "producer",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "e9e01a80677d996af7bfc1dde3dd1c00",
+      "span_id": "0000000000000004"
+     },
+     "process_order": null,
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-14T00:28:00.000000Z",
+     "time_unix_nano": "1763080080000000000",
+     "start": "2025-11-14T00:28:00.000000Z",
+     "start_unix_nano": "1763080080000000000",
+     "end": "2025-11-14T00:28:00.000000Z",
+     "end_unix_nano": "1763080080000000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "orders-worker",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "0e4421c3a415b87500e29f465b7164ed",
+      "span_id": "0000000000000006"
+     },
+     "process_order": null,
+     "delivery": 1,
+     "receive_count": 1,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "The send ended (2025-11-14T00:26:40.000000Z) before this started (2025-11-14T00:28:00.000000Z), on the hosts' clocks."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 1,
+     "process_order": 0,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": []
+  },
+  {
+   "message_id": "purge-sent-before",
+   "state": "purged",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "deliveries": 1,
+   "successful_deliveries": 0,
+   "first_seen": "2025-11-14T00:26:40.000000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-14T00:26:41.000000Z",
+   "purge": {
+    "status": "purged",
+    "queue": "orders",
+    "start": "2025-11-14T00:26:49.000000Z",
+    "end": "2025-11-14T00:26:50.000000Z",
+    "window_end": "2025-11-14T00:27:50.000000Z",
+    "span": {
+     "trace_id": "23bc2ecb673c451513bfe611149764a6",
+     "span_id": "0000000000000005"
+    }
+   },
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:40.000000Z",
+     "end": "2025-11-14T00:26:40.000000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:41.000000Z",
+     "end": "2025-11-14T00:26:41.000000Z"
+    },
+    {
+     "group": 2,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:49.000000Z",
+     "end": "2025-11-14T00:26:50.000000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2025-11-14T00:26:40.000000Z",
+     "time_unix_nano": "1763080000000000000",
+     "start": "2025-11-14T00:26:40.000000Z",
+     "start_unix_nano": "1763080000000000000",
+     "end": "2025-11-14T00:26:40.000000Z",
+     "end_unix_nano": "1763080000000000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-api",
+      "client_id": "producer",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "e140c5211154b90da0bd9ab10afe1b88",
+      "span_id": "0000000000000001"
+     },
+     "process_order": null,
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-14T00:26:41.000000Z",
+     "time_unix_nano": "1763080001000000000",
+     "start": "2025-11-14T00:26:41.000000Z",
+     "start_unix_nano": "1763080001000000000",
+     "end": "2025-11-14T00:26:41.000000Z",
+     "end_unix_nano": "1763080001000000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "orders-worker",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "bc78ea130008963c88d0f516528e4a94",
+      "span_id": "0000000000000002"
+     },
+     "process_order": null,
+     "delivery": 1,
+     "receive_count": 1,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "The send ended (2025-11-14T00:26:40.000000Z) before this started (2025-11-14T00:26:41.000000Z), on the hosts' clocks."
+      }
+     ]
+    },
+    {
+     "id": "e3",
+     "type": "queue_purged",
+     "inferred": false,
+     "source": "purge_queue",
+     "time": "2025-11-14T00:26:50.000000Z",
+     "time_unix_nano": "1763080010000000000",
+     "start": "2025-11-14T00:26:49.000000Z",
+     "start_unix_nano": "1763080009000000000",
+     "end": "2025-11-14T00:26:50.000000Z",
+     "end_unix_nano": "1763080010000000000",
+     "start_observed": true,
+     "group": 2,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-api",
+      "client_id": "producer",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "23bc2ecb673c451513bfe611149764a6",
+      "span_id": "0000000000000005"
+     },
+     "process_order": null,
+     "result": "ok",
+     "removal": "per_sqs_documentation",
+     "reason": "PurgeQueue on orders started at 2025-11-14T00:26:49.000000Z, after this message's last observed step ended. SQS deletes every message in the queue when a purge starts, including messages in flight; the deletion of this message is not observed, it is what SQS's documentation says a purge does.",
+     "after": [
+      {
+       "event": "e2",
+       "type": "received",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "Receive 1 ended (2025-11-14T00:26:41.000000Z) before this started (2025-11-14T00:26:49.000000Z), on the hosts' clocks."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e3",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e2",
+      "to": "e3",
+      "sources": [
+       "clock"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 3,
+     "process_order": 0,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": []
+  },
+  {
+   "message_id": "purge-sent-during",
+   "state": "not_deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "deliveries": 0,
+   "successful_deliveries": 0,
+   "first_seen": "2025-11-14T00:26:49.000000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-14T00:26:49.000000Z",
+   "purge": {
+    "status": "possibly_purged",
+    "queue": "orders",
+    "start": "2025-11-14T00:26:49.000000Z",
+    "end": "2025-11-14T00:26:50.000000Z",
+    "window_end": "2025-11-14T00:27:50.000000Z",
+    "span": {
+     "trace_id": "23bc2ecb673c451513bfe611149764a6",
+     "span_id": "0000000000000005"
+    }
+   },
+   "concurrent_groups": 1,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": true,
+     "label": "concurrent, order unknown",
+     "observed_events": 2,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:49.000000Z",
+     "end": "2025-11-14T00:26:50.000000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2025-11-14T00:26:49.000000Z",
+     "time_unix_nano": "1763080009000000001",
+     "start": "2025-11-14T00:26:49.000000Z",
+     "start_unix_nano": "1763080009000000001",
+     "end": "2025-11-14T00:26:49.000000Z",
+     "end_unix_nano": "1763080009000000001",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-api",
+      "client_id": "producer",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "9e26fcb1c0506ba5ae3e9e233df5ab29",
+      "span_id": "0000000000000003"
+     },
+     "process_order": null,
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "queue_purged",
+     "inferred": false,
+     "source": "purge_queue",
+     "time": "2025-11-14T00:26:50.000000Z",
+     "time_unix_nano": "1763080010000000000",
+     "start": "2025-11-14T00:26:49.000000Z",
+     "start_unix_nano": "1763080009000000000",
+     "end": "2025-11-14T00:26:50.000000Z",
+     "end_unix_nano": "1763080010000000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-api",
+      "client_id": "producer",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "23bc2ecb673c451513bfe611149764a6",
+      "span_id": "0000000000000005"
+     },
+     "process_order": null,
+     "result": "ok",
+     "removal": "possible",
+     "reason": "PurgeQueue on orders started at 2025-11-14T00:26:49.000000Z, and this message's last observed step ended during the purge or within 60 s after it. SQS may delete messages sent or received while a purge runs (up to 60 s), or may not: Trailbeam can't tell whether this one was.",
+     "after": []
+    }
+   ],
+   "order": {
+    "edges": [],
+    "edges_by_source": {
+     "clock": 0,
+     "process_order": 0,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": []
+  }
+ ]
+}

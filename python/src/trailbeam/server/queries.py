@@ -26,7 +26,9 @@ def message(db: Store, message_id: str, now_ns: int, lambda_timeout_s: int,
             max_receive_counts: Optional[dict] = None) -> Optional[dict]:
     """``max_receive_counts``: queue name -> maxReceiveCount, as configured (``--max-receive-count``)."""
     rows = db.message_rows(message_id)
-    return timeline.build(rows, now_ns, lambda_timeout_s, max_receive_counts) if rows else None
+    if not rows:
+        return None
+    return timeline.build(rows, now_ns, lambda_timeout_s, max_receive_counts, db.purges({r["queue"] for r in rows}))
 
 
 class Page(NamedTuple):
@@ -52,8 +54,15 @@ def decode_cursor(text: Optional[str]) -> Optional[tuple]:
         raise CursorError("cursor is not one this server returned") from None
 
 
+def _purges(db: Store, sums) -> list:
+    """The purges (contract section 18) of the queues these summaries' messages are on: one read per page."""
+    return db.purges({s["current_queue"] for s in sums})
+
+
 def _items(db: Store, mids: list, now_ns: int, lambda_timeout_s: int, mrc: Optional[dict]) -> list[dict]:
-    return [summary.item(s, now_ns, lambda_timeout_s, mrc) for s in db.summaries(mids)]
+    sums = db.summaries(mids)
+    purges = _purges(db, sums)
+    return [summary.item(s, now_ns, lambda_timeout_s, mrc, purges) for s in sums]
 
 
 def _page(items: list, limit: int, key) -> Page:
@@ -66,7 +75,8 @@ def _page(items: list, limit: int, key) -> Page:
 def _newest_first(db: Store, mids: list, limit: int, now_ns: int, lambda_timeout_s: int, mrc) -> Page:
     sums = db.summaries(mids)
     page = _page(sums, limit, lambda s: (s["last_ns"], s["mid"]))
-    return Page([summary.item(s, now_ns, lambda_timeout_s, mrc) for s in page.items], page.next_cursor)
+    purges = _purges(db, page.items)
+    return Page([summary.item(s, now_ns, lambda_timeout_s, mrc, purges) for s in page.items], page.next_cursor)
 
 
 def recent_page(db: Store, now_ns: int, lambda_timeout_s: int, limit: int, queue: Optional[str] = None,
@@ -145,15 +155,19 @@ def stuck_page(db: Store, now_ns: int, lambda_timeout_s: int, older_than_s: int,
     as in :func:`timeline.first_seen_ns`: the send time on the producer host's clock when the send was
     observed, and only otherwise SQS's SentTimestamp, on SQS's clock. For those messages the cutoff and
     ``age_s`` compare SQS's clock with this server's, and each such item says so (``age_across_clocks``).
+
+    Messages a recorded PurgeQueue call removed are not listed (state ``purged``, contract section 18); those
+    that were on the queue during a purge are, with ``purge.status`` ``possibly_purged``.
     """
     cutoff = now_ns - older_than_s * 1_000_000_000
     found = db.stuck_messages(cutoff, limit + 1, queue, from_ns=from_ns, after=decode_cursor(cursor))
     sums = {s["mid"]: s for s in db.summaries([r.message_id for r in found])}
+    purges = _purges(db, sums.values())
     out = []
     for r in found:
         if r.message_id not in sums:
             continue
-        item = summary.item(sums[r.message_id], now_ns, lambda_timeout_s, mrc)
+        item = summary.item(sums[r.message_id], now_ns, lambda_timeout_s, mrc, purges)
         item["age_s"] = round((now_ns - r.first_ns) / 1e9, 3)
         # True when first seen is SQS's SentTimestamp: the age is this server's clock minus SQS's, so skew
         # between the two clocks is in it.

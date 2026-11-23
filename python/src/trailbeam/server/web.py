@@ -38,7 +38,17 @@ STATE_LABELS = {
     "deleted_inferred": "deleted by Lambda (inferred)",
     "processing": "being handled (inferred)",
     "not_deleted": "no delete seen",
+    "purged": "purged",
 }
+
+# Shared with @trailbeam/ui word for word (test_web.py checks): Messages.tsx and the Stuck page's foot (lists.tsx).
+POSSIBLY_PURGED_TITLE = ("The last observed step ended while a purge of the queue was running, or within 60 s after it. "
+                         "SQS may or may not have deleted this message.")
+STUCK_LEAVES_SQS_NOTE = (
+    "A message that a recorded PurgeQueue call removed is not listed here; one whose last step was during a purge "
+    "(or within 60 s after it) is listed, marked possibly purged. A message can also leave SQS without a delete when "
+    "its queue's retention period (<code>MessageRetentionPeriod</code>) ends; SQS reports nothing when that happens, "
+    "so Trailbeam cannot see it and the message stays here until Trailbeam's own retention removes it.")
 
 EVENT_LABELS = {
     "sent": "Sent",
@@ -51,6 +61,7 @@ EVENT_LABELS = {
     "moved_to_dead_letter_queue": "Moved to dead-letter queue",
     "deleted_by_lambda": "Deleted by Lambda",
     "lambda_invocation_ended_without_outcome": "Lambda invocation ended without an outcome",
+    "queue_purged": "Queue purged (PurgeQueue)",
 }
 
 DLQ_MOVE_LABELS = {
@@ -78,7 +89,8 @@ th{background:#eef0f4;font-weight:600}
 code,.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
 .state{padding:.05rem .4rem;border-radius:3px;font-size:.85em;white-space:nowrap}
 .state-deleted{background:#d8f0dd}.state-deleted_inferred{background:#e4efd8}
-.state-processing{background:#dbe7f7}.state-not_deleted{background:#f7e2cf}
+.state-processing{background:#dbe7f7}.state-not_deleted{background:#f7e2cf}.state-purged{background:#e6e1ef}
+.possibly-purged{padding:.05rem .4rem;border-radius:3px;font-size:.85em;white-space:nowrap;background:#f3ecc8}
 .summary dt{font-weight:600;float:left;clear:left;width:13rem}.summary dd{margin:0 0 .2rem 13rem}
 ol.timeline{list-style:none;padding:0;margin:1rem 0}
 ol.timeline li{background:#fff;border:1px solid #d5dae3;border-left:4px solid #3b6fd6;border-radius:3px;
@@ -176,7 +188,7 @@ def _message(api, q: dict) -> Response:
         parts.append(f'<div class="notice" data-code="{escape(n["code"])}"><strong>{escape(n["code"])}</strong>: '
                      f'{escape(n["message"])}</div>')
     parts.append('<dl class="summary">')
-    parts.append(_dd("State", _state(t["state"])))
+    parts.append(_dd("State", _state(t["state"], t.get("purge"))))
     parts.append(_dd("Source queue", escape(t.get("source_queue") or "?")))
     parts.append(_dd("Current queue", escape(t.get("current_queue") or "?")
                      + (" <strong>(dead-letter queue)</strong>" if t.get("in_dead_letter_queue") else "")))
@@ -254,6 +266,7 @@ def _stuck(api, q: dict) -> Response:
             + _summary_table(data["messages"], extra=("Age", _stuck_age),
                              empty=NO_SPANS if not data["messages"] and _store_empty(api) else "No stuck messages.")
             + _next("/stuck", q, data)
+            + f'<p class="muted">{STUCK_LEAVES_SQS_NOTE}</p>'
             + '<p class="muted">Times are in UTC. Age is this server\'s clock now minus the send\'s time on the '
             "sender's clock, so skew between the two clocks shows up in it. If Trailbeam never saw the send, it "
             "counts from SQS's <code>SentTimestamp</code>, and the age says so; with neither, from the first "
@@ -479,7 +492,7 @@ def _event(e: dict, by_id: Optional[dict] = None, bar: str = "") -> str:
         out.append(f'<div class="reported-by"><strong>{escape(e.get("reported_by") or "")}</strong></div>')
     if details:
         out.append(f'<div class="detail">{" · ".join(details)}</div>')
-    if (inferred or reported or dedup) and e.get("reason"):
+    if (inferred or reported or dedup or e["type"] == "queue_purged") and e.get("reason"):
         out.append(f'<div class="reason">{escape(e["reason"])}</div>')
     out.extend(_why(e, by_id or {}))
     out.append("</li>")
@@ -562,7 +575,7 @@ def _summary_table(messages: list[dict], *, empty: str, extra: Optional[tuple] =
                               + (f' <span class="muted">{escape(str(c["client_id"]))}</span>' if c.get("client_id") else "")
                               for c in m.get("consumers", []))
         cells = [f'<a class="mono" href="/message?{escape(urlencode({"id": m["message_id"]}))}">{escape(m["message_id"])}</a>',
-                 _state(m["state"]), queue, _receives(m), consumers,
+                 _state(m["state"], m.get("purge")), queue, _receives(m), consumers,
                  _first_seen(m, short=True), _time(m.get("last_seen"))]
         if extra:
             cells.append(extra[1](m))
@@ -634,8 +647,17 @@ def _dd(name: str, value: str) -> str:
     return f"<dt>{escape(name)}</dt><dd>{value}</dd>"
 
 
-def _state(s: str) -> str:
-    return f'<span class="state state-{escape(s)}">{escape(STATE_LABELS.get(s, s))}</span>'
+def _state(s: str, purge: Optional[dict] = None) -> str:
+    """A message's state, and what a recorded PurgeQueue call says about it (contract section 18): "purged
+    (observed: PurgeQueue at ...)", or the state with "possibly purged" after it."""
+    out = f'<span class="state state-{escape(s)}">{escape(STATE_LABELS.get(s, s))}</span>'
+    if not purge:
+        return out
+    at = f'PurgeQueue at {_time(purge.get("start"))}'
+    if purge.get("status") == "purged":
+        return out + f' <span class="muted purge" data-purge="purged">(observed: {at})</span>'
+    return (out + f' <span class="purge possibly-purged" data-purge="possibly_purged" '
+            f'title="{escape(POSSIBLY_PURGED_TITLE)}">possibly purged ({at})</span>')
 
 
 def _time(t: Optional[str]) -> str:

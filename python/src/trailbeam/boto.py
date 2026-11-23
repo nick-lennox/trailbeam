@@ -1,4 +1,4 @@
-"""Trailbeam hooks for boto3 / botocore SQS clients (contract sections 4.1 to 4.3).
+"""Trailbeam hooks for boto3 / botocore SQS clients (contract sections 4.1 to 4.3, and 18 for PurgeQueue).
 
 The hooks ride on ``opentelemetry-instrumentation-botocore``: each Trailbeam span is a child of the stock
 span for the same API call. Usage::
@@ -25,6 +25,7 @@ from opentelemetry.sdk.trace.export import SpanExporter
 from ._contract import (
     SPAN_CHANGE_VISIBILITY,
     SPAN_DELETE,
+    SPAN_PURGE,
     SPAN_RECEIVE,
     SPAN_SEND,
     int_or_none,
@@ -86,7 +87,7 @@ def add_message_attribute_name(params: dict, name: Optional[str]) -> None:
 
 _MAX_PENDING = 10_000
 _now = time.time_ns  # wall clock for span start and end (contract section 2); replaced in tests
-_TRACKED_OPS = frozenset(_SETTLE_OPS) | {"SendMessage", "SendMessageBatch", "ReceiveMessage"}
+_TRACKED_OPS = frozenset(_SETTLE_OPS) | {"SendMessage", "SendMessageBatch", "ReceiveMessage", "PurgeQueue"}
 
 
 class SqsHooks:
@@ -150,7 +151,10 @@ class SqsHooks:
                 # The instrumentation calls this hook from a ``finally``: during an exception that
                 # was not a ClientError, result is None and sys.exc_info() holds the exception.
                 exc = sys.exc_info()[1]
-                self._on_settle(span, operation, params, result, exc, t)
+                if operation == "PurgeQueue":
+                    self._on_purge(span, params, result, exc, t)
+                else:
+                    self._on_settle(span, operation, params, result, exc, t)
         except Exception:  # pragma: no cover - defensive
             log.debug("trailbeam response hook failed", exc_info=True)
 
@@ -214,14 +218,18 @@ class SqsHooks:
                                     response.get("MD5OfMessageBody")))
         return attrs
 
+    def _on_purge(self, span, params: dict, result: Optional[dict], exc, t: tuple) -> None:
+        """3.3 (section 18): one span per PurgeQueue call, ok or failed. SQS does not say which messages went."""
+        name, url = _queue(params)
+        error = _call_error(result, exc)
+        attrs = {"trailbeam.result": "ok" if error is None else "failed"}
+        put(attrs, "trailbeam.error_code", _plain_code(error))
+        self.emitter.emit(SPAN_PURGE, "PurgeQueue", name, url, attrs, parent=span, start_ns=t[0], end_ns=t[1], order=t[2])
+
     def _on_settle(self, span, operation: str, params: dict, result: Optional[dict], exc, t: tuple) -> None:
         span_name, batch = _SETTLE_OPS[operation]
         name, url = _queue(params)
-        call_error = None
-        if result is None:
-            call_error = type(exc).__name__ if exc is not None else "NoResponse"
-        elif "Error" in result:  # ClientError: the whole call failed
-            call_error = (result.get("Error") or {}).get("Code") or "ClientError"
+        call_error = _call_error(result, exc)
 
         if batch:
             entries = [(e.get("Id"), e.get("ReceiptHandle"), e.get("VisibilityTimeout"))
@@ -255,6 +263,22 @@ class SqsHooks:
             self.emitter.emit(span_name, operation, name, url, attrs, parent=span, start_ns=t[0], end_ns=t[1], order=t[2])
             if error is None and span_name == SPAN_DELETE:
                 self.handles.discard(rh)
+
+
+def _call_error(result: Optional[dict], exc) -> Optional[str]:
+    """The error of a whole call, or None if SQS answered with success."""
+    if result is None:
+        return type(exc).__name__ if exc is not None else "NoResponse"
+    if "Error" in result:  # ClientError: the whole call failed
+        return (result.get("Error") or {}).get("Code") or "ClientError"
+    return None
+
+
+def _plain_code(code: Optional[str]) -> Optional[str]:
+    """An error code without a protocol namespace (``com.amazonaws.sqs#QueueDoesNotExist``), as section 18 asks."""
+    if not code:
+        return None
+    return code[code.rfind("#") + 1:] or None
 
 
 def _queue(params: dict) -> tuple[str, str]:

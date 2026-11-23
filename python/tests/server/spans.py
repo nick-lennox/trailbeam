@@ -137,6 +137,14 @@ class Consumer:
             a["trailbeam.error_type"] = error_type
         return self._s("trailbeam outcome", t, a, order=order)
 
+    def purge(self, t, queue=None, ok=True, start=None, order=None, error="PurgeQueueInProgress"):
+        """A trailbeam purge (contract section 18): one PurgeQueue call, with no message ID."""
+        a = self.base("sqs.purge", "purge", "PurgeQueue", queue)
+        a["trailbeam.result"] = "ok" if ok else "failed"
+        if not ok:
+            a["trailbeam.error_code"] = error
+        return self._s("trailbeam purge", t, a, start=start, order=order)
+
 
 def _value(v) -> AnyValue:
     if isinstance(v, bool):

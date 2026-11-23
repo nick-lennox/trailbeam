@@ -67,6 +67,7 @@ function title(e: TimelineEvent): string {
     case "deleted_by_lambda": return "Deleted by Lambda";
     case "lambda_invocation_ended_without_outcome": return "Invocation ended with no outcome";
     case "moved_to_dead_letter_queue": return "Moved to the dead-letter queue";
+    case "queue_purged": return e.removal === "possible" ? "Queue purged (may have removed it)" : "Queue purged";
     case "aws_step":
       return { trigger_delete: "Deleted by Lambda's trigger", filter_drop: "Dropped by the event filter", second_function: "Taken by another function",
         timeout: "Timed out", out_of_memory: "Ran out of memory", never_handled: "Sent, never handled" }[e.aws_kind];
@@ -82,6 +83,7 @@ function shortLabel(e: TimelineEvent): string {
     case "visibility_changed": return `visibility change${e.delivery ? ` of ${e.delivery}` : ""}`;
     case "lambda_outcome": return "handler outcome";
     case "moved_to_dead_letter_queue": return "DLQ move";
+    case "queue_purged": return "the purge";
     case "visibility_timeout_expired": return "timeout ended";
     case "deliveries_not_observed": return "unseen pickups";
     case "deleted_by_lambda": return "Lambda delete";
@@ -112,6 +114,7 @@ function tone(e: TimelineEvent): "trail" | "ember" | "lost" | "plain" {
   if (e.type === "aws_step" && e.aws_kind === "trigger_delete") return "trail";
   if (e.type === "lambda_outcome") return e.outcome === "success" ? "trail" : "lost";
   if (e.type === "moved_to_dead_letter_queue" || e.type === "aws_step") return "lost";
+  if (e.type === "queue_purged") return e.removal === "possible" ? "ember" : "lost";
   if (e.type === "deleted" && e.status !== "final") return "ember";
   if (e.type === "received" && e.receive_count > 1 && !e.dlq_source_arn) return "ember";
   return "plain";
@@ -228,6 +231,7 @@ function facts(e: TimelineEvent): string[] {
   }
   if (e.type === "deleted" || e.type === "visibility_changed") out.push(`delivery ${e.delivery ?? "?"}`, e.result === "ok" ? "SQS accepted" : `error ${e.error_code ?? ""}`);
   if (e.type === "lambda_outcome" && e.delivery) out.push(`delivery ${e.delivery}`);
+  if (e.type === "queue_purged") out.push("PurgeQueue", "SQS accepted");
   if (e.type === "moved_to_dead_letter_queue") out.push(`${e.from_queue} → ${e.to_queue}`, `reported on delivery ${e.reported_on_delivery}`);
   if (e.type === "aws_step") {
     if (e.role) out.push(e.role);
@@ -501,7 +505,15 @@ const STATE_WORDS: Record<Timeline["state"], string> = {
   deleted_inferred: "Deleted (inferred)",
   processing: "Being handled (inferred)",
   not_deleted: "No delete seen",
+  purged: "Purged",
 };
+
+/** What a recorded PurgeQueue call says about the message, after its state: "(observed: PurgeQueue at …)". */
+export function purgeNote(t: Pick<Timeline, "purge">): string | null {
+  const p = t.purge;
+  if (!p) return null;
+  return p.status === "purged" ? `(observed: PurgeQueue at ${clock(p.start)})` : `possibly purged (PurgeQueue at ${clock(p.start)})`;
+}
 
 export function TimelineView({ t, answer, openSteps = [] }: { t: Timeline; answer: string; openSteps?: string[] }) {
   const byId: ById = new Map(t.events.map((e) => [e.id, e]));
@@ -525,7 +537,8 @@ export function TimelineView({ t, answer, openSteps = [] }: { t: Timeline; answe
     for (const m of members) earlier.add(m.id);
   }
   const s = t.scope;
-  const stateTone = t.in_dead_letter_queue ? "text-lost" : t.state === "not_deleted" || t.state === "processing" ? "text-ember" : "text-trail";
+  const stateTone = t.in_dead_letter_queue || t.state === "purged" ? "text-lost" : t.state === "not_deleted" || t.state === "processing" ? "text-ember" : "text-trail";
+  const purged = purgeNote(t);
 
   return (
     <article className="font-serif text-sky-ink">
@@ -543,7 +556,7 @@ export function TimelineView({ t, answer, openSteps = [] }: { t: Timeline; answe
         <h3 className="mt-3 max-w-[44rem] text-[1.5rem] leading-[1.2] md:text-[1.875rem] md:leading-[1.15]">{answer}</h3>
         <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 sm:flex sm:flex-wrap sm:gap-x-8">
           {[
-            ["State", <span key="s" className={stateTone}>{STATE_WORDS[t.state]}{t.in_dead_letter_queue ? ", in the DLQ" : ""}</span>],
+            ["State", <span key="s" className={stateTone}>{STATE_WORDS[t.state]}{t.in_dead_letter_queue ? ", in the DLQ" : ""}{purged && <span className="text-sky-ink-3"> {purged}</span>}</span>],
             ["Queue now", t.current_queue],
             ["Receives", `${t.deliveries} (${t.successful_deliveries} handled)`],
             ["First seen", <span key="f">{clock(t.first_seen)} <span className="text-sky-ink-3">{t.first_seen_clock === "sqs" ? "SQS clock" : "host clock"}</span></span>],

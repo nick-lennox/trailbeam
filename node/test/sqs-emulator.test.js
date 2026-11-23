@@ -162,3 +162,38 @@ test('dead-letter queue receive carries DeadLetterQueueSourceArn (schema 3.1)', 
   assert.strictEqual(onDlq[0].attributes['trailbeam.dead_letter_queue_source_arn'], srcArn);
   assert.strictEqual(onDlq[0].attributes['messaging.message.id'], MessageId);
 });
+
+test('PurgeQueue: one trailbeam purge, ok, and a second purge within 60 s is failed (revision 3.3)', { skip: !ENDPOINT && 'TRAILBEAM_TEST_SQS_ENDPOINT not set' }, async (t) => {
+  const S = require('@aws-sdk/client-sqs');
+  const trailbeam = require('../src/index');
+  const { memoryExporter, byName } = require('./helpers');
+  const { exporter, spanProcessor } = memoryExporter();
+  trailbeam.install({ receiptHashKey: 'emulator-test-key-0123456789', spanProcessor });
+  t.after(() => trailbeam.uninstall());
+  const sqs = trailbeam.instrument(new S.SQSClient({
+    region: 'us-east-1', endpoint: ENDPOINT, credentials: { accessKeyId: 'x', secretAccessKey: 'x' },
+  }));
+  const name = `trailbeam-node-purge-${process.pid}-${Date.now()}`;
+  const { QueueUrl } = await sqs.send(new S.CreateQueueCommand({ QueueName: name }));
+  t.after(() => sqs.send(new S.DeleteQueueCommand({ QueueUrl })));
+
+  await sqs.send(new S.SendMessageCommand({ QueueUrl, MessageBody: 'x' }));
+  await sqs.send(new S.PurgeQueueCommand({ QueueUrl }));
+  const second = await sqs.send(new S.PurgeQueueCommand({ QueueUrl })).then(() => null, (e) => e);
+  const got = await sqs.send(new S.ReceiveMessageCommand({ QueueUrl, WaitTimeSeconds: 0 }));
+  assert.strictEqual((got.Messages || []).length, 0, 'the purge removed the message');
+
+  const purges = byName(exporter.getFinishedSpans(), 'trailbeam purge');
+  assert.strictEqual(purges.length, 2);
+  const [first, again] = purges.map((s) => s.attributes);
+  assert.strictEqual(first['trailbeam.result'], 'ok');
+  assert.strictEqual(first['messaging.destination.name'], name);
+  assert.strictEqual(first['aws.sqs.queue.url'], QueueUrl);
+  // AWS refuses a second purge within 60 s (PurgeQueueInProgress). An emulator may accept it.
+  if (second) {
+    assert.strictEqual(again['trailbeam.result'], 'failed');
+    assert.ok(again['trailbeam.error_code']);
+  } else {
+    assert.strictEqual(again['trailbeam.result'], 'ok');
+  }
+});

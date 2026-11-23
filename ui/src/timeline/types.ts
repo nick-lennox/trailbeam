@@ -102,6 +102,27 @@ export type InferredEvent = Windowed & {
   before_delivery?: number;
 };
 
+/** A recorded PurgeQueue call on the message's queue (contract section 18), shown when it removed the message
+ *  (`per_sqs_documentation`) or may have (`possible`). The call is recorded; which messages it deleted is not. */
+export type QueuePurgedEvent = Observed & {
+  type: "queue_purged";
+  source: "purge_queue";
+  result: "ok";
+  removal: "per_sqs_documentation" | "possible";
+  reason: string;
+};
+
+/** The `purge` object of a message (list items and the timeline): the recorded purge that removed it, or may have. */
+export type Purge = {
+  status: "purged" | "possibly_purged";
+  queue: string;
+  start: string;
+  end: string;
+  /** the end plus 60 s: SQS says a purge takes up to 60 s */
+  window_end: string;
+  span: { trace_id: string; span_id: string };
+};
+
 /** Observed, but with no time: SQS reports the move on the dead-letter receive (contract 9b). */
 export type DlqMoveEvent = Windowed & {
   inferred: false;
@@ -129,7 +150,7 @@ export type Notice = { code: string; message: string };
 
 export type Timeline = {
   message_id: string;
-  state: "deleted" | "deleted_inferred" | "processing" | "not_deleted";
+  state: "deleted" | "deleted_inferred" | "processing" | "not_deleted" | "purged";
   source_queue: string;
   current_queue: string;
   in_dead_letter_queue: boolean;
@@ -140,6 +161,8 @@ export type Timeline = {
   first_seen: string;
   first_seen_clock: "host" | "sqs";
   last_seen: string;
+  /** contract 3.3: the recorded PurgeQueue call that removed the message, or may have */
+  purge?: Purge;
   concurrent_groups: number;
   groups: Group[];
   events: TimelineEvent[];
@@ -186,7 +209,7 @@ export type AwsEvent = {
   after: AfterEntry[];
 };
 
-export type TimelineEvent = SentEvent | ReceivedEvent | DeletedEvent | VisibilityChangedEvent | LambdaOutcomeEvent | InferredEvent | DlqMoveEvent | AwsEvent;
+export type TimelineEvent = SentEvent | ReceivedEvent | DeletedEvent | VisibilityChangedEvent | LambdaOutcomeEvent | QueuePurgedEvent | InferredEvent | DlqMoveEvent | AwsEvent;
 
 /** PROPOSED (paid): where a message lives in a multi-account workspace. */
 export type Scope = { account: string; account_name: string; region: string; environment: string; tenant?: string; demo?: boolean };

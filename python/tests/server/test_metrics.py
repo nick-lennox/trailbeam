@@ -161,6 +161,16 @@ def test_stuck_count_is_capped(db, ingest, monkeypatch):
     assert _gauges(app)["trailbeam_stuck_messages"] == 3
 
 
+def test_a_purged_message_is_not_counted_stuck(db, ingest):
+    """QV-245: a message a recorded PurgeQueue removed is off the Stuck page, so off the gauge; one in the purge's
+    window (possibly purged) is still counted."""
+    from trailbeam.server import server
+    c = Consumer()
+    ingest(c.send(T0, "gone"), c.send(T0 + 9 * SEC + 1, "during"), c.purge(T0 + 10 * SEC, start=T0 + 9 * SEC))
+    app = server.App(db, ui_dir=None, stuck_after_s=60, now=lambda: T0 + 3600 * SEC)
+    assert _gauges(app)["trailbeam_stuck_messages"] == 1
+
+
 def test_a_store_that_fails_leaves_the_queue_gauges_out(db, monkeypatch):
     from trailbeam.server import server
     app = server.App(db, ui_dir=None)

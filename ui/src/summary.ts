@@ -41,6 +41,7 @@ export function answerFor(t: Timeline): string {
       ? `Received once${by} and deleted.`
       : againFor(t) ?? `Received ${plural(n, "time")}${by}, then deleted.`;
   if (t.state === "deleted_inferred") return n === 1 ? `Handled once${by}. The Lambda trigger deleted it.` : `Received ${plural(n, "time")}${by}. The last invocation succeeded, so the Lambda trigger deleted it.`;
+  if (t.state === "purged") return `${n === 0 ? `Sent to ${t.current_queue}` : `Received ${plural(n, "time")}${by}`}, then removed by a PurgeQueue call on ${t.current_queue}. No delete was seen.`;
   if (t.state === "processing") return `Probably being handled${by} now (inferred): the Lambda invocation has no outcome yet and started less than the Lambda timeout ago.`;
   if (n === 0) return `Sent to ${t.source_queue} and not received yet.`;
   return `Received ${plural(n, "time")}${by}. No delete seen yet.`;

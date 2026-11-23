@@ -6,10 +6,12 @@ Tenants and tenant search) read summaries with indexed range scans; only the mes
 full timeline (timeline.py). Like the timeline, this is plain Python over ``Store.message_rows``, so the
 rules exist once whatever the backend.
 
-A summary says what ``timeline.build`` would say about the message, except the two things that depend on
+A summary says what ``timeline.build`` would say about the message, except the three things that depend on
 when and how it is asked: ``state`` "processing" (a Lambda receive with no outcome, for at most the Lambda
-timeout) and ``dead_letter_queue_move`` "not_seen_on_dlq_yet" (needs the configured maxReceiveCount).
-``item`` adds those from the ``lambda_wait_ns`` and ``source_receive_count`` the summary keeps.
+timeout), ``dead_letter_queue_move`` "not_seen_on_dlq_yet" (needs the configured maxReceiveCount), and whether
+a PurgeQueue call removed it (``state`` "purged" and ``purge``: purge.py, from the queue's purges, which can
+arrive after the message's spans). ``item`` adds those from the ``lambda_wait_ns``, ``source_receive_count``,
+``last_ns`` and ``current_queue`` the summary keeps.
 tests/server/test_summary.py checks ``item(summarize(rows))`` against the timeline on every dataset.
 
 The fields (every one is a column of the SQLite ``messages`` table, migrations.CREATE):
@@ -44,7 +46,7 @@ from __future__ import annotations
 import json
 from typing import Any, Mapping, Optional
 
-from . import timeline
+from . import purge, timeline
 from .store import TENANT_ATTR, TENANT_KINDS, TENANT_MAX_CHARS
 
 Summary = Mapping[str, Any]
@@ -171,24 +173,29 @@ def summarize(rows) -> dict:
     }
 
 
-def state(s: Summary, now_ns: int, lambda_timeout_s: int) -> str:
-    """timeline.build's ``state``."""
+def state(s: Summary, now_ns: int, lambda_timeout_s: int, purges=()) -> str:
+    """timeline.build's ``state``. ``purges``: purge rows (Store.purges) of the message's queue, if any."""
     if s["final_delete"]:
         return "deleted"
     if s["lambda_ok"]:
         return "deleted_inferred"
+    v = purge.classify(s["last_ns"], s["current_queue"], purges)
+    if v is not None and v.status == purge.PURGED:
+        return purge.PURGED
     if s["lambda_wait_ns"] is not None and now_ns - s["lambda_wait_ns"] <= lambda_timeout_s * 1_000_000_000:
         return "processing"
     return "not_deleted"
 
 
-def item(s: Summary, now_ns: int, lambda_timeout_s: int, max_receive_counts: Optional[dict] = None) -> dict:
-    """A message in a list page, as the API returns it: the fields timeline.build gives, from the summary."""
-    st = state(s, now_ns, lambda_timeout_s)
+def item(s: Summary, now_ns: int, lambda_timeout_s: int, max_receive_counts: Optional[dict] = None,
+         purges=()) -> dict:
+    """A message in a list page, as the API returns it: the fields timeline.build gives, from the summary.
+    ``purges``: purge rows (Store.purges) that include those of the message's ``current_queue``."""
+    st = state(s, now_ns, lambda_timeout_s, purges)
     mrc = (max_receive_counts or {}).get(s["source_queue"])
     if s["moved"]:
         dlq_move = "observed"
-    elif mrc and s["source_receive_count"] >= mrc and st not in ("deleted", "deleted_inferred"):
+    elif mrc and s["source_receive_count"] >= mrc and st not in ("deleted", "deleted_inferred", purge.PURGED):
         dlq_move = "not_seen_on_dlq_yet"
     else:
         dlq_move = None
@@ -205,4 +212,14 @@ def item(s: Summary, now_ns: int, lambda_timeout_s: int, max_receive_counts: Opt
         "first_seen": timeline.iso(s["first_ns"]),
         "first_seen_clock": s["first_clock"],
         "last_seen": timeline.iso(s["last_ns"]),
+        **purge_of(s, st, purges),
     }
+
+
+def purge_of(s: Summary, st: str, purges) -> dict:
+    """``{"purge": purge.describe(...)}`` for a message in state ``st`` that a purge applies to, else ``{}``: the
+    field is left out when there is no purge to tell of."""
+    if st != purge.PURGED and st not in purge.APPLIES_TO:
+        return {}
+    v = purge.classify(s["last_ns"], s["current_queue"], purges)
+    return {} if v is None else {"purge": purge.describe(v)}

@@ -84,6 +84,11 @@ def test_wording_shared_with_the_ui_package_matches_it():
     assert "".join(re.findall(r'"([^"]*)"', title)) == web.RECEIVES_TITLE
     for state, label in web.STATE_LABELS.items():
         assert f'{state}: "{label}"' in messages
+    title = re.search(r'export const POSSIBLY_PURGED_TITLE = ((?:"[^"]*"\s*\+?\s*)+);', messages).group(1)
+    assert "".join(re.findall(r'"([^"]*)"', title)) == web.POSSIBLY_PURGED_TITLE
+    lists = (ui.parent / "shell" / "lists.tsx").read_text()
+    plain = lambda h: unescape(re.sub(r"<[^>]+>", "", h.replace("&rsquo;", "'")))  # noqa: E731
+    assert plain(web.STUCK_LEAVES_SQS_NOTE) in plain(lists)
 
 
 def test_receives_column_marks_a_message_received_more_than_once(site):
@@ -463,6 +468,25 @@ def test_threshold_in_words():
     from trailbeam.server.web import _threshold
     assert [_threshold(s) for s in (300, 60, 90, 3600, 7200, 86_400, 172_800, 0)] == [
         "5 min", "1 min", "90 s", "1 h", "2 h", "1 day", "2 days", "0 s"]
+
+
+def test_purged_and_possibly_purged_messages(server):
+    """Contract section 18: a message a recorded PurgeQueue removed is "purged (observed: PurgeQueue at ...)" and off
+    Stuck; one whose last step was in the purge's window stays on Stuck, marked possibly purged."""
+    p = Consumer("producer", service="orders-api")
+    post(server, [p.send(T0, "gone"), p.send(T0 + 9 * SEC + 1, "during"),
+                  p.purge(T0 + 10 * SEC, start=T0 + 9 * SEC)])
+    _, _, html = get(server, "/stuck?older_than_s=60")
+    assert f'href="{page("gone")}"' not in html and f'href="{page("during")}"' in html
+    assert 'data-purge="possibly_purged"' in html and "possibly purged (PurgeQueue at" in html
+    assert "MessageRetentionPeriod" in html and "cannot see it" in html
+    _, _, html = get(server, "/")
+    assert '<span class="state state-purged">purged</span>' in html and "(observed: PurgeQueue at" in html
+    _, _, html = get(server, page("gone"))
+    assert ("queue_purged", False) in events(html)
+    assert "Queue purged (PurgeQueue)" in html and "deletes every message in the queue" in html
+    _, _, html = get(server, page("during"))
+    assert ("queue_purged", False) in events(html) and "can&#x27;t tell whether this one was" in html
 
 
 def test_a_deduplicated_fifo_send_is_shown_as_such_with_its_reason(server):

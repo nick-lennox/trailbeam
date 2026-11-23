@@ -41,8 +41,13 @@ answers a narrower question: where did this one message go?
 
 - **One timeline per message.** Every message your services send or receive, and every delete and
   visibility change they make, joined into a single history you open by message ID. Failed sends,
-  empty receives, purges and moves back from a dead-letter queue are not recorded
+  empty receives and moves back from a dead-letter queue are not recorded
   ([what is not recorded](https://docs.trailbeam.app/concepts/what-is-recorded#what-is-not-recorded)).
+- **Purges.** A `PurgeQueue` call is recorded for the queue. A message whose last step ended before the
+  purge started reads "purged (observed: PurgeQueue at …)" and leaves Stuck. One whose last step ended
+  during the purge or within 60 s after it stays on Stuck, marked "possibly purged": SQS may or may not
+  have deleted it. A message that SQS drops when its retention period ends can't be seen, so it stays on
+  Stuck until Trailbeam's own retention removes it.
 - **Recorded and inferred steps are kept apart.** Trailbeam orders two events only when an observed
   fact proves the order, and marks every step it inferred, such as a visibility timeout that expired.
 - **Deletes joined to their receives.** A delete carries a receipt handle, not a message ID. Trailbeam
