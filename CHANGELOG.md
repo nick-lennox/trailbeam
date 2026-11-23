@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Java package, stage 1** (QV-319, pre-release, not published). `java/` is a jar for the AWS SDK for Java v2:
+  add it as a dependency and a global `ExecutionInterceptor` (registered through the SDK's classpath file, no code)
+  emits the contract's send, receive, delete, change-visibility and purge spans, with the keyed receipt-handle
+  hash, receive count, dead-letter source ARN, per-entry results, call-order ticks, body size and FIFO fields. It
+  has its own always-on tracer provider with a relocated OpenTelemetry SDK (1.4 MB jar). The parent comes from the
+  stock instrumentation's trace header, so interceptor order doesn't matter. A hand registration on top of the
+  global one emits each span once. A Java driver for the conformance kit passes it in CI alone, beside the
+  OpenTelemetry Java agent 2.34.0 (also sampled to 0) and beside dd-java-agent 1.69.1. Not yet built: body capture
+  and tenants, the Lambda wrapper, the SDK version matrix, a strict parent check for the agent variants, and
+  Maven Central.
+
 - **`trailbeam doctor` reads the token the services send** (QV-343). With no `--token-file` or `TRAILBEAM_TOKEN`,
   it takes the Bearer token from `OTEL_EXPORTER_OTLP_TRACES_HEADERS` or `OTEL_EXPORTER_OTLP_HEADERS` (URL-decoded,
   as the exporters read it) before falling back to `~/.trailbeam/token`, and its header line says
