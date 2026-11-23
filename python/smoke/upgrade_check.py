@@ -21,7 +21,8 @@ What it does, with one access token throughout:
    of a notice, whose ``code`` must stay), and must equal what a new server given the same spans from
    empty serves. The token and the old session cookie must still work. With SQLite and commands, the new
    server runs as ``trailbeam start`` on the data directory the old one used; the token and receipt-hash
-   key files there must be kept and printed.
+   key files there must be kept as they were, and not printed: the banner shows a ``cat`` command for each
+   and reads them with ``$(cat ...)`` in the environment lines.
 4. The new server ingests the rest, then everything must equal a new server given all the spans from empty:
    so the in-flight messages joined across the upgrade.
 5. The old server is started again on the upgraded store. Postgres: it must refuse, saying a newer Trailbeam
@@ -471,9 +472,14 @@ def run(a) -> int:
         (ok if status == 401 else fail)(f"a wrong token is still refused ({status})")
         if use_start:
             banner = new.out.read_text(errors="replace")
-            (ok if token in banner else fail)("trailbeam start kept and printed the existing token")
-            (ok if f"TRAILBEAM_RECEIPT_HASH_KEY={key}" in banner else fail)(
-                "trailbeam start kept and printed the existing receipt-hash key")
+            # Since QV-203 the token and key are printed in full only on the run that made them; a later run
+            # prints a command that shows them and env lines that read the files with $(cat ...).
+            (ok if token not in banner else fail)("trailbeam start did not print the existing token")
+            (ok if key not in banner else fail)("trailbeam start did not print the existing receipt-hash key")
+            for f in ("token", "receipt-hash-key"):
+                (ok if any("show it with: cat " in line and f in line for line in banner.splitlines()) else fail)(
+                    f"trailbeam start showed how to read the existing {f} file")
+            (ok if "$(cat " in banner else fail)("trailbeam start's environment lines read the files with $(cat ...)")
             for f in ("token", "receipt-hash-key"):
                 (ok if (upgraded["dir"] / f).read_text().strip() == (token if f == "token" else key) else fail)(
                     f"trailbeam start left the {f} file as it was")
