@@ -502,7 +502,7 @@ Behind a load balancer or TLS proxy, every request comes from the proxy's addres
 addresses are your proxies, so it believes the `X-Forwarded-For`, `X-Forwarded-Proto` and
 `X-Forwarded-Host` headers they add:
 
-```sh
+```sh norun="starts a server that keeps running; python/tests/server/test_proxy.py tests the flag and the variable"
 trailbeam --trusted-proxy 10.0.0.0/8      # repeatable, or TRAILBEAM_TRUSTED_PROXY=10.0.0.5,10.0.1.0/24
 ```
 
