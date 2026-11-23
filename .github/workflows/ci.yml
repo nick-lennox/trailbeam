@@ -103,6 +103,8 @@ jobs:
         run: pytest -q tests/server/test_postgres.py
       - name: Fault tests on Postgres (SIGKILL, retries, disorder, a replica killed)
         run: pytest -q tests/server/test_faults.py
+      - name: People, sessions and sign-in on Postgres
+        run: pytest -q tests/server/test_account_tables.py tests/server/test_accounts.py
 
   node:
     name: Node.js ${{ matrix.node }}

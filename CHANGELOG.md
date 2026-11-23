@@ -25,7 +25,21 @@
   recorded step then shows **Open trace**, in the web UI and on the server-rendered page, and has the link as
   `span.trace_url` in `GET /api/messages/{id}`. `/api/health` shows the template under `config.trace_link`. A
   template that isn't an http or https URL, or names an unknown placeholder, stops the server at start.
-
+- **`--trusted-proxy` (`TRAILBEAM_TRUSTED_PROXY`): the addresses of your load balancer or TLS proxy.**
+  Trailbeam believes `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host` only from them, and uses
+  the client address in `X-Forwarded-For` for logs and (with users and roles) the sign-in limit per
+  address. **Changed:** `X-Forwarded-Proto: https` was believed from anyone; now it counts only from a
+  trusted proxy. If Trailbeam runs behind a TLS proxy, add the proxy's address with `--trusted-proxy`, or
+  the login cookie loses its `Secure` flag (it keeps working). [`deploy/replicas`](deploy/replicas/compose.yaml)
+  sets it for its nginx. (QV-225)
+- **Forms posted from other sites are refused.** `POST /login` (and every later route that changes
+  something, but not ingest) answers `403` when the browser says the request came from another site's page
+  (`Sec-Fetch-Site: cross-site` or `same-site`, or an `Origin` that isn't the server). curl and scripts,
+  which send neither header, are not affected. (QV-225)
+- **Passwords and sessions for users and roles, not switched on yet.** scrypt password hashing (N=2^15,
+  r=8, p=3, at most 2 hashes at once per process), sessions in the store with a 20-second cache per process,
+  a lock per account after 10 failed sign-ins in a row and a limit per client address. Nothing uses them
+  until a later release adds sign-in. (QV-225)
 - **Tables for people and tokens (users and roles, phase 1).** The store gains `users`, `sessions`,
   `ingest_tokens`, `personal_tokens` and `setup_codes`: SQLite schema 15, Postgres schema 8. They are created
   empty and nothing uses them yet, so the server behaves exactly as before. Emails are unique ignoring case.

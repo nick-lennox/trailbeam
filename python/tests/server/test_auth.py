@@ -12,6 +12,7 @@ import pytest
 
 from trailbeam.server import auth
 from trailbeam.server.db import Database
+from trailbeam.server.proxy import TrustedProxies, parse_networks
 from trailbeam.server.server import make_server
 
 from spans import T0, Consumer, to_proto
@@ -45,9 +46,9 @@ def otlp():
 def serve():
     started = []
 
-    def start(token=None):
+    def start(token=None, **kw):
         db = Database()
-        httpd = make_server(db, "127.0.0.1", 0, ui_dir=None, auth=auth.Auth(token) if token else None)
+        httpd = make_server(db, "127.0.0.1", 0, ui_dir=None, auth=auth.Auth(token) if token else None, **kw)
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         started.append((httpd, db))
         return f"http://127.0.0.1:{httpd.server_address[1]}", db
@@ -122,7 +123,7 @@ def test_a_browser_signs_in_once_and_gets_a_session_cookie(serve):
 
 
 def test_secure_cookie_behind_https_and_no_open_redirect(serve):
-    url, _ = serve(TOKEN)
+    url, _ = serve(TOKEN, trusted_proxies=TrustedProxies(parse_networks("127.0.0.0/8")))
     form = urllib.parse.urlencode({"token": TOKEN, "next": "//evil.example/x"}).encode()
     status, headers, _ = call(url, "/login", method="POST", data=form, headers={"X-Forwarded-Proto": "https"})
     assert status == 303 and headers["Location"] == "/" and "Secure" in headers["Set-Cookie"]
@@ -166,3 +167,42 @@ def test_the_server_reads_the_token_from_a_file(tmp_path):
     finally:
         p.terminate()
         p.wait(timeout=10)
+
+
+def test_x_forwarded_proto_is_believed_only_from_a_trusted_proxy(serve):
+    url, _ = serve(TOKEN)  # no --trusted-proxy: anyone could have written the header
+    form = urllib.parse.urlencode({"token": TOKEN}).encode()
+    status, headers, _ = call(url, "/login", method="POST", data=form, headers={"X-Forwarded-Proto": "https"})
+    assert status == 303 and "Secure" not in headers["Set-Cookie"]
+    url, _ = serve(TOKEN, trusted_proxies=TrustedProxies(parse_networks("10.0.0.0/8")))  # not this peer
+    status, headers, _ = call(url, "/login", method="POST", data=form, headers={"X-Forwarded-Proto": "https"})
+    assert status == 303 and "Secure" not in headers["Set-Cookie"]
+
+
+@pytest.mark.parametrize("headers", [
+    {"Sec-Fetch-Site": "cross-site"},
+    {"Sec-Fetch-Site": "same-site"},
+    {"Origin": "https://evil.example"},
+    {"Origin": "null"},
+])
+def test_login_posted_from_another_site_is_refused(serve, headers):
+    url, _ = serve(TOKEN)
+    form = urllib.parse.urlencode({"token": TOKEN}).encode()
+    status, h, body = call(url, "/login", method="POST", data=form, headers=headers)
+    assert status == 403 and "Set-Cookie" not in h and b"forbidden" in body
+
+
+def test_login_from_its_own_page_passes_the_csrf_check(serve):
+    url, _ = serve(TOKEN)
+    form = urllib.parse.urlencode({"token": TOKEN}).encode()
+    host = url.split("://", 1)[1]
+    for headers in ({"Sec-Fetch-Site": "same-origin", "Origin": "https://elsewhere.example"},
+                    {"Origin": url}, {"Origin": url.upper().replace("HTTP://", "http://")}, {}):
+        status, h, _ = call(url, "/login", method="POST", data=form, headers=headers)
+        assert status == 303 and "Set-Cookie" in h, (headers, host)
+
+
+def test_ingest_is_not_csrf_checked(serve):
+    url, _ = serve()  # browser apps post their spans from their own sites
+    headers = {**PROTO, "Sec-Fetch-Site": "cross-site", "Origin": "https://shop.example"}
+    assert call(url, "/v1/traces", method="POST", data=otlp(), headers=headers)[0] == 200

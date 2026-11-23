@@ -22,6 +22,10 @@ x-trailbeam: &trailbeam
     # One shared token for every replica (QV-76). Unset: no token, for a trusted network only.
     TRAILBEAM_TOKEN: ${TRAILBEAM_TOKEN:-}
     TRAILBEAM_RETENTION: 7d
+    # Believe X-Forwarded-For and X-Forwarded-Proto from the load balancer. Any address on Docker's private
+    # networks: the replicas publish no port, so only the load balancer (and Postgres) can reach them. In
+    # production, name your proxy's own address or range instead.
+    TRAILBEAM_TRUSTED_PROXY: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
   depends_on:
     postgres: { condition: service_healthy }
   # Ready: the store answers (GET /api/ready). The image's own HEALTHCHECK is liveness (/api/health).

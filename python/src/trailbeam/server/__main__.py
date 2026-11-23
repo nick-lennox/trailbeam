@@ -16,6 +16,7 @@ from . import auth, config, trace_links
 from .backpressure import DEFAULT_MAX_PENDING, DEFAULT_MAX_WAIT_S, IngestGate
 from .db import SqliteStore, parse_queue_list
 from .migrations import SchemaError
+from .proxy import TrustedProxies, parse_networks
 from .retention import DEFAULT as DEFAULT_RETENTION, Purger, Retention, parse_duration, parse_queue_retentions
 from .server import make_server
 
@@ -104,6 +105,11 @@ def build_parser(prog: str = "trailbeam", description: str = "") -> argparse.Arg
                    help="a file holding the shared access token (env TRAILBEAM_TOKEN_FILE, or the token itself in "
                         "TRAILBEAM_TOKEN). When set, ingest and the API need Authorization: Bearer <token>, and the "
                         "web screen asks for it once. Default: no token, for local use")
+    p.add_argument("--trusted-proxy", type=_arg(parse_networks), action="extend", default=None,
+                   help="an address or CIDR range (repeatable, or comma-separated) of proxies in front of Trailbeam "
+                        "whose X-Forwarded-For, X-Forwarded-Proto and X-Forwarded-Host are believed: the client's "
+                        "address for sign-in limits and logs, and HTTPS for the session cookie (env "
+                        "TRAILBEAM_TRUSTED_PROXY). Default: none, those headers are ignored")
     p.add_argument("--ingest-max-pending", type=_positive_int,
                    default=_env(_positive_int, "TRAILBEAM_INGEST_MAX_PENDING", DEFAULT_MAX_PENDING),
                    help="exports in progress at once; one more is answered 429 with Retry-After "
@@ -194,11 +200,16 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
         httpd = make_server(db, a.host, a.port, stuck_after_s=a.stuck_after,
                             lambda_timeout_s=a.lambda_timeout, max_receive_counts=a.max_receive_count,
                             purger=purger, auth=auth.Auth(token) if token else None,
-                            gate=IngestGate(a.ingest_max_pending, a.ingest_max_wait), trace_link=a.trace_link)
+                            gate=IngestGate(a.ingest_max_pending, a.ingest_max_wait), trace_link=a.trace_link,
+                            trusted_proxies=TrustedProxies(trusted_proxies(a)))
     except OSError as e:
         db.close()
         sys.stderr.write(bind_error(e, a.host, a.port, getattr(a, "command", "trailbeam")) + "\n")
         sys.exit(2)
+    if httpd.app.proxies:
+        logging.getLogger("trailbeam.server").info(
+            "trusted proxies (X-Forwarded-For, -Proto and -Host believed from): %s",
+            ", ".join(str(n) for n in httpd.app.proxies.networks))
     if token:
         logging.getLogger("trailbeam.server").info("access token set: ingest, the API and the web screen need it")
     elif a.host not in ("127.0.0.1", "localhost", "::1"):
@@ -311,6 +322,13 @@ def _arg(parse):
             raise argparse.ArgumentTypeError(str(e)) from None
     typ.__name__ = parse.__name__
     return typ
+
+
+def trusted_proxies(a: argparse.Namespace) -> tuple:
+    """--trusted-proxy, else TRAILBEAM_TRUSTED_PROXY, else none."""
+    if a.trusted_proxy:
+        return tuple(a.trusted_proxy)
+    return _env(_arg(parse_networks), "TRAILBEAM_TRUSTED_PROXY", ())
 
 
 def _env(parse, name: str, default):

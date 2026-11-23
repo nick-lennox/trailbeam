@@ -492,8 +492,33 @@ When it is set:
 
 The token must be at least 16 printable ASCII characters, with no spaces; otherwise Trailbeam refuses
 to start. It travels in plain HTTP, so put Trailbeam behind a TLS proxy when it crosses a network you
-don't trust. The cookie gets `Secure` when the proxy sends `X-Forwarded-Proto: https`. There is one
-token for everyone: no users, roles or audit log (those are in the hosted app).
+don't trust. The cookie gets `Secure` when that proxy is in `--trusted-proxy` (below) and sends
+`X-Forwarded-Proto: https`. There is one token for everyone: no users, roles or audit log (those are in the
+hosted app).
+
+A form posted to Trailbeam from another site's page (`/login`, and the routes that change things) is
+refused with `403`: the browser's `Sec-Fetch-Site` header, or else its `Origin`, must say the request came
+from Trailbeam's own pages. Requests without either header (curl, scripts) are not affected, and neither is
+ingest.
+
+### Behind a proxy (`--trusted-proxy`)
+
+Behind a load balancer or TLS proxy, every request comes from the proxy's address. Tell Trailbeam which
+addresses are your proxies, so it believes the `X-Forwarded-For`, `X-Forwarded-Proto` and
+`X-Forwarded-Host` headers they add:
+
+```sh norun="starts a server that keeps running; python/tests/server/test_proxy.py tests the flag and the variable"
+trailbeam --trusted-proxy 10.0.0.0/8      # repeatable, or TRAILBEAM_TRUSTED_PROXY=10.0.0.5,10.0.1.0/24
+```
+
+- The client's address (for the sign-in limits and the logs) is then the rightmost `X-Forwarded-For` entry
+  that isn't one of your proxies. Entries further left were written by the client and are ignored.
+- `X-Forwarded-Proto: https` from a trusted proxy makes the session cookie `Secure`.
+- From any other address, and when `--trusted-proxy` isn't set (the default), the three headers are ignored.
+
+Make your proxy set `X-Forwarded-For` (nginx: `proxy_set_header X-Forwarded-For
+$proxy_add_x_forwarded_for;`), and don't let clients reach Trailbeam's port directly: anyone who can is
+believed if their address is in the range. [`deploy/replicas`](deploy/replicas/compose.yaml) shows both.
 
 ### Configuration file
 
