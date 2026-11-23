@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **No spans dropped when a Postgres statement times out** (QV-300). An export whose statement ran past
+  `statement_timeout` (60 s: a lock pile-up, a very slow disk) was answered `500`, which OTLP exporters don't
+  retry, so its spans were lost. It is now answered `503` with `Retry-After: 3` (`store_timeout` in
+  `trailbeam_ingest_rejected_requests_total`), nothing stored, and logged at ERROR with the export's size; the
+  exporter's retry stores it once the database is faster. An export that is always too slow is retried until the
+  exporter gives up. Clients that time out a request before 60 s (most do) were not affected: the server cancels
+  an export whose client hangs up, and the client sends it again. No change in the Python or Node.js packages:
+  the retry is the OTLP exporter's.
 - **Purged messages no longer show as stuck** (QV-245, contract revision 3.3). The Python and Node.js packages
   record `PurgeQueue` calls (a `trailbeam purge` span, `trailbeam.kind = sqs.purge`, contract section 18), and
   the server stores them per queue (SQLite: no schema change; Postgres: schema 9, a `purges` table). A message
