@@ -8,8 +8,10 @@ message, the required attributes and their types, the receipt-handle HMAC, call-
 and no receipt handle or key in any attribute. A failing package gets a report that says, call by call,
 what is missing or wrong.
 
-The Python and Node.js packages run it in CI (`Conformance kit` in [`ci.yml`](../.github/workflows/ci.yml)).
-New language packages (Java first, QV-319) add a driver and must pass it.
+The Python and Node.js packages run it in CI (`Conformance kit` in [`ci.yml`](../.github/workflows/ci.yml)),
+and so does the Java package (`Java package` in the same file, driver in [`drivers/java`](drivers/java), with
+agent variants for the OpenTelemetry Java agent and dd-java-agent). New language packages add a driver and must
+pass it.
 
 ```
 python conformance/kit.py run conformance/drivers/python/driver.json conformance/drivers/node/driver.json
