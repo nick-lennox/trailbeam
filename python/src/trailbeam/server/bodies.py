@@ -151,7 +151,8 @@ _RANGE = re.compile(r"^(\d+(?:\.\d+)?)(ms|s|m|b|kb|mb)?\.\.(\d+(?:\.\d+)?)(ms|s|
 
 
 def parse_query(text: str) -> list[dict]:
-    """``body.order.sku:A-100 -body.order.qty:1`` -> terms {field, path, value, neg}. Only body terms."""
+    """``body.order.sku:A-100 -body.order.qty:1`` -> terms {field, path, value, neg}. Plain text with no field
+    (``ord-1003``, or ``"call me"`` in quotes) is ``body:<text>``; a term for another field is a QueryError."""
     terms = []
     for m in _TOKEN.finditer(text or ""):
         raw = m.group(0)
@@ -159,8 +160,13 @@ def parse_query(text: str) -> list[dict]:
         term = raw[1:] if neg else raw
         i = term.find(":")
         name = term[:i] if i > 0 and not term.startswith('"') else ""
+        if not name:
+            value = term.replace('"', "")
+            if value:
+                terms.append({"field": "body", "path": [], "value": value, "neg": neg})
+            continue
         if not _FIELD.match(name):
-            raise QueryError(f"{raw!r}: a body search takes body:<text> or body.<path>:<value> terms only")
+            raise QueryError(f"Can't read `{raw}`. Use text, or `body.<path>:<value>`.")
         field = "body" + name[4:]
         terms.append({"field": field, "path": body_path(field), "value": term[i + 1:].replace('"', ""), "neg": neg})
     if not terms:
