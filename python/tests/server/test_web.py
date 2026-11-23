@@ -1,5 +1,6 @@
 """The web screen over HTTP: lookup, timeline with inferred steps marked, duplicates, stuck messages."""
 import json
+from pathlib import Path
 import re
 from html import unescape
 import urllib.error
@@ -8,6 +9,7 @@ import urllib.request
 
 import pytest
 
+from trailbeam.server import web
 from spans import SEC, T0, Consumer, to_proto
 
 MID = "5fea7756-0ea4-451a-a703-a558b933e274"
@@ -71,10 +73,24 @@ def test_index_lists_recent_messages_and_has_lookup(site):
     assert f'href="{page(MID)}"' in html and f'href="{page(POISON)}"' in html
 
 
+def test_wording_shared_with_the_ui_package_matches_it():
+    """QV-247: the server-rendered pages say what @trailbeam/ui says, word for word."""
+    ui = Path(__file__).resolve().parents[3] / "ui" / "src"
+    tenants = (ui / "tenants" / "Tenants.tsx").read_text()
+    p95 = re.search(r'export const P95_NOTE = ((?:"[^"]*"\s*\+?\s*)+);', tenants).group(1)
+    assert "".join(re.findall(r'"([^"]*)"', p95)) == web.P95_NOTE
+    messages = (ui / "messages" / "Messages.tsx").read_text()
+    title = re.search(r'export const RECEIVES_TITLE = ((?:"[^"]*"\s*\+?\s*)+);', messages).group(1)
+    assert "".join(re.findall(r'"([^"]*)"', title)) == web.RECEIVES_TITLE
+    for state, label in web.STATE_LABELS.items():
+        assert f'{state}: "{label}"' in messages
+
+
 def test_receives_column_marks_a_message_received_more_than_once(site):
     for path in ("/", "/duplicates", "/stuck?older_than_s=60"):
         _, _, html = get(site, path)
-        assert '<th title="How many times SQS returned this message from ReceiveMessage. Handled: a receive' in html
+        assert ('<th title="Receives Trailbeam observed, on every queue, the receive from a dead-letter queue '
+                "included. SQS&#x27;s own receive count can be higher") in html
         assert ">Receives</th>" in html and "Deliveries" not in html and " ok)" not in html
     _, _, html = get(site, "/")
     assert '<span class="repeat">2</span> <span class="muted">\u00b7 1 handled</span>' in html  # MID
@@ -129,9 +145,11 @@ def test_not_seen_on_the_dead_letter_queue_yet(db):
         _, _, html = get(base, page(MID))
         assert "moved_to_dead_letter_queue" not in html
         assert 'data-code="dlq_move_not_seen"' in html
-        assert "Receive count exceeded maxReceiveCount; not seen on the DLQ yet." in html
+        assert "Receive count reached maxReceiveCount; not seen on the DLQ yet." in html
+        assert "This is inferred from the configured value, and that receive may still be in progress." in html
+        assert "receive count reached maxReceiveCount, so a move is inferred; not seen on the DLQ yet" in html
         _, _, html = get(base, "/")
-        assert "(maxReceiveCount reached; not seen on the DLQ yet)" in html
+        assert "(maxReceiveCount reached; DLQ move inferred, not seen yet)" in html
         assert json.loads(get(base, "/api/health")[2])["config"]["max_receive_counts"] == {"orders": 2}
     finally:
         httpd.shutdown()
@@ -430,10 +448,11 @@ def test_an_empty_store_says_nothing_is_connected_yet(server):
 def test_stuck_intro_says_the_threshold_in_words_and_how_to_change_it(site):
     """QV-216: the intro leads with what stuck means and the settings; the clock note is in the footer."""
     _, _, html = get(site, "/stuck?older_than_s=300")
-    assert "Messages sent more than 5 min ago that no consumer has deleted yet, oldest first." in html
+    assert "Messages first seen more than 5 min ago that no consumer has deleted yet, oldest first." in html
     assert "<code>--stuck-after</code> (<code>TRAILBEAM_STUCK_AFTER_S</code>)" in html
     assert 'name="older_than_s" value="300"' in html  # the field stays in seconds
-    foot = "Times are in UTC. Age counts from the send, on the sender's clock."
+    foot = ("Times are in UTC. Age is this server's clock now minus the send's time on the sender's clock, so "
+            "skew between the two clocks shows up in it.")
     assert html.index("</table>") < html.index(foot)
     assert "producer host" not in html
     _, _, html = get(site, "/stuck?older_than_s=90")
