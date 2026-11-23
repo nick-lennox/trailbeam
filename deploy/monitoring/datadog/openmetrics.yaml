@@ -1,0 +1,45 @@
+# The Datadog Agent's OpenMetrics check for Trailbeam's /metrics (QV-304). Copy it to the Agent's
+# conf.d/openmetrics.d/conf.yaml (or, on Kubernetes, use the same instance in a pod annotation), set the
+# endpoint, and restart the Agent. Checked against a real Agent by deploy/monitoring/check.sh.
+#
+# Metrics arrive as trailbeam.<name> without the trailbeam_ prefix, for example trailbeam.stuck_messages.
+# Every tag comes from a fixed set (route template, status code, reason), never from a message, queue or tenant,
+# so the number of custom metrics stays fixed however much traffic Trailbeam sees.
+init_config:
+
+instances:
+  - openmetrics_endpoint: http://localhost:4318/metrics
+    namespace: trailbeam
+    raw_metric_prefix: trailbeam_
+    # With an access token (TRAILBEAM_TOKEN), /metrics needs it. Keep it in the Agent's secrets, not here:
+    # https://docs.datadoghq.com/agent/configuration/secrets-management/
+    # headers:
+    #   Authorization: Bearer ENC[trailbeam_token]
+    #
+    # Named one by one: a wildcard would also take any metric added later, and each is billed as custom metrics.
+    metrics:
+      # what to alert on
+      - stuck_messages
+      - stuck_oldest_age_seconds
+      - stuck_after_seconds
+      - dead_lettered_messages_recent
+      # ingest: is Trailbeam keeping up
+      - ingest_requests
+      - ingest_rejected_requests
+      - ingest_spans
+      - ingest_request_duration_seconds
+      - ingest_queue_depth
+      - ingest_queue_capacity
+      # pages and the API
+      - http_requests
+      - http_request_duration_seconds
+      # the store
+      - db_file_bytes
+      - db_last_row
+      - build_info
+      - metrics_gauge_errors
+    # Histograms as .sum and .count only: the buckets would add one series per bucket and tag set (about 400 for
+    # these two). Set it to true for latency percentiles from the buckets.
+    collect_histogram_buckets: false
+    # The server's own stopwatch for each scrape; 15 s is the Agent's default.
+    min_collection_interval: 15

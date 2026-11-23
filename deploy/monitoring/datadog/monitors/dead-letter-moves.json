@@ -1,0 +1,18 @@
+{
+  "name": "Trailbeam: messages moved to a dead-letter queue",
+  "type": "query alert",
+  "query": "max(last_5m):max:trailbeam.dead_lettered_messages_recent{*} > 0",
+  "message": "{{#is_alert}}{{value}} message(s) moved to a dead-letter queue in the last 15 minutes. SQS moves a message there after maxReceiveCount receives without a delete.\n\nOpen the dead-letter queue's messages in Trailbeam to see what happened on each attempt: https://trailbeam.example.com/?queue=orders-dlq{{/is_alert}}\n{{#is_recovery}}No message has moved to a dead-letter queue in the last 15 minutes.{{/is_recovery}}",
+  "tags": [
+    "service:trailbeam"
+  ],
+  "options": {
+    "thresholds": {
+      "critical": 0
+    },
+    "notify_no_data": false,
+    "require_full_window": false,
+    "include_tags": false
+  },
+  "priority": 3
+}

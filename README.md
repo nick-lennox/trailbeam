@@ -1349,6 +1349,14 @@ without one, anyone who can reach the port can read it. Labels never hold span d
 | `trailbeam_db_file_bytes{file}` | gauge | SQLite file (`main`) and write-ahead log (`wal`) size |
 | `trailbeam_db_last_row` | gauge | Highest span row ID (one index step, not a count) |
 | `trailbeam_build_info{version}`, `trailbeam_start_time_seconds` | gauge | Version and start time |
+| `trailbeam_stuck_messages` | gauge | Messages stuck now, as the Stuck page lists them (no final delete after `TRAILBEAM_STUCK_AFTER_S`), counted up to 1000 |
+| `trailbeam_stuck_oldest_age_seconds` | gauge | How long ago the oldest stuck message was first seen; 0 when none is |
+| `trailbeam_dead_lettered_messages_recent` | gauge | Messages moved to a dead-letter queue in the last 15 minutes |
+| `trailbeam_stuck_after_seconds` | gauge | The stuck threshold, `TRAILBEAM_STUCK_AFTER_S` |
+
+The stuck and dead-letter gauges are read from the store (at most every 10 seconds), so every replica of one
+store serves the same value: take `max` across replicas, not `sum`. They have no queue or tenant label, which
+would make the number of series grow with your queues and customers; the Stuck page and the queue filter say which.
 
 There are no retention purge metrics yet: the server logs each purge pass that deletes spans, and any pass that fails.
 
@@ -1375,7 +1383,39 @@ sum by (reason) (rate(trailbeam_ingest_rejected_requests_total[5m])) > 0        
 histogram_quantile(0.99, sum by (le) (rate(trailbeam_ingest_request_duration_seconds_bucket{outcome="accepted"}[5m])))
 histogram_quantile(0.95, sum by (le, route) (rate(trailbeam_http_request_duration_seconds_bucket[5m])))
 trailbeam_ingest_queue_depth / trailbeam_ingest_queue_capacity > 0.8               # close to 429s
+max(trailbeam_stuck_messages) > 0                                                   # a message is stuck: alert
+max(trailbeam_dead_lettered_messages_recent) > 0                                    # a dead-letter move: alert
 ```
+
+Ready-made files, each checked in CI against the real tool ([`deploy/monitoring`](deploy/monitoring/)):
+
+- **Datadog:** the Agent's OpenMetrics check ([`datadog/openmetrics.yaml`](deploy/monitoring/datadog/openmetrics.yaml)),
+  which collects these as `trailbeam.stuck_messages` and so on, and two monitors to import
+  ([`datadog/monitors`](deploy/monitoring/datadog/monitors/)): messages stuck, and messages moved to a dead-letter queue.
+- **Prometheus:** a scrape config and alert rules with their unit tests ([`prometheus`](deploy/monitoring/prometheus/)).
+- **Grafana:** a dashboard to import ([`grafana/trailbeam-dashboard.json`](deploy/monitoring/grafana/trailbeam-dashboard.json)).
+
+### Trace links: `--trace-link`
+
+Every recorded step of a timeline comes from a span with a trace ID. Give Trailbeam a URL template for your
+tracing tool and each of those steps shows **Open trace**, a link to the same trace there:
+
+| Tool | `TRAILBEAM_TRACE_LINK` |
+|---|---|
+| Datadog | `https://app.datadoghq.com/apm/trace/{trace_id}` (your site's host, such as `app.datadoghq.eu`) |
+| Grafana Tempo | `https://grafana.example.com/explore?schemaVersion=1&panes=%7B%22t%22:%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22refId%22:%22A%22,%22queryType%22:%22traceql%22,%22query%22:%22{trace_id}%22%7D%5D,%22range%22:%7B%22from%22:%22{from_ms}%22,%22to%22:%22{to_ms}%22%7D%7D%7D` (your Tempo data source's UID for `tempo`) |
+| Honeycomb | `https://ui.honeycomb.io/<team>/environments/<environment>/trace?trace_id={trace_id}&span={span_id}&trace_start_ts={from_s}&trace_end_ts={to_s}` |
+| Jaeger | `http://jaeger.example.com:16686/trace/{trace_id}` |
+
+The placeholders are `{trace_id}` (32 hex digits), `{trace_id_64}` (its low 64 bits as a decimal number, Datadog's
+own form), `{span_id}`, `{start_ms}` and `{end_ms}` (the span's times, Unix milliseconds), and `{from_ms}` and
+`{to_ms}` (an hour either side of them), and `{from_s}` and `{to_s}` (the same, in Unix seconds). Any other `{name}` stops the server at start, and so does a template that
+isn't an http or https URL. `GET /api/messages/{id}` then has each link as `span.trace_url`.
+
+A Trailbeam span is a child of the OpenTelemetry AWS SDK instrumentation's span for the same call, so it has your
+service's trace ID. The link opens that trace when your service sends its OpenTelemetry traces to the tool and the
+tool's sampling kept it; otherwise the tool finds no trace. Without the AWS SDK instrumentation (or in the Lambda
+wrapper with no active span), a Trailbeam span starts a trace of its own, which only Trailbeam has.
 
 ## Open source and the hosted app
 

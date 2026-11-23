@@ -12,7 +12,7 @@ import sqlite3
 import sys
 import time
 
-from . import auth, config
+from . import auth, config, trace_links
 from .backpressure import DEFAULT_MAX_PENDING, DEFAULT_MAX_WAIT_S, IngestGate
 from .db import SqliteStore, parse_queue_list
 from .migrations import SchemaError
@@ -126,6 +126,13 @@ def build_parser(prog: str = "trailbeam", description: str = "") -> argparse.Arg
                    default=_env(_positive_int, "TRAILBEAM_PG_READ_CONNECTIONS", None),
                    help="Postgres only: the most connections a replica reads pages and the API on at once "
                         f"(env TRAILBEAM_PG_READ_CONNECTIONS, default {PG_READ_CONNECTIONS})")
+    p.add_argument("--trace-link", type=_arg(trace_links.check),
+                   default=_env(_arg(trace_links.check), "TRAILBEAM_TRACE_LINK", None),
+                   help="a URL template that opens a step's trace in your tracing tool, such as "
+                        "https://app.datadoghq.com/apm/trace/{trace_id} or http://jaeger:16686/trace/{trace_id}. "
+                        "The timeline then shows Open trace on each recorded step. Placeholders: "
+                        + ", ".join("{" + n + "}" for n in trace_links.PLACEHOLDERS)
+                        + " (env TRAILBEAM_TRACE_LINK, default none: no links)")
     p.add_argument("--log-level", default=os.environ.get("TRAILBEAM_LOG_LEVEL", "INFO"))
     return p
 
@@ -193,7 +200,7 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
         httpd = make_server(db, a.host, a.port, stuck_after_s=a.stuck_after,
                             lambda_timeout_s=a.lambda_timeout, max_receive_counts=a.max_receive_count,
                             purger=purger, auth=auth.Auth(token) if token else None,
-                            gate=IngestGate(a.ingest_max_pending, a.ingest_max_wait),
+                            gate=IngestGate(a.ingest_max_pending, a.ingest_max_wait), trace_link=a.trace_link,
                             trusted_proxies=TrustedProxies(trusted_proxies(a)))
     except OSError as e:
         db.close()
