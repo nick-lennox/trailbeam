@@ -43,7 +43,8 @@ type Observed = {
   after: AfterEntry[];
 };
 
-export type SentEvent = Observed & { type: "sent"; batch_entry_id?: string };
+/** ``deduplicated``: a FIFO send SQS answered with an earlier send's MessageId; it enqueued nothing (QV-246). */
+export type SentEvent = Observed & { type: "sent"; batch_entry_id?: string; deduplicated?: true; reason?: string };
 export type ReceivedEvent = Observed & {
   type: "received";
   delivery: number;

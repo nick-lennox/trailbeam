@@ -63,6 +63,11 @@ class StoreUnavailable(Exception):
     server answers 503 with Retry-After, so the exporter (or a load balancer, on another replica) tries again."""
 
 
+class StoreFull(StoreUnavailable):
+    """The store's disk is full: nothing was stored. The server answers 503 (``store_full``) with Retry-After, so the
+    exporter sends the export again, and it is stored once space is freed. Not a 500, which exporters drop."""
+
+
 class WriterBusy(Exception):
     """``Store.insert`` gave up waiting to write within ``wait_s``; nothing was written (the server answers 503)."""
 
@@ -131,7 +136,8 @@ class Store(abc.ABC):
         Backpressure (backpressure.py): ``wait_s`` bounds how long to wait before the write starts (SQLite: the
         writer lock; Postgres: a pooled ingest connection); past it raise ``WriterBusy`` with nothing written
         (the server answers 503 writer_behind). A store whose database can't be reached raises
-        ``StoreUnavailable`` instead, also with nothing written (503 store_unreachable). Never return before the
+        ``StoreUnavailable`` instead, also with nothing written (503 store_unreachable); one whose disk is full
+        raises ``StoreFull`` (503 store_full). Never return before the
         records are durable as far as the backend promises: the server answers 200 on return. ``timings``, if
         given, gets ``wait_s`` (time waited) and ``write_s`` (the write itself) in seconds. Each receipt-hash
         join of an inserted receive or settle span is reported to ``on_join`` (a store that joins a whole

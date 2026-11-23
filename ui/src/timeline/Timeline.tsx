@@ -55,7 +55,7 @@ const AWS_SOURCE_LABEL = { cloudtrail: "CloudTrail", function_logs: "function lo
 
 function title(e: TimelineEvent): string {
   switch (e.type) {
-    case "sent": return `Sent to ${e.queue}`;
+    case "sent": return e.deduplicated ? `Sent again to ${e.queue}, deduplicated by SQS` : `Sent to ${e.queue}`;
     case "received": return e.dlq_source_arn ? "Picked up from the dead-letter queue" : `Picked up, attempt ${e.receive_count}`;
     case "deleted":
       return e.status === "final" ? "Handled and deleted" : e.status === "stale_handle" ? "Deleted, but too late" : e.status === "failed" ? "Delete failed" : "Deleted (no matching pickup)";
@@ -77,7 +77,7 @@ function title(e: TimelineEvent): string {
 /** Short label for an event, as the concurrent box names its members ("e2 pickup 1"). */
 function shortLabel(e: TimelineEvent): string {
   switch (e.type) {
-    case "sent": return "the send";
+    case "sent": return e.deduplicated ? "the deduplicated send" : "the send";
     case "received": return `pickup ${e.delivery}`;
     case "deleted": return `delete${e.delivery ? ` of ${e.delivery}` : ""}`;
     case "visibility_changed": return `visibility change${e.delivery ? ` of ${e.delivery}` : ""}`;
@@ -224,6 +224,7 @@ function facts(e: TimelineEvent): string[] {
     if (c.faas_invocation_id) out.push(`request ${shortId(c.faas_invocation_id)}`);
     else if (c.pid !== undefined) out.push(`pid ${c.pid}${c.thread_name ? ` · ${c.thread_name}` : ""}`);
   }
+  if (e.type === "sent" && e.deduplicated) out.push("deduplicated", "enqueued nothing");
   if (e.type === "received") {
     out.push(`delivery ${e.delivery}`, `receive count ${e.receive_count}`);
     if (e.dlq_source_arn) out.push(`from ${e.queue}`);
@@ -313,7 +314,7 @@ function Detail({ e }: { e: TimelineEvent }) {
 function reasonOf(e: TimelineEvent): string | null {
   if (e.type === "aws_step") return e.summary;
   if (e.type === "lambda_outcome" && e.error_message) return e.error_message;
-  if ("reason" in e) return e.reason;
+  if ("reason" in e && e.reason) return e.reason;
   return null;
 }
 

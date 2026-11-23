@@ -160,6 +160,10 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # summary row: one pass over messages, no span read.
 # Schema 13 (QV-148) adds probes: the test spans trailbeam doctor sends (contract section 17), kept apart from the
 # spans so they never show as messages. It changes no span data.
+# Schema 14 (QV-246) changes no tables. A send SQS deduplicated on a FIFO queue (timeline.deduplicated_sends) is no
+# longer a ``sent`` tenant event, so the summaries of messages with more than one sent event and a FIFO queue are
+# rewritten from their spans, which takes their extra sends out of the Tenants rollup too (refresh applies the
+# rollup's deltas). Rare: other messages are not read past their summary row.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new"))
                   + [f"INSERT INTO spans_new ({SPANS_COLUMNS}) SELECT {SPANS_COLUMNS} FROM spans ORDER BY row",
                      "DROP TABLE spans",
@@ -190,6 +194,18 @@ def _to_12(conn: sqlite3.Connection) -> None:
     summary_table.rebuild_rollup(conn)
 
 
+def _to_14(conn: sqlite3.Connection) -> None:
+    cur = conn.cursor()
+    cur.row_factory = sqlite3.Row
+    again = summary_table.Changes()
+    for r in cur.execute("SELECT mid, queues_json, events_json FROM messages WHERE queues_json LIKE '%.fifo%'"):
+        if (any(q.endswith(".fifo") for q in json.loads(r["queues_json"]))
+                and sum(e[1] == "sent" for e in json.loads(r["events_json"])) > 1):
+            again.added[r["mid"]] = set()
+    if again:
+        summary_table.refresh(conn, again)
+
+
 MIGRATIONS = (
     Migration(2, "spans.start_ns", ("ALTER TABLE spans ADD COLUMN start_ns INTEGER",)),
     Migration(3, "spans call order", ("ALTER TABLE spans ADD COLUMN order_scope TEXT",
@@ -217,6 +233,7 @@ MIGRATIONS = (
     Migration(11, "spans indexes at the right edge", (), run=_to_11),
     Migration(12, "hourly tenant rollup", tuple(statements(summary_table.ROLLUP_CREATE)), run=_to_12),
     Migration(13, "probes (trailbeam doctor)", tuple(statements(PROBES_CREATE))),
+    Migration(14, "FIFO deduplicated sends out of the tenant events", (), run=_to_14),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

@@ -487,3 +487,15 @@ def test_purged_and_possibly_purged_messages(server):
     assert "Queue purged (PurgeQueue)" in html and "deletes every message in the queue" in html
     _, _, html = get(server, page("during"))
     assert ("queue_purged", False) in events(html) and "can&#x27;t tell whether this one was" in html
+
+
+def test_a_deduplicated_fifo_send_is_shown_as_such_with_its_reason(server):
+    """QV-246: SQS returns the first send's MessageId to a FIFO send it deduplicates and enqueues nothing."""
+    from trailbeam.server.timeline import DEDUPLICATED_REASON
+    p = Consumer("producer", service="orders-api", queue="py-fifo.fifo")
+    post(server, [p.send(T0, "fifo-1"), p.send(T0 + SEC, "fifo-1")])
+    _, _, html = get(server, page("fifo-1"))
+    assert [t for t, _ in events(html)] == ["sent", "sent"]
+    assert html.count('<span class="etype">Sent</span>') == 1
+    assert '<span class="etype">Sent again, deduplicated by SQS</span>' in html
+    assert f'<div class="reason">{DEDUPLICATED_REASON}</div>' in html

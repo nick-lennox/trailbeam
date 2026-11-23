@@ -574,7 +574,7 @@ def test_version_2_fills_the_lookup_tables_place_by_place(pg_store):
         _as_version(c, 1)
     again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
     try:
-        assert again.migrated == [2, 3, 4, 5, 6, 7]
+        assert again.migrated == [2, 3, 4, 5, 6, 7, 8]
         with again.ingest.connection() as c:
             assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
             assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == list(range(1, pg_schema_latest() + 1))
@@ -721,8 +721,9 @@ def _as_version(c, version: int) -> None:
     """Make a current database look as Postgres schema ``version`` left it: 1 is 0.2.0's (no lookup tables, no
     message-ID indexes on the list tables), 2 adds the lookup tables (QV-113), 3 the message-ID indexes (QV-118),
     4 the tenant rollup (QV-128); 5 partitions the lookup tables (QV-127); 6 adds the probes of trailbeam
-    doctor (QV-148); 7 the purges (QV-245)."""
-    if version < 7:
+    doctor (QV-148); 7 takes deduplicated FIFO sends out of the tenant events (QV-246); 8 the purges
+    (QV-245)."""
+    if version < 8:
         c.execute("DROP TABLE purges")
     if version < 6:
         c.execute("DROP TABLE probes")
@@ -844,7 +845,7 @@ def test_version_3_indexes_the_list_tables_place_by_place(pg_store):
     for attempt in range(2):
         again = PostgresStore(s.url, bucket_ns=SEC)
         try:
-            assert again.migrated == [3, 4, 5, 6, 7]
+            assert again.migrated == [3, 4, 5, 6, 7, 8]
             with again.ingest.connection() as c:
                 parts = _list_partitions(c)
                 assert len(parts["message_queues"]) == 11 + attempt  # 12 places less the dropped one, + "after-0"
@@ -1085,11 +1086,49 @@ def test_version_4_builds_the_rollup_place_by_place(pg_store):
         _as_version(c, 3)
     again = PostgresStore(s.url, bucket_ns=HOUR_MS * 10 ** 6)
     try:
-        assert again.migrated == [4, 5, 6, 7]
+        assert again.migrated == [4, 5, 6, 7, 8]
         assert [_rollup_page(again, a, b) for a, b in ranges] == want
         with again.ingest.connection() as c:
             assert c.execute("SELECT * FROM tenant_events ORDER BY rclass, bucket, at_ms, mid, seq").fetchall() == events
         again.insert(tr._traffic(9, messages=50, hours=6))  # and it goes on taking spans
+    finally:
+        again.close()
+
+
+@needs_pg
+def test_version_7_takes_deduplicated_fifo_sends_out_of_the_tenant_events(pg_store):
+    """A version-6 database counted every FIFO send as a sent tenant event (QV-246). The upgrade gives the tenant
+    events and the Tenants page a database that stored the same spans at 7 gives."""
+    import unittest.mock
+    from trailbeam.server import queries
+    from trailbeam.server.postgres import PostgresStore
+
+    p = Consumer(client_id="producer-1", service="orders-api", queue="orders.fifo")
+    spans = [p.send(T0, "f1"), p.send(T0 + SEC, "f1"), p.send(T0 + 2 * SEC, "f1"),
+             p.receive(T0 + 3 * SEC, "f1", "hf1"), p.send(T0, "s1", queue="orders")]
+    for sp in spans:
+        sp.attrs["trailbeam.tenant"] = "acme"
+    ms = T0 // 10 ** 6
+    fresh = pg_store(bucket_ns=SEC)
+    fresh.insert(records(spans))
+    want = queries.tenants(fresh, T0, 900, ms - 3_600_000, ms + 3_600_000)
+    assert want["total_sent"] == 2
+    with unittest.mock.patch("trailbeam.server.timeline.deduplicated_sends", return_value=set()):
+        s = pg_store(bucket_ns=SEC)
+        s.insert(records(spans))  # as version 6 stored them
+    assert queries.tenants(s, T0, 900, ms - 3_600_000, ms + 3_600_000)["total_sent"] == 4
+    with s.ingest.connection() as c:
+        _as_version(c, 6)
+    again = PostgresStore(s.url, bucket_ns=SEC)
+    try:
+        assert again.migrated == [7, 8]
+        assert queries.tenants(again, T0, 900, ms - 3_600_000, ms + 3_600_000) == want
+        with again.ingest.connection() as c:
+            assert [r["kind"] for r in c.execute("SELECT kind FROM tenant_events ORDER BY at_ms, kind")] == \
+                ["sent", "sent", "first_delivery"]
+            assert c.execute("SELECT SUM(sent) AS n FROM tenant_rollup").fetchone()["n"] == 2
+        again.insert(records([p.send(T0 + 4 * SEC, "f1")]))  # and a later deduplicated send still isn't counted
+        assert queries.tenants(again, T0, 900, ms - 3_600_000, ms + 3_600_000)["total_sent"] == 2
     finally:
         again.close()
 
@@ -1329,7 +1368,7 @@ def test_version_5_partitions_the_lookup_tables_place_by_place(pg_store, tmp_pat
                          "AND relnamespace = current_schema()::regnamespace").fetchone()["relkind"] == "r"
     again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
     try:
-        assert again.migrated == [5, 6, 7]
+        assert again.migrated == [5, 6, 7, 8]
         with again.ingest.connection() as c:
             assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
             assert c.execute("SELECT to_regclass('mid_places_v4') AS t").fetchone()["t"] is None
