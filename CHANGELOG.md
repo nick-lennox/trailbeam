@@ -7,6 +7,16 @@
   (a receive that ended in a delete or a successful Lambda record). Cells read `2 · 1 handled` instead of
   `2 (1 ok)`, and the count is Ember when the message was received more than once, so that row stands out. The
   timeline summary says **Receives** `2 (1 handled)` too, on the UI and the no-script pages (QV-209).
+- **Upgrading from 0.3.0 is checked in CI.** A new job starts 0.3.0 (the PyPI package, and the published image),
+  stores 1,200 messages' spans, then runs this version on the same SQLite file, volume or Postgres database. It
+  checks that every timeline, list and tenant count reads as before, that messages in flight across the upgrade
+  are joined, that the token and sessions keep working, and that 0.3.0 then refuses a Postgres database it can't
+  read ([Upgrading](README.md#upgrading)).
+- **`trailbeam start` on an existing database says what its new token and key change.** On a data directory with
+  only a 0.3.0 SQLite file (0.3.0 had no `start`), `start` makes a token and a receipt-hash key, as on a first
+  run. Now it also logs a warning: with the token on, services that send without it are refused (401); the
+  services keep the key they had until they are given the new one. The warning says how to keep the old token
+  and key. Nothing else changes. (QV-170)
 - **Team install: `.env` readable by its owner only.** The README, the `docker-compose.yaml` header and
   `.env.example` now say `install -m 600 .env.example .env` instead of `cp`, which left the token and the
   Postgres password readable by every user of the server (QV-204).
@@ -83,7 +93,7 @@ retention pass after it sealed the 5 older days into the filter (4.5 s). A 0.3.0
 write lookup rows the filter doesn't know about, so don't run 0.3.0 and this version against one database at
 the same time. Once the database is at schema 5, a 0.3.0 server refuses to start on it. If the upgrade is
 stopped part way, the next start runs it again; rows already copied are left as they are. A database at an older schema (from
-0.2.0) goes through schema 4 first, as the 0.3.0 notes describe. SQLite files are unchanged.
+0.2.0) goes through schema 4 first, as the 0.3.0 notes describe. SQLite files are unchanged: 0.3.0 still opens them.
 
 ## 0.3.0: Postgres for teams that outgrow SQLite
 
