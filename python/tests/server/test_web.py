@@ -413,3 +413,22 @@ def test_an_empty_store_says_nothing_is_connected_yet(server):
     post(server, [Consumer("producer").send(T0, "first-one")])
     _, _, html = get(server, "/stuck?queue=payments")
     assert "No stuck messages." in html and "No messages yet." not in html
+
+
+def test_stuck_intro_says_the_threshold_in_words_and_how_to_change_it(site):
+    """QV-216: the intro leads with what stuck means and the settings; the clock note is in the footer."""
+    _, _, html = get(site, "/stuck?older_than_s=300")
+    assert "Messages sent more than 5 min ago that no consumer has deleted yet, oldest first." in html
+    assert "<code>--stuck-after</code> (<code>TRAILBEAM_STUCK_AFTER_S</code>)" in html
+    assert 'name="older_than_s" value="300"' in html  # the field stays in seconds
+    foot = "Times are in UTC. Age counts from the send, on the sender's clock."
+    assert html.index("</table>") < html.index(foot)
+    assert "producer host" not in html
+    _, _, html = get(site, "/stuck?older_than_s=90")
+    assert "more than 90 s ago" in html
+
+
+def test_threshold_in_words():
+    from trailbeam.server.web import _threshold
+    assert [_threshold(s) for s in (300, 60, 90, 3600, 7200, 86_400, 172_800, 0)] == [
+        "5 min", "1 min", "90 s", "1 h", "2 h", "1 day", "2 days", "0 s"]

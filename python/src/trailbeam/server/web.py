@@ -243,17 +243,27 @@ def _duplicates(api, q: dict) -> Response:
 def _stuck(api, q: dict) -> Response:
     data = api("stuck", _pick(q, "older_than_s", "limit", "queue", "cursor"))
     body = ("<h1>Stuck messages</h1>"
-            f'<p class="muted">First seen more than {int(data["older_than_s"])} s ago, with no final delete. '
-            "Oldest first. First seen is the send, on the producer host's clock. Only when the send was not "
-            "observed is it SQS's SentTimestamp, on SQS's clock; that message's age then compares SQS's clock "
-            "with this server's, and says so.</p>"
+            f'<p class="muted">Messages sent more than {_threshold(int(data["older_than_s"]))} ago that no '
+            "consumer has deleted yet, oldest first. Change the age with Older than, or the server default with "
+            "<code>--stuck-after</code> (<code>TRAILBEAM_STUCK_AFTER_S</code>).</p>"
             + _filters("/stuck", {**q, "older_than_s": str(data["older_than_s"])},
                        [("older_than_s", "Older than (s)", "number"), ("queue", "Queue", "text"),
                         ("limit", "Limit", "number")])
             + _summary_table(data["messages"], extra=("Age", _stuck_age),
                              empty=NO_SPANS if not data["messages"] and _store_empty(api) else "No stuck messages.")
-            + _next("/stuck", q, data))
+            + _next("/stuck", q, data)
+            + '<p class="muted">Times are in UTC. Age counts from the send, on the sender\'s clock. If Trailbeam '
+            "never saw the send, it counts from SQS's <code>SentTimestamp</code>, and the age says so.</p>")
     return _page(200, "Stuck messages", body)
+
+
+def _threshold(s: int) -> str:
+    """A threshold in seconds, in words when it is a whole number of days, hours or minutes: 300 is "5 min"."""
+    for size, one, many in ((86_400, "day", "days"), (3600, "h", "h"), (60, "min", "min")):
+        if s > 0 and s % size == 0:
+            n = s // size
+            return f"{n} {one if n == 1 else many}"
+    return f"{s} s"
 
 
 TENANT_RANGES = [("3600", "Last hour"), ("86400", "Last 24 hours"), ("604800", "Last 7 days")]
