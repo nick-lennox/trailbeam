@@ -126,8 +126,10 @@ export OTEL_SERVICE_NAME=my-python-service
 
 Because the token is on, services need these settings, and the web screen asks for the token once. Later
 runs reuse the same token and key. Every `trailbeam` flag works after `start` (`trailbeam start --help`).
-Stop it with Ctrl-C. Without Python, `npx trailbeam start` does the same with Docker
-([Node.js README](node/README.md#run-the-server-npx-trailbeam-start)).
+Stop it with Ctrl-C. From the next release, `npx trailbeam start` does the same with Docker and no Python
+([Node.js README](node/README.md#run-the-server-npx-trailbeam-start)). It does not work with 0.3.0: the npm
+package has no `trailbeam` command yet, and the 0.3.0 image has no `start`. Nothing on the screen? Run
+`trailbeam doctor`, also from the next release ([Troubleshooting](#troubleshooting-no-data-arriving)).
 
 ### See a richer example
 
@@ -215,6 +217,49 @@ named in the page's range (default the last day) as you type. The same data is i
 `GET /api/messages?tenant=`. How every number is counted is in
 [`contract/tenants.md`](contract/tenants.md). The hosted app counts them the same way and is tested
 against the same recorded spans.
+
+## Troubleshooting: no data arriving
+
+Set it up and see nothing? Run `trailbeam doctor`. Like `trailbeam start`, it is on `main` and not in 0.3.0
+(there it stops with `unrecognized arguments: doctor`). It comes with the Python package (installing `trailbeam`
+is enough, the server extra is not needed) and checks, one line each:
+
+1. **Server reachable**: `GET /api/health` answers, and it is Trailbeam;
+2. **Ingest port accepts connections**: the address your services send to (4318 by default) is open and is
+   Trailbeam's `/v1/traces`;
+3. **Token accepted**: by the API and by ingest (or the server has no token);
+4. **Test span stored and read back**: it sends a test span and reads it back. The test span is marked as such
+   (span contract, [section 17](contract/span-contract.md#17-the-test-span-of-trailbeam-doctor-qv-148)), so it
+   never shows as a message or in any count;
+5. **Last real span**: when the newest span from your services was stored. If none was, it says whether spans
+   arrived that are not Trailbeam's (the hooks are not installed) or broke the span contract.
+
+```console
+$ trailbeam doctor
+trailbeam doctor: server http://127.0.0.1:4318, ingest http://127.0.0.1:4318/v1/traces, token: /home/me/.trailbeam/token
+
+  ok    Server reachable: Trailbeam X.Y.Z answers at http://127.0.0.1:4318
+  ok    Ingest port accepts connections: 127.0.0.1:4318 accepts connections (http://127.0.0.1:4318/v1/traces)
+  ok    Token accepted: the API and ingest accept the token from /home/me/.trailbeam/token
+  ok    Test span stored and read back: sent to http://127.0.0.1:4318/v1/traces and read back from http://127.0.0.1:4318 in 7 ms
+  FAIL  Last real span: no span stored yet
+        Likely cause: Trailbeam works (the test span went through), so your services are not sending to it: ...
+        Fix: in each service, call trailbeam.boto.install() (Python), ... and set TRAILBEAM_OTLP_TRACES_ENDPOINT=...
+
+1 of 5 checks failed.
+```
+
+Each failed check says the likely cause and the fix. A check that needs an earlier one that failed is skipped.
+The exit code is 1 when a check failed, so it can run in a script or a CI step.
+
+By default it checks `http://127.0.0.1:4318` with the token `trailbeam start` created (`~/.trailbeam/token`, or
+the one in `TRAILBEAM_DATA_DIR`). For another server, give `--url` (or `TRAILBEAM_URL`), and the token with
+`--token-file` or `TRAILBEAM_TOKEN`. When your services send somewhere else than the server you open, such as
+through a Collector, give that address with `--ingest-url`; it reads `TRAILBEAM_OTLP_TRACES_ENDPOINT` as the
+services do. Run it where your services run to check what they can reach. After `npx trailbeam start` the token
+is in the Docker volume, so give the one it printed: `TRAILBEAM_TOKEN=<token> trailbeam doctor`. The
+image has the command too: `docker exec <container> trailbeam doctor --token-file /data/token` checks from
+inside the container (`docker ps` gives its name).
 
 ## Self-hosting
 
@@ -886,6 +931,34 @@ database. A backup holds the stored message bodies (`--store-bodies`), so protec
 **Continuous replication.** [Litestream](https://litestream.io/) streams a SQLite file's WAL to object storage.
 It should work with Trailbeam, because the server only runs PASSIVE checkpoints, but we haven't tested it.
 With Postgres (`--store-url`), use Postgres' own backups: see [Backup and restore (Postgres)](#backup-and-restore-postgres).
+
+### Upgrading
+
+Take a backup ([SQLite](#backup-and-restore-sqlite), [Postgres](#backup-and-restore-postgres)), stop the
+old server, and start the new version on the same database file, Docker volume or Postgres database, with the
+same flags and token. The new version upgrades the schema by itself at start. CI runs this from 0.3.0 to
+`main` on every change, for SQLite (the PyPI package and the image) and Postgres, and checks that every
+message, list and tenant count reads the same as before
+([`python/smoke/upgrade_check.py`](python/smoke/upgrade_check.py)).
+
+- **SQLite.** The new version moves the file from schema 12 to 13 (a small table for the test span of
+  `trailbeam doctor`; nothing is rewritten). Once it has, a 0.3.0 server stops at start with `the database is
+  at schema version 13, written by a newer Trailbeam ... Refusing to start, so nothing is lost`. To go back,
+  restore the backup you took first.
+- **Postgres.** Stop every replica before you start the new version. It moves the database from schema 4 to 6
+  (about 8 s per 1M spans, see the [changelog](CHANGELOG.md)). Once it has, a 0.3.0 server stops at start
+  with `the database is at Postgres schema version 6, written by a newer Trailbeam ... Refusing to start, so
+  nothing is lost`. To go back, restore the backup you took first.
+- **The token and the receipt-hash key** don't change. Signed-in browsers stay signed in. Services keep their
+  `TRAILBEAM_RECEIPT_HASH_KEY`: the hashing is the same in 0.3.0 and `main`, so services on either package
+  version can send spans for the same messages.
+- **Moving to `trailbeam start`.** `trailbeam start --data-dir DIR` uses `DIR/trailbeam.sqlite`, and
+  `npx trailbeam start` uses the Docker volume `trailbeam-data`, the same volume as the Quickstart's
+  `docker run`. Before the first `start`, put the token your services send in `DIR/token`, or start with
+  `--token-file`. If your 0.3.0 server ran without a token, `start` turns one on, and services that don't
+  send it are refused (401) until they get `OTEL_EXPORTER_OTLP_HEADERS`. Put the key your services use in
+  `DIR/receipt-hash-key`, so `start` prints that key and not a new one. If `start` has to make either file
+  for an existing database, it logs a warning saying so.
 
 ### When Trailbeam is overloaded: 429, 503 and Retry-After
 

@@ -65,9 +65,24 @@ _REQUIRED = {
 }
 
 
+# The test span of trailbeam doctor (contract section 17): stored as a probe, never as a span or a message.
+PROBE_KIND = "trailbeam.probe"
+PROBE_ID = "trailbeam.probe.id"
+PROBE_ID_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+PROBE_ID_LENGTH = (8, 64)
+# An export carries at most this many probes; the server rejects the rest (each its own write otherwise).
+MAX_PROBES_PER_EXPORT = 8
+# The fixed starts of the reasons a probe is rejected with (contract section 17), which trailbeam doctor tells apart.
+# A server of 0.3 or before answers "unknown trailbeam.kind 'trailbeam.probe'" instead.
+PROBE_NOT_STORED = "probe span not stored:"           # the store keeps no probes
+PROBE_BAD_ID = f"probe span without a {PROBE_ID}"     # no valid ID
+PROBE_OVER_LIMIT = "probe span over the limit of"     # more than MAX_PROBES_PER_EXPORT in the export
+
+
 @dataclass
 class Decoded:
     records: list[dict] = field(default_factory=list)
+    probes: list[str] = field(default_factory=list)  # probe IDs (contract section 17), in the order sent
     ignored: int = 0  # spans of other instrumentation scopes; not an error
     rejected: list[str] = field(default_factory=list)  # one reason per rejected Trailbeam span
 
@@ -219,9 +234,36 @@ def _from_spans(spans: Iterable[tuple]) -> Decoded:
         if scope != SCOPE_NAME:
             out.ignored += 1
             continue
+        if attrs.get("trailbeam.kind") == PROBE_KIND:
+            probe_id, reason = probe_id_of(attrs)
+            if probe_id is None:
+                out.rejected.append(reason)
+            elif len(out.probes) >= MAX_PROBES_PER_EXPORT:
+                out.rejected.append(f"{PROBE_OVER_LIMIT} {MAX_PROBES_PER_EXPORT} in one export")
+            else:
+                out.probes.append(probe_id)
+            continue
         rec, reason = to_record(resource, trace_id, span_id, start_ns, end_ns, attrs)
         if rec is None:
             out.rejected.append(reason)
         else:
             out.records.append(rec)
     return out
+
+
+def valid_probe_id(v) -> bool:
+    lo, hi = PROBE_ID_LENGTH
+    return isinstance(v, str) and lo <= len(v) <= hi and set(v) <= PROBE_ID_CHARS
+
+
+def probe_id_of(attrs: dict) -> tuple[Optional[str], str]:
+    """A probe span's ID (contract section 17), or (None, reason). Its times and trace are not read: the server
+    records when it stored the probe."""
+    if attrs.get("trailbeam.schema_version") not in ACCEPTED_SCHEMA_VERSIONS:
+        return None, (f"trailbeam.schema_version {attrs.get('trailbeam.schema_version')!r} is not one of "
+                      f"{', '.join(map(str, ACCEPTED_SCHEMA_VERSIONS))}")
+    v = attrs.get(PROBE_ID)
+    if not valid_probe_id(v):
+        lo, hi = PROBE_ID_LENGTH
+        return None, f"{PROBE_BAD_ID} of {lo} to {hi} letters, digits, - or _"
+    return v, ""

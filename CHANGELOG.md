@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **`trailbeam doctor`: why no data is arriving.** It checks, in plain lines, that the server answers, that the
+  ingest port accepts connections, that the token is accepted, that a test span sent now is stored and read
+  back, and when the last real span arrived. Each failed check prints the likely cause and the fix, and the exit
+  code is 1 when one fails. By default it uses the address and token `trailbeam start` created
+  ([README](README.md#troubleshooting-no-data-arriving)). The test span is a *probe* (span contract section 17):
+  the server stores it apart from the spans (new table `probes`: SQLite schema 13, Postgres schema 6, both
+  applied on start), so it never shows as a message or in a count, and reads it back at
+  `GET /api/probes/{id}` (at most 8 probes an export, in one write). `GET /api/health` also gives `data.last_span_ns`, the time of the span stored last.
+  A server of 0.3 or before rejects the probe; `trailbeam doctor` says so and the other checks still run.
+  Once upgraded, a SQLite file can no longer be opened by 0.3.0, which refuses it at start (restore a backup to go back).
+- **Upgrading from 0.3.0 is checked in CI.** A new job starts 0.3.0 (the PyPI package, and the published image),
+  stores 1,200 messages' spans, then runs this version on the same SQLite file, volume or Postgres database. It
+  checks that every timeline, list and tenant count reads as before, that messages in flight across the upgrade
+  are joined, that the token and sessions keep working, and that 0.3.0 then refuses the upgraded SQLite file or
+  Postgres database, which it can't read ([Upgrading](README.md#upgrading)).
+- **`trailbeam start` on an existing database says what its new token and key change.** On a data directory with
+  only a 0.3.0 SQLite file (0.3.0 had no `start`), `start` makes a token and a receipt-hash key, as on a first
+  run. Now it also logs a warning: with the token on, services that send without it are refused (401); the
+  services keep the key they had until they are given the new one. The warning says how to keep the old token
+  and key. Nothing else changes. (QV-170)
 - **Team install: `.env` readable by its owner only.** The README, the `docker-compose.yaml` header and
   `.env.example` now say `install -m 600 .env.example .env` instead of `cp`, which left the token and the
   Postgres password readable by every user of the server (QV-204).
@@ -78,7 +98,7 @@ retention pass after it sealed the 5 older days into the filter (4.5 s). A 0.3.0
 write lookup rows the filter doesn't know about, so don't run 0.3.0 and this version against one database at
 the same time. Once the database is at schema 5, a 0.3.0 server refuses to start on it. If the upgrade is
 stopped part way, the next start runs it again; rows already copied are left as they are. A database at an older schema (from
-0.2.0) goes through schema 4 first, as the 0.3.0 notes describe. SQLite files are unchanged.
+0.2.0) goes through schema 4 first, as the 0.3.0 notes describe. SQLite files are unchanged: 0.3.0 still opens them.
 
 ## 0.3.0: Postgres for teams that outgrow SQLite
 

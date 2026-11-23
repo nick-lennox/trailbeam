@@ -11,7 +11,7 @@ import random
 
 import pytest
 
-from trailbeam.server import queries, rollup, summary_table
+from trailbeam.server import migrations, queries, rollup, summary_table
 from trailbeam.server.db import SqliteStore
 from trailbeam.server.rollup import HOUR_MS, Sketch
 from trailbeam.server.store import Cutoffs
@@ -222,12 +222,13 @@ def test_schema_12_builds_the_rollup_of_a_schema_11_file(tmp_path):
             c.execute("UPDATE messages SET events_json = ? WHERE mid = ?", (json.dumps(ev), mid))
             c.executemany("INSERT INTO tenant_events (at_ms, mid, seq, kind, tenant, wait_ms) VALUES (?, ?, ?, ?, ?, ?)",
                           [(at, mid, i, kind, tenant, wait) for i, (at, kind, wait) in enumerate(ev)])
-        c.execute("UPDATE schema_version SET version = 11 WHERE version = 12")  # made at 12: "create"
+        c.execute("UPDATE schema_version SET version = 11 WHERE version = (SELECT MAX(version) FROM schema_version)")
+        # made at LATEST: "create"; from 11, every migration since runs
         c.execute("UPDATE meta SET value = '11' WHERE key = 'schema_version'")
         c.execute("COMMIT")
     s.close()
     s = SqliteStore(path)
-    assert s.migrated == [12]
+    assert s.migrated == list(range(12, migrations.LATEST + 1))
     assert {t: sorted(tuple(r) for r in s.query(f"SELECT * FROM {t}")) for t in summary_table.TABLES} == want
     assert want["tenant_rollup"] and any(r[3] == "dead_lettered_again" for r in want["tenant_events"])
     s.close()
