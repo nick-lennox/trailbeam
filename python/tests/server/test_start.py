@@ -168,6 +168,21 @@ def test_data_dir_from_the_environment(tmp_path):
         s.stop()
 
 
+def test_shown_host_and_data_dir_for_npx(tmp_path):
+    """npx trailbeam start runs this in the container: the banner names the developer's address and Docker volume."""
+    data = tmp_path / "data"
+    s = Started(["start", "--data-dir", str(data), "--host", "0.0.0.0", "--port", "0"],
+                env=_env(TRAILBEAM_START_SHOWN_HOST="localhost",
+                         TRAILBEAM_START_SHOWN_DATA_DIR="the Docker volume trailbeam-data"))
+    try:
+        assert s.url.startswith("http://localhost:")
+        assert "Data directory: the Docker volume trailbeam-data (keep it private" in s.text
+        assert str(data) not in s.text and (data / "token").exists()
+        assert s.python_env["TRAILBEAM_OTLP_TRACES_ENDPOINT"] == s.url + "/v1/traces"
+    finally:
+        s.stop()
+
+
 def test_bad_existing_secret_stops_with_one_line(tmp_path):
     data = tmp_path / "tb"
     data.mkdir()

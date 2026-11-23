@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **`npx trailbeam start`: the server from npm, without Python.** The npm package has a `trailbeam` command.
+  `npx trailbeam start` runs the container image of the same version (`ghcr.io/nick-lennox/trailbeam:X.Y.Z`)
+  with its data in the Docker volume `trailbeam-data`, and prints the same first-run output as the Python
+  `trailbeam start`: the address, the token and the environment variables for your services. It takes the
+  same flags and `TRAILBEAM_` variables; `--host`/`--port` become the published port, and `--data-dir`, `--db`,
+  `--config` and `--token-file` name files on your machine (`--store-url` is not available: the image has
+  SQLite only). If Docker is missing or not running it says so in one line. `require('trailbeam')` is
+  unchanged and there are no new dependencies
+  ([Node.js README](node/README.md#run-the-server-npx-trailbeam-start)).
 - **`trailbeam start`: first-run setup in one command.** On its first run in a data directory (default
   `~/.trailbeam`, or `--data-dir` / `TRAILBEAM_DATA_DIR`) it creates an access token and a receipt-hash key,
   each in a file only its owner can read, and keeps the SQLite file there. It then starts the server and prints
