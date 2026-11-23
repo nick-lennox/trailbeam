@@ -50,12 +50,13 @@ milliseconds (nanoseconds divided by 1,000,000, rounded down). Only events whose
 
 | Event | Its time | Counts as |
 |---|---|---|
-| `sent` | `end_unix_nano` | one send |
+| `sent`, except one with `deduplicated: true` | `end_unix_nano` | one send |
 | `received` with `delivery` 1 and `receive_count` 1 | `end_unix_nano` | one first delivery, with its time in queue (below) |
 | `moved_to_dead_letter_queue` | `window.to` (the receive that reported the move) | the message was dead-lettered |
 
 Every other event (later receives, deletes, visibility changes, Lambda outcomes and anything
-inferred) does not count.
+inferred) does not count. Nor does a `sent` event marked `deduplicated: true` (QV-246): a FIFO send
+SQS answered with an earlier send's MessageId, which enqueued nothing.
 
 **Time in queue** of a first delivery: its time minus the time of the message's first `sent` event in
 timeline order. If the message has no `sent` event, its time minus the receive's `sent_timestamp_ms`

@@ -152,3 +152,26 @@ test("no delete yet is not drawn as lost; being handled is marked inferred", () 
   const dead = { ...open, in_dead_letter_queue: true };
   assert.ok(render(dead).includes('<span class="text-lost">No delete seen, in the DLQ</span>'), "a message in the DLQ stays red");
 });
+
+test("a FIFO send SQS deduplicated says so, with the reason, and is not another plain send (QV-246)", () => {
+  const base = { inferred: false, group: 0, start: null, start_observed: false, queue: "py-fifo.fifo",
+    consumer: { service_name: "orders-api" }, after: [], process_order: null };
+  const reason = "SQS returned the same MessageId: this send was deduplicated and enqueued nothing";
+  const t = {
+    message_id: "m-fifo", state: "not_deleted", source_queue: "py-fifo.fifo", current_queue: "py-fifo.fifo",
+    in_dead_letter_queue: false, dead_letter_queue_move: null, send_observed: true, deliveries: 0, successful_deliveries: 0,
+    first_seen: "2026-01-01T00:00:01Z", first_seen_clock: "host", last_seen: "2026-01-01T00:00:02Z", concurrent_groups: 0,
+    groups: [{ group: 0, concurrent: false, label: null, observed_events: 1, inferred_events: 0, ordered_inside: 0, start: null, end: "2026-01-01T00:00:01Z" },
+             { group: 1, concurrent: false, label: null, observed_events: 1, inferred_events: 0, ordered_inside: 0, start: null, end: "2026-01-01T00:00:02Z" }],
+    events: [
+      { ...base, id: "e1", type: "sent", time: "2026-01-01T00:00:01Z", end: "2026-01-01T00:00:01Z" },
+      { ...base, id: "e2", group: 1, type: "sent", time: "2026-01-01T00:00:02Z", end: "2026-01-01T00:00:02Z", deduplicated: true, reason },
+    ],
+    order: { edges: [], edges_by_source: {}, conflicts: [] }, notices: [],
+  } as unknown as Timeline;
+  const html = text(render(t));
+  assert.ok(html.includes("Sent to py-fifo.fifo"), html);
+  assert.ok(html.includes("Sent again to py-fifo.fifo, deduplicated by SQS"));
+  assert.ok(html.includes(reason));
+  assert.ok(html.includes("deduplicated · enqueued nothing") && !html.includes("e2 Sent to"), "the second send is not drawn as a plain send");
+});

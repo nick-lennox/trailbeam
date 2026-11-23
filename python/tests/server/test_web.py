@@ -463,3 +463,15 @@ def test_threshold_in_words():
     from trailbeam.server.web import _threshold
     assert [_threshold(s) for s in (300, 60, 90, 3600, 7200, 86_400, 172_800, 0)] == [
         "5 min", "1 min", "90 s", "1 h", "2 h", "1 day", "2 days", "0 s"]
+
+
+def test_a_deduplicated_fifo_send_is_shown_as_such_with_its_reason(server):
+    """QV-246: SQS returns the first send's MessageId to a FIFO send it deduplicates and enqueues nothing."""
+    from trailbeam.server.timeline import DEDUPLICATED_REASON
+    p = Consumer("producer", service="orders-api", queue="py-fifo.fifo")
+    post(server, [p.send(T0, "fifo-1"), p.send(T0 + SEC, "fifo-1")])
+    _, _, html = get(server, page("fifo-1"))
+    assert [t for t, _ in events(html)] == ["sent", "sent"]
+    assert html.count('<span class="etype">Sent</span>') == 1
+    assert '<span class="etype">Sent again, deduplicated by SQS</span>' in html
+    assert f'<div class="reason">{DEDUPLICATED_REASON}</div>' in html

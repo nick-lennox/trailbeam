@@ -277,3 +277,40 @@ def test_schema_12_builds_the_rollup_of_a_schema_11_file(tmp_path):
     assert {t: sorted(tuple(r) for r in s.query(f"SELECT * FROM {t}")) for t in summary_table.TABLES} == want
     assert want["tenant_rollup"] and any(r[3] == "dead_lettered_again" for r in want["tenant_events"])
     s.close()
+
+
+def _fifo_dedup_records():
+    """A FIFO message sent twice with one MessageId (the second send deduplicated by SQS), and a standard one."""
+    from spans import SEC, T0 as T0_NS, Consumer, to_proto  # noqa: PLC0415
+    from trailbeam.server.otlp import decode  # noqa: PLC0415
+    p = Consumer(client_id="producer-1", service="orders-api", queue="orders.fifo")
+    spans = [p.send(T0_NS, "f1"), p.send(T0_NS + SEC, "f1"), p.send(T0_NS + 2 * SEC, "f1"),
+             p.receive(T0_NS + 3 * SEC, "f1", "hf1"), p.send(T0_NS, "s1", queue="orders")]
+    for sp in spans:
+        sp.attrs["trailbeam.tenant"] = "acme"
+    return decode(to_proto(spans).SerializeToString(), "application/x-protobuf").records
+
+
+def test_schema_14_takes_deduplicated_fifo_sends_out_of_a_schema_13_file(tmp_path):
+    """A file from before QV-246 counted every FIFO send as a sent tenant event. The upgrade gives the tables a file
+    that stored the same spans at 14 has: one sent event per message, and the rollup to match."""
+    path, fresh = str(tmp_path / "trailbeam.sqlite"), SqliteStore(":memory:")
+    fresh.insert(_fifo_dedup_records())
+    want = {t: sorted(tuple(r) for r in fresh.query(f"SELECT * FROM {t}")) for t in summary_table.TABLES}
+    fresh.close()
+    with unittest.mock.patch("trailbeam.server.timeline.deduplicated_sends", return_value=set()):
+        s = SqliteStore(path)
+        s.insert(_fifo_dedup_records())  # as 13 stored them
+    assert sum(r[3] == "sent" for r in s.query("SELECT * FROM tenant_events")) == 4
+    with s.lock:
+        c = s.conn
+        c.execute("UPDATE schema_version SET version = 13 WHERE version = (SELECT MAX(version) FROM schema_version)")
+        c.execute("UPDATE meta SET value = '13' WHERE key = 'schema_version'")
+        c.commit()
+    s.close()
+    s = SqliteStore(path)
+    assert s.migrated == list(range(14, migrations.LATEST + 1))
+    assert {t: sorted(tuple(r) for r in s.query(f"SELECT * FROM {t}")) for t in summary_table.TABLES} == want
+    assert sum(r[3] == "sent" for r in want["tenant_events"]) == 2
+    assert [tuple(r) for r in s.query("SELECT tenant, sent FROM tenant_rollup")] == [("acme", 2)]
+    s.close()

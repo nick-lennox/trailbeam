@@ -14,6 +14,10 @@
   reads "No delete seen" in amber rather than a red "Not deleted". "Being handled" is marked inferred. The
   Receives tooltip, the Tenants p95 note, the Stuck age note and the body tab's "not opted in" text say what
   they are computed from. The Tenants note no longer mentions a 2,000-message cap that no longer applies. (QV-247)
+- FIFO queues: a second send that SQS deduplicated (same MessageId within the 5-minute deduplication window, nothing
+  enqueued) is now marked `deduplicated: true` on the timeline, with the reason, instead of showing as a second
+  plain "Sent" step. It no longer counts in the Tenants page's `total_sent`, a tenant's `sent` or its share. On
+  upgrade, SQLite schema 14 and Postgres schema 7 fix the counts of messages already stored (QV-246).
 
 ## 0.4.0: set up in one command
 
