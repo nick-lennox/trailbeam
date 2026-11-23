@@ -167,6 +167,44 @@ docker run -d --name trailbeam -p 127.0.0.1:4318:4318 -v trailbeam-data:/data gh
 Or without Docker: `pip install "trailbeam[server]"`, then run `trailbeam`. To build the image yourself:
 `docker build -t trailbeam .` from a clone.
 
+### Team install (Docker Compose with Postgres)
+
+For a team: one server several people's services send to, on its own Postgres, from one file.
+[`docker-compose.yaml`](docker-compose.yaml) runs the Trailbeam server and Postgres 16, each with a named
+volume, health checks and `restart: unless-stopped`. The token and passwords come from a `.env` file:
+
+```sh
+gh repo clone nick-lennox/trailbeam && cd trailbeam
+cp .env.example .env      # fill in TRAILBEAM_TOKEN, TRAILBEAM_RECEIPT_HASH_KEY and POSTGRES_PASSWORD (openssl rand -hex 32)
+docker compose up -d --build --wait
+# then open http://<this machine>:4318/ and sign in with the token
+```
+
+In every service that uses the Trailbeam packages, set the endpoint, the token and the same receipt-hash key:
+
+```sh
+TRAILBEAM_OTLP_TRACES_ENDPOINT=http://<this machine>:4318/v1/traces
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<TRAILBEAM_TOKEN>
+TRAILBEAM_RECEIPT_HASH_KEY=<the same key as in .env>
+```
+
+- **The token is required.** The port listens on every interface (`TRAILBEAM_BIND=0.0.0.0` in `.env`; set
+  `127.0.0.1` for this machine only), so Compose refuses to start without `TRAILBEAM_TOKEN` and
+  `POSTGRES_PASSWORD`. It is plain HTTP: put a TLS proxy in front when it crosses a network you don't trust.
+- **The data stays** across `docker compose down` and `up`, and across restarts of the machine: spans are in the
+  `postgres-data` volume. `docker compose down -v` deletes them. Back up with `pg_dump`
+  ([Backup and restore](#backup-and-restore-postgres)): `docker compose exec -T postgres pg_dump -U trailbeam -Fc trailbeam > trailbeam.dump`.
+- **Postgres starts with `max_locks_per_transaction = 256`** instead of the stock 64, so a larger read pool or a
+  second server on the same database needs no Postgres restart ([lock table](#postgres-lock-table-max_locks_per_transaction)).
+  Its port is not published: only the Trailbeam container connects.
+- **Settings** in `.env`: `TRAILBEAM_RETENTION` (default `7d`), `TRAILBEAM_STORE_BODIES` and the port. For
+  per-queue settings, mount a [configuration file](#configuration-file) in `docker-compose.yaml`.
+- **Upgrading:** `git pull`, then `docker compose up -d --build --wait` ([Upgrades](#upgrades)). The image is
+  built from the checkout with the Postgres driver, because the published image has SQLite only.
+
+CI starts it from `.env.example` on every change, sends a span with the token and checks it is still there
+after `docker compose down && up`.
+
 With no access token set (the default), anyone who can reach the port can send spans and read every
 timeline, so keep it on `127.0.0.1` or a trusted network, or set a token ([Access token](#access-token)). See
 [Run Trailbeam](https://docs.trailbeam.app/setup/run) and, to forward spans through an OpenTelemetry Collector, the
