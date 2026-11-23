@@ -715,7 +715,15 @@ with `shared_buffers = 1GB`:
 - **The tenants page** added up every tenant event in its time window on each request, so it got slower as
   data grew: p95 1.5 s at 4M spans and 2.8 s at 7M. The other pages stayed under 500 ms (p95) under ingest. It
   now reads an hourly rollup per tenant: at 1M spans on the same desktop, idle, p95 went from 184 ms to 44 ms
-  for the last day and from 670 ms to 193 ms for the last 7 days. It hasn't been measured at 4M or 7M since.
+  for the last day and from 670 ms to 193 ms for the last 7 days. That rollup covers only the whole hours of the
+  window, though, and the page still read every raw event of the current hour. Right after heavy ingest that
+  made it slow again: 1.1 s at 5.3M spans and 2.1 s at 9.4M in QV-180, with 2.5M events in the current hour. Since
+  QV-224 the current hour is read from the rollup too, less the few events newer than the window. With 2.06M of
+  3.3M tenant events in the current hour, idle, p95 for the last day went from 2.07 s to 55 ms, for the last hour
+  from 2.19 s to 21 ms and for the last 7 days from 2.30 s to 248 ms, with the same answers. The hour at the start
+  of the window still reads up to half an hour of raw events, which Postgres added up at about 2M per 250 ms
+  here. At a steady 2,000 spans/s that is about 3.6M events, or roughly 450 ms (an estimate; not measured under
+  ingest).
 
 To trade durability for latency, as `--durability relaxed` does for SQLite, set it on Trailbeam's role:
 `ALTER ROLE trailbeam SET synchronous_commit = off;`. A crash of Postgres can then lose the exports answered `200`

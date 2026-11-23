@@ -8,6 +8,7 @@ gives, whatever order spans come in and after retention (test_summary.py checks 
 import json
 import math
 import random
+import unittest.mock
 
 import pytest
 
@@ -57,14 +58,58 @@ def test_sketches_merge_and_subtract_exactly():
     assert Sketch.loads(both.dumps()) == both and Sketch.loads("") == Sketch()
 
 
-def test_ranges_split_into_whole_hours_and_the_parts_at_either_end():
-    h = 1000
-    assert rollup.split(h * HOUR_MS, (h + 3) * HOUR_MS - 1) == ((h, h + 2), [])
-    assert rollup.split(h * HOUR_MS + 5, (h + 3) * HOUR_MS) == (
-        (h + 1, h + 2), [(h * HOUR_MS + 5, (h + 1) * HOUR_MS - 1), ((h + 3) * HOUR_MS, (h + 3) * HOUR_MS)])
-    assert rollup.split(h * HOUR_MS + 5, h * HOUR_MS + 9) == (None, [(h * HOUR_MS + 5, h * HOUR_MS + 9)])
-    assert rollup.split(h * HOUR_MS + 5, (h + 1) * HOUR_MS + 9) == (None, [(h * HOUR_MS + 5, (h + 1) * HOUR_MS + 9)])
-    assert rollup.split(0, 0) == (None, [(0, 0)])
+def test_a_range_reads_whole_hours_from_the_rollup_and_each_partial_hour_the_shorter_way():
+    h, H = 1000, HOUR_MS
+    assert rollup.plan(h * H, (h + 3) * H - 1) == ((h, h + 2), [])
+    # a short part at either end: its own events
+    assert rollup.plan((h + 1) * H - 10, (h + 3) * H + 9) == (
+        (h + 1, h + 2), [((h + 1) * H - 10, (h + 1) * H - 1, 1), ((h + 3) * H, (h + 3) * H + 9, 1)])
+    # a long part: the hour's rollup rows less the rest of the hour (the last day, ending now: the current hour
+    # less what is newer than now)
+    assert rollup.plan(h * H + 5, (h + 3) * H + H - 10) == (
+        (h, h + 3), [(h * H, h * H + 4, -1), ((h + 4) * H - 9, (h + 4) * H - 1, -1)])
+    # within one hour: short, events; long, the hour less both sides
+    assert rollup.plan(h * H + 5, h * H + 9) == (None, [(h * H + 5, h * H + 9, 1)])
+    assert rollup.plan(h * H + 5, (h + 1) * H - 7) == ((h, h), [(h * H, h * H + 4, -1), ((h + 1) * H - 6, (h + 1) * H - 1, -1)])
+    # two partial hours side by side
+    assert rollup.plan(h * H + 5, (h + 1) * H + 9) == ((h, h), [(h * H, h * H + 4, -1), ((h + 1) * H, (h + 1) * H + 9, 1)])
+    assert rollup.plan(0, 0) == (None, [(0, 0, 1)])
+    assert rollup.plan(9, 8) == (None, [])
+    # half an hour or less: events, so at most half an hour of events at each end
+    assert rollup.plan(h * H, h * H + H // 2 - 1) == (None, [(h * H, h * H + H // 2 - 1, 1)])
+    assert rollup.plan(h * H, h * H + H // 2) == ((h, h), [(h * H + H // 2 + 1, (h + 1) * H - 1, -1)])
+    # the current hour, five minutes in, ending now: its rest is in the future, so it is the rollup less that
+    now = (h + 30) * H + 5 * 60_000
+    assert rollup.plan(now - 24 * H, now, now) == (
+        (h + 6, h + 30), [((h + 6) * H, now - 24 * H - 1, -1), (now + 1, (h + 31) * H - 1, -1)])
+    assert rollup.plan(now - 24 * H + 40 * 60_000, now, now) == (  # 20 minutes of that hour: its events
+        (h + 7, h + 30), [(now - 24 * H + 40 * 60_000, (h + 7) * H - 1, 1), (now + 1, (h + 31) * H - 1, -1)])
+    assert rollup.plan(now - 60_000, now, now) == (None, [(now - 60_000, now, 1)])  # 1 minute against 4
+    assert rollup.plan(now - 4 * 60_000, now, now) == ((h + 30, h + 30), [((h + 30) * H, now - 4 * 60_000 - 1, -1),
+                                                                          (now + 1, (h + 31) * H - 1, -1)])
+    # a range in the future: its events (none, or the few from clocks ahead)
+    assert rollup.plan(now + H, now + H + 10, now) == (None, [(now + H, now + H + 10, 1)])
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_the_plan_covers_the_range_exactly(seed):
+    """Every ms in the range is counted once and every other ms of the hours read none, net."""
+    rnd = random.Random(seed)
+    H = 1000  # a small hour, so each ms can be checked
+    for _ in range(300):
+        a = rnd.randrange(0, 6 * H)
+        b = a + rnd.choice([0, 1, H // 2, H - 1, H, rnd.randrange(0, 5 * H)])
+        with unittest.mock.patch.object(rollup, "HOUR_MS", H):
+            hours, events = rollup.plan(a, b)
+        net = {}
+        if hours:
+            for t in range(hours[0] * H, (hours[1] + 1) * H):
+                net[t] = net.get(t, 0) + 1
+        for x, y, sign in events:
+            for t in range(x, y + 1):
+                net[t] = net.get(t, 0) + sign
+        assert {t for t, n in net.items() if n} == set(range(a, b + 1)) and set(net.values()) <= {0, 1}, (a, b)
+        assert sum(y - x + 1 for x, y, _ in events) <= H, (a, b)  # at most half an hour of events at each end
 
 
 # ---- the page from the rollup ---------------------------------------------------------------------------
