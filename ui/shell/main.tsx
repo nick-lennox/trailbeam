@@ -7,7 +7,7 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  BodyPanel, EmptyState, TenantsTable, TimelineView, answerFor, lookupEmpty, storeIsEmpty, tenantsEmpty, tenantsFootnote,
+  BodyPanel, EmptyState, NoticeText, TenantsTable, TimelineView, answerFor, lookupEmpty, storeIsEmpty, tenantsEmpty, tenantsFootnote,
   type EmptyStateProps, type MessageBody, type TenantStats, type Timeline,
 } from "../src/index.ts";
 import { ApiError, Header, getHealth, getJSON, tenantHref } from "./chrome.tsx";
@@ -127,10 +127,11 @@ function MessagePage() {
         {state.kind === "not-found" && <EmptyState {...state.empty} />}
         {state.kind === "ok" && (
           <>
-            {state.t.notices.length > 0 && (
+            {/* The timeline card draws its own notices; only the Body tab needs them here. */}
+            {tab === "body" && state.t.notices.length > 0 && (
               <ul className="mb-4 grid gap-2">
                 {state.t.notices.map((n) => (
-                  <li key={n.code} className="rounded-[12px] border border-sky-line bg-sky-2 px-4 py-3 text-[15px] leading-[1.5] text-sky-ink-2">{n.message}</li>
+                  <li key={n.code} className="rounded-[12px] border border-sky-line bg-sky-2 px-4 py-3 text-[15px] leading-[1.5] text-sky-ink-2"><NoticeText n={n} /></li>
                 ))}
               </ul>
             )}
