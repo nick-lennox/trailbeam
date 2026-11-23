@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **A team install from one file: `docker-compose.yaml`.** `cp .env.example .env`, fill in the token, the
+  receipt-hash key and the Postgres password, then `docker compose up -d --build --wait`: the Trailbeam server
+  and Postgres 16, a named volume for each, health checks, `restart: unless-stopped`, and
+  `max_locks_per_transaction = 256` on Postgres. Compose refuses to start without the token. CI starts it from
+  `.env.example`, sends a span and checks the data survives `docker compose down && up`
+  ([Team install](README.md#team-install-docker-compose-with-postgres)).
 - **Postgres: the lookup tables are time-bucketed (schema 5).** `mid_places` and `hash_places` are partitioned
   by day like the spans, so ingest writes only to recent partitions and retention drops them whole (before, it
   deleted their rows in batches). Older days are sealed into a Bloom filter, about 2.5 bytes per key, kept by
