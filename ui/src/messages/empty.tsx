@@ -40,7 +40,7 @@ export function duplicatesEmpty(params: Record<string, string>, empty: boolean):
     title: `No duplicate deliveries for "${DUPLICATE_REASONS[params.reason] ?? params.reason}".`,
     link: { href: without("/duplicates", params, "reason"), label: "Show every reason" },
   };
-  return { title: "No duplicate deliveries.", detail: "No message was received more than once or processed successfully more than once." };
+  return { title: "No duplicate deliveries.", detail: "No message was received more than once or handled more than once." };
 }
 
 export function stuckEmpty(olderThanS: number, empty: boolean): EmptyStateProps {
