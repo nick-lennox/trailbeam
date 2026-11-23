@@ -26,6 +26,10 @@ service to the store when nothing shows up. Teams get a `docker-compose.yaml` wi
   when the server is unreachable. `await trailbeam.forceFlush()` before a script ends is no longer needed,
   except before `process.exit()`.
 - **Postgres**: the lookup tables are partitioned by day, so ingest and retention touch only recent data.
+- **A down or slow server no longer holds up your service's exit**: the Python and Node.js packages wait at
+  most 2 s (`TRAILBEAM_SHUTDOWN_TIMEOUT_MS`), and the drop warning says what to check.
+- **Runnable examples** in [`examples/`](examples/README.md) for boto3, AWS SDK v3 and Lambda with an SQS
+  trigger, each started with one `docker compose` command.
 
 ### Upgrading from 0.3.0
 
@@ -61,6 +65,24 @@ stopped part way, the next start runs it again; rows already copied are left as 
 
 ### All changes
 
+- **Python: a down or slow Trailbeam server no longer holds up your process's exit.** Shutdown
+  (`uninstall()`, or interpreter exit) waited for the OTLP exporter's retries and 10 s request timeout, so a
+  short script took 6 s longer to exit with the server unreachable and 10 s longer with it slow. It now waits
+  at most `TRAILBEAM_SHUTDOWN_TIMEOUT_MS` (default 2000) and counts what is left as `shutdown` drops. The
+  Lambda wrapper's flushes now keep to `flush_timeout_millis` (the SDK ignored it). The drop warning now says
+  what to check for each reason: for `export_failed`, the server's address and the token in
+  `OTEL_EXPORTER_OTLP_HEADERS`, instead of advice about high volume. The Python README lists what happens to
+  spans in each case. (QV-169)
+- **Node.js: the same.** A short script with the server unreachable took 8 s longer to exit, 10 s with it slow,
+  because the event loop waited for the OTLP exporter's retries and request timeout. `uninstall()` and the
+  export when the event loop empties now keep to `TRAILBEAM_SHUTDOWN_TIMEOUT_MS` (2 s), the drop warning gives
+  the same per-reason advice, and drops held back by the once-a-minute limit are printed at exit instead of
+  being lost from the count. The Node.js README lists what happens to spans in each case. (QV-169)
+- **Runnable examples.** [`examples/`](examples/README.md) has one small service for each common setup:
+  Python with boto3, a Python Lambda function with an SQS trigger, Node.js with AWS SDK v3, and a Node.js
+  Lambda function with an SQS trigger. Each runs with one `docker compose` command against ElasticMQ and a
+  local Trailbeam, and sends three orders: one processed, one retried after the visibility timeout, one
+  moved to the dead-letter queue. CI runs every example and checks the three timelines. (QV-172)
 - **The Tenants page no longer slows down after heavy ingest.** It read every raw event of the current hour,
   so right after a burst of traffic it took 1–2 s on Postgres (QV-180). It now reads the current hour from the
   hourly rollup, less the few events newer than the window, and adds up the raw events it still reads in SQL.

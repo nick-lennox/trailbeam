@@ -11,6 +11,12 @@ of three reasons:
   the OTLP exporter has already retried what it can);
 - ``shutdown``: still queued when shutdown gave up, or ended after shutdown.
 
+Shutdown (``uninstall()``, and the SDK's ``atexit`` hook at interpreter exit) waits at most
+$TRAILBEAM_SHUTDOWN_TIMEOUT_MS (default 2,000 ms) for the queue to drain, so an unreachable or slow
+Trailbeam server cannot hold up the process's exit by the exporter's retries and 10 s request timeout
+(QV-169); what is still queued then is a ``shutdown`` drop. ``force_flush`` keeps to its timeout too,
+which the SDK's processor does not.
+
 The gate counts a span as queued from ``on_end`` until its export returns, which is never less than
 what the SDK's queue holds, and the SDK's queue has the same capacity, so the SDK itself never drops on
 a full queue. Only public SDK APIs are used, so this works with every SDK version the package allows.
@@ -34,6 +40,8 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, Spa
 log = logging.getLogger("trailbeam")
 
 QUEUE_SIZE_ENV = "TRAILBEAM_MAX_QUEUE_SIZE"
+SHUTDOWN_TIMEOUT_ENV = "TRAILBEAM_SHUTDOWN_TIMEOUT_MS"
+DEFAULT_SHUTDOWN_TIMEOUT_MS = 2000
 # The SDK default is 2,048: two seconds at the 1,000 spans/s small-tier target. 16,384 holds about 16 s
 # of that rate, at about 3 KB per span without bodies (QV-75 measurement), so about 50 MB when full.
 DEFAULT_MAX_QUEUE_SIZE = 16384
@@ -69,7 +77,9 @@ class _Stats:
         with self.lock:
             self.exported += n
 
-    def add_dropped(self, reason: str, n: int, limit: int) -> None:
+    def add_dropped(self, reason: str, n: int, limit: int, final: bool = False) -> None:
+        """Count ``n`` drops and log them, now or at the next interval. ``final``: the caller logs them
+        with ``report(final=True)`` straight after."""
         if n <= 0:
             return
         report = False
@@ -77,7 +87,9 @@ class _Stats:
             self.dropped[reason] += n
             self.unreported[reason] += n
             now = time.monotonic()
-            if self.last_report is None or now - self.last_report >= REPORT_INTERVAL_S:
+            if final:
+                pass
+            elif self.last_report is None or now - self.last_report >= REPORT_INTERVAL_S:
                 report = True
             elif self.timer is None:
                 self.timer = threading.Timer(REPORT_INTERVAL_S - (now - self.last_report), self.report, (limit,))
@@ -105,10 +117,26 @@ class _Stats:
         parts = ", ".join(f"{unreported[r]} {r.replace('_', ' ')}" for r in REASONS if unreported[r])
         log.warning(
             "trailbeam: dropped %d spans%s (%s); %d dropped since start. These messages will have gaps in "
-            "their Trailbeam timelines. The export queue holds %d spans (%s). For high volume, export through "
-            "an OpenTelemetry Collector with a persistent queue: %s%s",
-            n, since, parts, total, limit, QUEUE_SIZE_ENV, DOCS,
+            "their Trailbeam timelines. %s%s",
+            n, since, parts, total, advice(unreported, limit),
             "" if final else f". The next count follows in {REPORT_INTERVAL_S:.0f} s if spans are still dropped.")
+
+
+def advice(reasons: dict, limit: int) -> str:
+    """What to do about the drops in ``reasons``, one sentence per reason that has any."""
+    out = []
+    if reasons.get("export_failed"):
+        out.append("Export failed: the Trailbeam server was unreachable, too slow, or refused the spans (a "
+                   "401 is a missing or wrong token in OTEL_EXPORTER_OTLP_HEADERS); the exporter's own log "
+                   "line says which")
+    if reasons.get("queue_full"):
+        out.append(f"The export queue holds {limit} spans ({QUEUE_SIZE_ENV}). For high volume, export "
+                   f"through an OpenTelemetry Collector with a persistent queue: {DOCS}")
+    if reasons.get("shutdown"):
+        out.append(f"Shutdown waits at most {configured_shutdown_timeout_ms()} ms for the queue to drain "
+                   f"({SHUTDOWN_TIMEOUT_ENV}); if the Trailbeam server is unreachable or slow, the export does "
+                   "not finish in that time")
+    return ". ".join(out)
 
 
 _stats = _Stats()
@@ -156,6 +184,28 @@ def configured_max_queue_size() -> int:
     return DEFAULT_MAX_QUEUE_SIZE
 
 
+def configured_shutdown_timeout_ms() -> int:
+    """$TRAILBEAM_SHUTDOWN_TIMEOUT_MS if it is a non-negative integer, else the default."""
+    raw = os.environ.get(SHUTDOWN_TIMEOUT_ENV, "").strip()
+    if raw:
+        try:
+            value = int(raw)
+            if value >= 0:
+                return value
+        except ValueError:
+            pass
+        log.warning("trailbeam: ignoring %s=%r, which is not a non-negative integer", SHUTDOWN_TIMEOUT_ENV, raw)
+    return DEFAULT_SHUTDOWN_TIMEOUT_MS
+
+
+def _in_thread(fn, timeout_s: float) -> bool:
+    """Run ``fn`` in a daemon thread; True if it returned within ``timeout_s``. An exception counts as done."""
+    t = threading.Thread(target=fn, name="trailbeam-export-wait", daemon=True)
+    t.start()
+    t.join(timeout_s)
+    return not t.is_alive()
+
+
 def _env_batch_size() -> int:
     try:
         return int(os.environ.get("OTEL_BSP_MAX_EXPORT_BATCH_SIZE", DEFAULT_MAX_EXPORT_BATCH_SIZE))
@@ -167,6 +217,7 @@ class _CountingExporter(SpanExporter):
     def __init__(self, inner: SpanExporter, owner: "CountingSpanProcessor"):
         self.inner = inner
         self.owner = owner
+        self._stopped = False
 
     def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
         result = SpanExportResult.FAILURE
@@ -177,6 +228,9 @@ class _CountingExporter(SpanExporter):
             self.owner._exported(len(spans), result == SpanExportResult.SUCCESS)
 
     def shutdown(self) -> None:
+        if self._stopped:  # once: the processor stops it early when shutdown runs out of time
+            return
+        self._stopped = True
         self.inner.shutdown()
 
     def force_flush(self, timeout_millis: int = 30000) -> bool:
@@ -186,13 +240,18 @@ class _CountingExporter(SpanExporter):
 class CountingSpanProcessor(SpanProcessor):
     """A ``BatchSpanProcessor`` with a bounded queue whose every lost span is counted (module docstring)."""
 
-    def __init__(self, exporter: SpanExporter, max_queue_size: Optional[int] = None, **batch_kwargs):
+    def __init__(self, exporter: SpanExporter, max_queue_size: Optional[int] = None,
+                 shutdown_timeout_millis: Optional[int] = None, **batch_kwargs):
         self.limit = max_queue_size or configured_max_queue_size()
+        self.shutdown_timeout_millis = (configured_shutdown_timeout_ms() if shutdown_timeout_millis is None
+                                        else shutdown_timeout_millis)
         batch_kwargs.setdefault("max_export_batch_size", min(_env_batch_size(), self.limit))
         self._lock = threading.Lock()
         self.queued = 0
         self._shutdown = False
-        self.batch = BatchSpanProcessor(_CountingExporter(exporter, self), max_queue_size=self.limit,
+        self._final = False  # set when shutdown has counted what is left; later export results are ignored
+        self._exporter = _CountingExporter(exporter, self)
+        self.batch = BatchSpanProcessor(self._exporter, max_queue_size=self.limit,
                                         **batch_kwargs)
         _processors.add(self)
         if hasattr(os, "register_at_fork"):
@@ -223,6 +282,8 @@ class CountingSpanProcessor(SpanProcessor):
 
     def _exported(self, n: int, ok: bool) -> None:
         with self._lock:
+            if self._final:
+                return  # finished after shutdown gave up on it: counted as a shutdown drop already
             self.queued -= n
         if ok:
             _stats.add_exported(n)
@@ -230,17 +291,33 @@ class CountingSpanProcessor(SpanProcessor):
             _stats.add_dropped("export_failed", n, self.limit)
 
     def force_flush(self, timeout_millis: int = 30000) -> bool:
-        return self.batch.force_flush(timeout_millis)
+        """Export what is queued; returns False if that did not finish within ``timeout_millis``. The
+        SDK's processor ignores the timeout (opentelemetry-python#4568), so the wait is bounded here; an
+        export still running afterwards carries on in the background and is counted when it ends."""
+        result = [False]
+
+        def flush() -> None:
+            result[0] = self.batch.force_flush(timeout_millis)
+
+        return _in_thread(flush, timeout_millis / 1000) and result[0]
 
     def shutdown(self) -> None:
+        """Export what is queued, waiting at most ``shutdown_timeout_millis``; then stop the exporter (which
+        ends its retries) and count what is left as ``shutdown`` drops. Never raises."""
         with self._lock:
             if self._shutdown:
                 return
             self._shutdown = True
         try:
-            self.batch.shutdown()
+            if not _in_thread(self.batch.shutdown, self.shutdown_timeout_millis / 1000):
+                log.debug("trailbeam: shutdown gave up after %d ms", self.shutdown_timeout_millis)
+                try:
+                    self._exporter.shutdown()
+                except Exception:
+                    log.debug("trailbeam: exporter shutdown failed", exc_info=True)
         finally:
             with self._lock:
+                self._final = True
                 left, self.queued = self.queued, 0
-            _stats.add_dropped("shutdown", left, self.limit)
+            _stats.add_dropped("shutdown", left, self.limit, final=True)
             _stats.report(self.limit, final=True)

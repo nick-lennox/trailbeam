@@ -39,8 +39,10 @@ answers a narrower question: where did this one message go?
 
 ## Features
 
-- **One timeline per message.** Every send, receive, delete and visibility change your services
-  make, joined into a single history you open by message ID.
+- **One timeline per message.** Every message your services send or receive, and every delete and
+  visibility change they make, joined into a single history you open by message ID. Failed sends,
+  empty receives, purges and moves back from a dead-letter queue are not recorded
+  ([what is not recorded](https://docs.trailbeam.app/concepts/what-is-recorded#what-is-not-recorded)).
 - **Recorded and inferred steps are kept apart.** Trailbeam orders two events only when an observed
   fact proves the order, and marks every step it inferred, such as a visibility timeout that expired.
 - **Deletes joined to their receives.** A delete carries a receipt handle, not a message ID. Trailbeam
@@ -103,6 +105,10 @@ const sqs = trailbeam.instrument(new SQSClient({}));
 Send, receive or delete a message, then open http://127.0.0.1:4318/ and click its message ID. A Node.js
 script that ends by calling `process.exit()` must call `await trailbeam.uninstall()` first; otherwise the
 package sends its last spans when the script ends.
+If Trailbeam is down, slow, or given the wrong token, your service keeps running at full speed and its exit
+waits at most 2 s; the lost spans are counted and logged. What happens to spans in each case:
+[Python](python/README.md#when-the-server-is-down-or-the-process-ends),
+[Node.js](node/README.md#when-the-server-is-down-or-the-process-ends).
 
 On the same machine nothing else is needed: the packages send to `http://localhost:4318/v1/traces` by
 default. Each service prints a warning that it uses the published default receipt-hash key until you set
@@ -142,6 +148,23 @@ holds a different key, the environment variable wins and one warning says so. Ev
 same with Docker and no Python ([Node.js README](node/README.md#run-the-server-npx-trailbeam-start)). Both need
 0.4.0 or later. Nothing on the screen? Run `trailbeam doctor` ([Troubleshooting](#troubleshooting-no-data-arriving)).
 
+### Runnable examples
+
+[`examples/`](examples/README.md) has the smallest complete service for each common setup, each started
+with one command against an SQS emulator and a local Trailbeam (Docker, no AWS account):
+[Python with boto3](examples/python-boto3/README.md),
+[Python Lambda with an SQS trigger](examples/python-lambda/README.md),
+[Node.js with AWS SDK v3](examples/node-sdk-v3/README.md) and
+[Node.js Lambda with an SQS trigger](examples/node-lambda/README.md). Each sends three orders whose
+timelines show a message processed, a retry after the visibility timeout, and a move to the dead-letter
+queue. CI runs every one of them.
+
+```sh
+git clone https://github.com/nick-lennox/trailbeam.git && cd trailbeam
+docker compose -f examples/python-boto3/compose.yaml up --build
+# then open the links it prints
+```
+
 ### See a richer example
 
 The [demo](demo/README.md) runs Trailbeam, an SQS emulator and sample services with Docker and no AWS
@@ -176,7 +199,9 @@ script that do this end to end are in
 Add the hooks to every service that sends, receives or deletes on the queues you care about. A
 service without them leaves gaps in a message's history.
 
-Install and instrument boto3 and AWS SDK v3 clients as in the [Quickstart](#quickstart). For AWS
+Install and instrument boto3 and AWS SDK v3 clients as in the [Quickstart](#quickstart). The Python
+package instruments every boto3 and botocore client in the process, but not aiobotocore. The Node.js
+package instruments only the clients you pass to `trailbeam.instrument()`, and only AWS SDK v3. For AWS
 Lambda, wrap the handler:
 
 ```python
@@ -1179,7 +1204,8 @@ The documentation is at [docs.trailbeam.app](https://docs.trailbeam.app).
 What changed in each release, with upgrade notes: [CHANGELOG.md](CHANGELOG.md).
 
 The reference for each part of this repository is next to its code: [`python/`](python/README.md),
-[`node/`](node/README.md), [`collector/`](collector/README.md) and [`demo/`](demo/README.md). The span
+[`node/`](node/README.md), [`collector/`](collector/README.md), [`demo/`](demo/README.md) and
+[`examples/`](examples/README.md). The span
 contract, the specification the packages and Trailbeam both follow, is
 [`contract/span-contract.md`](contract/span-contract.md).
 

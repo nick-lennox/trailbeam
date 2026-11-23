@@ -1,0 +1,44 @@
+# docker compose -f examples/python-boto3/compose.yaml up --build
+name: trailbeam-example-python-boto3
+
+include:
+  - ../shared/compose.yaml
+
+x-service: &service
+  build: { context: ../.., dockerfile: examples/python-boto3/Dockerfile }
+  init: true
+  depends_on:
+    sqs: { condition: service_healthy }
+    trailbeam: { condition: service_healthy }
+  environment: &env
+    SQS_ENDPOINT: http://sqs:9324
+    TRAILBEAM_OTLP_TRACES_ENDPOINT: http://trailbeam:4318/v1/traces
+    # Every service on the same queues needs the same key, so a delete joins to its receive. Make your own
+    # with `openssl rand -hex 32` and keep it secret; this one is for the example only.
+    TRAILBEAM_RECEIPT_HASH_KEY: example-only-receipt-hash-key-do-not-reuse
+    AWS_DEFAULT_REGION: us-east-1                     # read by boto3
+    AWS_ACCESS_KEY_ID: example-not-a-real-key        # dummy values for the emulator
+    AWS_SECRET_ACCESS_KEY: example-not-a-real-secret
+
+services:
+  producer:
+    <<: *service
+    command: ["python", "producer.py"]
+    environment:
+      <<: *env
+      OTEL_SERVICE_NAME: orders-producer
+      TRAILBEAM_UI: http://127.0.0.1:${TRAILBEAM_EXAMPLE_PORT:-4318}
+
+  worker:
+    <<: *service
+    command: ["python", "worker.py"]
+    environment:
+      <<: *env
+      OTEL_SERVICE_NAME: orders-worker
+
+  dlq-reader:
+    <<: *service
+    command: ["python", "dlq.py"]
+    environment:
+      <<: *env
+      OTEL_SERVICE_NAME: orders-dlq-reader

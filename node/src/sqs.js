@@ -25,7 +25,7 @@ const { Emitter, makeProvider, nowMs, SERVICE_INSTANCE_ID } = require('./emitter
 const { HandleMap } = require('./handles');
 const order = require('./order');
 const capture = require('./capture');
-const { stats: exportStats } = require('./export');
+const { stats: exportStats, reportPending, shortenExports } = require('./export');
 
 const MIDDLEWARE_NAME = 'trailbeamSqsMiddleware';
 
@@ -305,9 +305,12 @@ function addExitHooks() {
   if (exitHooksAdded) return;
   exitHooksAdded = true;
   process.on('beforeExit', () => {
-    if (state) state.provider.forceFlush().catch((e) => debug('flush at exit', e));
+    if (!state) return;
+    shortenExports(); // a down or slow server must not keep the process open for long (QV-169)
+    state.provider.forceFlush().catch((e) => debug('flush at exit', e));
   });
   process.on('exit', () => {
+    reportPending(); // drops since the last warning, which the rate limit held back
     const { queued } = exportStats();
     if (queued === 0) return;
     process.stderr.write(`trailbeam: ${queued} span${queued === 1 ? ' was' : 's were'} not exported because the ` +
