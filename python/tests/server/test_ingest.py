@@ -123,7 +123,7 @@ def test_health(server, db):
     status, h = get(server, "/api/health")
     assert status == 200 and h["status"] == "ok"
     assert h["ingest"]["inserted"] == 2
-    assert h["data"] == {"last_row": 2}
+    assert h["data"] == {"last_row": 2, "last_span_ns": h["data"]["last_span_ns"]} and h["data"]["last_span_ns"] > 0
     status, st = get(server, "/api/stats")
     assert status == 200
     assert st["data"] == {"spans": {"receive": 1, "delete": 1}, "messages": 1, "unjoined_settles": 1}
@@ -140,7 +140,7 @@ def test_health_answers_while_an_export_is_being_written(server, db):
             status2, st = get(server, "/api/stats")
         finally:
             db.conn.execute("ROLLBACK")
-    assert status == 200 and h["data"] == {"last_row": 0}
+    assert status == 200 and h["data"] == {"last_row": 0, "last_span_ns": None}
     assert status2 == 200 and st["data"]["spans"] == {}
 
 
