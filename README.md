@@ -422,8 +422,9 @@ TRAILBEAM_TOKEN=$DOC_TOKEN python3 python/smoke/team_check.py http://127.0.0.1:4
   Its port is not published: only the Trailbeam container connects.
 - **Settings** in `.env`: `TRAILBEAM_RETENTION` (default `7d`), `TRAILBEAM_STORE_BODIES` and the port. For
   per-queue settings, mount a [configuration file](#configuration-file) in `docker-compose.yaml`.
-- **Upgrading:** `git pull`, then `docker compose up -d --build --wait` ([Upgrades](#upgrades)). The image is
-  built from the checkout with the Postgres driver, because the published image has SQLite only.
+- **Upgrading:** `git pull`, then `docker compose up -d --build --wait` ([Upgrades](#upgrades)). Compose builds
+  the image from the checkout with the Postgres driver, so it runs the code you pulled. Releases from 0.4.0
+  also publish that image as `ghcr.io/nick-lennox/trailbeam:<version>-postgres`, the Helm chart's default.
 
 CI starts it from `.env.example` on every change, sends a span with the token and checks it is still there
 after `docker compose down && up`.
