@@ -5,7 +5,8 @@ package emit, and that the Trailbeam reads. Both packages and Trailbeam are buil
 it. A change to anything below is a contract change: bump `trailbeam.schema_version`, and update this file,
 both packages and Trailbeam in the same change. A revision (3.1) only adds an optional attribute that
 older stores ignore and that Trailbeam does not require; it keeps `trailbeam.schema_version = 3` (sections 14
-and 16).
+and 16). Section 17 (the test span of `trailbeam doctor`) is not emitted by the packages and changes nothing they
+send.
 
 The keywords **must**, **must not**, **should** and **may** are used as in RFC 2119.
 
@@ -234,8 +235,10 @@ The prototype value `success_deleted_by_lambda` is renamed `success`, because th
 ### 4.5 What Trailbeam requires
 
 Trailbeam ([`otlp.py`](../python/src/trailbeam/server/otlp.py)) reads a span only if its instrumentation scope
-is `trailbeam`. It counts spans of other scopes as ignored. It rejects a Trailbeam span, and reports the reason in
-the OTLP `partial_success` field, when any of these is true:
+is `trailbeam`. It counts spans of other scopes as ignored. A span of kind `trailbeam.probe` (the test span of
+`trailbeam doctor`) is checked only as section 17 says; no other rule of this section applies to it. It
+rejects any other Trailbeam span, and reports the reason in the OTLP `partial_success` field, when any of these is
+true:
 
 - `trailbeam.schema_version` is not `2` or `3`;
 - `trailbeam.kind` is unknown, or `sqs.settle` comes with a `messaging.operation.name` that is not a delete
@@ -782,3 +785,41 @@ Not verified:
 
 `trailbeam.schema_version` stays `3`: every new attribute is optional, Trailbeam requires none of them
 (section 4.5 is unchanged), and a Trailbeam built for 3.1 ignores them.
+
+## 17. The test span of `trailbeam doctor` (QV-148)
+
+`trailbeam doctor` checks that a span sent to ingest is stored and can be read back. It sends one **probe**: a
+span in the `trailbeam` scope that the packages never emit, which Trailbeam stores apart from the spans so it
+never shows as a message.
+
+| Attribute | Type | Req. | Value |
+|---|---|---|---|
+| `trailbeam.schema_version` | int | must | `2` or `3`, as any span (section 4.5) |
+| `trailbeam.kind` | string | must | `trailbeam.probe` |
+| `trailbeam.probe.id` | string | must | 8 to 64 characters, each a letter, a digit, `-` or `_` |
+
+Trailbeam reads no other attribute of a probe, and not its times or trace: it records the probe's ID and when it
+stored it (its own clock). A probe is **not** a span: it has no row, it is in no message, page, count, rollup,
+retention pass or `last_row`/`last_span_ns`, and it is not counted as inserted. Probes are stored after the
+spans of the same export, on the same writer (so a probe stored says the export path works), and are kept for
+at least a day. `GET /api/probes/{id}` answers when it was stored, or 404 ([`openapi.yaml`](openapi.yaml)).
+
+An export carries at most **8** probes (`trailbeam doctor` sends 1); Trailbeam rejects the rest, with the
+reason. The probes of one export are stored in one write transaction, whose time counts toward backpressure as
+the spans' write does.
+
+A rejected probe is rejected as a span would be: it counts as one rejected span, in
+`partial_success.rejected_spans` and in `GET /api/health` `ingest.rejected`, and its reason is in
+`partial_success.error_message`. Each reason starts with fixed text, so `trailbeam doctor` tells the cases apart:
+
+| Reason starts with | When |
+|---|---|
+| `probe span without a trailbeam.probe.id` | the probe has no valid `trailbeam.probe.id` |
+| `probe span not stored:` | the store does not keep probes |
+| `probe span over the limit of` | the export carries more than 8 probes |
+| `unknown trailbeam.kind 'trailbeam.probe'` | the answer of a Trailbeam older than this section (0.3 and before); nothing else in that export is affected |
+
+A wrong `trailbeam.schema_version` is rejected with the reason any span gets (section 4.5). `trailbeam doctor`
+reports each case as such, and does not count its own rejected probe among the rejected spans it reports.
+
+`trailbeam.schema_version` stays `3`: nothing the packages send changes.
