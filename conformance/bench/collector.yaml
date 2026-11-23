@@ -1,0 +1,16 @@
+# The conformance bench's Collector: every span it receives over OTLP/HTTP goes to one file, unchanged
+# (no batching, no sampling), so the checker sees exactly what the package exported.
+receivers:
+  otlp:
+    protocols:
+      http: {endpoint: 0.0.0.0:4318}
+exporters:
+  file:
+    path: /out/spans.jsonl
+    format: json
+    flush_interval: 200ms
+service:
+  telemetry:
+    logs: {level: warn}
+  pipelines:
+    traces: {receivers: [otlp], exporters: [file]}
