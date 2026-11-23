@@ -282,12 +282,12 @@ class Recorder:
 
         orig_api = server.App.api
 
-        def api(app, path, query):
+        def api(app, path, query, *who):
             with rec.outermost() as outer:
                 if not outer:
-                    return orig_api(app, path, query)
+                    return orig_api(app, path, query, *who)
                 try:
-                    out = orig_api(app, path, query)
+                    out = orig_api(app, path, query, *who)
                 except server.ApiError as e:
                     rec.record("GET", "/api/" + path, e.status, "application/json", {}, {"error": e.message})
                     raise
