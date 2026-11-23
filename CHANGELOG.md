@@ -25,6 +25,18 @@
     open, also when it listens only on localhost.
   - Creating people and tokens from the command line comes with `trailbeam users` and `trailbeam tokens`.
 
+- **Conformance kit: the Lambda wrappers** (QV-339, QV-318 stage 2). `trailbeam.aws_lambda.wrap` (Python) and
+  `wrapHandler` (Node.js) run in the AWS Lambda base images, invoked through their Runtime Interface Emulator by
+  a poller that plays Lambda's SQS event source mapping (`conformance/drivers/lambda-poller`). Cases: a success,
+  a reported failure in a batch of two, a redelivery, the move to the dead-letter queue after `maxReceiveCount`
+  and its receive there, an invalid `batchItemFailures`, and a thrown exception. The checker's Lambda rules
+  (`conformance/SCENARIO-LAMBDA.md`): `trailbeam.source = lambda` and `LambdaEvent`, zero-length receives with
+  `trailbeam.start_observed = false` and a `returned` tick only, the four outcome values and `error_type` derived
+  from the function's response, `faas.*`, `trailbeam.queue.arn` and the URL built from it, `trailbeam.batch.*`,
+  and that every receive span reached the Collector before the handler started (the bench's Collector now
+  stamps arrival times). Both wrappers pass in CI, with and without body capture and error text. Drivers can
+  have a `setup` command, run once (the Lambda drivers build their image there).
+
 - **Java package, stage 1** (QV-319, pre-release, not published). `java/` is a jar for the AWS SDK for Java v2:
   add it as a dependency and a global `ExecutionInterceptor` (registered through the SDK's classpath file, no code)
   emits the contract's send, receive, delete, change-visibility and purge spans, with the keyed receipt-handle
