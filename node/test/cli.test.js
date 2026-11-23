@@ -73,7 +73,7 @@ test('dockerProblem tells the three failures apart', () => {
 test('default: the Docker volume, 127.0.0.1:4318, the matching image', () => {
   const { args } = cli.dockerArgs([], { env: {}, uid: 1000, gid: 1000 });
   const s = args.join(' ');
-  assert.ok(s.startsWith('run --rm --init --pull missing -p 127.0.0.1:4318:4318 '), s);
+  assert.ok(s.startsWith('run --rm --init --pull never -p 127.0.0.1:4318:4318 '), s);
   assert.ok(s.includes('-v trailbeam-data:/data'), s);
   assert.ok(s.includes('-e TRAILBEAM_START_SHOWN_DATA_DIR=the Docker volume trailbeam-data'), s);
   assert.ok(!args.includes('--user'), 'the volume belongs to the image user');
@@ -175,4 +175,66 @@ test('portProblem: null for a free port', async () => {
   const { port } = probe.address();
   await new Promise((resolve) => probe.close(resolve));
   assert.strictEqual(await cli.portProblem('127.0.0.1', port), null);
+});
+
+const ID = 'sha256:1111111111111111111111111111111111111111111111111111111111111111';
+const DIGEST = 'sha256:2222222222222222222222222222222222222222222222222222222222222222';
+
+test('imageInfo: one line with the reference, the image ID and the registry digest', () => {
+  const calls = [];
+  const run = (cmd, args) => {
+    calls.push(args[0] === 'image' ? 'inspect' : args[0]);
+    return { status: 0, stdout: `${ID} ghcr.io/nick-lennox/trailbeam@${DIGEST}\n` };
+  };
+  assert.deepStrictEqual(cli.imageInfo(cli.IMAGE, { run }),
+    { line: `trailbeam: running ${cli.IMAGE} (image ${ID}, ghcr.io/nick-lennox/trailbeam@${DIGEST})` });
+  assert.deepStrictEqual(calls, ['inspect'], 'an image already here is not pulled');
+});
+
+test('imageInfo: pulls a missing image, then inspects it; a failed pull is one line', () => {
+  const calls = [];
+  let pulled = false;
+  const run = (cmd, args, opts) => {
+    if (args[0] === 'pull') {
+      calls.push('pull');
+      assert.deepStrictEqual(opts.stdio, ['ignore', 2, 2], 'pull progress goes to stderr');
+      pulled = true;
+      return { status: 0 };
+    }
+    calls.push('inspect');
+    return pulled ? { status: 0, stdout: `${ID} ghcr.io/nick-lennox/trailbeam@${DIGEST}\n` }
+      : { status: 1, stderr: 'Error: No such image' };
+  };
+  assert.match(cli.imageInfo(cli.IMAGE, { run }).line, new RegExp(`image ${ID}`));
+  assert.deepStrictEqual(calls, ['inspect', 'pull', 'inspect']);
+  const failed = cli.imageInfo(cli.IMAGE, { run: (c, a) => ({ status: 1, stderr: a[0] === 'pull' ? 'denied' : 'No such image' }) });
+  assert.deepStrictEqual(failed, { problem: `trailbeam: can't pull ${cli.IMAGE}: see docker's message above.` });
+});
+
+test('imageInfo: TRAILBEAM_IMAGE is named as replacing the default; a local build has no digest', () => {
+  const run = () => ({ status: 0, stdout: `${ID} \n` });
+  assert.deepStrictEqual(cli.imageInfo('trailbeam:dev', { run }), { line: 'trailbeam: TRAILBEAM_IMAGE is set: running '
+    + `trailbeam:dev (image ${ID}, no registry digest: built here) instead of ${cli.IMAGE}` });
+});
+
+test('npx trailbeam start prints which image it runs, then runs it with --pull never', { skip: process.platform === 'win32' }, async () => {
+  const net = require('node:net');
+  const probe = net.createServer();
+  await new Promise((resolve) => probe.listen({ host: '127.0.0.1', port: 0 }, resolve));
+  const { port } = probe.address();
+  await new Promise((resolve) => probe.close(resolve));
+  const dir = tmp();
+  const log = path.join(dir, 'log');
+  fs.writeFileSync(path.join(dir, 'docker'), `#!/bin/sh\necho "$*" >> '${log}'\n`
+    + `case "$1" in version) echo 29.0.0;; image) echo "${ID} my.registry/tb@${DIGEST}";; esac\nexit 0\n`,
+  { mode: 0o755 });
+  const r = runBin(['start', '--port', String(port)],
+    { PATH: `${dir}:/usr/bin:/bin`, HOME: dir, TRAILBEAM_IMAGE: 'my.registry/tb:x' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.strictEqual(r.stderr, 'trailbeam: TRAILBEAM_IMAGE is set: running my.registry/tb:x '
+    + `(image ${ID}, my.registry/tb@${DIGEST}) instead of ${cli.IMAGE}\n`);
+  const calls = fs.readFileSync(log, 'utf8').trim().split('\n');
+  assert.strictEqual(calls.length, 3, calls.join('\n'));
+  assert.match(calls[1], /^image inspect /);
+  assert.match(calls[2], /^run --rm --init --pull never .* my\.registry\/tb:x start --data-dir \/data$/);
 });

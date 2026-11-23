@@ -38,6 +38,11 @@ token, and the environment variables to set in your services, the same output as
 shows each one, `docker run --rm -v trailbeam-data:/data --entrypoint cat ghcr.io/nick-lennox/trailbeam:X.Y.Z
 /data/token` (and `/data/receipt-hash-key`), and the export lines run it with `$(...)`. Stop it with Ctrl-C.
 
+Before it starts the server it prints one line to stderr naming the image it runs: the reference, the local
+image ID and the registry digest, for example `trailbeam: running ghcr.io/nick-lennox/trailbeam:0.3.0 (image
+sha256:…, ghcr.io/nick-lennox/trailbeam@sha256:…)`. It pulls the image only when it isn't on this machine.
+`TRAILBEAM_IMAGE=REF` runs another image instead (a local build, a mirror), and the line then says so.
+
 It takes the same flags as the Python command (`npx trailbeam start --help` lists them), and the same
 `TRAILBEAM_` environment variables. The flags that name something on your machine work like this:
 
