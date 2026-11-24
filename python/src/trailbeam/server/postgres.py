@@ -137,7 +137,7 @@ from .lookup_filter import LookupFilter, hash_key, mid_key
 from .db import gate_body
 from .otlp import RECORD_FIELDS
 from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Cutoffs, ExportAbandoned, PurgeStep, Store,
-                    StoreFull, StoreUnavailable, StuckCandidate, TenantActivity, WriterBusy)
+                    StoreFull, StoreTimeout, StoreUnavailable, StuckCandidate, TenantActivity, WriterBusy)
 from .summary_table import COLUMNS, FIELDS, LISTS, ascii_lower
 
 log = logging.getLogger("trailbeam.server.postgres")
@@ -790,7 +790,8 @@ class PostgresStore(Store):
                abandoned=None) -> tuple[int, int]:
         """Store.insert. ``abandoned``: see Store.cancels_abandoned_exports; checked every WATCH_INTERVAL_S
         while the export's transaction runs, which is then cancelled (ExportAbandoned, nothing stored).
-        StoreUnavailable when the database can't be reached (nothing stored: the client sends it again).
+        StoreUnavailable when the database can't be reached, StoreTimeout when a statement runs past the statement
+        timeout (nothing stored either way: the client sends it again).
 
         ``wait_s`` bounds the wait for a pooled ingest connection (``ingest_connections`` of them: the
         exports this replica writes at once). Past it, with every connection in use by other exports, raise
@@ -800,8 +801,8 @@ class PostgresStore(Store):
         try:
             result = self._insert_records(records, abandoned, wait_s, timings)
         except (psycopg.OperationalError, psycopg_pool.PoolTimeout) as e:
-            if isinstance(e, errors.QueryCanceled):
-                raise  # a statement timeout: the database is there, the export is too slow
+            if isinstance(e, errors.QueryCanceled):  # a statement timeout (an abandoned export is ExportAbandoned)
+                raise StoreTimeout(f"a Postgres statement was cancelled: {e}") from None
             if isinstance(e, errors.DiskFull):
                 raise StoreFull(f"Postgres is out of disk space: {e}") from None
             full = self._lock_table_full(e)
@@ -1877,7 +1878,7 @@ class PostgresStore(Store):
             raise StoreUnavailable(f"Postgres is unreachable: {e}") from None
         except psycopg.OperationalError as e:
             if isinstance(e, errors.QueryCanceled):
-                raise
+                raise StoreTimeout(f"a Postgres statement was cancelled: {e}") from None
             if isinstance(e, errors.DiskFull):
                 raise StoreFull(f"Postgres is out of disk space: {e}") from None
             raise StoreUnavailable(f"Postgres is unreachable: {e}") from None

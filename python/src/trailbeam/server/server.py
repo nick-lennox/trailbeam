@@ -25,7 +25,7 @@ from .backpressure import GRPC_RESOURCE_EXHAUSTED, GRPC_UNAVAILABLE, IngestGate,
 from .sessions import Sessions
 from .signin import SignIn
 from .tokens import Tokens
-from .store import ExportAbandoned, Store, StoreFull, StoreUnavailable, WriterBusy
+from .store import ExportAbandoned, Store, StoreFull, StoreTimeout, StoreUnavailable, WriterBusy
 from .proxy import TrustedProxies
 from .otlp import PROBE_NOT_STORED, DecodeError, decode, valid_probe_id
 from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
@@ -101,7 +101,7 @@ class App:
         self.m_rejected = r.counter(
             "trailbeam_ingest_rejected_requests_total",
             "Exports answered 429 (queue_full), or 503 (writer_behind; store_unreachable: the database can't be "
-            "reached; store_full: its disk is full) with Retry-After. Nothing in them was stored; OTLP exporters retry them.", ("reason",))
+            "reached; store_full: its disk is full; store_timeout: a database statement timed out) with Retry-After. Nothing in them was stored; OTLP exporters retry them.", ("reason",))
         self.m_spans = r.counter(
             "trailbeam_ingest_spans_total",
             "Trailbeam spans in accepted exports: inserted, duplicate (already stored, e.g. a retry), invalid "
@@ -204,6 +204,18 @@ class App:
                 self.m_ingest_requests.inc(code=str(status))
             self.m_export.observe(time.perf_counter() - t0, outcome=outcome)
 
+    def _store_failed(self, e: StoreUnavailable, d, body: bytes) -> Rejected:
+        """The 503 for a store failure, logged: nothing of the export was stored, and the exporter retries it."""
+        if isinstance(e, StoreTimeout):  # QV-300: the size tells a lock pile-up from one export too big to write
+            log.error("ingest: export of %d span(s), %d bytes not stored: %s", len(d.records),
+                      len(body), e)
+            return self.gate.store_timeout()
+        if isinstance(e, StoreFull):
+            log.error("ingest: %s", e)
+            return self.gate.store_full()
+        log.warning("ingest: %s", e)
+        return self.gate.store_unreachable()
+
     def _ingest(self, body: bytes, content_type: str,
                 abandoned: Optional[Callable[[], bool]]) -> tuple[int, str, bytes, dict]:
         json_mode = (content_type or "").split(";")[0].strip().lower() == "application/json"
@@ -220,12 +232,8 @@ class App:
                 except WriterBusy:
                     self.m_wait.observe(self.gate.max_wait_s)
                     raise self.gate.writer_behind(self.gate.max_wait_s) from None
-                except StoreFull as e:
-                    log.error("ingest: %s", e)
-                    raise self.gate.store_full() from None
                 except StoreUnavailable as e:
-                    log.warning("ingest: %s", e)
-                    raise self.gate.store_unreachable() from None
+                    raise self._store_failed(e, d, body) from None
                 self.m_wait.observe(timings["wait_s"])
                 self.m_write.observe(timings["write_s"])
                 write_s = timings["write_s"]
@@ -237,12 +245,8 @@ class App:
                         d.rejected.extend([f"{PROBE_NOT_STORED} {e}"] * len(d.probes))
                     except WriterBusy:
                         raise self.gate.writer_behind(self.gate.max_wait_s) from None
-                    except StoreFull as e:
-                        log.error("ingest: %s", e)
-                        raise self.gate.store_full() from None
                     except StoreUnavailable as e:
-                        log.warning("ingest: %s", e)
-                        raise self.gate.store_unreachable() from None
+                        raise self._store_failed(e, d, body) from None
                     else:
                         write_s += time.perf_counter() - t
                         log.info("stored probe(s) %s (trailbeam doctor)", ", ".join(d.probes))
