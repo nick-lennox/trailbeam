@@ -1,4 +1,4 @@
-"""The shared UI's shell: served at /, /duplicates, /stuck, /message and /tenants when it is built, and the HTML pages
+"""The shared UI's shell: served at /, /duplicates, /stuck, /message, /tenants and /people (admins) when it is built, and the HTML pages
 otherwise."""
 import threading
 import urllib.error
@@ -50,6 +50,9 @@ def test_message_page_is_the_shell_when_built(db, built):
                      "/events", "/events?q=kind%3Adelete&range=7d"):
             status, _, page = get(base + path)
             assert (status, page) == (200, tenants), path
+        # People is the shell too, but only for an admin: with no admin yet, nobody gets it (test_people_api.py)
+        status, _, page = get(f"{base}/people")
+        assert status == 403 and b"Not allowed" in page and b"trailbeam users create" in page
     finally:
         httpd.shutdown(); httpd.server_close()
 
