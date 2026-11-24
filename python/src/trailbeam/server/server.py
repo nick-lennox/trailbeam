@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceResponse
 
 from . import __version__
+from . import queues as queues_mod
 from . import access as access_mod, auth as auth_mod, bodies, csrf, first_admin, metrics, passwords, queries, \
     sessions as sessions_mod, trace_links, ui_files, web
 from .accounts import AccountError, Accounts, AdminExists, BadSetupCode, check_email, check_name
@@ -86,7 +87,8 @@ class App:
         self.stats = {"requests": 0, "inserted": 0, "duplicates": 0, "ignored": 0, "rejected": 0}
         self.routes: dict[str, Callable[[dict, list[str]], object]] = {
             "health": self.health, "stats": self.stats_counts, "messages": self.messages, "duplicates": self.duplicates,
-            "stuck": self.stuck, "tenants": self.tenants, "probes": self.probes, "me": self.me}
+            "stuck": self.stuck, "tenants": self.tenants, "probes": self.probes, "me": self.me,
+            "queues": self.queues, "flows": self.flows}
         self._init_metrics()
 
     # ---- /metrics -------------------------------------------------------------------------
@@ -446,6 +448,58 @@ class App:
                     "from_ms": from_ms, "to_ms": to_ms}
         # the server's Lambda timeout, not a lambda_timeout_s parameter: it doesn't change what the page counts
         return queries.tenants(self.db, now, self.lambda_timeout_s, from_ms, to_ms, self.max_receive_counts)
+
+    def queues(self, q: dict, rest: list[str]) -> dict:
+        """``/api/queues/{queue}/series``: the queue page's charts (QV-360 design 4.3, 9), per bucket of ``step_s``
+        over [from_ms, to_ms] (default: the last day, and the page's step for the range). ``{queue}`` is a queue key
+        (queues.key, URL-encoded) or a queue's name, when one queue has it. queues.py says what each figure counts."""
+        if len(rest) != 2 or rest[1] != "series":
+            raise ApiError(404, "no such endpoint")
+        from_ms, to_ms = self._window(q)
+        # only when given: the default is the page's rule for the window (queues.default_step)
+        step = (_int(q, "step_s", -1, queues_mod.STEPS_S[0], queues_mod.STEPS_S[-1]) if "step_s" in q
+                else queues_mod.default_step(from_ms, to_ms))
+        try:
+            if "step_s" in q:  # the default is at most 6 h; only buckets with events are built, whatever the window
+                queues_mod.check_step(step, from_ms, to_ms)
+            keys = self.db.queue_keys()
+        except ValueError as e:
+            raise ApiError(400, str(e)) from None
+        except NotImplementedError as e:
+            raise ApiError(501, str(e)) from None
+        split = q.get("split", "")
+        if split not in ("", "version"):
+            raise ApiError(400, "split must be version, or left out")
+        want, place = self._queue_keys(rest[0], keys)
+        mrc = self.max_receive_counts.get(place.name)
+        rows = self.db.queue_events(want, from_ms, to_ms)
+        return {"queue": {"key": want[0], "name": place.name, "account": place.account, "region": place.region,
+                          "fifo": place.name.endswith(".fifo")},
+                "from_ms": from_ms, "to_ms": to_ms, "step_s": step,
+                "max_receive_count": mrc,
+                "series": queues_mod.series(rows, step, mrc, by_version=split == "version"),
+                "versions": queues_mod.versions(rows)}
+
+    def flows(self, q: dict, rest: list[str]) -> dict:
+        """``/api/flows``: the overview's flows over [from_ms, to_ms] (default: the last day): per queue, who sends to
+        it and who receives from it, and its dead-letter queue (queues.flows). Each flow is the hosted app's
+        ``Flow`` (trailbeam-app lib/app/flows.ts), field for field, so the shared overview reads either."""
+        if rest:
+            raise ApiError(404, "no such endpoint")
+        from_ms, to_ms = self._window(q)
+        try:
+            keys, last, counts, links = self.db.queue_flows(from_ms, to_ms, self.now() // 1_000_000)
+        except NotImplementedError as e:
+            raise ApiError(501, str(e)) from None
+        return {"from_ms": from_ms, "to_ms": to_ms, "flows": queues_mod.flows(keys, last, counts, links)}
+
+    @staticmethod
+    def _queue_keys(asked: str, keys: list[str]) -> tuple:
+        """The keys whose events are the asked queue's, its own first, and its place (queues.resolve)."""
+        try:
+            return queues_mod.resolve(asked, keys)
+        except ValueError as e:
+            raise ApiError(400, str(e)) from None
 
     def _window(self, q: dict) -> tuple:
         """[from_ms, to_ms], both included: given, or the last ``since_s`` seconds (default a day) to now. The
