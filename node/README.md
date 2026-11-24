@@ -56,6 +56,12 @@ It takes the same flags as the Python command (`npx trailbeam start --help` list
   [team install](../README.md#team-install-docker-compose-with-postgres).
 
 If Docker is missing, not running, or this user can't use it, it says so in one line and exits.
+
+The container has the label `trailbeam.start=1` (`docker ps --filter label=trailbeam.start` lists them). If
+the process that started `npx trailbeam start` goes away (a supervisor that stops only the `npx` process,
+which npm doesn't pass on), the server is stopped too, within about a second. If the port is already in use,
+it says so; when a Docker container publishes the port, it names the container (saying when it is a
+Trailbeam server from an earlier run) and gives the `docker stop` command.
 Nothing of this is loaded by `require('trailbeam')`, and it adds no dependencies.
 
 ## Client hooks
@@ -137,6 +143,7 @@ cannot use up the function's time.
 | `TRAILBEAM_OTLP_TRACES_ENDPOINT` | `http://localhost:4318/v1/traces` | OTLP/HTTP (protobuf). |
 | `OTEL_SERVICE_NAME` | `unknown_service` | `service.name` |
 | `OTEL_RESOURCE_ATTRIBUTES` | random UUID v4 | `service.instance.id` here becomes `messaging.client.id`. Without it, each `install` call and each `wrapHandler` call generates a random UUID v4. |
+| `OTEL_RESOURCE_ATTRIBUTES=service.version=1.4.2` | no version | With it, Trailbeam shows each consumer's version on the timeline and on the lists, which can be filtered by `version`, so you can see whether a deploy changed things. |
 | `TRAILBEAM_MAX_QUEUE_SIZE` | `16384` | Spans waiting for export, per tracer provider ([Dropped spans](#dropped-spans)). The other `OTEL_BSP_*` variables apply as usual. |
 | `TRAILBEAM_SHUTDOWN_TIMEOUT_MS` | `2000` | The longest that `uninstall()`, and the export when the event loop empties, wait for queued spans ([When the server is down, or the process ends](#when-the-server-is-down-or-the-process-ends)). |
 

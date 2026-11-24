@@ -540,6 +540,62 @@ own store (SQLite or Postgres). Nothing changes until the first admin exists. Af
   set `--trusted-proxy` (below), or every request seems to come from the proxy.
 - A `--db :memory:` store loses its people and tokens when the server stops.
 
+### The first admin, and people and tokens from the command line
+
+**With `trailbeam start`**, while the store has no admin, the terminal shows a one-time link next to the address:
+
+```console norun="sample output of trailbeam start; the code is new on every start"
+Trailbeam is running: open http://127.0.0.1:4318/
+  Create your admin account (the link works once, for an hour; keep it to yourself):
+    http://127.0.0.1:4318/setup#code=3q2-7wEjUt0yKxGm1fB6c4V8nH0pZr5sLaD9oQeTiWk
+```
+
+Open it, and give an email, a name and a password (at least 10 characters). That account becomes the first admin
+and is signed in. Until the link is used, it is as good as an admin password, so it works once, for an hour, and
+each start replaces it. It is printed only when the output is a terminal, never in the log. The code sits after
+`#`, which browsers don't send to the server or a proxy, so it is not in their request logs either.
+
+**In Docker, Compose or Kubernetes** there is no link, because container logs are often readable by many people.
+The server logs `this server has no admin account yet` instead. Either run the command in the container:
+
+```sh norun="needs a running container; test_cli.py runs these commands against SQLite and Postgres"
+docker exec -it trailbeam trailbeam users create --email ada@example.com --role admin
+# asks for the password twice; or --password-file /run/secrets/admin-password
+```
+
+or give the server `TRAILBEAM_ADMIN_EMAIL` and `TRAILBEAM_ADMIN_PASSWORD_FILE` (a file holding the password,
+for example a Docker or Kubernetes secret), and optionally `TRAILBEAM_ADMIN_NAME`. They are read at start and only
+while the store has no admin, so changing them later changes nothing. Replicas started together create one admin.
+
+**People and tokens** are managed with `trailbeam users` and `trailbeam tokens`, on the server's own store, while
+it runs. They take the server's `--db` or `--store-url` (or `TRAILBEAM_DB` / `TRAILBEAM_STORE_URL`, which a
+container already has). Without either they use `trailbeam.sqlite` in the current directory, else the one
+`trailbeam start` keeps in `~/.trailbeam`.
+
+```sh norun="needs a store; test_cli.py runs these commands against SQLite and Postgres"
+trailbeam users create --email bob@example.com --name "Bob" --role member   # asks for the password
+trailbeam users list
+trailbeam users set-role bob@example.com admin       # or member
+trailbeam users reset-password bob@example.com      # an admin resets forgotten passwords: no email is sent
+trailbeam users disable bob@example.com              # enable, or remove --yes
+trailbeam tokens create --name "orders-api prod"     # an ingest token, for a service
+trailbeam tokens create --name ci --personal --user bob@example.com --expires 90d   # a personal API token
+trailbeam tokens list                                # --personal for personal API tokens
+trailbeam tokens revoke 3                            # --personal for a personal API token
+```
+
+- A new token is printed once, alone on stdout (`TOKEN=$(trailbeam tokens create --name orders-api)` works), and
+  the store keeps only its hash. Messages go to stderr.
+- Creating the first ingest token says first that it closes ingest on a server without `TRAILBEAM_TOKEN`, and
+  asks. Without a terminal, pass `--yes`.
+- The server always keeps an admin: the last admin who can sign in can't be made a member, disabled or removed.
+- Changing someone's role or password, or disabling or removing them, ends their sessions. Running servers see it
+  within 20 seconds, a revoked token within 30 seconds, and a new admin or a first ingest token within 5 seconds.
+- The commands never create or upgrade a store: they refuse a file that doesn't exist, a store at an older or
+  newer schema version (start the new server once first), and `--db :memory:`, which only the server can reach.
+- In the web screen, the header shows who is signed in, with **Sign out**. Managing people and tokens there
+  comes in a later release.
+
 ### Behind a proxy (`--trusted-proxy`)
 
 Behind a load balancer or TLS proxy, every request comes from the proxy's address. Tell Trailbeam which
@@ -800,7 +856,8 @@ must hold (Trailbeam warns at start when it is short). An export that must searc
 settle, a message older than three days) borrows a read connection for it while holding its ingest connection,
 so pages and API reads filling the read pool can hold such exports up. They are for Postgres only: with SQLite, setting either
 stops the server with an error. Every connection runs with
-`statement_timeout = 60s`. An export that waits longer than `TRAILBEAM_INGEST_MAX_WAIT_S` (2 s by default) for a free
+`statement_timeout = 60s`; an export whose statement runs past it is answered `503` (`store_timeout`,
+`Retry-After: 3`), with nothing stored. An export that waits longer than `TRAILBEAM_INGEST_MAX_WAIT_S` (2 s by default) for a free
 ingest connection is answered `503` with `Retry-After`, as one waiting for SQLite's writer is
 ([overload](#when-trailbeam-is-overloaded-429-503-and-retry-after)).
 Each export is one transaction, and an export whose client hangs up or times out is cancelled in the database.
@@ -1096,6 +1153,14 @@ here, and it assumes the disk honours fsync. The same tests cover the other fail
   stored. Once space is freed they are stored again, with no restart. Until QV-238, SQLite answered a full disk
   with `500`, which exporters don't retry, so those spans were dropped. `/api/ready` stays `200` while a SQLite
   disk is full; watch `trailbeam_ingest_rejected_requests_total{reason="store_full"}` and the disk itself.
+- **A Postgres statement timeout** (an export's statement past `statement_timeout`, 60 s: a lock pile-up, a
+  very slow disk): the export is answered `503` (`store_timeout`, `Retry-After: 3`) with nothing stored, and
+  logged at ERROR with its size. It is stored when the exporter sends it again, once the database is faster.
+  Until QV-300 this was a `500`, which exporters don't retry. An export that is always too slow is retried
+  until the exporter's budget runs out (below), each try holding an ingest connection for up to 60 s: watch
+  `trailbeam_ingest_rejected_requests_total{reason="store_timeout"}`. Most exporters time out a request well
+  before 60 s (the Python exporter after 10 s) and hang up; such an export is cancelled in the database and sent
+  again, as before.
 - **Several replicas**: a killed replica loses nothing it answered, and the load balancer sends the retries to
   the others ([Several replicas](#several-replicas-on-one-postgres)).
 - **Order and clocks**: arrival order doesn't change what is stored or shown. Spans shuffled across 40 exports,
@@ -1106,8 +1171,7 @@ here, and it assumes the disk honours fsync. The same tests cover the other fail
 What a `200` can't cover is an export that is never answered `200`: then the exporter's retry budget decides.
 The Python OTel exporter retries only within its 10 s export timeout. The Collector's `retry_on_failure`
 retries for 5 minutes by default, from a sending queue in memory. Send through a Collector to ride out outages
-longer than a few seconds ([`collector/`](collector/README.md)). One more answer isn't retried: a Postgres
-statement that runs past `statement_timeout` (60 s) is answered `500`, and the exporter drops that export.
+longer than a few seconds ([`collector/`](collector/README.md)).
 
 ### Sizing one SQLite server
 
@@ -1321,15 +1385,21 @@ the current version on every change, for SQLite (the PyPI package and the image)
 message, list and tenant count reads the same as before
 ([`python/smoke/upgrade_check.py`](python/smoke/upgrade_check.py)).
 
-- **SQLite.** The new version moves the file from schema 12 to 15 (a small table for the test span of
-  `trailbeam doctor`, corrected counts for FIFO sends SQS deduplicated, and the empty tables of people and
-  tokens; only the summaries of FIFO messages sent more than once are rewritten). Once it has, a 0.3.0 server
-  stops at start with `the database is at schema version 15, written by a newer Trailbeam ... Refusing to
+- **SQLite.** The new version moves the file to schema 16 (from 0.3.0's 12: a small table for the test span of
+  `trailbeam doctor`, corrected counts for FIFO sends SQS deduplicated, the empty tables of people and tokens,
+  and each span's `service.version`; only the summaries of FIFO messages sent more than once are rewritten).
+  Once it has, **0.4.0 and 0.3.0 can't open it again**: they stop at start with `the database is at schema
+  version 16, written by a newer Trailbeam ... Refusing to start, so nothing is lost`. To go back, restore the
+  backup you took first.
+- **Postgres.** Stop every replica before you start the new version. It moves the database to schema 10 (from
+  0.3.0's 4, about 8 s per 1M spans, see the [changelog](CHANGELOG.md)). Once it has, 0.4.0 and 0.3.0 stop at
+  start with `the database is at Postgres schema version 10, written by a newer Trailbeam ... Refusing to
   start, so nothing is lost`. To go back, restore the backup you took first.
-- **Postgres.** Stop every replica before you start the new version. It moves the database from schema 4 to 8
-  (about 8 s per 1M spans, see the [changelog](CHANGELOG.md)). Once it has, a 0.3.0 server stops at start
-  with `the database is at Postgres schema version 8, written by a newer Trailbeam ... Refusing to start, so
-  nothing is lost`. To go back, restore the backup you took first.
+- **Accounts stay off until you create the first admin.** Upgrade every replica first: a replica still on 0.4.0
+  or 0.3.0 keeps letting `TRAILBEAM_TOKEN` into the web screen and the API after the others have switched.
+  `trailbeam users create` reminds you on Postgres. Once an admin exists, `TRAILBEAM_TOKEN` opens only ingest and
+  `/metrics`, and browsers signed in with it are signed out: give Prometheus and scripts a personal API token
+  only if they read the API. With `--db :memory:`, people and tokens are lost at every restart.
 - **The token and the receipt-hash key** don't change. Signed-in browsers stay signed in. Services keep their
   `TRAILBEAM_RECEIPT_HASH_KEY`: the hashing is the same in 0.3.0 and 0.4.0, so services on either package
   version can send spans for the same messages.
@@ -1381,7 +1451,7 @@ without one, anyone who can reach the port can read it. Labels never hold span d
 |---|---|---|
 | `trailbeam_ingest_spans_total{result}` | counter | Spans in accepted exports: `inserted`, `duplicate` (already stored, e.g. a retry), `invalid` (rejected by the span contract), `ignored` (not Trailbeam spans). `rate()` gives spans/s |
 | `trailbeam_ingest_requests_total{code}` | counter | Exports to `/v1/traces` by response status |
-| `trailbeam_ingest_rejected_requests_total{reason}` | counter | 429s (`queue_full`) and 503s (`writer_behind`; `store_unreachable`: the database can't be reached; `store_full`: its disk is full) |
+| `trailbeam_ingest_rejected_requests_total{reason}` | counter | 429s (`queue_full`) and 503s (`writer_behind`; `store_unreachable`: the database can't be reached; `store_full`: its disk is full; `store_timeout`: a Postgres statement timed out) |
 | `trailbeam_ingest_request_duration_seconds{outcome}` | histogram | Export latency, from body received to response: `accepted`, `rejected`, `error` |
 | `trailbeam_ingest_writer_wait_seconds` | histogram | Time an export waited for the SQLite writer |
 | `trailbeam_ingest_write_duration_seconds` | histogram | One export's write transaction |

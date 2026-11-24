@@ -19,14 +19,14 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTrace
 
 from . import __version__
 from . import queues as queues_mod
-from . import access as access_mod, auth as auth_mod, bodies, csrf, metrics, queries, sessions as sessions_mod, \
-    trace_links, ui_files, web
-from .accounts import Accounts
+from . import access as access_mod, auth as auth_mod, bodies, csrf, first_admin, metrics, passwords, queries, \
+    sessions as sessions_mod, trace_links, ui_files, web
+from .accounts import AccountError, Accounts, AdminExists, BadSetupCode, check_email, check_name
 from .backpressure import GRPC_RESOURCE_EXHAUSTED, GRPC_UNAVAILABLE, IngestGate, Rejected, status_body
 from .sessions import Sessions
 from .signin import SignIn
 from .tokens import Tokens
-from .store import ExportAbandoned, Store, StoreFull, StoreUnavailable, WriterBusy
+from .store import ExportAbandoned, Store, StoreFull, StoreTimeout, StoreUnavailable, WriterBusy
 from .proxy import TrustedProxies
 from .otlp import PROBE_NOT_STORED, DecodeError, decode, valid_probe_id
 from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
@@ -103,7 +103,7 @@ class App:
         self.m_rejected = r.counter(
             "trailbeam_ingest_rejected_requests_total",
             "Exports answered 429 (queue_full), or 503 (writer_behind; store_unreachable: the database can't be "
-            "reached; store_full: its disk is full) with Retry-After. Nothing in them was stored; OTLP exporters retry them.", ("reason",))
+            "reached; store_full: its disk is full; store_timeout: a database statement timed out) with Retry-After. Nothing in them was stored; OTLP exporters retry them.", ("reason",))
         self.m_spans = r.counter(
             "trailbeam_ingest_spans_total",
             "Trailbeam spans in accepted exports: inserted, duplicate (already stored, e.g. a retry), invalid "
@@ -206,6 +206,18 @@ class App:
                 self.m_ingest_requests.inc(code=str(status))
             self.m_export.observe(time.perf_counter() - t0, outcome=outcome)
 
+    def _store_failed(self, e: StoreUnavailable, d, body: bytes) -> Rejected:
+        """The 503 for a store failure, logged: nothing of the export was stored, and the exporter retries it."""
+        if isinstance(e, StoreTimeout):  # QV-300: the size tells a lock pile-up from one export too big to write
+            log.error("ingest: export of %d span(s), %d bytes not stored: %s", len(d.records),
+                      len(body), e)
+            return self.gate.store_timeout()
+        if isinstance(e, StoreFull):
+            log.error("ingest: %s", e)
+            return self.gate.store_full()
+        log.warning("ingest: %s", e)
+        return self.gate.store_unreachable()
+
     def _ingest(self, body: bytes, content_type: str,
                 abandoned: Optional[Callable[[], bool]]) -> tuple[int, str, bytes, dict]:
         json_mode = (content_type or "").split(";")[0].strip().lower() == "application/json"
@@ -222,12 +234,8 @@ class App:
                 except WriterBusy:
                     self.m_wait.observe(self.gate.max_wait_s)
                     raise self.gate.writer_behind(self.gate.max_wait_s) from None
-                except StoreFull as e:
-                    log.error("ingest: %s", e)
-                    raise self.gate.store_full() from None
                 except StoreUnavailable as e:
-                    log.warning("ingest: %s", e)
-                    raise self.gate.store_unreachable() from None
+                    raise self._store_failed(e, d, body) from None
                 self.m_wait.observe(timings["wait_s"])
                 self.m_write.observe(timings["write_s"])
                 write_s = timings["write_s"]
@@ -239,12 +247,8 @@ class App:
                         d.rejected.extend([f"{PROBE_NOT_STORED} {e}"] * len(d.probes))
                     except WriterBusy:
                         raise self.gate.writer_behind(self.gate.max_wait_s) from None
-                    except StoreFull as e:
-                        log.error("ingest: %s", e)
-                        raise self.gate.store_full() from None
                     except StoreUnavailable as e:
-                        log.warning("ingest: %s", e)
-                        raise self.gate.store_unreachable() from None
+                        raise self._store_failed(e, d, body) from None
                     else:
                         write_s += time.perf_counter() - t
                         log.info("stored probe(s) %s (trailbeam doctor)", ", ".join(d.probes))
@@ -646,6 +650,9 @@ def make_handler(app: App):
             if path == "/login":
                 self._login()
                 return
+            if path == first_admin.PATH:
+                self._setup_post()
+                return
             if path != "/v1/traces":
                 self._send(404, "text/plain", b"not found")
                 return
@@ -708,6 +715,9 @@ def make_handler(app: App):
                 self._json(*app.ready())
                 return
             path = u.path
+            if path == first_admin.PATH:
+                self._setup_get()
+                return
             try:
                 if path in ("/login", "/logout"):
                     mode = app.access.mode()
@@ -834,6 +844,97 @@ def make_handler(app: App):
                 headers["Retry-After"] = str(r.retry_after_s)
             self._send_page((st, headers, body))
 
+        def _setup_get(self):
+            """GET /setup: the first admin's form while the store has none; the sign-in page after."""
+            if app.accounts is None:
+                self._send(404, "text/plain", b"not found")
+                return
+            try:
+                has_admin = app.access.state.admin_exists()
+            except access_mod.AccessUnavailable as e:
+                log.warning("GET /setup: %s", e)
+                self._send(503, "text/plain", b"the store is unreachable; try again", {"Retry-After": "1"})
+                return
+            if has_admin:
+                self._send(303, "text/plain", b"", {"Location": "/login", "Referrer-Policy": "no-referrer"})
+                return
+            self._send_page(web.setup_page())
+
+        def _setup_post(self):
+            """POST /setup: the setup code, an email, a name and a password; right, the first admin is created and
+            signed in. The code is checked before the password is hashed, so a wrong one costs no hash."""
+            if app.accounts is None:
+                self.close_connection = True
+                self._send(404, "text/plain", b"not found")
+                return
+            n = self.headers.get("Content-Length") or ""
+            if not n.isdigit() or int(n) > 8192:
+                self.close_connection = True
+                self._send(413, "text/plain", b"setup form too large")
+                return
+            form = {k: v[-1] for k, v in parse_qs(self.rfile.read(int(n)).decode("utf-8", "replace")).items()}
+            code, email, name = form.get("code", "").strip(), form.get("email", "")[:300], form.get("name", "")[:300]
+            pw, pw2 = form.get("password", ""), form.get("password2", "")
+            client = self._client()
+            limit = app.signin.address_limit
+            wait = limit.retry_after(client)
+            if wait is not None:
+                self._send_page(_with_retry(web.setup_page(code, email, name, "slow_down", retry_after_s=wait,
+                                                           status=429), wait))
+                return
+            now = time.time_ns() // 1_000_000
+            try:
+                if app.access.state.admin_exists():
+                    self._send(303, "text/plain", b"", {"Location": "/login"})
+                    return
+                code_ok = first_admin.well_formed(code) and app.accounts.setup_code_ok(first_admin.code_hash(code), now)
+            except Exception as e:  # noqa: BLE001
+                log.warning("setup: the store is unreachable: %s", e)
+                self._send(503, "text/plain", b"the store is unreachable; try again", {"Retry-After": "1"})
+                return
+            if not code_ok:
+                limit.failed(client)
+                log.warning("setup: a wrong or used setup code from %s", client)
+                self._send_page(web.setup_page("", email, name, "bad_code", status=403))
+                return
+            try:
+                email, name = check_email(email), check_name(name)
+                passwords.check(pw)
+                if pw != pw2:
+                    self._send_page(web.setup_page(code, email, name, "mismatch", status=400))
+                    return
+                h = app.signin.hasher.hash(pw)
+                uid = app.accounts.create_first_admin(email, name, h, now,
+                                                      setup_code_sha256=first_admin.code_hash(code))
+            except passwords.HashBusy:
+                self._send_page(_with_retry(web.setup_page(code, email, name, "busy", status=503), 1))
+                return
+            except AdminExists:
+                self._send(303, "text/plain", b"", {"Location": "/login"})
+                return
+            except BadSetupCode:
+                limit.failed(client)
+                self._send_page(web.setup_page("", email, name, "bad_code", status=403))
+                return
+            except (AccountError, passwords.PasswordError) as e:
+                self._send_page(web.setup_page(code, email, name, message=str(e)[:1].upper() + str(e)[1:] + ".",
+                                               status=400))
+                return
+            except Exception:  # noqa: BLE001
+                log.exception("setup failed")
+                self._send(500, "text/plain", b"internal error")
+                return
+            app.access.state.changed()
+            log.info("created the first admin from the setup link: user %d from %s", uid, client)
+            secure = self._scheme() == "https"
+            try:
+                sid, expires = app.sessions.start(uid)
+                cookie = {"Set-Cookie": sessions_mod.set_cookie(sid, secure, (expires - now) // 1000)}
+            except Exception as e:  # noqa: BLE001 - the admin exists; they can sign in
+                log.warning("setup: the admin was created, but their session could not be started: %s", e)
+                cookie = {}
+            self._send(303, "text/plain", b"", {"Location": "/", "Referrer-Policy": "no-referrer", **cookie})
+
         def _send_page(self, r):
             status, headers, body = r
             headers = dict(headers)
@@ -858,6 +959,11 @@ def make_handler(app: App):
             log.debug("%s %s", self.address_string(), fmt % args)
 
     return Handler
+
+
+def _with_retry(page, seconds: int):
+    status, headers, body = page
+    return status, {**headers, "Retry-After": str(seconds)}, body
 
 
 def _bounded(d, data: bytes) -> bytes:

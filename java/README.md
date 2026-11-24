@@ -24,7 +24,9 @@ and beside dd-java-agent. The [conformance kit](../conformance) checks all four 
 always-on tracer provider with a relocated copy of the OpenTelemetry SDK (`dev.trailbeam.sqs.shaded.otel`), so it
 never conflicts with your application's OpenTelemetry version. It doesn't change or suppress the agent's spans.
 
-Requires Java 11 or later and AWS SDK for Java v2.
+Requires Java 11 or later and AWS SDK for Java v2 2.17 or later. CI runs the kit on JDK 11, 17 and 21, and on SDK
+2.17.295, 2.20.162 (the last on SQS's query protocol), 2.24.13 (the last with only `attributeNames` on
+`ReceiveMessage`), 2.25.0 (the first with `messageSystemAttributeNames`) and the newest SDK.
 
 ## What it records
 
@@ -42,8 +44,9 @@ Extended Client's size attributes. It keeps every name you asked for, and leaves
 changes what SQS returns, not the message. It never makes an SQS call of its own.
 
 Each span's parent is the stock SDK span for the same call, read from the trace header the agent puts on the
-request. A `ReceiveMessage` in a polling loop has no stock span (the OpenTelemetry agent creates one only when a
-span is already active), so its `trailbeam receive` is a root span. Trailbeam reads only its own spans, so its
+request. A `ReceiveMessage` in a polling loop has no stock span (neither agent creates one unless a span is
+already active), so its `trailbeam receive` is a root span. The kit checks this beside both agents: every other
+span is a child of the agent's span, also when the agent's sampler drops it. Trailbeam reads only its own spans, so its
 timeline is the same either way.
 
 ## Configuration
@@ -55,6 +58,7 @@ Environment variables, as for the Python and Node.js packages:
 | `TRAILBEAM_OTLP_TRACES_ENDPOINT` | `http://localhost:4318/v1/traces` (OTLP over HTTP, protobuf) |
 | `TRAILBEAM_RECEIPT_HASH_KEY` | the published default key, with one warning. Use the same key on every service that uses the same queues (contract section 7). |
 | `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | `unknown_service`, and a random `service.instance.id` |
+| `OTEL_RESOURCE_ATTRIBUTES=service.version=1.4.2` | no version. With it, Trailbeam shows each consumer's version on the timeline and on the lists, which can be filtered by `version`, so you can see whether a deploy changed things. |
 | `TRAILBEAM_MAX_QUEUE_SIZE` | 16384 spans waiting for export |
 
 ### Tenants and message bodies

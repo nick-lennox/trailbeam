@@ -435,12 +435,15 @@ def check_span(e: Expected, s: Span, problems: list) -> None:
 
 
 def check(header: dict, calls: list[dict], spans: list[Span], *, run: str, key: str, variant: str = "",
-          parent: str = "any", capture: bool = False) -> Report:
+          parent: str = "any", capture: bool = False, receive_roots: bool = False) -> Report:
     """Check the spans of one run (resource ``service.name`` = ``run``) against its ground truth.
 
     ``parent``: ``any`` (not checked), ``exported`` (every Trailbeam span has a parent that was exported in
     the same trace: the stock SDK span) or ``unexported`` (every Trailbeam span has a parent, and the run
     exported no span of another scope: the application's sampler dropped them, Trailbeam's did not).
+    ``receive_roots``: ReceiveMessage spans may have no parent (the Java agents make no span for a receive
+    without an active span, as in a poll loop: contract section 2, Java note). A receive that has a parent, and
+    every other span, is checked as above.
     """
     if header.get("source") == "lambda":
         return check_lambda(header, calls, spans, run=run, key=key, variant=variant, capture=capture)
@@ -556,7 +559,7 @@ def check(header: dict, calls: list[dict], spans: list[Span], *, run: str, key: 
 
     problems += check_calls(expected)
     problems += check_secrets(ours, calls, key)
-    problems += check_parents(ours, others, parent)
+    problems += check_parents(ours, others, parent, receive_roots)
 
     return Report(run=run, variant=variant, driver=str(header.get("driver", "?")), expected=len(expected),
                   matched=sum(1 for e in expected if e.span), spans=len(ours), problems=problems)
@@ -652,16 +655,18 @@ def check_secrets(ours: list[Span], calls: list[dict], key: str) -> list[Problem
     return problems
 
 
-def check_parents(ours: list[Span], others: list[Span], parent: str) -> list[Problem]:
+def check_parents(ours: list[Span], others: list[Span], parent: str, receive_roots: bool = False) -> list[Problem]:
     if parent == "any":
         return []
     problems = []
     exported = {(s.trace_id, s.span_id) for s in others}
-    no_parent = [s for s in ours if not s.parent_span_id]
+    no_parent = [s for s in ours if not s.parent_span_id
+                 and not (receive_roots and s.get("messaging.operation.name") == "ReceiveMessage")]
     if no_parent:
+        but = " (receives may be roots in this variant; this is another operation)" if receive_roots else ""
         problems.append(Problem("run", f"{len(no_parent)} of {len(ours)} Trailbeam spans have no parent; with the "
                                 "application's stock SDK instrumentation on, each must be a child of the stock span "
-                                f"(first: {no_parent[0].label()})", rule="2"))
+                                f"(first: {no_parent[0].label()}){but}", rule="2"))
     if parent == "exported":
         lost = [s for s in ours if s.parent_span_id and (s.trace_id, s.parent_span_id) not in exported]
         if lost:

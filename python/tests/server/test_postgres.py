@@ -307,6 +307,37 @@ def test_every_ingest_connection_busy_is_writer_busy_with_nothing_written(pg_sto
     assert timings["wait_s"] >= 0 and timings["write_s"] > 0
 
 
+@needs_pg
+def test_a_statement_timeout_is_503_store_timeout_and_the_retry_is_stored(pg_store, caplog):
+    """QV-300: an export whose statement runs past statement_timeout was answered 500, which OTLP exporters don't
+    retry, so its spans were lost. It is a 503 with Retry-After, logged at ERROR with its size, nothing stored; the
+    exporter's retry is stored once the database is faster."""
+    import logging
+
+    import psycopg
+
+    from trailbeam.server.postgres import _key
+    from trailbeam.server.server import App
+
+    s = pg_store(statement_timeout_ms=300)
+    app = App(s)
+    body = to_proto([Consumer().send(D0, "m-slow")]).SerializeToString()
+    with psycopg.connect(s.url, autocommit=True) as blocker:
+        blocker.execute("SELECT pg_advisory_lock(%s)", (_key("m:m-slow"),))  # the export waits on it
+        with caplog.at_level(logging.ERROR, logger="trailbeam.server"):
+            status, _, out, headers = app.ingest(body, "application/x-protobuf", abandoned=lambda: False)
+        blocker.execute("SELECT pg_advisory_unlock(%s)", (_key("m:m-slow"),))
+    assert (status, headers) == (503, {"Retry-After": "3"})
+    assert b"timed out" in out
+    assert s.counts()["spans"] == {}
+    [rec] = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert f"export of 1 span(s), {len(body)} bytes not stored" in rec.getMessage()
+    assert "statement timeout" in rec.getMessage()
+    assert 'trailbeam_ingest_rejected_requests_total{reason="store_timeout"} 1' in app.registry.render()
+    assert app.ingest(body, "application/x-protobuf", abandoned=lambda: False)[0] == 200  # the retry
+    assert s.counts()["spans"] == {"send": 1}
+
+
 # ---- liveness, readiness and an unreachable database (QV-81) ------------------------------------------
 
 @needs_pg

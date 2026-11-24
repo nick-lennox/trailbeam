@@ -16,6 +16,27 @@
   - Both endpoints work on SQLite and Postgres. SQLite schema 17 and Postgres schema 11 add `queue_events` and
     `queue_rollup` (Postgres also adds `place_queue_keys`). They are built from every message's spans when the
     store is upgraded: one pass over the messages on SQLite, and one place at a time on Postgres.
+- **Java package, stage 5: version matrix and strict parent checks** (QV-319, pre-release, not published). CI
+  runs the Java driver in every variant on JDK 11 and 17 and on AWS SDK 2.17.295, 2.20.162, 2.24.13 and 2.25.0,
+  beside the existing JDK 21 run on the newest SDK. The supported floor is SDK 2.17. The agent variants now check
+  parents: beside the OpenTelemetry Java agent every span but a receive is a child of the agent's exported span,
+  and with the agent's sampler at 0, or beside dd-java-agent, every span but a receive still has a parent. The kit
+  has a new variant option for this, `receive_roots` (`kit.py check --receive-roots`), because a receive in a poll
+  loop has no stock span under the Java agents. The Java driver asks for system attributes the way each SDK
+  does (`attributeNames` before 2.25).
+- **`npx trailbeam start` no longer leaves the server running when only `npx` is stopped** (QV-344). npm doesn't
+  pass a signal sent to the `npx` process on, so the server kept port 4318. The launcher now stops the server
+  when the process that started it goes away. The container is labelled `trailbeam.start=1`, and when the port
+  is busy the error names the Docker container that publishes it (a Trailbeam server from an earlier run, too,
+  0.4.0 included) with the `docker stop` command.
+- **No spans dropped when a Postgres statement times out** (QV-300). An export whose statement ran past
+  `statement_timeout` (60 s: a lock pile-up, a very slow disk) was answered `500`, which OTLP exporters don't
+  retry, so its spans were lost. It is now answered `503` with `Retry-After: 3` (`store_timeout` in
+  `trailbeam_ingest_rejected_requests_total`), nothing stored, and logged at ERROR with the export's size; the
+  exporter's retry stores it once the database is faster. An export that is always too slow is retried until the
+  exporter gives up. Clients that time out a request before 60 s (most do) were not affected: the server cancels
+  an export whose client hangs up, and the client sends it again. No change in the Python or Node.js packages:
+  the retry is the OTLP exporter's.
 - **Java package, stage 4: the Lambda wrapper** (QV-319, pre-release, not published). For a function invoked by
   an SQS event source mapping, set the handler to `dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`
   and name your own in `TRAILBEAM_LAMBDA_HANDLER`, or extend `TrailbeamSqsHandler`. Each record gets a
@@ -63,7 +84,30 @@
   - **Changed:** `/metrics` without a valid token answers a plain-text `401`, not the HTML sign-in page.
   - **Changed:** with neither a token nor an ingest token, the server now warns at every start that ingest is
     open, also when it listens only on localhost.
-  - Creating people and tokens from the command line comes with `trailbeam users` and `trailbeam tokens`.
+- **The first admin, and people and tokens from the command line** (QV-225, part 4 of phase 1).
+  - **`trailbeam start` prints a one-time setup link** while the store has no admin:
+    `Create your admin account: http://127.0.0.1:4318/setup#code=...`. The form makes the first admin and signs
+    them in. The code works once, for an hour, and each start replaces it. It is printed only when the output is
+    a terminal (`npx trailbeam start` says so to the container), never in the log, and it sits after `#`, where
+    browsers don't send it. `/setup` answers with `Referrer-Policy: no-referrer`. The code is used up and the
+    admin created in one transaction, so of two forms sent at once only one makes an admin.
+  - **Headless installs:** `TRAILBEAM_ADMIN_EMAIL` with `TRAILBEAM_ADMIN_PASSWORD_FILE` (and optionally
+    `TRAILBEAM_ADMIN_NAME`) creates the first admin at start, only while the store has none. Replicas starting
+    together make one. A password file that can't be used stops the server at start. Servers with no admin log
+    how to make one.
+  - **`trailbeam users create | list | set-role | reset-password | disable | enable | remove`** and
+    **`trailbeam tokens create | list | revoke`**, with `--personal` for personal API tokens (`--user`,
+    `--expires 90d`). They take the server's `--db` / `--store-url` (default: `trailbeam.sqlite` here, else
+    `~/.trailbeam/trailbeam.sqlite`), work while the server runs, and refuse a store they would have to create or
+    upgrade, and `--db :memory:`. A new token is printed once, alone on stdout. Passwords come from
+    `--password-file` or are asked for twice, never as an argument. Creating the first ingest token says first
+    that it closes open ingest, and asks (`--yes` without a terminal). `tokens list` shows the legacy shared
+    token when `TRAILBEAM_TOKEN` is set. `users create` on Postgres says to upgrade every replica first.
+  - **The server keeps an admin:** the last admin who can sign in can't be made a member, disabled or removed.
+  - **The web screen** shows who is signed in, with **Sign out**, and goes to the sign-in page when the session
+    ends. The Body tab says who can read bodies on this server. The first-run screen shows the token line when
+    ingest needs a token.
+  - CI runs `test_replicas_e2e.py` on Postgres, now also the switch to accounts on two replicas at once.
 
 - **Conformance kit: the Lambda wrappers** (QV-339, QV-318 stage 2). `trailbeam.aws_lambda.wrap` (Python) and
   `wrapHandler` (Node.js) run in the AWS Lambda base images, invoked through their Runtime Interface Emulator by
@@ -146,8 +190,8 @@
   `ingest_tokens`, `personal_tokens` and `setup_codes`: SQLite schema 15, Postgres schema 8. They are created
   empty and nothing uses them yet, so the server behaves exactly as before. Emails are unique ignoring case.
   Retention and `--vacuum` leave the tables alone. With `--db :memory:`, people and tokens are lost on every
-  restart, like the spans. **A database upgraded to this version can't be opened by 0.3.0 or 0.4.0 again**:
-  back it up before upgrading. (QV-225)
+  restart, like the spans. **A database upgraded to this version can't be opened by 0.4.0 or earlier (0.3.0
+  included) again**: back it up before upgrading. (QV-225)
 - **Helm chart: a release named `trailbeam` no longer crash-loops** (QV-291). In 0.4.0 its Service, named
   `trailbeam`, made Kubernetes set `TRAILBEAM_PORT=tcp://<ip>:4318` in every pod of the namespace, and the server
   exited on it. The pods now have `enableServiceLinks: false` and `TRAILBEAM_PORT=4318`, and CI installs the

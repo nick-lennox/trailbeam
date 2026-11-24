@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from trailbeam.server import access, auth, tokens as tokens_mod
+from trailbeam.server import access, auth, first_admin, tokens as tokens_mod
 from trailbeam.server.access import ADMIN, INGEST, MEMBER, METRICS, OPEN, Access, AccessUnavailable, State
 from trailbeam.server.accounts import Accounts
 from trailbeam.server.db import Database
@@ -223,6 +223,7 @@ def test_personal_tokens_follow_their_owner(store):
     a.set_role(uid, "admin", NOW)
     t.forget_user(uid)
     assert t.personal(tok).role == "admin"
+    a.create_user("root@example.com", "Root", "admin", None, NOW)  # the last admin can't be disabled
     a.set_disabled(uid, True, NOW)
     clock.advance(tokens_mod.PERSONAL_CACHE_TTL_S)
     assert t.personal(tok) is None
@@ -570,8 +571,8 @@ def test_every_route_has_a_level():
     """The levels that aren't MEMBER are listed, and only these routes have them."""
     assert access.ROUTES == {
         ("GET", "/api/ready"): OPEN, ("GET", "/api/health"): OPEN, ("GET", "/login"): OPEN,
-        ("POST", "/login"): OPEN, ("GET", "/logout"): OPEN, ("POST", "/v1/traces"): INGEST,
-        ("GET", "/metrics"): METRICS}
+        ("POST", "/login"): OPEN, ("GET", "/logout"): OPEN, ("GET", "/setup"): OPEN, ("POST", "/setup"): OPEN,
+        ("POST", "/v1/traces"): INGEST, ("GET", "/metrics"): METRICS}
     for p in _api_paths() + PAGES:
         p = p.split("?")[0]
         assert access.level_of("GET", p) == ROUTES_EXPECTED.get(p, MEMBER), p
@@ -632,8 +633,10 @@ def test_start_up_says_what_the_shared_token_and_ingest_open_now(serve):
     assert [lvl for lvl, m in access_log(open_app, False, "127.0.0.1") if "ingest is open" in m] == [logging.WARNING]
     assert any("anyone who can reach this port can send spans and read every timeline" in m
                for _, m in access_log(open_app, False, "0.0.0.0"))
-    assert access_log(app, True, "127.0.0.1") == [(logging.INFO, "access token set: ingest, the API and the web "
-                                                                 "screen need it")]
+    assert access_log(app, True, "127.0.0.1") == [
+        (logging.INFO, "access token set: ingest, the API and the web screen need it"),
+        (logging.INFO, first_admin.NO_ADMIN)]
     add_user(app, "root@example.com", "admin")
+    assert not any(m == first_admin.NO_ADMIN for _, m in access_log(app, True, "127.0.0.1"))
     warnings = [m for lvl, m in access_log(app, True, "127.0.0.1") if lvl == logging.WARNING]
     assert any("works only for ingest and /metrics" in m for m in warnings)
