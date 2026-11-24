@@ -135,7 +135,7 @@ paths:
                 required: [users]
                 properties:
                   users: {type: array, items: {$ref: '#/components/schemas/User'}}
-              example: {"users": [{"id": 1, "email": "ada@example.com", "name": "Ada", "role": "admin", "status": "active", "created_at_ms": 1795400000000, "last_sign_in_ms": 1795480000000, "you": true}, {"id": 2, "email": "ben@example.com", "name": "Ben", "role": "member", "status": "invited", "created_at_ms": 1795410000000, "last_sign_in_ms": null, "you": false}]}
+              example: {"users": [{"id": 1, "email": "ada@example.com", "name": "Ada", "role": "admin", "status": "active", "created_at_ms": 1795400000000, "last_sign_in_ms": 1795480000000, "you": true, "single_sign_on": false}, {"id": 2, "email": "ben@example.com", "name": "Ben", "role": "member", "status": "invited", "created_at_ms": 1795410000000, "last_sign_in_ms": null, "you": false, "single_sign_on": true}]}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
@@ -166,7 +166,7 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/UserWithLink'}
-              example: {"user": {"id": 2, "email": "ben@example.com", "name": "Ben", "role": "member", "status": "invited", "created_at_ms": 1795410000000, "last_sign_in_ms": null, "you": false}, "link": {"kind": "invite", "url": "http://127.0.0.1:4318/set-password#code=8bV1q0Jm0h6rWw2y7mM5c3xQKk0p0b2N7Hn8yZtq1sE", "expires_at_ms": 1796014800000}}
+              example: {"user": {"id": 2, "email": "ben@example.com", "name": "Ben", "role": "member", "status": "invited", "created_at_ms": 1795410000000, "last_sign_in_ms": null, "you": false, "single_sign_on": false}, "link": {"kind": "invite", "url": "http://127.0.0.1:4318/set-password#code=8bV1q0Jm0h6rWw2y7mM5c3xQKk0p0b2N7Hn8yZtq1sE", "expires_at_ms": 1796014800000}}
         '400': {$ref: '#/components/responses/BadBody'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
@@ -2007,7 +2007,7 @@ components:
     User:
       type: object
       additionalProperties: false
-      required: [id, email, name, role, status, created_at_ms, last_sign_in_ms, you]
+      required: [id, email, name, role, status, created_at_ms, last_sign_in_ms, you, single_sign_on]
       properties:
         id: {type: integer}
         email: {type: string}
@@ -2022,6 +2022,11 @@ components:
         created_at_ms: {type: integer}
         last_sign_in_ms: {type: ['integer', 'null']}
         you: {type: boolean, description: This is the person making the request.}
+        single_sign_on:
+          type: boolean
+          description: |
+            The person has signed in with single sign-on (OIDC). Removing them doesn't keep them out: their next
+            single sign-on creates them again, as a new person with the default role. Disable them instead.
     UserLink:
       type: object
       additionalProperties: false
