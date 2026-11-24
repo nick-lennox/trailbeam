@@ -51,7 +51,7 @@ PROTO = {"Content-Type": "application/x-protobuf"}
 class Replica:
     def __init__(self, store_url: str, *args: str):
         env = {k: v for k, v in os.environ.items() if not k.startswith("TRAILBEAM_")}
-        env.update(TRAILBEAM_TOKEN=TOKEN, PYTHONUNBUFFERED="1")
+        env.update(TRAILBEAM_TOKEN=TOKEN, TRAILBEAM_ACCOUNTS="1", PYTHONUNBUFFERED="1")
         self.p = subprocess.Popen(
             [sys.executable, "-m", "trailbeam.server", "--store-url", store_url, "--host", "127.0.0.1", "--port", "0",
              "--retention", "forever", *args], env=env, stderr=subprocess.PIPE, text=True)
@@ -319,6 +319,7 @@ def test_killing_a_replica_during_ingest_loses_no_acknowledged_span(cluster):
 
 def cli(store_url, *argv, password=None, tmp=None):
     env = {k: v for k, v in os.environ.items() if not k.startswith("TRAILBEAM_")}
+    env["TRAILBEAM_ACCOUNTS"] = "1"
     args = list(argv)
     if password is not None:
         f = Path(tmp) / "pw"
