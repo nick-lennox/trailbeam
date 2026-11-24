@@ -3,7 +3,6 @@ package dev.trailbeam.sqs;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.common.AttributesBuilder;
 import io.opentelemetry.api.trace.SpanContext;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -34,6 +33,7 @@ import software.amazon.awssdk.services.sqs.model.DeleteMessageBatchResponse;
 import software.amazon.awssdk.services.sqs.model.DeleteMessageBatchResultEntry;
 import software.amazon.awssdk.services.sqs.model.DeleteMessageRequest;
 import software.amazon.awssdk.services.sqs.model.Message;
+import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
 import software.amazon.awssdk.services.sqs.model.PurgeQueueRequest;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageResponse;
@@ -135,7 +135,8 @@ public final class TrailbeamSqsExecutionInterceptor implements ExecutionIntercep
     SdkRequest request = context.request();
     try {
       if (mine(ea) != null && request instanceof ReceiveMessageRequest) {
-        return addReceiveAttributeNames((ReceiveMessageRequest) request);
+        ReceiveMessageRequest r = addReceiveAttributeNames((ReceiveMessageRequest) request);
+        return addMessageAttributeNames(r, Trailbeam.get().capture.tenantAttribute);
       }
     } catch (Throwable t) {
       debug("modifyRequest", t);
@@ -210,6 +211,30 @@ public final class TrailbeamSqsExecutionInterceptor implements ExecutionIntercep
     return r.toBuilder().messageSystemAttributeNamesWithStrings(current).build();
   }
 
+  /**
+   * 3.2 (section 15.2): asks for the configured tenant attribute and the Extended Client's size attributes,
+   * keeping everything the caller asked for. That changes what SQS returns, not the message's state.
+   */
+  static ReceiveMessageRequest addMessageAttributeNames(ReceiveMessageRequest r, String tenantAttribute) {
+    List<String> asked = new ArrayList<>(r.messageAttributeNames());
+    if (asked.contains("All") || asked.contains(".*")) {
+      return r;
+    }
+    List<String> wanted = new ArrayList<>();
+    if (tenantAttribute != null) {
+      wanted.add(tenantAttribute);
+    }
+    wanted.addAll(Capture.OFFLOADED_SIZE_ATTRIBUTES);
+    boolean changed = false;
+    for (String name : wanted) {
+      if (!asked.contains(name)) {
+        asked.add(name);
+        changed = true;
+      }
+    }
+    return changed ? r.toBuilder().messageAttributeNames(asked).build() : r;
+  }
+
   @SuppressWarnings("deprecation")
   private static ReceiveMessageRequest legacyAttributeNames(ReceiveMessageRequest r, List<String> names) {
     return r.toBuilder().attributeNamesWithStrings(names).build();
@@ -278,7 +303,8 @@ public final class TrailbeamSqsExecutionInterceptor implements ExecutionIntercep
       return;
     }
     AttributesBuilder b = Attributes.builder().put("messaging.message.id", r.messageId());
-    contents(e.tb, b, req.queueUrl(), req.messageBody());
+    contents(e.tb, b, req.queueUrl(), req.messageBody(), stringValues(req.messageAttributes()),
+        r.md5OfMessageBody());
     fifo(b, req.messageGroupId(), r.sequenceNumber());
     e.span(Trailbeam.SPAN_SEND, req.queueUrl(), b);
   }
@@ -300,7 +326,8 @@ public final class TrailbeamSqsExecutionInterceptor implements ExecutionIntercep
       putIfPresent(b, "trailbeam.batch_entry_id", ok.id());
       SendMessageBatchRequestEntry sent = entries.get(ok.id());
       if (sent != null) { // the body comes from the request entry with the same Id
-        contents(e.tb, b, req.queueUrl(), sent.messageBody());
+        contents(e.tb, b, req.queueUrl(), sent.messageBody(), stringValues(sent.messageAttributes()),
+            ok.md5OfMessageBody());
         fifo(b, sent.messageGroupId(), ok.sequenceNumber());
       }
       e.span(Trailbeam.SPAN_SEND, req.queueUrl(), b);
@@ -327,7 +354,7 @@ public final class TrailbeamSqsExecutionInterceptor implements ExecutionIntercep
       putIfPresent(b, "trailbeam.aws_trace_header", a.get("AWSTraceHeader"));
       putIfPresent(b, "trailbeam.dead_letter_queue_source_arn", a.get("DeadLetterQueueSourceArn"));
       fifo(b, a.get("MessageGroupId"), a.get("SequenceNumber"));
-      contents(e.tb, b, req.queueUrl(), m.body());
+      contents(e.tb, b, req.queueUrl(), m.body(), stringValues(m.messageAttributes()), m.md5OfBody());
       e.span(Trailbeam.SPAN_RECEIVE, req.queueUrl(), b);
     }
   }
@@ -488,16 +515,32 @@ public final class TrailbeamSqsExecutionInterceptor implements ExecutionIntercep
     b.put("trailbeam.receipt_handle.key_id", tb.hasher.keyId());
   }
 
-  /** 3.2 (section 15.2): the body's size, and whether it was captured. */
-  private static void contents(Trailbeam tb, AttributesBuilder b, String queueUrl, String body) {
-    if (body == null) {
-      return;
+  /** 3.2 (section 15): body size, tenant, and the body itself for a queue that opted in. */
+  private static void contents(Trailbeam tb, AttributesBuilder b, String queueUrl, String body,
+                               Map<String, String> attributes, String md5) {
+    String queue = queueUrl == null ? null : Trailbeam.queueName(queueUrl);
+    for (Map.Entry<String, Object> a : Capture.contentAttrs(tb.capture, queue, body, attributes, md5).entrySet()) {
+      Object v = a.getValue();
+      if (v instanceof Long) {
+        b.put(a.getKey(), (Long) v);
+      } else {
+        b.put(a.getKey(), (String) v);
+      }
     }
-    b.put("messaging.message.body.size", (long) body.getBytes(StandardCharsets.UTF_8).length);
-    if (queueUrl == null || !tb.captures(Trailbeam.queueName(queueUrl))) {
-      b.put("trailbeam.body.capture_status", "off");
+  }
+
+  /** Each message attribute's {@code StringValue}, by name (binary attributes have none). */
+  private static Map<String, String> stringValues(Map<String, MessageAttributeValue> attributes) {
+    if (attributes == null || attributes.isEmpty()) {
+      return Collections.emptyMap();
     }
-    // A listed queue gets no status until this package captures bodies: "off" would say it is not listed.
+    Map<String, String> out = new HashMap<>();
+    for (Map.Entry<String, MessageAttributeValue> a : attributes.entrySet()) {
+      if (a.getValue() != null && a.getValue().stringValue() != null) {
+        out.put(a.getKey(), a.getValue().stringValue());
+      }
+    }
+    return out;
   }
 
   private static void fifo(AttributesBuilder b, String groupId, String sequenceNumber) {
