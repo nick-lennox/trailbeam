@@ -98,18 +98,30 @@ export const Tag = ({ children, inferred = false }: { children: ReactNode; infer
   <span className={`inline-block rounded-full border px-1.5 font-mono text-micro text-ink-3 ${inferred ? "border-dashed border-ink-3" : "border-line"}`}>{children}</span>
 );
 
+/** A rule more than this many times the data's highest value stays off the scale (named at the top instead). */
+const RULE_REACH = 3;
+
 export function Chart(p: ChartProps) {
   const n = p.times.length;
   const ref = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<{ a: number; b: number } | null>(null);
   const labelled = p.lines.some((l) => l.endLabel);
-  const pad = { l: 44, r: labelled ? 60 : 12, t: 16, b: 22 };
-  const pw = W - pad.l - pad.r;
-  const ph = H - pad.t - pad.b;
   const stepMs = p.stepS * 1000;
 
   const all = p.lines.flatMap((l) => l.values.filter((v): v is number => v !== null));
-  const top = niceCeil(Math.max(0, ...all, ...(p.rules ?? []).map((r) => r.value * 1.08)));
+  // a rule far above the data (a 4-day retention over ages of seconds) would flatten the lines: it stays off the
+  // scale and is named at the top instead
+  const dataMax = Math.max(0, ...all);
+  const rules = p.rules ?? [];
+  const onScale = rules.filter((r) => dataMax === 0 || r.value <= dataMax * RULE_REACH);
+  const above = rules.filter((r) => !onScale.includes(r));
+  const top = niceCeil(Math.max(dataMax, ...onScale.map((r) => r.value * 1.08)));
+  // the y axis: 0, half and the top, each once (a small top can round two of them to the same label)
+  const yTicks = [0, top / 2, top].filter((v, i, vs) => vs.findIndex((w) => p.fmt(w) === p.fmt(v)) === i);
+  // room on the left for the longest of their labels ("1 min 30 s")
+  const pad = { l: Math.max(44, 10 + 6.2 * Math.max(...yTicks.map((v) => p.fmt(v).length))), r: labelled ? 60 : 12, t: 16, b: 22 };
+  const pw = W - pad.l - pad.r;
+  const ph = H - pad.t - pad.b;
   const x = (i: number) => pad.l + ((i + 0.5) / Math.max(1, n)) * pw;
   const xEdge = (i: number) => pad.l + (i / Math.max(1, n)) * pw;
   const xt = (t: number) => (n ? pad.l + ((t - p.times[0]) / (n * stepMs)) * pw : pad.l);
@@ -213,7 +225,7 @@ export function Chart(p: ChartProps) {
           <svg ref={ref} viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full touch-none select-none" aria-hidden
             onPointerMove={onMove} onPointerLeave={() => !drag && p.onHover(null)} onPointerDown={onDown} onPointerUp={onUp}>
             {/* the y axis: 0, half and the top, as hairlines */}
-            {[0, top / 2, top].map((v) => (
+            {yTicks.map((v) => (
               <g key={v}>
                 <line x1={pad.l} x2={W - pad.r} y1={y(v)} y2={y(v)} strokeWidth="1" style={{ stroke: "var(--color-line)" }} />
                 <text x={pad.l - 6} y={y(v) + 3.5} textAnchor="end" fontSize="10" className="font-mono" style={{ fill: "var(--color-ink-3)" }}>{p.fmt(v)}</text>
@@ -226,11 +238,14 @@ export function Chart(p: ChartProps) {
               <rect x={xEdge(selIdx[0])} y={pad.t} width={xEdge(selIdx[1] + 1) - xEdge(selIdx[0])} height={ph} style={{ fill: "var(--color-ink)", fillOpacity: 0.06 }} />
             )}
             {bandPath().map((d, i) => <path key={i} d={d} style={{ fill: p.band!.color, fillOpacity: 0.12 }} />)}
-            {(p.rules ?? []).map((r) => (
+            {onScale.map((r) => (
               <g key={r.label}>
                 <line x1={pad.l} x2={W - pad.r} y1={y(r.value)} y2={y(r.value)} strokeWidth="1.2" style={{ stroke: "var(--color-line-strong)" }} />
                 <text x={W - pad.r} y={y(r.value) - 4} textAnchor="end" fontSize="10" className="font-mono" style={{ fill: "var(--color-ink-3)" }}>{r.label}</text>
               </g>
+            ))}
+            {above.map((r, i) => (
+              <text key={r.label} x={W - pad.r} y={pad.t + 12 + i * 12} textAnchor="end" fontSize="10" className="font-mono" style={{ fill: "var(--color-ink-3)" }}>{r.label}, above this scale ↑</text>
             ))}
             {(p.markers ?? []).map((m) => (
               <g key={`${m.t}-${m.label}`}>

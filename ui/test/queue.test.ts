@@ -214,3 +214,24 @@ test("flowFor: by key, else by a name only one flow has", () => {
   assert.equal(flowFor([a, b], series.queue), null);
   assert.equal(flowFor([a], series.queue), a);
 });
+
+test("a chart's rule far above its data stays off the scale; y labels fit and aren't repeated", async () => {
+  const { Chart } = await import("../src/queue/Chart.tsx");
+  const base = { title: "t", source: "spans", times: [NOW, NOW + MIN], stepS: 60, legend: [], summary: "s", hover: null, onHover: () => {}, sel: null };
+  const line = (values: (number | null)[]) => [{ key: "a", label: "a", color: "red", values }];
+  const fmtS = (v: number) => (v >= 60 ? `${Math.floor(v / 60)} min ${Math.round(v % 60)} s` : `${v} s`);
+  // a 4-day retention over ages of seconds: named at the top, the scale stays on the data
+  const far = renderToStaticMarkup(createElement(Chart, { ...base, lines: line([2, 4]), fmt: fmtS, rules: [{ value: 345_600 * 0.9, label: "90% of retention" }] }));
+  assert.match(far, /90% of retention, above this scale/);
+  assert.doesNotMatch(far, />[^<]* min[^<]*<\/text>/, "no axis label in minutes or days for data in seconds");
+  // a visibility timeout near the data is drawn on the scale
+  const near = renderToStaticMarkup(createElement(Chart, { ...base, lines: line([40, 50]), fmt: fmtS, rules: [{ value: 90, label: "visibility timeout" }] }));
+  assert.match(near, />visibility timeout</);
+  assert.doesNotMatch(near, /above this scale/);
+  // long labels get room: the plot starts right of "1 min 30 s"
+  const x1 = Number(/<line x1="([\d.]+)"/.exec(near)![1]);
+  assert.ok(x1 >= 10 + 6.2 * "1 min 30 s".length - 0.01, String(x1));
+  // all zeros: 0 and 1 once each, not "0, 1, 1"
+  const zero = renderToStaticMarkup(createElement(Chart, { ...base, lines: line([0, 0]), fmt: (v: number) => String(Math.round(v)) }));
+  assert.equal((zero.match(/>1<\/text>/g) ?? []).length, 1);
+});
