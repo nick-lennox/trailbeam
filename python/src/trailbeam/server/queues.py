@@ -46,8 +46,8 @@ delete with a recorded receive, accepted or not, and every Lambda outcome, succe
 ``lib/app/flows.ts``), in its shape, from the hourly ``queue_rollup``: per queue, the services that sent to it and
 received from it, the counts of sends, receives, deletes (accepted or not) and visibility changes, the average body
 size of the sends that reported one, and its dead-letter queue, when a receive from another queue ever named it as
-the source. One difference: SQS-deduplicated FIFO sends are not counted (they were not enqueued); the app counts
-every send span.
+the source. SQS-deduplicated FIFO sends are not counted, because they were not enqueued; the app leaves them out
+too from QV-405 (trailbeam-app PR #92).
 
 **Steps.** The page uses one step for every chart: at least 60 s and one of 1, 5, 15 or 30 min, 1, 3 or 6 h
 (``STEPS_S``), so buckets line up with the CloudWatch period it asks for. ``default_step`` is the page's rule,
@@ -294,7 +294,7 @@ def nice_step(raw_s: float) -> int:
 
 
 def default_step(from_ms: int, to_ms: int) -> int:
-    """The page's rule (QV-360 design 4.1): max(60 s, nice(range / 120)). 1 h gives 60 s, 1 d 15 min, 7 d 1 h."""
+    """The page's rule (QV-360 design 4.1): max(60 s, nice(range / 120)). 1 h gives 60 s, 1 d 15 min, 7 d 3 h."""
     return max(60, nice_step((to_ms - from_ms + 1) / 1000 / 120))
 
 

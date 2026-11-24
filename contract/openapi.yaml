@@ -717,7 +717,7 @@ paths:
         window. This is what the overview draws. Each flow has the hosted app's `Flow` shape, field for field
         (camelCase), so one overview component reads either product.
 
-        - `sent`: sends, except sends SQS deduplicated on a FIFO queue (the hosted app counts those too).
+        - `sent`: sends, except sends SQS deduplicated on a FIFO queue, which were never enqueued.
           `received`: receives. `deleted`: deletes, accepted or not. `visibilityChanges`: ChangeMessageVisibility
           calls.
         - `producers` and `consumers`: the services that sent and received, with how many each, most first. A
