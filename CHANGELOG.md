@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Fixes found by the new compatibility matrix** (QV-335).
+  - **Python 3.11: retention gave back almost no disk space.** On a SQLite file, each retention pass freed one
+    page instead of up to its limit, because Python 3.11's `sqlite3` stops `PRAGMA incremental_vacuum` after
+    its first step. Fixed for every Python version.
+  - **botocore older than mid-2024 (the oldest supported, 1.34.0): every `receive_message` failed** once the
+    hooks were installed. The hooks asked for `MessageSystemAttributeNames`, which that botocore rejects as an
+    unknown parameter. They now ask through `AttributeNames` when botocore doesn't know the newer name.
+  - **The application's own botocore hooks were dropped.** With `opentelemetry-instrumentation-botocore`
+    releases up to at least 0.60b0, `trailbeam.boto.install()` cleared the request and response hooks the
+    application had passed to `BotocoreInstrumentor().instrument(...)`. They are kept now.
+  - **The oldest OpenTelemetry versions are now 1.28 / 0.49b0** (were 1.27 / 0.48b0).
+    `opentelemetry-instrumentation` 0.48b0 imports `pkg_resources` without depending on setuptools, so
+    `import trailbeam.boto` failed in an environment without setuptools.
+
 - **Purged messages no longer show as stuck** (QV-245, contract revision 3.3). The Python and Node.js packages
   record `PurgeQueue` calls (a `trailbeam purge` span, `trailbeam.kind = sqs.purge`, contract section 18), and
   the server stores them per queue (SQLite: no schema change; Postgres: schema 9, a `purges` table). A message

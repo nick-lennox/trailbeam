@@ -193,7 +193,7 @@ def test_sequence_number_from_the_responses():
     assert (a["trailbeam.message_group_id"], a["trailbeam.sequence_number"]) == ("g", "18849496460467696128")
     params = {"QueueUrl": "u"}
     trailbeam.boto.add_receive_attribute_names(params)
-    assert {"MessageGroupId", "SequenceNumber"} <= set(params["MessageSystemAttributeNames"])
+    assert {"MessageGroupId", "SequenceNumber"} <= set(params["MessageSystemAttributeNames"])  # pure: no botocore check
 
 
 def test_status_off_limit_and_s3_pointer(spans_with, make_client, queue_url):
