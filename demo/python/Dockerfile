@@ -3,7 +3,7 @@
 FROM python:3.12-slim
 WORKDIR /app
 COPY python /src/python
-RUN pip install --no-cache-dir /src/python boto3
-COPY demo/python/trailbeamdemo.py ./
+RUN pip install --no-cache-dir "/src/python[pika]" boto3
+COPY demo/python/trailbeamdemo.py demo/python/rabbitmqdemo.py ./
 ENV PYTHONUNBUFFERED=1
 ENTRYPOINT ["python", "/app/trailbeamdemo.py"]

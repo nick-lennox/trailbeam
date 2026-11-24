@@ -6,7 +6,10 @@ Waits until Trailbeam has timelines from the demo workload that show each part w
 messages consumed by the Python consumer and by the Node.js consumer, a delete from the separate deleter
 process joined to its message, a redelivery after ChangeMessageVisibility to 0, and a poison message
 moved to the dead-letter queue and received there: the move observed (reported by SQS with
-DeadLetterQueueSourceArn, contract 3.1), never inferred. Also checks that no Trailbeam span was rejected.
+DeadLetterQueueSourceArn, contract 3.1), never inferred. And from RabbitMQ (the pika hooks, contract 4.0): a message
+acked by the RabbitMQ consumer, one requeued with basic.nack and delivered again, one returned to the queue when the
+consumer's connection closed, and one dead-lettered by basic.reject, the move read from x-death, never inferred.
+Also checks that no Trailbeam span was rejected.
 """
 
 import argparse
@@ -45,11 +48,38 @@ def seen(base):
         if any(e.get("source") == "sqs_dlq_source" for e in moves) and any(
                 e["type"] == "received" and e.get("queue") == "orders-dlq" for e in tl["events"]):
             found.add("poison message moved to the dead-letter queue")
+    found |= seen_rabbitmq(base)
+    return found
+
+
+def seen_rabbitmq(base):
+    found = set()
+    for m in get(base, "/api/messages?limit=1000&queue=rmq-orders")["messages"]:
+        if not m["message_id"].startswith("~rabbitmq~"):
+            continue
+        if m["state"] == "deleted" and "trailbeam-demo-rmq-consumer" in {c.get("service_name") for c in m["consumers"]}:
+            found.add("rabbitmq: acked by the consumer")
+        if m["deliveries"] < 2 and not m["in_dead_letter_queue"] and not m["dead_letter_queue_move"]:
+            continue
+        tl = get(base, "/api/messages/" + urllib.parse.quote(m["message_id"], safe=""))
+        types = [e["type"] for e in tl["events"]]
+        if "requeued" in types and "returned_to_queue" in types and types.count("received") >= 2:
+            found.add("rabbitmq: requeued and delivered again")
+        if "channel_closed" in types and "returned_to_queue" in types and types.count("received") >= 2:
+            found.add("rabbitmq: returned to the queue when the connection closed")
+        moves = [e for e in tl["events"] if e["type"] == "moved_to_dead_letter_queue"]
+        if any(e["inferred"] for e in moves):
+            sys.exit(f"FAIL: {m['message_id']} shows an inferred move to the dead-letter queue")
+        if any(e.get("source") == "amqp_x_death" for e in moves) and any(
+                e["type"] == "received" and e.get("queue") == "rmq-orders-dlq" for e in tl["events"]):
+            found.add("rabbitmq: refused and dead-lettered (x-death)")
     return found
 
 
 WANT = {"python consumer", "node consumer", "delete by the deleter process, joined",
-        "redelivery after ChangeMessageVisibility", "poison message moved to the dead-letter queue"}
+        "redelivery after ChangeMessageVisibility", "poison message moved to the dead-letter queue",
+        "rabbitmq: acked by the consumer", "rabbitmq: requeued and delivered again",
+        "rabbitmq: returned to the queue when the connection closed", "rabbitmq: refused and dead-lettered (x-death)"}
 
 
 def main():

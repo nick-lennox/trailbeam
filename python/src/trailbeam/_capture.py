@@ -731,3 +731,77 @@ def origin_receive_attrs(config: Config, queue_name: str, body: Any) -> dict:
         return {}
     doc = _parse(body)
     return eventbridge_event(doc) or s3_event(config, queue_name, doc) or {}
+
+
+# -- RabbitMQ (contract/span-contract-amqp.md A11, schema version 4) --------------------------------
+
+STATUS_NOT_TEXT = "not_text"  # 4.0: a body with a content_encoding, or not valid UTF-8
+_IDENTITY_ENCODINGS = ("", "identity")
+
+
+def amqp_tenant(config: Config, headers: Any, text: Optional[str]) -> Optional[tuple[str, str]]:
+    """(tenant, source): the header named by the tenant option when its value is a string or a number, else the
+    body path (A11)."""
+    if config.tenant_attribute and isinstance(headers, Mapping):
+        v = headers.get(config.tenant_attribute)
+        if isinstance(v, (bytes, bytearray)):
+            try:
+                v = bytes(v).decode("utf-8")
+            except UnicodeDecodeError:
+                v = None
+        if isinstance(v, bool):
+            v = None
+        elif isinstance(v, (int, float)):
+            v = json.dumps(v)
+        if isinstance(v, str) and v and len(v) <= MAX_TENANT_CHARS:
+            return v, "header"
+    if config.tenant_body_path and text is not None:
+        return tenant_from(Config(tenant_body_path=config.tenant_body_path), None, text)
+    return None
+
+
+def amqp_content_attrs(config: Config, name: str, body: Any, headers: Any, content_encoding: Any) -> dict:
+    """A11 attributes for the message of a publish (``name``: the exchange) or a delivery (the queue): body size,
+    tenant and opt-in body capture. Text only, no MD5 check, no offload pointer and no envelope."""
+    out: dict = {}
+    if isinstance(body, str):
+        body = body.encode("utf-8", "surrogatepass")
+    if not isinstance(body, (bytes, bytearray, memoryview)):
+        return out
+    body = bytes(body)
+    out["messaging.message.body.size"] = len(body)
+    text: Optional[str] = None
+    if content_encoding is None or (isinstance(content_encoding, str) and _lower(content_encoding) in _IDENTITY_ENCODINGS):
+        try:
+            text = body.decode("utf-8")
+        except UnicodeDecodeError:
+            text = None
+    t = amqp_tenant(config, headers, text)
+    if t:
+        out["trailbeam.tenant"], out["trailbeam.tenant.source"] = t
+    if not config.body_on(name):
+        out["trailbeam.body.capture_status"] = STATUS_OFF
+        return out
+    if text is None:
+        out["trailbeam.body.capture_status"] = STATUS_NOT_TEXT
+        return out
+    try:
+        try:
+            scanner = _Json(text, config)
+            redacted, count, fmt = scanner.run(), scanner.count, "json"
+        except RedactionError:
+            raise
+        except ValueError:
+            (redacted, count), fmt = redact_text(text, config), "text"
+        redacted.encode("utf-8")
+    except Exception:
+        out["trailbeam.body.capture_status"] = STATUS_REDACTION_FAILED
+        return out
+    if len(redacted.encode("utf-8")) > config.max_body_bytes:
+        out["trailbeam.body.capture_status"] = STATUS_EXCEEDS_LIMIT
+        return out
+    out["trailbeam.body.capture_status"] = STATUS_CAPTURED
+    out["trailbeam.body"] = redacted
+    out["trailbeam.body.format"] = fmt
+    out["trailbeam.body.redacted_count"] = count
+    return out
