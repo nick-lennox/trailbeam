@@ -653,6 +653,35 @@ def test_settings():
             oidc.make_settings(**kw)
 
 
+def test_single_sign_on_sessions_last_twelve_hours_or_what_the_flag_says(tb):
+    """The provider is asked only at sign-in, so someone it drops keeps their session here until it runs out:
+    single sign-on sessions are shorter than a password's 30 days."""
+    _admin(tb)
+    for hours, cookie_s in ((None, 12 * 3600), (1.5, 5400)):
+        if hours is not None:
+            tb.configure(session_hours=hours)
+        b = tb.browser()
+        before = NOW_MS()
+        r = tb.sign_in(b, sub=f"s-{hours}", email=f"s{cookie_s}@example.com")
+        assert r.status == 200
+        sid = [c for c in r.headers.get_all("Set-Cookie") if c.startswith("trailbeam_sid=")][0]
+        max_age = int(sid.split("Max-Age=")[1].split(";")[0])
+        assert cookie_s - 5 <= max_age <= cookie_s
+        user = tb.app.sessions.lookup(b.cookies["trailbeam_sid"])
+        assert before + cookie_s * 1000 <= user.expires_at_ms <= NOW_MS() + cookie_s * 1000
+
+
+def test_session_hours_setting():
+    kw = dict(issuer="https://i.example.com", client_id="c", public_url="https://t.example.com")
+    assert oidc.make_settings(**kw).session_ms == 12 * 3_600_000
+    assert oidc.make_settings(**kw, session_hours="").session_hours == 12
+    assert oidc.make_settings(**kw, session_hours="720").session_ms == 30 * 86_400_000
+    assert oidc.make_settings(**kw, session_hours="0.5").session_ms == 1_800_000
+    for bad in ("0", "-1", "721", "nan", "inf", "twelve", "0.01"):
+        with pytest.raises(oidc.SettingsError, match="--oidc-session-hours"):
+            oidc.make_settings(**kw, session_hours=bad)
+
+
 def test_the_server_refuses_to_start_with_half_the_settings(tmp_path, monkeypatch):
     for k in list(os.environ):
         if k.startswith("TRAILBEAM_OIDC") or k == "TRAILBEAM_PUBLIC_URL":
@@ -696,6 +725,10 @@ def test_flags_and_environment(tmp_path, monkeypatch):
         ["--oidc-allow-unverified-email"])).allow_unverified_email is True
     monkeypatch.setenv("TRAILBEAM_OIDC_CLIENT_SECRET", "from-env")
     assert main_mod.oidc_settings(main_mod.build_parser().parse_args([])).client_secret == "from-env"
+    assert s.session_hours == 12
+    assert main_mod.oidc_settings(main_mod.build_parser().parse_args(["--oidc-session-hours", "8"])).session_hours == 8
+    monkeypatch.setenv("TRAILBEAM_OIDC_SESSION_HOURS", "2")
+    assert main_mod.oidc_settings(main_mod.build_parser().parse_args([])).session_hours == 2
 
 
 def test_without_the_extra_it_says_which_to_install(monkeypatch):

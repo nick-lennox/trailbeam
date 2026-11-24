@@ -197,6 +197,10 @@ def build_parser(prog: str = "trailbeam", description: str = "") -> argparse.Arg
                           "TRAILBEAM_OIDC_ALLOW_UNVERIFIED_EMAIL=true). Needed for Microsoft Entra, which sends no "
                           "email_verified. Off by default: someone could set another person's email at the "
                           "provider and get an account under it")
+    sso.add_argument("--oidc-session-hours", default=os.environ.get("TRAILBEAM_OIDC_SESSION_HOURS") or None,
+                     help="how long a single sign-on session lasts, in hours (env TRAILBEAM_OIDC_SESSION_HOURS, "
+                          "default 12, at most 720). The provider is asked only at sign-in, so someone disabled "
+                          "there keeps their session here until it runs out: disable them here too")
     sso.add_argument("--oidc-label", default=os.environ.get("TRAILBEAM_OIDC_LABEL") or None,
                      help='the sign-in button says "Sign in with <label>" (env TRAILBEAM_OIDC_LABEL, default '
                           "single sign-on), such as Okta")
@@ -220,7 +224,8 @@ def oidc_settings(a: argparse.Namespace):
                            admin_groups=a.oidc_admin_groups, member_groups=a.oidc_member_groups,
                            default_role=a.oidc_default_role, allowed_domains=a.oidc_allowed_domains,
                            link_email=a.oidc_link_email,
-                           allow_unverified_email=a.oidc_allow_unverified_email, label=a.oidc_label)
+                           allow_unverified_email=a.oidc_allow_unverified_email, label=a.oidc_label,
+                           session_hours=a.oidc_session_hours)
     oidc.require_pyjwt()
     return s
 
@@ -330,8 +335,9 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
         sys.exit(2)
     if sso is not None:
         logging.getLogger("trailbeam.server").info(
-            "single sign-on with %s (client %s): register the redirect URI %s at the identity provider",
-            sso.issuer, sso.client_id, sso.redirect_uri)
+            "single sign-on with %s (client %s): register the redirect URI %s at the identity provider. Its "
+            "sessions last %g hours (--oidc-session-hours)", sso.issuer, sso.client_id, sso.redirect_uri,
+            sso.session_hours)
     if not accounts_on:
         ignored = ignored_accounts(db)
         if ignored:

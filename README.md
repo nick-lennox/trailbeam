@@ -658,8 +658,8 @@ Every flag also has an environment variable: `TRAILBEAM_PUBLIC_URL`, `TRAILBEAM_
 `TRAILBEAM_OIDC_CLIENT_ID`, `TRAILBEAM_OIDC_CLIENT_SECRET_FILE` (or the secret itself in
 `TRAILBEAM_OIDC_CLIENT_SECRET`), `TRAILBEAM_OIDC_SCOPES`, `TRAILBEAM_OIDC_GROUPS_CLAIM`,
 `TRAILBEAM_OIDC_ADMIN_GROUPS`, `TRAILBEAM_OIDC_MEMBER_GROUPS`, `TRAILBEAM_OIDC_DEFAULT_ROLE`,
-`TRAILBEAM_OIDC_ALLOWED_DOMAINS`, `TRAILBEAM_OIDC_LINK_EMAIL`, `TRAILBEAM_OIDC_ALLOW_UNVERIFIED_EMAIL` and
-`TRAILBEAM_OIDC_LABEL`.
+`TRAILBEAM_OIDC_ALLOWED_DOMAINS`, `TRAILBEAM_OIDC_LINK_EMAIL`, `TRAILBEAM_OIDC_ALLOW_UNVERIFIED_EMAIL`,
+`TRAILBEAM_OIDC_LABEL` and `TRAILBEAM_OIDC_SESSION_HOURS`.
 
 **Who gets which role.**
 
@@ -671,9 +671,14 @@ Every flag also has an environment variable: `TRAILBEAM_PUBLIC_URL`, `TRAILBEAM_
 | `--oidc-groups-claim` | the ID token claim that lists groups (default `groups`; for Entra app roles, `roles`) |
 | `--oidc-allowed-domains example.com` | only verified emails in these domains may sign in |
 
-- **With groups mapped, the provider decides.** A person's role is set again from their groups at every sign-in,
-  so taking someone out of the admin group makes them a member the next time they sign in. Their open sessions end
-  when their role changes. The last admin who can sign in stays an admin (the server logs a warning).
+- **With groups mapped, the provider decides, at sign-in.** A person's role is set again from their groups each time
+  they sign in, and their open sessions end when it changes. Until then they keep the role they had: taking someone
+  out of the admin group makes them a member at their next sign-in, at most `--oidc-session-hours` later. The last
+  admin who can sign in stays an admin (the server logs a warning).
+- **Sessions from single sign-on last 12 hours** (`--oidc-session-hours`, `TRAILBEAM_OIDC_SESSION_HOURS`, up to
+  720), not a password session's 30 days, because the provider is asked only at sign-in. **Disabling someone at the
+  provider doesn't sign them out here**, and the personal API tokens they made keep working. To cut someone off at
+  once, disable them here too: `trailbeam users disable <email>`.
 - **Without group settings,** a new person gets the default role, and an admin changes it here afterwards
   (`trailbeam users set-role`).
 - **The first admin** can come from single sign-on: while the server has no admin, only someone in an admin group

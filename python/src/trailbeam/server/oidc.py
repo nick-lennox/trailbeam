@@ -49,6 +49,11 @@ which a client or proxy can set to anything. Register that exact URI at the prov
   because a provider that lets people set their own email would let them take over an account, admins included.
 - While the server has no admin, only someone the groups make an admin can sign in, and they become an admin.
 
+**How long someone stays in.** The provider is asked only at sign-in. A session single sign-on starts lasts
+``--oidc-session-hours`` (``SESSION_HOURS``, 12 hours), not a password session's 30 days, so someone disabled at the
+provider, or taken out of a group, is out (or has their new role) within that time. Disabling someone at the
+provider doesn't end their Trailbeam session early, nor the personal API tokens they made: disable them here too.
+
 Signing out (``/logout``) ends the Trailbeam session only, not the one at the provider.
 """
 from __future__ import annotations
@@ -78,6 +83,8 @@ CALLBACK_PATH = "/login/oidc/callback"
 COOKIE = "trailbeam_oidc"
 SECURE_COOKIE = "__Secure-" + COOKIE  # Path isn't /, so not __Host-
 LOGIN_TTL_MS = 10 * 60_000
+SESSION_HOURS = 12.0      # a session single sign-on starts lasts this long (--oidc-session-hours) ...
+MAX_SESSION_HOURS = 720.0  # ... at most 30 days, a password session's life (sessions.LIFETIME_MS)
 STARTS_PER_ADDRESS = 30  # sign-ins one client address may start ...
 STARTS_WINDOW_S = 60.0   # ... in this many seconds, per replica (server.py)
 DISCOVERY_TTL_S = 3600.0
@@ -150,6 +157,11 @@ class Settings:
     link_email: bool = False
     allow_unverified_email: bool = False
     label: str = "single sign-on"
+    session_hours: float = SESSION_HOURS
+
+    @property
+    def session_ms(self) -> int:
+        return int(self.session_hours * 3_600_000)
 
     @property
     def redirect_uri(self) -> str:
@@ -164,7 +176,7 @@ def make_settings(*, issuer: Optional[str], client_id: Optional[str], public_url
                   client_secret: Optional[str] = None, scopes=None, groups_claim: Optional[str] = None,
                   admin_groups=None, member_groups=None, default_role: Optional[str] = None,
                   allowed_domains=None, link_email: bool = False, allow_unverified_email: bool = False,
-                  label: Optional[str] = None) -> Optional[Settings]:
+                  label: Optional[str] = None, session_hours=None) -> Optional[Settings]:
     """The settings, checked; None when single sign-on is off (no issuer). Raises SettingsError."""
     if not (issuer or "").strip():
         others = [n for n, v in (("--oidc-client-id", client_id), ("--oidc-admin-groups", admin_groups),
@@ -201,11 +213,25 @@ def make_settings(*, issuer: Optional[str], client_id: Optional[str], public_url
     if not claim:
         raise SettingsError("--oidc-groups-claim must not be empty")
     secret = (client_secret or "").strip() or None
+    hours = _session_hours(session_hours)
     return Settings(issuer=issuer, client_id=client_id.strip(), public_url=public_url.rstrip("/"),
                     client_secret=secret, scopes=sc, groups_claim=claim, admin_groups=admins,
                     member_groups=members, default_role=role, allowed_domains=domains, link_email=bool(link_email),
                     allow_unverified_email=bool(allow_unverified_email),
-                    label=(label or "").strip() or "single sign-on")
+                    label=(label or "").strip() or "single sign-on", session_hours=hours)
+
+
+def _session_hours(value) -> float:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return SESSION_HOURS
+    try:
+        hours = float(value)
+    except (TypeError, ValueError):
+        hours = float("nan")
+    if not (0 < hours <= MAX_SESSION_HOURS) or hours * 3_600_000 < 60_000:
+        raise SettingsError(f"--oidc-session-hours must be a number of hours from 0.02 (a minute) to "
+                            f"{MAX_SESSION_HOURS:g} (30 days), got {value!r}")
+    return hours
 
 
 def read_secret_file(path: str) -> str:
@@ -563,7 +589,7 @@ class Oidc:
             raise OidcError(f"Your account can't be created here: {e}.", f"{person.email}: {e}", 403) from None
         kept = self.settings.maps_groups and person.role != "admin" and user["role"] == "admin"
         self.sessions.forget_user(int(user["id"]))  # a new role ended their sessions in the store: here at once too
-        sid, expires = self.sessions.start(int(user["id"]))
+        sid, expires = self.sessions.start(int(user["id"]), self.settings.session_ms)
         return Done(user, how, sid, expires, row["next_path"], kept)
 
 
