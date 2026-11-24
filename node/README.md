@@ -242,6 +242,25 @@ const sns = trailbeam.instrument(new SNSClient({}));
 
 `wrapHandler(fn, { sns })` takes the same options for its receives.
 
+### EventBridge PutEvents
+
+Contract section 25. Pass an `EventBridgeClient` to `instrument` too: each `PutEvents` call records one
+`trailbeam put_event` span per entry, in entry order, whether EventBridge accepted the entry, failed it, or the whole
+call failed. Trailbeam joins an accepted entry to the receives of the SQS messages its event reached, by the event ID.
+
+- **Recorded**: the event bus (its name, and the `EventBusName` you passed), the entry's index, whether it was accepted
+  (`ok`) or `failed` with its error code, the event ID EventBridge returned, the entry's `Source` and `DetailType`
+  (when 1 to 256 characters), whether you set `Time` (not its value), and the size of `Detail` in bytes.
+- **Never recorded**: `Detail` itself, `Resources`, `TraceHeader`, the value of `Time`, the error message EventBridge
+  returns for a failed entry, and the request's `EndpointId`.
+
+The request is never changed, and there is no option.
+
+```js
+const { EventBridgeClient } = require('@aws-sdk/client-eventbridge');
+const events = trailbeam.instrument(new EventBridgeClient({}));
+```
+
 
 ### EventBridge and S3 notifications
 
@@ -260,7 +279,7 @@ The Node.js package does not set `thread.name` (contract section 3).
 | Export | Effect |
 |---|---|
 | `install({ receiptHashKey, spanExporter, spanProcessor, tenant, capture, sns })` | Creates the client hooks for this realm and returns the Trailbeam `BasicTracerProvider`. A second call replaces the first and shuts down its provider. All options are optional. |
-| `instrument(client)` | Adds the middleware `trailbeamSqsMiddleware` to an AWS SDK v3 `SQSClient` or `SNSClient` and returns the client. Calls `install()` first if needed. Throws `TypeError` if the argument has no middleware stack. |
+| `instrument(client)` | Adds the middleware `trailbeamSqsMiddleware` to an AWS SDK v3 `SQSClient`, `SNSClient` or `EventBridgeClient` and returns the client. Calls `install()` first if needed. Throws `TypeError` if the argument has no middleware stack. |
 | `uninstall()` | Turns the hooks off on every instrumented client, then flushes and shuts down the provider. Returns a promise. |
 | `forceFlush()` | Exports the client-hook spans that are waiting. Returns a promise. |
 | `wrapHandler(handler, { receiptHashKey, spanExporter, spanProcessor, flushTimeoutMs = 2000, reportBatchItemFailures = true })` | Returns an async Lambda handler with a `trailbeamTracerProvider` property. Throws `TypeError` if `handler` is not a function. |

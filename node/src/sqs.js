@@ -1,6 +1,6 @@
 'use strict';
 // Trailbeam hooks for AWS SDK v3 SQS clients (contract sections 4.1 to 4.3, and 18 for PurgeQueue), and
-// for SNS clients' Publish and PublishBatch (section 21).
+// for SNS clients' Publish and PublishBatch (section 21), and for EventBridge clients' PutEvents (section 25).
 //
 // The hooks are a middleware on each SQSClient's middleware stack. When the application uses
 // @opentelemetry/instrumentation-aws-sdk, that instrumentation runs the whole stack inside the
@@ -10,6 +10,7 @@
 //     const trailbeam = require('trailbeam');
 //     const sqs = trailbeam.instrument(new SQSClient({}));   // installs with defaults on first use
 //     const sns = trailbeam.instrument(new SNSClient({}));   // 3.4: SNS publishes, joined to their receives
+//     const eb = trailbeam.instrument(new EventBridgeClient({}));   // 3.6: PutEvents entries, joined by event ID
 
 const api = require('@opentelemetry/api');
 
@@ -18,6 +19,7 @@ const {
   SPAN_DELETE,
   SPAN_PUBLISH,
   SPAN_PURGE,
+  SPAN_PUT_EVENT,
   SPAN_RECEIVE,
   SPAN_SEND,
   intOrUndefined,
@@ -53,6 +55,10 @@ const SETTLE_OPS = {
 };
 const PUBLISH_OPS = new Set(['Publish', 'PublishBatch']); // 3.4, section 21: SNS clients
 const OPS = new Set(['SendMessage', 'SendMessageBatch', 'ReceiveMessage', 'PurgeQueue', ...Object.keys(SETTLE_OPS), ...PUBLISH_OPS]);
+// 3.6, section 25: EventBridge clients. Other services (Pinpoint, Personalize Events) also have a PutEvents, so
+// the operation counts only on an EventBridgeClient.
+const PUT_EVENTS = 'PutEvents';
+const EVENTBRIDGE_CLIENT = 'EventBridgeClient';
 
 function debug(what, err) {
   api.diag.debug(`trailbeam: ${what} failed`, err);
@@ -194,6 +200,20 @@ class SqsHooks {
     }
   }
 
+  /**
+   * 3.6 (section 25.1): one trailbeam put_event per entry of a PutEvents request, accepted or failed. `output` is
+   * the response, or undefined if the call threw `err`: then every entry is failed with the call's error code.
+   */
+  onPutEvents(input, output, err, parentContext, times = {}) {
+    const callError = output === undefined ? errorCode(err) : undefined;
+    const t = spanTimes(times);
+    for (const attrs of capture.putEventAttrs(input, output, callError)) {
+      const bus = attrs['messaging.destination.name'];
+      delete attrs['messaging.destination.name'];
+      this.emitter.emit(SPAN_PUT_EVENT, PUT_EVENTS, bus, undefined, attrs, { parentContext, ...t });
+    }
+  }
+
   /** 3.2 attributes of one sent message: the body from the request, checked against the response's MD5. */
   sent(queueName, request, response) {
     return {
@@ -299,7 +319,8 @@ function sqsMiddleware(getHooks) {
     const hooks = getHooks();
     const cmd = context && context.commandName;
     const operation = typeof cmd === 'string' ? cmd.replace(/Command$/, '') : undefined;
-    if (!hooks || !OPS.has(operation) || !args || !args.input) return next(args);
+    const putEvents = operation === PUT_EVENTS && context.clientName === EVENTBRIDGE_CLIENT;
+    if (!hooks || !(OPS.has(operation) || putEvents) || !args || !args.input) return next(args);
 
     let input = args.input;
     let injected;
@@ -339,6 +360,8 @@ function sqsMiddleware(getHooks) {
         try { hooks.onSettle(operation, input, undefined, err, parentContext, times); } catch (e) { debug('settle hook', e); }
       } else if (operation === 'PurgeQueue') {
         try { hooks.onPurge(input, undefined, err, parentContext, times); } catch (e) { debug('purge hook', e); }
+      } else if (putEvents) {
+        try { hooks.onPutEvents(input, undefined, err, parentContext, times); } catch (e) { debug('put events hook', e); }
       }
       throw err;
     }
@@ -348,6 +371,7 @@ function sqsMiddleware(getHooks) {
       if (operation === 'ReceiveMessage') hooks.onReceive(input, output, parentContext, times);
       else if (operation === 'SendMessage' || operation === 'SendMessageBatch') hooks.onSend(operation, input, output, parentContext, times);
       else if (operation === 'PurgeQueue') hooks.onPurge(input, output || {}, undefined, parentContext, times);
+      else if (putEvents) hooks.onPutEvents(input, output || {}, undefined, parentContext, times);
       else if (PUBLISH_OPS.has(operation)) hooks.onPublish(operation, input, output, injected, parentContext, times);
       else hooks.onSettle(operation, input, output || {}, undefined, parentContext, times);
     } catch (e) {
@@ -412,12 +436,12 @@ function addExitHooks() {
 }
 
 /**
- * Add the Trailbeam hooks to an AWS SDK v3 SQSClient or SNSClient. Installs with default options first if
+ * Add the Trailbeam hooks to an AWS SDK v3 SQSClient, SNSClient or EventBridgeClient. Installs with default options first if
  * `install` has not been called. Safe to call more than once on the same client. Returns the client.
  */
 function instrument(client) {
   if (!client || !client.middlewareStack || typeof client.middlewareStack.add !== 'function') {
-    throw new TypeError('trailbeam.instrument expects an AWS SDK v3 SQSClient or SNSClient');
+    throw new TypeError('trailbeam.instrument expects an AWS SDK v3 SQSClient, SNSClient or EventBridgeClient');
   }
   if (!state) install();
   client.middlewareStack.add(sqsMiddleware(() => state && state.hooks), {
