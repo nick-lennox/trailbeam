@@ -2,24 +2,28 @@
 
 ## Unreleased
 
-- **Helm chart with the trial Postgres: the Service, the PDB and the Deployment reach the server only**
-  (QV-342). In 0.4.0 the Postgres pod carried the same two labels the server's selectors use, so
-  `kubectl port-forward service/<release>-trailbeam 4318:4318` (the documented check) failed with "does not have a
-  named port 'http'", `kubectl logs deployment/...` could show Postgres's log, and the PodDisruptionBudget counted
-  Postgres, so a drain could evict both server replicas. Server pods now carry `app.kubernetes.io/component:
-  server`, and the Service, the PDB and the spread constraint select on it. `helm upgrade` from 0.4.0 needs no extra
-  step and fixes the Service and the PDB. The Deployment's selector can't change in place, so a Deployment made by
-  0.4.0 keeps its old one, and `kubectl logs deployment/...` may still pick the Postgres pod. To switch it to the
-  new selector once (the server pods keep running; the new Deployment adopts their ReplicaSet):
-
-  ```
-  kubectl delete deployment <release>-trailbeam --cascade=orphan
-  helm upgrade <release> <chart> <your settings>
-  kubectl delete replicaset -l 'app.kubernetes.io/instance=<release>,app.kubernetes.io/name=trailbeam,!app.kubernetes.io/component'
-  ```
-
-  `deploy/helm/check.sh` now runs the documented port-forward, checks what each selector picks, and upgrades a
-  release installed by the 0.4.0 chart.
+- **Users and roles switch on when the first admin exists** (QV-225). Each replica checks the store at least
+  every 5 seconds for an admin. Until there is one, nothing changes. After that:
+  - The web screen and the API need a person: signing in with an email and password on `/login` (cookie
+    `trailbeam_sid`, or `__Host-trailbeam_sid` over HTTPS), or a personal API token (`tbp_...`) as
+    `Authorization: Bearer`. Admins and members can both read everything. Every route has a fixed level: open,
+    ingest, metrics, member or admin.
+  - **Changed:** `TRAILBEAM_TOKEN` keeps working for ingest and `/metrics` only. It no longer opens the web screen
+    or the API, and its old `trailbeam_session` cookie stops working. The server warns at every start while it
+    is set. Upgrade every replica before creating the first admin: an older replica would still let the token
+    into the web screen.
+  - **Ingest tokens** (`tbi_...`): named service tokens that can only send spans, as `x-trailbeam-key` (the hosted
+    app's header) or `Authorization: Bearer`. `TRAILBEAM_TOKEN` is accepted in `x-trailbeam-key` too. Ingest needs
+    a token when `TRAILBEAM_TOKEN` is set or the store holds an ingest token, revoked or not. **Changed:** creating
+    the first ingest token closes ingest on a server that had no `TRAILBEAM_TOKEN`.
+  - Tokens are stored as SHA-256 and checked through a per-process cache (ingest 30 s, personal 20 s). "Last
+    used" is written at most once a minute per token and replica.
+  - `GET /api/me` says how a request was let in and as whom. `/api/health` gains `config.ingest_auth`
+    (`token` or `open`), and `config.auth` can be `accounts`.
+  - **Changed:** `/metrics` without a valid token answers a plain-text `401`, not the HTML sign-in page.
+  - **Changed:** with neither a token nor an ingest token, the server now warns at every start that ingest is
+    open, also when it listens only on localhost.
+  - Creating people and tokens from the command line comes with `trailbeam users` and `trailbeam tokens`.
 
 - **Conformance kit: the Lambda wrappers** (QV-339, QV-318 stage 2). `trailbeam.aws_lambda.wrap` (Python) and
   `wrapHandler` (Node.js) run in the AWS Lambda base images, invoked through their Runtime Interface Emulator by
@@ -43,6 +47,13 @@
   OpenTelemetry Java agent 2.34.0 (also sampled to 0) and beside dd-java-agent 1.69.1. Not yet built: body capture
   and tenants, the Lambda wrapper, the SDK version matrix, a strict parent check for the agent variants, and
   Maven Central.
+
+- **`trailbeam doctor` reads the token the services send** (QV-343). With no `--token-file` or `TRAILBEAM_TOKEN`,
+  it takes the Bearer token from `OTEL_EXPORTER_OTLP_TRACES_HEADERS` or `OTEL_EXPORTER_OTLP_HEADERS` (URL-decoded,
+  as the exporters read it) before falling back to `~/.trailbeam/token`, and its header line says
+  `token: OTEL_EXPORTER_OTLP_HEADERS`. So on a service's host, with exactly the variables `trailbeam start`
+  prints, it no longer reports the token missing. A header with no `Authorization=Bearer%20<token>` is reported
+  as such.
 
 - **Conformance kit for Trailbeam packages** (QV-318, stage 1). `conformance/` runs a language package's small
   driver through one scripted scenario (send, batch send, receive, delete, batch delete with a failed entry,
@@ -90,8 +101,8 @@
   which send neither header, are not affected. (QV-225)
 - **Passwords and sessions for users and roles, not switched on yet.** scrypt password hashing (N=2^15,
   r=8, p=3, at most 2 hashes at once per process), sessions in the store with a 20-second cache per process,
-  a lock per account after 10 failed sign-ins in a row and a limit per client address. Nothing uses them
-  until a later release adds sign-in. (QV-225)
+  a lock per account after 10 failed sign-ins in a row and a limit per client address. Signing in (above)
+  uses them. (QV-225)
 - **Tables for people and tokens (users and roles, phase 1).** The store gains `users`, `sessions`,
   `ingest_tokens`, `personal_tokens` and `setup_codes`: SQLite schema 15, Postgres schema 8. They are created
   empty and nothing uses them yet, so the server behaves exactly as before. Emails are unique ignoring case.
@@ -128,6 +139,25 @@
   enqueued) is now marked `deduplicated: true` on the timeline, with the reason, instead of showing as a second
   plain "Sent" step. It no longer counts in the Tenants page's `total_sent`, a tenant's `sent` or its share. On
   upgrade, SQLite schema 14 and Postgres schema 7 fix the counts of messages already stored (QV-246).
+
+- **Helm chart with the trial Postgres: the Service, the PDB and the Deployment reach the server only**
+  (QV-342). In 0.4.0 the Postgres pod carried the same two labels the server's selectors use, so
+  `kubectl port-forward service/<release>-trailbeam 4318:4318` (the documented check) failed with "does not have a
+  named port 'http'", `kubectl logs deployment/...` could show Postgres's log, and the PodDisruptionBudget counted
+  Postgres, so a drain could evict both server replicas. Server pods now carry `app.kubernetes.io/component:
+  server`, and the Service, the PDB and the spread constraint select on it. `helm upgrade` from 0.4.0 needs no extra
+  step and fixes the Service and the PDB. The Deployment's selector can't change in place, so a Deployment made by
+  0.4.0 keeps its old one, and `kubectl logs deployment/...` may still pick the Postgres pod. To switch it to the
+  new selector once (the server pods keep running; the new Deployment adopts their ReplicaSet):
+
+  ```
+  kubectl delete deployment <release>-trailbeam --cascade=orphan
+  helm upgrade <release> <chart> <your settings>
+  kubectl delete replicaset -l 'app.kubernetes.io/instance=<release>,app.kubernetes.io/name=trailbeam,!app.kubernetes.io/component'
+  ```
+
+  `deploy/helm/check.sh` now runs the documented port-forward, checks what each selector picks, and upgrades a
+  release installed by the 0.4.0 chart.
 
 ## 0.4.0: set up in one command
 
