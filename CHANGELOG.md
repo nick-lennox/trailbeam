@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **`trailbeam --version`** (QV-346). `trailbeam --version` (or `-V`, also after `start`) prints
+  `trailbeam <version>` and exits 0; it used to fail with `unrecognized arguments`. `npx trailbeam --version` prints
+  the same line (it printed the bare version before).
 - **The Java jar has its Maven Central name and release setup** (QV-319). The group ID is `app.trailbeam`, as
   the board chose, and the Java package moves with it from `dev.trailbeam.sqs` to `app.trailbeam.sqs`, so the
   Lambda handler is now `app.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`. Builds also make a sources
