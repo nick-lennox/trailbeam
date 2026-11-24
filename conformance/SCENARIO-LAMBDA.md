@@ -113,9 +113,12 @@ key ID, sent timestamp (should), DLQ source ARN when the record has it, body siz
 other time may be put there); `trailbeam.order.returned` and **no** `trailbeam.order.issued`; its time between
 the poller's POST and the handler's start; and **flushed before the handler ran**: the bench's Collector
 stamps every span with `kit.collector.received_unix_nano` when it receives it, and the receive's stamp must
-be before the handler's `started_unix_nano`. The Collector stamps a span before it answers the export, and a
-wrapper that waits for that answer starts the handler after it, so a correct wrapper passes on any machine
-(the function, the Collector and the poller read one wall clock: they share the host's kernel).
+be before the handler's `started_unix_nano`, give or take 1 ms. The Collector stamps a span before it answers
+the export, and a wrapper that waits for that answer starts the handler after it, so a correct wrapper passes
+on any machine (the function, the Collector and the poller read one wall clock: they share the host's kernel).
+The 1 ms is for the two processes' readings of that clock, which can tie or cross by tens of microseconds; a
+wrapper that doesn't flush is late by its batch delay or the handler's run time, seconds rather than a
+millisecond.
 
 The outcome also: `trailbeam.outcome`, derived from the response as above; `trailbeam.error_type` = the RIE's
 `errorType` on `failed_exception`; `trailbeam.batch.reported_failure_count` when the handler returned a valid
