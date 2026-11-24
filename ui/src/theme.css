@@ -40,6 +40,9 @@
   /* the first-run screen's waiting dot: opacity 40% to 100% over 2.4 s (still under prefers-reduced-motion) */
   --animate-wait: tb-wait 2.4s ease-in-out infinite;
   @keyframes tb-wait { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  /* the Overview's wires: dashes move the way messages do (used as motion-safe:animate-flow-dash) */
+  --animate-flow-dash: tb-flow-dash 0.9s linear infinite;
+  @keyframes tb-flow-dash { to { stroke-dashoffset: -14; } }
 
   /* role tokens, here mapped to the sky */
   --color-ink: var(--color-sky-ink);           /* primary text */
