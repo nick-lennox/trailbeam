@@ -169,12 +169,15 @@ With Maven Shade:
 ```
 
 With Gradle Shadow, use `append 'software/amazon/awssdk/global/handlers/execution.interceptors'`. A Spring Boot
-executable jar keeps dependencies as nested jars, so it needs no extra setup.
+executable jar keeps dependencies as nested jars, so it needs no extra setup. The conformance kit checks this on
+Spring Boot 2.7 (the classic launcher), 3.5 and 4.2 (the launcher rewritten in 3.2), alone and beside the
+OpenTelemetry Java agent.
 
 ## Building
 
 ```
 mvn -f java/pom.xml install                      # unit tests, relocated jar
-mvn -f conformance/drivers/java/pom.xml package  # the conformance driver, on the installed jar
+mvn -f conformance/drivers/java/pom.xml package  # the conformance driver, on the installed jar, plain and as a
+                                                 # Spring Boot jar (2.7 on JDK 11, 3.5 on JDK 17, 4.2 on JDK 21+)
 OTEL_JAVA_AGENT_JAR=... DD_JAVA_AGENT_JAR=... python conformance/kit.py run conformance/drivers/java/driver.json
 ```
