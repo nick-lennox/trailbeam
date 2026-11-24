@@ -9,6 +9,8 @@ name: Release
 #     :X.Y.Z-postgres and :latest-postgres (with the Postgres driver; the Helm chart's default image).
 #     Once per version: the job stops before pushing either image if :X.Y.Z is already published
 #   - a GitHub release with that version's CHANGELOG section
+# Nothing is published unless the full CI (every job of ci.yml, the nightly set, called with full: true) passes
+# on the tagged commit (QV-389).
 on:
   push:
     tags: ["v*"]
@@ -35,8 +37,17 @@ jobs:
           grep -q "^## $v" CHANGELOG.md || { echo "CHANGELOG.md has no '## $v' section"; exit 1; }
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
-  python:
+  ci:
+    # Every CI job on the tagged commit, whatever changed: the core, every path-filtered job, and the nightly
+    # tier (upgrade, backup and restore, perf, monitoring, real SQS, docs commands).
     needs: check
+    uses: ./.github/workflows/ci.yml
+    with:
+      full: true
+    secrets: inherit
+
+  python:
+    needs: [check, ci]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,7 +68,7 @@ jobs:
         with: { name: python-dist, path: dist/ }
 
   pypi:
-    needs: python
+    needs: [python, ci]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -68,7 +79,7 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
 
   npm:
-    needs: check
+    needs: [check, ci]
     runs-on: ubuntu-latest
     environment: npm
     permissions:
@@ -85,7 +96,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   image:
-    needs: check
+    needs: [check, ci]
     runs-on: ubuntu-latest
     permissions:
       contents: read
