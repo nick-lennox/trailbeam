@@ -12,6 +12,15 @@
   can't see without AWS (depth, in flight, the oldest message's age, the DLQ's depth), with a link to the SQS
   console. The time range, the selected minutes and "By version" are in the URL. The view is
   `QueuePage` in `@trailbeam/ui`, which the hosted app uses too.
+- **`trailbeam --version`** (QV-346). `trailbeam --version` (or `-V`, also after `start`) prints
+  `trailbeam <version>` and exits 0; it used to fail with `unrecognized arguments`. `npx trailbeam --version` prints
+  the same line (it printed the bare version before).
+- **The Java jar has its Maven Central name and release setup** (QV-319). The group ID is `app.trailbeam`, as
+  the board chose, and the Java package moves with it from `dev.trailbeam.sqs` to `app.trailbeam.sqs`, so the
+  Lambda handler is now `app.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`. Builds also make a sources
+  jar and a javadoc jar, the pom lists developers and scm as Central requires, and a `release` profile signs with
+  GPG and uploads through the Central Portal with automatic publishing off. `java/RELEASING.md` has the steps.
+  Nothing is published yet: the namespace still has to be verified on the Central Portal.
 - **Users and roles are a preview, off unless switched on** (QV-349). They haven't had their security review
   (QV-229) yet, so a server built from this version ignores them unless it runs with `--accounts`
   (`TRAILBEAM_ACCOUNTS=1`, also `true`, `yes` or `on`; any other value but `0`, `false`, `no`, `off` or empty
@@ -20,6 +29,10 @@
   `TRAILBEAM_ADMIN_EMAIL` stops the server at start, and `trailbeam users` and `trailbeam tokens` refuse to run
   without `--accounts` or the variable. On, everything works as described below. The `--trusted-proxy` handling,
   the cross-site form check and the account tables are not behind the switch.
+- **Sign-in no longer tells which emails have accounts through a password over 1024 bytes** (QV-229, security
+  review of users and roles). With a known email it was refused without a password hash (about 6 ms), with an
+  unknown one after a hash (about 190 ms). Now every refusal costs one hash. Accounts are not on in any
+  release yet.
 - **A queue's series for the queue page** (QV-363): `GET /api/queues/{queue}/series?from_ms=&to_ms=&step_s=`. For each
   bucket it gives sends, receives and re-receives, handled messages (accepted deletes plus Lambda successes),
   failed Lambda invocations, dead-letter moves (seen on the dead-letter queue, and inferred from the configured
@@ -94,7 +107,7 @@
   an export whose client hangs up, and the client sends it again. No change in the Python or Node.js packages:
   the retry is the OTLP exporter's.
 - **Java package, stage 4: the Lambda wrapper** (QV-319, pre-release, not published). For a function invoked by
-  an SQS event source mapping, set the handler to `dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`
+  an SQS event source mapping, set the handler to `app.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`
   and name your own in `TRAILBEAM_LAMBDA_HANDLER`, or extend `TrailbeamSqsHandler`. Each record gets a
   `trailbeam receive`, exported before the handler runs, and a `trailbeam outcome` after it, with the batch
   fields and opt-in error text (`TRAILBEAM_CAPTURE_ERROR_QUEUES`). `trailbeam.error_type` is the exception's fully
