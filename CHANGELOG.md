@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **.NET package, stage 1: SQS spans from the AWS SDK for .NET v4** (QV-320, pre-release, not published). In
+  `dotnet/`, `Trailbeam.Sqs`: one line at startup, `TrailbeamSqs.Register()`, adds a pipeline handler through
+  `RuntimePipelineCustomizerRegistry` to every SQS client created afterwards. It emits every client span of the
+  contract (send, receive, delete, change visibility, their batch forms, purge) with the receipt-handle HMAC, call-order
+  ticks, the message ID on settle spans, and section 15's tenants and opt-in redacted body capture. It passes the
+  conformance kit, 20 of 20 spans, alone, beside OpenTelemetry.Instrumentation.AWS 1.21.0 (registered after
+  Trailbeam or before it, each span a child of the SDK's exported span), with the application's sampler at 0, and
+  with capture on. A new CI job, ".NET package", runs the unit tests on .NET 8 and 10 and the kit. Still to come: the Lambda
+  wrapper for `Amazon.Lambda.SQSEvents`, the Datadog tracer, a version matrix, and NuGet publishing, which waits for
+  a board decision.
+
 - **Java package, stage 5: version matrix and strict parent checks** (QV-319, pre-release, not published). CI
   runs the Java driver in every variant on JDK 11 and 17 and on AWS SDK 2.17.295, 2.20.162, 2.24.13 and 2.25.0,
   beside the existing JDK 21 run on the newest SDK. The supported floor is SDK 2.17. The agent variants now check

@@ -273,6 +273,41 @@ jobs:
             ${{ runner.temp }}/kit/bench.log
             ${{ runner.temp }}/kit/*.driver.log
 
+  dotnet:
+    # dotnet/: the AWS SDK for .NET v4 package (QV-320). Unit tests on .NET 8 and 10 (contract vectors, a real SQS
+    # client over a stub HTTP layer), then the conformance kit's .NET driver: alone, beside
+    # OpenTelemetry.Instrumentation.AWS (registered after Trailbeam and before it, and with the app's sampler at 0,
+    # each with the strict parent check) and with body capture on.
+    name: .NET package (unit tests and conformance kit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Unit tests
+        run: dotnet test dotnet/test/Trailbeam.Sqs.Tests
+      - name: Build the conformance driver
+        run: dotnet build -c Release conformance/drivers/dotnet
+      - name: .NET package on the bench (every variant)
+        run: python conformance/kit.py run conformance/drivers/dotnet/driver.json --workdir "$RUNNER_TEMP/kit"
+      - name: Keep the report, driver logs and spans (not the ground truth, which holds the bench's raw receipt handles)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-kit-dotnet
+          path: |
+            ${{ runner.temp }}/kit/report.json
+            ${{ runner.temp }}/kit/bench.log
+            ${{ runner.temp }}/kit/*.driver.log
+            ${{ runner.temp }}/kit/collector/spans.jsonl
+          if-no-files-found: ignore
+
   ui:
     name: Shared UI (@trailbeam/ui)
     runs-on: ubuntu-latest
