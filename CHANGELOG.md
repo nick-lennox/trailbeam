@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Users and roles are a preview, off unless switched on** (QV-349). They haven't had their security review
+  (QV-229) yet, so a server built from this version ignores them unless it runs with `--accounts`
+  (`TRAILBEAM_ACCOUNTS=1`, also `true`, `yes` or `on`; any other value but `0`, `false`, `no`, `off` or empty
+  stops the server). Off, access is as in 0.4.0, `TRAILBEAM_TOKEN` alone: `trailbeam start` prints no setup link,
+  `/setup` answers `404`, an admin or ingest tokens already in the store are ignored (with a warning at start),
+  `TRAILBEAM_ADMIN_EMAIL` stops the server at start, and `trailbeam users` and `trailbeam tokens` refuse to run
+  without `--accounts` or the variable. On, everything works as described below. The `--trusted-proxy` handling,
+  the cross-site form check and the account tables are not behind the switch.
 - **A queue's series for the queue page** (QV-363): `GET /api/queues/{queue}/series?from_ms=&to_ms=&step_s=`. For each
   bucket it gives sends, receives and re-receives, handled messages (accepted deletes plus Lambda successes),
   failed Lambda invocations, dead-letter moves (seen on the dead-letter queue, and inferred from the configured
