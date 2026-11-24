@@ -88,7 +88,7 @@ function FirstRunPage({ health }: { health: Health }) {
   useEffect(() => { document.title = received ? "Trailbeam" : "Get started · Trailbeam"; }, [received]);
   return (
     <>
-      <FirstRun endpoint={`${location.origin}/v1/traces`} auth={health.config?.auth === "token" ? "token" : "off"} status={status}
+      <FirstRun endpoint={`${location.origin}/v1/traces`} auth={health.config?.auth === "token" || health.config?.ingest_auth === "token" ? "token" : "off"} status={status}
         version={health.version ?? "unknown"} runtime={runtime} onRuntime={pick} retainedFor={retainedFor(health)} />
       {received && <div className="mt-10"><MessagesList params={{}} heading="h2" /></div>}
     </>

@@ -83,6 +83,12 @@ test('default: the Docker volume, 127.0.0.1:4318, the matching image', () => {
   assert.deepStrictEqual(args.slice(-4), [cli.IMAGE, 'start', '--data-dir', '/data']);
 });
 
+test('the setup link is asked for only when npx runs in a terminal', () => {
+  assert.ok(cli.dockerArgs([], { env: {}, uid: 1, gid: 1, terminal: true }).args.includes('TRAILBEAM_START_TERMINAL=1'));
+  const { args } = cli.dockerArgs([], { env: { TRAILBEAM_START_TERMINAL: '1' }, uid: 1, gid: 1, terminal: false });
+  assert.ok(!args.includes('TRAILBEAM_START_TERMINAL=1') && !args.includes('TRAILBEAM_START_TERMINAL'), args.join(' '));
+});
+
 test('flags pass through; --host and --port become the published port', () => {
   const { args } = cli.dockerArgs(['--port=5000', '--host', '0.0.0.0', '--retention', '7d', '--stuck-after', '60'],
     { env: {}, uid: 1000, gid: 1000 });
