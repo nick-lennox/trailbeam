@@ -1,8 +1,9 @@
 /*
   Self-hosted Trailbeam's pages drawn with the shared views (../src): Messages at / (the first-run screen while
-  no span is stored: home.tsx), Duplicates and Stuck (lists.tsx), the message page at /message?id=<message ID>
-  (the timeline, and with &tab=body the Body tab), the Tenants page at /tenants and, for admins, the People page at
-  /people (people.tsx), and for anyone signed in the Tokens page at /tokens (tokens.tsx). They read Trailbeam's own
+  no span is stored: home.tsx), Duplicates (lists.tsx), Stuck grouped by cause (stuck.tsx), the message page
+  at /message?id=<message ID> (the timeline, and with &tab=body the Body tab), the Tenants page at /tenants, for
+  admins the People page at /people (people.tsx), and for anyone signed in the Tokens page at /tokens (tokens.tsx).
+  They read Trailbeam's own
   API on the same origin. Without the build, or with scripts off, the server's HTML pages answer instead.
 */
 import { StrictMode, useEffect, useState } from "react";
@@ -14,8 +15,9 @@ import {
 } from "../src/index.ts";
 import { ApiError, CopyLink, Header, bodyAccess, getHealth, getJSON, tenantHref, useMe } from "./chrome.tsx";
 import { HomePage } from "./home.tsx";
-import { DuplicatesPage, StuckPage } from "./lists.tsx";
+import { DuplicatesPage } from "./lists.tsx";
 import { PeoplePage } from "./people.tsx";
+import { StuckPage } from "./stuck.tsx";
 import { TokensPage } from "./tokens.tsx";
 import "./styles.css";
 

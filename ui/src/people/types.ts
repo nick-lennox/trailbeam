@@ -17,6 +17,11 @@ export type Person = {
   last_sign_in_ms: number | null;
   /** this is the person looking at the page */
   you: boolean;
+  /**
+   * they sign in with single sign-on (an identity provider account is linked to them). Removing them then doesn't keep
+   * them out, so the remove confirmation says so. Absent from servers without single sign-on: treated as false.
+   */
+  single_sign_on?: boolean;
 };
 
 /** A one-time link: an invite (7 days) for someone with no password yet, else a password reset (24 hours). */

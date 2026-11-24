@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
-  AddPerson, OneTimeLink, PeopleTable, LAST_ADMIN, ROLES, fmtWhen, isLastAdmin, linkButton, linkKind, linkSentence, removeSentence, signInAdmins,
+  AddPerson, OneTimeLink, PeopleTable, LAST_ADMIN, ROLES, fmtWhen, isLastAdmin, linkButton, linkKind, linkSentence, removeSentence, removeSsoNote, signInAdmins,
 } from "../src/people/People.tsx";
 import type { Person } from "../src/people/types.ts";
 
@@ -95,6 +95,24 @@ test("removing asks first, and says what stops working", () => {
   assert.equal(removeSentence({ name: "Ben", email: "ben@example.com", you: false }),
     "Remove Ben? Their sign-ins, personal API tokens and links stop working. This can't be undone.");
   assert.match(removeSentence({ name: "Ada", email: "a@example.com", you: true }), /^Remove your own account\? You are signed out/);
+});
+
+test("removing someone who signs in with single sign-on warns that it doesn't keep them out (QV-460)", () => {
+  const ben = { name: "Ben", email: "ben@example.com", you: false };
+  assert.equal(removeSsoNote(ben), null, "no single sign-on: no warning");
+  assert.equal(removeSsoNote({ ...ben, single_sign_on: false }), null);
+  assert.equal(removeSsoNote({ ...ben, single_sign_on: true }),
+    "Ben signs in with single sign-on, so removing them doesn't keep them out: at their next sign-in they come back "
+    + "as a new person with the default role. To keep them out, disable them instead.");
+  assert.match(removeSsoNote({ name: "", email: "ben@example.com", you: false, single_sign_on: true })!, /^ben@example\.com signs in/);
+  const me = { name: "Ada", email: "a@example.com", you: true };
+  assert.equal(removeSentence(me), "Remove your own account? You are signed out, and can't sign in again.");
+  assert.equal(removeSentence({ ...me, single_sign_on: true }), "Remove your own account? You are signed out.",
+    "they can sign in again, so don't say they can't");
+  assert.match(removeSsoNote({ ...me, single_sign_on: true })!, /^You sign in with single sign-on, so removing your account doesn't keep you out/);
+  // the confirmation shows the note, in a role token, only when there is one
+  const src = readFileSync(new URL("../src/people/People.tsx", import.meta.url), "utf8");
+  assert.match(src, /\{removeSsoNote\(p\) && <span className="[^"]*text-warning-text"[^>]*>\{removeSsoNote\(p\)\}<\/span>\}/);
 });
 
 test("the people views use role tokens, which theme.css defines", () => {

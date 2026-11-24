@@ -959,7 +959,7 @@ the receive in a trace of its own. The conformance kit checks exactly this (its 
 
 ### 20.3 Lambda wrapper
 
-The wrapper is a handler class (`dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`) that loads the
+The wrapper is a handler class (`app.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`) that loads the
 real handler named in `TRAILBEAM_LAMBDA_HANDLER`, or a base class the handler extends (`TrailbeamSqsHandler`).
 It follows sections 2, 2a, 4.4 and 15.5 like the other wrappers. `trailbeam.error_type` is the fully qualified
 class name (`java.lang.RuntimeException`), because that is what Lambda's Java runtime reports as `errorType`,
