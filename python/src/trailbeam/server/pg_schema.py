@@ -64,6 +64,16 @@ without touching every place).
 **Single sign-on** (version 14, QV-228). ``oidc_logins`` and ``oidc_identities`` (account_tables.py): OpenID
 Connect sign-ins in progress, and which person each identity provider account is. Not spans either.
 
+**Steps** (version 16, QV-468). ``/api/events`` (events.py) reads a page of spans newest first and counts them per
+time bucket. The spans' unique key becomes ``spans_identity`` (rclass, bucket, time_ns, trace_id, span_id), as
+SQLite's has been since its schema 11: still the exporter-retry check (a retry has the span's end time), and now
+also a page's order within a place, so a page is a backward range of one index per place instead of a sort of
+every span in the window. It replaces the (rclass, bucket, trace_id, span_id) key, so ingest keeps as many indexes
+as before, and its new entries go to the right edge of the B-tree. A span sent again with another end time is now
+stored twice, as SQLite stores it. ``step_rollup``: the steps per hour, queue, service and kind, one row per
+writing connection as ``tenant_rollup``, in the spans' place (a span's own, not its message's), so retention drops
+a place's steps with it. The migration builds each place's index and rollup from one scan of its spans.
+
 **Message-ID indexes** (version 3, QV-118). ``message_queues``, ``message_tenants`` and ``tenant_events`` are
 indexed by ``mid``, so rewriting a message's summary deletes its old list rows by index instead of scanning its
 place's partition.
@@ -79,7 +89,7 @@ from .migrations import SchemaError, SchemaTooNew
 
 # Partitioned tables: one partition of each per place.
 PARTITIONED = ("spans", "messages", "message_queues", "message_tenants", "tenant_events", "bodies", "tenant_rollup",
-               "mid_places", "hash_places", "queue_events", "queue_rollup")
+               "mid_places", "hash_places", "queue_events", "queue_rollup", "step_rollup")
 LOOKUPS = ("mid_places", "hash_places")  # partitioned since version 5
 
 # Version 11 (QV-363): the queue page's events and their hourly rollup (queues.py, postgres.py "Queue events").
@@ -123,6 +133,25 @@ CREATE TABLE IF NOT EXISTS place_queue_keys (
     PRIMARY KEY (rclass, bucket, queue_key)
 );
 """
+
+# Version 16 (QV-468): the steps /api/events counts, per hour, queue, service and kind (events.py), in the place of
+# the spans they count; one row per writing connection, as queue_rollup. Purges and SNS publishes are not steps.
+STEP_CREATE = """
+CREATE TABLE IF NOT EXISTS step_rollup (
+    rclass BIGINT NOT NULL,
+    bucket BIGINT NOT NULL,
+    hour BIGINT NOT NULL,                -- time_ns / 3,600 s
+    queue TEXT COLLATE "C" NOT NULL,
+    service TEXT NOT NULL,               -- the span's service.name, '' for none
+    kind TEXT NOT NULL,                  -- events.KINDS
+    writer BIGINT NOT NULL,              -- pg_backend_pid() of the connection that owns the row (as tenant_rollup)
+    n BIGINT NOT NULL,                   -- the spans; a writer's row can be below 0 (it took out another's)
+    UNIQUE (rclass, bucket, hour, queue, service, kind, writer)
+) PARTITION BY RANGE (rclass, bucket);
+"""
+# The spans' unique key since version 16: the retry check, and a page's order in a place (events.py).
+SPANS_IDENTITY = ('CREATE UNIQUE INDEX IF NOT EXISTS spans_identity ON {only}spans '
+                  '(rclass, bucket, time_ns, trace_id COLLATE "C", span_id COLLATE "C")')
 
 # Version 5's other tables (QV-127): the late lookup rows and the filter of the sealed places.
 # Version 6 (QV-148): the test spans of trailbeam doctor (contract section 17), an ID and when a replica stored it.
@@ -269,9 +298,9 @@ CREATE TABLE IF NOT EXISTS spans (
     receive_row BIGINT,
     body_dropped TEXT,
     body_id BIGINT,
-    service_version TEXT,                -- the resource's service.version (version 10, QV-362)
-    UNIQUE (rclass, bucket, trace_id, span_id)
+    service_version TEXT                 -- the resource's service.version (version 10, QV-362)
 ) PARTITION BY RANGE (rclass, bucket);
+""" + SPANS_IDENTITY.format(only="") + """;
 CREATE INDEX IF NOT EXISTS spans_row ON spans ("row");
 CREATE INDEX IF NOT EXISTS spans_mid ON spans (mid, time_ns);
 CREATE INDEX IF NOT EXISTS spans_hash ON spans (receipt_hmac, key_id);
@@ -384,7 +413,7 @@ CREATE TABLE IF NOT EXISTS hash_places (
     bucket BIGINT NOT NULL,
     PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
 ) PARTITION BY RANGE (rclass, bucket);
-""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + QUEUE_CREATE + SNS + account_tables.PG_OIDC + """
+""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + QUEUE_CREATE + SNS + account_tables.PG_OIDC + STEP_CREATE + """
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
@@ -658,6 +687,40 @@ def _queue_place(conn, rclass: int, bucket: int) -> None:
         conn.row_factory = was
 
 
+def _steps_place(conn, rclass: int, bucket: int) -> None:
+    """Version 16, one place: spans_identity on its spans partition (attached to the parent's, as _mid_indexes),
+    and its step_rollup partition (made and attached as place_ddl does) built from its spans, writer 0. Safe to run
+    again: the index is made only if missing, the place's rollup from nothing each time."""
+    from .events import HOUR_NS, KINDS  # noqa: PLC0415  (not needed to open a current schema)
+
+    part = partition_name("spans", rclass, bucket)
+    attached = conn.execute(
+        """SELECT NOT i.inhdetachpending FROM pg_inherits i
+           JOIN pg_class ch ON ch.oid = i.inhrelid JOIN pg_class pa ON pa.oid = i.inhparent
+           WHERE ch.relname = %s AND pa.relname = 'spans'
+             AND ch.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())""",
+        (part,)).fetchone()
+    if not attached or not attached[0]:
+        return  # being dropped by retention: the next pass removes it
+    if not conn.execute(
+            """SELECT 1 FROM pg_inherits i JOIN pg_index x ON x.indexrelid = i.inhrelid
+               WHERE i.inhparent = 'spans_identity'::regclass AND x.indrelid = to_regclass(%s)""",
+            (part,)).fetchone():  # a partition attached after the parent index was made has its own already
+        conn.execute(f'CREATE UNIQUE INDEX IF NOT EXISTS {part}_identity_idx ON {part} '
+                     '(rclass, bucket, time_ns, trace_id COLLATE "C", span_id COLLATE "C")')
+        conn.execute(f"ALTER INDEX spans_identity ATTACH PARTITION {part}_identity_idx")
+    for table, name, create, attach in place_ddl(rclass, bucket, ("step_rollup",)):
+        conn.execute(create)
+        if not conn.execute("SELECT 1 FROM pg_inherits WHERE inhrelid = to_regclass(%s)", (name,)).fetchone():
+            conn.execute(attach)
+    conn.execute("DELETE FROM step_rollup WHERE rclass = %s AND bucket = %s", (rclass, bucket))
+    conn.execute(
+        """INSERT INTO step_rollup (rclass, bucket, hour, queue, service, kind, writer, n)
+           SELECT rclass, bucket, time_ns / %s, queue, COALESCE(service_name, ''), kind, 0, COUNT(*) FROM spans
+           WHERE rclass = %s AND bucket = %s AND kind = ANY(%s) GROUP BY 1, 2, 3, 4, 5, 6""",
+        (HOUR_NS, rclass, bucket, list(KINDS)))
+
+
 # Version 1 is the first Postgres schema. Later versions go here, one at a time.
 MIGRATIONS: tuple = (
     Migration(2, "lookup tables: the places of a message ID and of a receipt hash (QV-113)", (
@@ -727,8 +790,16 @@ MIGRATIONS: tuple = (
         "DROP INDEX IF EXISTS spans_unjoined",
         "CREATE INDEX IF NOT EXISTS spans_loose ON spans (queue) WHERE mid IS NULL AND receive_row IS NULL",
     )),
+    # Version 16 (QV-468): the spans' key becomes spans_identity, and step_rollup is built ("Steps" above). The parent
+    # index is made ON ONLY the parent, each place's built and attached in that place's transaction, then the old
+    # key is dropped, once every place has the new one.
+    Migration(16, "the spans' key by time, and the hourly step rollup (QV-468)", (
+        SPANS_IDENTITY.format(only="ONLY "),
+    ) + tuple(statements(STEP_CREATE)), per_place=(_steps_place,), after=(
+        "ALTER TABLE spans DROP CONSTRAINT IF EXISTS spans_rclass_bucket_trace_id_span_id_key",
+    )),
 )
-LATEST = 15
+LATEST = 16
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 

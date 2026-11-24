@@ -14,12 +14,18 @@ names one place in the order and pages don't overlap or skip. The counts are add
 ``message_id`` the store reads that message's rows by its index (``Store.message_rows``) and the filters run here:
 a message has a few rows.
 
+The first page counts first, then reads rows only where the counts found them (QV-468): only the kinds with a
+step in the window, and only the newest buckets that hold a page of them. Without that, a filter that matches
+little (a queue, a service, a kind) walks every step of the window that doesn't match before it has a page, and
+one that matches nothing walks all of them. The rows are the same either way.
+
 The hosted app's engine answers the same query (trailbeam-app lib/app/engine/events.ts) and its parity test checks
 that both give the same rows and counts on the same spans."""
 from __future__ import annotations
 
 import base64
 import binascii
+import time
 from typing import Optional
 
 from .queries import CursorError
@@ -35,24 +41,62 @@ NS_PER_MS = 1_000_000
 INT64_MAX = 2 ** 63 - 1
 
 
-# The hourly rollup of steps (step_rollup, db.py; QV-394): the steps per (hour, queue, service, kind), kept exact at
-# ingest and by retention. A histogram whose buckets are whole hours reads the hours wholly inside the window from it,
-# and only the partial hours at its two ends from the spans, so a 7-day histogram adds up about 168 hours of rollup
-# rows instead of counting every span. A service of '' in the rollup is a span with none (the API never asks for '').
+# The hourly rollup of steps (step_rollup: db.py, QV-394; postgres.py, QV-468): the steps per (hour, queue, service,
+# kind), kept exact at ingest and by retention. A histogram whose buckets are whole hours reads the hours wholly
+# inside the window from it, so a 7-day histogram adds up about 168 hours of rollup rows instead of counting every
+# span. A partial hour at either end is read the cheaper way, as rollup.plan reads the Tenants page's (QV-224): its
+# own spans, or the hour's rollup rows less the spans of the rest of the hour. A window ending now takes its current
+# hour from the rollup, less the spans newer than its end (next to none), instead of counting every span of that
+# hour: about 125 ms of a 7-day page after a heavy hour (trailbeam-app docs/bench/hosted-events.md). A service of
+# '' in the rollup is a span with none (the API never asks for '').
 HOUR_NS = 3_600 * 10 ** 9
 
 
-def hour_split(from_ns: int, to_ns: int, bucket_ns: int) -> Optional[tuple]:
-    """For buckets of whole hours: ((from_ns, to_ns) ranges to count from the spans, (first hour, end hour) to read
-    from the rollup), so the two add up to the window. None when the buckets aren't whole hours, or no hour is wholly
-    inside the window: count it all from the spans."""
-    if bucket_ns % HOUR_NS:
+def hour_split(from_ns: int, to_ns: int, bucket_ns: int, now_ns: Optional[int] = None) -> Optional[tuple]:
+    """For buckets of whole hours: ([(from_ns, to_ns, sign)] spans to count (sign 1) or take out (-1), (first hour,
+    end hour) of the rollup to add, or None), so the two add up to [from_ns, to_ns). Each hour is in one bucket, so a
+    span taken out is in the bucket its rollup hour is. None when the buckets aren't whole hours: count it all from
+    the spans. A partial hour comes from the rollup when the part of it in the window is longer than the rest of
+    it; only time up to ``now_ns`` (default: now) counts in the lengths, since later there are next to no spans."""
+    if bucket_ns % HOUR_NS or from_ns >= to_ns:
         return None
-    h0, h1 = -(-from_ns // HOUR_NS), to_ns // HOUR_NS  # whole hours [h0, h1)
-    if h0 >= h1:
+    now_ns = time.time_ns() if now_ns is None else now_ns
+
+    def past(a, b):  # how much of [a, b) is not in the future
+        return max(0, min(b, now_ns) - a)
+
+    first, last = from_ns // HOUR_NS, (to_ns - 1) // HOUR_NS
+    hours, ranges = [], []
+    for h in sorted({first, last}):
+        lo, hi = h * HOUR_NS, (h + 1) * HOUR_NS
+        a, b = max(from_ns, lo), min(to_ns, hi)
+        rest = [(x, y) for x, y in ((lo, a), (b, hi)) if x < y]
+        if hi > INT64_MAX or (rest and past(a, b) <= sum(past(x, y) for x, y in rest)):
+            ranges.append((a, b, 1))  # its own spans (an hour past 2^63 ns can't be named in SQL)
+            continue
+        hours.append(h)
+        ranges += [(x, y, -1) for x, y in rest]
+    if last - first >= 2:
+        hours += [first + 1, last - 1]  # the whole hours between
+    return ranges, ((min(hours), max(hours) + 1) if hours else None)
+
+
+def rows_range(counted, from_ns: int, to_ns: int, bucket_ns: int, need: int) -> Optional[tuple]:
+    """The part of [from_ns, to_ns) that holds the newest ``need`` steps the counts found: from the newest bucket
+    with a step back to the bucket where ``need`` is reached (or the window's start). None: no step at all."""
+    by: dict = {}
+    for b, _, n in counted:
+        by[int(b)] = by.get(int(b), 0) + int(n)
+    found = sorted((b for b, n in by.items() if n > 0), reverse=True)
+    if not found:
         return None
-    edges = [(a, b) for a, b in ((from_ns, h0 * HOUR_NS), (h1 * HOUR_NS, to_ns)) if a < b]
-    return edges, (h0, h1)
+    hi, seen, lo = min(to_ns, (found[0] + 1) * bucket_ns), 0, from_ns
+    for b in found:
+        seen += by[b]
+        if seen >= need:
+            lo = max(from_ns, b * bucket_ns)
+            break
+    return lo, hi
 
 
 class EventQueryError(ValueError):
@@ -146,10 +190,18 @@ def page(db, from_ms: int, to_ms: int, limit: int, *, queue: Optional[str] = Non
                 k = (r["time_ns"] // width_ns, r["kind"])
                 counts[k] = counts.get(k, 0) + 1
         counted = [(b, k, n) for (b, k), n in counts.items()]
+    elif after is None:
+        counted = db.step_counts(from_ns, to_ns, width_ns, queue=queue, service=service, kinds=kinds)
+        found = {k for _, k, n in counted if n}
+        ks = tuple(k for k in (kinds or KINDS) if k in found)
+        where = rows_range(counted, from_ns, to_ns, width_ns, limit + 1) if ks else None
+        rows = [] if where is None else db.step_rows(*where, limit + 1, queue=queue, service=service, kinds=ks)
+        if where is not None and len(rows) <= limit and where[0] > from_ns:
+            # the counts and the rows are two reads: retention took steps out between them. Read the whole window.
+            rows = db.step_rows(from_ns, to_ns, limit + 1, queue=queue, service=service, kinds=kinds)
     else:
         rows = db.step_rows(from_ns, to_ns, limit + 1, queue=queue, service=service, kinds=kinds, after=after)
-        counted = [] if after is not None else db.step_counts(from_ns, to_ns, width_ns, queue=queue,
-                                                              service=service, kinds=kinds)
+        counted = []
     more = len(rows) > limit
     rows = rows[:limit]
     return {

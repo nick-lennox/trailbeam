@@ -166,6 +166,8 @@ def test_retention_drops_daily_partitions_by_retention_class(pg_store):
             st = s.purge_step(retention.cutoffs(now), resume, 50)
             n, resume = n + st.deleted, st.resume
             if resume is None:
+                rolled, counted = _steps_vs_spans(s)  # the step rollup loses what a drop deletes (QV-468)
+                assert rolled == counted
                 return n
     assert purge(t + 7 * DAY + 3600 * SEC) == 0  # 7 days and an hour: its day has not been 7 days gone yet
     assert set(s.recent_messages(10)) == {"plain", "kept", "moved"}
@@ -198,6 +200,8 @@ def test_a_message_across_midnight_stays_whole(pg_store):
             break
     assert [dict(r) for r in s.message_rows("m1")] == rows
     assert f"spans_p86400_{D0 // DAY}" not in _partitions(s)
+    rolled, counted = _steps_vs_spans(s)  # the send's step moved to day 1 with it (QV-468)
+    assert rolled == counted and sum(rolled.values()) == 3
     while True:
         st = s.purge_step(cut(D0 + 3 * DAY), resume)
         resume = st.resume
@@ -605,7 +609,7 @@ def test_version_2_fills_the_lookup_tables_place_by_place(pg_store):
         _as_version(c, 1)
     again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
     try:
-        assert again.migrated == [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        assert again.migrated == [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
         with again.ingest.connection() as c:
             assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
             assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == list(range(1, pg_schema_latest() + 1))
@@ -755,7 +759,13 @@ def _as_version(c, version: int) -> None:
     doctor (QV-148); 7 takes deduplicated FIFO sends out of the tenant events (QV-246, no table change); 8 the
     tables of people and tokens (QV-225); 9 the purges (QV-245); 10 spans.service_version (QV-362); 11 the queue
     events and their rollup (QV-363); 12 users.proxy_linked_at_ms (QV-227); 13 the SNS publishes and receives
-    (QV-313); 14 the single sign-on tables (QV-228); 15 spans_loose in place of spans_unjoined (QV-306)."""
+    (QV-313); 14 the single sign-on tables (QV-228); 15 spans_loose in place of spans_unjoined (QV-306); 16
+    spans_identity in place of the (trace_id, span_id) key, and step_rollup (QV-468)."""
+    if version < 16:
+        c.execute("DROP TABLE step_rollup")  # with its partitions
+        c.execute("DROP INDEX spans_identity")  # with the partitions'
+        c.execute("ALTER TABLE spans ADD CONSTRAINT spans_rclass_bucket_trace_id_span_id_key "
+                  "UNIQUE (rclass, bucket, trace_id, span_id)")
     if version < 15:
         c.execute("DROP INDEX spans_loose")
         c.execute("""CREATE INDEX spans_unjoined ON spans (queue)
@@ -895,7 +905,7 @@ def test_version_3_indexes_the_list_tables_place_by_place(pg_store):
     for attempt in range(2):
         again = PostgresStore(s.url, bucket_ns=SEC)
         try:
-            assert again.migrated == [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+            assert again.migrated == [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
             with again.ingest.connection() as c:
                 parts = _list_partitions(c)
                 assert len(parts["message_queues"]) == 11 + attempt  # 12 places less the dropped one, + "after-0"
@@ -1136,7 +1146,7 @@ def test_version_4_builds_the_rollup_place_by_place(pg_store):
         _as_version(c, 3)
     again = PostgresStore(s.url, bucket_ns=HOUR_MS * 10 ** 6)
     try:
-        assert again.migrated == [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        assert again.migrated == [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
         assert [_rollup_page(again, a, b) for a, b in ranges] == want
         with again.ingest.connection() as c:
             assert c.execute("SELECT * FROM tenant_events ORDER BY rclass, bucket, at_ms, mid, seq").fetchall() == events
@@ -1171,7 +1181,7 @@ def test_version_7_takes_deduplicated_fifo_sends_out_of_the_tenant_events(pg_sto
         _as_version(c, 6)
     again = PostgresStore(s.url, bucket_ns=SEC)
     try:
-        assert again.migrated == [7, 8, 9, 10, 11, 12, 13, 14, 15]
+        assert again.migrated == [7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
         assert queries.tenants(again, T0, 900, ms - 3_600_000, ms + 3_600_000) == want
         with again.ingest.connection() as c:
             assert [r["kind"] for r in c.execute("SELECT kind FROM tenant_events ORDER BY at_ms, kind")] == \
@@ -1418,7 +1428,7 @@ def test_version_5_partitions_the_lookup_tables_place_by_place(pg_store, tmp_pat
                          "AND relnamespace = current_schema()::regnamespace").fetchone()["relkind"] == "r"
     again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
     try:
-        assert again.migrated == [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        assert again.migrated == [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
         with again.ingest.connection() as c:
             assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
             assert c.execute("SELECT to_regclass('mid_places_v4') AS t").fetchone()["t"] is None
@@ -1648,7 +1658,7 @@ def test_version_11_builds_the_queue_events_place_by_place(pg_store):
         _as_version(c, 10)
     again = PostgresStore(s.url, bucket_ns=HOUR_MS * 10 ** 6)
     try:
-        assert again.migrated == [11, 12, 13, 14, 15]
+        assert again.migrated == [11, 12, 13, 14, 15, 16]
         assert _queue_page(again, ranges, now_ms) == want
         with again.ingest.connection() as c:
             assert c.execute(q).fetchall() == events
@@ -1678,7 +1688,7 @@ def test_version_15_indexes_the_spans_of_no_message_and_takes_rabbitmq_spans(pg_
         _as_version(conn, 14)
     again = PostgresStore(s.url)
     try:
-        assert again.migrated == [15]
+        assert again.migrated == [15, 16]
         with again.ingest.connection() as conn:
             names = {r["indexname"] for r in conn.execute("SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() "
                                                 "AND tablename = 'spans'").fetchall()}
@@ -1687,5 +1697,159 @@ def test_version_15_indexes_the_spans_of_no_message_and_takes_rabbitmq_spans(pg_
         d = decode(otlp_json(FIXTURE["spans"]), "application/json")
         assert d.rejected == [] and again.insert(d.records) == (len(FIXTURE["spans"]), 0)
         assert [r["kind"] for r in again.message_rows("~rabbitmq~m-happy")] == ["send", "receive", "delete"]
+    finally:
+        again.close()
+
+
+# ---- QV-468: spans_identity and the step rollup -----------------------------------------------------------
+
+def _steps_vs_spans(s) -> tuple:
+    """(step_rollup added up over its writers, the same counted from the spans), per place, hour, queue, service and
+    kind: the rollup is exact in every place, not only in total."""
+    from trailbeam.server.events import HOUR_NS, KINDS
+    with s.reads.connection() as c:
+        rolled = {tuple(r.values())[:6]: int(r["n"]) for r in c.execute(
+            "SELECT rclass, bucket, hour, queue, service, kind, SUM(n) AS n FROM step_rollup "
+            "GROUP BY 1, 2, 3, 4, 5, 6 HAVING SUM(n) <> 0").fetchall()}
+        spans = {tuple(r.values())[:6]: int(r["n"]) for r in c.execute(
+            "SELECT rclass, bucket, time_ns / %s AS hour, queue, COALESCE(service_name, '') AS service, kind, "
+            "COUNT(*) AS n FROM spans WHERE kind = ANY(%s) GROUP BY 1, 2, 3, 4, 5, 6",
+            (HOUR_NS, list(KINDS))).fetchall()}
+    return rolled, spans
+
+
+def _step_traffic(seed: int, t0_ns: int, hours: int = 6) -> list:
+    """Messages over ``hours`` hours from three services on two queues, each sent, received, then deleted or made
+    visible again (some with a Lambda outcome), and their settles often exported before their receive: joins in
+    both directions, and messages whose spans are in several hour-long places."""
+    import random
+    rnd = random.Random(seed)
+    out = []
+    for i in range(120):
+        p, w = Consumer(rnd.choice(["checkout-api", "billing-api"])), Consumer("orders-worker")
+        q, t, mid = rnd.choice(["orders", "payments"]), t0_ns + rnd.randrange(hours * 3600) * SEC, f"s{seed}-{i}"
+        rec = records([p.send(t, mid, queue=q)])
+        late = t + rnd.choice([1, 50, 1800, 5400]) * SEC
+        rec += records([w.receive(late, mid, f"rh-{seed}-{i}", queue=q)])
+        settle = (w.delete(late + SEC, f"rh-{seed}-{i}", queue=q) if rnd.random() < 0.7 else
+                  w.change_visibility(late + SEC, f"rh-{seed}-{i}", 0, queue=q))
+        rec += records([settle] + ([w.outcome(late + 2 * SEC, mid, "success", f"inv-{i}", queue=q)]
+                                   if rnd.random() < 0.3 else []))
+        out += rec
+    rnd.shuffle(out)
+    return out
+
+
+def _event_answers(s, t0_ms: int) -> list:
+    """/api/events over windows that take whole and partial hours from the rollup, with each filter, paged."""
+    from trailbeam.server import events
+    out = []
+    for a, b in [(t0_ms - 3 * 86_400_000 + 17, t0_ms + 4 * 86_400_000), (t0_ms + 1, t0_ms + 5 * 3_600_000 - 1),
+                 (t0_ms + 1_800_000, t0_ms + 86_400_000 + 1)]:
+        for kw in [{}, {"queue": "orders"}, {"service": "billing-api"}, {"kinds": ("delete", "outcome")},
+                   {"service": "orders-worker", "kinds": ("send",)}]:
+            first = events.page(s, a, b, 7, **kw)
+            out.append(json.dumps(first, sort_keys=True))
+            if first["next_cursor"]:
+                out.append(json.dumps(events.page(s, a, b, 7, cursor=first["next_cursor"], **kw), sort_keys=True))
+    return out
+
+
+@needs_pg
+def test_the_step_rollup_stays_exact_as_spans_come_move_and_go(pg_store):
+    """Hour-long places: messages have spans in several places (strays). Ingest adds each span's step in its own
+    place; a sweep takes out what it deletes; a drop moves a place's stray spans to their message's place with their
+    steps, and deletes elsewhere what goes with its messages. The pages are SQLite's throughout."""
+    from trailbeam.server.db import SqliteStore
+    hour = 3600 * SEC
+    t0 = D0 + 5 * hour
+    spans = _step_traffic(1, t0)
+    pg, lite = pg_store(bucket_ns=hour), SqliteStore()
+    try:
+        for k in range(0, len(spans), 25):
+            assert pg.insert(spans[k:k + 25]) == lite.insert(spans[k:k + 25])
+        rolled, counted = _steps_vs_spans(pg)
+        assert rolled == counted and len({k[:2] for k in rolled}) > 5
+        with pg.reads.connection() as c:
+            assert c.execute("SELECT COUNT(*) AS n FROM strays").fetchone()["n"]
+        assert _event_answers(pg, t0 // 10 ** 6) == _event_answers(lite, t0 // 10 ** 6)
+        # a sweep: "orders" expires in places that mix it with "payments"
+        for s in (pg, lite):
+            resume, deleted = None, 0
+            while True:
+                step = s.purge_step(Cutoffs(None, {"orders": t0 + 3 * hour}), resume, 10)
+                deleted, resume = deleted + step.deleted, step.resume
+                if resume is None:
+                    break
+            assert deleted
+        rolled, counted = _steps_vs_spans(pg)
+        assert rolled == counted
+        assert _event_answers(pg, t0 // 10 ** 6) == _event_answers(lite, t0 // 10 ** 6)
+        # drops: everything before the third hour, a place at a time
+        before = {k[:2] for k in rolled}
+        resume = None
+        while True:
+            step = pg.purge_step(Cutoffs(t0 + 2 * hour), resume, 100)
+            if (resume := step.resume) is None:
+                break
+        rolled, counted = _steps_vs_spans(pg)
+        assert rolled == counted and {k[:2] for k in rolled} < before
+    finally:
+        lite.close()
+
+
+@needs_pg
+def test_a_retry_is_stored_once_and_a_span_with_another_end_time_twice_as_on_sqlite(pg_store):
+    from trailbeam.server.db import SqliteStore
+    c = Consumer()
+    pg, lite = pg_store(), SqliteStore()
+    try:
+        first = records([c.send(D0 + SEC, "m1")])
+        for s in (pg, lite):
+            assert s.insert(first) == (1, 0)
+            assert s.insert(first + first) == (0, 2)  # an exporter retry, and the same span twice in one export
+        later = [dict(first[0], time_ns=first[0]["time_ns"] + 5 * SEC)]  # the same IDs, another end time
+        assert pg.insert(later) == lite.insert(later) == (1, 0)
+        assert [r["time_ns"] for r in pg.message_rows("m1")] == [r["time_ns"] for r in lite.message_rows("m1")]
+        rolled, counted = _steps_vs_spans(pg)
+        assert rolled == counted and sum(rolled.values()) == 2
+    finally:
+        lite.close()
+
+
+@needs_pg
+def test_version_16_keys_the_spans_by_time_and_builds_the_step_rollup(pg_store):
+    """A version-15 database upgrades in place: every place's spans partition gets spans_identity and loses the old
+    key, the step rollup is built from the spans, the pages answer as before, and ingest goes on deduplicating."""
+    from trailbeam.server.postgres import PostgresStore
+    hour = 3600 * SEC
+    t0 = D0 + 5 * hour
+    s = pg_store(bucket_ns=hour)
+    s.insert(_step_traffic(2, t0))
+    want = _event_answers(s, t0 // 10 ** 6)
+    with s.ingest.connection() as conn:
+        _as_version(conn, 15)
+        assert conn.execute("SELECT to_regclass('step_rollup') AS t").fetchone()["t"] is None
+    again = PostgresStore(s.url, bucket_ns=hour)
+    try:
+        assert again.migrated == [16]
+        with again.ingest.connection() as conn:
+            parts = conn.execute("SELECT COUNT(*) AS n FROM places").fetchone()["n"]
+            assert parts > 5
+            idx = conn.execute(
+                """SELECT COUNT(*) AS n FROM pg_inherits i JOIN pg_index x ON x.indexrelid = i.inhrelid
+                   WHERE i.inhparent = 'spans_identity'::regclass AND x.indisunique""").fetchone()["n"]
+            assert idx == parts
+            assert conn.execute("""SELECT indisvalid FROM pg_index
+                                   WHERE indexrelid = 'spans_identity'::regclass""").fetchone()["indisvalid"]
+            assert not conn.execute(  # the old key is gone
+                "SELECT 1 FROM pg_constraint WHERE conrelid = 'spans'::regclass AND contype = 'u'").fetchall()
+        rolled, counted = _steps_vs_spans(again)
+        assert rolled == counted and rolled
+        assert _event_answers(again, t0 // 10 ** 6) == want
+        more = _step_traffic(3, t0)
+        assert again.insert(more)[0] == len(more) and again.insert(more) == (0, len(more))
+        rolled, counted = _steps_vs_spans(again)
+        assert rolled == counted
     finally:
         again.close()
