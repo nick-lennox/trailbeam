@@ -2,7 +2,8 @@
   Self-hosted Trailbeam's pages drawn with the shared views (../src): Messages at / (the first-run screen while
   no span is stored: home.tsx), Duplicates (lists.tsx), Stuck grouped by cause (stuck.tsx), the message page
   at /message?id=<message ID> (the timeline, and with &tab=body the Body tab), the Tenants page at /tenants, and
-  the queue list and a queue's page at /queues and /queue?name=<queue> (queue.tsx). They read Trailbeam's own
+  the queue list and a queue's page at /queues and /queue?name=<queue> (queue.tsx), and the Event explorer at
+  /events (events.tsx). They read Trailbeam's own
   API on the same origin. Without the build, or with scripts off, the server's HTML pages answer instead.
 */
 import { StrictMode, useEffect, useState } from "react";
@@ -14,6 +15,7 @@ import {
 } from "../src/index.ts";
 import { ApiError, CopyLink, Header, bodyAccess, getHealth, getJSON, tenantHref, useMe } from "./chrome.tsx";
 import { HomePage } from "./home.tsx";
+import { EventsPage } from "./events.tsx";
 import { DuplicatesPage } from "./lists.tsx";
 import { QueueShellPage, QueuesListPage } from "./queue.tsx";
 import { StuckPage } from "./stuck.tsx";
@@ -176,6 +178,6 @@ function MessagePage() {
   );
 }
 
-const PAGES: Record<string, () => React.JSX.Element> = { "/": HomePage, "/duplicates": DuplicatesPage, "/stuck": StuckPage, "/tenants": TenantsPage, "/queue": QueueShellPage, "/queues": QueuesListPage };
+const PAGES: Record<string, () => React.JSX.Element> = { "/": HomePage, "/duplicates": DuplicatesPage, "/stuck": StuckPage, "/tenants": TenantsPage, "/queue": QueueShellPage, "/queues": QueuesListPage, "/events": EventsPage };
 const App = PAGES[location.pathname] ?? MessagePage;
 createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);
