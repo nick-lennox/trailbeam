@@ -270,6 +270,396 @@
    ],
    "z": []
   },
+  "flows": {
+   "all": [
+    {
+     "account": "123456789012",
+     "avgBytes": 110.0,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 3,
+       "name": "orders-worker"
+      },
+      {
+       "lambda": false,
+       "n": 1,
+       "name": "legacy-svc"
+      }
+     ],
+     "deleted": 4,
+     "dlq": null,
+     "key": "123456789012/us-east-1/orders",
+     "lastSeen": 1794852337716,
+     "name": "orders",
+     "producers": [
+      {
+       "lambda": false,
+       "n": 2,
+       "name": "checkout-api"
+      },
+      {
+       "lambda": false,
+       "n": 1,
+       "name": "legacy-svc"
+      }
+     ],
+     "queue": "orders",
+     "received": 4,
+     "region": "us-east-1",
+     "sent": 3,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": 40.0,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 3,
+       "name": "orders-worker"
+      }
+     ],
+     "deleted": 1,
+     "dlq": {
+      "name": "payments-dlq",
+      "received": 1
+     },
+     "key": "123456789012/us-east-1/payments",
+     "lastSeen": 1794852337425,
+     "name": "payments",
+     "producers": [
+      {
+       "lambda": false,
+       "n": 2,
+       "name": "checkout-api"
+      }
+     ],
+     "queue": "payments",
+     "received": 3,
+     "region": "us-east-1",
+     "sent": 2,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": null,
+     "consumers": [
+      {
+       "lambda": true,
+       "n": 4,
+       "name": "billing-fn"
+      }
+     ],
+     "deleted": 0,
+     "dlq": null,
+     "key": "123456789012/us-east-1/billing",
+     "lastSeen": 1794852337528,
+     "name": "billing",
+     "producers": [],
+     "queue": "billing",
+     "received": 4,
+     "region": "us-east-1",
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": 5.5,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 2,
+       "name": "orders-worker"
+      }
+     ],
+     "deleted": 2,
+     "dlq": null,
+     "key": "123456789012/us-east-1/orders.fifo",
+     "lastSeen": 1794852337427,
+     "name": "orders.fifo",
+     "producers": [
+      {
+       "lambda": false,
+       "n": 2,
+       "name": "checkout-api"
+      }
+     ],
+     "queue": "orders.fifo",
+     "received": 2,
+     "region": "us-east-1",
+     "sent": 2,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": null,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 1,
+       "name": "orders-worker"
+      }
+     ],
+     "deleted": 0,
+     "dlq": null,
+     "key": "123456789012/us-east-1/payments-dlq",
+     "lastSeen": 1794852337425,
+     "name": "payments-dlq",
+     "producers": [],
+     "queue": "payments-dlq",
+     "received": 1,
+     "region": "us-east-1",
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    }
+   ],
+   "first half": [
+    {
+     "account": "123456789012",
+     "avgBytes": 110.0,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 3,
+       "name": "orders-worker"
+      }
+     ],
+     "deleted": 3,
+     "dlq": null,
+     "key": "123456789012/us-east-1/orders",
+     "lastSeen": 1794852337716,
+     "name": "orders",
+     "producers": [
+      {
+       "lambda": false,
+       "n": 2,
+       "name": "checkout-api"
+      }
+     ],
+     "queue": "orders",
+     "received": 3,
+     "region": "us-east-1",
+     "sent": 2,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": 5.5,
+     "consumers": [],
+     "deleted": 0,
+     "dlq": null,
+     "key": "123456789012/us-east-1/orders.fifo",
+     "lastSeen": 1794852337427,
+     "name": "orders.fifo",
+     "producers": [
+      {
+       "lambda": false,
+       "n": 2,
+       "name": "checkout-api"
+      }
+     ],
+     "queue": "orders.fifo",
+     "received": 0,
+     "region": "us-east-1",
+     "sent": 2,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": 40.0,
+     "consumers": [],
+     "deleted": 0,
+     "dlq": {
+      "name": "payments-dlq",
+      "received": 0
+     },
+     "key": "123456789012/us-east-1/payments",
+     "lastSeen": 1794852337425,
+     "name": "payments",
+     "producers": [
+      {
+       "lambda": false,
+       "n": 2,
+       "name": "checkout-api"
+      }
+     ],
+     "queue": "payments",
+     "received": 0,
+     "region": "us-east-1",
+     "sent": 2,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": null,
+     "consumers": [],
+     "deleted": 0,
+     "dlq": null,
+     "key": "123456789012/us-east-1/billing",
+     "lastSeen": 1794852337528,
+     "name": "billing",
+     "producers": [],
+     "queue": "billing",
+     "received": 0,
+     "region": "us-east-1",
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": null,
+     "consumers": [],
+     "deleted": 0,
+     "dlq": null,
+     "key": "123456789012/us-east-1/payments-dlq",
+     "lastSeen": 1794852337425,
+     "name": "payments-dlq",
+     "producers": [],
+     "queue": "payments-dlq",
+     "received": 0,
+     "region": "us-east-1",
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    }
+   ],
+   "second half": [
+    {
+     "account": "123456789012",
+     "avgBytes": null,
+     "consumers": [
+      {
+       "lambda": true,
+       "n": 4,
+       "name": "billing-fn"
+      }
+     ],
+     "deleted": 0,
+     "dlq": null,
+     "key": "123456789012/us-east-1/billing",
+     "lastSeen": 1794852337528,
+     "name": "billing",
+     "producers": [],
+     "queue": "billing",
+     "received": 4,
+     "region": "us-east-1",
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": null,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 3,
+       "name": "orders-worker"
+      }
+     ],
+     "deleted": 1,
+     "dlq": {
+      "name": "payments-dlq",
+      "received": 1
+     },
+     "key": "123456789012/us-east-1/payments",
+     "lastSeen": 1794852337425,
+     "name": "payments",
+     "producers": [],
+     "queue": "payments",
+     "received": 3,
+     "region": "us-east-1",
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": null,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 1,
+       "name": "legacy-svc"
+      }
+     ],
+     "deleted": 1,
+     "dlq": null,
+     "key": "123456789012/us-east-1/orders",
+     "lastSeen": 1794852337716,
+     "name": "orders",
+     "producers": [
+      {
+       "lambda": false,
+       "n": 1,
+       "name": "legacy-svc"
+      }
+     ],
+     "queue": "orders",
+     "received": 1,
+     "region": "us-east-1",
+     "sent": 1,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": null,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 2,
+       "name": "orders-worker"
+      }
+     ],
+     "deleted": 2,
+     "dlq": null,
+     "key": "123456789012/us-east-1/orders.fifo",
+     "lastSeen": 1794852337427,
+     "name": "orders.fifo",
+     "producers": [],
+     "queue": "orders.fifo",
+     "received": 2,
+     "region": "us-east-1",
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": null,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 1,
+       "name": "orders-worker"
+      }
+     ],
+     "deleted": 0,
+     "dlq": null,
+     "key": "123456789012/us-east-1/payments-dlq",
+     "lastSeen": 1794852337425,
+     "name": "payments-dlq",
+     "producers": [],
+     "queue": "payments-dlq",
+     "received": 1,
+     "region": "us-east-1",
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    }
+   ]
+  },
   "ingest": [
    [
     6,
@@ -2988,6 +3378,156 @@
    "m-bill-1"
   ],
   "missing_message": null,
+  "queue_keys": [
+   "123456789012/us-east-1/billing",
+   "123456789012/us-east-1/orders",
+   "123456789012/us-east-1/orders.fifo",
+   "123456789012/us-east-1/payments",
+   "123456789012/us-east-1/payments-dlq"
+  ],
+  "queue_series": {
+   "123456789012/us-east-1/billing": {
+    "series": [
+     {
+      "by_version": [
+       {
+        "handled": 0,
+        "handler_samples": 4,
+        "p95_handler_ms": 3,
+        "p95_queue_ms": null,
+        "queue_samples": 0,
+        "version": null
+       }
+      ],
+      "dlq_inferred": 1,
+      "dlq_seen": 0,
+      "failed": 4,
+      "handled": 0,
+      "handler_samples": 4,
+      "no_send_receives": 2,
+      "p95_handler_ms": 3,
+      "p95_queue_ms": null,
+      "queue_samples": 0,
+      "re_receives": 2,
+      "receives": 4,
+      "sends": 0,
+      "t_ms": 1794852300000
+     }
+    ],
+    "versions": []
+   },
+   "123456789012/us-east-1/orders": {
+    "series": [
+     {
+      "by_version": [
+       {
+        "handled": 4,
+        "handler_samples": 4,
+        "p95_handler_ms": 3,
+        "p95_queue_ms": 129,
+        "queue_samples": 3,
+        "version": null
+       }
+      ],
+      "dlq_inferred": 0,
+      "dlq_seen": 0,
+      "failed": 0,
+      "handled": 4,
+      "handler_samples": 4,
+      "no_send_receives": 1,
+      "p95_handler_ms": 3,
+      "p95_queue_ms": 129,
+      "queue_samples": 3,
+      "re_receives": 0,
+      "receives": 4,
+      "sends": 3,
+      "t_ms": 1794852300000
+     }
+    ],
+    "versions": []
+   },
+   "123456789012/us-east-1/orders.fifo": {
+    "series": [
+     {
+      "by_version": [
+       {
+        "handled": 2,
+        "handler_samples": 2,
+        "p95_handler_ms": 1,
+        "p95_queue_ms": 512,
+        "queue_samples": 2,
+        "version": null
+       }
+      ],
+      "dlq_inferred": 0,
+      "dlq_seen": 0,
+      "failed": 0,
+      "handled": 2,
+      "handler_samples": 2,
+      "no_send_receives": 0,
+      "p95_handler_ms": 1,
+      "p95_queue_ms": 512,
+      "queue_samples": 2,
+      "re_receives": 0,
+      "receives": 2,
+      "sends": 2,
+      "t_ms": 1794852300000
+     }
+    ],
+    "versions": []
+   },
+   "123456789012/us-east-1/payments": {
+    "series": [
+     {
+      "by_version": [
+       {
+        "handled": 1,
+        "handler_samples": 1,
+        "p95_handler_ms": 1,
+        "p95_queue_ms": 430,
+        "queue_samples": 2,
+        "version": null
+       }
+      ],
+      "dlq_inferred": 0,
+      "dlq_seen": 1,
+      "failed": 0,
+      "handled": 1,
+      "handler_samples": 1,
+      "no_send_receives": 0,
+      "p95_handler_ms": 1,
+      "p95_queue_ms": 430,
+      "queue_samples": 2,
+      "re_receives": 1,
+      "receives": 3,
+      "sends": 2,
+      "t_ms": 1794852300000
+     }
+    ],
+    "versions": []
+   },
+   "123456789012/us-east-1/payments-dlq": {
+    "series": [
+     {
+      "by_version": [],
+      "dlq_inferred": 0,
+      "dlq_seen": 0,
+      "failed": 0,
+      "handled": 0,
+      "handler_samples": 0,
+      "no_send_receives": 0,
+      "p95_handler_ms": null,
+      "p95_queue_ms": null,
+      "queue_samples": 0,
+      "re_receives": 1,
+      "receives": 1,
+      "sends": 0,
+      "t_ms": 1794852300000
+     }
+    ],
+    "versions": []
+   }
+  },
   "stuck": [
    {
     "age_across_clocks": false,
@@ -3487,6 +4027,396 @@
    ],
    "z": []
   },
+  "flows": {
+   "all": [
+    {
+     "account": "123456789012",
+     "avgBytes": 110.0,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 3,
+       "name": "orders-worker"
+      },
+      {
+       "lambda": false,
+       "n": 1,
+       "name": "legacy-svc"
+      }
+     ],
+     "deleted": 4,
+     "dlq": null,
+     "key": "123456789012/us-east-1/orders",
+     "lastSeen": 1794852337716,
+     "name": "orders",
+     "producers": [
+      {
+       "lambda": false,
+       "n": 2,
+       "name": "checkout-api"
+      },
+      {
+       "lambda": false,
+       "n": 1,
+       "name": "legacy-svc"
+      }
+     ],
+     "queue": "orders",
+     "received": 4,
+     "region": "us-east-1",
+     "sent": 3,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": 40.0,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 3,
+       "name": "orders-worker"
+      }
+     ],
+     "deleted": 1,
+     "dlq": {
+      "name": "payments-dlq",
+      "received": 1
+     },
+     "key": "123456789012/us-east-1/payments",
+     "lastSeen": 1794852337425,
+     "name": "payments",
+     "producers": [
+      {
+       "lambda": false,
+       "n": 2,
+       "name": "checkout-api"
+      }
+     ],
+     "queue": "payments",
+     "received": 3,
+     "region": "us-east-1",
+     "sent": 2,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": null,
+     "consumers": [
+      {
+       "lambda": true,
+       "n": 4,
+       "name": "billing-fn"
+      }
+     ],
+     "deleted": 0,
+     "dlq": null,
+     "key": "123456789012/us-east-1/billing",
+     "lastSeen": 1794852337528,
+     "name": "billing",
+     "producers": [],
+     "queue": "billing",
+     "received": 4,
+     "region": "us-east-1",
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": 5.5,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 2,
+       "name": "orders-worker"
+      }
+     ],
+     "deleted": 2,
+     "dlq": null,
+     "key": "123456789012/us-east-1/orders.fifo",
+     "lastSeen": 1794852337427,
+     "name": "orders.fifo",
+     "producers": [
+      {
+       "lambda": false,
+       "n": 2,
+       "name": "checkout-api"
+      }
+     ],
+     "queue": "orders.fifo",
+     "received": 2,
+     "region": "us-east-1",
+     "sent": 2,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": null,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 1,
+       "name": "orders-worker"
+      }
+     ],
+     "deleted": 0,
+     "dlq": null,
+     "key": "123456789012/us-east-1/payments-dlq",
+     "lastSeen": 1794852337425,
+     "name": "payments-dlq",
+     "producers": [],
+     "queue": "payments-dlq",
+     "received": 1,
+     "region": "us-east-1",
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    }
+   ],
+   "first half": [
+    {
+     "account": "123456789012",
+     "avgBytes": 110.0,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 3,
+       "name": "orders-worker"
+      }
+     ],
+     "deleted": 3,
+     "dlq": null,
+     "key": "123456789012/us-east-1/orders",
+     "lastSeen": 1794852337716,
+     "name": "orders",
+     "producers": [
+      {
+       "lambda": false,
+       "n": 2,
+       "name": "checkout-api"
+      }
+     ],
+     "queue": "orders",
+     "received": 3,
+     "region": "us-east-1",
+     "sent": 2,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": 5.5,
+     "consumers": [],
+     "deleted": 0,
+     "dlq": null,
+     "key": "123456789012/us-east-1/orders.fifo",
+     "lastSeen": 1794852337427,
+     "name": "orders.fifo",
+     "producers": [
+      {
+       "lambda": false,
+       "n": 2,
+       "name": "checkout-api"
+      }
+     ],
+     "queue": "orders.fifo",
+     "received": 0,
+     "region": "us-east-1",
+     "sent": 2,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": 40.0,
+     "consumers": [],
+     "deleted": 0,
+     "dlq": {
+      "name": "payments-dlq",
+      "received": 0
+     },
+     "key": "123456789012/us-east-1/payments",
+     "lastSeen": 1794852337425,
+     "name": "payments",
+     "producers": [
+      {
+       "lambda": false,
+       "n": 2,
+       "name": "checkout-api"
+      }
+     ],
+     "queue": "payments",
+     "received": 0,
+     "region": "us-east-1",
+     "sent": 2,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": null,
+     "consumers": [],
+     "deleted": 0,
+     "dlq": null,
+     "key": "123456789012/us-east-1/billing",
+     "lastSeen": 1794852337528,
+     "name": "billing",
+     "producers": [],
+     "queue": "billing",
+     "received": 0,
+     "region": "us-east-1",
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": null,
+     "consumers": [],
+     "deleted": 0,
+     "dlq": null,
+     "key": "123456789012/us-east-1/payments-dlq",
+     "lastSeen": 1794852337425,
+     "name": "payments-dlq",
+     "producers": [],
+     "queue": "payments-dlq",
+     "received": 0,
+     "region": "us-east-1",
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    }
+   ],
+   "second half": [
+    {
+     "account": "123456789012",
+     "avgBytes": null,
+     "consumers": [
+      {
+       "lambda": true,
+       "n": 4,
+       "name": "billing-fn"
+      }
+     ],
+     "deleted": 0,
+     "dlq": null,
+     "key": "123456789012/us-east-1/billing",
+     "lastSeen": 1794852337528,
+     "name": "billing",
+     "producers": [],
+     "queue": "billing",
+     "received": 4,
+     "region": "us-east-1",
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": null,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 3,
+       "name": "orders-worker"
+      }
+     ],
+     "deleted": 1,
+     "dlq": {
+      "name": "payments-dlq",
+      "received": 1
+     },
+     "key": "123456789012/us-east-1/payments",
+     "lastSeen": 1794852337425,
+     "name": "payments",
+     "producers": [],
+     "queue": "payments",
+     "received": 3,
+     "region": "us-east-1",
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": null,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 1,
+       "name": "legacy-svc"
+      }
+     ],
+     "deleted": 1,
+     "dlq": null,
+     "key": "123456789012/us-east-1/orders",
+     "lastSeen": 1794852337716,
+     "name": "orders",
+     "producers": [
+      {
+       "lambda": false,
+       "n": 1,
+       "name": "legacy-svc"
+      }
+     ],
+     "queue": "orders",
+     "received": 1,
+     "region": "us-east-1",
+     "sent": 1,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": null,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 2,
+       "name": "orders-worker"
+      }
+     ],
+     "deleted": 2,
+     "dlq": null,
+     "key": "123456789012/us-east-1/orders.fifo",
+     "lastSeen": 1794852337427,
+     "name": "orders.fifo",
+     "producers": [],
+     "queue": "orders.fifo",
+     "received": 2,
+     "region": "us-east-1",
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "123456789012",
+     "avgBytes": null,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 1,
+       "name": "orders-worker"
+      }
+     ],
+     "deleted": 0,
+     "dlq": null,
+     "key": "123456789012/us-east-1/payments-dlq",
+     "lastSeen": 1794852337425,
+     "name": "payments-dlq",
+     "producers": [],
+     "queue": "payments-dlq",
+     "received": 1,
+     "region": "us-east-1",
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    }
+   ]
+  },
   "ingest": [
    [
     6,
@@ -6205,6 +7135,156 @@
    "m-bill-1"
   ],
   "missing_message": null,
+  "queue_keys": [
+   "123456789012/us-east-1/billing",
+   "123456789012/us-east-1/orders",
+   "123456789012/us-east-1/orders.fifo",
+   "123456789012/us-east-1/payments",
+   "123456789012/us-east-1/payments-dlq"
+  ],
+  "queue_series": {
+   "123456789012/us-east-1/billing": {
+    "series": [
+     {
+      "by_version": [
+       {
+        "handled": 0,
+        "handler_samples": 4,
+        "p95_handler_ms": 3,
+        "p95_queue_ms": null,
+        "queue_samples": 0,
+        "version": null
+       }
+      ],
+      "dlq_inferred": 1,
+      "dlq_seen": 0,
+      "failed": 4,
+      "handled": 0,
+      "handler_samples": 4,
+      "no_send_receives": 2,
+      "p95_handler_ms": 3,
+      "p95_queue_ms": null,
+      "queue_samples": 0,
+      "re_receives": 2,
+      "receives": 4,
+      "sends": 0,
+      "t_ms": 1794852300000
+     }
+    ],
+    "versions": []
+   },
+   "123456789012/us-east-1/orders": {
+    "series": [
+     {
+      "by_version": [
+       {
+        "handled": 4,
+        "handler_samples": 4,
+        "p95_handler_ms": 3,
+        "p95_queue_ms": 129,
+        "queue_samples": 3,
+        "version": null
+       }
+      ],
+      "dlq_inferred": 0,
+      "dlq_seen": 0,
+      "failed": 0,
+      "handled": 4,
+      "handler_samples": 4,
+      "no_send_receives": 1,
+      "p95_handler_ms": 3,
+      "p95_queue_ms": 129,
+      "queue_samples": 3,
+      "re_receives": 0,
+      "receives": 4,
+      "sends": 3,
+      "t_ms": 1794852300000
+     }
+    ],
+    "versions": []
+   },
+   "123456789012/us-east-1/orders.fifo": {
+    "series": [
+     {
+      "by_version": [
+       {
+        "handled": 2,
+        "handler_samples": 2,
+        "p95_handler_ms": 1,
+        "p95_queue_ms": 512,
+        "queue_samples": 2,
+        "version": null
+       }
+      ],
+      "dlq_inferred": 0,
+      "dlq_seen": 0,
+      "failed": 0,
+      "handled": 2,
+      "handler_samples": 2,
+      "no_send_receives": 0,
+      "p95_handler_ms": 1,
+      "p95_queue_ms": 512,
+      "queue_samples": 2,
+      "re_receives": 0,
+      "receives": 2,
+      "sends": 2,
+      "t_ms": 1794852300000
+     }
+    ],
+    "versions": []
+   },
+   "123456789012/us-east-1/payments": {
+    "series": [
+     {
+      "by_version": [
+       {
+        "handled": 1,
+        "handler_samples": 1,
+        "p95_handler_ms": 1,
+        "p95_queue_ms": 430,
+        "queue_samples": 2,
+        "version": null
+       }
+      ],
+      "dlq_inferred": 0,
+      "dlq_seen": 1,
+      "failed": 0,
+      "handled": 1,
+      "handler_samples": 1,
+      "no_send_receives": 0,
+      "p95_handler_ms": 1,
+      "p95_queue_ms": 430,
+      "queue_samples": 2,
+      "re_receives": 1,
+      "receives": 3,
+      "sends": 2,
+      "t_ms": 1794852300000
+     }
+    ],
+    "versions": []
+   },
+   "123456789012/us-east-1/payments-dlq": {
+    "series": [
+     {
+      "by_version": [],
+      "dlq_inferred": 0,
+      "dlq_seen": 0,
+      "failed": 0,
+      "handled": 0,
+      "handler_samples": 0,
+      "no_send_receives": 0,
+      "p95_handler_ms": null,
+      "p95_queue_ms": null,
+      "queue_samples": 0,
+      "re_receives": 1,
+      "receives": 1,
+      "sends": 0,
+      "t_ms": 1794852300000
+     }
+    ],
+    "versions": []
+   }
+  },
   "stuck": [
    {
     "age_across_clocks": false,
@@ -6689,6 +7769,305 @@
     "globex"
    ],
    "z": []
+  },
+  "flows": {
+   "all": [
+    {
+     "account": "000000000000",
+     "avgBytes": 31.0,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 5,
+       "name": "orders-worker"
+      }
+     ],
+     "deleted": 3,
+     "dlq": {
+      "name": "orders-dlq",
+      "received": 1
+     },
+     "key": "000000000000/us-east-1/orders",
+     "lastSeen": 1763080190000,
+     "name": "orders",
+     "producers": [
+      {
+       "lambda": false,
+       "n": 3,
+       "name": "checkout-api"
+      }
+     ],
+     "queue": "orders",
+     "received": 5,
+     "region": "us-east-1",
+     "sent": 3,
+     "url": null,
+     "visibilityChanges": 1
+    },
+    {
+     "account": "000000000000",
+     "avgBytes": 13.0,
+     "consumers": [
+      {
+       "lambda": true,
+       "n": 3,
+       "name": "billing-fn"
+      }
+     ],
+     "deleted": 0,
+     "dlq": null,
+     "key": "000000000000//billing",
+     "lastSeen": 1763080043000,
+     "name": "billing",
+     "producers": [
+      {
+       "lambda": false,
+       "n": 1,
+       "name": "checkout-api"
+      }
+     ],
+     "queue": "billing",
+     "received": 3,
+     "region": null,
+     "sent": 1,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "000000000000",
+     "avgBytes": null,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 1,
+       "name": "orders-worker"
+      }
+     ],
+     "deleted": 1,
+     "dlq": null,
+     "key": "000000000000//orders-dlq",
+     "lastSeen": 1763080200000,
+     "name": "orders-dlq",
+     "producers": [],
+     "queue": "orders-dlq",
+     "received": 1,
+     "region": null,
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "000000000000",
+     "avgBytes": 21.0,
+     "consumers": [],
+     "deleted": 0,
+     "dlq": null,
+     "key": "000000000000//payments",
+     "lastSeen": 1763080004000,
+     "name": "payments",
+     "producers": [
+      {
+       "lambda": false,
+       "n": 1,
+       "name": "checkout-api"
+      }
+     ],
+     "queue": "payments",
+     "received": 0,
+     "region": null,
+     "sent": 1,
+     "url": null,
+     "visibilityChanges": 0
+    }
+   ],
+   "first half": [
+    {
+     "account": "000000000000",
+     "avgBytes": 31.0,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 4,
+       "name": "orders-worker"
+      }
+     ],
+     "deleted": 3,
+     "dlq": {
+      "name": "orders-dlq",
+      "received": 0
+     },
+     "key": "000000000000/us-east-1/orders",
+     "lastSeen": 1763080190000,
+     "name": "orders",
+     "producers": [
+      {
+       "lambda": false,
+       "n": 3,
+       "name": "checkout-api"
+      }
+     ],
+     "queue": "orders",
+     "received": 4,
+     "region": "us-east-1",
+     "sent": 3,
+     "url": null,
+     "visibilityChanges": 1
+    },
+    {
+     "account": "000000000000",
+     "avgBytes": 13.0,
+     "consumers": [
+      {
+       "lambda": true,
+       "n": 3,
+       "name": "billing-fn"
+      }
+     ],
+     "deleted": 0,
+     "dlq": null,
+     "key": "000000000000//billing",
+     "lastSeen": 1763080043000,
+     "name": "billing",
+     "producers": [
+      {
+       "lambda": false,
+       "n": 1,
+       "name": "checkout-api"
+      }
+     ],
+     "queue": "billing",
+     "received": 3,
+     "region": null,
+     "sent": 1,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "000000000000",
+     "avgBytes": 21.0,
+     "consumers": [],
+     "deleted": 0,
+     "dlq": null,
+     "key": "000000000000//payments",
+     "lastSeen": 1763080004000,
+     "name": "payments",
+     "producers": [
+      {
+       "lambda": false,
+       "n": 1,
+       "name": "checkout-api"
+      }
+     ],
+     "queue": "payments",
+     "received": 0,
+     "region": null,
+     "sent": 1,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "000000000000",
+     "avgBytes": null,
+     "consumers": [],
+     "deleted": 0,
+     "dlq": null,
+     "key": "000000000000//orders-dlq",
+     "lastSeen": 1763080200000,
+     "name": "orders-dlq",
+     "producers": [],
+     "queue": "orders-dlq",
+     "received": 0,
+     "region": null,
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    }
+   ],
+   "second half": [
+    {
+     "account": "000000000000",
+     "avgBytes": null,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 1,
+       "name": "orders-worker"
+      }
+     ],
+     "deleted": 0,
+     "dlq": {
+      "name": "orders-dlq",
+      "received": 1
+     },
+     "key": "000000000000/us-east-1/orders",
+     "lastSeen": 1763080190000,
+     "name": "orders",
+     "producers": [],
+     "queue": "orders",
+     "received": 1,
+     "region": "us-east-1",
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "000000000000",
+     "avgBytes": null,
+     "consumers": [
+      {
+       "lambda": false,
+       "n": 1,
+       "name": "orders-worker"
+      }
+     ],
+     "deleted": 1,
+     "dlq": null,
+     "key": "000000000000//orders-dlq",
+     "lastSeen": 1763080200000,
+     "name": "orders-dlq",
+     "producers": [],
+     "queue": "orders-dlq",
+     "received": 1,
+     "region": null,
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "000000000000",
+     "avgBytes": null,
+     "consumers": [],
+     "deleted": 0,
+     "dlq": null,
+     "key": "000000000000//billing",
+     "lastSeen": 1763080043000,
+     "name": "billing",
+     "producers": [],
+     "queue": "billing",
+     "received": 0,
+     "region": null,
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    },
+    {
+     "account": "000000000000",
+     "avgBytes": null,
+     "consumers": [],
+     "deleted": 0,
+     "dlq": null,
+     "key": "000000000000//payments",
+     "lastSeen": 1763080004000,
+     "name": "payments",
+     "producers": [],
+     "queue": "payments",
+     "received": 0,
+     "region": null,
+     "sent": 0,
+     "url": null,
+     "visibilityChanges": 0
+    }
+   ]
   },
   "ingest": [
    [
@@ -8659,6 +10038,327 @@
    "m-a"
   ],
   "missing_message": null,
+  "queue_keys": [
+   "000000000000//billing",
+   "000000000000//orders",
+   "000000000000//orders-dlq",
+   "000000000000//payments",
+   "000000000000/us-east-1/orders"
+  ],
+  "queue_series": {
+   "000000000000//billing": {
+    "series": [
+     {
+      "by_version": [
+       {
+        "handled": 0,
+        "handler_samples": 1,
+        "p95_handler_ms": 1000,
+        "p95_queue_ms": 11000,
+        "queue_samples": 1,
+        "version": "1.4.2"
+       }
+      ],
+      "dlq_inferred": 0,
+      "dlq_seen": 0,
+      "failed": 1,
+      "handled": 0,
+      "handler_samples": 1,
+      "no_send_receives": 0,
+      "p95_handler_ms": 1000,
+      "p95_queue_ms": 11000,
+      "queue_samples": 1,
+      "re_receives": 0,
+      "receives": 1,
+      "sends": 1,
+      "t_ms": 1763079960000
+     },
+     {
+      "by_version": [
+       {
+        "handled": 2,
+        "handler_samples": 2,
+        "p95_handler_ms": 1000,
+        "p95_queue_ms": null,
+        "queue_samples": 0,
+        "version": "1.4.2"
+       }
+      ],
+      "dlq_inferred": 0,
+      "dlq_seen": 0,
+      "failed": 0,
+      "handled": 2,
+      "handler_samples": 2,
+      "no_send_receives": 0,
+      "p95_handler_ms": 1000,
+      "p95_queue_ms": null,
+      "queue_samples": 0,
+      "re_receives": 2,
+      "receives": 2,
+      "sends": 0,
+      "t_ms": 1763080020000
+     }
+    ],
+    "versions": []
+   },
+   "000000000000//orders": {
+    "series": [
+     {
+      "by_version": [
+       {
+        "handled": 0,
+        "handler_samples": 0,
+        "p95_handler_ms": null,
+        "p95_queue_ms": 10000,
+        "queue_samples": 1,
+        "version": null
+       }
+      ],
+      "dlq_inferred": 0,
+      "dlq_seen": 0,
+      "failed": 0,
+      "handled": 0,
+      "handler_samples": 0,
+      "no_send_receives": 0,
+      "p95_handler_ms": null,
+      "p95_queue_ms": 10000,
+      "queue_samples": 1,
+      "re_receives": 0,
+      "receives": 1,
+      "sends": 3,
+      "t_ms": 1763079960000
+     },
+     {
+      "by_version": [
+       {
+        "handled": 1,
+        "handler_samples": 1,
+        "p95_handler_ms": 1000,
+        "p95_queue_ms": null,
+        "queue_samples": 0,
+        "version": "2.0.1"
+       },
+       {
+        "handled": 1,
+        "handler_samples": 1,
+        "p95_handler_ms": 42000,
+        "p95_queue_ms": 27000,
+        "queue_samples": 1,
+        "version": null
+       }
+      ],
+      "dlq_inferred": 0,
+      "dlq_seen": 0,
+      "failed": 0,
+      "handled": 2,
+      "handler_samples": 2,
+      "no_send_receives": 0,
+      "p95_handler_ms": 42000,
+      "p95_queue_ms": 27000,
+      "queue_samples": 1,
+      "re_receives": 2,
+      "receives": 3,
+      "sends": 0,
+      "t_ms": 1763080020000
+     },
+     {
+      "by_version": [],
+      "dlq_inferred": 0,
+      "dlq_seen": 0,
+      "failed": 0,
+      "handled": 0,
+      "handler_samples": 0,
+      "no_send_receives": 0,
+      "p95_handler_ms": null,
+      "p95_queue_ms": null,
+      "queue_samples": 0,
+      "re_receives": 1,
+      "receives": 1,
+      "sends": 0,
+      "t_ms": 1763080080000
+     },
+     {
+      "by_version": [],
+      "dlq_inferred": 0,
+      "dlq_seen": 1,
+      "failed": 0,
+      "handled": 0,
+      "handler_samples": 0,
+      "no_send_receives": 0,
+      "p95_handler_ms": null,
+      "p95_queue_ms": null,
+      "queue_samples": 0,
+      "re_receives": 0,
+      "receives": 0,
+      "sends": 0,
+      "t_ms": 1763080140000
+     }
+    ],
+    "versions": []
+   },
+   "000000000000//orders-dlq": {
+    "series": [
+     {
+      "by_version": [],
+      "dlq_inferred": 0,
+      "dlq_seen": 0,
+      "failed": 0,
+      "handled": 0,
+      "handler_samples": 0,
+      "no_send_receives": 0,
+      "p95_handler_ms": null,
+      "p95_queue_ms": null,
+      "queue_samples": 0,
+      "re_receives": 1,
+      "receives": 1,
+      "sends": 0,
+      "t_ms": 1763080140000
+     },
+     {
+      "by_version": [
+       {
+        "handled": 1,
+        "handler_samples": 1,
+        "p95_handler_ms": 10000,
+        "p95_queue_ms": null,
+        "queue_samples": 0,
+        "version": null
+       }
+      ],
+      "dlq_inferred": 0,
+      "dlq_seen": 0,
+      "failed": 0,
+      "handled": 1,
+      "handler_samples": 1,
+      "no_send_receives": 0,
+      "p95_handler_ms": 10000,
+      "p95_queue_ms": null,
+      "queue_samples": 0,
+      "re_receives": 0,
+      "receives": 0,
+      "sends": 0,
+      "t_ms": 1763080200000
+     }
+    ],
+    "versions": []
+   },
+   "000000000000//payments": {
+    "series": [
+     {
+      "by_version": [],
+      "dlq_inferred": 0,
+      "dlq_seen": 0,
+      "failed": 0,
+      "handled": 0,
+      "handler_samples": 0,
+      "no_send_receives": 0,
+      "p95_handler_ms": null,
+      "p95_queue_ms": null,
+      "queue_samples": 0,
+      "re_receives": 0,
+      "receives": 0,
+      "sends": 1,
+      "t_ms": 1763079960000
+     }
+    ],
+    "versions": []
+   },
+   "000000000000/us-east-1/orders": {
+    "series": [
+     {
+      "by_version": [
+       {
+        "handled": 0,
+        "handler_samples": 0,
+        "p95_handler_ms": null,
+        "p95_queue_ms": 10000,
+        "queue_samples": 1,
+        "version": null
+       }
+      ],
+      "dlq_inferred": 0,
+      "dlq_seen": 0,
+      "failed": 0,
+      "handled": 0,
+      "handler_samples": 0,
+      "no_send_receives": 0,
+      "p95_handler_ms": null,
+      "p95_queue_ms": 10000,
+      "queue_samples": 1,
+      "re_receives": 0,
+      "receives": 1,
+      "sends": 3,
+      "t_ms": 1763079960000
+     },
+     {
+      "by_version": [
+       {
+        "handled": 1,
+        "handler_samples": 1,
+        "p95_handler_ms": 1000,
+        "p95_queue_ms": null,
+        "queue_samples": 0,
+        "version": "2.0.1"
+       },
+       {
+        "handled": 1,
+        "handler_samples": 1,
+        "p95_handler_ms": 42000,
+        "p95_queue_ms": 27000,
+        "queue_samples": 1,
+        "version": null
+       }
+      ],
+      "dlq_inferred": 0,
+      "dlq_seen": 0,
+      "failed": 0,
+      "handled": 2,
+      "handler_samples": 2,
+      "no_send_receives": 0,
+      "p95_handler_ms": 42000,
+      "p95_queue_ms": 27000,
+      "queue_samples": 1,
+      "re_receives": 2,
+      "receives": 3,
+      "sends": 0,
+      "t_ms": 1763080020000
+     },
+     {
+      "by_version": [],
+      "dlq_inferred": 0,
+      "dlq_seen": 0,
+      "failed": 0,
+      "handled": 0,
+      "handler_samples": 0,
+      "no_send_receives": 0,
+      "p95_handler_ms": null,
+      "p95_queue_ms": null,
+      "queue_samples": 0,
+      "re_receives": 1,
+      "receives": 1,
+      "sends": 0,
+      "t_ms": 1763080080000
+     },
+     {
+      "by_version": [],
+      "dlq_inferred": 0,
+      "dlq_seen": 1,
+      "failed": 0,
+      "handled": 0,
+      "handler_samples": 0,
+      "no_send_receives": 0,
+      "p95_handler_ms": null,
+      "p95_queue_ms": null,
+      "queue_samples": 0,
+      "re_receives": 0,
+      "receives": 0,
+      "sends": 0,
+      "t_ms": 1763080140000
+     }
+    ],
+    "versions": []
+   }
+  },
   "stuck": [
    {
     "age_across_clocks": false,
