@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-from http.cookies import CookieError, SimpleCookie
 from typing import Optional
+
+from .cookies import cookie
 
 COOKIE = "trailbeam_session"
 MIN_LENGTH = 16
@@ -64,14 +65,8 @@ class Auth:
         return hmac.compare_digest(text.strip().encode(), self._token)
 
     def session_ok(self, cookie_header: Optional[str]) -> bool:
-        if not cookie_header:
-            return False
-        try:
-            c = SimpleCookie(cookie_header)
-        except CookieError:
-            return False
-        m = c.get(COOKIE)
-        return m is not None and hmac.compare_digest(m.value.encode(), self._session.encode())
+        v = cookie(cookie_header, COOKIE)
+        return v is not None and hmac.compare_digest(v.encode("utf-8", "surrogatepass"), self._session.encode())
 
     def request_ok(self, headers) -> bool:
         """The API and pages: the bearer header or the session cookie."""
