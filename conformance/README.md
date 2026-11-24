@@ -11,7 +11,8 @@ what is missing or wrong.
 The Python and Node.js packages, client hooks and Lambda wrappers, run it in CI (`Conformance kit` in
 [`ci.yml`](../.github/workflows/ci.yml)), and so does the Java package (`Java package` in the same file, driver in
 [`drivers/java`](drivers/java), with agent variants for the OpenTelemetry Java agent and dd-java-agent; its
-Lambda wrapper in [`drivers/java-lambda`](drivers/java-lambda)). New
+Lambda wrapper in [`drivers/java-lambda`](drivers/java-lambda)), and so does the .NET package (`.NET package`,
+driver in [`drivers/dotnet`](drivers/dotnet), with variants beside OpenTelemetry.Instrumentation.AWS). New
 language packages add a driver and must pass it.
 
 ```
