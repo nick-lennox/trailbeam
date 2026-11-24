@@ -58,6 +58,7 @@ Environment variables, as for the Python and Node.js packages:
 | `TRAILBEAM_OTLP_TRACES_ENDPOINT` | `http://localhost:4318/v1/traces` (OTLP over HTTP, protobuf) |
 | `TRAILBEAM_RECEIPT_HASH_KEY` | the published default key, with one warning. Use the same key on every service that uses the same queues (contract section 7). |
 | `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | `unknown_service`, and a random `service.instance.id` |
+| `OTEL_RESOURCE_ATTRIBUTES=service.version=1.4.2` | no version. With it, Trailbeam shows each consumer's version on the timeline and on the lists, which can be filtered by `version`, so you can see whether a deploy changed things. |
 | `TRAILBEAM_MAX_QUEUE_SIZE` | 16384 spans waiting for export |
 
 ### Tenants and message bodies
