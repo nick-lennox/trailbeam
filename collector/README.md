@@ -9,6 +9,7 @@ It needs the **contrib** distribution (`otelcol-contrib`), because it uses the `
 | [`trailbeam-collector.yaml`](trailbeam-collector.yaml) | Receives OTLP from your applications and sends **every** span with instrumentation scope `trailbeam` to the Trailbeam, unsampled. Sends nothing else to Trailbeam. |
 | [`backend.yaml`](backend.yaml) | Optional overlay. Also sends traces to your own tracing backend: every SQS span (Trailbeam and stock AWS SDK) unsampled, and everything else tail-sampled. |
 | [`trailbeam.alloy`](trailbeam.alloy) | The same Trailbeam pipeline for [Grafana Alloy](https://grafana.com/docs/alloy/), plus every span to Tempo or Grafana Cloud ([Grafana Alloy](#grafana-alloy)). |
+| [`newrelic.yaml`](newrelic.yaml) | Optional overlay. Also sends every span, metric and log, unsampled, to New Relic's OTLP endpoint ([New Relic](#new-relic)). |
 | [`persistent-queue.yaml`](persistent-queue.yaml) | Optional overlay. Keeps the spans for Trailbeam in a queue on disk, so that they survive an outage, a slow Trailbeam and a Collector restart. Use it for high volume ([High volume](#high-volume)). |
 
 ```sh
@@ -86,6 +87,27 @@ To add Trailbeam to an Alloy configuration you already run, copy the three `trai
 
 There is no Alloy version of `backend.yaml` or `persistent-queue.yaml`: the Tempo side is not sampled, and the
 Trailbeam spans wait in memory (5,000 batches) while the server is down.
+
+## New Relic
+
+[`newrelic.yaml`](newrelic.yaml) keeps `trailbeam-collector.yaml` as it is and adds three pipelines, for traces,
+metrics and logs, that send everything the applications send to New Relic over OTLP/HTTP, gzipped. Trailbeam
+spans go to both. The two exporters are independent, so New Relic being down does not hold up the Trailbeam
+server's spans. Tested with otelcol-contrib 0.165.0.
+
+```sh
+NEW_RELIC_LICENSE_KEY=... TRAILBEAM_ENDPOINT=http://localhost:4319 \
+  otelcol-contrib --config trailbeam-collector.yaml --config newrelic.yaml
+```
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `NEW_RELIC_LICENSE_KEY` | none, required | The account's license key, sent in New Relic's `api-key` header. Keep it out of the file. |
+| `NEW_RELIC_OTLP_ENDPOINT` | `https://otlp.nr-data.net` | New Relic's OTLP base URL. EU accounts: `https://otlp.eu01.nr-data.net`. FedRAMP: `https://gov-otlp.nr-data.net`. |
+
+The `batch/newrelic` processor sends at most 1,000 spans, metrics or logs per request, because New Relic
+rejects requests over 1 MB. Point the applications at the Collector instead of `otlp.nr-data.net`, and remove
+their `api-key` header: the Collector adds it.
 
 ## Why it is built this way
 
@@ -172,6 +194,12 @@ trace, and checks that the Trailbeam endpoint receives exactly the Trailbeam spa
 that the access token and the Grafana Cloud credentials are sent; and that spans sent while the Trailbeam endpoint
 is down arrive, once each, when it is back. It needs Docker and is skipped without it. Set
 `TRAILBEAM_ALLOY_IMAGE` to try another image.
+
+[`tests/test_newrelic.py`](tests/test_newrelic.py) runs the Collector with `newrelic.yaml` between a fake
+Trailbeam endpoint and a fake New Relic endpoint, and checks that the Trailbeam endpoint receives exactly the
+Trailbeam spans; that the New Relic endpoint receives every span, metric and log, gzipped, with the license key
+in `api-key`; that no request to it holds more than 1,000 spans; and that the Trailbeam spans still arrive while
+New Relic is down. It needs no New Relic account.
 
 ```sh
 pip install pytest opentelemetry-proto
