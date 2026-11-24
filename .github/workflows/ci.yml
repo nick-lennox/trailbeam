@@ -55,6 +55,9 @@ jobs:
     # a draft pull request runs nothing: every job below is skipped, ci-ok too
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read   # a push to main compares with the last main commit whose CI passed
     outputs:
       full: ${{ steps.c.outputs.full }}
       core: ${{ steps.c.outputs.core }}
@@ -81,11 +84,20 @@ jobs:
           REF: ${{ github.ref }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
           full=false
           if [ "$FULL_INPUT" = true ] || [ "$EVENT" = schedule ] || [[ "$REF" == refs/heads/release/* ]]; then full=true
           else
             base=$([ "$EVENT" = pull_request ] && echo "$PR_BASE" || echo "$BEFORE")
+            # Main is the integration check since pull requests merge without containing the latest main (QV-389),
+            # and a queued run on main is replaced by the next push's, so a push compares with the last main commit
+            # whose CI passed: no merge's files are left out of the jobs.
+            if [ "$EVENT" = push ] && [ "$REF" = refs/heads/main ]; then
+              green=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" -q '.workflow_runs[0].head_sha' 2>/dev/null || true)
+              if [ -n "$green" ] && git cat-file -e "$green^{commit}" 2>/dev/null; then base=$green; echo "Comparing with the last green main commit $green"; fi
+            fi
             if [ -z "$base" ] || [ "$base" = 0000000000000000000000000000000000000000 ] \
                || ! files=$(git diff --name-only "$base"...HEAD); then
               echo "::notice::Can't tell what changed (base '$base'), so every job runs."; full=true
