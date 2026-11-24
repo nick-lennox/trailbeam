@@ -37,7 +37,7 @@ info:
       request is served.
     - Once an admin exists: the API needs a person, an admin or a member. That means a personal API
       token (`Authorization: Bearer tbp_...`) or a sign-in session (the `trailbeam_sid` cookie, or
-      `__Host-trailbeam_sid` over HTTPS). `TRAILBEAM_TOKEN` then works only for ingest and
+      `__Host-trailbeam_sid` over HTTPS), from an email and password or from single sign-on. `TRAILBEAM_TOKEN` then works only for ingest and
       `/metrics`, and the `trailbeam_session` cookie no longer works.
 
     Ingest is separate: see `POST /v1/traces`. `/api/ready` and the short form of `/api/health` never
@@ -54,6 +54,11 @@ info:
     `trailbeam users` and `trailbeam tokens`. Anyone signed in manages their own personal API tokens
     with `/api/me/tokens`. Two roles: `admin` and `member`. `/setup`, `/set-password` (where an invite or
     reset link leads), `/login` and `/logout` are web pages, not part of this API.
+
+    **Single sign-on** (OpenID Connect, with `--oidc-issuer` and `--public-url`) adds two more web pages:
+    `/login/oidc` sends the browser to the identity provider, and `/login/oidc/callback` is where the
+    provider sends it back (the redirect URI to register there). They start the same sign-in session as a
+    password does, and are not part of this API either.
 servers:
   - url: http://127.0.0.1:4318
     description: A Trailbeam server started with its defaults.
@@ -130,7 +135,7 @@ paths:
                 required: [users]
                 properties:
                   users: {type: array, items: {$ref: '#/components/schemas/User'}}
-              example: {"users": [{"id": 1, "email": "ada@example.com", "name": "Ada", "role": "admin", "status": "active", "created_at_ms": 1795400000000, "last_sign_in_ms": 1795480000000, "you": true}, {"id": 2, "email": "ben@example.com", "name": "Ben", "role": "member", "status": "invited", "created_at_ms": 1795410000000, "last_sign_in_ms": null, "you": false}]}
+              example: {"users": [{"id": 1, "email": "ada@example.com", "name": "Ada", "role": "admin", "status": "active", "created_at_ms": 1795400000000, "last_sign_in_ms": 1795480000000, "you": true, "single_sign_on": false}, {"id": 2, "email": "ben@example.com", "name": "Ben", "role": "member", "status": "invited", "created_at_ms": 1795410000000, "last_sign_in_ms": null, "you": false, "single_sign_on": true}]}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
@@ -161,7 +166,7 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/UserWithLink'}
-              example: {"user": {"id": 2, "email": "ben@example.com", "name": "Ben", "role": "member", "status": "invited", "created_at_ms": 1795410000000, "last_sign_in_ms": null, "you": false}, "link": {"kind": "invite", "url": "http://127.0.0.1:4318/set-password#code=8bV1q0Jm0h6rWw2y7mM5c3xQKk0p0b2N7Hn8yZtq1sE", "expires_at_ms": 1796014800000}}
+              example: {"user": {"id": 2, "email": "ben@example.com", "name": "Ben", "role": "member", "status": "invited", "created_at_ms": 1795410000000, "last_sign_in_ms": null, "you": false, "single_sign_on": false}, "link": {"kind": "invite", "url": "http://127.0.0.1:4318/set-password#code=8bV1q0Jm0h6rWw2y7mM5c3xQKk0p0b2N7Hn8yZtq1sE", "expires_at_ms": 1796014800000}}
         '400': {$ref: '#/components/responses/BadBody'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
@@ -1759,7 +1764,7 @@ components:
       type: apiKey
       in: cookie
       name: trailbeam_sid
-      description: The cookie that signing in with an email and password sets. Over HTTPS it is named `__Host-trailbeam_sid`. It works on the API and the web screen once an admin exists, never on ingest.
+      description: The cookie that signing in sets, with an email and password or with single sign-on (OpenID Connect, `/login/oidc`). Over HTTPS it is named `__Host-trailbeam_sid`. It works on the API and the web screen once an admin exists, never on ingest.
     proxySignIn:
       type: apiKey
       in: header
@@ -2002,7 +2007,7 @@ components:
     User:
       type: object
       additionalProperties: false
-      required: [id, email, name, role, status, created_at_ms, last_sign_in_ms, you]
+      required: [id, email, name, role, status, created_at_ms, last_sign_in_ms, you, single_sign_on]
       properties:
         id: {type: integer}
         email: {type: string}
@@ -2017,6 +2022,11 @@ components:
         created_at_ms: {type: integer}
         last_sign_in_ms: {type: ['integer', 'null']}
         you: {type: boolean, description: This is the person making the request.}
+        single_sign_on:
+          type: boolean
+          description: |
+            The person has signed in with single sign-on (OIDC). Removing them doesn't keep them out: their next
+            single sign-on creates them again, as a new person with the default role. Disable them instead.
     UserLink:
       type: object
       additionalProperties: false

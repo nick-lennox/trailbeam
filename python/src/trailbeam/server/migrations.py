@@ -114,10 +114,10 @@ CREATE INDEX IF NOT EXISTS spans_sns_pid ON spans ({SNS_PID})
     WHERE kind IN ('publish', 'receive') AND {SNS_PID} IS NOT NULL;
 CREATE INDEX IF NOT EXISTS spans_receive_sns ON spans ({SNS_MSG}) WHERE kind = 'receive' AND {SNS_MSG} IS NOT NULL;
 """
-# Schema 21 (QV-306): RabbitMQ's settle kinds reject and channel_closed (otlp.py) join their delivery as delete and
+# Schema 22 (QV-306): RabbitMQ's settle kinds reject and channel_closed (otlp.py) join their delivery as delete and
 # change_visibility join their receive, so the unjoined settle spans' index covers them. The kinds are written out:
 # they are this migration's, not whatever store.SETTLE_KINDS says later. Not in SPANS_INDEXES, which migration 11 builds.
-UNJOINED_INDEX_21 = """
+UNJOINED_INDEX_22 = """
 DROP INDEX IF EXISTS spans_unjoined_hash;
 CREATE INDEX IF NOT EXISTS spans_unjoined_hash ON spans (receipt_hmac, key_id)
     WHERE kind IN ('delete', 'change_visibility', 'reject', 'channel_closed') AND receive_row IS NULL;
@@ -156,7 +156,7 @@ CREATE TABLE IF NOT EXISTS probes (id TEXT PRIMARY KEY, received_ns INTEGER NOT 
 """
 
 # The schema a new file gets: the result of every migration below.
-CREATE = SPANS_TABLE.format(name="spans", added=SPANS_ADDED) + SPANS_INDEXES + SNS_INDEXES + UNJOINED_INDEX_21 + """
+CREATE = SPANS_TABLE.format(name="spans", added=SPANS_ADDED) + SPANS_INDEXES + SNS_INDEXES + UNJOINED_INDEX_22 + """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """ + """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -167,7 +167,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 );
 """ + summary_table.CREATE + body_table.CREATE + PROBES_CREATE + account_tables.SQLITE_CREATE + f"""
 {account_tables.SQLITE_ADD_PROXY};
-""" + STEP_ROLLUP_CREATE
+""" + STEP_ROLLUP_CREATE + account_tables.SQLITE_OIDC
 
 # Schema 1 was the first released (the CREATE of version 1 is in tests/server/test_migrations.py).
 # Schema 1 had no start_ns. Its rows came from contract v1 spans, stamped only when the response arrived,
@@ -225,8 +225,9 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # Schema 20 (QV-313) adds the SNS fan-out indexes (SNS_INDEXES). Publish spans are rows of spans (kind 'publish', no
 # mid); no file before it has any, and no receive before it carries the SNS attributes, so the indexes are built
 # from one scan of spans and start empty. It changes no span data.
-# Schema 21 (QV-306) takes RabbitMQ spans (contract/span-contract-amqp.md, schema version 4): the unjoined settle
-# spans' index is built again with its two new settle kinds (UNJOINED_INDEX_21), from one scan of spans. No file
+# Schema 21 (QV-228) adds the two single sign-on tables (account_tables.py: oidc_logins, oidc_identities), empty.
+# Schema 22 (QV-306) takes RabbitMQ spans (contract/span-contract-amqp.md, schema version 4): the unjoined settle
+# spans' index is built again with its two new settle kinds (UNJOINED_INDEX_22), from one scan of spans. No file
 # before it holds a RabbitMQ span (a Trailbeam before 4.0 rejects them), and an SQS message's key is its message ID
 # as before (systems.py), so it changes no span data and no summary.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new", added=""))
@@ -329,7 +330,8 @@ MIGRATIONS = (
     Migration(19, "hourly step rollup (/api/events)", tuple(statements(STEP_ROLLUP_CREATE))
               + ("DELETE FROM step_rollup", STEP_ROLLUP_BACKFILL)),
     Migration(20, "SNS fan-out indexes", tuple(statements(SNS_INDEXES))),
-    Migration(21, "RabbitMQ settle kinds in the unjoined settle index", tuple(statements(UNJOINED_INDEX_21))),
+    Migration(21, "OpenID Connect sign-ins and identities", tuple(statements(account_tables.SQLITE_OIDC))),
+    Migration(22, "RabbitMQ settle kinds in the unjoined settle index", tuple(statements(UNJOINED_INDEX_22))),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

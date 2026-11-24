@@ -90,10 +90,13 @@ def _status(u: dict, now_ms: int) -> str:
     return "active"
 
 
-def user_view(u: dict, now_ms: int, me: Optional[int]) -> dict:
+def user_view(u: dict, now_ms: int, me: Optional[int], single_sign_on: bool) -> dict:
+    """``single_sign_on``: the person has an identity provider account (``oidc_identities``). Removing them then
+    doesn't keep them out: their next single sign-on creates them again, as a new person with the default role."""
     return {"id": int(u["id"]), "email": u["email"], "name": u["name"], "role": u["role"],
             "status": _status(u, now_ms), "created_at_ms": u["created_at_ms"],
-            "last_sign_in_ms": u["last_sign_in_ms"], "you": me is not None and int(u["id"]) == me}
+            "last_sign_in_ms": u["last_sign_in_ms"], "you": me is not None and int(u["id"]) == me,
+            "single_sign_on": single_sign_on}
 
 
 def _token_status(t: dict, now_ms: int) -> str:
@@ -149,8 +152,12 @@ class PeopleApi:
         if self.app.tokens is not None:
             self.app.tokens.forget_user(uid)
 
+    def _view(self, acc, u: dict, now_ms: int, who) -> dict:
+        return user_view(u, now_ms, who.user_id, bool(acc.oidc_identities(int(u["id"]))))
+
     def list_users(self, acc, rid, body, who, base_url, now_ms):
-        return 200, {"users": [user_view(u, now_ms, who.user_id) for u in acc.users()]}
+        sso = {int(i["user_id"]) for i in acc.oidc_identities()}
+        return 200, {"users": [user_view(u, now_ms, who.user_id, int(u["id"]) in sso) for u in acc.users()]}
 
     def create_user(self, acc, rid, body, who, base_url, now_ms):
         email = _str(body, "email")
@@ -166,7 +173,7 @@ class PeopleApi:
         self.app.access.state.changed()
         link = self._link(acc, uid, INVITE, base_url, now_ms)
         log.info("user %s added %s (user %d, %s) from the People page", who.user_id, email.strip(), uid, role)
-        return 201, {"user": user_view(self._user(acc, uid), now_ms, who.user_id), "link": link}
+        return 201, {"user": self._view(acc, self._user(acc, uid), now_ms, who), "link": link}
 
     def change_user(self, acc, rid, body, who, base_url, now_ms):
         u = self._user(acc, rid)
@@ -190,7 +197,7 @@ class PeopleApi:
         self.app.access.state.changed()
         log.info("user %s changed user %d: %s", who.user_id, rid,
                  {k: v for k, v in (("role", role), ("disabled", disabled)) if v is not None})
-        return 200, {"user": user_view(self._user(acc, rid), now_ms, who.user_id)}
+        return 200, {"user": self._view(acc, self._user(acc, rid), now_ms, who)}
 
     def remove_user(self, acc, rid, body, who, base_url, now_ms):
         u = self._user(acc, rid)
@@ -211,7 +218,7 @@ class PeopleApi:
         kind = RESET if u["password_hash"] else INVITE
         link = self._link(acc, rid, kind, base_url, now_ms)
         log.info("user %s made a %s link for user %d", who.user_id, kind, rid)
-        return 201, {"user": user_view(u, now_ms, who.user_id), "link": link}
+        return 201, {"user": self._view(acc, u, now_ms, who), "link": link}
 
     def _link(self, acc, uid: int, kind: str, base_url: str, now_ms: int) -> dict:
         code = first_admin.new_code()

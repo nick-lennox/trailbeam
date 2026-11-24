@@ -4,7 +4,7 @@ name: CI
 #   1. every pull request, the fast core: Python 3.12, Node.js 22, the Postgres 16 store, the conformance kit,
 #      the shared UI and the container smoke test.
 #   2. when its paths change (the `changes` job below says which): Java, Go, .NET, the examples and demo, Kubernetes and
-#      the team install, the collector configuration and the docs commands.
+#      the team install, the collector configuration, the docs commands and single sign-on against Keycloak.
 #   3. everything, every night, on release/** branches, on a release tag (release.yaml calls this workflow
 #      with full: true and publishes only if it passes) and by hand: also the upgrade from the last release,
 #      backup and restore under load, the perf check, monitoring, the concurrency check on real SQS and the
@@ -75,6 +75,7 @@ jobs:
       upgrade: ${{ steps.c.outputs.upgrade }}
       monitoring: ${{ steps.c.outputs.monitoring }}
       compat: ${{ steps.c.outputs.compat }}
+      sso: ${{ steps.c.outputs.sso }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -131,6 +132,8 @@ jobs:
             area upgrade '^python/smoke/|^python/src/trailbeam/server/(migrations|pg_schema|db|postgres|store)\.py$'
             area monitoring '^deploy/monitoring/'
             area compat '^compat/|^\.github/workflows/compat\.yml$'
+            # single sign-on and what it signs people in to (the keycloak job)
+            area sso '^python/src/trailbeam/server/(oidc|accounts|account_tables|access|sessions|server|web|__main__)\.py$|^python/tests/server/(test_oidc|test_oidc_keycloak|oidc_fake)\.py$|^python/tests/server/keycloak/|^python/pyproject\.toml$'
           } > "$RUNNER_TEMP/areas"
           cat "$RUNNER_TEMP/areas"
           get() { grep "^$1=" "$RUNNER_TEMP/areas" | cut -d= -f2; }
@@ -170,7 +173,11 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/plain" && "$RUNNER_TEMP/plain"/bin/pip install -q '.[server]'
           ! "$RUNNER_TEMP/plain"/bin/pip show psycopg psycopg-binary psycopg-pool 2>/dev/null | grep -q '^Name'
-          "$RUNNER_TEMP/plain"/bin/python -c "import sys, trailbeam.server.__main__; assert not any(m.startswith('psycopg') for m in sys.modules)"
+          "$RUNNER_TEMP/plain"/bin/python -c "import sys, trailbeam.server.__main__; assert not any(m.startswith(('psycopg', 'jwt', 'cryptography')) for m in sys.modules)"
+      - name: Without the sso extra, single sign-on says which extra it needs
+        run: >-
+          "$RUNNER_TEMP/plain"/bin/trailbeam --db "$RUNNER_TEMP/sso.sqlite" --oidc-issuer https://id.example.com
+          --oidc-client-id trailbeam --public-url https://trailbeam.example.com 2>&1 | grep -F 'trailbeam[server,sso]'
 
   perf:
     # The QV-68 regression check (python/bench/README.md#ci-regression-check): the receipt-hash join plans on a
@@ -258,10 +265,51 @@ jobs:
         run: >-
           pytest -q tests/server/test_account_tables.py tests/server/test_accounts.py tests/server/test_access.py
           tests/server/test_first_admin.py tests/server/test_cli.py tests/server/test_proxy_auth.py
+          tests/server/test_oidc.py
           tests/server/test_people_api.py
       - name: Two replicas on one Postgres (the token, sessions and the switch to accounts on both)
         if: (success() || failure()) && matrix.part == 'server'
         run: pytest -q tests/server/test_replicas_e2e.py
+
+  keycloak:
+    # Single sign-on (QV-228) against a real Keycloak: its discovery and signing keys, its login form, PKCE (the
+    # realm's client requires S256), the client secret and the groups claim turned into roles. The realm is
+    # python/tests/server/keycloak/trailbeam-realm.json. Started with docker run, not as a service: a service
+    # container can't be given start-dev --import-realm.
+    # Tier 2: when single sign-on or the sign-in code changes (the sso area above).
+    name: Single sign-on against Keycloak
+    needs: changes
+    if: needs.changes.outputs.sso == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[test,sso]'
+      - name: Start Keycloak with the test realm
+        run: |
+          docker run -d --name keycloak -p 127.0.0.1:8080:8080 \
+            -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+            -v "$PWD/tests/server/keycloak:/opt/keycloak/data/import:ro" \
+            quay.io/keycloak/keycloak:26.0 start-dev --import-realm
+          for i in $(seq 90); do
+            curl -sf http://localhost:8080/realms/trailbeam/.well-known/openid-configuration > /dev/null && exit 0
+            sleep 2
+          done
+          docker logs keycloak
+          exit 1
+      - name: Sign in through Keycloak (first admin, member, refused, wrong secret, replayed callback)
+        env:
+          TRAILBEAM_TEST_KEYCLOAK_URL: http://localhost:8080
+        run: pytest -q -rs tests/server/test_oidc_keycloak.py
+      - name: Keycloak's log
+        if: failure()
+        run: docker logs keycloak
 
   node:
     # Tier 1 on 22; 20 in the full run only.
@@ -1041,7 +1089,7 @@ jobs:
     # exceeded" before docs.yml got its Docker Hub fallback; QV-411 takes it out once the fallback has held.
     name: ci-ok
     if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
-    needs: [changes, python, perf, postgres, node, conformance, go, java, java-matrix, dotnet, ui, collector, container,
+    needs: [changes, python, perf, postgres, keycloak, node, conformance, go, java, java-matrix, dotnet, ui, collector, container,
             upgrade, backup-restore, demo, examples, team-install, kubernetes, concurrency-check,
             concurrency-check-aws, monitoring, compat-table, docs, compat, changelog]
     runs-on: ubuntu-latest

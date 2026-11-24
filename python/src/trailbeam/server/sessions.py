@@ -2,7 +2,8 @@
 
 - A session ID is 32 random bytes (``secrets``), sent to the browser in the cookie and never stored: the store
   keeps its SHA-256. A slow hash isn't needed, because the ID is random, not chosen by a person.
-- Sessions last ``LIFETIME_MS`` (30 days, as the shared-token cookie does) from sign-in. The expiry is fixed; a
+- Sessions last ``LIFETIME_MS`` (30 days, as the shared-token cookie does) from sign-in, or less when single
+  sign-on starts them (``--oidc-session-hours``, 12 hours by default, oidc.py). The expiry is fixed; a
   request never extends it, so page views don't write. ``last_seen_ms`` is written at most once an hour
   (``TOUCH_EVERY_MS``).
 - Each process keeps what it looked up for ``CACHE_TTL_S`` (20 s), sessions that don't exist included, so
@@ -90,11 +91,12 @@ class Sessions:
         self._cache: OrderedDict = OrderedDict()  # id hash -> (looked up at, SessionUser or None, last_seen_ms)
         self._lock = threading.Lock()
 
-    def start(self, user_id: int) -> tuple[str, int]:
-        """A new session for this person: (the session ID for the cookie, its expiry in ms)."""
+    def start(self, user_id: int, lifetime_ms: Optional[int] = None) -> tuple[str, int]:
+        """A new session for this person: (the session ID for the cookie, its expiry in ms). ``lifetime_ms``: how
+        long it lasts, if not this process's ``lifetime_ms`` (single sign-on's are shorter, oidc.py)."""
         sid = new_id()
         now = self.now_ms()
-        expires = now + self.lifetime_ms
+        expires = now + (self.lifetime_ms if lifetime_ms is None else lifetime_ms)
         self.accounts.create_session(id_hash(sid), user_id, now, expires)
         return sid, expires
 

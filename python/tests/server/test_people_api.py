@@ -395,6 +395,19 @@ def test_removing_a_person_takes_their_tokens_and_links(srv):
     assert srv("DELETE", f"/api/users/{srv.ben}", None, srv.admin)[0] == 404
 
 
+def test_the_list_says_who_signs_in_with_single_sign_on(srv):
+    """The People page warns, for these people only, that removing them doesn't keep them out (QV-460)."""
+    def sso():
+        return {u["email"]: u["single_sign_on"] for u in srv("GET", "/api/users", headers=srv.admin)[2]["users"]}
+    assert sso() == {"ada@example.com": False, "ben@example.com": False}
+    uid = srv.acc.oidc_sign_in("https://id.example.com", "carol-sub", "carol@example.com", "Carol", "member", _now(),
+                               role_from_provider=False, link_email=False, email_verified=True)[0]["id"]
+    assert sso() == {"ada@example.com": False, "ben@example.com": False, "carol@example.com": True}
+    st, _, out = srv("PATCH", f"/api/users/{uid}", {"disabled": True}, srv.admin)
+    assert st == 200 and out["user"]["single_sign_on"] is True
+    assert srv("PATCH", f"/api/users/{srv.ben}", {"role": "admin"}, srv.admin)[2]["user"]["single_sign_on"] is False
+
+
 # ---- tokens --------------------------------------------------------------------------------------------------
 
 def test_ingest_tokens_are_shown_once_and_listed_without_the_secret(srv):

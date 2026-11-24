@@ -2,24 +2,6 @@
 
 ## Unreleased
 
-- **The server takes RabbitMQ spans** (QV-306, part 2 of 6 of RabbitMQ support; contract 4.0,
-  `contract/span-contract-amqp.md`). `/v1/traces` accepts the `amqp.*` kinds with `trailbeam.schema_version` 4 and
-  checks them as section A12 says (it passes the contract's ingest vectors), on SQLite and Postgres. SQS and SNS
-  spans may now say version 4 too; they mean what 3 means. No package emits RabbitMQ spans yet (QV-309, QV-310).
-  - **A message is (system, message ID).** An SQS message's key is its message ID, as before, so no stored SQS
-    message, summary or URL changes. A RabbitMQ message's key is `~rabbitmq~<message_id>` (for example
-    `/api/messages/~rabbitmq~order-17`), so a RabbitMQ message never merges with an SQS message of the same ID.
-  - Each kind is stored as its step: a publish as a send (to its exchange), a delivery as a receive, an ack as a
-    delete, a nack or reject with requeue as a release (a visibility change to 0), and, new, `return`, `reject`
-    (refused without requeue), `cancel` and `channel_closed`. Settles join their delivery by channel and delivery
-    tag. A fanout copy on each queue is one message, counted per queue on Duplicates and Stuck. Queues of
-    different virtual hosts are different queue keys. Spans without a `message_id` are kept and counted, belong to
-    no message, and retention drops them by their own time.
-  - The message page shows a RabbitMQ message's publishes, deliveries, acks and releases; its returns, refusals,
-    closes and RabbitMQ's own wording come with QV-307.
-  - Schema: SQLite 21 and Postgres 14 rebuild one index each (the settle kinds; the spans of no message). They
-    change no stored data.
-
 - **`npx trailbeam start` no longer leaves its output in Docker's log** (QV-409). It runs the container with
   `--log-driver none`, so the output still shows in the terminal but is not kept by `docker logs` or sent to a log
   service the Docker daemon is set up with (gelf, fluentd, awslogs, ...). That output holds the first run's token

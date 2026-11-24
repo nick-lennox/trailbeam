@@ -21,6 +21,25 @@ def test_exact_name_first_one_wins_spaces_trimmed():
     assert cookie("sid=", "sid") == "" and cookie(None, "sid") is None and cookie("", "sid") is None
 
 
+# what str.strip() takes but RFC 6265 doesn't trim: a name starting with one is another name (QV-483)
+NOT_OWS = ["\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x1f", "\x85", "\xa0", "\u2000", "\u3000"]
+
+
+@pytest.mark.parametrize("ch", NOT_OWS)
+def test_only_space_and_tab_are_trimmed(ch):
+    assert cookie(f"{ch}sid=v1", "sid") is None and cookie(f"sid{ch}=v1", "sid") is None
+    assert cookie(f"other=1; {ch}sid=v1", "sid") is None
+    assert cookie(f"sid={ch}v1{ch}", "sid") == f"{ch}v1{ch}"
+    assert cookie(f"{ch}sid=bad; sid=v1", "sid") == "v1"
+    assert cookie("\t sid\t = \tv1 \t", "sid") == "v1"
+    sid = sessions.new_id()
+    assert sessions.cookie_value(f"{ch}__Host-trailbeam_sid={sid}", True) is None
+    assert sessions.cookie_value(f"junk=1; {ch}__Host-trailbeam_sid={sid}", True) is None
+    a = auth.Auth("s3cret-token-0123456789")
+    value = a.set_cookie(False).split(";")[0]
+    assert not a.session_ok(ch + value)
+
+
 def test_session_cookie_survives_junk_and_keeps_the_https_rule():
     sid = sessions.new_id()
     for junk in ("junk=a b", "junk=x y; other=1"):
