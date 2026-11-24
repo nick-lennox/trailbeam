@@ -14,11 +14,12 @@ from pathlib import Path
 
 import pytest
 
-from trailbeam.server import auth, people_api
+from trailbeam.server import access as access_mod, auth, people_api
 from trailbeam.server.accounts import Accounts, BadSetupCode
 from trailbeam.server.db import Database
 from trailbeam.server.passwords import Hasher
-from trailbeam.server.server import make_server
+from trailbeam.server.proxy import TrustedProxies, parse_networks
+from trailbeam.server.server import ApiError, make_server
 from trailbeam.server.tokens import Tokens
 
 from test_openapi import contract, request
@@ -49,8 +50,9 @@ def store(request, tmp_path):
 class Server:
     """A server with an admin (Ada) and a member (Ben), each with a personal token."""
 
-    def __init__(self, store, token):
-        self.httpd = make_server(store, "127.0.0.1", 0, ui_dir=None, auth=auth.Auth(token) if token else None)
+    def __init__(self, store, token, **opts):
+        self.httpd = make_server(store, "127.0.0.1", 0, ui_dir=None, auth=auth.Auth(token) if token else None,
+                                 **opts)
         self.app = self.httpd.app
         self.app.access.state.ttl_s = 0.0
         self.app.signin.hasher = QUICK
@@ -143,6 +145,35 @@ def test_members_and_the_shared_token_get_no_admin_route(srv):
     assert srv.acc.user(srv.ben)["role"] == "member"
 
 
+ODD_ADMIN_PATHS = ["/api/users/", "/api//users", "/api/users//", "/api/tokens/ingest/",
+                   "/api//tokens/ingest", "/api/tokens//ingest", "/api/tokens/ingest//", "/api/users/%2F"]
+
+
+def test_an_admin_list_is_not_reached_by_another_spelling_of_its_path(srv):
+    """QV-451: the level was checked on the exact path and the handler matched a normalised one, so a member
+    read /api/users/ and /api/tokens/ingest/. Now one route decision serves both: any other spelling is no
+    route, for anyone."""
+    for path in ODD_ADMIN_PATHS:
+        st, _, out = srv("GET", path, headers=srv.member)
+        assert st in (403, 404), (path, st)
+        assert "ben@example.com" not in str(out), path
+        assert srv("GET", path, headers=srv.admin)[0] == 404, path
+    # Python's http.server makes a leading // one / before the path reaches us: that is /api/users itself
+    assert srv("GET", "//api/users", headers=srv.member)[0] == 403
+    assert srv("GET", "/api/users", headers=srv.admin)[0] == 200
+    assert srv("GET", "/api/tokens/ingest", headers=srv.admin)[0] == 200
+    assert srv("GET", "/api/me/tokens", headers=srv.member)[0] == 200
+    assert srv("GET", "/api/me/tokens/", headers=srv.member)[0] == 404
+
+
+def test_the_api_dispatches_on_the_route_it_is_given_and_never_normalises(srv):
+    app = srv.app
+    for path in ("users/", "/users", "users//", "tokens/ingest/", "/tokens/ingest"):
+        with pytest.raises(ApiError) as e:
+            app.api(path, {}, access_mod.Who("personal_token", "admin", srv.ada))
+        assert e.value.status == 404, path
+
+
 def test_before_an_admin_exists_no_admin_route_answers(store):
     httpd = make_server(store, "127.0.0.1", 0, ui_dir=None, auth=auth.Auth(TOKEN))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
@@ -189,6 +220,24 @@ def test_writes_from_another_site_s_page_are_refused_before_anything_changes(srv
     # the server's own page passes
     assert srv("PATCH", f"/api/users/{srv.ben}", {"role": "admin"}, {**srv.admin, "Sec-Fetch-Site": "same-origin"}
                )[0] == 200
+
+
+def test_over_https_a_plain_session_cookie_changes_no_one(store):
+    """Writes check the scheme like reads do: over HTTPS only the __Host- cookie is a session (QV-408, QV-453)."""
+    s = Server(store, TOKEN, trusted_proxies=TrustedProxies(parse_networks("127.0.0.1/32")))
+    try:
+        sid, _ = s.app.sessions.start(s.ada)
+        https = {"X-Forwarded-Proto": "https", "Sec-Fetch-Site": "same-origin"}
+        plain, host = {"Cookie": f"trailbeam_sid={sid}"}, {"Cookie": f"__Host-trailbeam_sid={sid}"}
+        assert s("PATCH", f"/api/users/{s.ben}", {"role": "admin"}, {**https, **plain})[0] == 401
+        assert s("POST", "/api/users", {"email": "e@example.com"}, {**https, **plain})[0] == 401
+        assert s("POST", "/api/tokens/ingest", {"name": "x"}, {**https, **plain})[0] == 401
+        assert s.acc.user(s.ben)["role"] == "member" and len(s.acc.users()) == 2
+        assert s("PATCH", f"/api/users/{s.ben}", {"role": "admin"}, {**https, **host})[0] == 200
+        assert s("PATCH", f"/api/users/{s.ben}", {"role": "member"}, {"Sec-Fetch-Site": "same-origin", **plain}
+                 )[0] == 200  # plain HTTP
+    finally:
+        s.close()
 
 
 def test_a_form_can_t_post_to_the_api(srv):

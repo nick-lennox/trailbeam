@@ -19,8 +19,8 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTrace
 
 from . import __version__
 from . import queues as queues_mod
-from . import access as access_mod, auth as auth_mod, bodies, csrf, first_admin, metrics, passwords, people_api, \
-    queries, sessions as sessions_mod, trace_links, ui_files, web
+from . import access as access_mod, auth as auth_mod, causes as causes_mod, bodies, csrf, first_admin, metrics, passwords, \
+    people_api, queries, sessions as sessions_mod, trace_links, ui_files, web
 from .accounts import AccountError, Accounts, AdminExists, BadSetupCode, check_email, check_name
 from .backpressure import GRPC_RESOURCE_EXHAUSTED, GRPC_UNAVAILABLE, IngestGate, Rejected, status_body
 from .sessions import Sessions
@@ -32,6 +32,7 @@ from .otlp import PROBE_NOT_STORED, DecodeError, decode, valid_probe_id
 from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
 
 log = logging.getLogger("trailbeam.server")
+_UNSET = object()  # App.api: no route given
 
 MAX_BODY = 32 * 1024 * 1024  # bytes, after decompression
 DEFAULT_WINDOW_S = 86_400  # the time window of the Tenants page and the searches, unless given
@@ -88,7 +89,7 @@ class App:
         self.stats = {"requests": 0, "inserted": 0, "duplicates": 0, "ignored": 0, "rejected": 0}
         self.routes: dict[str, Callable[[dict, list[str]], object]] = {
             "health": self.health, "stats": self.stats_counts, "messages": self.messages, "duplicates": self.duplicates,
-            "stuck": self.stuck, "tenants": self.tenants, "probes": self.probes, "me": self.me,
+            "stuck": self.stuck, "causes": self.causes, "tenants": self.tenants, "probes": self.probes, "me": self.me,
             "users": self._not_a_route, "tokens": self._not_a_route,
             "queues": self.queues, "flows": self.flows}
         self._init_metrics()
@@ -286,9 +287,14 @@ class App:
 
     # ---- JSON API -------------------------------------------------------------------------
 
-    def api(self, path: str, query: dict, who: access_mod.Who = access_mod.NOBODY) -> object:
+    def api(self, path: str, query: dict, who: access_mod.Who = access_mod.NOBODY,
+            route: object = _UNSET) -> object:
+        """GET ``/api/{path}``. ``route``: the people-and-tokens route the access check decided on
+        (access.api_route of the exact request path, or None); dispatched on as is, so the handler that runs
+        is the one whose level was checked. Not given (tests, in-process callers): matched on the exact path,
+        the same way. Never normalised here: /api/users/ or /api//users is no route (a 404), not /api/users."""
         parts = [unquote(p) for p in path.split("/") if p]
-        r = access_mod.api_route("GET", "/api/" + path.strip("/"))
+        r = access_mod.api_route("GET", "/api/" + path) if route is _UNSET else route
         if r is not None:  # people and tokens (people_api.py); the level was checked with the request
             try:
                 return self.people.call(r[1], r[2], None, who, "", self.now() // 1_000_000)[1]
@@ -445,6 +451,31 @@ class App:
                                   mrc=self.max_receive_counts, from_ns=frm, cursor=q.get("cursor"),
                                   version=q.get("version") or None)
         return {"older_than_s": older, "messages": page.items, "next_cursor": page.next_cursor}
+
+    def causes(self, q: dict, rest: list[str]) -> dict:
+        """``/api/causes``: the stuck messages grouped by why they didn't finish (causes.py, QV-367), the Needs
+        attention page's groups. ``from_ms``/``to_ms`` narrow them to causes seen in that range; ``cause`` narrows
+        the messages listed to one group's. The groups count every message read, the list holds ``limit``."""
+        if rest:
+            raise ApiError(404, "no such endpoint")
+        older = _int(q, "older_than_s", self.stuck_after_s, 0, 10 ** 9)
+        frm = _int(q, "from_ms", -1, 0, 10 ** 15) if "from_ms" in q else None
+        to = _int(q, "to_ms", -1, 0, 10 ** 15) if "to_ms" in q else None
+        if frm is not None and to is not None and frm > to:
+            raise ApiError(400, "from_ms must not be after to_ms")
+        read = causes_mod.read_unfinished(self.db, self.now(), self._lambda_timeout(q), self.max_receive_counts, older,
+                                          q.get("queue") or None)
+        assign: dict = {}
+        groups = causes_mod.in_range(read["classified"], read["first_seen"], frm, to, assign)
+        items = [{**i, "cause": assign[i["message_id"]]} for i in read["items"] if i["message_id"] in assign]
+        wanted = q.get("cause") or None
+        listed = [i for i in items if i["cause"] == wanted] if wanted and any(g["id"] == wanted for g in groups) else items
+        return {"older_than_s": older, "from_ms": frm, "to_ms": to, "capped": read["capped"],
+                "read_limit": causes_mod.UNFINISHED_LIMIT, "total": len(items),
+                "in_dead_letter_queue": sum(1 for i in items if i["in_dead_letter_queue"]),
+                "groups": [causes_mod.public(g) for g in groups],
+                "dead_letter_queues": causes_mod.dlq_groups(items, read["urls"]),
+                "cause": wanted, "messages": listed[:_limit(q)], "listed": len(listed)}
 
     def tenants(self, q: dict, rest: list[str]) -> dict:
         """``/api/tenants``: the Tenants page (contract/tenants.md) for [from_ms, to_ms], or the last
@@ -750,7 +781,7 @@ def make_handler(app: App):
                 return
             level, handler, rid = r
             try:
-                d = app.access.check(self.headers, level)
+                d = app.access.check(self.headers, level, self._scheme())
             except access_mod.AccessUnavailable as e:
                 log.warning("%s %s: %s", method, path, e)
                 self.close_connection = True
@@ -820,6 +851,7 @@ def make_handler(app: App):
                 self._send_page(web.password_page() if app.accounts is not None else
                                 (404, {"Content-Type": "text/plain"}, b"not found"))
                 return
+            api_r = None
             try:
                 if path in ("/login", "/logout"):
                     mode = app.access.mode()
@@ -829,8 +861,11 @@ def make_handler(app: App):
                     d = access_mod.Decision(True)
                 else:
                     # /api/health is open, but says more only to whoever may read the API
+                    # One decision for the level and the handler: app.api dispatches on this same route.
+                    api_r = access_mod.api_route("GET", path)
+                    level = api_r[0] if api_r else access_mod.level_of("GET", path)
                     d = app.access.check(self.headers, access_mod.MEMBER if path == "/api/health"
-                                         else access_mod.level_of("GET", path), self._scheme())
+                                         else level, self._scheme())
             except access_mod.AccessUnavailable as e:
                 log.warning("GET %s: %s", path, e)
                 if path == "/api/health":  # liveness answers while the store is unreachable
@@ -868,7 +903,7 @@ def make_handler(app: App):
                 self._page(u.path, q)
                 return
             try:
-                self._json(200, app.api(u.path[len("/api/"):], q, d.who))
+                self._json(200, app.api(u.path[len("/api/"):], q, d.who, route=api_r))
             except ApiError as e:
                 self._json(e.status, {"error": e.message})
             except Exception:
