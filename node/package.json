@@ -48,6 +48,15 @@
     "@aws-sdk/client-sqs": "^3.1169.0",
     "@opentelemetry/context-async-hooks": "^2.12.1",
     "@opentelemetry/instrumentation": "^0.223.2",
-    "@opentelemetry/instrumentation-aws-sdk": "^0.78.0"
+    "@opentelemetry/instrumentation-aws-sdk": "^0.78.0",
+    "amqplib": "^2.4.1"
+  },
+  "peerDependencies": {
+    "amqplib": ">=0.10.0"
+  },
+  "peerDependenciesMeta": {
+    "amqplib": {
+      "optional": true
+    }
   }
 }

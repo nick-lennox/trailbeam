@@ -137,6 +137,51 @@ through. `messaging.client.id` is `AWS_LAMBDA_LOG_STREAM_NAME`, which names one 
 environment, or the wrapper's `service.instance.id` if that variable is not set. Each flush waits at most `flushTimeoutMs` (default 2000), so an unreachable collector
 cannot use up the function's time.
 
+## Add the hooks to amqplib (RabbitMQ)
+
+```sh
+npm install trailbeam amqplib
+```
+
+Call `install` once per process, before you open connections:
+
+```js
+const trailbeam = require('trailbeam');
+trailbeam.amqplib.install();
+```
+
+The hooks sit on amqplib's channel classes, which both its promise API (`require('amqplib')`) and its callback API
+(`require('amqplib/callback_api')`) use, with or without connection recovery. amqplib 0.10 or later is an optional
+peer dependency: the package loads it only when `trailbeam.amqplib.install()` is called. They emit the spans of
+contract 4.0 (schema version 4), the same spans as the Python package's pika hooks:
+
+| What the application or the broker does | Span |
+|---|---|
+| `publish`, `sendToQueue`; on a confirm channel, the span ends at the broker's confirm (or its nack, or the channel closing first) | `trailbeam publish` |
+| the broker returns a `mandatory` publish no queue took (`basic.return`) | `trailbeam return` |
+| a delivery to a `consume` consumer, before your callback runs; a `get` that returned a message | `trailbeam deliver` |
+| `ack`, `ackAll`, `nack`, `nackAll`, `reject`: one span per delivery covered (`allUpTo` covers several) | `trailbeam ack`, `trailbeam nack`, `trailbeam reject` |
+| `cancel`, or the broker cancelling a consumer (its queue was deleted, or a consumer timeout) | `trailbeam cancel` |
+| the channel or its connection closes, or the connection is lost, with deliveries not settled: one span per delivery | `trailbeam channel_closed` |
+
+The hooks make no broker calls of their own and don't change messages; your confirm callbacks, `waitForConfirms`
+and `return` listeners work as before. The receive count comes from the quorum queue's `x-acquired-count` header (a
+classic queue's redelivery has none), the dead-letter move from `x-death`. A message is identified by its `messageId`:
+a publish without one is counted but gets no timeline, unless you turn on `setMessageId`. RabbitMQ streams are not
+covered.
+
+Limits: a consumer of the server-named queue `''` gets no spans (pass the queue's name). With `noAck: true` a delivery
+is settled by the broker as it is sent, so it gets a `trailbeam deliver` and nothing more. `server.address` is the
+host the socket was opened to; amqplib keeps no copy of the URL. The Node.js package does not set `thread.name`.
+amqplib 0.10.5 and older can't connect to RabbitMQ 4.1 or later at all (the broker refuses their `frame_max` of 4096),
+so with a current broker use 0.10.6 or later; CI tests 0.10.9 and the newest.
+
+| Call | Effect |
+|---|---|
+| `amqplib.install({ spanExporter, spanProcessor, tenant, capture, setMessageId, amqplibDir })` | Installs the hooks and returns their `BasicTracerProvider`. `tenant` and `capture` are as for `install` ([Message contents](#message-contents-opt-in)): the tenant comes from the message header `tenant.messageAttribute` names, then the body path; `bodyQueues` lists queues, and exchanges for publishes. Only text bodies are captured (`not_text` otherwise). `setMessageId: true`, or `TRAILBEAM_AMQP_SET_MESSAGE_ID=on`, gives a publish without a `messageId` a random UUID (on a copy of its options), marked `trailbeam.amqp.message_id.source = package`. `amqplibDir`: the amqplib folder to hook, if `require('amqplib')` from the package or the working directory finds another copy. A second call replaces the first installation. |
+| `amqplib.uninstall()` | Removes the hooks, then flushes and shuts down their provider. Returns a promise. |
+| `amqplib.forceFlush()` | Exports the spans that are waiting. Returns a promise. |
+
 ## Configuration
 
 | Variable | Default | |
@@ -282,3 +327,14 @@ The receipt-hash tests use the shared vectors in
 [`contract/span-contract-vectors.json`](../contract/span-contract-vectors.json), and the wrapper tests replay
 the recorded QV-9 Lambda events in [`python/tests/fixtures`](../python/tests/fixtures); the Python
 tests use both too.
+
+The amqplib hooks' tests run the contract's RabbitMQ vectors ([`contract/span-contract-amqp-vectors.json`](../contract/span-contract-amqp-vectors.json))
+on amqplib's own classes with no broker. Against a real one:
+
+```sh
+docker run -d --name rabbitmq -p 5672:5672 -e RABBITMQ_DEFAULT_USER=trailbeam -e RABBITMQ_DEFAULT_PASS=trailbeam rabbitmq:4
+TRAILBEAM_TEST_AMQP_URL='amqp://trailbeam:trailbeam@127.0.0.1:5672/%2F' npm test
+```
+
+With `TRAILBEAM_TEST_SERVER_PYTHON` set to a Python that has the trailbeam package (`pip install -e ../python`),
+those tests also pass every span through the server's ingest and check each message's timeline.

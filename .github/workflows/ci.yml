@@ -133,8 +133,8 @@ jobs:
             area upgrade '^python/smoke/|^python/src/trailbeam/server/(migrations|pg_schema|db|postgres|store)\.py$'
             area monitoring '^deploy/monitoring/'
             area compat '^compat/|^\.github/workflows/compat\.yml$'
-            # the pika hooks and the package code they share, and the RabbitMQ contract (the rabbitmq job)
-            area rabbitmq '^python/src/trailbeam/(pika|_amqp|_capture|_emitter|_order|_export)\.py$|^python/tests/(test_pika_|pika_fake)|^contract/span-contract-amqp|^python/pyproject\.toml$'
+            # the pika and amqplib hooks and the package code they share, and the RabbitMQ contract (the rabbitmq job)
+            area rabbitmq '^python/src/trailbeam/(pika|_amqp|_capture|_emitter|_order|_export)\.py$|^python/tests/(test_pika_|pika_fake)|^contract/span-contract-amqp|^python/pyproject\.toml$|^node/src/(amqplib|capture|emitter|order|export|contract)\.js$|^node/test/(amqplib-|amqp_server_check)|^node/package(-lock)?\.json$|^python/src/trailbeam/server/(otlp|timeline|queries|systems|db)\.py$'
             # single sign-on and what it signs people in to (the keycloak job)
             area sso '^python/src/trailbeam/server/(oidc|accounts|account_tables|access|sessions|server|web|__main__)\.py$|^python/tests/server/(test_oidc|test_oidc_keycloak|oidc_fake)\.py$|^python/tests/server/keycloak/|^python/pyproject\.toml$'
           } > "$RUNNER_TEMP/areas"
@@ -276,9 +276,10 @@ jobs:
 
   rabbitmq:
     # Tier 2: the pika hooks (trailbeam.pika, QV-309) against a real RabbitMQ 4: every scenario of
-    # tests/test_pika_rabbitmq.py, on the newest pika and on 1.3.2, the oldest supported. The contract's vectors run
-    # without a broker in the Python job.
-    name: RabbitMQ 4 (pika hooks)
+    # tests/test_pika_rabbitmq.py, on the newest pika and on 1.3.2, the oldest supported. Then the Node.js amqplib
+    # hooks (QV-310): test/amqplib-rabbitmq.test.js on the newest amqplib and on 0.10.9, each span also through this
+    # job's Python server ingest and timelines. The contract's vectors run without a broker in the Python and Node.js jobs.
+    name: RabbitMQ 4 (pika and amqplib hooks)
     needs: changes
     if: needs.changes.outputs.rabbitmq == 'true'
     runs-on: ubuntu-latest
@@ -311,6 +312,22 @@ jobs:
       - name: The hooks on RabbitMQ (pika 1.3.2)
         if: success() || failure()
         run: pip install -q 'pika==1.3.2' && pytest -q tests/test_pika_rabbitmq.py tests/test_pika_vectors.py
+      - uses: actions/setup-node@v4
+        if: success() || failure()
+        with:
+          node-version: "22"
+      - name: The amqplib hooks on RabbitMQ (newest amqplib)
+        if: success() || failure()
+        working-directory: node
+        env:
+          TRAILBEAM_TEST_SERVER_PYTHON: python
+        run: npm ci && node --test test/amqplib-*.test.js
+      - name: The amqplib hooks on RabbitMQ (amqplib 0.10.9)
+        if: success() || failure()
+        working-directory: node
+        env:
+          TRAILBEAM_TEST_SERVER_PYTHON: python
+        run: npm install --no-save amqplib@0.10.9 && node --test test/amqplib-*.test.js
 
   keycloak:
     # Single sign-on (QV-228) against a real Keycloak: its discovery and signing keys, its login form, PKCE (the
