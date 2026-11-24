@@ -200,3 +200,40 @@ test("many queues: the filter box from 13 rows, the first 50, then Show N more",
   assert.match(h, /Show 10 more/);
   assert.doesNotMatch(html({ flows: many.slice(0, 12), onQuery: () => {} }), /Filter queues/);
 });
+
+/* ── self-hosted Trailbeam's /overview (overview/selfhosted.ts) ──────── */
+
+import { overviewHref, overviewWindow, pinnedOverview, readOverviewUrl, selfHostedHrefs, widerPresets, type OverviewUrl } from "../src/overview/selfhosted.ts";
+
+const ou = (q: string) => { const r = readOverviewUrl(Object.fromEntries(new URLSearchParams(q))); if ("error" in r) throw new Error(r.error); return r; };
+
+test("/overview's URL: the past hour by default, no all time, flow= idle=1 refresh=0 q= read back the same", () => {
+  assert.deepEqual(ou(""), { range: { kind: "preset", preset: "1h" }, flow: undefined, idle: false, refresh: true, q: "" });
+  assert.equal(overviewHref(ou("")), "/overview");
+  for (const q of ["range=24h", "from_ms=1000&to_ms=2000", "flow=a%2Fb%2Corders&idle=1&refresh=0&q=check", "flow="]) {
+    assert.equal(overviewHref(ou(q)), `/overview?${q}`);
+  }
+  assert.deepEqual(readOverviewUrl({ range: "30d" }), { error: "range must be 1h, 24h or 7d, not “30d”." });
+});
+
+test("/overview's window: a preset ends now, a fixed range doesn't, and Copy link pins it", () => {
+  assert.deepEqual(overviewWindow(ou("").range, NOW), { fromMs: NOW - HOUR, toMs: NOW, during: "in the last hour", endsNow: true });
+  const fixed = overviewWindow(ou(`from_ms=${NOW - HOUR}&to_ms=${NOW}`).range, NOW + 5 * HOUR);
+  assert.equal(fixed.endsNow, false);
+  assert.match(fixed.during, /^between 2026-11-24 13:05 UTC and 2026-11-24 14:05 UTC$/);
+  assert.equal(pinnedOverview(ou("range=24h&refresh=0&flow=k"), NOW), `/overview?from_ms=${NOW - 24 * HOUR}&to_ms=${NOW}&flow=k`);
+  assert.deepEqual(widerPresets(ou("")).map((w) => w.label), ["Last 24 hours", "Last 7 days"]);
+  assert.deepEqual(widerPresets(ou("range=7d")), []);
+});
+
+test("/overview's links carry the range: the queue page in its own terms, Stuck with range or from_ms/to_ms", () => {
+  const h = selfHostedHrefs(ou("range=24h"), NOW);
+  assert.equal(h.queue(orders), "/queue?name=orders&range=1d");
+  assert.equal(h.queue(orders, "consumers"), "/queue?name=orders&range=1d#consumers");
+  assert.equal(h.queue({ ...orders, queue: "orders (123456789012)" }), "/queue?name=orders&at=123456789012%3Aeu-west-1&range=1d", "at= only when the label told two apart");
+  assert.equal(h.stuck(orders), "/stuck?queue=orders&range=24h");
+  assert.equal(selfHostedHrefs(ou(""), NOW).queue(orders), "/queue?name=orders", "1h is both pages' default");
+  const f = selfHostedHrefs(ou("from_ms=1000&to_ms=2000"), NOW);
+  assert.equal(f.queue(orders), "/queue?name=orders&from=1000&to=2000");
+  assert.equal(f.stuck(orders), "/stuck?queue=orders&from_ms=1000&to_ms=2000");
+});

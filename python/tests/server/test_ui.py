@@ -46,7 +46,7 @@ def test_message_page_is_the_shell_when_built(db, built):
         assert get(f"{base}/ui/assets/font.woff2")[1]["Content-Type"] == "font/woff2"
         # Messages (with the first-run screen), Duplicates and Stuck are the same shell, with or without a query
         # ... and so are the queue list and a queue's page (QV-364)
-        for path in ("/", "/?queue=orders", "/duplicates", "/stuck?older_than_s=60", "/queues", "/queue?name=orders&range=4h"):
+        for path in ("/", "/?queue=orders", "/duplicates", "/stuck?older_than_s=60", "/queues", "/overview?range=24h", "/queue?name=orders&range=4h"):
             status, _, page = get(base + path)
             assert (status, page) == (200, tenants), path
     finally:

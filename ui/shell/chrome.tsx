@@ -89,7 +89,7 @@ export function Account({ me }: { me: Me | null }) {
   );
 }
 
-const NAV = [["/", "Messages"], ["/queues", "Queues"], ["/duplicates", "Duplicates"], ["/stuck", "Stuck"], ["/tenants", "Tenants"]] as const;
+const NAV = [["/overview", "Overview"], ["/", "Messages"], ["/duplicates", "Duplicates"], ["/stuck", "Stuck"], ["/tenants", "Tenants"]] as const;
 
 /* The header's tenant box shows only once a tenant has been seen in the last 7 days (QV-217): on an install
    without tenants it is a box that can find nothing. Remembered for the tab, so pages don't flicker. */
@@ -119,8 +119,8 @@ export function Header({ id = "" }: { id?: string }) {
       <a href="/" className="text-[1.25rem] text-sky-ink">Trailbeam</a>
       <nav className="flex gap-4 text-sm text-sky-ink-2">
         {NAV.map(([href, label]) => {
-          // a queue's page is under Queues
-          const here = location.pathname === href || (href === "/queues" && location.pathname === "/queue");
+          // a queue's page is under the Overview, which lists the queues
+          const here = location.pathname === href || (href === "/overview" && location.pathname === "/queue");
           return (
             <a key={href} href={href} aria-current={here ? "page" : undefined}
               className={here ? "text-sky-ink" : "hover:text-sky-ink"}>{label}</a>

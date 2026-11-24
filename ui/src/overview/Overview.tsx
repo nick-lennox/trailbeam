@@ -83,7 +83,8 @@ export type OverviewProps = {
 
 const mono = "font-mono tabular-nums";
 const link = "text-brand hover:underline";
-const th = "px-3 py-2 text-left text-caption font-medium text-ink-3";
+const th = "px-3 py-2 text-caption font-medium text-ink-3";
+const thL = `${th} text-left`, thR = `${th} text-right`;
 const OUTCOME_CLS = { dead_lettered: "text-critical-text", stuck: "text-warning-text", filtered: "text-ink-2" } as const;
 const DLQ_HINT = "Known when a receive on a dead-letter queue names this queue as its source.";
 const clock = (ms: number) => new Date(ms).toISOString().slice(11, 19);
@@ -243,14 +244,14 @@ export function Overview(p: OverviewProps) {
       <thead>
         <tr className="border-t border-line">
           <th scope="col" className="w-8"><span className="sr-only">Open</span></th>
-          <th scope="col" className={th}>Queue</th>
-          <th scope="col" className={`${th} hidden md:table-cell`}>Senders → Receivers</th>
-          <th scope="col" className={`${th} text-right`}>Sends</th>
-          <th scope="col" className={`${th} text-right`}>Receives</th>
-          <th scope="col" className={`${th} text-right`}>Deletes</th>
-          {cols.map((c) => <th key={c.id} scope="col" className={`${th} text-right`} title={c.hint}>{c.header}</th>)}
-          {slots.attention && <th scope="col" className={`${th} text-right`} title="Messages first seen over 5 minutes ago that didn't finish, including those moved to a dead-letter queue.">Needs attention</th>}
-          <th scope="col" className={th} title={DLQ_HINT}>DLQ</th>
+          <th scope="col" className={thL}>Queue</th>
+          <th scope="col" className={`${thL} hidden md:table-cell`}>Senders → Receivers</th>
+          <th scope="col" className={thR}>Sends</th>
+          <th scope="col" className={thR}>Receives</th>
+          <th scope="col" className={thR}>Deletes</th>
+          {cols.map((c) => <th key={c.id} scope="col" className={thR} title={c.hint}>{c.header}</th>)}
+          {slots.attention && <th scope="col" className={thR} title="Messages first seen over 5 minutes ago that didn't finish, including those moved to a dead-letter queue.">Needs attention</th>}
+          <th scope="col" className={thL} title={DLQ_HINT}>DLQ</th>
         </tr>
       </thead>
       <tbody>{body}</tbody>

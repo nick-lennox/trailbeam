@@ -51,3 +51,4 @@ export {
   servicesText, splitIdle, summaryOf, summaryText, FILTER_FROM, LAMBDA_DELETES_HINT, NO_RECEIVE, NO_SEND, NOTE_HINT, PAGE,
   type FlowService, type Note, type OverviewSummary,
 } from "./overview/derive.ts";
+export { overviewHref, overviewQuery, overviewWindow, pinnedOverview, readOverviewUrl, selfHostedHrefs, widerPresets, type OverviewUrl } from "./overview/selfhosted.ts";

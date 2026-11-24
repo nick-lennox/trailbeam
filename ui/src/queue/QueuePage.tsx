@@ -471,7 +471,7 @@ function Tables({ d, p }: { d: QueuePageData; p: QueuePageProps }) {
     </tr>
   );
   return (
-    <section className="border-t border-line py-5">
+    <section id="senders" className="scroll-mt-4 border-t border-line py-5">
       <div className="overflow-x-auto">
         <table className="w-full text-[15px]">
           <thead><tr>
@@ -492,7 +492,7 @@ function Tables({ d, p }: { d: QueuePageData; p: QueuePageProps }) {
         </table>
         {more(senders.length, moreS, setMoreS)}
       </div>
-      <div className="mt-5 overflow-x-auto">
+      <div id="consumers" className="mt-5 scroll-mt-4 overflow-x-auto">
         <table className={`w-full text-[15px] ${cSpan > 4 ? "min-w-[720px]" : ""}`}>
           <thead><tr>
             <th className={`${th} w-1/3`}>Consumers</th><th className={`${th} text-right`}>Receives</th>
