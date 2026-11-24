@@ -131,6 +131,44 @@ def test_a_joined_settle_and_its_message_s_own_span_at_the_same_moment(replicas)
                {"last_ns": want["last_ns"], "deliveries": want["deliveries"], "final_delete": int(want["final_delete"])}, m
 
 
+def test_a_joined_settle_sees_the_place_its_message_moved_to_while_it_waited(replicas):
+    """QV-422. A delete carries no message ID, so its export takes the message's lock only once the join has found
+    the message, after it read the list of places. Meanwhile another replica stores a newer span of the message in a
+    new place and moves the message's summary there. The delete's export must look the message up in that place
+    too: with the list it read before, it found no summary, wrote a second one for the message without the newer
+    span, and reads then showed the message twice (counts) or without the delete."""
+    a, b = replicas(n=2)
+    w = cases.Consumer()
+    s = lambda n: cases.T0 + n * cases.SEC  # noqa: E731 (one-second places: every span below in a place of its own)
+    for spans in ([w.send(s(0), "m")], [w.receive(s(10), "m", "h1")], [w.receive(s(20), "m", "h2", count=2)]):
+        b.insert(_records(spans))
+    joined, go = threading.Event(), threading.Event()
+    locate = a._locate_hashes
+
+    def located_then_wait(*args, **kw):  # the delete's join has read the places and found the receive
+        out = locate(*args, **kw)
+        if not joined.is_set():
+            joined.set()
+            go.wait(30)
+        return out
+    a._locate_hashes = located_then_wait
+    with concurrent.futures.ThreadPoolExecutor(1) as pool:
+        delete = pool.submit(a.insert, _records([w.delete(s(21), "h2")]))
+        assert joined.wait(30)
+        b.insert(_records([w.receive(s(30), "m", "h3", count=3)]))  # a new place, newer: the summary moves there
+        go.set()
+        assert delete.result() == (1, 0)
+    for store in (a, b):
+        assert store.counts()["messages"] == 1
+        want = summary.summarize(store.message_rows("m"))
+        assert [(r["kind"], r["time_ns"]) for r in store.message_rows("m")] == \
+               [("send", s(0)), ("receive", s(10)), ("receive", s(20)), ("delete", s(21)), ("receive", s(30))]
+        got = store.summaries(["m"])[0]
+        assert {c: got[c] for c in ("last_ns", "deliveries", "final_delete")} == \
+               {"last_ns": want["last_ns"], "deliveries": want["deliveries"], "final_delete": int(want["final_delete"])}
+        assert got["deliveries"] == 3
+
+
 # ---- retention: one replica at a time ---------------------------------------------------------------------
 
 def _purge(store, cutoffs):
