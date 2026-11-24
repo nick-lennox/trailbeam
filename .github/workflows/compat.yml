@@ -1,0 +1,152 @@
+# The compatibility matrix (QV-335): every Python, Node.js, AWS SDK and Postgres version in compat/matrix.toml.
+# Too many jobs for every push (ci.yml tests one or two versions of each), so it runs every night, on release
+# branches, by hand, and on a pull request that changes the matrix or this file. README.md's supported-versions
+# table is generated from the same file (ci.yml checks it is up to date).
+#
+# A red cell: fix it, or file an issue and add it to compat/matrix.toml as a [[known_failure]] with that issue.
+# A known failure still runs and shows its result, but doesn't fail the run.
+name: Compatibility matrix
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  push:
+    branches: ["release/**"]
+  pull_request:
+    paths:
+      - compat/**
+      - .github/workflows/compat.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compat-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  plan:
+    name: Read compat/matrix.toml
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.m.outputs.python }}
+      node: ${{ steps.m.outputs.node }}
+      postgres: ${{ steps.m.outputs.postgres }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - id: m
+        run: python compat/matrix.py github-matrix >> "$GITHUB_OUTPUT"
+
+  python:
+    name: Python ${{ matrix.python }}, ${{ matrix.deps }} dependencies${{ matrix.issue && format(' (known failure, {0})', matrix.issue) || '' }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: ${{ matrix.allow_failure }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.python) }}
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          allow-prereleases: true
+      - name: Install (${{ matrix.label }})
+        env:
+          PINS: ${{ matrix.pins }}
+        run: |
+          printf '%s\n' $PINS > "$RUNNER_TEMP/constraints.txt"
+          pip install -c "$RUNNER_TEMP/constraints.txt" -e '.[test]'
+      - name: Versions under test
+        run: |
+          python -c "import sys, sqlite3; print('Python', sys.version); print('SQLite', sqlite3.sqlite_version)"
+          pip list 2>/dev/null | grep -iE '^(boto3|botocore|opentelemetry-|moto) '
+      - run: pytest -q --ignore=tests/conformance
+      - name: Store conformance suite (SQLite)
+        run: pytest -q tests/conformance
+
+  node:
+    name: Node.js ${{ matrix.node }}, ${{ matrix.sdk }} AWS SDK${{ matrix.issue && format(' (known failure, {0})', matrix.issue) || '' }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: ${{ matrix.allow_failure }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.node) }}
+    services:
+      elasticmq:
+        image: softwaremill/elasticmq-native:1.6.15
+        ports:
+          - 9324   # random host port: several runners share one machine
+    defaults:
+      run:
+        working-directory: node
+    steps:
+      - uses: actions/checkout@v4
+      - name: Point the tests at this job's ElasticMQ (random host port)
+        run: echo "TRAILBEAM_TEST_SQS_ENDPOINT=http://localhost:${{ job.services.elasticmq.ports['9324'] }}" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # A fresh resolve, not the lock file: the oldest cell gets that client with the @aws-sdk and @smithy
+      # packages it asks for, and the newest cell gets the newest of everything (a lock-file install with one
+      # package swapped in mixes old and new @aws-sdk packages, which no application has).
+      - name: Install (${{ matrix.label }})
+        env:
+          SDK: ${{ matrix.version }}
+        run: |
+          npm pkg set "devDependencies.@aws-sdk/client-sqs=$SDK"
+          rm package-lock.json
+          npm install --no-audit --no-fund
+      - name: Versions under test
+        run: node -v && npm ls @aws-sdk/client-sqs @opentelemetry/api @opentelemetry/sdk-trace-base
+      - run: npm test
+
+  postgres:
+    name: Postgres ${{ matrix.postgres }} store${{ matrix.issue && format(' (known failure, {0})', matrix.issue) || '' }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: ${{ matrix.allow_failure }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.postgres) }}
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432   # random host port: several runners share one machine
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+      - name: Point the tests at this job's Postgres (random host port)
+        run: echo "TRAILBEAM_TEST_POSTGRES_URL=postgresql://postgres:postgres@localhost:${{ job.services.postgres.ports['5432'] }}/postgres" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[test,postgres]'
+      - name: Server version
+        run: python -c "import os, psycopg; print(psycopg.connect(os.environ['TRAILBEAM_TEST_POSTGRES_URL']).execute('select version()').fetchone()[0])"
+      - name: Store conformance suite and contract fixtures (SQLite and Postgres)
+        run: pytest -q tests/conformance
+      - name: Postgres store tests
+        run: pytest -q tests/server/test_postgres.py
+      - name: Fault tests on Postgres (SIGKILL, retries, disorder, a replica killed)
+        run: pytest -q tests/server/test_faults.py
+      - name: People, sessions and sign-in on Postgres
+        run: pytest -q tests/server/test_account_tables.py tests/server/test_accounts.py tests/server/test_access.py
