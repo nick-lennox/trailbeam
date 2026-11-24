@@ -10,7 +10,8 @@
 # TRAILBEAM_RECEIPT_HASH_KEY. `docker compose down` keeps the data (the volumes); `docker compose down -v`
 # deletes it. Upgrading: git pull, then `docker compose up -d --build --wait` (README: Upgrades).
 #
-# Personal sign-ins instead of the shared token for the web screen: create the first admin with
+# Personal sign-ins instead of the shared token for the web screen (a preview, off by default): set
+# TRAILBEAM_ACCOUNTS: "1" under the server's environment, then create the first admin with
 #   docker compose exec trailbeam trailbeam users create --email you@example.com --role admin
 # (README: The first admin). The token then keeps working for ingest and /metrics only.
 #
