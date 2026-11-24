@@ -605,7 +605,7 @@ def test_version_2_fills_the_lookup_tables_place_by_place(pg_store):
         _as_version(c, 1)
     again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
     try:
-        assert again.migrated == [2, 3, 4, 5, 6, 7, 8, 9, 10]
+        assert again.migrated == [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
         with again.ingest.connection() as c:
             assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
             assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == list(range(1, pg_schema_latest() + 1))
@@ -753,7 +753,11 @@ def _as_version(c, version: int) -> None:
     message-ID indexes on the list tables), 2 adds the lookup tables (QV-113), 3 the message-ID indexes (QV-118),
     4 the tenant rollup (QV-128); 5 partitions the lookup tables (QV-127); 6 adds the probes of trailbeam
     doctor (QV-148); 7 takes deduplicated FIFO sends out of the tenant events (QV-246, no table change); 8 the
-    tables of people and tokens (QV-225); 9 the purges (QV-245); 10 spans.service_version (QV-362)."""
+    tables of people and tokens (QV-225); 9 the purges (QV-245); 10 spans.service_version (QV-362); 11 the queue
+    events and their rollup (QV-363)."""
+    if version < 11:
+        c.execute("DROP TABLE queue_events, queue_rollup, place_queue_keys")  # with the partitions
+        c.execute("ALTER TABLE messages DROP COLUMN qevents_json")
     if version < 10:
         c.execute("ALTER TABLE spans DROP COLUMN service_version")
     if version < 9:
@@ -880,7 +884,7 @@ def test_version_3_indexes_the_list_tables_place_by_place(pg_store):
     for attempt in range(2):
         again = PostgresStore(s.url, bucket_ns=SEC)
         try:
-            assert again.migrated == [3, 4, 5, 6, 7, 8, 9, 10]
+            assert again.migrated == [3, 4, 5, 6, 7, 8, 9, 10, 11]
             with again.ingest.connection() as c:
                 parts = _list_partitions(c)
                 assert len(parts["message_queues"]) == 11 + attempt  # 12 places less the dropped one, + "after-0"
@@ -1121,7 +1125,7 @@ def test_version_4_builds_the_rollup_place_by_place(pg_store):
         _as_version(c, 3)
     again = PostgresStore(s.url, bucket_ns=HOUR_MS * 10 ** 6)
     try:
-        assert again.migrated == [4, 5, 6, 7, 8, 9, 10]
+        assert again.migrated == [4, 5, 6, 7, 8, 9, 10, 11]
         assert [_rollup_page(again, a, b) for a, b in ranges] == want
         with again.ingest.connection() as c:
             assert c.execute("SELECT * FROM tenant_events ORDER BY rclass, bucket, at_ms, mid, seq").fetchall() == events
@@ -1156,7 +1160,7 @@ def test_version_7_takes_deduplicated_fifo_sends_out_of_the_tenant_events(pg_sto
         _as_version(c, 6)
     again = PostgresStore(s.url, bucket_ns=SEC)
     try:
-        assert again.migrated == [7, 8, 9, 10]
+        assert again.migrated == [7, 8, 9, 10, 11]
         assert queries.tenants(again, T0, 900, ms - 3_600_000, ms + 3_600_000) == want
         with again.ingest.connection() as c:
             assert [r["kind"] for r in c.execute("SELECT kind FROM tenant_events ORDER BY at_ms, kind")] == \
@@ -1403,7 +1407,7 @@ def test_version_5_partitions_the_lookup_tables_place_by_place(pg_store, tmp_pat
                          "AND relnamespace = current_schema()::regnamespace").fetchone()["relkind"] == "r"
     again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
     try:
-        assert again.migrated == [5, 6, 7, 8, 9, 10]
+        assert again.migrated == [5, 6, 7, 8, 9, 10, 11]
         with again.ingest.connection() as c:
             assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
             assert c.execute("SELECT to_regclass('mid_places_v4') AS t").fetchone()["t"] is None
@@ -1513,3 +1517,134 @@ def test_causes_on_postgres(pg_store):
     assert groups[0]["label"] == "orders-worker raised TimeoutError: Stripe timed out after 10000 ms"
     assert groups[0]["queueKey"] == "000000000000//orders" and set(assign) == {"m-1", "m-2"}
     assert [(g["name"], g["messageIds"]) for g in causes.dlq_groups(read["items"], read["urls"])] == [("orders-dlq", ["m-1"])]
+
+
+# ---- QV-363: the queue page's events and their rollup -----------------------------------------------------
+
+def _queue_rollup_vs_events(s) -> tuple:
+    """(queue_rollup added up over its writers, the same added up from queue_events of the kinds it rolls up), per
+    place and row key."""
+    from trailbeam.server import queues
+    key = "rclass, bucket, {h}, queue_key, kind, {svc}, lambda, {peer}"
+    with s.reads.connection() as c:
+        rolled = {tuple(r.values())[:8]: tuple(r.values())[8:] for r in c.execute(
+            f"SELECT {key.format(h='hour', svc='service', peer='peer')}, "
+            "SUM(n) AS n, SUM(vn) AS vn, SUM(vsum) AS vs FROM queue_rollup "
+            "GROUP BY 1, 2, 3, 4, 5, 6, 7, 8 HAVING SUM(n) <> 0 OR SUM(vn) <> 0 OR SUM(vsum) <> 0").fetchall()}
+        events = {tuple(r.values())[:8]: tuple(r.values())[8:] for r in c.execute(
+            "SELECT " + key.format(h="at_ms / 3600000 AS hour", svc="COALESCE(service, %s) AS service",
+                                   peer="COALESCE(peer, %s) AS peer") + ", "
+            "COUNT(*) AS n, COUNT(value) AS vn, COALESCE(SUM(value), 0) AS vs FROM queue_events "
+            f"WHERE {queues.FLOW_KINDS_SQL} GROUP BY 1, 2, 3, 4, 5, 6, 7, 8",
+            ("", "")).fetchall()}
+    return ({k: tuple(int(x) for x in v) for k, v in rolled.items()},
+            {k: tuple(int(x) for x in v) for k, v in events.items()})
+
+
+def _queue_page(s, ranges, now_ms):
+    from trailbeam.server import queues
+    keys = s.queue_keys()
+    out = {"keys": keys}
+    for a, b in ranges:
+        out[(a, b)] = (queues.flows(*s.queue_flows(a, b, now_ms)),
+                       {k: queues.series(s.queue_events(queues.resolve(k, keys)[0], a, b), 300, 2) for k in keys})
+    return out
+
+
+@needs_pg
+def test_the_queue_page_is_sqlites_with_late_spans_moving_messages_and_retention(pg_store):
+    """Hour-long places, so messages move place as their spans come (late and out of order): their queue events
+    and rollup rows go with them, the rollup taking back what it added in the place they left. The flows and the
+    series are SQLite's, on whole hours, parts of hours and across them; a sweep and a drop take out what they
+    delete, from the events and the rollup alike."""
+    import random
+
+    from trailbeam.server import queues
+    from trailbeam.server.db import SqliteStore
+    from trailbeam.server.rollup import HOUR_MS
+    from trailbeam.server.store import Cutoffs
+
+    tr, spans = _rollup_traffic(11)
+    random.Random(11).shuffle(spans)
+    pg, lite = pg_store(bucket_ns=HOUR_MS * 10 ** 6), SqliteStore()
+    for k in range(0, len(spans), 40):
+        assert pg.insert(spans[k:k + 40]) == lite.insert(spans[k:k + 40])
+    rolled, events = _queue_rollup_vs_events(pg)
+    assert rolled == events and len({k[:2] for k in events}) > 3
+    now_ms = tr.T0 + 7 * HOUR_MS
+    ranges = tr._ranges(11, 6)
+    assert _queue_page(pg, ranges, now_ms) == _queue_page(lite, ranges, now_ms)
+    lite.close()
+
+    def brute_flows(a, b):
+        with pg.reads.connection() as c:
+            rows = c.execute("SELECT queue_key, kind, service, lambda, peer, COUNT(*) AS n, COUNT(value) AS vn, "
+                             "COALESCE(SUM(value), 0) AS vs FROM queue_events WHERE at_ms BETWEEN %s AND %s "
+                             "GROUP BY 1, 2, 3, 4, 5", (a, b)).fetchall()
+        keys, last, _counts, links = pg.queue_flows(a, b, now_ms)
+        return queues.flows(keys, last, [tuple(r.values()) for r in rows], links)
+
+    def check():
+        rolled, events = _queue_rollup_vs_events(pg)
+        assert rolled == events
+        for a, b in ranges:
+            assert queues.flows(*pg.queue_flows(a, b, now_ms)) == brute_flows(a, b), (a, b)
+
+    # a sweep: "orders" expires in the first places, which mix it with "payments"
+    cut, resume, deleted = (tr.T0 + 3 * HOUR_MS) * 10 ** 6, None, 0
+    while True:
+        step = pg.purge_step(Cutoffs(None, {"orders": cut}), resume, 25)
+        deleted += step.deleted
+        if step.resume is None:
+            break
+        resume = step.resume
+    assert deleted
+    check()
+    # a drop: every queue past the cutoff in the first places
+    before = len({k[:2] for k in _queue_rollup_vs_events(pg)[1]})
+    resume = None
+    while True:
+        step = pg.purge_step(Cutoffs(cut, {}), resume, 25)
+        if step.resume is None:
+            break
+        resume = step.resume
+    assert len({k[:2] for k in _queue_rollup_vs_events(pg)[1]}) < before
+    check()
+    with pg.reads.connection() as c:
+        assert not c.execute("SELECT 1 FROM place_queue_keys k WHERE NOT EXISTS (SELECT 1 FROM places p "
+                             "WHERE p.rclass = k.rclass AND p.bucket = k.bucket)").fetchall()
+
+
+@needs_pg
+def test_version_11_builds_the_queue_events_place_by_place(pg_store):
+    """A version-10 database has no queue events. The upgrade gives the queue page a database that stored the same
+    spans at 11 gives, with the same events, and it goes on taking spans."""
+    from trailbeam.server.postgres import PostgresStore
+    from trailbeam.server.rollup import HOUR_MS
+
+    tr, spans = _rollup_traffic(12)
+    s = pg_store(bucket_ns=HOUR_MS * 10 ** 6)
+    for k in range(0, len(spans), 50):  # in exports, so some messages move place and have strays
+        s.insert(spans[k:k + 50])
+    now_ms = tr.T0 + 7 * HOUR_MS
+    ranges = tr._ranges(12, 6)
+    want = _queue_page(s, ranges, now_ms)
+    q = "SELECT rclass, bucket, queue_key, at_ms, mid, seq, kind, service, lambda, value, peer FROM queue_events " \
+        "ORDER BY rclass, bucket, queue_key, at_ms, mid, seq"
+    with s.ingest.connection() as c:
+        events = c.execute(q).fetchall()
+        assert events
+        _as_version(c, 10)
+    again = PostgresStore(s.url, bucket_ns=HOUR_MS * 10 ** 6)
+    try:
+        assert again.migrated == [11]
+        assert _queue_page(again, ranges, now_ms) == want
+        with again.ingest.connection() as c:
+            assert c.execute(q).fetchall() == events
+        rolled, ev = _queue_rollup_vs_events(again)
+        assert rolled == ev
+        again.insert(tr._traffic(13, messages=50, hours=6))  # and it goes on taking spans
+        rolled, ev = _queue_rollup_vs_events(again)
+        assert rolled == ev
+    finally:
+        again.close()
