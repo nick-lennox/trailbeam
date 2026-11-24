@@ -176,6 +176,49 @@ export type ArrivedViaSnsEvent = Omit<Windowed, "queue"> & {
   sns_delivery_ms?: number;
 };
 
+/** Inferred from the body's shape (contract section 22.3, added in 3.5): a receive's body is an EventBridge event, so
+ *  an EventBridge rule most likely sent the message. No time; placed before that receive. The event does not name the
+ *  rule. */
+export type ArrivedViaEventBridgeEvent = Windowed & {
+  inferred: true;
+  type: "arrived_via_eventbridge";
+  source: "eventbridge_event";
+  event_id: string;
+  /** the event's `source`, such as `aws.ec2` */
+  eventbridge_source: string;
+  detail_type: string;
+  account?: string;
+  region?: string;
+  reported_on_delivery: number;
+  /** the event's `time` (whole seconds); not used to place the step */
+  event_time?: string;
+  event_time_ms?: number;
+  /** SentTimestamp minus event_time_ms, both AWS clocks */
+  delivery_ms?: number;
+};
+
+/** Inferred from the body's shape (contract section 22.3, added in 3.5): a receive's body is an S3 event notification
+ *  or S3's test message. No time; placed before that receive. */
+export type S3Event = Windowed & {
+  inferred: true;
+  type: "s3_event";
+  source: "s3_event";
+  /** without the `s3:` prefix, such as `ObjectCreated:Put`; or `s3:TestEvent` */
+  s3_event_name: string;
+  test_event: boolean;
+  bucket: string;
+  /** URL-encoded as S3 writes it, redacted; only from queues whose body is captured */
+  object_key?: string;
+  sequencer?: string;
+  configuration_id?: string;
+  record_count?: number;
+  region?: string;
+  reported_on_delivery: number;
+  event_time?: string;
+  event_time_ms?: number;
+  delivery_ms?: number;
+};
+
 export type Group = {
   group: number;
   concurrent: boolean;
@@ -250,7 +293,7 @@ export type AwsEvent = {
   after: AfterEntry[];
 };
 
-export type TimelineEvent = SentEvent | ReceivedEvent | DeletedEvent | VisibilityChangedEvent | LambdaOutcomeEvent | QueuePurgedEvent | PublishedEvent | InferredEvent | DlqMoveEvent | ArrivedViaSnsEvent | AwsEvent;
+export type TimelineEvent = SentEvent | ReceivedEvent | DeletedEvent | VisibilityChangedEvent | LambdaOutcomeEvent | QueuePurgedEvent | PublishedEvent | InferredEvent | DlqMoveEvent | ArrivedViaSnsEvent | ArrivedViaEventBridgeEvent | S3Event | AwsEvent;
 
 /** PROPOSED (paid): where a message lives in a multi-account workspace. */
 export type Scope = { account: string; account_name: string; region: string; environment: string; tenant?: string; demo?: boolean };

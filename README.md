@@ -52,6 +52,10 @@ answers a narrower question: where did this one message go?
   shows "Published to topic …", the process that published, the other SQS messages the publish reached,
   and, with raw delivery off, the SNS delivery time. If the publisher runs no Trailbeam package, the
   envelope still says which topic it came through ("Arrived via SNS topic …").
+- **EventBridge rules and S3 notifications.** A message that EventBridge or S3 sent has no send in your
+  code. When its body is an EventBridge event or an S3 event notification, the timeline starts with an
+  inferred step, "Arrived via an EventBridge rule: …" or "S3 ObjectCreated:Put in …", from the event's
+  routing fields only. The rest of the body isn't read.
 - **Recorded and inferred steps are kept apart.** Trailbeam orders two events only when an observed
   fact proves the order, and marks every step it inferred, such as a visibility timeout that expired.
 - **Deletes joined to their receives.** A delete carries a receipt handle, not a message ID. Trailbeam

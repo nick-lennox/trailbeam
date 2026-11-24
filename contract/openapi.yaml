@@ -1347,6 +1347,8 @@ components:
         - $ref: '#/components/schemas/PublishedStep'
         - $ref: '#/components/schemas/MovedToDeadLetterQueueStep'
         - $ref: '#/components/schemas/ArrivedViaSnsStep'
+        - $ref: '#/components/schemas/ArrivedViaEventBridgeStep'
+        - $ref: '#/components/schemas/S3EventStep'
         - $ref: '#/components/schemas/VisibilityTimeoutExpiredStep'
         - $ref: '#/components/schemas/DeliveriesNotObservedStep'
         - $ref: '#/components/schemas/DeletedByLambdaStep'
@@ -1363,6 +1365,8 @@ components:
           published: '#/components/schemas/PublishedStep'
           moved_to_dead_letter_queue: '#/components/schemas/MovedToDeadLetterQueueStep'
           arrived_via_sns: '#/components/schemas/ArrivedViaSnsStep'
+          arrived_via_eventbridge: '#/components/schemas/ArrivedViaEventBridgeStep'
+          s3_event: '#/components/schemas/S3EventStep'
           visibility_timeout_expired: '#/components/schemas/VisibilityTimeoutExpiredStep'
           deliveries_not_observed: '#/components/schemas/DeliveriesNotObservedStep'
           deleted_by_lambda: '#/components/schemas/DeletedByLambdaStep'
@@ -1625,6 +1629,57 @@ components:
           description: The envelope's `Timestamp`, SNS's publish time on SNS's clock. Not used to place the step.
         sns_timestamp_ms: {type: integer, description: '`sns_timestamp` in Unix milliseconds.'}
         sns_delivery_ms: {type: integer, description: As on a published step.}
+    ArrivedViaEventBridgeStep:
+      allOf: [{$ref: '#/components/schemas/PlacedStep'}]
+      description: |
+        Inferred (contract section 22.3, added in 3.5): a receive's body is an EventBridge event, so an EventBridge
+        rule most likely sent the message. Not shown when the message has a send or came through SNS. The event does
+        not name the rule. It has no time of its own and is placed before the receive whose body it is.
+      unevaluatedProperties: false
+      required: [source, queue, event_id, eventbridge_source, detail_type, reported_on_delivery]
+      properties:
+        type: {const: arrived_via_eventbridge}
+        inferred: {const: true}
+        source: {const: eventbridge_event}
+        queue: {type: string, description: The queue of the receive whose body it is.}
+        event_id: {type: string, description: The event's `id`.}
+        eventbridge_source: {type: string, description: 'The event''s `source`, such as `aws.ec2`.'}
+        detail_type: {type: string, description: The event's `detail-type`.}
+        account: {type: string}
+        region: {type: string}
+        reported_on_delivery: {type: integer, description: The delivery whose body is the event.}
+        event_time:
+          allOf: [{$ref: '#/components/schemas/Timestamp'}]
+          description: The event's `time` (whole seconds), on AWS's or the sender's clock. Not used to place the step.
+        event_time_ms: {type: integer, description: '`event_time` in Unix milliseconds.'}
+        delivery_ms: {type: integer, description: 'The receive''s `SentTimestamp` minus `event_time_ms`, both AWS clocks.'}
+    S3EventStep:
+      allOf: [{$ref: '#/components/schemas/PlacedStep'}]
+      description: |
+        Inferred (contract section 22.3, added in 3.5): a receive's body is an S3 event notification (or S3's test
+        message), so an S3 bucket notification most likely sent the message. Not shown when the message has a send or
+        came through SNS. It has no time of its own and is placed before the receive whose body it is.
+      unevaluatedProperties: false
+      required: [source, queue, s3_event_name, bucket, test_event, reported_on_delivery]
+      properties:
+        type: {const: s3_event}
+        inferred: {const: true}
+        source: {const: s3_event}
+        queue: {type: string, description: The queue of the receive whose body it is.}
+        s3_event_name: {type: string, description: 'The event name without the `s3:` prefix, such as `ObjectCreated:Put`; or `s3:TestEvent`.'}
+        test_event: {type: boolean, description: 'The message is the `s3:TestEvent` S3 sends when a notification configuration is saved.'}
+        bucket: {type: string}
+        object_key: {type: string, description: 'The object key as S3 encodes it (URL-encoded), redacted. Only from a queue whose body is captured.'}
+        sequencer: {type: string}
+        configuration_id: {type: string, description: The ID of the bucket's notification configuration.}
+        record_count: {type: integer, description: The number of records in the message, when more than one. The step describes the first.}
+        region: {type: string}
+        reported_on_delivery: {type: integer, description: The delivery whose body is the notification.}
+        event_time:
+          allOf: [{$ref: '#/components/schemas/Timestamp'}]
+          description: The record's `eventTime`, when S3 finished the request, on AWS's clock. Not used to place the step.
+        event_time_ms: {type: integer, description: '`event_time` in Unix milliseconds.'}
+        delivery_ms: {type: integer, description: 'The receive''s `SentTimestamp` minus `event_time_ms`, both AWS clocks.'}
     PlacedStep:
       type: object
       description: The fields of every step that has no span. It has a time window instead of a time.

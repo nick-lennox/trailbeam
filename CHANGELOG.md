@@ -2,14 +2,19 @@
 
 ## Unreleased
 
-- **EventBridge and S3 notifications: an inferred first step** (QV-314, contract revision 3.5, stage 1 of 2: the
-  packages). A message that an EventBridge rule or an S3 bucket notification sent has no send in the team's code. The
+- **EventBridge and S3 notifications: an inferred first step** (QV-314, contract revision 3.5). A message that an EventBridge rule or an S3 bucket notification sent has no send in the team's code. The
   Python and Node.js receives (client hooks and Lambda wrappers) now record, on every queue, the routing fields of a
   body that is an EventBridge event (`trailbeam.eventbridge.*`: `id`, `source`, `detail-type`, account, region, time)
   or an S3 event notification or `s3:TestEvent` message (`trailbeam.s3.*`: event name, bucket, region, time,
   configuration ID, `sequencer`, and the record count when more than one). The S3 object key is recorded only on a
   queue whose body is captured, redacted like the body. Nothing else in the body is read. Not read when the body is an
-  SNS envelope. The server's inferred "Arrived via an EventBridge rule" / "S3 *event*" step is stage 2.
+  SNS envelope. The server reads them from the stored receive (no schema change) and gives the message an
+  inferred first step, `arrived_via_eventbridge` or `s3_event` (`inferred: true`, no time of its own, before that
+  receive), with the event's time and the delivery time (`SentTimestamp` minus the event time, both AWS clocks). It is
+  not shown when the message has a send (a process re-sent the body) or came through SNS. Both local UIs show it:
+  "Arrived via an EventBridge rule: *detail-type*", "S3 *event* in *bucket*" or "S3 test message", tagged inferred
+  (`@trailbeam/ui` 0.1.0-dev.5, `fixtures/origin-timelines.json`). The board's decision on what may be read when body
+  capture is off is pending on QV-314 (contract 22.5).
 - **SNS fan-out: messages that came through an SNS topic get their sender** (QV-313, contract revision 3.4). The Python and Node.js packages record SNS
   `Publish` and `PublishBatch` to a topic as a `trailbeam publish` span (`trailbeam.kind = sns.publish`) with the SNS
   message ID and `aws.sns.topic.arn`. Receives carry what joins them to it: the `trailbeam.publish_id` message
