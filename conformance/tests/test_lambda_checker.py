@@ -314,6 +314,27 @@ def test_receive_not_flushed_before_the_handler(run):
            "handler started" in text
 
 
+def test_flush_clock_tie_is_not_an_ordering_problem(run):
+    # The Collector's and the handler's clocks agree to well under a millisecond, not exactly (QV-429: a
+    # receive stamped 50 us after the handler's start failed the kit). Within CLOCK_SLACK_NS it passes; just
+    # past it, it fails.
+    def at(offset):
+        def m(spans, calls):
+            c = [c for c in calls if c["case"] == "throw"][0]
+            for r in ours(spans, "receive", "throw", calls):
+                put(r, "kit.collector.received_unix_nano", "int", c["handler"]["started_unix_nano"] + offset)
+        return m
+
+    for offset in (0, 50_000, checker.CLOCK_SLACK_NS):
+        settings, header, calls, spans = copy.deepcopy(run)
+        at(offset)(spans, calls)
+        report = run_check(settings, header, calls, spans)
+        assert report.ok, checker.render(report)
+    text = broken(run, at(checker.CLOCK_SLACK_NS + 1_000))
+    assert "invocation (throw)" in text
+    assert "not flushed before the handler ran" in text
+
+
 def test_bench_without_arrival_stamp(run):
     def m(spans, calls):
         for s in spans:

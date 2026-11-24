@@ -26,6 +26,32 @@ def test_sigterm_stops_cleanly(tmp_path):
     assert (tmp_path / "q.sqlite").exists()
 
 
+
+def test_sigterm_while_the_purger_starts_still_closes_the_store(tmp_path, monkeypatch):
+    """QV-434: the SIGTERM handler was set before the try whose finally stops the purger and closes the store, so
+    a SIGTERM during the retention log line or purger.start() skipped both."""
+    from trailbeam.server import __main__ as m
+
+    handlers = {}
+    monkeypatch.setattr(m.signal, "signal", lambda sig, h: handlers.setdefault(sig, h))  # this process keeps its own
+    opened, stopped = [], []
+    real_open = m.open_store
+
+    def open_store(*args, **kw):
+        opened.append(real_open(*args, **kw))
+        return opened[-1]
+
+    def start(self):
+        handlers[signal.SIGTERM](signal.SIGTERM, None)  # the signal arrives here
+
+    monkeypatch.setattr(m, "open_store", open_store)
+    monkeypatch.setattr(m.Purger, "start", start)
+    monkeypatch.setattr(m.Purger, "stop", lambda self, timeout=30: stopped.append(True))
+    m.main(["--db", str(tmp_path / "q.sqlite"), "--port", "0"])  # returns: stopped as on SIGTERM later on
+    assert stopped == [True]
+    assert opened[0]._closed
+
+
 def test_max_receive_count_option():
     import argparse
 

@@ -673,6 +673,104 @@ Make your proxy set `X-Forwarded-For` (nginx: `proxy_set_header X-Forwarded-For
 $proxy_add_x_forwarded_for;`), and don't let clients reach Trailbeam's port directly: anyone who can is
 believed if their address is in the range. [`deploy/replicas`](deploy/replicas/compose.yaml) shows both.
 
+### Sign-in through a proxy (oauth2-proxy, Pomerium, Cloudflare Access)
+
+If your team already signs in to internal tools through a proxy, Trailbeam can believe the email header it adds,
+instead of asking for its own password. It is off unless you turn it on, and the header is believed only from the
+proxy: from its addresses (`--trusted-proxy`), with a shared secret the proxy sends, or both. It signs people in,
+so it needs users and roles switched on (`--accounts`); without them the server refuses to start.
+
+```sh norun="starts a server that keeps running; python/tests/server/test_proxy_auth.py tests every setting"
+trailbeam --accounts --proxy-auth-header X-Forwarded-Email --trusted-proxy 10.0.0.5 \
+  --proxy-auth-name-header X-Forwarded-Preferred-Username --proxy-auth-sign-out-url /oauth2/sign_out
+```
+
+| Setting | Environment variable | What it does |
+|---|---|---|
+| `--proxy-auth-header` | `TRAILBEAM_PROXY_AUTH_HEADER` | The header with the signed-in email. Turns the feature on. |
+| `--trusted-proxy` | `TRAILBEAM_TRUSTED_PROXY` | The proxy's addresses: the header is believed only from them. |
+| `--proxy-auth-secret-file` | `TRAILBEAM_PROXY_AUTH_SECRET_FILE` or `TRAILBEAM_PROXY_AUTH_SECRET` | A secret (16 characters or more) the proxy sends in `X-Trailbeam-Proxy-Secret`. For proxies without a fixed address. |
+| `--proxy-auth-name-header` | `TRAILBEAM_PROXY_AUTH_NAME_HEADER` | The person's name, for new people. Default: the email's part before `@`. |
+| `--proxy-auth-sign-out-url` | `TRAILBEAM_PROXY_AUTH_SIGN_OUT_URL` | Where **Sign out** goes, to end the proxy's session. Without it, people the proxy signs in get no Sign out. |
+
+The server doesn't start with `--proxy-auth-header` alone: without `--trusted-proxy` or a secret, anyone who can
+reach the port could sign in as anyone. With both, a request needs both.
+
+**Who gets in, as what.** It works once the server has an admin (until then accounts aren't used):
+
+- **An email Trailbeam hasn't seen** gets a new account, a **member**, with no password. Never an admin: make
+  someone an admin with `trailbeam users set-role`.
+- **An email with a local account** (made with a password, by `trailbeam users create` or a setup link) is
+  **refused** until an admin links it, so whoever the proxy lets in with that email can't take the account over:
+  `trailbeam users link-proxy ada@example.com`. Linked, the proxy signs them in with their role, and their
+  password still works. `trailbeam users unlink-proxy` undoes it.
+- `trailbeam users create --email ... --proxy` makes an account for the proxy ahead of time, with no password
+  (useful for an admin who only signs in through the proxy). `trailbeam users list` shows who the proxy can sign
+  in to.
+- A disabled person is refused. A request with two email headers, or one that isn't an email, is refused.
+- From any address but the proxy's, or without the secret, the header is ignored and the request counts as signed
+  out. The server logs that at most once a minute, which helps when `--trusted-proxy` is wrong.
+- Changes to a person (role, disabled, linked) reach every replica within 20 seconds.
+
+Personal API tokens (`Authorization: Bearer tbp_...`) still work through the proxy and take precedence over its
+header. Ingest and `/metrics` never look at it.
+
+**Keep the proxy the only way in.** Anyone who can reach Trailbeam from an address in `--trusted-proxy` is
+believed, so give it the proxy's own address, not a whole network, and don't publish Trailbeam's port. The proxy
+must also remove the header from what browsers send, which oauth2-proxy, Pomerium and Cloudflare Access do. Send
+spans and Prometheus to Trailbeam's port directly from inside the network (with an ingest token), not through
+the proxy.
+
+**oauth2-proxy**, in front of the web screen, with Compose. oauth2-proxy sends `X-Forwarded-Email` and
+`X-Forwarded-Preferred-Username` to the address it proxies to (its `pass_user_headers` setting, on by default):
+
+```yaml norun="needs an OAuth app at your identity provider; the settings are the ones test_proxy_auth.py tests"
+services:
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+    command:
+      - --http-address=0.0.0.0:4180
+      - --upstream=http://trailbeam:4318
+      - --provider=oidc
+      - --oidc-issuer-url=https://accounts.google.com   # or Okta, Entra ID, Keycloak...
+      - --email-domain=example.com                      # who may sign in at all
+      - --reverse-proxy=true
+      - --cookie-secure=true
+    environment:
+      OAUTH2_PROXY_CLIENT_ID: ${OAUTH2_PROXY_CLIENT_ID}
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET}
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET}   # openssl rand -base64 32 | tr -- '+/' '-_'
+    ports: ["443:4180"]   # behind your TLS proxy or load balancer
+    networks:
+      default:
+        ipv4_address: 172.30.0.5
+  trailbeam:
+    build: .                                            # this repository's Dockerfile
+    environment:
+      TRAILBEAM_ACCOUNTS: "1"                           # users and roles: proxy sign-in needs them
+      TRAILBEAM_PROXY_AUTH_HEADER: X-Forwarded-Email
+      TRAILBEAM_PROXY_AUTH_NAME_HEADER: X-Forwarded-Preferred-Username
+      TRAILBEAM_PROXY_AUTH_SIGN_OUT_URL: /oauth2/sign_out
+      TRAILBEAM_TRUSTED_PROXY: 172.30.0.5               # oauth2-proxy only
+    # no ports: published: people reach it through oauth2-proxy, services on the internal network
+networks:
+  default:
+    ipam:
+      config: [{subnet: 172.30.0.0/24}]
+```
+
+Then create the first admin (`trailbeam users create --email you@example.com --role admin`, add `--proxy` to sign
+in only through oauth2-proxy), and everyone else is a member the first time they open Trailbeam. Don't use
+oauth2-proxy's `skip_auth_routes` setting for Trailbeam's pages; if you route anything past it with that setting,
+keep `skip_auth_strip_headers` on (the default), so a client can't send its own `X-Forwarded-Email` there.
+
+Other proxies: Pomerium sends the email as `X-Pomerium-Claim-Email` (with `pass_identity_headers`), Cloudflare
+Access as `Cf-Access-Authenticated-User-Email`, Google IAP as `X-Goog-Authenticated-User-Email` (its
+`accounts.google.com:` prefix is dropped), and the AWS ALB in a signed token only. Cloudflare
+Access has no fixed address, so use the shared secret there, added with a Cloudflare rule or a proxy in between.
+Checking these proxies' **signed** tokens (safer than a plain header) comes with the OIDC support, as part of the
+optional `sso` extra.
+
 ### Configuration file
 
 Per-queue settings go in a TOML file, so a few hundred queues don't turn into a few hundred flags:
