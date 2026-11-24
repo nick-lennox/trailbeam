@@ -1,1 +1,1 @@
-dev.trailbeam.sqs.TrailbeamSqsExecutionInterceptor
+app.trailbeam.sqs.TrailbeamSqsExecutionInterceptor
