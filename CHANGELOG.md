@@ -2,16 +2,16 @@
 
 ## Unreleased
 
-- **.NET package, stage 1: SQS spans from the AWS SDK for .NET v4** (QV-320, pre-release, not published). In
-  `dotnet/`, `Trailbeam.Sqs`: one line at startup, `TrailbeamSqs.Register()`, adds a pipeline handler through
-  `RuntimePipelineCustomizerRegistry` to every SQS client created afterwards. It emits every client span of the
-  contract (send, receive, delete, change visibility, their batch forms, purge) with the receipt-handle HMAC, call-order
-  ticks, the message ID on settle spans, and section 15's tenants and opt-in redacted body capture. It passes the
-  conformance kit, 20 of 20 spans, alone, beside OpenTelemetry.Instrumentation.AWS 1.21.0 (registered after
-  Trailbeam or before it, each span a child of the SDK's exported span), with the application's sampler at 0, and
-  with capture on. A new CI job, ".NET package", runs the unit tests on .NET 8 and 10 and the kit. Still to come: the Lambda
-  wrapper for `Amazon.Lambda.SQSEvents`, the Datadog tracer, a version matrix, and NuGet publishing, which waits for
-  a board decision.
+- **A page per queue** (QV-364): `/queue?name=<queue>`, and a **Queues** list at `/queues` (a new item in the
+  header). The page asks whether work is arriving faster than it is finished: sends vs handled (the band between
+  them is the backlog building), receives vs handled with dead-letter moves (seen, and inferred from
+  maxReceiveCount), p95 time in queue and p95 time in handler, on one time axis with a shared crosshair. Click or
+  drag across minutes to get links to the messages behind them. Deploys show as markers, and "By version" splits
+  handled and the p95s per `service.version`. A health verdict from your services' spans, labelled as such; the
+  senders and consumers; the queue's stuck messages and dead-letter moves; and a plain list of what Trailbeam
+  can't see without AWS (depth, in flight, the oldest message's age, the DLQ's depth), with a link to the SQS
+  console. The time range, the selected minutes and "By version" are in the URL. The view is
+  `QueuePage` in `@trailbeam/ui`, which the hosted app uses too.
 - **The Stuck page groups its messages by cause, and lists the dead-letter queues** (QV-367, step 2). `/stuck`
   now reads `/api/causes`. It shows one row per cause, with its count, first and last seen, a 24-hour trend,
   the dead-letter split, and the newest error text. Below that are the stuck messages, each with its cause

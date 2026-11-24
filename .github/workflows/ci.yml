@@ -981,6 +981,25 @@ jobs:
     if: needs.changes.outputs.compat == 'true'
     uses: ./.github/workflows/compat.yml
 
+  changelog:
+    # Changelog entries are one file per pull request, changelog.d/QV-NNN.md (QV-448), so pull requests stop
+    # conflicting on CHANGELOG.md. Fails a pull request that adds a line under Unreleased in CHANGELOG.md, or a
+    # fragment that doesn't parse, and runs the fold script's tests. Every tier: it takes seconds.
+    name: Changelog
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Entries are fragments in changelog.d/
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BRANCH: ${{ github.head_ref }}
+        run: python3 scripts/changelog.py check --base "$PR_BASE" --branch "$BRANCH"
+      - name: The fold script's tests
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
+
   ci-ok:
     # The one result to look at: passes when every job that ran passed (a job its paths didn't need is skipped,
     # which is fine). A quarantined job, listed in QUARANTINED with the issue to fix it, still runs and shows
@@ -991,7 +1010,7 @@ jobs:
     if: always()
     needs: [changes, python, perf, postgres, node, conformance, go, java, java-matrix, dotnet, ui, collector, container,
             upgrade, backup-restore, demo, examples, team-install, kubernetes, concurrency-check,
-            concurrency-check-aws, monitoring, compat-table, docs, compat]
+            concurrency-check-aws, monitoring, compat-table, docs, compat, changelog]
     runs-on: ubuntu-latest
     env:
       NEEDS: ${{ toJSON(needs) }}
