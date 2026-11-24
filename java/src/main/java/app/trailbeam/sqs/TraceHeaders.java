@@ -1,4 +1,4 @@
-package dev.trailbeam.sqs;
+package app.trailbeam.sqs;
 
 import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.api.trace.TraceFlags;
