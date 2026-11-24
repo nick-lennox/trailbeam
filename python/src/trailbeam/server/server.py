@@ -18,7 +18,8 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceResponse
 
 from . import __version__
-from . import access as access_mod, auth as auth_mod, bodies, csrf, first_admin, metrics, passwords, queries, \
+from . import queues as queues_mod
+from . import access as access_mod, auth as auth_mod, causes as causes_mod, bodies, csrf, first_admin, metrics, passwords, queries, \
     sessions as sessions_mod, trace_links, ui_files, web
 from .accounts import AccountError, Accounts, AdminExists, BadSetupCode, check_email, check_name
 from .backpressure import GRPC_RESOURCE_EXHAUSTED, GRPC_UNAVAILABLE, IngestGate, Rejected, status_body
@@ -86,7 +87,8 @@ class App:
         self.stats = {"requests": 0, "inserted": 0, "duplicates": 0, "ignored": 0, "rejected": 0}
         self.routes: dict[str, Callable[[dict, list[str]], object]] = {
             "health": self.health, "stats": self.stats_counts, "messages": self.messages, "duplicates": self.duplicates,
-            "stuck": self.stuck, "tenants": self.tenants, "probes": self.probes, "me": self.me}
+            "stuck": self.stuck, "causes": self.causes, "tenants": self.tenants, "probes": self.probes, "me": self.me,
+            "queues": self.queues, "flows": self.flows}
         self._init_metrics()
 
     # ---- /metrics -------------------------------------------------------------------------
@@ -432,6 +434,31 @@ class App:
                                   version=q.get("version") or None)
         return {"older_than_s": older, "messages": page.items, "next_cursor": page.next_cursor}
 
+    def causes(self, q: dict, rest: list[str]) -> dict:
+        """``/api/causes``: the stuck messages grouped by why they didn't finish (causes.py, QV-367), the Needs
+        attention page's groups. ``from_ms``/``to_ms`` narrow them to causes seen in that range; ``cause`` narrows
+        the messages listed to one group's. The groups count every message read, the list holds ``limit``."""
+        if rest:
+            raise ApiError(404, "no such endpoint")
+        older = _int(q, "older_than_s", self.stuck_after_s, 0, 10 ** 9)
+        frm = _int(q, "from_ms", -1, 0, 10 ** 15) if "from_ms" in q else None
+        to = _int(q, "to_ms", -1, 0, 10 ** 15) if "to_ms" in q else None
+        if frm is not None and to is not None and frm > to:
+            raise ApiError(400, "from_ms must not be after to_ms")
+        read = causes_mod.read_unfinished(self.db, self.now(), self._lambda_timeout(q), self.max_receive_counts, older,
+                                          q.get("queue") or None)
+        assign: dict = {}
+        groups = causes_mod.in_range(read["classified"], read["first_seen"], frm, to, assign)
+        items = [{**i, "cause": assign[i["message_id"]]} for i in read["items"] if i["message_id"] in assign]
+        wanted = q.get("cause") or None
+        listed = [i for i in items if i["cause"] == wanted] if wanted and any(g["id"] == wanted for g in groups) else items
+        return {"older_than_s": older, "from_ms": frm, "to_ms": to, "capped": read["capped"],
+                "read_limit": causes_mod.UNFINISHED_LIMIT, "total": len(items),
+                "in_dead_letter_queue": sum(1 for i in items if i["in_dead_letter_queue"]),
+                "groups": [causes_mod.public(g) for g in groups],
+                "dead_letter_queues": causes_mod.dlq_groups(items, read["urls"]),
+                "cause": wanted, "messages": listed[:_limit(q)], "listed": len(listed)}
+
     def tenants(self, q: dict, rest: list[str]) -> dict:
         """``/api/tenants``: the Tenants page (contract/tenants.md) for [from_ms, to_ms], or the last
         ``since_s`` seconds (default a day). ``/api/tenants/search?q=``: tenant names for a search box."""
@@ -446,6 +473,58 @@ class App:
                     "from_ms": from_ms, "to_ms": to_ms}
         # the server's Lambda timeout, not a lambda_timeout_s parameter: it doesn't change what the page counts
         return queries.tenants(self.db, now, self.lambda_timeout_s, from_ms, to_ms, self.max_receive_counts)
+
+    def queues(self, q: dict, rest: list[str]) -> dict:
+        """``/api/queues/{queue}/series``: the queue page's charts (QV-360 design 4.3, 9), per bucket of ``step_s``
+        over [from_ms, to_ms] (default: the last day, and the page's step for the range). ``{queue}`` is a queue key
+        (queues.key, URL-encoded) or a queue's name, when one queue has it. queues.py says what each figure counts."""
+        if len(rest) != 2 or rest[1] != "series":
+            raise ApiError(404, "no such endpoint")
+        from_ms, to_ms = self._window(q)
+        # only when given: the default is the page's rule for the window (queues.default_step)
+        step = (_int(q, "step_s", -1, queues_mod.STEPS_S[0], queues_mod.STEPS_S[-1]) if "step_s" in q
+                else queues_mod.default_step(from_ms, to_ms))
+        try:
+            if "step_s" in q:  # the default is at most 6 h; only buckets with events are built, whatever the window
+                queues_mod.check_step(step, from_ms, to_ms)
+            keys = self.db.queue_keys()
+        except ValueError as e:
+            raise ApiError(400, str(e)) from None
+        except NotImplementedError as e:
+            raise ApiError(501, str(e)) from None
+        split = q.get("split", "")
+        if split not in ("", "version"):
+            raise ApiError(400, "split must be version, or left out")
+        want, place = self._queue_keys(rest[0], keys)
+        mrc = self.max_receive_counts.get(place.name)
+        rows = self.db.queue_events(want, from_ms, to_ms)
+        return {"queue": {"key": want[0], "name": place.name, "account": place.account, "region": place.region,
+                          "fifo": place.name.endswith(".fifo")},
+                "from_ms": from_ms, "to_ms": to_ms, "step_s": step,
+                "max_receive_count": mrc,
+                "series": queues_mod.series(rows, step, mrc, by_version=split == "version"),
+                "versions": queues_mod.versions(rows)}
+
+    def flows(self, q: dict, rest: list[str]) -> dict:
+        """``/api/flows``: the overview's flows over [from_ms, to_ms] (default: the last day): per queue, who sends to
+        it and who receives from it, and its dead-letter queue (queues.flows). Each flow is the hosted app's
+        ``Flow`` (trailbeam-app lib/app/flows.ts), field for field, so the shared overview reads either."""
+        if rest:
+            raise ApiError(404, "no such endpoint")
+        from_ms, to_ms = self._window(q)
+        try:
+            keys, last, counts, links = self.db.queue_flows(from_ms, to_ms, self.now() // 1_000_000)
+        except NotImplementedError as e:
+            raise ApiError(501, str(e)) from None
+        return {"from_ms": from_ms, "to_ms": to_ms, "flows": queues_mod.flows(keys, last, counts, links)}
+
+    @staticmethod
+    def _queue_keys(asked: str, keys: list[str]) -> tuple:
+        """The keys whose events are the asked queue's, its own first, and its place (queues.resolve)."""
+        try:
+            return queues_mod.resolve(asked, keys)
+        except ValueError as e:
+            raise ApiError(400, str(e)) from None
 
     def _window(self, q: dict) -> tuple:
         """[from_ms, to_ms], both included: given, or the last ``since_s`` seconds (default a day) to now. The
