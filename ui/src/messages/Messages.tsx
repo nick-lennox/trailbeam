@@ -15,7 +15,7 @@ export type MessageSummary = {
   dead_letter_queue_move: "observed" | "not_seen_on_dlq_yet" | null;
   deliveries: number;
   successful_deliveries: number;
-  consumers: { service_name: string | null; client_id: string | null }[];
+  consumers: { service_name: string | null; client_id: string | null; service_version?: string | null }[];
   first_seen: string | null;
   first_seen_clock: "host" | "sqs";
   last_seen: string | null;

@@ -81,10 +81,12 @@ def _newest_first(db: Store, mids: list, limit: int, now_ns: int, lambda_timeout
 
 def recent_page(db: Store, now_ns: int, lambda_timeout_s: int, limit: int, queue: Optional[str] = None,
                 mrc: Optional[dict] = None, tenant: Optional[str] = None, *, from_ns: Optional[int] = None,
-                to_ns: Optional[int] = None, cursor: Optional[str] = None) -> Page:
+                to_ns: Optional[int] = None, cursor: Optional[str] = None, version: Optional[str] = None) -> Page:
     """The most recently active messages; ``tenant``: only those with a span naming it (contract/tenants.md).
-    ``from_ns``/``to_ns``: last seen in [from_ns, to_ns)."""
-    mids = db.recent_messages(limit + 1, queue, tenant, from_ns=from_ns, to_ns=to_ns, after=decode_cursor(cursor))
+    ``from_ns``/``to_ns``: last seen in [from_ns, to_ns). ``version``: only those a consumer of that
+    service.version received (QV-362)."""
+    mids = db.recent_messages(limit + 1, queue, tenant, from_ns=from_ns, to_ns=to_ns, after=decode_cursor(cursor),
+                              version=version)
     return _newest_first(db, mids, limit, now_ns, lambda_timeout_s, mrc)
 
 
@@ -128,13 +130,14 @@ def _with_reasons(item: dict) -> dict:
 
 def duplicates_page(db: Store, now_ns: int, lambda_timeout_s: int, limit: int, queue: Optional[str] = None,
                     reason: Optional[str] = None, mrc: Optional[dict] = None, *, from_ns: Optional[int] = None,
-                    to_ns: Optional[int] = None, cursor: Optional[str] = None) -> Page:
+                    to_ns: Optional[int] = None, cursor: Optional[str] = None, version: Optional[str] = None) -> Page:
     """Messages received more than once, or that succeeded more than once, most recently active first.
 
     A success is a delivery that ended in an accepted delete (counted once per delivery, however many
     times its handle was deleted) or a Lambda ``success`` outcome.
     """
-    mids = db.duplicate_messages(limit + 1, queue, reason, from_ns=from_ns, to_ns=to_ns, after=decode_cursor(cursor))
+    mids = db.duplicate_messages(limit + 1, queue, reason, from_ns=from_ns, to_ns=to_ns, after=decode_cursor(cursor),
+                                 version=version)
     page = _newest_first(db, mids, limit, now_ns, lambda_timeout_s, mrc)
     return Page([_with_reasons(i) for i in page.items], page.next_cursor)
 
@@ -146,7 +149,7 @@ def duplicates(db: Store, now_ns: int, lambda_timeout_s: int, limit: int,
 
 def stuck_page(db: Store, now_ns: int, lambda_timeout_s: int, older_than_s: int, limit: int,
                queue: Optional[str] = None, mrc: Optional[dict] = None, *, from_ns: Optional[int] = None,
-               cursor: Optional[str] = None) -> Page:
+               cursor: Optional[str] = None, version: Optional[str] = None) -> Page:
     """Messages first seen more than ``older_than_s`` ago (and at or after ``from_ns``) that have no final
     delete, oldest first.
 
@@ -160,7 +163,7 @@ def stuck_page(db: Store, now_ns: int, lambda_timeout_s: int, older_than_s: int,
     that were on the queue during a purge are, with ``purge.status`` ``possibly_purged``.
     """
     cutoff = now_ns - older_than_s * 1_000_000_000
-    found = db.stuck_messages(cutoff, limit + 1, queue, from_ns=from_ns, after=decode_cursor(cursor))
+    found = db.stuck_messages(cutoff, limit + 1, queue, from_ns=from_ns, after=decode_cursor(cursor), version=version)
     sums = {s["mid"]: s for s in db.summaries([r.message_id for r in found])}
     purges = _purges(db, sums.values())
     out = []

@@ -340,6 +340,9 @@ class App:
                 raise ApiError(404, f"no spans for message ID {rest[0]!r}")
             return trace_links.add_links(t, self.trace_link)
         if q.get("body", "").strip():
+            if q.get("version"):
+                raise ApiError(400, "version and body can't be given together: a body search does not filter by "
+                                    "version")
             try:
                 terms = bodies.parse_query(q["body"])
             except bodies.QueryError as e:
@@ -359,7 +362,7 @@ class App:
         frm, to = self._range(q)
         page = queries.recent_page(self.db, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"),
                                    mrc=self.max_receive_counts, tenant=q.get("tenant") or None,
-                                   from_ns=frm, to_ns=to, cursor=q.get("cursor"))
+                                   from_ns=frm, to_ns=to, cursor=q.get("cursor"), version=q.get("version") or None)
         return {"messages": page.items, "next_cursor": page.next_cursor}
 
     def duplicates(self, q: dict, rest: list[str]) -> dict:
@@ -370,7 +373,8 @@ class App:
             raise ApiError(400, "reason must be received_more_than_once or succeeded_more_than_once")
         frm, to = self._range(q)
         page = queries.duplicates_page(self.db, self.now(), self._lambda_timeout(q), _limit(q), q.get("queue"), reason,
-                                       mrc=self.max_receive_counts, from_ns=frm, to_ns=to, cursor=q.get("cursor"))
+                                       mrc=self.max_receive_counts, from_ns=frm, to_ns=to, cursor=q.get("cursor"),
+                                       version=q.get("version") or None)
         return {"messages": page.items, "next_cursor": page.next_cursor}
 
     def stuck(self, q: dict, rest: list[str]) -> dict:
@@ -380,7 +384,8 @@ class App:
         # only from_ms: the upper bound is now minus older_than_s (queries.stuck_page)
         frm = _int(q, "from_ms", -1, 0, 10 ** 15) * 1_000_000 if "from_ms" in q else None
         page = queries.stuck_page(self.db, self.now(), self._lambda_timeout(q), older, _limit(q), q.get("queue"),
-                                  mrc=self.max_receive_counts, from_ns=frm, cursor=q.get("cursor"))
+                                  mrc=self.max_receive_counts, from_ns=frm, cursor=q.get("cursor"),
+                                  version=q.get("version") or None)
         return {"older_than_s": older, "messages": page.items, "next_cursor": page.next_cursor}
 
     def tenants(self, q: dict, rest: list[str]) -> dict:

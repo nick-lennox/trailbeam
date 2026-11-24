@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **`service.version` is kept, so a deploy can be seen** (QV-362, the server half). Each stored span keeps its
+  resource's `service.version` beside `service.name` (SQLite schema 16, Postgres schema 10; rows stored before
+  have none). A timeline step's `consumer` has `service_version` when it is set, and the Timeline shows it after
+  the service name. The list rows' `consumers` (messages, duplicates, stuck) each have `service_version`, null
+  when unknown; a service and client seen under two versions is listed once for each. `/api/messages`,
+  `/api/duplicates` and `/api/stuck` take `version=`: only messages a consumer of that version received (not
+  indexed: read off each candidate's summary; `version` with `body` is a `400`). The conformance suite checks
+  the filter on both stores.
+
 - **Conformance kit: the Lambda wrappers** (QV-339, QV-318 stage 2). `trailbeam.aws_lambda.wrap` (Python) and
   `wrapHandler` (Node.js) run in the AWS Lambda base images, invoked through their Runtime Interface Emulator by
   a poller that plays Lambda's SQS event source mapping (`conformance/drivers/lambda-poller`). Cases: a success,
