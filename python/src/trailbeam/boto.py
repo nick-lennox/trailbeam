@@ -1,4 +1,5 @@
-"""Trailbeam hooks for boto3 / botocore SQS clients (contract sections 4.1 to 4.3, and 18 for PurgeQueue).
+"""Trailbeam hooks for boto3 / botocore SQS clients (contract sections 4.1 to 4.3, and 18 for PurgeQueue),
+and for SNS Publish / PublishBatch (section 21).
 
 The hooks ride on ``opentelemetry-instrumentation-botocore``: each Trailbeam span is a child of the stock
 span for the same API call. Usage::
@@ -26,6 +27,7 @@ from opentelemetry.sdk.trace.export import SpanExporter
 from ._contract import (
     SPAN_CHANGE_VISIBILITY,
     SPAN_DELETE,
+    SPAN_PUBLISH,
     SPAN_PURGE,
     SPAN_RECEIVE,
     SPAN_SEND,
@@ -106,7 +108,10 @@ def add_message_attribute_name(params: dict, name: Optional[str]) -> None:
 
 _MAX_PENDING = 10_000
 _now = time.time_ns  # wall clock for span start and end (contract section 2); replaced in tests
-_TRACKED_OPS = frozenset(_SETTLE_OPS) | {"SendMessage", "SendMessageBatch", "ReceiveMessage", "PurgeQueue"}
+_TRACKED_OPS = {
+    "sqs": frozenset(_SETTLE_OPS) | {"SendMessage", "SendMessageBatch", "ReceiveMessage", "PurgeQueue"},
+    "sns": frozenset({"Publish", "PublishBatch"}),  # 3.4, section 21
+}
 
 
 class SqsHooks:
@@ -118,23 +123,25 @@ class SqsHooks:
         self.capture = capture if capture is not None else _capture.Config()
         self.handles = handles if handles is not None else HandleMap()
         # Requests waiting for their response, keyed by the stock span object's id:
-        # (params, start_ns, order scope, issued tick).
-        self._pending: dict[int, tuple[dict, int, str, int]] = {}
+        # (params, start_ns, order scope, issued tick, publish-ID results of an SNS publish).
+        self._pending: dict[int, tuple[dict, int, str, int, Optional[list]]] = {}
         self._lock = threading.Lock()
 
     # -- hooks -------------------------------------------------------------------------------
 
     def request_hook(self, span, service: str, operation: str, params: dict) -> None:
-        if service != "sqs":
+        if operation not in _TRACKED_OPS.get(service, ()):
             return
         try:
-            if operation not in _TRACKED_OPS:
-                return
+            injected = None
             if operation == "ReceiveMessage":
                 add_receive_attribute_names(params, botocore_has_system_names_param())
                 add_message_attribute_name(params, self.capture.tenant_attribute)
                 for name in _capture.OFFLOADED_SIZE_ATTRIBUTES:
                     add_message_attribute_name(params, name)
+                add_message_attribute_name(params, _capture.PUBLISH_ID_ATTRIBUTE)  # 3.4: raw SNS delivery
+            elif service == "sns":
+                injected = self._inject_publish_ids(operation, params)
             with self._lock:
                 if len(self._pending) >= _MAX_PENDING:  # only if responses were lost; stay bounded
                     self._pending.clear()
@@ -142,28 +149,30 @@ class SqsHooks:
                 # this hook right before the API call (and its retries), so take the time last, with the
                 # call-order tick (schema version 3) immediately before it.
                 issued = _order.tick()
-                self._pending[id(span)] = (params, _now(), _order.scope, issued)
+                self._pending[id(span)] = (params, _now(), _order.scope, issued, injected)
         except Exception:  # pragma: no cover - defensive; never break the caller's SQS call
             log.debug("trailbeam request hook failed", exc_info=True)
 
     def response_hook(self, span, service: str, operation: str, result: Optional[dict]) -> None:
-        if service != "sqs":
+        if service not in _TRACKED_OPS:
             return
         end_ns = _now()  # section 2: the span ends when the response (or the error) arrived
-        if operation not in _TRACKED_OPS:
+        if operation not in _TRACKED_OPS[service]:
             return
         returned = _order.tick()
         with self._lock:
             pending = self._pending.pop(id(span), None)
         if pending is None:
             return
-        params, start_ns, scope, issued = pending
+        params, start_ns, scope, issued, injected = pending
         if scope != _order.scope:  # forked while the call was in flight: the issued tick is the parent's
             issued = None
         t = (start_ns, end_ns, (issued, returned))
         try:
             if operation == "ReceiveMessage":
                 self._on_receive(span, params, result, t)
+            elif service == "sns":
+                self._on_publish(span, operation, params, result, injected, t)
             elif operation in ("SendMessage", "SendMessageBatch"):
                 self._on_send(span, operation, params, result, t)
             else:
@@ -221,6 +230,7 @@ class SqsHooks:
             put(attrs, "trailbeam.dead_letter_queue_source_arn", a.get("DeadLetterQueueSourceArn"))
             attrs.update(_capture.fifo_attrs(a.get("MessageGroupId"), a.get("SequenceNumber")))
             attrs.update(self._contents(name, m.get("Body"), m.get("MessageAttributes"), m.get("MD5OfBody")))
+            attrs.update(self._sns_received(name, m.get("Body"), m.get("MessageAttributes")))
             self.emitter.emit(SPAN_RECEIVE, "ReceiveMessage", name, url, attrs, parent=span, start_ns=t[0], end_ns=t[1], order=t[2])
 
     def _contents(self, queue_name: str, body, attributes, md5) -> dict:
@@ -229,6 +239,69 @@ class SqsHooks:
         except Exception:  # pragma: no cover - defensive; a capture bug must not lose the span
             log.debug("trailbeam content attributes failed", exc_info=True)
             return {"trailbeam.body.capture_status": _capture.STATUS_REDACTION_FAILED}
+
+    def _sns_received(self, queue_name: str, body, attributes) -> dict:
+        try:
+            return _capture.sns_receive_attrs(self.capture, queue_name, body, attributes)
+        except Exception:  # pragma: no cover - defensive; must not lose the receive
+            log.debug("trailbeam SNS receive attributes failed", exc_info=True)
+            return {}
+
+    # -- SNS (revision 3.4, section 21) ------------------------------------------------------
+
+    def _inject_publish_ids(self, operation: str, params: dict) -> Optional[list]:
+        """Add trailbeam.publish_id to each message of a Publish to a topic. ``params`` is botocore's own
+        dict for this call; the caller's MessageAttributes and entries are copied, never changed."""
+        if not isinstance(params.get("TopicArn"), str) or not params["TopicArn"]:
+            return None  # a Publish to a phone number or a mobile endpoint: no topic, no SQS fan-out
+        if operation == "Publish":
+            [entry], results = _capture.sns_inject(self.capture, [params])
+            if entry is not params:
+                params["MessageAttributes"] = entry["MessageAttributes"]
+            return results
+        entries = params.get("PublishBatchRequestEntries")
+        if not isinstance(entries, list):
+            return None
+        new_entries, results = _capture.sns_inject(self.capture, entries)
+        params["PublishBatchRequestEntries"] = new_entries
+        return results
+
+    def _on_publish(self, span, operation: str, params: dict, result: Optional[dict], injected: Optional[list],
+                    t: tuple) -> None:
+        """One trailbeam publish per message SNS accepted. Failed publishes and entries have no span."""
+        arn = params.get("TopicArn")
+        if not result or "Error" in result or not isinstance(arn, str) or not arn:
+            return
+        topic = arn.rsplit(":", 1)[-1]
+        injected = injected or []
+        if operation == "Publish":
+            pairs = [(params, result, injected[0] if injected else None)]
+        else:
+            # Each Successful[] entry is matched to the request entry (and its publish ID) with the same Id.
+            entries = params.get("PublishBatchRequestEntries") or []
+            by_id = {}
+            for i, e in enumerate(entries):
+                if isinstance(e, dict):
+                    by_id[e.get("Id")] = (e, injected[i] if i < len(injected) else None)
+            pairs = []
+            for r in result.get("Successful") or []:
+                if isinstance(r, dict):
+                    request, inj = by_id.get(r.get("Id"), ({}, None))
+                    pairs.append((request, r, inj))
+        for request, response, inj in pairs:
+            attrs = {"aws.sns.topic.arn": arn}
+            put(attrs, "messaging.message.id", response.get("MessageId"))
+            if "messaging.message.id" not in attrs:
+                continue
+            if operation == "PublishBatch":
+                put(attrs, "trailbeam.batch_entry_id", response.get("Id"))
+            if inj is not None:
+                attrs[inj[0]] = inj[1]
+            if str(request.get("MessageStructure") or "").lower() != "json":
+                put(attrs, "messaging.message.body.size", _capture.body_size(request.get("Message")))
+            attrs.update(_capture.fifo_attrs(request.get("MessageGroupId"), response.get("SequenceNumber")))
+            self.emitter.emit(SPAN_PUBLISH, operation, topic, "", attrs,
+                              parent=span, start_ns=t[0], end_ns=t[1], order=t[2])
 
     def _sent(self, queue_name: str, request: dict, response: dict) -> dict:
         """3.2 attributes of one sent message: the body from the request, checked against the response's MD5."""
@@ -340,6 +413,7 @@ def install(
     span_processor: Optional[SpanProcessor] = None,
     tenant: Optional[dict] = None,
     capture: Optional[dict] = None,
+    sns: Optional[dict] = None,
 ) -> TracerProvider:
     """Install the Trailbeam SQS hooks into botocore. Returns the Trailbeam tracer provider.
 
@@ -349,12 +423,14 @@ def install(
     ``tenant`` (``{"message_attribute": ..., "body_path": ...}``) and ``capture`` (``{"body_queues":
     [...], "error_queues": [...], "redact_keys": [...], "redact_patterns": [...], "max_body_bytes": n}``)
     are contract section 15; each replaces its TRAILBEAM_* environment variables. Body capture is off
-    unless a queue is listed in ``body_queues``.
+    unless a queue is listed in ``body_queues``. ``sns`` (``{"inject": bool}``) is section 21: SNS
+    publishes get a ``trailbeam.publish_id`` message attribute unless ``inject`` is False. Receives on
+    every queue read the SNS envelope's MessageId, TopicArn and Timestamp, and nothing else in the body.
     Calling ``install`` again replaces the previous installation.
     """
     with _install_lock:
         _uninstall_locked()
-        config = _capture.resolve_config(tenant, capture)
+        config = _capture.resolve_config(tenant, capture, sns)
         provider = make_provider(span_exporter, span_processor)
         hooks = SqsHooks(Emitter(provider, resolve_hasher(receipt_hash_key), source="client"), capture=config)
         inst = _instrumentor()  # a singleton

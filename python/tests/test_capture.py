@@ -151,10 +151,10 @@ def test_lambda_s3_pointer_offloaded_size_with_capture_off():
     assert "trailbeam.body" not in a
 
 
-def test_receive_asks_for_the_extended_client_size_attributes():
+def test_receive_asks_for_the_extended_client_size_attributes_and_the_publish_id():
     hooks = trailbeam.boto.SqsHooks(emitter=None, capture=_capture.Config())
-    for given, expected in [([], ["ExtendedPayloadSize", "SQSLargePayloadSize"]),
-                            (["trace"], ["trace", "ExtendedPayloadSize", "SQSLargePayloadSize"]),
+    for given, expected in [([], ["ExtendedPayloadSize", "SQSLargePayloadSize", "trailbeam.publish_id"]),
+                            (["trace"], ["trace", "ExtendedPayloadSize", "SQSLargePayloadSize", "trailbeam.publish_id"]),
                             (["All"], ["All"]), ([".*"], [".*"])]:
         params = {"QueueUrl": "u", "MessageAttributeNames": list(given)}
         hooks.request_hook(object(), "sqs", "ReceiveMessage", params)

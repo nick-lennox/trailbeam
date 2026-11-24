@@ -2469,7 +2469,9 @@ components:
         - $ref: '#/components/schemas/VisibilityChangedStep'
         - $ref: '#/components/schemas/LambdaOutcomeStep'
         - $ref: '#/components/schemas/QueuePurgedStep'
+        - $ref: '#/components/schemas/PublishedStep'
         - $ref: '#/components/schemas/MovedToDeadLetterQueueStep'
+        - $ref: '#/components/schemas/ArrivedViaSnsStep'
         - $ref: '#/components/schemas/VisibilityTimeoutExpiredStep'
         - $ref: '#/components/schemas/DeliveriesNotObservedStep'
         - $ref: '#/components/schemas/DeletedByLambdaStep'
@@ -2483,7 +2485,9 @@ components:
           visibility_changed: '#/components/schemas/VisibilityChangedStep'
           lambda_outcome: '#/components/schemas/LambdaOutcomeStep'
           queue_purged: '#/components/schemas/QueuePurgedStep'
+          published: '#/components/schemas/PublishedStep'
           moved_to_dead_letter_queue: '#/components/schemas/MovedToDeadLetterQueueStep'
+          arrived_via_sns: '#/components/schemas/ArrivedViaSnsStep'
           visibility_timeout_expired: '#/components/schemas/VisibilityTimeoutExpiredStep'
           deliveries_not_observed: '#/components/schemas/DeliveriesNotObservedStep'
           deleted_by_lambda: '#/components/schemas/DeletedByLambdaStep'
@@ -2574,8 +2578,8 @@ components:
         call returned before the other was issued in the same process. `receive_count`: SQS's receive
         count. `sqs_timestamps`: SQS's own timestamps. `inferred_from`: an inferred step and the
         recorded step it was inferred from. `sqs_dlq_source`: a move SQS reported on a dead-letter
-        queue receive.
-      enum: [clock, process_order, receive_count, sqs_timestamps, inferred_from, sqs_dlq_source]
+        queue receive. `sns_envelope`: an SNS delivery whose envelope is on the receive (added in 3.4).
+      enum: [clock, process_order, receive_count, sqs_timestamps, inferred_from, sqs_dlq_source, sns_envelope]
     SentStep:
       allOf: [{$ref: '#/components/schemas/RecordedStep'}]
       description: A `SendMessage` or one entry of a `SendMessageBatch`.
@@ -2679,6 +2683,73 @@ components:
             step ended during the purge or within 60 s after it, and SQS may or may not have deleted it.
           enum: [per_sqs_documentation, possible]
         reason: {type: string, description: The same in words.}
+    PublishedStep:
+      allOf: [{$ref: '#/components/schemas/RecordedStep'}]
+      description: |
+        A recorded SNS `Publish` or one message of a `PublishBatch` (contract section 21, added in 3.4) that this
+        message's receives join: SNS delivered it to the queue. One publish reaches each subscribed queue as a
+        different SQS message, so the same step is on each of them, and `reached` lists them. Placed by the
+        hosts' clocks and the call order only: SNS's and SQS's timestamps are never compared with a host clock.
+        `queue` is the topic's name, and `consumer` the process that published.
+      unevaluatedProperties: false
+      required: [source, topic, topic_arn, sns_message_id, joined_by, reached, reached_truncated, reason]
+      properties:
+        type: {const: published}
+        source: {type: string, const: sns_publish, description: 'A topic-level step: the span names no SQS message.'}
+        topic: {type: string, description: The topic's name.}
+        topic_arn: {type: string}
+        sns_message_id: {type: string, description: The SNS message ID SNS returned for the publish.}
+        publish_id:
+          type: string
+          description: The `trailbeam.publish_id` attribute the package added to the message, when it added one.
+        batch_entry_id: {type: string, description: The entry's ID in a `PublishBatch`.}
+        joined_by:
+          type: array
+          description: |
+            How this message is joined to the publish. `envelope_message_id`: the SNS envelope's `MessageId` and
+            `TopicArn` on a receive (raw delivery off). `publish_id`: the `trailbeam.publish_id` attribute on a
+            receive (raw delivery on). Never `publish_id` alone for a message with a send.
+          items: {type: string, enum: [envelope_message_id, publish_id]}
+          minItems: 1
+        reached:
+          type: array
+          description: The SQS messages whose receives join this publish, by queue (this message among them).
+          items:
+            type: object
+            additionalProperties: false
+            required: [queue, message_ids]
+            properties:
+              queue: {type: string}
+              message_ids: {type: array, items: {type: string}}
+        reached_truncated: {type: boolean, description: True when there were more receives than `reached` lists (100).}
+        sns_delivery_ms:
+          type: integer
+          description: |
+            SNS delivery time: the first receive's `SentTimestamp` minus the envelope's `Timestamp`, in ms. Both are
+            AWS clocks (SQS's and SNS's), shown as measured. Only when joined through the envelope: raw delivery has
+            no envelope timestamp.
+        reason: {type: string, description: The step in words.}
+    ArrivedViaSnsStep:
+      allOf: [{$ref: '#/components/schemas/PlacedStep'}]
+      description: |
+        SNS delivered the message (contract section 21.5, added in 3.4): a receive's SNS envelope names the topic,
+        and no recorded publish joins it (the publisher runs no Trailbeam package). Not inferred: the envelope says
+        so. It has no time of its own and is placed before the receive that carries the envelope.
+      unevaluatedProperties: false
+      required: [source, topic, topic_arn, sns_message_id, reported_on_delivery]
+      properties:
+        type: {const: arrived_via_sns}
+        inferred: {const: false}
+        source: {const: sns_envelope}
+        topic: {type: string, description: The topic's name.}
+        topic_arn: {type: string}
+        sns_message_id: {type: string, description: The envelope's `MessageId`.}
+        reported_on_delivery: {type: integer, description: The delivery whose envelope names the topic.}
+        sns_timestamp:
+          allOf: [{$ref: '#/components/schemas/Timestamp'}]
+          description: The envelope's `Timestamp`, SNS's publish time on SNS's clock. Not used to place the step.
+        sns_timestamp_ms: {type: integer, description: '`sns_timestamp` in Unix milliseconds.'}
+        sns_delivery_ms: {type: integer, description: As on a published step.}
     PlacedStep:
       type: object
       description: The fields of every step that has no span. It has a time window instead of a time.
@@ -3020,6 +3091,7 @@ components:
                 change_visibility: {type: integer}
                 outcome: {type: integer}
                 purge: {type: integer, description: '`PurgeQueue` calls (contract section 18). They belong to no message.'}
+                publish: {type: integer, description: 'SNS messages published to a topic (contract section 21, added in 3.4). They belong to no message.'}
             messages: {type: integer, description: Distinct message IDs.}
             unjoined_settles: {type: integer, description: Delete and visibility-change spans not joined to a receive.}
     Health:

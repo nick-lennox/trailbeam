@@ -1,5 +1,6 @@
 """Message contents (contract section 15, revision 3.2): body size, tenant, FIFO fields, opt-in body
-capture with redaction, and Lambda error text.
+capture with redaction, and Lambda error text. SNS fan-out (section 21, revision 3.4): the publish ID the
+publish hooks add, and the three SNS envelope fields a receive reads.
 
 Nothing here makes an SQS call. Everything is read from the parameters and responses of calls the
 application made, or from the Lambda event. The Node.js package mirrors this module exactly
@@ -7,11 +8,14 @@ application made, or from the Lambda event. The Node.js package mirrors this mod
 """
 from __future__ import annotations
 
+import calendar
 import hashlib
 import json
 import os
 import re
+import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Mapping, Optional
 
 # -- statuses (section 15.4) ------------------------------------------------------------------------
@@ -59,6 +63,7 @@ ENV_ERROR_QUEUES = "TRAILBEAM_CAPTURE_ERROR_QUEUES"
 ENV_REDACT_KEYS = "TRAILBEAM_REDACT_KEYS"
 ENV_REDACT_PATTERNS = "TRAILBEAM_REDACT_PATTERNS"
 ENV_MAX_BODY_BYTES = "TRAILBEAM_CAPTURE_MAX_BYTES"
+ENV_SNS_INJECT = "TRAILBEAM_SNS_INJECT"
 
 
 def _lower(s: str) -> str:
@@ -86,6 +91,9 @@ class Config:
     redact_keys: tuple = DEFAULT_REDACT_KEYS
     redact_patterns: tuple = DEFAULT_PATTERNS
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES
+    # 3.4 (section 21): add trailbeam.publish_id to Publish / PublishBatch. The SNS envelope's three
+    # fields are read on every queue (board decision on QV-302), so they have no option.
+    sns_inject: bool = True
     _key_value_re: Any = field(default=None, compare=False, repr=False)
     _pattern_res: tuple = field(default=(), compare=False, repr=False)
 
@@ -114,10 +122,18 @@ class Config:
         return bool(queue_name) and ("*" in self.error_queues or queue_name in self.error_queues)
 
 
-def resolve_config(tenant: Optional[Mapping] = None, capture: Optional[Mapping] = None) -> Config:
-    """Explicit options, else environment variables (section 15.1). Each option group replaces its
-    environment variables as a whole."""
+def _flag_on(value: Optional[str]) -> bool:
+    """An on/off environment variable that defaults to on: only off, false, 0 or no turn it off."""
+    return _lower((value or "").strip()) not in ("off", "false", "0", "no")
+
+
+def resolve_config(tenant: Optional[Mapping] = None, capture: Optional[Mapping] = None,
+                   sns: Optional[Mapping] = None) -> Config:
+    """Explicit options, else environment variables (sections 15.1 and 21.4). Each option group replaces
+    its environment variables as a whole."""
     env = os.environ
+    if sns is None:
+        sns = {"inject": _flag_on(env.get(ENV_SNS_INJECT))}
     if tenant is None:
         tenant = {"message_attribute": env.get(ENV_TENANT_ATTRIBUTE) or None,
                   "body_path": env.get(ENV_TENANT_BODY_PATH) or None}
@@ -137,6 +153,7 @@ def resolve_config(tenant: Optional[Mapping] = None, capture: Optional[Mapping] 
         redact_keys=DEFAULT_REDACT_KEYS + tuple(k for k in extra_keys if k not in DEFAULT_REDACT_KEYS),
         redact_patterns=tuple(patterns) if patterns is not None else DEFAULT_PATTERNS,
         max_body_bytes=capture.get("max_body_bytes") or DEFAULT_MAX_BODY_BYTES,
+        sns_inject=sns.get("inject", True) is not False,
     )
 
 
@@ -474,4 +491,147 @@ def fifo_attrs(group_id: Any, sequence_number: Any) -> dict:
         out["trailbeam.message_group_id"] = group_id
     if isinstance(sequence_number, str) and sequence_number:
         out["trailbeam.sequence_number"] = sequence_number
+    return out
+
+
+# -- SNS fan-out (section 21, revision 3.4) ---------------------------------------------------------
+
+PUBLISH_ID_ATTRIBUTE = "trailbeam.publish_id"
+SNS_MAX_ATTRIBUTES = 10  # with raw delivery on, SNS drops a message with more (section 21.2)
+SNS_MAX_MESSAGE_BYTES = 262_144  # the topics' default MaximumMessageSize
+SKIP_OFF = "off"
+SKIP_JSON_STRUCTURE = "json_structure"
+SKIP_ATTRIBUTE_LIMIT = "attribute_limit"
+SKIP_SIZE_LIMIT = "size_limit"
+_PUBLISH_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
+_SNS_MESSAGE_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,100}$")
+_TOPIC_ARN_RE = re.compile(r"^arn:[a-z0-9-]+:sns:[a-z0-9-]+:[0-9]{12}:[A-Za-z0-9_-]{1,256}(?:[.]fifo)?$")
+_SNS_TIMESTAMP_RE = re.compile(
+    r"^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:[.]([0-9]{1,9}))?Z$")
+
+
+def _utf8_len(value: Any) -> int:
+    if isinstance(value, str):
+        return len(value.encode("utf-8", "surrogatepass"))
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return len(value)
+    return 0
+
+
+def _publish_id_attribute(publish_id: str) -> dict:
+    return {"DataType": "String", "StringValue": publish_id}
+
+
+_INJECTED_BYTES = len(PUBLISH_ID_ATTRIBUTE) + len("String") + 36  # name, type and a UUID: 62
+
+
+def sns_entry_bytes(entry: Mapping) -> int:
+    """What one Publish (batch entry) counts toward SNS's size limit, without a trailbeam.publish_id:
+    Message, Subject, and each attribute's name, type and value, in UTF-8 bytes."""
+    n = _utf8_len(entry.get("Message")) + _utf8_len(entry.get("Subject"))
+    attrs = entry.get("MessageAttributes")
+    if isinstance(attrs, Mapping):
+        for name, a in attrs.items():
+            if name == PUBLISH_ID_ATTRIBUTE:
+                continue
+            n += _utf8_len(name)
+            if isinstance(a, Mapping):
+                n += _utf8_len(a.get("DataType")) + _utf8_len(a.get("StringValue")) + _utf8_len(a.get("BinaryValue"))
+    return n
+
+
+def sns_inject(config: Config, entries: list, new_id=lambda: str(uuid.uuid4())) -> tuple[list, list]:
+    """Section 21.2: add trailbeam.publish_id to the entries of one Publish (a list of one: the request) or
+    PublishBatch call. Returns (entries, results): each entry is the caller's own object if nothing was
+    added, else a copy with a new MessageAttributes; each result is ("trailbeam.sns.publish_id", id) or
+    ("trailbeam.sns.publish_id_skipped", reason). Never modifies the caller's objects."""
+    reasons: list = []
+    for e in entries:
+        if not isinstance(e, Mapping):
+            reasons.append(None)
+            continue
+        attrs = e.get("MessageAttributes")
+        others = [k for k in attrs if k != PUBLISH_ID_ATTRIBUTE] if isinstance(attrs, Mapping) else []
+        if not config.sns_inject:
+            reasons.append(SKIP_OFF)
+        elif _lower(str(e.get("MessageStructure") or "")) == "json":
+            reasons.append(SKIP_JSON_STRUCTURE)
+        elif len(others) + 1 > SNS_MAX_ATTRIBUTES:
+            reasons.append(SKIP_ATTRIBUTE_LIMIT)
+        else:
+            reasons.append("")
+    # The whole call counts toward one size limit (PublishBatch: "the sum of the individual lengths").
+    total = sum(sns_entry_bytes(e) for e in entries if isinstance(e, Mapping))
+    total += _INJECTED_BYTES * reasons.count("")
+    if total > SNS_MAX_MESSAGE_BYTES:
+        reasons = [SKIP_SIZE_LIMIT if r == "" else r for r in reasons]
+    out_entries, results = [], []
+    for e, reason in zip(entries, reasons):
+        if reason is None:
+            out_entries.append(e)
+            results.append(None)
+        elif reason:
+            out_entries.append(e)
+            results.append(("trailbeam.sns.publish_id_skipped", reason))
+        else:
+            pid = new_id()
+            given = e.get("MessageAttributes")
+            attrs = dict(given) if isinstance(given, Mapping) else {}
+            attrs[PUBLISH_ID_ATTRIBUTE] = _publish_id_attribute(pid)  # replaces one a republished message carried
+            copy = dict(e)
+            copy["MessageAttributes"] = attrs
+            out_entries.append(copy)
+            results.append(("trailbeam.sns.publish_id", pid))
+    return out_entries, results
+
+
+def sns_timestamp_ms(value: Any) -> Optional[int]:
+    """An SNS envelope Timestamp (``2021-02-16T21:41:19.978Z``) as epoch milliseconds, or None. Digits after
+    the third fractional one are dropped, not rounded."""
+    if not isinstance(value, str):
+        return None
+    m = _SNS_TIMESTAMP_RE.match(value)
+    if not m:
+        return None
+    y, mo, d, h, mi, s = (int(x) for x in m.groups()[:6])
+    if y < 1970:
+        return None
+    try:
+        dt = datetime(y, mo, d, h, mi, s, tzinfo=timezone.utc)
+    except ValueError:  # month 13, February 30, second 60
+        return None
+    return calendar.timegm(dt.utctimetuple()) * 1000 + int(((m.group(7) or "") + "000")[:3])
+
+
+def sns_envelope(body: Any) -> Optional[dict]:
+    """The three fields of an SNS notification envelope (section 21.3), as receive attributes, or None if
+    the body is not one. Nothing else in the body is read or exported."""
+    if not isinstance(body, str) or '"Notification"' not in body or body.lstrip(" \t\n\r")[:1] != "{":
+        return None
+    doc = _parse(body)
+    if not isinstance(doc, dict) or doc.get("Type") != "Notification":
+        return None
+    mid, arn = doc.get("MessageId"), doc.get("TopicArn")
+    if not (isinstance(mid, str) and _SNS_MESSAGE_ID_RE.match(mid) and isinstance(arn, str) and _TOPIC_ARN_RE.match(arn)):
+        return None
+    out = {"trailbeam.sns.message_id": mid, "trailbeam.sns.topic_arn": arn}
+    ts = sns_timestamp_ms(doc.get("Timestamp"))
+    if ts is not None:
+        out["trailbeam.sns.timestamp_ms"] = ts
+    return out
+
+
+def sns_receive_attrs(config: Config, queue_name: str, body: Any, attributes: Any, lambda_record: bool = False) -> dict:
+    """Section 21.3 attributes of one received message: the publish ID from its message attribute (raw
+    delivery), and the three envelope fields if the body is an SNS envelope (raw delivery off). These are
+    read on every queue, whether or not its body is captured; nothing else in the body is."""
+    out: dict = {}
+    if isinstance(attributes, Mapping):
+        a = attributes.get(PUBLISH_ID_ATTRIBUTE)
+        v = a.get("stringValue" if lambda_record else "StringValue") if isinstance(a, Mapping) else None
+        if isinstance(v, str) and _PUBLISH_ID_RE.match(v):
+            out["trailbeam.sns.publish_id"] = v
+    env = sns_envelope(body)
+    if env:
+        out.update(env)
     return out

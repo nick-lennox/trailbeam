@@ -1,5 +1,6 @@
 'use strict';
-// Trailbeam hooks for AWS SDK v3 SQS clients (contract sections 4.1 to 4.3, and 18 for PurgeQueue).
+// Trailbeam hooks for AWS SDK v3 SQS clients (contract sections 4.1 to 4.3, and 18 for PurgeQueue), and
+// for SNS clients' Publish and PublishBatch (section 21).
 //
 // The hooks are a middleware on each SQSClient's middleware stack. When the application uses
 // @opentelemetry/instrumentation-aws-sdk, that instrumentation runs the whole stack inside the
@@ -8,12 +9,14 @@
 //
 //     const trailbeam = require('trailbeam');
 //     const sqs = trailbeam.instrument(new SQSClient({}));   // installs with defaults on first use
+//     const sns = trailbeam.instrument(new SNSClient({}));   // 3.4: SNS publishes, joined to their receives
 
 const api = require('@opentelemetry/api');
 
 const {
   SPAN_CHANGE_VISIBILITY,
   SPAN_DELETE,
+  SPAN_PUBLISH,
   SPAN_PURGE,
   SPAN_RECEIVE,
   SPAN_SEND,
@@ -48,7 +51,8 @@ const SETTLE_OPS = {
   ChangeMessageVisibility: [SPAN_CHANGE_VISIBILITY, false],
   ChangeMessageVisibilityBatch: [SPAN_CHANGE_VISIBILITY, true],
 };
-const OPS = new Set(['SendMessage', 'SendMessageBatch', 'ReceiveMessage', 'PurgeQueue', ...Object.keys(SETTLE_OPS)]);
+const PUBLISH_OPS = new Set(['Publish', 'PublishBatch']); // 3.4, section 21: SNS clients
+const OPS = new Set(['SendMessage', 'SendMessageBatch', 'ReceiveMessage', 'PurgeQueue', ...Object.keys(SETTLE_OPS), ...PUBLISH_OPS]);
 
 function debug(what, err) {
   api.diag.debug(`trailbeam: ${what} failed`, err);
@@ -131,6 +135,62 @@ class SqsHooks {
     }
   }
 
+  snsReceived(queueName, body, attributes) {
+    try {
+      return capture.snsReceiveAttrs(this.config, queueName, body, attributes);
+    } catch (e) {
+      debug('SNS receive attributes', e); // must not lose the receive
+      return {};
+    }
+  }
+
+  /**
+   * 3.4 (section 21.2): a copy of a Publish / PublishBatch input to a topic with trailbeam.publish_id added,
+   * and the result per message: `{ input, injected }`, or undefined if the call is not to a topic. The
+   * caller's objects are never modified.
+   */
+  injectPublishIds(operation, input) {
+    if (typeof input.TopicArn !== 'string' || !input.TopicArn) return undefined; // a phone number or mobile endpoint
+    if (operation === 'Publish') {
+      const { entries: [entry], results } = capture.snsInject(this.config, [input]);
+      return { input: entry, injected: results };
+    }
+    if (!Array.isArray(input.PublishBatchRequestEntries)) return undefined;
+    const { entries, results } = capture.snsInject(this.config, input.PublishBatchRequestEntries);
+    return { input: { ...input, PublishBatchRequestEntries: entries }, injected: results };
+  }
+
+  /** One trailbeam publish per message SNS accepted. Failed publishes and entries have no span. */
+  onPublish(operation, input, output, injected = [], parentContext, times = {}) {
+    const arn = input.TopicArn;
+    if (!output || typeof arn !== 'string' || !arn) return;
+    const topic = arn.slice(arn.lastIndexOf(':') + 1);
+    let pairs;
+    if (operation === 'Publish') {
+      pairs = [[input, output, injected[0]]];
+    } else {
+      // Each Successful[] entry is matched to the request entry (and its publish ID) with the same Id.
+      const byId = new Map();
+      (Array.isArray(input.PublishBatchRequestEntries) ? input.PublishBatchRequestEntries : []).forEach((e, i) => {
+        if (e && typeof e === 'object') byId.set(e.Id, [e, injected[i]]);
+      });
+      pairs = (output.Successful || []).filter(Boolean).map((r) => {
+        const [request, inj] = byId.get(r.Id) || [{}, undefined];
+        return [request, r, inj];
+      });
+    }
+    const t = spanTimes(times);
+    for (const [request, response, inj] of pairs) {
+      if (!response.MessageId) continue;
+      const attrs = { 'aws.sns.topic.arn': arn, 'messaging.message.id': response.MessageId };
+      if (operation === 'PublishBatch') put(attrs, 'trailbeam.batch_entry_id', response.Id);
+      if (inj) attrs[inj[0]] = inj[1];
+      if (String(request.MessageStructure || '').toLowerCase() !== 'json') put(attrs, 'messaging.message.body.size', capture.bodySize(request.Message));
+      Object.assign(attrs, capture.fifoAttrs(request.MessageGroupId, response.SequenceNumber));
+      this.emitter.emit(SPAN_PUBLISH, operation, topic, undefined, attrs, { parentContext, ...t });
+    }
+  }
+
   /** 3.2 attributes of one sent message: the body from the request, checked against the response's MD5. */
   sent(queueName, request, response) {
     return {
@@ -180,6 +240,7 @@ class SqsHooks {
       put(attrs, 'trailbeam.dead_letter_queue_source_arn', a.DeadLetterQueueSourceArn);
       Object.assign(attrs, capture.fifoAttrs(a.MessageGroupId, a.SequenceNumber));
       Object.assign(attrs, this.contents(name, m.Body, m.MessageAttributes, m.MD5OfBody));
+      Object.assign(attrs, this.snsReceived(name, m.Body, m.MessageAttributes));
       this.emitter.emit(SPAN_RECEIVE, 'ReceiveMessage', name, url, attrs, { parentContext, ...t });
     }
   }
@@ -237,15 +298,27 @@ function sqsMiddleware(getHooks) {
     const operation = typeof cmd === 'string' ? cmd.replace(/Command$/, '') : undefined;
     if (!hooks || !OPS.has(operation) || !args || !args.input) return next(args);
 
-    const input = args.input;
+    let input = args.input;
+    let injected;
     if (operation === 'ReceiveMessage') {
       try {
         let changed = addReceiveAttributeNames(input) || input;
         changed = addMessageAttributeName(changed, hooks.config && hooks.config.tenantAttribute) || changed;
         for (const name of capture.OFFLOADED_SIZE_ATTRIBUTES) changed = addMessageAttributeName(changed, name) || changed;
+        changed = addMessageAttributeName(changed, capture.PUBLISH_ID_ATTRIBUTE) || changed; // 3.4: raw SNS delivery
         if (changed !== input) args = { ...args, input: changed };
       } catch (e) {
         debug('receive request hook', e);
+      }
+    } else if (PUBLISH_OPS.has(operation)) {
+      try {
+        const planned = hooks.injectPublishIds(operation, input);
+        if (planned) {
+          ({ input, injected } = planned);
+          args = { ...args, input };
+        }
+      } catch (e) {
+        debug('publish request hook', e);
       }
     }
     const parentContext = api.context.active();
@@ -272,6 +345,7 @@ function sqsMiddleware(getHooks) {
       if (operation === 'ReceiveMessage') hooks.onReceive(input, output, parentContext, times);
       else if (operation === 'SendMessage' || operation === 'SendMessageBatch') hooks.onSend(operation, input, output, parentContext, times);
       else if (operation === 'PurgeQueue') hooks.onPurge(input, output || {}, undefined, parentContext, times);
+      else if (PUBLISH_OPS.has(operation)) hooks.onPublish(operation, input, output, injected, parentContext, times);
       else hooks.onSettle(operation, input, output || {}, undefined, parentContext, times);
     } catch (e) {
       debug(`${operation} hook`, e);
@@ -296,9 +370,12 @@ let state = null;
  * @param {{messageAttribute?: string, bodyPath?: string}} [options.tenant] contract section 15
  * @param {{bodyQueues?: string[], errorQueues?: string[], redactKeys?: string[], redactPatterns?: string[], maxBodyBytes?: number}} [options.capture]
  *   contract section 15; body capture is off unless a queue is listed in `bodyQueues`
+ * @param {{inject?: boolean}} [options.sns] contract section 21: SNS publishes get a `trailbeam.publish_id`
+ *   message attribute unless `inject` is false. Receives on every queue read the SNS envelope's MessageId,
+ *   TopicArn and Timestamp, and nothing else in the body
  */
 function install(options = {}) {
-  const config = capture.resolveConfig(options.tenant, options.capture);
+  const config = capture.resolveConfig(options.tenant, options.capture, options.sns);
   const previous = state;
   const { provider, resource } = makeProvider(options);
   const clientId = resource.attributes[SERVICE_INSTANCE_ID];
@@ -332,12 +409,12 @@ function addExitHooks() {
 }
 
 /**
- * Add the Trailbeam hooks to an AWS SDK v3 SQSClient. Installs with default options first if `install`
- * has not been called. Safe to call more than once on the same client. Returns the client.
+ * Add the Trailbeam hooks to an AWS SDK v3 SQSClient or SNSClient. Installs with default options first if
+ * `install` has not been called. Safe to call more than once on the same client. Returns the client.
  */
 function instrument(client) {
   if (!client || !client.middlewareStack || typeof client.middlewareStack.add !== 'function') {
-    throw new TypeError('trailbeam.instrument expects an AWS SDK v3 SQSClient');
+    throw new TypeError('trailbeam.instrument expects an AWS SDK v3 SQSClient or SNSClient');
   }
   if (!state) install();
   client.middlewareStack.add(sqsMiddleware(() => state && state.hooks), {

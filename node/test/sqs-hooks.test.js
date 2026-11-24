@@ -298,8 +298,8 @@ test('ReceiveMessage request asks for the system attributes, without touching th
   assert.deepStrictEqual(calls[0].input.MessageSystemAttributeNames,
     ['SenderId', 'ApproximateReceiveCount', 'SentTimestamp', 'ApproximateFirstReceiveTimestamp', 'AWSTraceHeader', 'DeadLetterQueueSourceArn',
       'MessageGroupId', 'SequenceNumber']);
-  assert.deepStrictEqual(calls[0].input.MessageAttributeNames, ['trace', 'ExtendedPayloadSize', 'SQSLargePayloadSize'],
-    'message attributes: only the Extended Client size attributes are added');
+  assert.deepStrictEqual(calls[0].input.MessageAttributeNames, ['trace', 'ExtendedPayloadSize', 'SQSLargePayloadSize', 'trailbeam.publish_id'],
+    'message attributes: only the Extended Client size attributes and (3.4) the SNS publish ID are added');
   assert.deepStrictEqual(input.MessageSystemAttributeNames, ['SenderId'], 'caller input not mutated');
 });
 

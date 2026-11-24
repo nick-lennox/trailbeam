@@ -139,7 +139,7 @@ import psycopg_pool
 from psycopg import errors, sql
 from psycopg.rows import dict_row
 
-from . import body_table, pg_schema, purge, queues, rollup, summary
+from . import body_table, pg_schema, purge, queues, rollup, sns, summary
 from .lookup_filter import LookupFilter, hash_key, mid_key
 from .db import gate_body
 from .otlp import RECORD_FIELDS
@@ -915,17 +915,61 @@ class PostgresStore(Store):
         raise RuntimeError(f"insert did not complete after {self.INGEST_ATTEMPTS} attempts")
 
     def _insert(self, conn, prepared, more_locks=frozenset()) -> tuple[int, int]:
-        """One attempt at an export, in ``conn``'s transaction: its purges (``purges``, by themselves: they belong
-        to no message and no place), then its spans."""
+        """One attempt at an export, in ``conn``'s transaction: its purges (``purges``) and SNS publishes
+        (``sns_publishes``), by themselves: they belong to no message and no place; then its spans, and the SNS keys
+        of its receives (``sns_receives``)."""
         purges = [x for x in prepared if x[0]["kind"] == "purge"]
-        if not purges:
-            return self._insert_spans(conn, prepared, more_locks)
-        inserted, dupes = self._insert_purges(conn, purges)
-        rest = [x for x in prepared if x[0]["kind"] != "purge"]
-        if rest:
-            i, d = self._insert_spans(conn, rest, more_locks)
-            inserted, dupes = inserted + i, dupes + d
+        publishes = [x for x in prepared if x[0]["kind"] == sns.KIND]
+        if not purges and not publishes:
+            inserted, dupes = self._insert_spans(conn, prepared, more_locks)
+        else:
+            inserted = dupes = 0
+            if purges:
+                inserted, dupes = self._insert_purges(conn, purges)
+            if publishes:
+                i, d = self._insert_publishes(conn, publishes)
+                inserted, dupes = inserted + i, dupes + d
+            rest = [x for x in prepared if x[0]["kind"] not in ("purge", sns.KIND)]
+            if rest:
+                i, d = self._insert_spans(conn, rest, more_locks)
+                inserted, dupes = inserted + i, dupes + d
+        self._insert_sns_receives(conn, prepared)
         return inserted, dupes
+
+    def _insert_publishes(self, conn, publishes) -> tuple[int, int]:
+        """SNS publishes (contract section 21.1). The same span again (trace, span and end time) is a duplicate."""
+        cols = {c: [] for c in _PUBLISH_INSERT}
+        for r, _own, attrs, *_ in publishes:
+            env, pid = sns.publish_keys({"attributes": attrs, "message_id": r.get("message_id")})
+            for c in _PUBLISH_INSERT:
+                cols[c].append(attrs if c == "attributes" else env[0] if c == "topic_arn" else pid if c == "publish_id"
+                               else r.get(c))
+        names = ", ".join(_PUBLISH_INSERT)
+        types = ", ".join(f"%s::{'bigint' if c in _PURGE_INT else 'text'}[]" for c in _PUBLISH_INSERT)
+        got = conn.execute(f"INSERT INTO sns_publishes ({names}) SELECT {names} FROM unnest({types}) AS u({names}) "
+                           "ON CONFLICT DO NOTHING RETURNING id", [cols[c] for c in _PUBLISH_INSERT]).fetchall()
+        return len(got), len(publishes) - len(got)
+
+    def _insert_sns_receives(self, conn, prepared) -> None:
+        """The SNS keys of the export's receives (contract section 21.3), for Store.sns_receivers. An exporter's
+        retry writes the same rows again: the newest time is kept."""
+        rows = {}
+        for r, own, attrs, *_ in prepared:
+            if r["kind"] != "receive" or not own:
+                continue
+            env, pid = sns.receive_keys({"attributes": attrs})
+            for key in ([_env_key(env)] if env else []) + ([_PID + pid] if pid else []):
+                k = (key, own)
+                if k not in rows or rows[k][1] < r["time_ns"]:
+                    rows[k] = (r["queue"], r["time_ns"])
+        if not rows:
+            return
+        items = sorted(rows.items())  # one order for every writer: concurrent exports never deadlock on these rows
+        conn.execute("""INSERT INTO sns_receives (key, mid, queue, time_ns)
+                        SELECT * FROM unnest(%s::text[], %s::text[], %s::text[], %s::bigint[])
+                        ON CONFLICT (key, mid) DO UPDATE SET time_ns = GREATEST(sns_receives.time_ns, EXCLUDED.time_ns)""",
+                     ([k for (k, _), _ in items], [m for (_, m), _ in items], [q for _, (q, _) in items],
+                      [t for _, (_, t) in items]))
 
     def _insert_purges(self, conn, purges) -> tuple[int, int]:
         """PurgeQueue calls (contract section 18). The same span again (trace, span and end time) is a duplicate."""
@@ -1365,7 +1409,7 @@ class PostgresStore(Store):
         if not self.holds_retention_lease():
             return PurgeStep(0, 0, None)
         if resume is None:
-            n = self._expire_purges(cutoffs)
+            n = self._expire_purges(cutoffs) + self._expire_sns(cutoffs)
             step = self._place_step(cutoffs, None, limit)
             return step._replace(deleted=step.deleted + n) if n else step
         return self._place_step(cutoffs, resume, limit)
@@ -1383,6 +1427,30 @@ class PostgresStore(Store):
             return 0
         with self.ingest.connection() as w:
             return w.execute("DELETE FROM purges WHERE id = ANY(%s)", (gone,)).rowcount
+
+    def _expire_sns(self, cutoffs: Cutoffs) -> int:
+        """Delete the SNS publishes and receive keys whose own time expired on their topic's or queue's cutoff, with
+        the store's granularity (a time t expires once (t // G + 1) * G <= cutoff, that is t < (cutoff // G) * G).
+        One statement per queue with its own cutoff, one for the rest. Returns the publishes deleted (spans)."""
+        if cutoffs.keeps_everything():
+            return 0
+        g = self.retention_granularity_ns
+        own = sorted(cutoffs.queues)
+        n = 0
+        with self.ingest.connection() as w:
+            for table in ("sns_publishes", "sns_receives"):
+                done = 0
+                for q in own:
+                    cut = cutoffs.queues[q]
+                    if cut is not None:
+                        done += w.execute(f"DELETE FROM {table} WHERE queue = %s AND time_ns < %s",
+                                          (q, (cut // g) * g)).rowcount
+                if cutoffs.default is not None:
+                    done += w.execute(f"DELETE FROM {table} WHERE time_ns < %s AND NOT (queue = ANY(%s))",
+                                      ((cutoffs.default // g) * g, own)).rowcount
+                if table == "sns_publishes":
+                    n = done
+        return n
 
     def _place_step(self, cutoffs: Cutoffs, resume: Optional[str], limit: int) -> PurgeStep:
         if resume is None:
@@ -1856,6 +1924,47 @@ class PostgresStore(Store):
             return c.execute(f'SELECT id AS "row", {cols} FROM purges WHERE queue = ANY(%s) ORDER BY time_ns, id',
                              (queues,)).fetchall()
 
+    def publishes(self, keys) -> list[dict]:
+        if not keys:
+            return []
+        cols = ", ".join(c for c in sns.COLUMNS if c != "row")
+        env = sorted(keys.envelope)
+        with self._reading() as c:
+            rows = c.execute(
+                f"""SELECT id AS "row", {cols} FROM sns_publishes
+                    WHERE (topic_arn, message_id) IN (SELECT * FROM unnest(%s::text[], %s::text[]))
+                       OR publish_id = ANY(%s::text[])
+                    ORDER BY time_ns, id LIMIT %s""",
+                ([a for a, _ in env], [m for _, m in env], sorted(keys.publish_ids), sns.MAX_PUBLISHES)).fetchall()
+        return [r for r in rows if sns.join_of(keys, r)]
+
+    def sns_receivers(self, keys) -> list[dict]:
+        if not keys:
+            return []
+        env = [_env_key(e) for e in sorted(keys.envelope)]
+        with self._reading() as c:
+            rows = c.execute(
+                """SELECT key, mid, queue, time_ns FROM sns_receives WHERE key = ANY(%s::text[])
+                   ORDER BY time_ns, key, mid LIMIT %s""",
+                (env + [_PID + p for p in sorted(keys.publish_ids)], 2 * sns.MAX_REACHED)).fetchall()
+        out: dict = {}
+        for i, r in enumerate(rows):
+            by = sns.BY_ENVELOPE if r["key"].startswith(_ENV) else sns.BY_PUBLISH_ID
+            was = out.get(r["mid"])
+            if was is None or (by == sns.BY_ENVELOPE and was["by"] != by):
+                out[r["mid"]] = {"row": i, "mid": r["mid"], "queue": r["queue"], "time_ns": r["time_ns"], "by": by}
+        return sorted(out.values(), key=lambda r: (r["time_ns"], r["row"]))[:sns.MAX_REACHED]
+
+    def sent_messages(self, message_ids) -> set:
+        mids = sorted(set(message_ids))
+        if not mids:
+            return set()
+        def query(places):
+            q, p = _each(places, "SELECT DISTINCT mid FROM spans s WHERE {p} AND s.mid = ANY(%s) AND s.kind = 'send'",
+                         [mids], "s")
+            return q, p
+        return {r["mid"] for r in self._by_message(mids, query)}
+
     def summaries(self, message_ids: list[str]) -> list[dict]:
         if not message_ids:
             return []
@@ -2100,8 +2209,11 @@ class PostgresStore(Store):
                 kinds[r["kind"]] = kinds.get(r["kind"], 0) + r["n"]
         with self._reading() as c:
             purges = c.execute("SELECT COUNT(*) AS n FROM purges").fetchone()["n"]
+            publishes = c.execute("SELECT COUNT(*) AS n FROM sns_publishes").fetchone()["n"]
         if purges:
             kinds["purge"] = purges
+        if publishes:
+            kinds[sns.KIND] = publishes
         return {"spans": kinds, "messages": messages, "unjoined_settles": unjoined}
 
 def _apply_rollup(conn, deltas: "rollup.Deltas") -> None:
@@ -2188,6 +2300,14 @@ def _events(s, events: list) -> list:
 # The columns of a purge row written (purge.COLUMNS but its id), and those that are integers.
 _PURGE_INSERT = [c for c in purge.COLUMNS if c != "row"]
 _PURGE_INT = {"start_ns", "time_ns", "pid", "order_issued", "order_returned"}
+# The columns of an SNS publish row written (sns.COLUMNS but its id, with its two keys), and the sns_receives keys.
+_PUBLISH_INSERT = [c for c in sns.COLUMNS if c != "row"] + ["topic_arn", "publish_id"]
+_ENV, _PID = "e:", "p:"
+
+
+def _env_key(env: tuple) -> str:
+    """The sns_receives key of an envelope key (topic ARN, SNS message ID): ARNs have no spaces."""
+    return f"{_ENV}{env[0]} {env[1]}"
 # A PurgeQueue call SQS accepted on the message's queue that started after its newest step ended (contract section 18,
 # purge.classify): the message is purged, not stuck. ``s``: the messages row.
 _PURGED_SQL = """SELECT 1 FROM purges pg WHERE pg.queue = s.current_queue AND pg.result = 'ok' AND pg.start_ns > s.last_ns"""

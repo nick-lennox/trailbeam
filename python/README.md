@@ -54,7 +54,7 @@ scope.
 
 | Call | Effect |
 |---|---|
-| `install(receipt_hash_key=None, *, span_exporter=None, span_processor=None)` | Installs the hooks and returns the Trailbeam `TracerProvider`. `receipt_hash_key` takes precedence over `TRAILBEAM_RECEIPT_HASH_KEY`. `span_exporter` or `span_processor` replaces the default OTLP/HTTP export. A second call replaces the first installation. |
+| `install(receipt_hash_key=None, *, span_exporter=None, span_processor=None, tenant=None, capture=None, sns=None)` | Installs the hooks and returns the Trailbeam `TracerProvider`. `receipt_hash_key` takes precedence over `TRAILBEAM_RECEIPT_HASH_KEY`. `span_exporter` or `span_processor` replaces the default OTLP/HTTP export. A second call replaces the first installation. |
 | `uninstall()` | Removes the hooks, then flushes and shuts down the Trailbeam tracer provider. |
 | `trailbeam.export_stats()` | `{"exported", "queued", "dropped", "dropped_by_reason"}` for this process ([Dropped spans](#dropped-spans)). |
 
@@ -186,6 +186,28 @@ process before export. A body that fails redaction, fails the MD5 check or is ov
 exported, and the span says why in `trailbeam.body.capture_status`. The package never makes an SQS
 call of its own. A self-hosted Trailbeam stores the body only if the queue is also in its own
 `TRAILBEAM_STORE_BODIES` ([Message bodies](../README.md#message-bodies)).
+
+### SNS fan-out
+
+Contract section 21. `install` also hooks boto3 `sns` clients: each `publish` and `publish_batch` to a topic
+records a `trailbeam publish` span with the SNS message ID, and a receive of the message on a subscribed queue is
+joined to it. Two ways the join works:
+
+- **Raw delivery on**: the hooks add one message attribute, `trailbeam.publish_id`, to each published message, on a
+  copy of your request. They skip a message that already has 10 attributes (with raw delivery on, SNS would drop it),
+  would pass 256 KiB, or uses `MessageStructure="json"`, and the span says why in `trailbeam.sns.publish_id_skipped`.
+- **Raw delivery off**: the SQS body is SNS's envelope. On every queue, the receive reads three of its fields:
+  `MessageId`, `TopicArn` and `Timestamp`. It does this even when body capture is off for the queue. It reads
+  nothing else in the body: not `Message`, `Subject` or `MessageAttributes`, and the body itself is never
+  exported. No option is needed.
+
+```python
+trailbeam.boto.install(
+    sns={"inject": False},  # don't add trailbeam.publish_id to publishes (or TRAILBEAM_SNS_INJECT=off)
+)
+```
+
+`trailbeam.aws_lambda.wrap(sns=...)` takes the same options for its receives.
 
 ## Tests
 

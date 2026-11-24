@@ -21,6 +21,7 @@ from ._contract import (
     KINDS,
     SCHEMA_VERSION,
     SCOPE_NAME,
+    SYSTEMS,
     ReceiptHasher,
 )
 
@@ -88,7 +89,7 @@ class Emitter:
             "trailbeam.schema_version": SCHEMA_VERSION,
             "trailbeam.kind": kind,
             "trailbeam.source": self.source,
-            "messaging.system.name": "aws.sqs",
+            "messaging.system.name": SYSTEMS.get(name, "aws.sqs"),
             "messaging.operation.type": op_type,
             "messaging.operation.name": operation,
             "messaging.client.id": self.client_id,

@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 import re
-from html import unescape
+from html import escape, unescape
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -487,6 +487,36 @@ def test_purged_and_possibly_purged_messages(server):
     assert "Queue purged (PurgeQueue)" in html and "deletes every message in the queue" in html
     _, _, html = get(server, page("during"))
     assert ("queue_purged", False) in events(html) and "can&#x27;t tell whether this one was" in html
+
+
+def test_sns_fan_out_shows_the_publish_and_the_arrival(server):
+    """Contract section 21.5: a publish is a recorded step on each message it reached, with its topic, how it joined,
+    the SNS delivery time when joined through the envelope, and the other messages it reached as links. A receive
+    whose envelope names a topic with no recorded publish gets an "Arrived via SNS topic" step, with no time."""
+    p, c = Consumer("producer", service="orders-api"), Consumer("orders-worker")
+    t0_ms = T0 // 10**6
+    post(server, [p.publish(T0 + SEC, "sns-1", publish_id="pub-1", start=T0),
+                  c.sns_receive(T0 + 3 * SEC, "via-env", "rh-1", sns_id="sns-1", sns_ts_ms=t0_ms + 1000,
+                                sent_ms=t0_ms + 1040, start=T0 + 2 * SEC),
+                  c.sns_receive(T0 + 3 * SEC, "via-raw", "rh-2", publish_id="pub-1", queue="billing",
+                                sent_ms=t0_ms + 1050, start=T0 + 2 * SEC),
+                  c.sns_receive(T0 + 9 * SEC, "no-pub", "rh-3", sns_id="sns-2", topic="audit-topic",
+                                sns_ts_ms=t0_ms + 7000, sent_ms=t0_ms + 7025, start=T0 + 8 * SEC)])
+    _, _, html = get(server, page("via-env"))
+    assert events(html)[:2] == [("published", False), ("received", False)]
+    assert "Published to SNS topic <code>orders-topic</code>" in html
+    assert "SNS delivery ms 40" in html and "joined by the SNS envelope&#x27;s MessageId (raw delivery off)" in html
+    assert f'<a class="mono" href="{escape(page("via-raw"))}">via-raw</a>' in html
+    assert '<span class="mono">via-env</span> (this message)' in html
+    assert "orders-api" in html
+    _, _, html = get(server, page("via-raw"))
+    assert "joined by the trailbeam.publish_id attribute (raw delivery on)" in html and "SNS delivery ms" not in html
+    _, _, html = get(server, page("no-pub"))
+    assert events(html)[:2] == [("arrived_via_sns", False), ("received", False)]
+    assert "Arrived via SNS topic <code>audit-topic</code>" in html and "SNS delivery ms 25" in html
+    assert "publisher runs no Trailbeam package" in html and 'class="reported-by"' not in html
+    _, _, html = get(server, "/")
+    assert "sns-1" not in html and "orders-topic" not in html  # a publish is the topic's step, not a message
 
 
 def test_a_deduplicated_fifo_send_is_shown_as_such_with_its_reason(server):

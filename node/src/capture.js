@@ -1,6 +1,7 @@
 'use strict';
 // Message contents (contract section 15, revision 3.2): body size, tenant, FIFO fields, opt-in body
-// capture with redaction, and Lambda error text.
+// capture with redaction, and Lambda error text. SNS fan-out (section 21, revision 3.4): the publish ID
+// the publish hooks add, and the three SNS envelope fields a receive reads.
 //
 // Nothing here makes an SQS call. Everything is read from the input and output of calls the
 // application made, or from the Lambda event. This mirrors python/src/trailbeam/_capture.py exactly;
@@ -50,6 +51,7 @@ const ENV = Object.freeze({
   REDACT_KEYS: 'TRAILBEAM_REDACT_KEYS',
   REDACT_PATTERNS: 'TRAILBEAM_REDACT_PATTERNS',
   MAX_BODY_BYTES: 'TRAILBEAM_CAPTURE_MAX_BYTES',
+  SNS_INJECT: 'TRAILBEAM_SNS_INJECT',
 });
 
 const lower = (s) => s.replace(/[A-Z]/g, (c) => c.toLowerCase());
@@ -63,6 +65,7 @@ class Config {
   constructor({
     tenantAttribute, tenantBodyPath, bodyQueues = [], errorQueues = [],
     redactKeys = DEFAULT_REDACT_KEYS, redactPatterns = DEFAULT_PATTERNS, maxBodyBytes = DEFAULT_MAX_BODY_BYTES,
+    snsInject = true,
   } = {}) {
     for (const k of redactKeys) {
       if (typeof k !== 'string' || !KEY_RE.test(k)) throw new Error(`trailbeam: redact key ${JSON.stringify(k)} may contain only A-Z a-z 0-9 _ . -`);
@@ -80,6 +83,9 @@ class Config {
     this.redactKeys = [...redactKeys];
     this.redactPatterns = [...redactPatterns];
     this.maxBodyBytes = maxBodyBytes;
+    // 3.4 (section 21): add trailbeam.publish_id to Publish / PublishBatch. The SNS envelope's three
+    // fields are read on every queue (board decision on QV-302), so they have no option.
+    this.snsInject = snsInject !== false;
     this.names = new Set(this.redactKeys.filter((k) => !k.includes('.')).map(lower));
     this.paths = new Set(this.redactKeys.filter((k) => k.includes('.')).map(lower));
     const names = this.redactKeys.filter((k) => !k.includes('.'));
@@ -98,14 +104,20 @@ class Config {
   }
 }
 
+/** An on/off environment variable that defaults to on: only off, false, 0 or no turn it off. */
+const flagOn = (v) => !['off', 'false', '0', 'no'].includes(lower((v || '').trim()));
+
 /**
- * Explicit options, else environment variables (section 15.1). Each option group replaces its
+ * Explicit options, else environment variables (sections 15.1 and 21.4). Each option group replaces its
  * environment variables as a whole.
  * `tenant`: `{ messageAttribute, bodyPath }`. `capture`: `{ bodyQueues, errorQueues, redactKeys,
- * redactPatterns, maxBodyBytes }`.
+ * redactPatterns, maxBodyBytes }`. `sns`: `{ inject }`.
  */
-function resolveConfig(tenant, capture) {
+function resolveConfig(tenant, capture, sns) {
   const env = process.env;
+  if (sns === undefined || sns === null) {
+    sns = { inject: flagOn(env[ENV.SNS_INJECT]) };
+  }
   if (tenant === undefined || tenant === null) {
     tenant = { messageAttribute: env[ENV.TENANT_ATTRIBUTE] || undefined, bodyPath: env[ENV.TENANT_BODY_PATH] || undefined };
   }
@@ -127,6 +139,7 @@ function resolveConfig(tenant, capture) {
     redactKeys: [...DEFAULT_REDACT_KEYS, ...extra],
     redactPatterns: capture.redactPatterns !== undefined && capture.redactPatterns !== null ? capture.redactPatterns : DEFAULT_PATTERNS,
     maxBodyBytes: capture.maxBodyBytes || DEFAULT_MAX_BODY_BYTES,
+    snsInject: sns.inject !== false,
   });
 }
 
@@ -455,7 +468,137 @@ function fifoAttrs(groupId, sequenceNumber) {
   return out;
 }
 
+// -- SNS fan-out (section 21, revision 3.4) -------------------------------------------------------
+
+const PUBLISH_ID_ATTRIBUTE = 'trailbeam.publish_id';
+const SNS_MAX_ATTRIBUTES = 10; // with raw delivery on, SNS drops a message with more (section 21.2)
+const SNS_MAX_MESSAGE_BYTES = 262144; // the topics' default MaximumMessageSize
+const SKIP_OFF = 'off';
+const SKIP_JSON_STRUCTURE = 'json_structure';
+const SKIP_ATTRIBUTE_LIMIT = 'attribute_limit';
+const SKIP_SIZE_LIMIT = 'size_limit';
+const PUBLISH_ID_RE = /^[A-Za-z0-9-]{1,64}$/;
+const SNS_MESSAGE_ID_RE = /^[A-Za-z0-9-]{1,100}$/;
+const TOPIC_ARN_RE = /^arn:[a-z0-9-]+:sns:[a-z0-9-]+:[0-9]{12}:[A-Za-z0-9_-]{1,256}(?:[.]fifo)?$/;
+const SNS_TIMESTAMP_RE = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:[.]([0-9]{1,9}))?Z$/;
+const INJECTED_BYTES = PUBLISH_ID_ATTRIBUTE.length + 'String'.length + 36; // name, type and a UUID: 62
+
+function utf8Len(v) {
+  if (typeof v === 'string') return utf8Bytes(v);
+  if (v instanceof Uint8Array) return v.byteLength; // Buffer too
+  return 0;
+}
+
+/** What one Publish (batch entry) counts toward SNS's size limit, without a trailbeam.publish_id: Message,
+ * Subject, and each attribute's name, type and value, in UTF-8 bytes. */
+function snsEntryBytes(entry) {
+  let n = utf8Len(entry.Message) + utf8Len(entry.Subject);
+  const attrs = entry.MessageAttributes;
+  if (isObject(attrs)) {
+    for (const [name, a] of Object.entries(attrs)) {
+      if (name === PUBLISH_ID_ATTRIBUTE) continue;
+      n += utf8Len(name);
+      if (isObject(a)) n += utf8Len(a.DataType) + utf8Len(a.StringValue) + utf8Len(a.BinaryValue);
+    }
+  }
+  return n;
+}
+
+/**
+ * Section 21.2: add trailbeam.publish_id to the entries of one Publish (a list of one: the input) or
+ * PublishBatch call. Returns `{ entries, results }`: each entry is the caller's own object if nothing was
+ * added, else a copy with a new MessageAttributes; each result is `['trailbeam.sns.publish_id', id]` or
+ * `['trailbeam.sns.publish_id_skipped', reason]` (or undefined for an entry that is not an object). Never
+ * modifies the caller's objects.
+ */
+function snsInject(config, entries, newId = () => crypto.randomUUID()) {
+  let reasons = entries.map((e) => {
+    if (!isObject(e)) return undefined;
+    const attrs = isObject(e.MessageAttributes) ? e.MessageAttributes : {};
+    const others = Object.keys(attrs).filter((k) => k !== PUBLISH_ID_ATTRIBUTE);
+    if (!config.snsInject) return SKIP_OFF;
+    if (lower(String(e.MessageStructure || '')) === 'json') return SKIP_JSON_STRUCTURE;
+    if (others.length + 1 > SNS_MAX_ATTRIBUTES) return SKIP_ATTRIBUTE_LIMIT;
+    return '';
+  });
+  // The whole call counts toward one size limit (PublishBatch: "the sum of the individual lengths").
+  let total = entries.reduce((n, e) => n + (isObject(e) ? snsEntryBytes(e) : 0), 0);
+  total += INJECTED_BYTES * reasons.filter((r) => r === '').length;
+  if (total > SNS_MAX_MESSAGE_BYTES) reasons = reasons.map((r) => (r === '' ? SKIP_SIZE_LIMIT : r));
+  const out = [];
+  const results = [];
+  entries.forEach((e, i) => {
+    const reason = reasons[i];
+    if (reason === undefined) {
+      out.push(e);
+      results.push(undefined);
+    } else if (reason) {
+      out.push(e);
+      results.push(['trailbeam.sns.publish_id_skipped', reason]);
+    } else {
+      const id = newId();
+      // Replaces a trailbeam.publish_id that a republished message carried.
+      const attrs = { ...(isObject(e.MessageAttributes) ? e.MessageAttributes : {}), [PUBLISH_ID_ATTRIBUTE]: { DataType: 'String', StringValue: id } };
+      out.push({ ...e, MessageAttributes: attrs });
+      results.push(['trailbeam.sns.publish_id', id]);
+    }
+  });
+  return { entries: out, results };
+}
+
+const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+const isLeap = (y) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+
+/** An SNS envelope Timestamp (`2021-02-16T21:41:19.978Z`) as epoch milliseconds, or undefined. Digits after
+ * the third fractional one are dropped, not rounded. */
+function snsTimestampMs(value) {
+  if (typeof value !== 'string') return undefined;
+  const m = SNS_TIMESTAMP_RE.exec(value);
+  if (!m) return undefined;
+  const [y, mo, d, h, mi, s] = m.slice(1, 7).map(Number);
+  if (y < 1970 || mo < 1 || mo > 12 || h > 23 || mi > 59 || s > 59) return undefined;
+  const days = mo === 2 && isLeap(y) ? 29 : DAYS_IN_MONTH[mo - 1];
+  if (d < 1 || d > days) return undefined;
+  const ms = Number(((m[7] || '') + '000').slice(0, 3));
+  return Date.UTC(y, mo - 1, d, h, mi, s, ms);
+}
+
+/** The three fields of an SNS notification envelope (section 21.3), as receive attributes, or undefined if
+ * the body is not one. Nothing else in the body is read or exported. */
+function snsEnvelope(body) {
+  if (typeof body !== 'string' || !body.includes('"Notification"') || body.replace(/^[ \t\n\r]+/, '')[0] !== '{') return undefined;
+  const doc = parse(body);
+  if (!isObject(doc) || doc.Type !== 'Notification') return undefined;
+  const mid = doc.MessageId;
+  const arn = doc.TopicArn;
+  if (!(typeof mid === 'string' && SNS_MESSAGE_ID_RE.test(mid) && typeof arn === 'string' && TOPIC_ARN_RE.test(arn))) return undefined;
+  const out = { 'trailbeam.sns.message_id': mid, 'trailbeam.sns.topic_arn': arn };
+  const ts = snsTimestampMs(doc.Timestamp);
+  if (ts !== undefined) out['trailbeam.sns.timestamp_ms'] = ts;
+  return out;
+}
+
+/** Section 21.3 attributes of one received message: the publish ID from its message attribute (raw
+ * delivery), and the three envelope fields if the body is an SNS envelope (raw delivery off). These are
+ * read on every queue, whether or not its body is captured; nothing else in the body is. */
+function snsReceiveAttrs(config, queueName, body, attributes, lambdaRecord = false) {
+  const out = {};
+  if (isObject(attributes)) {
+    const a = attributes[PUBLISH_ID_ATTRIBUTE];
+    const v = isObject(a) ? a[lambdaRecord ? 'stringValue' : 'StringValue'] : undefined;
+    if (typeof v === 'string' && PUBLISH_ID_RE.test(v)) out['trailbeam.sns.publish_id'] = v;
+  }
+  Object.assign(out, snsEnvelope(body) || {});
+  return out;
+}
+
 module.exports = {
+  PUBLISH_ID_ATTRIBUTE,
+  snsEntryBytes,
+  snsInject,
+  snsTimestampMs,
+  snsEnvelope,
+  snsReceiveAttrs,
   Config,
   resolveConfig,
   redactText,
