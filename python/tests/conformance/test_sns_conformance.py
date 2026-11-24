@@ -83,6 +83,30 @@ def test_the_publish_may_arrive_after_the_receive(new_store):
     assert types(queries.message(s, "sqs-a", NOW, LT)) == ["published", "received"]
 
 
+def test_a_receive_is_not_after_its_publish_without_a_clock_or_tick(new_store):
+    # 20.5 "Order": the hosts' times overlap, so nothing orders the publish before the receive; "a receive comes
+    # after its publish" is not a source.
+    s = new_store()
+    put(s, P.publish(T0 + 3 * SEC, SNS_ID, start=T0),
+        C.sns_receive(T0 + 4 * SEC, "sqs-a", "rh-a", sns_id=SNS_ID, start=T0 + 2 * SEC))
+    m = queries.message(s, "sqs-a", NOW, LT)
+    assert types(m) == ["published", "received"]
+    assert m["order"]["edges"] == [] and all(e["after"] == [] for e in m["events"])
+    assert m["events"][0]["group"] == m["events"][1]["group"]
+
+
+def test_a_publish_delivered_twice_to_one_queue_joins_both_messages(new_store):
+    # 20.5: SNS can deliver one publish to a queue more than once; each delivery is its own SQS message.
+    s = new_store()
+    put(s, P.publish(T0 + SEC, SNS_ID, start=T0),
+        C.sns_receive(T0 + 3 * SEC, "sqs-a", "rh-a", sns_id=SNS_ID, start=T0 + 2 * SEC),
+        C.sns_receive(T0 + 5 * SEC, "sqs-a2", "rh-a2", sns_id=SNS_ID, start=T0 + 4 * SEC))
+    want = [{"queue": "orders", "message_ids": ["sqs-a", "sqs-a2"]}]
+    for mid in ("sqs-a", "sqs-a2"):
+        m = queries.message(s, mid, NOW, LT)
+        assert types(m) == ["published", "received"] and m["events"][0]["reached"] == want
+
+
 def test_the_envelope_key_needs_the_same_topic(new_store):
     s = new_store()
     put(s, P.publish(T0 + SEC, SNS_ID, topic="other-topic", start=T0),
