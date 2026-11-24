@@ -4,15 +4,16 @@ kind: Deployment
 metadata:
   name: {{ include "trailbeam.fullname" . }}
   labels: {{- include "trailbeam.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
-    matchLabels: {{- include "trailbeam.selectorLabels" . | nindent 6 }}
+    matchLabels: {{- include "trailbeam.deploymentSelector" . | nindent 6 }}
   strategy: {{- toYaml .Values.strategy | nindent 4 }}
   template:
     metadata:
       labels:
-        {{- include "trailbeam.selectorLabels" . | nindent 8 }}
+        {{- include "trailbeam.serverSelectorLabels" . | nindent 8 }}
         {{- with .Values.podLabels }}{{ toYaml . | nindent 8 }}{{ end }}
       annotations:
         {{- if not .Values.auth.existingSecret }}
@@ -128,5 +129,5 @@ spec:
           topologyKey: kubernetes.io/hostname
           whenUnsatisfiable: ScheduleAnyway
           labelSelector:
-            matchLabels: {{- include "trailbeam.selectorLabels" . | nindent 14 }}
+            matchLabels: {{- include "trailbeam.serverSelectorLabels" . | nindent 14 }}
         {{- end }}
