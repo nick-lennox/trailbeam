@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **A page per queue** (QV-364): `/queue?name=<queue>`, and a **Queues** list at `/queues` (a new item in the
+  header). The page asks whether work is arriving faster than it is finished: sends vs handled (the band between
+  them is the backlog building), receives vs handled with dead-letter moves (seen, and inferred from
+  maxReceiveCount), p95 time in queue and p95 time in handler, on one time axis with a shared crosshair. Click or
+  drag across minutes to get links to the messages behind them. Deploys show as markers, and "By version" splits
+  handled and the p95s per `service.version`. A health verdict from your services' spans, labelled as such; the
+  senders and consumers; the queue's stuck messages and dead-letter moves; and a plain list of what Trailbeam
+  can't see without AWS (depth, in flight, the oldest message's age, the DLQ's depth), with a link to the SQS
+  console. The time range, the selected minutes and "By version" are in the URL. The view is
+  `QueuePage` in `@trailbeam/ui`, which the hosted app uses too.
 - **The Stuck page groups its messages by cause, and lists the dead-letter queues** (QV-367, step 2). `/stuck`
   now reads `/api/causes`. It shows one row per cause, with its count, first and last seen, a 24-hour trend,
   the dead-letter split, and the newest error text. Below that are the stuck messages, each with its cause
@@ -64,23 +74,6 @@
   the export missed the summary that had moved there and wrote a second one, without the newer span. Lists then
   showed the message twice, and its page could miss the delete. The export now reads the places again once it
   holds the message's lock.
-- **SNS fan-out: messages that came through an SNS topic get their sender** (QV-313, contract revision 3.4, section 21; the Java jar does not hook SNS yet). The Python and Node.js packages record SNS
-  `Publish` and `PublishBatch` to a topic as a `trailbeam publish` span (`trailbeam.kind = sns.publish`) with the SNS
-  message ID and `aws.sns.topic.arn`. Receives carry what joins them to it: the `trailbeam.publish_id` message
-  attribute the publish hooks add (raw delivery on; skipped when the message already has 10 attributes, would pass
-  256 KiB or uses `MessageStructure: json`; `TRAILBEAM_SNS_INJECT=off` turns it off), and, with raw delivery off,
-  three fields of the SNS envelope: `MessageId`, `TopicArn` and `Timestamp`. These three are read on every queue,
-  including queues whose body is not captured. Nothing else in the body is read, and the body is never exported. Node.js: pass an `SNSClient` to `instrument`. The server stores publishes apart from messages
-  (SQLite schema 18: three partial indexes, built from one scan of `spans`; Postgres schema 12: `sns_publishes` and
-  `sns_receives`) and joins them when a message is read: its timeline gets a `published` step with the SQS messages
-  the publish reached, by queue, and the SNS delivery time (`SentTimestamp` minus the envelope's `Timestamp`, both
-  AWS clocks). A message whose envelope names a topic but joins no recorded publish gets `arrived_via_sns`, placed
-  before that receive. `/api/stats` counts `spans.publish`. A server before 3.4 rejects the publish span as an
-  unknown kind (one rejected span in `partial_success`) and stores the rest. Both local UIs (the server's pages and
-  `@trailbeam/ui`) show the "Published to topic" step with the publisher, how it joined, the SNS delivery time and
-  the other messages it reached (links), and the "Arrived via SNS topic" step, with no time, before its receive.
-  `TimelineView` takes an optional `messageHref` for those links; `@trailbeam/ui/fixtures/sns-timelines.json` is
-  what the server returns after a fan-out (`@trailbeam/ui` 0.1.0-dev.7).
 - **Go package, stage 1: SQS spans from aws-sdk-go-v2 middleware** (QV-321, pre-release, not published). In
   `go/`, `trailbeamsqs`: one line where the AWS config is built, `trailbeamsqs.AppendMiddlewares(&cfg.APIOptions)`,
   the same hook as otelaws and dd-trace-go. It emits every client span of the contract (send, receive, delete,
@@ -355,6 +348,17 @@
   quorum queues' headers, the dead-letter source and reason from `x-death`, and message identity. It comes with
   vectors and fixtures. Nothing emits or reads these spans yet: the server (QV-306) and the Python package
   (QV-309) follow. SQS and SNS spans are unchanged.
+- **Sign-in through a proxy** (QV-227, users and roles phase 3a). With `--proxy-auth-header X-Forwarded-Email`
+  (`TRAILBEAM_PROXY_AUTH_HEADER`), people signed in by oauth2-proxy, Pomerium, Cloudflare Access or similar need no
+  Trailbeam password. Off by default; the header is believed only from `--trusted-proxy` addresses and/or with a
+  shared secret in `X-Trailbeam-Proxy-Secret` (`--proxy-auth-secret-file`), and the server refuses to start with
+  neither. A first-time email becomes a member, never an admin. An email that has a local account is refused until
+  an admin runs `trailbeam users link-proxy`, so the proxy can't be used to take over an account; `unlink-proxy`
+  undoes it, and `users create --proxy` makes an account for the proxy with no password. `--proxy-auth-sign-out-url`
+  gives those people a Sign out that ends the proxy's session. `/api/me` says `via: proxy` and gains `sign_out`,
+  `/api/health` gains `config.proxy_auth`, and the API's endpoints can answer 403. The README has an oauth2-proxy
+  setup. Schema: SQLite 18, Postgres 12 (`users.proxy_linked_at_ms`, NULL for everyone already stored). Checking
+  proxies' signed tokens (Cloudflare, Pomerium, Google IAP, AWS ALB) comes later, with the `sso` extra.
 
 ## 0.4.0: set up in one command
 

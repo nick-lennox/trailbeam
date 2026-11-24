@@ -28,8 +28,9 @@ from openapi_spec_validator import validate as validate_openapi
 
 from openapi_contract import Contract, contract, pointer
 from spans import SEC, T0, Consumer, to_json, to_proto
-from trailbeam.server import auth as auth_mod, doctor, server
+from trailbeam.server import auth as auth_mod, doctor, proxy_auth, server
 from trailbeam.server.backpressure import IngestGate
+from trailbeam.server.proxy import TrustedProxies, parse_networks
 from trailbeam.server.store import StoreUnavailable, WriterBusy
 
 FIXTURE = Path(__file__).resolve().parents[3] / "contract" / "fixtures" / "contract-3.2-spans.json"
@@ -619,6 +620,17 @@ def test_every_status_the_file_lists_is_answered_and_matches_it(db, record_api_r
         request(base, "POST", "/v1/traces", b"", {"Content-Type": "application/x-protobuf"})
         request(base, "POST", "/v1/traces", b"", {"Content-Type": "application/x-protobuf",
                                                   "Authorization": "Bearer wrong"})
+
+    # 403: signed in through a proxy (proxy_auth.py) as someone who may not be: last, as it adds an admin to the store
+    proxied = server.App(db, ui_dir=None, trusted_proxies=TrustedProxies(parse_networks("127.0.0.1")),
+                         proxy_auth=proxy_auth.configure("X-Forwarded-Email",
+                                                         proxies=TrustedProxies(parse_networks("127.0.0.1"))))
+    proxied.accounts.create_user("root@example.com", "Root", "admin", None, 0)
+    proxied.access.state.changed()
+    with serve(proxied) as base:
+        for op in ops:
+            if op.method == "GET":
+                request(base, "GET", _concrete(op.template), headers={"X-Forwarded-Email": "root@example.com"})
 
     assert not record_api_responses.problems, "\n".join(record_api_responses.problems)
     answered = {(s.op.key, s.status) for s in record_api_responses.seen}

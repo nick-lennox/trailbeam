@@ -102,7 +102,7 @@ CREATE INDEX IF NOT EXISTS spans_unjoined_hash ON spans (receipt_hmac, key_id)
 CREATE INDEX IF NOT EXISTS spans_kind_time ON spans (kind, time_ns);
 CREATE INDEX IF NOT EXISTS spans_receive_row ON spans (receive_row) WHERE receive_row IS NOT NULL;
 """
-# The SNS fan-out indexes (schema 18, QV-313, contract section 21): publishes by SNS message ID, and publishes and
+# The SNS fan-out indexes (schema 19, QV-313, contract section 21): publishes by SNS message ID, and publishes and
 # receives by the attributes that join them. Partial, so a span without SNS keys has no entry in them; the publish
 # ID and envelope message ID stay in ``attributes`` (no column), and these expressions are how the queries in db.py
 # name them. Not in SPANS_INDEXES, which migration 11 builds.
@@ -140,7 +140,9 @@ CREATE TABLE IF NOT EXISTS schema_version (
     name TEXT NOT NULL,              -- the migration's name; 'create' for a file made at this version
     trailbeam_version TEXT           -- the Trailbeam that ran it; NULL for versions reached before 6
 );
-""" + summary_table.CREATE + body_table.CREATE + PROBES_CREATE + account_tables.SQLITE_CREATE
+""" + summary_table.CREATE + body_table.CREATE + PROBES_CREATE + account_tables.SQLITE_CREATE + f"""
+{account_tables.SQLITE_ADD_PROXY};
+"""
 
 # Schema 1 was the first released (the CREATE of version 1 is in tests/server/test_migrations.py).
 # Schema 1 had no start_ns. Its rows came from contract v1 spans, stamped only when the response arrived,
@@ -190,7 +192,9 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # Schema 17 (QV-363) adds queue_events, the queue page's events by queue and time (queues.py), and
 # messages.qevents_json, the list of a message's rows in it. Both are built from every message's spans: one pass
 # over messages, reading each message's spans by row ID, as migration 12 does with the summaries.
-# Schema 18 (QV-313) adds the SNS fan-out indexes (SNS_INDEXES). Publish spans are rows of spans (kind 'publish', no
+# Schema 18 (QV-227) adds users.proxy_linked_at_ms: which people may sign in through a proxy (proxy_auth.py). NULL
+# for everyone stored before it, so no local account can be signed in to through the proxy until an admin links it.
+# Schema 19 (QV-313) adds the SNS fan-out indexes (SNS_INDEXES). Publish spans are rows of spans (kind 'publish', no
 # mid); no file before it has any, and no receive before it carries the SNS attributes, so the indexes are built
 # from one scan of spans and start empty. It changes no span data.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new", added=""))
@@ -240,6 +244,12 @@ def _to_17(conn: sqlite3.Connection) -> None:
     summary_table.rebuild_queue_events(conn)
 
 
+def _to_18(conn: sqlite3.Connection) -> None:
+    """Adds users.proxy_linked_at_ms, unless the file has it (as _to_16)."""
+    if account_tables.PROXY_COLUMN not in {r[1] for r in conn.execute("PRAGMA table_info(users)")}:
+        conn.execute(account_tables.SQLITE_ADD_PROXY)
+
+
 def _to_14(conn: sqlite3.Connection) -> None:
     cur = conn.cursor()
     cur.row_factory = sqlite3.Row
@@ -283,7 +293,8 @@ MIGRATIONS = (
     Migration(15, "users, sessions and tokens", tuple(statements(account_tables.SQLITE_CREATE))),
     Migration(16, "spans.service_version", (), run=_to_16),
     Migration(17, "queue events (the queue page)", (), run=_to_17),
-    Migration(18, "SNS fan-out indexes", tuple(statements(SNS_INDEXES))),
+    Migration(18, "users.proxy_linked_at_ms", (), run=_to_18),
+    Migration(19, "SNS fan-out indexes", tuple(statements(SNS_INDEXES))),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

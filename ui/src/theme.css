@@ -9,10 +9,11 @@
   The sky is the night palette of the timeline. Fonts are named here and loaded by the page that uses
   them: self-hosted Trailbeam bundles them, the hosted app loads its own.
 
-  Views that sit on the host's own page (the Tenants table, the tenant search, Needs attention) use role
-  tokens instead of the sky: ink, line, surface, canvas, brand, series-1, warning-text, critical-text and
-  critical. Self-hosted Trailbeam maps them to the sky below, so it stays dark; the hosted app defines
-  the same names for its light page (its globals.css), so one component draws in either.
+  Views that sit on the host's own page (the Tenants table, the tenant search, Needs attention, the queue
+  page) use role tokens instead of the sky: ink, line, line-strong, surface, canvas, brand, series-1,
+  warning-text, critical-text, good, warning, critical and the queue page's flow-*. Self-hosted Trailbeam
+  maps them to the sky below, so it stays dark; the hosted app defines the same names for its light page
+  (its globals.css), so one component draws in either.
 */
 @theme {
   --font-serif: "Newsreader", ui-serif, Georgia, serif;
@@ -34,6 +35,7 @@
   --color-ember: #ffb65e;
   --color-lost: #ff7667;
   --color-dawn: #ff9d7a;
+  --color-visible: #7fdcb0;
 
   /* the first-run screen's waiting dot: opacity 40% to 100% over 2.4 s (still under prefers-reduced-motion) */
   --animate-wait: tb-wait 2.4s ease-in-out infinite;
@@ -50,5 +52,15 @@
   --color-warning-text: var(--color-ember);    /* a number over its threshold */
   --color-critical-text: var(--color-lost);    /* dead-lettered */
   --color-canvas: var(--color-sky);            /* page background: a row pointed at, or picked */
-  --color-critical: var(--color-lost);         /* the edge of a row whose alert is firing */
+  --color-critical: var(--color-lost);         /* the edge of a row whose alert is firing; a health pill's dot */
+  --color-line-strong: #454a8a;                /* a rule drawn on a chart (the visibility timeout) */
+  --color-good: var(--color-visible);          /* a health pill's dot */
+  --color-warning: var(--color-ember);
+
+  /* the queue page's colour roles (QV-360 design 4.2): whose hands the message is in. The hosted app maps
+     them to its series colours (send orange, receive blue, handler green) and critical. */
+  --color-flow-send: var(--color-trail);       /* entering: sends, senders */
+  --color-flow-wait: var(--color-wait);        /* in the queue: receives, time in queue, visible, oldest age */
+  --color-flow-handler: var(--color-ember);    /* in your handler: handled, time in handler, in flight */
+  --color-flow-lost: var(--color-lost);        /* dead-lettered: DLQ moves, DLQ depth */
 }
