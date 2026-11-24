@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Postgres, several replicas: a message could get a second summary** (QV-422). A delete or
+  ChangeMessageVisibility span carries no message ID, so its export finds its message by the receipt handle and
+  locks it only then. If another replica stored a newer span of that message in a new day (bucket) meanwhile,
+  the export missed the summary that had moved there and wrote a second one, without the newer span. Lists then
+  showed the message twice, and its page could miss the delete. The export now reads the places again once it
+  holds the message's lock.
 - **SNS fan-out: messages that came through an SNS topic get their sender** (QV-313, contract revision 3.4, section 21; the Java jar does not hook SNS yet). The Python and Node.js packages record SNS
   `Publish` and `PublishBatch` to a topic as a `trailbeam publish` span (`trailbeam.kind = sns.publish`) with the SNS
   message ID and `aws.sns.topic.arn`. Receives carry what joins them to it: the `trailbeam.publish_id` message
