@@ -176,3 +176,89 @@ def test_over_http_a_key_is_url_encoded_and_a_shared_name_is_refused(server, ing
     assert get(server, f"/api/queues/orders/series?{q.replace('300', '120')}")[0] == 400
     status, d = get(server, f"/api/queues/never-seen/series?{q}")
     assert status == 200 and d["series"] == []
+
+
+# ---- the flows -------------------------------------------------------------------------------------------------
+
+DLQ = "000000000000//orders-dlq"
+
+
+def rollup_from_events(db) -> dict:
+    """queue_rollup as it must be: queue_events added up per row."""
+    return {tuple(r[:6]): tuple(r[6:]) for r in db.query(
+        "SELECT at_ms / 3600000, queue_key, kind, COALESCE(service, ''), lambda, COALESCE(peer, ''), COUNT(*), "
+        "COUNT(value), COALESCE(SUM(value), 0) FROM queue_events GROUP BY 1, 2, 3, 4, 5, 6")}
+
+
+def rollup_rows(db) -> dict:
+    return {tuple(r[:6]): tuple(r[6:]) for r in db.query(
+        "SELECT hour, queue_key, kind, service, lambda, peer, n, vn, vsum FROM queue_rollup")}
+
+
+def test_flows_are_the_apps_shape_and_counts(db, ingest):
+    s = spans_of_a_busy_minute()
+    s[0].attrs["messaging.message.body.size"] = 100
+    s[5].attrs["messaging.message.body.size"] = 300
+    s.append(Consumer("w-1").change_visibility(T0 + 4 * SEC, "h5", 30))
+    ingest(*s)
+    d = api(db, "flows", from_ms=MS - 60_000, to_ms=MS + 120_000)
+    orders, dlq = d["flows"]
+    assert orders == {
+        "key": ORDERS, "queue": "orders", "name": "orders", "url": None, "account": "000000000000",
+        "region": "us-east-1", "lastSeen": MS + 50_000, "sent": 5, "received": 11, "deleted": 1,
+        "visibilityChanges": 1,
+        "producers": [{"name": "checkout", "n": 5, "lambda": False}],
+        "consumers": [{"name": "orders-worker", "n": 11, "lambda": True}],  # one service: w-1, and fn's Lambda
+        "avgBytes": 200.0, "dlq": {"name": "orders-dlq", "received": 1}}
+    assert dlq["key"] == DLQ and dlq["received"] == 1 and dlq["sent"] == 0 and dlq["dlq"] is None
+    # out of the range: zero counts, the link to the dead-letter queue kept (SQS reported it, ever)
+    later = api(db, "flows", from_ms=MS + 3_600_000, to_ms=MS + 7_200_000)["flows"]
+    assert [(f["key"], f["sent"] + f["received"]) for f in later] == [(ORDERS, 0), (DLQ, 0)]
+    assert later[0]["dlq"] == {"name": "orders-dlq", "received": 0}
+
+
+def test_two_queues_of_one_name_are_two_flows_labelled_apart(db, ingest):
+    a = Consumer("a")
+    ingest(a.send(T0, "x1"), a.receive(T0 + SEC, "x1", "hx"))
+    s = Consumer("b", service="billing").send(T0, "y1")
+    s.attrs["aws.sqs.queue.url"] = "https://sqs.eu-west-1.amazonaws.com/123456789012/orders"
+    ingest(s)
+    flows = api(db, "flows", from_ms=MS - 60_000, to_ms=MS + 60_000)["flows"]
+    assert [(f["key"], f["queue"], f["sent"], f["received"]) for f in flows] == [
+        (ORDERS_URL_KEY, "orders (000000000000)", 1, 1), ("123456789012/eu-west-1/orders", "orders (123456789012)", 1, 0)]
+
+
+def test_the_rollup_is_its_events_added_up_through_refresh_and_forget(db, ingest):
+    from trailbeam.server import summary_table
+    w = Consumer("w-1")
+    hour = 3_600 * SEC
+    ingest(*spans_of_a_busy_minute())
+    ingest(w.send(T0 + hour, "m7"), w.receive(T0 + 2 * hour, "m7", "h7"))
+    ingest(w.delete(T0 + 2 * hour + SEC, "h7"), w.receive(T0 + 50 * SEC, "m2", "h2c", count=3))
+    assert rollup_rows(db) == rollup_from_events(db) and rollup_rows(db)
+    c = db.conn
+    c.execute("BEGIN IMMEDIATE")
+    summary_table.forget(c, ["m1", "m7"])
+    c.execute("COMMIT")
+    assert rollup_rows(db) == rollup_from_events(db)
+    c.execute("BEGIN IMMEDIATE")
+    summary_table.rebuild_queue_events(c)
+    c.execute("COMMIT")
+    assert rollup_rows(db) == rollup_from_events(db)
+
+
+@pytest.mark.parametrize("now_off_s", [30, 1_800, 3_599, 20_000])
+def test_flows_read_from_the_rollup_equal_the_events(db, ingest, now_off_s):
+    """Whatever rollup.plan reads (rollup rows less events, or events), the counts are the events in the range."""
+    w = Consumer("w-1")
+    spans = []
+    for i in range(40):
+        t = T0 + i * 7 * 60 * SEC  # every 7 min, over 4.6 h
+        spans += [w.send(t, f"r{i}"), w.receive(t + SEC, f"r{i}", f"hr{i}")]
+    ingest(*spans)
+    lo, hi = MS + 1_234_567, MS + 3 * 3_600_000 + 777_777
+    keys, last, counts, links = db.queue_flows(lo, hi, MS + now_off_s * 1000)
+    got = {(k, kind): n for k, kind, _s, _l, _p, n, _vn, _vs in counts}
+    want = {(r[0], r[1]): r[2] for r in db.query(
+        "SELECT queue_key, kind, COUNT(*) FROM queue_events WHERE at_ms BETWEEN ? AND ? GROUP BY 1, 2", (lo, hi))}
+    assert got == want and keys == [ORDERS_URL_KEY] and links == []

@@ -88,7 +88,7 @@ class App:
         self.routes: dict[str, Callable[[dict, list[str]], object]] = {
             "health": self.health, "stats": self.stats_counts, "messages": self.messages, "duplicates": self.duplicates,
             "stuck": self.stuck, "tenants": self.tenants, "probes": self.probes, "me": self.me,
-            "queues": self.queues}
+            "queues": self.queues, "flows": self.flows}
         self._init_metrics()
 
     # ---- /metrics -------------------------------------------------------------------------
@@ -471,6 +471,19 @@ class App:
                 "from_ms": from_ms, "to_ms": to_ms, "step_s": step,
                 "max_receive_count": mrc,
                 "series": queues_mod.series(rows, step, mrc)}
+
+    def flows(self, q: dict, rest: list[str]) -> dict:
+        """``/api/flows``: the overview's flows over [from_ms, to_ms] (default: the last day): per queue, who sends to
+        it and who receives from it, and its dead-letter queue (queues.flows). Each flow is the hosted app's
+        ``Flow`` (trailbeam-app lib/app/flows.ts), field for field, so the shared overview reads either."""
+        if rest:
+            raise ApiError(404, "no such endpoint")
+        from_ms, to_ms = self._window(q)
+        try:
+            keys, last, counts, links = self.db.queue_flows(from_ms, to_ms, self.now() // 1_000_000)
+        except NotImplementedError as e:
+            raise ApiError(501, str(e)) from None
+        return {"from_ms": from_ms, "to_ms": to_ms, "flows": queues_mod.flows(keys, last, counts, links)}
 
     @staticmethod
     def _queue_keys(asked: str, keys: list[str]) -> tuple:

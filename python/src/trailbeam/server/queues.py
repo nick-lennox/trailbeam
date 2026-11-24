@@ -7,10 +7,12 @@ every store.
 (trailbeam-app ``lib/app/queue-url.ts``), so both products key a queue the same way.
 
 **Queue events.** ``events(rows)`` turns one message's spans into what it adds to each queue's page, as
-``(at_ms, kind, queue_key, service, lambda, value)``; ``summary.summarize`` keeps them as ``queue_events`` and a
-store indexes them by (queue key, time), so a queue's range is one index range scan. The kinds:
+``(at_ms, kind, queue_key, service, lambda, value, peer)``; ``summary.summarize`` keeps them as ``queue_events``
+and a store indexes them by (queue key, time), so a queue's range is one index range scan, and adds them up per
+hour in ``queue_rollup`` for the flows (below). The kinds:
 
-- ``send``: a send span, except those SQS deduplicated (timeline.deduplicated_sends), at its time.
+- ``send``: a send span, except those SQS deduplicated (timeline.deduplicated_sends), at its time; ``value`` its
+  ``messaging.message.body.size``, when it has one.
 - ``receive``: a receive span, ``value`` its receive count (2 or more: a re-receive).
 - ``wait``: the message's first receive (receive count 1) when a send of it was recorded, ``value`` the time in
   queue from the earliest send to that receive, at the receive's time. ``no_send``: a first receive with no
@@ -28,11 +30,23 @@ store indexes them by (queue key, time), so a queue's range is one index range s
   no move was seen: its latest receive on its source queue, ``value`` that receive count. With the queue's
   configured maxReceiveCount, ``value >= maxReceiveCount`` is a move SQS will have made that no DLQ receive has
   shown yet (timeline's ``not_seen_on_dlq_yet``), so it is ``dlq_inferred``.
+- ``dlq_receive``: a receive that reported a ``DeadLetterQueueSourceArn`` naming another queue, every one, keyed by
+  the queue it was received from (the dead-letter queue), ``peer`` the source queue's key (``place_key`` of the
+  ARN). The flows link a queue to its dead-letter queue by these, as the hosted app's do.
+
+Only ``dlq_receive`` has a ``peer``; it is None on the others.
 
 **Time in handler** is from the end of the receive to the start of the delete (the time between the two calls,
 an approximation), and for a Lambda from the end of the receive to the outcome (a zero-length span, at the moment
 the wrapper decided). It is the hosted app's processing time (``live-events.ts``, ``overview.ts queueP95``): every
 delete with a recorded receive, accepted or not, and every Lambda outcome, success or failure, at the end time.
+
+**Flows** (``flows``; the overview, ``GET /api/flows``) are the hosted app's ``listFlows`` (trailbeam-app
+``lib/app/flows.ts``), in its shape, from the hourly ``queue_rollup``: per queue, the services that sent to it and
+received from it, the counts of sends, receives, deletes (accepted or not) and visibility changes, the average body
+size of the sends that reported one, and its dead-letter queue, when a receive from another queue ever named it as
+the source. One difference: SQS-deduplicated FIFO sends are not counted (they were not enqueued); the app counts
+every send span.
 
 **Steps.** The page uses one step for every chart: at least 60 s and one of 1, 5, 15 or 30 min, 1, 3 or 6 h
 (``STEPS_S``), so buckets line up with the CloudWatch period it asks for. ``default_step`` is the page's rule,
@@ -40,6 +54,7 @@ delete with a recorded receive, accepted or not, and every Lambda outcome, succe
 """
 from __future__ import annotations
 
+import json
 import math
 import re
 from typing import Iterable, NamedTuple, Optional
@@ -47,8 +62,9 @@ from urllib.parse import unquote, urlsplit
 
 SEND, RECEIVE, WAIT, NO_SEND = "send", "receive", "wait", "no_send"
 DELETE, DELETE_FAILED, LAMBDA_OK, FAILED, VISIBILITY = "delete", "delete_failed", "lambda_ok", "failed", "visibility"
-DLQ_SEEN, AT_MAX = "dlq_seen", "at_max"
-KINDS = (SEND, RECEIVE, WAIT, NO_SEND, DELETE, DELETE_FAILED, LAMBDA_OK, FAILED, VISIBILITY, DLQ_SEEN, AT_MAX)
+DLQ_SEEN, AT_MAX, DLQ_RECEIVE = "dlq_seen", "at_max", "dlq_receive"
+KINDS = (SEND, RECEIVE, WAIT, NO_SEND, DELETE, DELETE_FAILED, LAMBDA_OK, FAILED, VISIBILITY, DLQ_SEEN, AT_MAX,
+         DLQ_RECEIVE)
 HANDLER_KINDS = (DELETE, DELETE_FAILED, LAMBDA_OK, FAILED)  # p95 time in handler
 
 STEPS_S = (60, 300, 900, 1800, 3600, 10800, 21600)
@@ -170,6 +186,15 @@ def _lambda(r) -> int:
     return int(r["source"] == "lambda" or r["operation"] == "LambdaEvent")
 
 
+def _body_size(r) -> Optional[int]:
+    try:
+        a = r["attributes"]
+        v = (json.loads(a) if isinstance(a, (str, bytes)) else a or {}).get("messaging.message.body.size")
+    except (ValueError, AttributeError, KeyError, IndexError, TypeError):
+        return None
+    return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0 else None
+
+
 def events(rows, deduplicated: Iterable[int] = ()) -> list:
     """A message's queue events (module docstring), from every row of it in (time_ns, row) order. ``deduplicated``:
     the rows of sends SQS deduplicated (timeline.deduplicated_sends)."""
@@ -180,17 +205,20 @@ def events(rows, deduplicated: Iterable[int] = ()) -> list:
     sends = [r for r in rows if r["kind"] == "send"]
     latest = receives[-1] if receives else None
 
-    def add(r, kind, value=None, k=None):
+    def add(r, kind, value=None, k=None, peer=None):
         out.append([_ms(r["time_ns"]), kind, k if k is not None else key(r["queue"], r["queue_url"]),
-                    r["service_name"], _lambda(r), value])
+                    r["service_name"], _lambda(r), value, peer])
 
     for r in rows:
         kind = r["kind"]
         if kind == "send":
             if r["row"] not in deduplicated:
-                add(r, SEND)
+                add(r, SEND, _body_size(r))
         elif kind == "receive":
             add(r, RECEIVE, r["receive_count"])
+            src = parse_arn(r["dlq_source_arn"]) if r["dlq_source_arn"] else None
+            if src is not None and src.name != r["queue"]:
+                add(r, DLQ_RECEIVE, None, None, place_key(src))
         elif kind == "delete":
             add(r, DELETE if r["result"] == "ok" else DELETE_FAILED, _handler_ms(by_row.get(r["receive_row"]), r))
         elif kind == "change_visibility":
@@ -320,3 +348,108 @@ def series(rows: Iterable, step_s: int, max_receive_count: Optional[int]) -> lis
         out.append({"t_ms": t, **b, "p95_queue_ms": p95(wait), "p95_handler_ms": p95(handler),
                     "queue_samples": len(wait), "handler_samples": len(handler)})
     return out
+
+
+# ---- the flows -----------------------------------------------------------------------------------------------
+
+NO_SERVICE = "unknown_service"  # a span without service.name, as the hosted app shows it
+
+
+def rollup_key(e) -> tuple:
+    """The queue_rollup row (hour, queue_key, kind, service, lambda, peer) an event adds to; '' for no service or
+    peer (they are in the primary key)."""
+    at, kind, k, svc, lam, _v, peer = e
+    return (int(at) // 3_600_000, k, kind, svc or "", int(lam), peer or "")
+
+
+def labels(places: dict) -> dict:
+    """{key: the name as shown, unique}: the name, or with what tells it apart from the others of that name (the
+    region within one account, else the account, else the key). queue-url.ts ``queueLabels``."""
+    by: dict = {}
+    for k, p in places.items():
+        by.setdefault(p.name, []).append(k)
+    out = {}
+    for name, same in by.items():
+        for k in same:
+            if len(same) == 1:
+                out[k] = name
+                continue
+            p = places[k]
+            same_account = sum(places[x].account == p.account for x in same) > 1
+            out[k] = f"{name} ({(p.region if same_account else p.account) or k})"
+    return out
+
+
+def flows(keys: Iterable[str], last_seen: dict, counts: Iterable, links: Iterable) -> list:
+    """The flows (module docstring), as the hosted app's ``Flow`` objects. ``keys``: every queue key with events;
+    ``last_seen``: {key: its latest event's at_ms}; ``counts``: (key, kind, service, lambda, peer, n, vn, vsum) in
+    the range, added up (vn, vsum: how many had a value, and their sum); ``links``: (dead-letter queue key, source
+    key) pairs ever seen, with ``counts``' dlq_receive rows giving how many in the range.
+
+    A key that says less about where its queue is goes to the one queue it fits (``resolve``), so a queue's spans
+    without a URL join it. Ordered by sends and receives, most first, then by the name shown."""
+    keys = sorted(set(keys))
+    places = {k: place_of_key(k) for k in keys}
+    top = {k: _top(k, places) or k for k in keys}
+    own = sorted(set(top.values()))
+    shown = labels({k: places[k] for k in own})
+    out = {}
+    for k in own:
+        p = places[k]
+        out[k] = {"key": k, "queue": shown[k], "name": p.name, "url": k if "://" in k else None,
+                  "account": p.account, "region": p.region, "lastSeen": 0,
+                  "sent": 0, "received": 0, "deleted": 0, "visibilityChanges": 0,
+                  "producers": [], "consumers": [], "avgBytes": None, "dlq": None, "_bytes": [0, 0]}
+    for k in keys:
+        f = out[top[k]]
+        f["lastSeen"] = max(f["lastSeen"], int(last_seen.get(k) or 0))
+
+    def flow_of(k):
+        if k in top:
+            return out[top[k]]
+        p = place_of_key(k)  # a key no event has (a source ARN's): the one queue it fits
+        fits = sorted({top[o] for o in keys if _fits(p, places[o])})
+        return out[fits[0]] if len(fits) == 1 else None
+
+    def add(lst, name, n, lam):
+        for s in lst:
+            if s["name"] == name:
+                s["n"] += n
+                s["lambda"] = s["lambda"] or lam
+                return
+        lst.append({"name": name, "n": n, "lambda": lam})
+
+    moved: dict = {}
+    for k, kind, svc, lam, peer, n, vn, vsum in counts:
+        f = flow_of(k)
+        if f is None or not n:
+            continue
+        n = int(n)
+        if kind == SEND:
+            f["sent"] += n
+            add(f["producers"], svc or NO_SERVICE, n, bool(lam))
+            f["_bytes"][0] += int(vn or 0)
+            f["_bytes"][1] += int(vsum or 0)
+        elif kind == RECEIVE:
+            f["received"] += n
+            add(f["consumers"], svc or NO_SERVICE, n, bool(lam))
+        elif kind in (DELETE, DELETE_FAILED):
+            f["deleted"] += n
+        elif kind == VISIBILITY:
+            f["visibilityChanges"] += n
+        elif kind == DLQ_RECEIVE:
+            moved[(k, peer)] = moved.get((k, peer), 0) + n
+    for dlq_key, src_key in sorted(set(links)):
+        src, target = flow_of(src_key), flow_of(dlq_key)
+        if src is None or target is None or src is target:
+            continue
+        if src["dlq"] is None:
+            src["dlq"] = {"name": target["queue"], "received": 0}
+        if src["dlq"]["name"] == target["queue"]:
+            src["dlq"]["received"] += moved.get((dlq_key, src_key), 0)
+    for f in out.values():
+        n, total = f.pop("_bytes")
+        f["avgBytes"] = total / n if n else None
+        f["producers"].sort(key=lambda s: -s["n"])
+        f["consumers"].sort(key=lambda s: -s["n"])
+    return sorted(out.values(), key=lambda f: (-(f["sent"] + f["received"]), f["queue"]))
