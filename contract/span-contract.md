@@ -3,8 +3,8 @@
 This file defines the OpenTelemetry spans that the `trailbeam` Python package and the `trailbeam` Node.js
 package emit, and that the Trailbeam reads. Both packages and Trailbeam are built and tested against
 it. A change to anything below is a contract change: bump `trailbeam.schema_version`, and update this file,
-both packages and Trailbeam in the same change. A revision (3.1) only adds an optional attribute that
-older stores ignore and that Trailbeam does not require (3.1, 3.5), or (3.3, 3.4) an optional span; it keeps
+both packages and Trailbeam in the same change. A revision only adds (3.1, 3.5) an optional attribute that
+older stores ignore and that Trailbeam does not require, or (3.3, 3.4) an optional span; it keeps
 `trailbeam.schema_version = 3` (sections 14, 16, 19, 21 and 23). Section 17 (the test span of `trailbeam doctor`) is not emitted by the packages and changes nothing they
 send.
 
