@@ -22,6 +22,10 @@
 - **`trailbeam --version`** (QV-346). `trailbeam --version` (or `-V`, also after `start`) prints
   `trailbeam <version>` and exits 0; it used to fail with `unrecognized arguments`. `npx trailbeam --version` prints
   the same line (it printed the bare version before).
+- **A SIGTERM in the last moment of startup closes the store too** (QV-434). The server set its SIGTERM handler
+  a few lines before the block that, on the way out, stops the retention thread and closes the store. A SIGTERM
+  (docker stop, a Kubernetes rolling restart) that arrived in between, while the retention thread was starting,
+  ended the process without either, with a traceback and exit code 1. Both now run whenever the signal comes.
 - **The Java jar has its Maven Central name and release setup** (QV-319). The group ID is `app.trailbeam`, as
   the board chose, and the Java package moves with it from `dev.trailbeam.sqs` to `app.trailbeam.sqs`, so the
   Lambda handler is now `app.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`. Builds also make a sources
