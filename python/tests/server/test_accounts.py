@@ -6,6 +6,7 @@ The Postgres cases run when TRAILBEAM_TEST_POSTGRES_URL names a database, as in 
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -527,10 +528,14 @@ def test_one_person_signing_in_over_and_over_doesnt_keep_everyone_else_out(acc, 
     for t in threads:
         t.start()
     try:
-        while not stop.wait(0.005):  # until the loop has used its allowance
+        # Until the loop has used its whole allowance: 10 sign-ins that worked, all settled, so none of theirs is
+        # still hashing (SLOW_DOWN alone isn't enough: it is also the answer while reserved attempts still run).
+        deadline = time.monotonic() + 60
+        while not stop.wait(0.005):
             with lock:
-                if theirs.count(SLOW_DOWN) >= 50:
+                if theirs.count(OK) >= ACCOUNT_SIGN_INS and theirs.count(SLOW_DOWN) >= 50:
                     break
+            assert time.monotonic() < deadline, "the loop never used its allowance"
         with lock:
             before = hashes[0]
         mine = [si.sign_in("ada@example.com", PW, "198.51.100.7").outcome for _ in range(10)]
