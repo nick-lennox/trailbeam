@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **`trailbeam --version`** (QV-346). `trailbeam --version` (or `-V`, also after `start`) prints
+  `trailbeam <version>` and exits 0; it used to fail with `unrecognized arguments`. `npx trailbeam --version` prints
+  the same line (it printed the bare version before).
 - **Users and roles are a preview, off unless switched on** (QV-349). They haven't had their security review
   (QV-229) yet, so a server built from this version ignores them unless it runs with `--accounts`
   (`TRAILBEAM_ACCOUNTS=1`, also `true`, `yes` or `on`; any other value but `0`, `false`, `no`, `off` or empty
@@ -10,6 +13,10 @@
   `TRAILBEAM_ADMIN_EMAIL` stops the server at start, and `trailbeam users` and `trailbeam tokens` refuse to run
   without `--accounts` or the variable. On, everything works as described below. The `--trusted-proxy` handling,
   the cross-site form check and the account tables are not behind the switch.
+- **Sign-in no longer tells which emails have accounts through a password over 1024 bytes** (QV-229, security
+  review of users and roles). With a known email it was refused without a password hash (about 6 ms), with an
+  unknown one after a hash (about 190 ms). Now every refusal costs one hash. Accounts are not on in any
+  release yet.
 - **A queue's series for the queue page** (QV-363): `GET /api/queues/{queue}/series?from_ms=&to_ms=&step_s=`. For each
   bucket it gives sends, receives and re-receives, handled messages (accepted deletes plus Lambda successes),
   failed Lambda invocations, dead-letter moves (seen on the dead-letter queue, and inferred from the configured
