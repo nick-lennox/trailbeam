@@ -1,5 +1,5 @@
 /*
-  @trailbeam/ui: Trailbeam's views (the timeline, tenants, message lists, Needs attention, the first-run screen, the queue page, people, tokens), shared by self-hosted Trailbeam (built into the shell in ../shell)
+  @trailbeam/ui: Trailbeam's views (the timeline, tenants, message lists, Needs attention, the first-run screen, the queue page, the Event explorer, people, tokens), shared by self-hosted Trailbeam (built into the shell in ../shell)
   and the hosted app. A view takes the API's data as props and knows nothing about where it runs.
   Plan: the hosted app's docs/plans/shared-ui.md.
 */
@@ -56,3 +56,11 @@ export {
 } from "./queue/model.ts";
 export { bucketOf, flowFor, fromSelfHosted, type ApiBucket, type Flow, type FlowsResponse, type SeriesResponse } from "./queue/selfhosted.ts";
 export type * from "./queue/types.ts";
+export { EventExplorer, type EventExplorerProps, type EventExport, type ExportOption } from "./events/EventExplorer.tsx";
+export { StepHistogram, niceMax, type HistogramProps } from "./events/Histogram.tsx";
+export {
+  EXPORT_HEADERS, EXPORT_MAX, EXPORT_PAGE, PAGE_LIMIT, barsOf, collectSteps, eventsQuery, exportRow, fmtStepTime, kindLabel, perLabel, pickedWindow,
+  serviceText, stepFailed, stepKey, stepMs, stepResult, toCsv, type Bar, type Window,
+} from "./events/model.ts";
+export { KIND_LABELS, QUERY_FIELDS, kindsOf, onlyKind, parseQuery, setField, type ParsedQuery, type QueryField, type Term } from "./events/query.ts";
+export { STEP_KINDS, type EventHistogram, type EventPage, type EventStep, type KindCounts, type StepKind } from "./events/types.ts";
