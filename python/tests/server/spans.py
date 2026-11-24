@@ -38,6 +38,7 @@ class S:
     span_id: bytes = field(default_factory=lambda: next(_ids).to_bytes(8, "big"))
     service: str | None = None  # resource service.name; None = the request's default
     start: int | None = None
+    version: str | None = None  # resource service.version; None: not set
 
     @property
     def start_time(self) -> int:
@@ -52,6 +53,7 @@ class Consumer:
     source: str = "client"
     key: str = KEY
     queue: str = "orders"
+    version: str | None = None  # the resource's service.version; None: not set
 
     scope: str | None = None  # trailbeam.order.scope; None: no call-order attributes (as a v2 span)
 
@@ -65,7 +67,7 @@ class Consumer:
                 a["trailbeam.order.issued"] = order[0]
             if order[1] is not None:
                 a["trailbeam.order.returned"] = order[1]
-        sp = S(name, t, a, service=self.service, start=start)
+        sp = S(name, t, a, service=self.service, start=start, version=self.version)
         if trace_id:
             sp.trace_id = trace_id
         return sp
@@ -186,19 +188,21 @@ def _value(v) -> AnyValue:
 
 
 def to_proto(spans: list[S], service: str = "orders-worker", scope: str = "trailbeam") -> ExportTraceServiceRequest:
-    """One ResourceSpans per service, as if each service exported its own spans."""
-    groups: dict[str, list[S]] = {}
+    """One ResourceSpans per service (and service.version), as if each service exported its own spans."""
+    groups: dict[tuple, list[S]] = {}
     for sp in spans:
-        groups.setdefault(sp.service or service, []).append(sp)
-    return ExportTraceServiceRequest(resource_spans=[_resource_spans(g, svc, scope) for svc, g in groups.items()])
+        groups.setdefault((sp.service or service, sp.version), []).append(sp)
+    return ExportTraceServiceRequest(resource_spans=[_resource_spans(g, svc, scope, ver)
+                                                     for (svc, ver), g in groups.items()])
 
 
-def _resource_spans(spans: list[S], service: str, scope: str) -> ResourceSpans:
+def _resource_spans(spans: list[S], service: str, scope: str, version: str | None = None) -> ResourceSpans:
     pb = [Span(name=s.name, trace_id=s.trace_id, span_id=s.span_id, kind=Span.SPAN_KIND_INTERNAL,
                start_time_unix_nano=s.start_time, end_time_unix_nano=s.t,
                attributes=[KeyValue(key=k, value=_value(v)) for k, v in s.attrs.items()]) for s in spans]
     return ResourceSpans(
-        resource=Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value=service))]),
+        resource=Resource(attributes=[KeyValue(key="service.name", value=AnyValue(string_value=service))]
+                          + ([KeyValue(key="service.version", value=AnyValue(string_value=version))] if version else [])),
         scope_spans=[ScopeSpans(scope=InstrumentationScope(name=scope, version="0.1.0"), spans=pb)])
 
 

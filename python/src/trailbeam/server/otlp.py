@@ -55,7 +55,9 @@ _FIELDS = {
 }
 # time_ns is the span's end (contract section 2: the response arrived); start_ns its start, or None if
 # the start was not observed (trailbeam.start_observed = false, a Lambda receive).
-RECORD_FIELDS = ["trace_id", "span_id", "kind", "start_ns", "time_ns", "service_name"] + [f for f, _ in _FIELDS.values()]
+# service_name and service_version are the resource's service.name and service.version (the deployed build, QV-362).
+RECORD_FIELDS = (["trace_id", "span_id", "kind", "start_ns", "time_ns", "service_name", "service_version"]
+                 + [f for f, _ in _FIELDS.values()])
 
 # Fields each event kind must carry to be usable (contract section 4).
 _REQUIRED = {
@@ -202,6 +204,11 @@ def _event_kind(attrs: dict) -> Optional[str]:
     return None
 
 
+def _resource_str(resource: dict, key: str) -> Optional[str]:
+    v = resource.get(key)
+    return v if isinstance(v, str) and v != "" else None
+
+
 def to_record(resource: dict, trace_id: str, span_id: str, start_ns: int, end_ns: int,
               attrs: dict) -> tuple[Optional[dict], str]:
     """Returns (record, "") or (None, reason)."""
@@ -221,7 +228,8 @@ def to_record(resource: dict, trace_id: str, span_id: str, start_ns: int, end_ns
     observed = attrs.get("trailbeam.start_observed") is not False
     rec = {"trace_id": trace_id, "span_id": span_id, "kind": kind, "time_ns": int(end_ns),
            "start_ns": int(start_ns) if observed else None,
-           "service_name": resource.get("service.name") if isinstance(resource.get("service.name"), str) else None}
+           "service_name": _resource_str(resource, "service.name"),
+           "service_version": _resource_str(resource, "service.version")}
     for attr, (name, typ) in _FIELDS.items():
         v = attrs.get(attr)
         if typ is int and isinstance(v, str) and v.lstrip("-").isdigit():

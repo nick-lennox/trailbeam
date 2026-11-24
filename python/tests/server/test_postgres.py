@@ -574,7 +574,7 @@ def test_version_2_fills_the_lookup_tables_place_by_place(pg_store):
         _as_version(c, 1)
     again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
     try:
-        assert again.migrated == [2, 3, 4, 5, 6, 7, 8, 9, 10]
+        assert again.migrated == [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
         with again.ingest.connection() as c:
             assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
             assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == list(range(1, pg_schema_latest() + 1))
@@ -722,7 +722,11 @@ def _as_version(c, version: int) -> None:
     message-ID indexes on the list tables), 2 adds the lookup tables (QV-113), 3 the message-ID indexes (QV-118),
     4 the tenant rollup (QV-128); 5 partitions the lookup tables (QV-127); 6 adds the probes of trailbeam
     doctor (QV-148); 7 takes deduplicated FIFO sends out of the tenant events (QV-246, no table change); 8 the
-    tables of people and tokens (QV-225); 9 the purges (QV-245)."""
+    tables of people and tokens (QV-225); 9 the purges (QV-245); 10 spans.service_version (QV-362); 11 the SNS publishes and receives (QV-313)."""
+    if version < 11:
+        c.execute("DROP TABLE sns_receives, sns_publishes")
+    if version < 10:
+        c.execute("ALTER TABLE spans DROP COLUMN service_version")
     if version < 9:
         c.execute("DROP TABLE purges")
     if version < 8:
@@ -847,7 +851,7 @@ def test_version_3_indexes_the_list_tables_place_by_place(pg_store):
     for attempt in range(2):
         again = PostgresStore(s.url, bucket_ns=SEC)
         try:
-            assert again.migrated == [3, 4, 5, 6, 7, 8, 9, 10]
+            assert again.migrated == [3, 4, 5, 6, 7, 8, 9, 10, 11]
             with again.ingest.connection() as c:
                 parts = _list_partitions(c)
                 assert len(parts["message_queues"]) == 11 + attempt  # 12 places less the dropped one, + "after-0"
@@ -1088,7 +1092,7 @@ def test_version_4_builds_the_rollup_place_by_place(pg_store):
         _as_version(c, 3)
     again = PostgresStore(s.url, bucket_ns=HOUR_MS * 10 ** 6)
     try:
-        assert again.migrated == [4, 5, 6, 7, 8, 9, 10]
+        assert again.migrated == [4, 5, 6, 7, 8, 9, 10, 11]
         assert [_rollup_page(again, a, b) for a, b in ranges] == want
         with again.ingest.connection() as c:
             assert c.execute("SELECT * FROM tenant_events ORDER BY rclass, bucket, at_ms, mid, seq").fetchall() == events
@@ -1123,7 +1127,7 @@ def test_version_7_takes_deduplicated_fifo_sends_out_of_the_tenant_events(pg_sto
         _as_version(c, 6)
     again = PostgresStore(s.url, bucket_ns=SEC)
     try:
-        assert again.migrated == [7, 8, 9, 10]
+        assert again.migrated == [7, 8, 9, 10, 11]
         assert queries.tenants(again, T0, 900, ms - 3_600_000, ms + 3_600_000) == want
         with again.ingest.connection() as c:
             assert [r["kind"] for r in c.execute("SELECT kind FROM tenant_events ORDER BY at_ms, kind")] == \
@@ -1370,7 +1374,7 @@ def test_version_5_partitions_the_lookup_tables_place_by_place(pg_store, tmp_pat
                          "AND relnamespace = current_schema()::regnamespace").fetchone()["relkind"] == "r"
     again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
     try:
-        assert again.migrated == [5, 6, 7, 8, 9, 10]
+        assert again.migrated == [5, 6, 7, 8, 9, 10, 11]
         with again.ingest.connection() as c:
             assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
             assert c.execute("SELECT to_regclass('mid_places_v4') AS t").fetchone()["t"] is None
@@ -1426,3 +1430,33 @@ def test_every_older_version_gets_the_tables_of_people_and_tokens_a_new_database
         assert len(again.message_rows("m1")) == 1
     finally:
         again.close()
+
+
+@needs_pg
+def test_service_version_is_kept_and_filters_the_lists(pg_store):
+    """QV-362: spans.service_version (schema 10) on Postgres, as on SQLite (test_api.py): on the timeline's
+    consumer, on the list rows' consumers, and as the lists' ``version`` filter, also with a queue or a tenant."""
+    from spans import T0 as T0_NS
+    from trailbeam.server import queries
+    s = pg_store(bucket_ns=SEC)
+    old, new = Consumer("consumer-a", version="1.4.2"), Consumer("consumer-b", version="1.4.3")
+    spans = [Consumer("producer").send(T0_NS, "m-1"), old.receive(T0_NS + SEC, "m-1", "rh-1"),
+             new.receive(T0_NS + 40 * SEC, "m-1", "rh-2", count=2),
+             Consumer("producer").send(T0_NS, "m-2"), new.receive(T0_NS + SEC, "m-2", "rh-3")]
+    for sp in spans:
+        sp.attrs["trailbeam.tenant"] = "acme"
+    s.insert(records(spans))
+    now = T0_NS + 3600 * SEC
+    t = queries.message(s, "m-1", now, 900, None)
+    assert [e["consumer"].get("service_version") for e in t["events"] if e["type"] == "received"] == ["1.4.2", "1.4.3"]
+    assert [c["service_version"] for c in queries.duplicates(s, now, 900, 10)[0]["consumers"]] == ["1.4.2", "1.4.3"]
+    assert [m["message_id"] for m in queries.recent_page(s, now, 900, 10, version="1.4.3").items] == ["m-1", "m-2"]
+    assert [m["message_id"] for m in queries.recent_page(s, now, 900, 10, version="1.4.2").items] == ["m-1"]
+    assert [m["message_id"] for m in queries.recent_page(s, now, 900, 10, "orders", version="1.4.2").items] == ["m-1"]
+    assert [m["message_id"] for m in queries.recent_page(s, now, 900, 10, tenant="acme", version="1.4.2").items] == \
+        ["m-1"]
+    assert queries.recent_page(s, now, 900, 10, version="9").items == []
+    assert [m["message_id"] for m in queries.duplicates_page(s, now, 900, 10, version="1.4.2").items] == ["m-1"]
+    assert queries.duplicates_page(s, now, 900, 10, version="1.4.3", reason="succeeded_more_than_once").items == []
+    assert [m["message_id"] for m in queries.stuck_page(s, now, 900, 1, 10, version="1.4.3").items] == ["m-1", "m-2"]
+    assert [m["message_id"] for m in queries.stuck_page(s, now, 900, 1, 10, version="1.4.2").items] == ["m-1"]

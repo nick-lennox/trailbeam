@@ -71,9 +71,22 @@ def _start(r) -> Optional[int]:
     return r["start_ns"]
 
 
+def span_version(r) -> Optional[str]:
+    """The resource's service.version the span was stored with (QV-362); None if not set, or on a row without the
+    column (a purge row of the Postgres store, which keeps purges in a table of their own)."""
+    try:
+        return r["service_version"]
+    except (IndexError, KeyError):
+        return None
+
+
 def consumer(r) -> dict:
     keys = ("service_name", "client_id", "source", "pid", "thread_name", "faas_name", "faas_invocation_id")
-    return {k: r[k] for k in keys if r[k] is not None}
+    out = {k: r[k] for k in keys if r[k] is not None}
+    version = span_version(r)
+    if version is not None:
+        out["service_version"] = version
+    return out
 
 
 def _span(r) -> dict:

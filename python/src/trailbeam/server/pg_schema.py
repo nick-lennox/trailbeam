@@ -50,7 +50,7 @@ before this version (0.3.0 and earlier) refuses the database from then on.
 **Purges** (version 9, QV-245). ``purges``: the PurgeQueue calls (contract section 18), not partitioned: they
 belong to no message, and every list page reads them by queue.
 
-**SNS fan-out** (version 10, QV-313). ``sns_publishes`` and ``sns_receives``: the SNS publishes (contract section
+**SNS fan-out** (version 11, QV-313). ``sns_publishes`` and ``sns_receives``: the SNS publishes (contract section
 20) and, by key, the receives they reached; not partitioned, like ``purges``.
 
 **Message-ID indexes** (version 3, QV-118). ``message_queues``, ``message_tenants`` and ``tenant_events`` are
@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS purges (
 CREATE INDEX IF NOT EXISTS purges_queue ON purges (queue, start_ns);
 """
 
-# Version 10 (QV-313): SNS fan-out (contract section 20). ``sns_publishes``: one row per SNS message a Publish or
+# Version 11 (QV-313): SNS fan-out (contract section 20). ``sns_publishes``: one row per SNS message a Publish or
 # PublishBatch sent, with the keys a receive joins it by (``topic_arn`` and ``message_id``, ``publish_id``).
 # ``sns_receives``: one row per (key, message) for each receive carrying a key, ``key`` being ``e:<topic ARN>
 # <SNS message ID>`` or ``p:<publish ID>``: the receives a publish reached, which the spans' places can't be searched
@@ -216,6 +216,7 @@ CREATE TABLE IF NOT EXISTS spans (
     receive_row BIGINT,
     body_dropped TEXT,
     body_id BIGINT,
+    service_version TEXT,                -- the resource's service.version (version 10, QV-362)
     UNIQUE (rclass, bucket, trace_id, span_id)
 ) PARTITION BY RANGE (rclass, bucket);
 CREATE INDEX IF NOT EXISTS spans_row ON spans ("row");
@@ -582,9 +583,12 @@ MIGRATIONS: tuple = (
     Migration(7, "FIFO deduplicated sends out of the tenant events (QV-246)", (), per_place=(_dedup_place,)),
     Migration(8, "users, sessions and tokens (QV-225)", tuple(statements(account_tables.PG_CREATE))),
     Migration(9, "purges: the PurgeQueue calls (QV-245)", tuple(statements(PURGES))),
-    Migration(10, "SNS publishes and the receives they reached (QV-313)", tuple(statements(SNS))),
+    # Version 10 (QV-362): the resource's service.version on each span, NULL on rows stored before it. Adding a
+    # nullable column with no default to the partitioned parent adds it to every place without rewriting it.
+    Migration(10, "spans.service_version (QV-362)", ("ALTER TABLE spans ADD COLUMN IF NOT EXISTS service_version TEXT",)),
+    Migration(11, "SNS publishes and the receives they reached (QV-313)", tuple(statements(SNS))),
 )
-LATEST = 10
+LATEST = 11
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 

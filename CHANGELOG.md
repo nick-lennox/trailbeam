@@ -10,13 +10,30 @@
   256 KiB or uses `MessageStructure: json`; `TRAILBEAM_SNS_INJECT=off` turns it off), and, with raw delivery off,
   three fields of the SNS envelope: `MessageId`, `TopicArn` and `Timestamp`. These three are read on every queue,
   including queues whose body is not captured. Nothing else in the body is read, and the body is never exported. Node.js: pass an `SNSClient` to `instrument`. The server stores publishes apart from messages
-  (SQLite schema 16: three partial indexes, built from one scan of `spans`; Postgres schema 10: `sns_publishes` and
+  (SQLite schema 17: three partial indexes, built from one scan of `spans`; Postgres schema 11: `sns_publishes` and
   `sns_receives`) and joins them when a message is read: its timeline gets a `published` step with the SQS messages
   the publish reached, by queue, and the SNS delivery time (`SentTimestamp` minus the envelope's `Timestamp`, both
   AWS clocks). A message whose envelope names a topic but joins no recorded publish gets `arrived_via_sns`, placed
   before that receive. `/api/stats` counts `spans.publish`. A server before 3.4 rejects the publish span as an
   unknown kind (one rejected span in `partial_success`) and stores the rest.
 
+- **Java package, stage 4: the Lambda wrapper** (QV-319, pre-release, not published). For a function invoked by
+  an SQS event source mapping, set the handler to `dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`
+  and name your own in `TRAILBEAM_LAMBDA_HANDLER`, or extend `TrailbeamSqsHandler`. Each record gets a
+  `trailbeam receive`, exported before the handler runs, and a `trailbeam outcome` after it, with the batch
+  fields and opt-in error text (`TRAILBEAM_CAPTURE_ERROR_QUEUES`). `trailbeam.error_type` is the exception's fully
+  qualified class name, which is what Lambda's Java runtime reports as `errorType`. After a SnapStart restore the
+  jar starts a new call-order scope and `service.instance.id`, through `org.crac` when it is on the classpath. The
+  conformance kit has a Java Lambda driver (`drivers/java-lambda`, on `public.ecr.aws/lambda/java:21`), and CI
+  runs it in the Java job.
+- **`service.version` is kept, so a deploy can be seen** (QV-362, the server half). Each stored span keeps its
+  resource's `service.version` beside `service.name` (SQLite schema 16, Postgres schema 10; rows stored before
+  have none). A timeline step's `consumer` has `service_version` when it is set, and the Timeline shows it after
+  the service name. The list rows' `consumers` (messages, duplicates, stuck) each have `service_version`, null
+  when unknown; a service and client seen under two versions is listed once for each. `/api/messages`,
+  `/api/duplicates` and `/api/stuck` take `version=`: only messages a consumer of that version received (not
+  indexed: read off each candidate's summary; `version` with `body` is a `400`). The conformance suite checks
+  the filter on both stores.
 - **Java package, stage 3: tenants and body capture** (QV-319, pre-release, not published). The jar now
   implements contract section 15 like the Python and Node.js packages, and passes the same `capture` vectors:
   the tenant from `TRAILBEAM_TENANT_ATTRIBUTE` or `TRAILBEAM_TENANT_BODY_PATH`, opt-in body capture per queue
