@@ -60,9 +60,22 @@ export function linkSentence(p: Pick<Person, "name" | "email">, link: PersonLink
 }
 
 /** The confirmation before a remove. */
-export const removeSentence = (p: Pick<Person, "name" | "email" | "you">) =>
-  p.you ? "Remove your own account? You are signed out, and can't sign in again."
+export const removeSentence = (p: Pick<Person, "name" | "email" | "you" | "single_sign_on">) =>
+  p.you ? `Remove your own account? You are signed out${p.single_sign_on ? "." : ", and can't sign in again."}`
     : `Remove ${p.name || p.email}? Their sign-ins, personal API tokens and links stop working. This can't be undone.`;
+
+/**
+ * The warning under the remove confirmation for someone who signs in with single sign-on, else null: removing them
+ * deletes the link to their identity provider account, so their next sign-in makes a new person with the default
+ * role (as `trailbeam users remove` says).
+ */
+export function removeSsoNote(p: Pick<Person, "name" | "email" | "you" | "single_sign_on">): string | null {
+  if (!p.single_sign_on) return null;
+  if (p.you) return "You sign in with single sign-on, so removing your account doesn't keep you out: at your next sign-in "
+    + "you come back as a new person with the default role.";
+  return `${p.name || p.email} signs in with single sign-on, so removing them doesn't keep them out: at their next sign-in `
+    + "they come back as a new person with the default role. To keep them out, disable them instead.";
+}
 
 const btn = "rounded-full border border-line px-3 py-0.5 text-sm text-ink-2 hover:border-ink hover:text-ink disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -115,6 +128,7 @@ export function PeopleTable({ people, pending = null, onRole, onDisabled, onRemo
                 {removing === p.id ? (
                   <div className="flex flex-wrap items-center justify-end gap-2" role="group" aria-label={`Remove ${p.email}`}>
                     <span className="max-w-[34ch] text-sm text-ink-2">{removeSentence(p)}</span>
+                    {removeSsoNote(p) && <span className="max-w-[34ch] text-sm text-warning-text" role="note">{removeSsoNote(p)}</span>}
                     <button type="button" className={`${btn} text-critical-text`} disabled={busy} onClick={() => { setRemoving(null); onRemove(p); }}>Remove</button>
                     <button type="button" className={btn} onClick={() => setRemoving(null)}>Cancel</button>
                   </div>

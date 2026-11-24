@@ -12,7 +12,7 @@ export { TenantsTable, TenantSearch, tenantsFootnote, noTenantsText, P95_NOTE, f
 export type * from "./tenants/types.ts";
 export {
   AddPerson, OneTimeLink, PeopleTable, LAST_ADMIN, ROLES, ROLE_TEXT, STATUS_HINT, STATUS_TEXT, fmtWhen, isLastAdmin, linkButton, linkKind, linkSentence,
-  removeSentence, signInAdmins, type AddPersonProps, type OneTimeLinkProps, type PeopleTableProps,
+  removeSentence, removeSsoNote, signInAdmins, type AddPersonProps, type OneTimeLinkProps, type PeopleTableProps,
 } from "./people/People.tsx";
 export type * from "./people/types.ts";
 export { BodyPanel, type BodyPanelProps } from "./body/BodyPanel.tsx";
