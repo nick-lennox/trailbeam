@@ -48,6 +48,10 @@ answers a narrower question: where did this one message go?
   during the purge or within 60 s after it stays on Stuck, marked "possibly purged": SQS may or may not
   have deleted it. A message that SQS drops when its retention period ends can't be seen, so it stays on
   Stuck until Trailbeam's own retention removes it.
+- **SNS fan-out.** A message that reached SQS through an SNS topic starts at its publish: the timeline
+  shows "Published to topic …", the process that published, the other SQS messages the publish reached,
+  and, with raw delivery off, the SNS delivery time. If the publisher runs no Trailbeam package, the
+  envelope still says which topic it came through ("Arrived via SNS topic …").
 - **Recorded and inferred steps are kept apart.** Trailbeam orders two events only when an observed
   fact proves the order, and marks every step it inferred, such as a visibility timeout that expired.
 - **Deletes joined to their receives.** A delete carries a receipt handle, not a message ID. Trailbeam
@@ -576,9 +580,11 @@ own store (SQLite or Postgres). Nothing changes until the first admin exists. Af
 - `x-trailbeam-key` is the header the hosted app takes, so a service moves between the two by changing only
   the address and the key. When a request has both headers, only `x-trailbeam-key` is read.
 - `GET /api/me` says how a request was let in, and as whom: use it to check a personal token.
-- Signing in has two limits. 10 failed attempts in a row lock that account for 15 minutes, on every replica.
-  20 failures from one client address in 10 minutes get "try again later" from that replica. Behind a proxy,
-  set `--trusted-proxy` (below), or every request seems to come from the proxy.
+- Signing in has three limits. 10 failed attempts in a row lock that account for 15 minutes, on every replica.
+  20 failures from one client address in 10 minutes get "try again later" from that replica. More than 10
+  sign-ins that work for one account in a minute get "try again later" from that replica too, from any address.
+  Behind a proxy, set `--trusted-proxy` (below), or every request seems to come from the proxy.
+- A person keeps at most 50 sessions: signing in a 51st time ends their oldest.
 - A `--db :memory:` store loses its people and tokens when the server stops.
 
 ### The first admin, and people and tokens from the command line

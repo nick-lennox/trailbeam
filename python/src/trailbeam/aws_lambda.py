@@ -143,6 +143,11 @@ class LambdaRecorder:
                                                     r.get("md5OfBody"), lambda_record=True))
             except Exception:  # pragma: no cover - defensive
                 attrs["trailbeam.body.capture_status"] = _capture.STATUS_REDACTION_FAILED
+            try:  # 3.4 (section 21.3): the SNS publish this record came from
+                attrs.update(_capture.sns_receive_attrs(self.capture, name, r.get("body"), r.get("messageAttributes"),
+                                                        lambda_record=True))
+            except Exception:  # pragma: no cover - defensive
+                pass
             self.emitter.emit(SPAN_RECEIVE, OPERATION, name, url, attrs, end_ns=t, start_observed=False,
                               order=(None, returned))
         self._flush()
@@ -217,10 +222,11 @@ def wrap(
     report_batch_item_failures: bool = True,
     tenant: Optional[dict] = None,
     capture: Optional[dict] = None,
+    sns: Optional[dict] = None,
 ):
     """Wrap a Lambda handler. Use as ``@wrap`` or ``@wrap(receipt_hash_key=...)``.
 
-    ``tenant`` and ``capture`` are as in ``trailbeam.boto.install`` (contract section 15). With the
+    ``tenant``, ``capture`` and ``sns`` are as in ``trailbeam.boto.install`` (contract sections 15 and 21). With the
     record's queue in ``capture["error_queues"]``, a thrown exception's message is recorded, redacted.
 
     ``report_batch_item_failures`` should match the event source mapping's
@@ -232,7 +238,7 @@ def wrap(
         emitter = Emitter(provider, resolve_hasher(receipt_hash_key), source="lambda")
         emitter.default_client_id = emitter.client_id
         recorder = LambdaRecorder(provider, emitter, flush_timeout_millis, report_batch_item_failures,
-                                  _capture.resolve_config(tenant, capture))
+                                  _capture.resolve_config(tenant, capture, sns))
 
         @functools.wraps(fn)
         def wrapped(event, context, *args, **kwargs):

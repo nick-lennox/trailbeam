@@ -12,6 +12,8 @@ from typing import Any, Iterable, Optional
 
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
 
+from .sns import valid_topic_arn
+
 SCOPE_NAME = "trailbeam"
 SCHEMA_VERSION = 3
 # Version 2 spans are still read: they only lack the call-order attributes (trailbeam.order.*), so their
@@ -65,6 +67,7 @@ _REQUIRED = {
     "change_visibility": ("queue", "receipt_hmac", "key_id", "result"),
     "outcome": ("queue", "message_id", "outcome"),
     "purge": ("queue", "result"),  # revision 3.3, section 18: no message ID, no receipt hash
+    "publish": ("queue", "message_id"),  # revision 3.4, section 21.1: the topic name and the SNS message ID
 }
 
 
@@ -190,6 +193,8 @@ def _event_kind(attrs: dict) -> Optional[str]:
         return "outcome"
     if kind == "sqs.purge" and attrs.get("messaging.operation.name") == "PurgeQueue":
         return "purge"
+    if kind == "sns.publish" and attrs.get("messaging.operation.name") in ("Publish", "PublishBatch"):
+        return "publish"
     if kind == "sqs.settle":
         op = attrs.get("messaging.operation.name")
         if op in DELETE_OPS:
@@ -218,8 +223,8 @@ def to_record(resource: dict, trace_id: str, span_id: str, start_ns: int, end_ns
         return None, "span without trace ID, span ID, start time or end time"
     if end_ns < start_ns:
         return None, "span ends before it starts"
-    if kind == "purge" and attrs.get("trailbeam.start_observed") is False:
-        return None, "purge span without an observed start"  # a purge is always a client call (section 18)
+    if kind in ("purge", "publish") and attrs.get("trailbeam.start_observed") is False:
+        return None, f"{kind} span without an observed start"  # always a client call (sections 18, 21.1)
     observed = attrs.get("trailbeam.start_observed") is not False
     rec = {"trace_id": trace_id, "span_id": span_id, "kind": kind, "time_ns": int(end_ns),
            "start_ns": int(start_ns) if observed else None,
@@ -235,6 +240,8 @@ def to_record(resource: dict, trace_id: str, span_id: str, start_ns: int, end_ns
         return None, f"{kind} span without {', '.join(missing)}"
     if kind in ("delete", "change_visibility", "purge") and rec["result"] not in ("ok", "failed"):
         return None, f"trailbeam.result {rec['result']!r} is not ok or failed"
+    if kind == "publish" and not valid_topic_arn(attrs.get("aws.sns.topic.arn")):
+        return None, "publish span without a valid aws.sns.topic.arn"
     if kind == "outcome" and rec["outcome"] not in OUTCOMES:
         return None, f"unknown trailbeam.outcome {rec['outcome']!r}"
     rec["attributes"] = attrs

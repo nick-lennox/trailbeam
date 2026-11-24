@@ -1,0 +1,486 @@
+{
+ "note": "GET /api/messages/{id} after an SNS fan-out (contract 3.4, section 21), made by Trailbeam itself (ui/test/make-fixtures.py) from python/tests/server/spans.py: one Publish to orders-topic reached sns-orders (raw delivery off: joined by the envelope, with an SNS delivery time) and sns-billing (raw delivery on: joined by the publish ID, no delivery time); sns-arrived names the topic in its envelope, and no publish was recorded.",
+ "timelines": [
+  {
+   "message_id": "sns-arrived",
+   "state": "not_deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": false,
+   "deliveries": 1,
+   "successful_deliveries": 0,
+   "first_seen": "2025-11-14T00:26:47.025000Z",
+   "first_seen_clock": "sqs",
+   "last_seen": "2025-11-14T00:26:49.000000Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:48.000000Z",
+     "end": "2025-11-14T00:26:49.000000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "arrived_via_sns",
+     "inferred": false,
+     "source": "sns_envelope",
+     "time": null,
+     "window": {
+      "from": null,
+      "to": "2025-11-14T00:26:49.000000Z"
+     },
+     "topic": "audit-topic",
+     "topic_arn": "arn:aws:sns:us-east-1:111122223333:audit-topic",
+     "sns_message_id": "sns-msg-2",
+     "reported_on_delivery": 1,
+     "reason": "The SNS envelope of receive 1 names topic audit-topic: SNS delivered this message to orders. The publish is not recorded (its publisher runs no Trailbeam package, or its span was lost), so the step has no time of its own; it came before that receive.",
+     "sns_timestamp": "2025-11-14T00:26:47.000000Z",
+     "sns_timestamp_ms": 1763080007000,
+     "sns_delivery_ms": 25,
+     "group": null,
+     "after": [],
+     "before": {
+      "event": "e2",
+      "type": "received",
+      "sources": [
+       "sns_envelope"
+      ],
+      "source": "sns_envelope",
+      "why": "The SNS envelope of receive 1 names topic audit-topic: SNS delivered the message before that receive."
+     }
+    },
+    {
+     "id": "e2",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-14T00:26:49.000000Z",
+     "time_unix_nano": "1763080009000000000",
+     "start": "2025-11-14T00:26:48.000000Z",
+     "start_unix_nano": "1763080008000000000",
+     "end": "2025-11-14T00:26:49.000000Z",
+     "end_unix_nano": "1763080009000000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "orders-worker",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "8d4fe67d551ede4490e24b293bc479de",
+      "span_id": "000000000000000b"
+     },
+     "process_order": null,
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2025-11-14T00:26:47.025000Z",
+     "sent_timestamp_ms": 1763080007025,
+     "after": []
+    }
+   ],
+   "order": {
+    "edges": [],
+    "edges_by_source": {
+     "clock": 0,
+     "process_order": 0,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": [
+    {
+     "code": "send_not_observed",
+     "message": "No trailbeam send span for this message: the producer is not instrumented, or the send is older than the stored data."
+    }
+   ]
+  },
+  {
+   "message_id": "sns-billing",
+   "state": "not_deleted",
+   "source_queue": "billing",
+   "current_queue": "billing",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": false,
+   "deliveries": 1,
+   "successful_deliveries": 0,
+   "first_seen": "2025-11-14T00:26:41.050000Z",
+   "first_seen_clock": "sqs",
+   "last_seen": "2025-11-14T00:26:43.000000Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:40.000000Z",
+     "end": "2025-11-14T00:26:41.000000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:42.000000Z",
+     "end": "2025-11-14T00:26:43.000000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "published",
+     "inferred": false,
+     "source": "sns_publish",
+     "time": "2025-11-14T00:26:41.000000Z",
+     "time_unix_nano": "1763080001000000000",
+     "start": "2025-11-14T00:26:40.000000Z",
+     "start_unix_nano": "1763080000000000000",
+     "end": "2025-11-14T00:26:41.000000Z",
+     "end_unix_nano": "1763080001000000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders-topic",
+     "consumer": {
+      "service_name": "orders-api",
+      "client_id": "producer",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "a6d4da99bd788500c6e3f93d9b21bd06",
+      "span_id": "0000000000000007"
+     },
+     "process_order": null,
+     "topic": "orders-topic",
+     "topic_arn": "arn:aws:sns:us-east-1:111122223333:orders-topic",
+     "sns_message_id": "sns-msg-1",
+     "joined_by": [
+      "publish_id"
+     ],
+     "reached": [
+      {
+       "queue": "billing",
+       "message_ids": [
+        "sns-billing"
+       ]
+      },
+      {
+       "queue": "orders",
+       "message_ids": [
+        "sns-orders"
+       ]
+      }
+     ],
+     "reached_truncated": false,
+     "reason": "Published to topic orders-topic. This message is joined to the publish by the trailbeam.publish_id attribute its receive carries.",
+     "publish_id": "pub-1",
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-14T00:26:43.000000Z",
+     "time_unix_nano": "1763080003000000000",
+     "start": "2025-11-14T00:26:42.000000Z",
+     "start_unix_nano": "1763080002000000000",
+     "end": "2025-11-14T00:26:43.000000Z",
+     "end_unix_nano": "1763080003000000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "billing",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "orders-worker",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "99c1d4d2456f46eb48ac22bcec785bcf",
+      "span_id": "0000000000000009"
+     },
+     "process_order": null,
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2025-11-14T00:26:41.050000Z",
+     "sent_timestamp_ms": 1763080001050,
+     "after": [
+      {
+       "event": "e1",
+       "type": "published",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "The publish to topic orders-topic ended (2025-11-14T00:26:41.000000Z) before this started (2025-11-14T00:26:42.000000Z), on the hosts' clocks."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 1,
+     "process_order": 0,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": [
+    {
+     "code": "send_not_observed",
+     "message": "No trailbeam send span for this message: the producer is not instrumented, or the send is older than the stored data."
+    }
+   ]
+  },
+  {
+   "message_id": "sns-orders",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": false,
+   "deliveries": 1,
+   "successful_deliveries": 1,
+   "first_seen": "2025-11-14T00:26:41.040000Z",
+   "first_seen_clock": "sqs",
+   "last_seen": "2025-11-14T00:26:44.000000Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:40.000000Z",
+     "end": "2025-11-14T00:26:41.000000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:42.000000Z",
+     "end": "2025-11-14T00:26:43.000000Z"
+    },
+    {
+     "group": 2,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:43.500000Z",
+     "end": "2025-11-14T00:26:44.000000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "published",
+     "inferred": false,
+     "source": "sns_publish",
+     "time": "2025-11-14T00:26:41.000000Z",
+     "time_unix_nano": "1763080001000000000",
+     "start": "2025-11-14T00:26:40.000000Z",
+     "start_unix_nano": "1763080000000000000",
+     "end": "2025-11-14T00:26:41.000000Z",
+     "end_unix_nano": "1763080001000000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders-topic",
+     "consumer": {
+      "service_name": "orders-api",
+      "client_id": "producer",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "a6d4da99bd788500c6e3f93d9b21bd06",
+      "span_id": "0000000000000007"
+     },
+     "process_order": null,
+     "topic": "orders-topic",
+     "topic_arn": "arn:aws:sns:us-east-1:111122223333:orders-topic",
+     "sns_message_id": "sns-msg-1",
+     "joined_by": [
+      "envelope_message_id"
+     ],
+     "reached": [
+      {
+       "queue": "billing",
+       "message_ids": [
+        "sns-billing"
+       ]
+      },
+      {
+       "queue": "orders",
+       "message_ids": [
+        "sns-orders"
+       ]
+      }
+     ],
+     "reached_truncated": false,
+     "reason": "Published to topic orders-topic. This message is joined to the publish by the SNS message ID in the envelope of its receive.",
+     "publish_id": "pub-1",
+     "sns_delivery_ms": 40,
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-14T00:26:43.000000Z",
+     "time_unix_nano": "1763080003000000000",
+     "start": "2025-11-14T00:26:42.000000Z",
+     "start_unix_nano": "1763080002000000000",
+     "end": "2025-11-14T00:26:43.000000Z",
+     "end_unix_nano": "1763080003000000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "orders-worker",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "77bdedbd86e89b7773f8ef10e68eb916",
+      "span_id": "0000000000000008"
+     },
+     "process_order": null,
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2025-11-14T00:26:41.040000Z",
+     "sent_timestamp_ms": 1763080001040,
+     "after": [
+      {
+       "event": "e1",
+       "type": "published",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "The publish to topic orders-topic ended (2025-11-14T00:26:41.000000Z) before this started (2025-11-14T00:26:42.000000Z), on the hosts' clocks."
+      }
+     ]
+    },
+    {
+     "id": "e3",
+     "type": "deleted",
+     "inferred": false,
+     "time": "2025-11-14T00:26:44.000000Z",
+     "time_unix_nano": "1763080004000000000",
+     "start": "2025-11-14T00:26:43.500000Z",
+     "start_unix_nano": "1763080003500000000",
+     "end": "2025-11-14T00:26:44.000000Z",
+     "end_unix_nano": "1763080004000000000",
+     "start_observed": true,
+     "group": 2,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "orders-worker",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "3a61259f4ddee1328bb69493b55a603d",
+      "span_id": "000000000000000a"
+     },
+     "process_order": null,
+     "delivery": 1,
+     "result": "ok",
+     "status": "final",
+     "after": [
+      {
+       "event": "e2",
+       "type": "received",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "Receive 1 ended (2025-11-14T00:26:43.000000Z) before this started (2025-11-14T00:26:43.500000Z), on the hosts' clocks."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e3",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e2",
+      "to": "e3",
+      "sources": [
+       "clock"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 3,
+     "process_order": 0,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": [
+    {
+     "code": "send_not_observed",
+     "message": "No trailbeam send span for this message: the producer is not instrumented, or the send is older than the stored data."
+    }
+   ]
+  }
+ ]
+}

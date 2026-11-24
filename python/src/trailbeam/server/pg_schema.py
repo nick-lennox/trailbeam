@@ -58,7 +58,10 @@ queue key, kind, service, Lambda flag and peer, for the flows, one row per writi
 ``place_queue_keys``: the queue keys each place has events of (not partitioned, so the list of queues is read
 without touching every place).
 
-**Single sign-on** (version 13, QV-228). ``oidc_logins`` and ``oidc_identities`` (account_tables.py): OpenID
+**SNS fan-out** (version 13, QV-313). ``sns_publishes`` and ``sns_receives``: the SNS publishes (contract section
+20) and, by key, the receives they reached; not partitioned, like ``purges``.
+
+**Single sign-on** (version 14, QV-228). ``oidc_logins`` and ``oidc_identities`` (account_tables.py): OpenID
 Connect sign-ins in progress, and which person each identity provider account is. Not spans either.
 
 **Message-ID indexes** (version 3, QV-118). ``message_queues``, ``message_tenants`` and ``tenant_events`` are
@@ -145,6 +148,42 @@ CREATE TABLE IF NOT EXISTS purges (
     UNIQUE (trace_id, span_id, time_ns)
 );
 CREATE INDEX IF NOT EXISTS purges_queue ON purges (queue, start_ns);
+"""
+
+# Version 12 (QV-313): SNS fan-out (contract section 21). ``sns_publishes``: one row per SNS message a Publish or
+# PublishBatch sent, with the keys a receive joins it by (``topic_arn`` and ``message_id``, ``publish_id``).
+# ``sns_receives``: one row per (key, message) for each receive carrying a key, ``key`` being ``e:<topic ARN>
+# <SNS message ID>`` or ``p:<publish ID>``: the receives a publish reached, which the spans' places can't be searched
+# for. Neither is partitioned: a publish belongs to no message and its receives to any place. Retention deletes both
+# by their own time against their topic's or queue's cutoff (postgres.py, purge_step); a receive's row expires no
+# later than its message. ``id`` orders publishes as ``row`` orders spans.
+SNS = """
+CREATE TABLE IF NOT EXISTS sns_publishes (
+    id BIGSERIAL PRIMARY KEY,
+    trace_id TEXT NOT NULL, span_id TEXT NOT NULL,
+    start_ns BIGINT, time_ns BIGINT NOT NULL,
+    service_name TEXT, source TEXT, operation TEXT,
+    queue TEXT NOT NULL,                  -- the topic's name
+    message_id TEXT COLLATE "C" NOT NULL, -- the SNS message ID
+    topic_arn TEXT COLLATE "C" NOT NULL,
+    publish_id TEXT COLLATE "C",
+    batch_entry_id TEXT,
+    client_id TEXT, pid BIGINT, thread_name TEXT,
+    order_scope TEXT, order_issued BIGINT, order_returned BIGINT,
+    attributes TEXT NOT NULL,
+    UNIQUE (trace_id, span_id, time_ns)
+);
+CREATE INDEX IF NOT EXISTS sns_publishes_message ON sns_publishes (topic_arn, message_id);
+CREATE INDEX IF NOT EXISTS sns_publishes_publish_id ON sns_publishes (publish_id) WHERE publish_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS sns_publishes_time ON sns_publishes (time_ns);
+CREATE TABLE IF NOT EXISTS sns_receives (
+    key TEXT COLLATE "C" NOT NULL,
+    mid TEXT COLLATE "C" NOT NULL,
+    queue TEXT NOT NULL,
+    time_ns BIGINT NOT NULL,              -- the newest receive of the message with the key
+    PRIMARY KEY (key, mid)
+);
+CREATE INDEX IF NOT EXISTS sns_receives_time ON sns_receives (time_ns);
 """
 
 SEALING = """
@@ -346,7 +385,7 @@ CREATE TABLE IF NOT EXISTS hash_places (
     bucket BIGINT NOT NULL,
     PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
 ) PARTITION BY RANGE (rclass, bucket);
-""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + account_tables.PG_OIDC + PURGES + QUEUE_CREATE + """
+""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + QUEUE_CREATE + SNS + account_tables.PG_OIDC + """
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
@@ -678,9 +717,10 @@ MIGRATIONS: tuple = (
     ) + tuple(statements(QUEUE_CREATE)), per_place=(_queue_place,)),
     # Version 12 (QV-227): who may sign in through a proxy (proxy_auth.py); NULL, nobody, for the people before it.
     Migration(12, "users.proxy_linked_at_ms (QV-227)", (account_tables.PG_ADD_PROXY,)),
-    Migration(13, "OpenID Connect sign-ins and identities (QV-228)", tuple(statements(account_tables.PG_OIDC))),
+    Migration(13, "SNS publishes and the receives they reached (QV-313)", tuple(statements(SNS))),
+    Migration(14, "OpenID Connect sign-ins and identities (QV-228)", tuple(statements(account_tables.PG_OIDC))),
 )
-LATEST = 13
+LATEST = 14
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 

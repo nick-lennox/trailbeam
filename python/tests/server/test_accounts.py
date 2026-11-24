@@ -6,16 +6,17 @@ The Postgres cases run when TRAILBEAM_TEST_POSTGRES_URL names a database, as in 
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
 
 from trailbeam.server import sessions as sessions_mod
-from trailbeam.server.accounts import AccountError, Accounts, EmailTaken
+from trailbeam.server.accounts import MAX_SESSIONS, AccountError, Accounts, EmailTaken
 from trailbeam.server.db import Database
 from trailbeam.server.passwords import Hasher
 from trailbeam.server.sessions import Sessions, cookie_value, id_hash
-from trailbeam.server.signin import ADDRESS_FAILURES, BUSY, LOCKED, OK, SLOW_DOWN, WRONG, AddressLimit, SignIn
+from trailbeam.server.signin import ACCOUNT_SIGN_INS, ADDRESS_FAILURES, BUSY, LOCKED, OK, SLOW_DOWN, WRONG, AddressLimit, SignIn
 
 ROOT = Path(__file__).resolve().parents[2]
 PG = os.environ.get("TRAILBEAM_TEST_POSTGRES_URL")
@@ -77,7 +78,9 @@ def make(acc, hasher, email="ada@example.com", role="member", pw=PW):
 def sign_in(acc, clock, hasher, **kw):
     s = Sessions(acc, now_ms=clock.now_ms, clock=clock.monotonic)
     return SignIn(acc, s, hasher, now_ms=clock.now_ms,
-                  address_limit=kw.pop("address_limit", AddressLimit(clock=clock.monotonic)), **kw), s
+                  address_limit=kw.pop("address_limit", AddressLimit(clock=clock.monotonic)),
+                  account_limit=kw.pop("account_limit", AddressLimit(ACCOUNT_SIGN_INS, 60, clock=clock.monotonic)),
+                  **kw), s
 
 
 # ---- people ---------------------------------------------------------------------------------------------
@@ -161,6 +164,23 @@ def test_expired_sessions_are_deleted_when_a_new_one_starts(store, acc, hasher, 
     s.start(uid)
     with acc._write() as tx:
         assert tx.one("SELECT COUNT(*) AS n FROM sessions")["n"] == 1
+
+
+def test_a_person_keeps_at_most_their_newest_sessions(store, acc, hasher, clock):
+    """QV-472: a loop of sign-ins that work grew the sessions table by a row each, kept 30 days."""
+    uid, other = make(acc, hasher), make(acc, hasher, email="bob@example.com")
+    acc.create_session("bob", other, NOW, NOW + 86_400_000)
+    for i in range(MAX_SESSIONS + 5):
+        acc.create_session(f"s{i:03}", uid, NOW + i, NOW + 86_400_000)
+    with acc._write() as tx:
+        assert tx.one("SELECT COUNT(*) AS n FROM sessions WHERE user_id = ?", (uid,))["n"] == MAX_SESSIONS
+        assert tx.one("SELECT MIN(id_sha256) AS m FROM sessions WHERE user_id = ?", (uid,))["m"] == "s005"
+        assert tx.one("SELECT COUNT(*) AS n FROM sessions WHERE user_id = ?", (other,))["n"] == 1
+    for i in range(3):  # started in the same millisecond: the new one is always kept
+        acc.create_session(f"t{i}", uid, NOW, NOW + 86_400_000, max_sessions=2)
+        assert acc.session(f"t{i}", NOW) is not None
+    with acc._write() as tx:
+        assert tx.one("SELECT COUNT(*) AS n FROM sessions WHERE user_id = ?", (uid,))["n"] == 2
 
 
 def test_sign_out_ends_the_session_here_at_once_and_on_other_replicas_within_the_cache_ttl(acc, hasher, clock):
@@ -389,7 +409,8 @@ def test_parallel_sign_ins_from_one_address_run_at_most_its_allowance_of_hashes(
     make(acc, hasher)
     h = Hasher(log2_n=10, r=8, p=1, max_concurrent=2, wait_s=30,
                max_waiting=1000 if waiting == "unlimited" else None)
-    si, _ = sign_in(acc, clock, h, lock_after=10_000)
+    # the per-account limit also counts attempts still running; with 1000 waiting it would be the one that bites
+    si, _ = sign_in(acc, clock, h, lock_after=10_000, account_limit=AddressLimit(1000, 60, clock=clock.monotonic))
     outcomes, hashes = _parallel_sign_ins(si, h, 120, lambda i: "198.51.100.7")
     assert hashes <= ADDRESS_FAILURES
     assert outcomes.count(WRONG) == hashes and set(outcomes) <= {WRONG, SLOW_DOWN, BUSY}
@@ -453,3 +474,76 @@ def test_a_weaker_hash_is_replaced_after_a_sign_in_that_works(acc, clock):
     assert si.sign_in("ada@example.com", PW, "198.51.100.7").outcome == OK
     stored = acc.user(uid)["password_hash"]
     assert stored.startswith("scrypt$11$") and new.verify(PW, stored)
+
+
+# ---- sign-ins that work, per account (QV-472) ------------------------------------------------------------
+
+def test_a_loop_of_sign_ins_that_work_is_slowed_down_per_account(acc, hasher, clock):
+    make(acc, hasher)
+    make(acc, hasher, email="bob@example.com")
+    si, _ = sign_in(acc, clock, hasher)
+    for _ in range(3):  # wrong passwords don't use the allowance
+        assert si.sign_in("ada@example.com", "wrong password!", "198.51.100.7").outcome == WRONG
+    for i in range(ACCOUNT_SIGN_INS):
+        assert si.sign_in("ada@example.com", PW, f"198.51.100.{i}").outcome == OK
+    calls = []
+    real = hasher._scrypt
+    hasher._scrypt = lambda *a: calls.append(a) or real(*a)
+    r = si.sign_in("ada@example.com", PW, "203.0.113.9")  # from any address
+    assert r.outcome == SLOW_DOWN and 1 <= r.retry_after_s <= 60 and calls == []  # no password check
+    assert si.sign_in("ada@example.com", "wrong password!", "203.0.113.9").outcome == SLOW_DOWN
+    assert "203.0.113.9" not in si.address_limit._failures  # not counted against the address
+    assert acc.user_by_email("ada@example.com")["failed_count"] == 0
+    hasher._scrypt = real
+    assert si.sign_in("bob@example.com", PW, "198.51.100.1").outcome == OK  # someone else isn't affected
+    clock.advance(61)
+    assert si.sign_in("ada@example.com", PW, "198.51.100.1").outcome == OK
+
+
+def test_one_person_signing_in_over_and_over_doesnt_keep_everyone_else_out(acc, clock):
+    """QV-472: 8 threads of sign-ins that work kept the hasher full, and every other sign-in got BUSY (503)."""
+    h = Hasher(log2_n=12, r=8, p=1, max_concurrent=2, max_waiting=4)
+    acc.create_user("mallory@example.com", "Mallory", "member", h.hash(PW), NOW)
+    acc.create_user("ada@example.com", "Ada", "member", h.hash(PW), NOW)
+    si, _ = sign_in(acc, clock, h)
+    hashes, lock, stop = [0], threading.Lock(), threading.Event()
+    real = h._scrypt
+
+    def counting(*a):
+        out = real(*a)
+        with lock:
+            hashes[0] += 1
+        return out
+
+    h._scrypt = counting
+    theirs = []
+
+    def loop():
+        while not stop.is_set():
+            r = si.sign_in("mallory@example.com", PW, "127.0.0.1")
+            with lock:
+                theirs.append(r.outcome)
+
+    threads = [threading.Thread(target=loop) for _ in range(8)]
+    for t in threads:
+        t.start()
+    try:
+        # Until the loop has used its whole allowance: 10 sign-ins that worked, all settled, so none of theirs is
+        # still hashing (SLOW_DOWN alone isn't enough: it is also the answer while reserved attempts still run).
+        deadline = time.monotonic() + 60
+        while not stop.wait(0.005):
+            with lock:
+                if theirs.count(OK) >= ACCOUNT_SIGN_INS and theirs.count(SLOW_DOWN) >= 50:
+                    break
+            assert time.monotonic() < deadline, "the loop never used its allowance"
+        with lock:
+            before = hashes[0]
+        mine = [si.sign_in("ada@example.com", PW, "198.51.100.7").outcome for _ in range(10)]
+    finally:
+        stop.set()
+        for t in threads:
+            t.join()
+        h._scrypt = real
+    assert mine == [OK] * 10
+    assert theirs.count(OK) == ACCOUNT_SIGN_INS and before <= ACCOUNT_SIGN_INS
+    assert set(theirs) <= {OK, SLOW_DOWN, BUSY}
