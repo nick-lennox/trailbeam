@@ -58,7 +58,8 @@ def statements(script: str) -> list[str]:
     return out
 
 
-# The spans table, under a name: migration 11 builds it as spans_new and renames it.
+# The spans table, under a name: migration 11 builds it as spans_new and renames it. ``{added}``: the columns
+# added after 11 (SPANS_ADDED), which 11's copy does not have yet.
 SPANS_TABLE = """
 CREATE TABLE IF NOT EXISTS {name} (
     row INTEGER PRIMARY KEY,
@@ -83,7 +84,8 @@ CREATE TABLE IF NOT EXISTS {name} (
     mid_source TEXT,                 -- 'span' | 'receipt_hash' | NULL (settle span not joined yet)
     receive_row INTEGER REFERENCES spans(row),  -- settle spans: the delivery whose handle was used
     body_dropped TEXT,               -- 'not_opted_in': the span carried a body, not stored (db.py)
-    body_id INTEGER                  -- its trailbeam.body, stored once in bodies (body_table.py)
+    -- body_id: its trailbeam.body, stored once in bodies (body_table.py)
+    body_id INTEGER{added}
 );
 """
 # The indexes of spans (schema 11). Each leads with time or is partial, so most of a new span's entries go where
@@ -104,7 +106,11 @@ SPANS_COLUMNS = ("row, trace_id, span_id, kind, time_ns, start_ns, service_name,
                  "message_id, receipt_hmac, key_id, receive_count, sent_ts_ms, first_receive_ts_ms, dlq_source_arn, "
                  "result, error_code, visibility_timeout, outcome, error_type, batch_entry_id, client_id, pid, "
                  "thread_name, faas_name, faas_invocation_id, order_scope, order_issued, order_returned, attributes, "
-                 "mid, mid_source, receive_row, body_dropped, body_id")
+                 "mid, mid_source, receive_row, body_dropped, body_id")  # those of schema 11, which migration 11 copies
+# The columns added after schema 11, each by its own migration: service_version (16), the resource's
+# service.version, NULL if not set.
+SPANS_ADDED = """,
+    service_version TEXT             -- the resource's service.version (QV-362)"""
 
 # The test spans of trailbeam doctor (contract section 17): an ID and when this server stored it. Not spans, so no
 # page, count or retention pass reads them; Store.record_probes keeps them at least a day.
@@ -113,7 +119,7 @@ CREATE TABLE IF NOT EXISTS probes (id TEXT PRIMARY KEY, received_ns INTEGER NOT 
 """
 
 # The schema a new file gets: the result of every migration below.
-CREATE = SPANS_TABLE.format(name="spans") + SPANS_INDEXES + """
+CREATE = SPANS_TABLE.format(name="spans", added=SPANS_ADDED) + SPANS_INDEXES + """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """ + """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -166,7 +172,10 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # rollup's deltas). Rare: other messages are not read past their summary row.
 # Schema 15 (QV-225) adds the tables of people and tokens (account_tables.py), empty. It changes no span data. A
 # Trailbeam before it (0.3.0 and earlier) refuses the file from then on.
-_REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new"))
+# Schema 16 (QV-362) adds spans.service_version, the resource's service.version (the build that sent the span). Rows
+# stored before it are migrated with NULL: the version was not kept. Their summaries are left as they are: a
+# consumer without a version is listed as [service_name, client_id], as before (summary.py).
+_REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new", added=""))
                   + [f"INSERT INTO spans_new ({SPANS_COLUMNS}) SELECT {SPANS_COLUMNS} FROM spans ORDER BY row",
                      "DROP TABLE spans",
                      "ALTER TABLE spans_new RENAME TO spans"]
@@ -194,6 +203,13 @@ def _to_12(conn: sqlite3.Connection) -> None:
     if again:
         summary_table.refresh(conn, again)
     summary_table.rebuild_rollup(conn)
+
+
+def _to_16(conn: sqlite3.Connection) -> None:
+    """Adds spans.service_version, unless the file has it: SQLite has no ADD COLUMN IF NOT EXISTS, and a file
+    whose recorded version was set back by hand (the tests of the earlier migrations) has the column already."""
+    if "service_version" not in {r[1] for r in conn.execute("PRAGMA table_info(spans)")}:
+        conn.execute("ALTER TABLE spans ADD COLUMN service_version TEXT")
 
 
 def _to_14(conn: sqlite3.Connection) -> None:
@@ -237,6 +253,7 @@ MIGRATIONS = (
     Migration(13, "probes (trailbeam doctor)", tuple(statements(PROBES_CREATE))),
     Migration(14, "FIFO deduplicated sends out of the tenant events", (), run=_to_14),
     Migration(15, "users, sessions and tokens", tuple(statements(account_tables.SQLITE_CREATE))),
+    Migration(16, "spans.service_version", (), run=_to_16),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

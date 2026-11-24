@@ -177,6 +177,7 @@ CREATE TABLE IF NOT EXISTS spans (
     receive_row BIGINT,
     body_dropped TEXT,
     body_id BIGINT,
+    service_version TEXT,                -- the resource's service.version (version 10, QV-362)
     UNIQUE (rclass, bucket, trace_id, span_id)
 ) PARTITION BY RANGE (rclass, bucket);
 CREATE INDEX IF NOT EXISTS spans_row ON spans ("row");
@@ -543,8 +544,11 @@ MIGRATIONS: tuple = (
     Migration(7, "FIFO deduplicated sends out of the tenant events (QV-246)", (), per_place=(_dedup_place,)),
     Migration(8, "users, sessions and tokens (QV-225)", tuple(statements(account_tables.PG_CREATE))),
     Migration(9, "purges: the PurgeQueue calls (QV-245)", tuple(statements(PURGES))),
+    # Version 10 (QV-362): the resource's service.version on each span, NULL on rows stored before it. Adding a
+    # nullable column with no default to the partitioned parent adds it to every place without rewriting it.
+    Migration(10, "spans.service_version (QV-362)", ("ALTER TABLE spans ADD COLUMN IF NOT EXISTS service_version TEXT",)),
 )
-LATEST = 9
+LATEST = 10
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 
