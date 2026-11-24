@@ -73,6 +73,23 @@ test("CauseList: the picked row is marked, slots sit beside the link, a firing r
   assert.match(out, /<\/a><div[^>]*><button type="button">Alert on /);
 });
 
+test("CauseList: the tag, note and quiet slots (the hosted app's triage)", () => {
+  const [a, b] = groups;
+  const out = html(createElement(CauseList, {
+    groups: [a, b], nowMs, href: () => "/x", messageHref: () => "/m",
+    tag: (g) => (g.id === a.id ? createElement("span", { "data-tag": "" }, "Resolved") : null),
+    note: (g) => (g.id === a.id ? "2 notes." : null),
+    quiet: (g) => g.id === a.id,
+  }));
+  const rows = out.split("<li").slice(1);
+  assert.match(rows[0], /data-tag="">Resolved</);
+  assert.match(rows[0], /2 notes\./);
+  assert.match(rows[0], /text-ink-2" title=/);
+  assert.doesNotMatch(rows[0], /role="img"/);
+  assert.doesNotMatch(rows[1], /data-tag|notes/);
+  assert.match(rows[1], /role="img"/);
+});
+
 test("CauseList: the trend is the past 24 hours, as numbers for a screen reader", () => {
   const g: CauseGroup = { ...groups[0], times: [nowMs - 1000, nowMs - 2000, nowMs - 23 * 3_600_000, nowMs - 30 * 3_600_000] };
   const out = html(createElement(CauseList, { groups: [g], nowMs, href: () => "/x", messageHref: () => "/m" }));

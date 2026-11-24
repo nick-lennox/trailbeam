@@ -50,8 +50,14 @@ export type CauseListProps = {
   outcome?: (o: CauseOutcome) => ReactNode;
   /** beside a row, outside its link (no button inside a link): the hosted app's alert and copy-link buttons */
   actions?: (g: CauseGroup) => ReactNode;
-  /** a row with a red edge: an alert rule on the cause is firing */
+  /** a row with a red edge: an alert rule on the cause is firing, or the host's own reason (the hosted app's regressed causes) */
   firing?: (g: CauseGroup) => boolean;
+  /** after the label and basis: the hosted app's triage tag (assignee, resolved, regressed) */
+  tag?: (g: CauseGroup) => ReactNode;
+  /** at the end of the facts line: e.g. the hosted app's "2 notes" */
+  note?: (g: CauseGroup) => ReactNode;
+  /** a quieter row, its label in ink-2 and no trend: the hosted app's resolved and ignored causes */
+  quiet?: (g: CauseGroup) => boolean;
 };
 
 /** One row per cause, in the API's order (worst outcome first, then the most messages). */
@@ -65,11 +71,13 @@ export function CauseList({ groups, ...rest }: CauseListProps) {
 
 /** One cause: what went wrong, where, for whom, when, how many, and its trend. Opens to say why an inferred one is
  *  thought so, what earlier deliveries did and the newest raw error text. */
-function CauseRow({ g, nowMs, picked, href, messageHref, Link = A, outcome, actions, firing }: Omit<CauseListProps, "groups"> & { g: CauseGroup }) {
+function CauseRow({ g, nowMs, picked, href, messageHref, Link = A, outcome, actions, firing, tag, note, quiet }: Omit<CauseListProps, "groups"> & { g: CauseGroup }) {
   const on = picked === g.id;
   const split = dlqSplit(g);
   const trend = trendOf(g.times, nowMs - TREND_MS, nowMs, TREND_BARS);
   const extra = actions?.(g);
+  const hush = quiet?.(g) ?? false;
+  const noted = note?.(g);
   return (
     <li className={`${on ? "bg-canvas" : ""} ${firing?.(g) ? "border-l-2 border-l-critical" : ""}`} data-cause={g.id}>
       <div className="flex items-center hover:bg-canvas">
@@ -77,15 +85,17 @@ function CauseRow({ g, nowMs, picked, href, messageHref, Link = A, outcome, acti
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               {outcome ? outcome(g.outcome) : <OutcomeTag outcome={g.outcome} />}
-              <span className="truncate font-medium text-ink" title={g.label}>{g.label}</span>
+              <span className={`truncate font-medium ${hush ? "text-ink-2" : "text-ink"}`} title={g.label}>{g.label}</span>
               <span className="shrink-0 rounded border border-line px-1 text-micro text-ink-3" title="What this cause rests on">{g.basis}</span>
+              {tag?.(g)}
             </div>
             <div className="mt-1 text-xs text-ink-3">
               <span className="font-mono">{g.queue}</span>{g.tenants.length > 0 && <>, {tenantsText(g.tenants)}</>}. First seen {whenFirst(g.firstMs, nowMs)}, last {whenLast(g.lastMs, nowMs)}.{split && <> {split}.</>}
               {g.versions.length > 0 && <> <span title={g.versions.map((v) => `${v.version}: ${plural(v.count, "message")}, first ${whenFirst(v.firstMs, nowMs)}, last ${whenLast(v.lastMs, nowMs)}`).join("\n")}>{versionsText(g.versions).replace(/^s/, "S")}.</span></>}
+              {noted && <> {noted}</>}
             </div>
           </div>
-          <TrendBars data={trend} />
+          {hush ? <span className="hidden md:block" /> : <TrendBars data={trend} />}
           <div className="hidden text-right md:block">
             <div className="font-mono text-lg font-medium tabular-nums text-ink">{g.count.toLocaleString("en-US")}</div>
             <div className="text-xs text-ink-3">{g.count === 1 ? "message" : "messages"}</div>
