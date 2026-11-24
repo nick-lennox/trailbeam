@@ -1,27 +1,127 @@
 name: CI
 
+# Three tiers (QV-389), so a pull request waits only for the checks its change can break:
+#   1. every pull request, the fast core: Python 3.12, Node.js 22, the Postgres 16 store, the conformance kit,
+#      the shared UI and the container smoke test.
+#   2. when its paths change (the `changes` job below says which): Java, the examples and demo, Kubernetes and
+#      the team install, the collector configuration, the docs commands, and the second Python, Node.js and
+#      Postgres versions.
+#   3. everything, every night, on release/** branches, on a release tag (release.yaml calls this workflow
+#      with full: true and publishes only if it passes) and by hand: also the upgrade from the last release,
+#      backup and restore under load, the perf check, monitoring and the concurrency check on real SQS. The
+#      compatibility matrix (compat.yml) runs on the same schedule.
+# A change to this file or docs.yml runs everything. `ci-ok` at the end passes when every job that ran passed:
+# it is the one result to look at (the merge watchdog merges on it).
+# A failing nightly run opens an issue for the Software Engineer with the commits it could have come from
+# (the watchdog's nightly.mjs).
 on:
   push:
-    branches: [main]
+    branches: [main, "release/**"]
   pull_request:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Run every job, whatever changed
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      full:
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
 # A newer push to a pull request cancels that PR's older run, so the runners
-# runners never spend time on outdated commits. Runs on main always finish.
+# never spend time on outdated commits. Runs on main always finish.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  python:
-    name: Python ${{ matrix.python }}
+  changes:
+    # What changed, and so which tier-2 and tier-3 jobs run. Everything runs when full (nightly, release
+    # branches and tags, by hand), when this file changes, or when what changed can't be worked out.
+    name: What changed
     runs-on: ubuntu-latest
+    outputs:
+      full: ${{ steps.c.outputs.full }}
+      python_versions: ${{ steps.c.outputs.python_versions }}
+      node_versions: ${{ steps.c.outputs.node_versions }}
+      postgres_versions: ${{ steps.c.outputs.postgres_versions }}
+      java: ${{ steps.c.outputs.java }}
+      examples: ${{ steps.c.outputs.examples }}
+      deploy: ${{ steps.c.outputs.deploy }}
+      collector: ${{ steps.c.outputs.collector }}
+      docs: ${{ steps.c.outputs.docs }}
+      perf: ${{ steps.c.outputs.perf }}
+      upgrade: ${{ steps.c.outputs.upgrade }}
+      monitoring: ${{ steps.c.outputs.monitoring }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: c
+        env:
+          FULL_INPUT: ${{ inputs.full }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          full=false
+          if [ "$FULL_INPUT" = true ] || [ "$EVENT" = schedule ] || [[ "$REF" == refs/heads/release/* ]]; then full=true
+          else
+            base=$([ "$EVENT" = pull_request ] && echo "$PR_BASE" || echo "$BEFORE")
+            if [ -z "$base" ] || [ "$base" = 0000000000000000000000000000000000000000 ] \
+               || ! files=$(git diff --name-only "$base"...HEAD); then
+              echo "::notice::Can't tell what changed (base '$base'), so every job runs."; full=true
+            fi
+          fi
+          if [ "$full" = false ]; then
+            echo "Changed files:"; printf '  %s\n' $files
+            if grep -qE '^\.github/workflows/(ci|docs)\.yml$' <<<"$files"; then full=true; fi
+          fi
+          # area NAME REGEX: true when a changed file matches (every area is true when full)
+          area() { if [ "$full" = true ] || grep -qE "$2" <<<"$files"; then echo "$1=true"; else echo "$1=false"; fi; }
+          {
+            echo "full=$full"
+            area python '^python/'
+            area node '^node/'
+            area store '^python/src/trailbeam/server/|^python/tests/(server|conformance)/|^python/pyproject\.toml$|^contract/'
+            area java '^java/|^conformance/(drivers/java|kit\.py|bench/|checker\.py)'
+            # the client libraries the examples and demo use (the server is covered by the core jobs)
+            area examples '^examples/|^demo/|^python/src/trailbeam/[^/]+\.py$|^python/pyproject\.toml$|^node/(src/|bin/|package)|^Dockerfile$'
+            area deploy '^deploy/helm/|^docker-compose\.yaml$|^\.env\.example$|^Dockerfile$'
+            area collector '^collector/'
+            area docs '^README\.md$|^(python|node|java)/README\.md$|^\.env\.example$'
+            area perf '^python/bench/'
+            area upgrade '^python/smoke/|^python/src/trailbeam/server/(migrations|pg_schema|db|postgres|store)\.py$'
+            area monitoring '^deploy/monitoring/'
+          } > "$RUNNER_TEMP/areas"
+          cat "$RUNNER_TEMP/areas"
+          get() { grep "^$1=" "$RUNNER_TEMP/areas" | cut -d= -f2; }
+          {
+            grep -vE '^(python|node|store)=' "$RUNNER_TEMP/areas"
+            echo "python_versions=$([ "$(get python)" = true ] && echo '["3.12","3.10"]' || echo '["3.12"]')"
+            echo "node_versions=$([ "$(get node)" = true ] && echo '["22","20"]' || echo '["22"]')"
+            echo "postgres_versions=$([ "$(get store)" = true ] && echo '["16","14"]' || echo '["16"]')"
+          } >> "$GITHUB_OUTPUT"
+
+  python:
+    # Tier 1 on 3.12; 3.10, the oldest supported, when python/ changes. pytest-xdist: the suite mostly waits on
+    # servers it starts, so 6 workers on the 4-CPU runner take it from about 7 minutes to about 2.
+    name: Python ${{ matrix.python }}
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.10", "3.12"]
+        python: ${{ fromJSON(needs.changes.outputs.python_versions) }}
     defaults:
       run:
         working-directory: python
@@ -30,8 +130,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: pip install -e '.[test]'
-      - run: pytest -q --ignore=tests/conformance
+      - run: pip install -e '.[test]' pytest-xdist
+      - run: pytest -q -n 6 --ignore=tests/conformance
       - name: Store conformance suite (SQLite)
         run: pytest -q tests/conformance
       - name: A SQLite install gets no Postgres driver
@@ -45,7 +145,10 @@ jobs:
     # seeded ~100k-span file, in-process insert speed, page p95 and 1,000 spans/s of ingest through the server,
     # with limits that fail the build. Then the same check on a deliberately broken (scanning) join plan, which
     # must fail it: that step passes only if the check caught the break.
+    # Tier 3 (nightly, release), and on pull requests that change python/bench/.
     name: Perf regression check (100k spans)
+    needs: changes
+    if: needs.changes.outputs.perf == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -70,13 +173,19 @@ jobs:
             ${{ runner.temp }}/ci-perf-broken/
 
   postgres:
-    # The Postgres store (TRAILBEAM_STORE_URL) on the oldest supported version and the current one.
-    name: Postgres ${{ matrix.postgres }} store
+    # The Postgres store (TRAILBEAM_STORE_URL): tier 1 on 16, the current version; 14, the oldest supported,
+    # when the store changes. Each version runs as three jobs side by side, each with a Postgres of its own (the
+    # tests share database objects, so they can't run in parallel on one), and that Postgres skips fsync: it is
+    # thrown away after the job, and its CREATE and DROP DATABASE no longer wait on disk.
+    name: Postgres ${{ matrix.postgres }} store (${{ matrix.part }})
+    needs: changes
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        postgres: ["14", "16"]
+        postgres: ${{ fromJSON(needs.changes.outputs.postgres_versions) }}
+        part: [conformance, store, server]
     services:
       postgres:
         image: postgres:${{ matrix.postgres }}
@@ -93,30 +202,42 @@ jobs:
       - uses: actions/checkout@v4
       - name: Point the tests at this job's Postgres (random host port)
         run: echo "TRAILBEAM_TEST_POSTGRES_URL=postgresql://postgres:postgres@localhost:${{ job.services.postgres.ports['5432'] }}/postgres" >> "$GITHUB_ENV"
+      - name: A throwaway Postgres doesn't need fsync
+        run: >-
+          docker exec ${{ job.services.postgres.id }} psql -U postgres -q
+          -c "ALTER SYSTEM SET fsync = off" -c "ALTER SYSTEM SET synchronous_commit = off"
+          -c "ALTER SYSTEM SET full_page_writes = off" -c "SELECT pg_reload_conf()"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -e '.[test,postgres]'
       - name: Store conformance suite and contract fixtures (SQLite and Postgres)
+        if: matrix.part == 'conformance'
         run: pytest -q tests/conformance
       - name: Postgres store tests
+        if: matrix.part == 'store'
         run: pytest -q tests/server/test_postgres.py
       - name: Fault tests on Postgres (SIGKILL, retries, disorder, a replica killed)
+        if: matrix.part == 'server'
         run: pytest -q tests/server/test_faults.py
       - name: People, sessions and sign-in on Postgres
+        if: (success() || failure()) && matrix.part == 'server'
         run: >-
           pytest -q tests/server/test_account_tables.py tests/server/test_accounts.py tests/server/test_access.py
           tests/server/test_first_admin.py tests/server/test_cli.py
       - name: Two replicas on one Postgres (the token, sessions and the switch to accounts on both)
+        if: (success() || failure()) && matrix.part == 'server'
         run: pytest -q tests/server/test_replicas_e2e.py
 
   node:
+    # Tier 1 on 22; 20 when node/ changes.
     name: Node.js ${{ matrix.node }}
+    needs: changes
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        node: ["20", "22"]
+        node: ${{ fromJSON(needs.changes.outputs.node_versions) }}
     services:
       elasticmq:
         image: softwaremill/elasticmq-native:1.6.15
@@ -136,10 +257,12 @@ jobs:
       - run: npm test
 
   conformance:
+    # Tier 1.
     # conformance/: each package's driver runs the scripted scenario against ElasticMQ, and its spans are
     # checked against contract/span-contract.md, alone, beside the application's own OpenTelemetry, with the
     # application's sampler at 0, and with body capture on.
     name: Conformance kit (Python and Node.js packages)
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -175,6 +298,7 @@ jobs:
           if-no-files-found: ignore
 
   java:
+    # Tier 2: when java/ or the kit changes.
     # java/: the AWS SDK for Java v2 package (QV-319). Unit tests (contract vectors, a real SDK client over a
     # canned HTTP layer), then the conformance kit on the installed jar: alone, beside the OpenTelemetry Java
     # agent (also with its sampler at 0) and beside dd-java-agent, each agent variant with the strict parent check
@@ -182,6 +306,8 @@ jobs:
     # JDK, alone and beside the OpenTelemetry agent); and the Lambda wrapper in the java:21 Lambda
     # base image, whose Dockerfile builds the jar from java/ itself.
     name: Java package (unit tests and conformance kit)
+    needs: changes
+    if: needs.changes.outputs.java == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -224,6 +350,7 @@ jobs:
             ${{ runner.temp }}/kit/*.function.log
 
   java-matrix:
+    # Tier 2: when java/ or the kit changes.
     # The same jar (built for Java 11, compiled against the newest SDK, SDK scope provided) on the JDKs and SDKs
     # users bring. Each cell runs the jar's unit tests on its JDK, then the kit's Java driver on its SDK, in every
     # variant. The SDKs: 2.17.295, the oldest supported; 2.20.162, the last on SQS's query protocol (JSON came in
@@ -231,6 +358,8 @@ jobs:
     # messageSystemAttributeNames. The java job above covers JDK 21 on the newest SDK. The driver's Spring Boot
     # variants run on Boot 2.7 here on JDK 11 (the classic launcher) and on Boot 3.5 on JDK 17 (the pom picks it).
     name: Java matrix (JDK ${{ matrix.jdk }}, SDK ${{ matrix.sdk }})
+    needs: changes
+    if: needs.changes.outputs.java == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -277,6 +406,7 @@ jobs:
 
   ui:
     name: Shared UI (@trailbeam/ui)
+    needs: changes
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -294,6 +424,8 @@ jobs:
 
   collector:
     name: Collector configuration
+    needs: changes
+    if: needs.changes.outputs.collector == 'true'
     runs-on: ubuntu-latest
     env:
       OTELCOL_VERSION: "0.165.0"
@@ -312,6 +444,7 @@ jobs:
 
   container:
     name: Container smoke test
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -356,9 +489,12 @@ jobs:
           docker image rm -f "$TB_NAME:ci" || true
 
   upgrade:
+    # Tier 3, and on pull requests that change the schema, migrations or python/smoke/.
     # A store written by the published 0.3.0 keeps working under this checkout, and 0.3.0 can't damage it after.
     # python/smoke/upgrade_check.py says what is checked.
     name: Upgrade from 0.3.0 (${{ matrix.store }})
+    needs: changes
+    if: needs.changes.outputs.upgrade == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -407,9 +543,12 @@ jobs:
         run: docker image rm -f "$TB_IMAGE" || true
 
   backup-restore:
+    # Tier 3, and on pull requests that change the schema, migrations or python/smoke/.
     # A backup taken with the README's commands while the server ingests restores onto a new machine, with its
     # token and receipt-hash key. python/smoke/backup_restore_check.py says what is checked.
     name: Backup and restore under load (${{ matrix.store }})
+    needs: changes
+    if: needs.changes.outputs.upgrade == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -465,7 +604,10 @@ jobs:
         run: docker image rm -f "$TB_IMAGE" || true
 
   demo:
+    # Tier 2: when demo/, examples/ or a library they use changes.
     name: Local demo (Docker Compose)
+    needs: changes
+    if: needs.changes.outputs.examples == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -485,9 +627,12 @@ jobs:
         run: COMPOSE_PROJECT_NAME="$TB_NAME" docker compose -f demo/compose.yaml down -v --remove-orphans || true
 
   examples:
+    # Tier 2: when examples/, demo/ or a library they use changes.
     # Every example in examples/ against ElasticMQ and a Trailbeam built from this commit: one order deleted,
     # one retried after the visibility timeout, one moved to the dead-letter queue (examples/check.py).
     name: Example ${{ matrix.example }}
+    needs: changes
+    if: needs.changes.outputs.examples == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -503,9 +648,12 @@ jobs:
         run: examples/run.sh ${{ matrix.example }}
 
   team-install:
+    # Tier 2: when the Compose file, .env.example, the Dockerfile or the Helm chart changes.
     # docker-compose.yaml (QV-145): a clean start from .env.example, one span with the token, and the data
     # still there after docker compose down && up.
     name: Team install (Docker Compose, Postgres)
+    needs: changes
+    if: needs.changes.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -544,9 +692,12 @@ jobs:
           docker image rm -f "$COMPOSE_PROJECT_NAME-trailbeam:local" || true
 
   kubernetes:
+    # Tier 2: when the Helm chart, the Dockerfile or the Compose file changes.
     # The Helm chart (deploy/helm, QV-173) on a kind cluster of its own: lint, install with the trial Postgres,
     # one span with the token through the Service, an upgrade that keeps the token (deploy/helm/check.sh).
     name: Kubernetes (Helm chart on kind)
+    needs: changes
+    if: needs.changes.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -588,7 +739,10 @@ jobs:
           docker image rm -f "$TB_NAME:ci" || true
 
   concurrency-check:
+    # Tier 2: when demo/ or a library changes.
     name: Concurrency check (3 processes x 4 consumers, 200 messages)
+    needs: changes
+    if: needs.changes.outputs.examples == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -641,8 +795,10 @@ jobs:
     # to sqs:* on qv2-measure-*). It fails, rather than skips, when they are missing, so the floor can't stop
     # gating unnoticed. Pull requests from forks get no secrets, so it runs on pushes and same-repo PRs only.
     name: Concurrency check on real SQS (floor gating)
-    # Real AWS calls, the slowest job and timing-sensitive: main only. PRs get the emulator check above.
-    if: github.event_name == 'push'
+    # Real AWS calls, the slowest job and timing-sensitive: tier 3 only (nightly, release branches and tags,
+    # by hand). Pull requests get the emulator check above.
+    needs: changes
+    if: needs.changes.outputs.full == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     concurrency:
       group: real-sqs
@@ -689,10 +845,13 @@ jobs:
         run: docker compose -f demo/compose.yaml down -v --remove-orphans || true
 
   monitoring:
+    # Tier 3, and on pull requests that change deploy/monitoring/.
     # The Datadog Agent check, Prometheus configuration, alert rules and Grafana dashboard in deploy/monitoring
     # (QV-304), against real tools: the Agent's OpenMetrics check in a dry run (no Datadog account or key), promtool
     # and a real Prometheus scrape (deploy/monitoring/check.sh).
     name: Monitoring (Datadog Agent, Prometheus)
+    needs: changes
+    if: needs.changes.outputs.monitoring == 'true' || needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -705,7 +864,9 @@ jobs:
   compat-table:
     # README.md's supported-versions table is generated from compat/matrix.toml (QV-335), which the nightly
     # compatibility workflow (compat.yml) also reads. This fails when someone edits one without the other.
+    # Tier 1 (a few seconds).
     name: Supported-versions table matches compat/matrix.toml
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -713,3 +874,45 @@ jobs:
         with:
           python-version: "3.12"
       - run: python compat/matrix.py readme --check
+
+  docs:
+    # Tier 2: the README's and docs pages' commands (docs.yml), when a README or .env.example changes; and
+    # nightly, which also catches docs pages changed in trailbeam-app since the last Trailbeam change.
+    name: Docs commands
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    uses: ./.github/workflows/docs.yml
+    secrets: inherit
+
+  ci-ok:
+    # The one result to look at: passes when every job that ran passed (a job its paths didn't need is skipped,
+    # which is fine). A quarantined job, listed in QUARANTINED with the issue to fix it, still runs and shows
+    # its result here, but its failure doesn't fail ci-ok. None is quarantined now.
+    name: ci-ok
+    if: always()
+    needs: [changes, python, perf, postgres, node, conformance, java, java-matrix, ui, collector, container,
+            upgrade, backup-restore, demo, examples, team-install, kubernetes, concurrency-check,
+            concurrency-check-aws, monitoring, compat-table, docs]
+    runs-on: ubuntu-latest
+    env:
+      NEEDS: ${{ toJSON(needs) }}
+      QUARANTINED: ""   # space-separated job ids, e.g. "docs" (QV-nnn)
+    steps:
+      - name: Every job that ran passed
+        run: |
+          python3 - <<'PY'
+          import json, os
+          needs = json.loads(os.environ["NEEDS"]); quarantined = os.environ["QUARANTINED"].split()
+          bad, lines = [], []
+          for job, r in sorted(needs.items()):
+              res = r["result"]
+              note = " (quarantined: does not block)" if job in quarantined else ""
+              lines.append(f"- {job}: {res}{note}")
+              if res not in ("success", "skipped") and job not in quarantined:
+                  bad.append(f"{job} ({res})")
+          print("\n".join(lines))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write("### ci-ok\n\n" + "\n".join(lines) + "\n")
+          if bad:
+              print("::error::failed: " + ", ".join(bad)); raise SystemExit(1)
+          PY
