@@ -9,8 +9,9 @@
 
 /** The four facts that can prove one observed step came before another (order.py SOURCES). */
 export type OrderSource = "clock" | "process_order" | "receive_count" | "sqs_timestamps";
-/** How a step without a time of its own is placed: by its anchors (inferred) or by SQS's DLQ report. */
-export type PlacementSource = "inferred_from" | "sqs_dlq_source";
+/** How a step without a time of its own is placed: by its anchors (inferred), by SQS's DLQ report, or by the SNS
+ *  envelope on a receive (contract 3.4). */
+export type PlacementSource = "inferred_from" | "sqs_dlq_source" | "sns_envelope";
 
 export type Consumer = {
   service_name?: string;
@@ -137,6 +138,44 @@ export type DlqMoveEvent = Windowed & {
   to_queue: string;
 };
 
+/** An SNS Publish (or one message of a PublishBatch) that this message's receives join (contract 3.4, section 20).
+ *  The topic's step, not the message's: the same step is on every SQS message it reached. `queue` is the topic's
+ *  name and `consumer` the process that published. */
+export type PublishedEvent = Observed & {
+  type: "published";
+  source: "sns_publish";
+  topic: string;
+  topic_arn: string;
+  sns_message_id: string;
+  publish_id?: string;
+  batch_entry_id?: string;
+  /** envelope_message_id: the envelope's MessageId and TopicArn (raw delivery off); publish_id: the
+   *  trailbeam.publish_id attribute (raw delivery on) */
+  joined_by: ("envelope_message_id" | "publish_id")[];
+  /** the SQS messages whose receives join this publish, by queue (this message among them) */
+  reached: { queue: string; message_ids: string[] }[];
+  reached_truncated: boolean;
+  /** SentTimestamp minus the envelope's Timestamp, both AWS clocks; only when joined through the envelope */
+  sns_delivery_ms?: number;
+  reason: string;
+};
+
+/** Observed from the envelope, with no time: a receive's SNS envelope names the topic, and no recorded publish
+ *  joins it (the publisher runs no Trailbeam package). Placed before that receive. */
+export type ArrivedViaSnsEvent = Omit<Windowed, "queue"> & {
+  inferred: false;
+  type: "arrived_via_sns";
+  source: "sns_envelope";
+  topic: string;
+  topic_arn: string;
+  sns_message_id: string;
+  reported_on_delivery: number;
+  /** the envelope's Timestamp, on SNS's clock; not used to place the step */
+  sns_timestamp?: string;
+  sns_timestamp_ms?: number;
+  sns_delivery_ms?: number;
+};
+
 export type Group = {
   group: number;
   concurrent: boolean;
@@ -211,7 +250,7 @@ export type AwsEvent = {
   after: AfterEntry[];
 };
 
-export type TimelineEvent = SentEvent | ReceivedEvent | DeletedEvent | VisibilityChangedEvent | LambdaOutcomeEvent | QueuePurgedEvent | InferredEvent | DlqMoveEvent | AwsEvent;
+export type TimelineEvent = SentEvent | ReceivedEvent | DeletedEvent | VisibilityChangedEvent | LambdaOutcomeEvent | QueuePurgedEvent | PublishedEvent | InferredEvent | DlqMoveEvent | ArrivedViaSnsEvent | AwsEvent;
 
 /** PROPOSED (paid): where a message lives in a multi-account workspace. */
 export type Scope = { account: string; account_name: string; region: string; environment: string; tenant?: string; demo?: boolean };

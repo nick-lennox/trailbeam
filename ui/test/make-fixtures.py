@@ -6,6 +6,9 @@ is tested on what Trailbeam really returns.
   (contract/fixtures/contract-3.2-spans.json), which the hosted app's tests read too
 - test/fixtures/purge-timelines.json: contract 3.3 PurgeQueue (section 18): a message sent before a purge (purged),
   one sent during it (possibly purged), and one received after it (not purged), from the server tests' span builder
+- test/fixtures/sns-timelines.json: contract 3.4 SNS fan-out (section 20): one publish that reached two queues, one
+  through the envelope (raw delivery off) and one through the publish ID (raw delivery on), and a message that
+  arrived via SNS from a publisher with no Trailbeam package, from the same span builder
 
     pip install -e "python[server]"   # from the repository root
     python ui/test/make-fixtures.py
@@ -58,4 +61,20 @@ write("purge-timelines.json",
                             P.send(T0 + 9 * SEC + 1, "purge-sent-during"), P.send(T0, "purge-received-after"),
                             P.purge(T0 + 10 * SEC, start=T0 + 9 * SEC),
                             C.receive(T0 + 80 * SEC, "purge-received-after", "rh-2")]).SerializeToString(),
+                  "application/x-protobuf")]))
+T0_MS = T0 // 10**6
+write("sns-timelines.json",
+      "GET /api/messages/{id} after an SNS fan-out (contract 3.4, section 20), made by Trailbeam itself "
+      "(ui/test/make-fixtures.py) from python/tests/server/spans.py: one Publish to orders-topic reached sns-orders "
+      "(raw delivery off: joined by the envelope, with an SNS delivery time) and sns-billing (raw delivery on: joined "
+      "by the publish ID, no delivery time); sns-arrived names the topic in its envelope, and no publish was recorded.",
+      timelines([(to_proto([P.publish(T0 + SEC, "sns-msg-1", publish_id="pub-1", start=T0),
+                            C.sns_receive(T0 + 3 * SEC, "sns-orders", "rh-o", sns_id="sns-msg-1", sns_ts_ms=T0_MS + 1000,
+                                          sent_ms=T0_MS + 1040, queue="orders", start=T0 + 2 * SEC),
+                            C.sns_receive(T0 + 3 * SEC, "sns-billing", "rh-b", publish_id="pub-1", queue="billing",
+                                          sent_ms=T0_MS + 1050, start=T0 + 2 * SEC),
+                            C.delete(T0 + 4 * SEC, "rh-o", "sns-orders", queue="orders", start=T0 + 3 * SEC + 500_000_000),
+                            C.sns_receive(T0 + 9 * SEC, "sns-arrived", "rh-x", sns_id="sns-msg-2",
+                                          topic="audit-topic", sns_ts_ms=T0_MS + 7000, sent_ms=T0_MS + 7025,
+                                          start=T0 + 8 * SEC)]).SerializeToString(),
                   "application/x-protobuf")]))

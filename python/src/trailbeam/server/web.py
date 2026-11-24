@@ -349,7 +349,7 @@ def _timeline_items(t: dict) -> list[str]:
     while i < len(evs):
         g = evs[i].get("group")
         if g not in concurrent:
-            out.append(_event(evs[i], by_id))
+            out.append(_event(evs[i], by_id, self_id=t.get("message_id")))
             i += 1
             continue
         j = i
@@ -361,7 +361,7 @@ def _timeline_items(t: dict) -> list[str]:
                    f'<div class="group-head"><span class="badge badge-concurrent">concurrent</span>'
                    f'<strong>{escape(info.get("label") or "concurrent, order unknown")}</strong>: Trailbeam can\'t put '
                    f"these {int(n)} steps in one order; no observed fact orders some of them.</div>"
-                   + _waterfall(evs[i:j], by_id) + "</li>")
+                   + _waterfall(evs[i:j], by_id, t.get("message_id")) + "</li>")
         i = j
     return out
 
@@ -384,7 +384,7 @@ def _span_of(e: dict) -> tuple[Optional[int], Optional[int], bool]:
     return (None if start is None else int(start)), (None if end is None else int(end)), False
 
 
-def _waterfall(members: list[dict], by_id: dict) -> str:
+def _waterfall(members: list[dict], by_id: dict, self_id: Optional[str] = None) -> str:
     """A concurrent box as a waterfall, so that its steps don't read as a sequence (QV-32 section 7.2).
 
     Each step gets a bar on a time scale shared by the box: from its request sent to its response received
@@ -413,7 +413,7 @@ def _waterfall(members: list[dict], by_id: dict) -> str:
             + (["open-end"] if b is None else [])
         bar = (f'<div class="track"><span class="{" ".join(cls)}" '
                f'style="left:{left:.2f}%;width:{max(right - left, 0.0):.2f}%"></span></div>')
-        rows.append(((lo // 1000 - 1) if a is None else a // 1000, window, k, _event(e, by_id, bar)))
+        rows.append(((lo // 1000 - 1) if a is None else a // 1000, window, k, _event(e, by_id, bar, self_id)))
     rows.sort(key=lambda r: r[:3])  # by start (µs); on a tie, observed before a window; then Trailbeam's order
     scale = "" if width <= 0 else (f" The scale runs from {_time(iso(lo))} to {_time(iso(hi))}"
                                    f" ({_took(width)}).")
@@ -465,12 +465,14 @@ def _why(e: dict, by_id: dict) -> list[str]:
     return out
 
 
-def _event(e: dict, by_id: Optional[dict] = None, bar: str = "") -> str:
+def _event(e: dict, by_id: Optional[dict] = None, bar: str = "", self_id: Optional[str] = None) -> str:
     inferred = bool(e.get("inferred"))
     label = escape(EVENT_LABELS.get(e["type"], e["type"]))
     dedup = e["type"] == "sent" and bool(e.get("deduplicated"))  # a FIFO send SQS deduplicated (QV-246)
     if dedup:
         label = "Sent again, deduplicated by SQS"
+    if e["type"] in ("published", "arrived_via_sns") and e.get("topic"):
+        label += f' <code>{escape(str(e["topic"]))}</code>'
     failed = e.get("result") == "failed" or (e["type"] == "lambda_outcome" and e.get("outcome") != "success")
     cls = ["event", "inferred" if inferred else "observed"] + (["failed"] if failed else [])
     head = []
@@ -492,15 +494,34 @@ def _event(e: dict, by_id: Optional[dict] = None, bar: str = "") -> str:
            + (f' data-source="{escape(str(e["source"]))}"' if e.get("source") else "")
            + (f' data-id="{escape(str(e["id"]))}"' if e.get("id") else "") + ">",
            "".join(head), bar]
-    if reported:
-        out.append(f'<div class="reported-by"><strong>{escape(e.get("reported_by") or "")}</strong></div>')
+    if reported and e.get("reported_by"):
+        out.append(f'<div class="reported-by"><strong>{escape(e["reported_by"])}</strong></div>')
     if details:
         out.append(f'<div class="detail">{" · ".join(details)}</div>')
     if (inferred or reported or dedup or e["type"] in ("queue_purged", "published")) and e.get("reason"):
         out.append(f'<div class="reason">{escape(e["reason"])}</div>')
+    if e["type"] == "published":
+        out.append(_reached(e, self_id))
     out.extend(_why(e, by_id or {}))
     out.append("</li>")
     return "".join(out)
+
+
+JOINED_BY = {"envelope_message_id": "the SNS envelope's MessageId (raw delivery off)",
+             "publish_id": "the trailbeam.publish_id attribute (raw delivery on)"}
+
+
+def _reached(e: dict, self_id: Optional[str]) -> str:
+    """The SQS messages an SNS publish reached, by queue (contract section 20.5), each a link but this one."""
+    parts = []
+    for r in e.get("reached") or []:
+        ids = []
+        for m in r["message_ids"]:
+            ids.append(f'<span class="mono">{escape(m)}</span> (this message)' if m == self_id
+                       else f'<a class="mono" href="/message?{escape(urlencode({"id": m}))}">{escape(m)}</a>')
+        parts.append(f'<code>{escape(r["queue"])}</code>: {", ".join(ids)}')
+    more = " · and more (the first 100 receives are listed)" if e.get("reached_truncated") else ""
+    return f'<div class="detail reached">reached {" · ".join(parts)}{more}</div>'
 
 
 def _details(e: dict) -> list[str]:
@@ -517,6 +538,9 @@ def _details(e: dict) -> list[str]:
     elif e.get("queue"):
         d.append(f'queue <code>{escape(e["queue"])}</code>')
     add("SNS delivery ms", "sns_delivery_ms")
+    if e.get("joined_by"):
+        d.append("joined by " + " and ".join(escape(JOINED_BY.get(j, j)) for j in e["joined_by"]))
+    add("SNS message ID", "sns_message_id", lambda v: f"<code>{escape(str(v))}</code>")
     add("delivery", "delivery")
     add("receive count", "receive_count")
     add("after delivery", "after_delivery")

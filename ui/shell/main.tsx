@@ -11,7 +11,7 @@ import {
   noTenantsText, storeIsEmpty, tenantsEmpty, tenantsFootnote,
   type EmptyStateProps, type MessageBody, type TenantStats, type Timeline,
 } from "../src/index.ts";
-import { ApiError, CopyLink, Header, getHealth, getJSON, tenantHref } from "./chrome.tsx";
+import { ApiError, CopyLink, Header, getHealth, getJSON, messageHref, tenantHref } from "./chrome.tsx";
 import { HomePage } from "./home.tsx";
 import { DuplicatesPage, StuckPage } from "./lists.tsx";
 import "./styles.css";
@@ -146,7 +146,7 @@ function MessagePage() {
             {tab === "timeline" ? (
               <>
                 <div className="overflow-hidden rounded-[16px] border border-sky-line bg-sky-2/55">
-                  <TimelineView t={state.t} answer={answerFor(state.t)} />
+                  <TimelineView t={state.t} answer={answerFor(state.t)} messageHref={messageHref} />
                 </div>
                 <p className="mt-3 text-sm text-sky-ink-3">
                   Times are in UTC. Steps are in an order only where something observed proves it. Dashed steps are inferred.

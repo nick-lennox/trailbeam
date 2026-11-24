@@ -2,8 +2,7 @@
 
 ## Unreleased
 
-- **SNS fan-out: messages that came through an SNS topic get their sender** (QV-313, contract revision 3.4; in
-  progress: the packages and the server are done, the web UI is not yet). The Python and Node.js packages record SNS
+- **SNS fan-out: messages that came through an SNS topic get their sender** (QV-313, contract revision 3.4). The Python and Node.js packages record SNS
   `Publish` and `PublishBatch` to a topic as a `trailbeam publish` span (`trailbeam.kind = sns.publish`) with the SNS
   message ID and `aws.sns.topic.arn`. Receives carry what joins them to it: the `trailbeam.publish_id` message
   attribute the publish hooks add (raw delivery on; skipped when the message already has 10 attributes, would pass
@@ -15,7 +14,11 @@
   the publish reached, by queue, and the SNS delivery time (`SentTimestamp` minus the envelope's `Timestamp`, both
   AWS clocks). A message whose envelope names a topic but joins no recorded publish gets `arrived_via_sns`, placed
   before that receive. `/api/stats` counts `spans.publish`. A server before 3.4 rejects the publish span as an
-  unknown kind (one rejected span in `partial_success`) and stores the rest.
+  unknown kind (one rejected span in `partial_success`) and stores the rest. Both local UIs (the server's pages and
+  `@trailbeam/ui`) show the "Published to topic" step with the publisher, how it joined, the SNS delivery time and
+  the other messages it reached (links), and the "Arrived via SNS topic" step, with no time, before its receive.
+  `TimelineView` takes an optional `messageHref` for those links; `@trailbeam/ui/fixtures/sns-timelines.json` is
+  what the server returns after a fan-out.
 
 - **Java package, stage 4: the Lambda wrapper** (QV-319, pre-release, not published). For a function invoked by
   an SQS event source mapping, set the handler to `dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`

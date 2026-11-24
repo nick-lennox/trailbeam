@@ -17,8 +17,9 @@
   No client JS: details/summary does the expanding, so it works with scripts off.
 */
 import type {
-  AfterEntry, AwsEvent, BlindSpot, Group, Notice, Timeline, TimelineEvent,
+  AfterEntry, AwsEvent, BlindSpot, Group, Notice, PublishedEvent, Timeline, TimelineEvent,
 } from "./types.ts";
+import { createContext, useContext } from "react";
 import { ErrorCauses } from "./ErrorCauses.tsx";
 import { errorCauses } from "../errors.ts";
 
@@ -31,6 +32,7 @@ export const ORDER_SOURCE: Record<string, { label: string; long: string; propose
   receive_count: { label: "receive count", long: "SQS's receive count went up between the two receives." },
   sqs_timestamps: { label: "SQS timestamps", long: "SQS's own SentTimestamp is before its ApproximateFirstReceiveTimestamp." },
   inferred_from: { label: "inferred from neighbors", long: "The step has no time. It is placed by the observed steps it was inferred from.", placement: true },
+  sns_envelope: { label: "SNS envelope", long: "The SNS envelope on the receive names the topic. It gives the publish no time, so it sits before that receive.", placement: true },
   sqs_dlq_source: { label: "SQS DLQ report", long: "SQS reported the move on the dead-letter receive. It gives the move no time, so it sits between that receive and the last one before it.", placement: true },
   invocation_id: { label: "same Lambda request ID", long: "The AWS record names the same Lambda request ID as a Trailbeam span.", proposed: true },
   cloudtrail_time: { label: "CloudTrail time, whole s", long: "CloudTrail's eventTime is in whole seconds, so it proves order only when steps are more than a second apart.", proposed: true },
@@ -68,6 +70,8 @@ function title(e: TimelineEvent): string {
     case "lambda_invocation_ended_without_outcome": return "Invocation ended with no outcome";
     case "moved_to_dead_letter_queue": return "Moved to the dead-letter queue";
     case "queue_purged": return e.removal === "possible" ? "Queue purged (may have removed it)" : "Queue purged";
+    case "published": return `Published to topic ${e.topic}`;
+    case "arrived_via_sns": return `Arrived via SNS topic ${e.topic}`;
     case "aws_step":
       return { trigger_delete: "Deleted by Lambda's trigger", filter_drop: "Dropped by the event filter", second_function: "Taken by another function",
         timeout: "Timed out", out_of_memory: "Ran out of memory", never_handled: "Sent, never handled" }[e.aws_kind];
@@ -84,6 +88,8 @@ function shortLabel(e: TimelineEvent): string {
     case "lambda_outcome": return "handler outcome";
     case "moved_to_dead_letter_queue": return "DLQ move";
     case "queue_purged": return "the purge";
+    case "published": return "the publish";
+    case "arrived_via_sns": return "SNS delivery";
     case "visibility_timeout_expired": return "timeout ended";
     case "deliveries_not_observed": return "unseen pickups";
     case "deleted_by_lambda": return "Lambda delete";
@@ -103,6 +109,7 @@ function refLabel(e: TimelineEvent): string {
 /** Who/where, the mono line under the time. */
 function where(e: TimelineEvent): string {
   if (e.type === "aws_step") return e.aws_kind === "never_handled" ? "AWS side" : e.function_name ? `AWS · ${e.function_name}` : "AWS side";
+  if (e.type === "arrived_via_sns") return "SNS";
   if (e.type === "moved_to_dead_letter_queue" || e.inferred) return "SQS";
   const name = e.consumer.service_name ?? "unknown service";
   return e.consumer.service_version ? `${name} ${e.consumer.service_version}` : name;
@@ -162,6 +169,7 @@ function sourceTags(e: TimelineEvent) {
     );
   }
   if (e.type === "moved_to_dead_letter_queue") return <SourceTag kind="recorded">SQS · DLQ receive</SourceTag>;
+  if (e.type === "arrived_via_sns") return <SourceTag kind="recorded">SNS envelope</SourceTag>;
   if (e.inferred) return <SourceTag kind="inferred">inferred</SourceTag>;
   return <SourceTag kind="recorded">Trailbeam pkg</SourceTag>;
 }
@@ -233,6 +241,14 @@ function facts(e: TimelineEvent): string[] {
   if (e.type === "deleted" || e.type === "visibility_changed") out.push(`delivery ${e.delivery ?? "?"}`, e.result === "ok" ? "SQS accepted" : `error ${e.error_code ?? ""}`);
   if (e.type === "lambda_outcome" && e.delivery) out.push(`delivery ${e.delivery}`);
   if (e.type === "queue_purged") out.push("PurgeQueue", "SQS accepted");
+  if (e.type === "published") {
+    out.push(e.batch_entry_id ? "PublishBatch" : "Publish", e.joined_by.includes("envelope_message_id") ? "joined by envelope" : "joined by publish ID");
+    if (e.sns_delivery_ms !== undefined) out.push(`SNS delivery ${dur(e.sns_delivery_ms)}`);
+  }
+  if (e.type === "arrived_via_sns") {
+    out.push(`reported on delivery ${e.reported_on_delivery}`);
+    if (e.sns_delivery_ms !== undefined) out.push(`SNS delivery ${dur(e.sns_delivery_ms)}`);
+  }
   if (e.type === "moved_to_dead_letter_queue") out.push(`${e.from_queue} → ${e.to_queue}`, `reported on delivery ${e.reported_on_delivery}`);
   if (e.type === "aws_step") {
     if (e.role) out.push(e.role);
@@ -313,6 +329,15 @@ function Detail({ e }: { e: TimelineEvent }) {
     if (e.dlq_source_arn) rows.push(["DeadLetterQueueSourceArn", e.dlq_source_arn]);
   }
   if (e.type === "moved_to_dead_letter_queue") rows.push(["Source ARN", e.source_arn]);
+  if (e.type === "published" || e.type === "arrived_via_sns") {
+    rows.push(["Topic ARN", e.topic_arn], ["SNS message ID", e.sns_message_id]);
+    if (e.type === "published") {
+      if (e.publish_id) rows.push(["trailbeam.publish_id", e.publish_id]);
+      if (e.batch_entry_id) rows.push(["Batch entry ID", e.batch_entry_id]);
+    }
+    if (e.type === "arrived_via_sns" && e.sns_timestamp) rows.push(["Timestamp (SNS)", clock(e.sns_timestamp)]);
+    if (e.sns_delivery_ms !== undefined) rows.push(["SNS delivery", `${dur(e.sns_delivery_ms)}: SentTimestamp (SQS) − Timestamp (SNS), both AWS clocks`]);
+  }
   if (e.type === "aws_step") for (const [k, v] of Object.entries(e.record)) rows.push([k, String(v)]);
   if (!rows.length) return null;
   return (
@@ -327,6 +352,34 @@ function Detail({ e }: { e: TimelineEvent }) {
   );
 }
 
+/** Where another message's timeline is, for the messages a publish reached. Without one they are not links. */
+const MessageHref = createContext<((id: string) => string) | undefined>(undefined);
+
+/** The SQS messages an SNS publish reached, by queue: "Reached orders: m-1 (this message) · billing: m-2". */
+export function Reached({ e, self }: { e: PublishedEvent; self: string }) {
+  const href = useContext(MessageHref);
+  return (
+    <p className="mt-1.5 max-w-[40rem] text-[13px] leading-[1.5] text-sky-ink-2" data-reached>
+      <span className="mr-1.5 text-sky-ink">Reached</span>
+      {e.reached.map((r, i) => (
+        <span key={r.queue}>
+          {i > 0 && " · "}
+          {r.queue}:{" "}
+          {r.message_ids.map((id, j) => (
+            <span key={id}>
+              {j > 0 && ", "}
+              {id === self ? <span className="font-mono text-caption">{shortId(id)} (this message)</span>
+                : href ? <a className="font-mono text-caption text-dawn hover:underline" href={href(id)} title={id}>{shortId(id)}</a>
+                : <span className="font-mono text-caption" title={id}>{shortId(id)}</span>}
+            </span>
+          ))}
+        </span>
+      ))}
+      {e.reached_truncated && <span className="text-sky-ink-3"> · and more (the first 100 receives are listed)</span>}
+    </p>
+  );
+}
+
 function reasonOf(e: TimelineEvent): string | null {
   if (e.type === "aws_step") return e.summary;
   if (e.type === "lambda_outcome" && e.error_message) return e.error_message;
@@ -334,7 +387,7 @@ function reasonOf(e: TimelineEvent): string | null {
   return null;
 }
 
-function Step({ e, byId, open = false, compact = false, last = false }: { e: TimelineEvent; byId: ById; open?: boolean; compact?: boolean; last?: boolean }) {
+function Step({ e, byId, self, open = false, compact = false, last = false }: { e: TimelineEvent; byId: ById; self: string; open?: boolean; compact?: boolean; last?: boolean }) {
   const f = facts(e);
   const reason = reasonOf(e);
   const spots: BlindSpot[] = e.type === "aws_step" ? e.blind_spots : e.type === "moved_to_dead_letter_queue" ? ["dlq_not_verified_on_real_sqs"] : [];
@@ -363,6 +416,7 @@ function Step({ e, byId, open = false, compact = false, last = false }: { e: Tim
         </div>
         {f.length > 0 && <p className="mt-1 font-mono text-caption text-sky-ink-3">{f.join(" · ")}</p>}
         {reason && <p className="mt-1.5 max-w-[38rem] text-[15px] leading-[1.5] text-sky-ink-2">{reason}</p>}
+        {e.type === "published" && <Reached e={e} self={self} />}
         {spots.length > 0 && <ul className="mt-2.5 grid max-w-[40rem] gap-2">{spots.map((s) => <BlindSpotNote key={s} spot={s} />)}</ul>}
         <details className="group mt-2" open={open}>
           <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full text-[13px] text-sky-ink-3 hover:text-sky-ink [&::-webkit-details-marker]:hidden">
@@ -392,7 +446,7 @@ function markOf(e: TimelineEvent): Mark | null {
   return null;
 }
 
-function ConcurrentBox({ g, members, byId }: { g: Group; members: TimelineEvent[]; byId: ById }) {
+function ConcurrentBox({ g, members, byId, self }: { g: Group; members: TimelineEvent[]; byId: ById; self: string }) {
   const marks = members.map((m) => [m, markOf(m)] as const);
   // The scale covers what was observed. Inferred windows are clipped to it and say so.
   const pts = marks.flatMap(([, k]) => (!k || k.kind === "window" ? [] : [k.to, ...(k.from !== undefined ? [k.from] : [])]));
@@ -477,7 +531,7 @@ function ConcurrentBox({ g, members, byId }: { g: Group; members: TimelineEvent[
         )}
 
         <ul className="border-t border-sky-line px-3 pt-4 md:px-4">
-          {members.map((m) => <Step key={m.id} e={m} byId={byId} compact />)}
+          {members.map((m) => <Step key={m.id} e={m} byId={byId} self={self} compact />)}
         </ul>
       </section>
     </li>
@@ -516,7 +570,8 @@ export function purgeNote(t: Pick<Timeline, "purge">): string | null {
   return p.status === "purged" ? `(observed: PurgeQueue at ${clock(p.start)})` : `possibly purged (PurgeQueue at ${clock(p.start)})`;
 }
 
-export function TimelineView({ t, answer, openSteps = [] }: { t: Timeline; answer: string; openSteps?: string[] }) {
+/** ``messageHref``: where another message's timeline is (the messages an SNS publish reached link to it). */
+export function TimelineView({ t, answer, openSteps = [], messageHref }: { t: Timeline; answer: string; openSteps?: string[]; messageHref?: (id: string) => string }) {
   const byId: ById = new Map(t.events.map((e) => [e.id, e]));
   const earlier = new Set<string>();
   const items: React.ReactNode[] = [];
@@ -532,8 +587,8 @@ export function TimelineView({ t, answer, openSteps = [] }: { t: Timeline; answe
       const links = linksInto(members, earlier);
       if (links.length) items.push(<OrderLink key={`o${e.id}`} entries={links} />);
     }
-    if (g?.concurrent) items.push(<ConcurrentBox key={`g${g.group}`} g={g} members={members} byId={byId} />);
-    else for (const m of members) items.push(<Step key={m.id} e={m} byId={byId} open={openSteps.includes(m.id)} last={m.id === lastId} />);
+    if (g?.concurrent) items.push(<ConcurrentBox key={`g${g.group}`} g={g} members={members} byId={byId} self={t.message_id} />);
+    else for (const m of members) items.push(<Step key={m.id} e={m} byId={byId} self={t.message_id} open={openSteps.includes(m.id)} last={m.id === lastId} />);
     if (g) drawn.add(g.group);
     for (const m of members) earlier.add(m.id);
   }
@@ -542,6 +597,7 @@ export function TimelineView({ t, answer, openSteps = [] }: { t: Timeline; answe
   const purged = purgeNote(t);
 
   return (
+    <MessageHref.Provider value={messageHref}>
     <article className="font-serif text-sky-ink">
       <header className="border-b border-sky-line px-4 pt-5 pb-5 md:px-8 md:pt-7">
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-micro text-sky-ink-3">
@@ -579,5 +635,6 @@ export function TimelineView({ t, answer, openSteps = [] }: { t: Timeline; answe
       </ol>
       <ErrorCauses causes={errorCauses(t)} />
     </article>
+    </MessageHref.Provider>
   );
 }
