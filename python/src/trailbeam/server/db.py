@@ -565,6 +565,45 @@ class SqliteStore(Store):
                            "ORDER BY s.last_ns DESC, s.mid LIMIT ?", tuple(p) + (limit,))
         return found if rows else [r["mid"] for r in found]
 
+    # /api/events (events.py). The page walks spans_identity, (time_ns, trace_id, span_id) and unique, backwards
+    # from the window's end or the cursor: a range of the index, read in the page's order, so it stops after
+    # limit matching rows. INDEXED BY, as for the joins above: with a kind filter the planner would otherwise take
+    # spans_kind_time and sort every row of the window. The counts read spans_kind_time, which covers them when
+    # no queue or service is given (no table read), one range per kind.
+    _STEP_COLS = ("time_ns, start_ns, trace_id, span_id, kind, mid, queue, service_name, service_version, result, "
+                  "error_code, outcome, error_type, receive_count, visibility_timeout")
+
+    @staticmethod
+    def _step_where(queue, service, kinds) -> tuple[str, list]:
+        from .events import KINDS
+        ks = kinds or KINDS
+        where, p = f" AND kind IN ({', '.join('?' * len(ks))})", list(ks)
+        if queue is not None:
+            where, p = where + " AND queue = ?", p + [queue]
+        if service is not None:
+            where, p = where + " AND service_name = ?", p + [service]
+        return where, p
+
+    def step_rows(self, from_ns: int, to_ns: int, limit: int, *, queue: Optional[str] = None,
+                  service: Optional[str] = None, kinds: Optional[tuple] = None,
+                  after: Optional[tuple] = None) -> list[sqlite3.Row]:
+        where, p = self._step_where(queue, service, kinds)
+        if after is not None:
+            where += " AND (time_ns, trace_id, span_id) < (?, ?, ?)"
+            p += list(after)
+        return self.query(f"SELECT {self._STEP_COLS} FROM spans INDEXED BY spans_identity "
+                          f"WHERE time_ns >= ? AND time_ns < ?{where} "
+                          "ORDER BY time_ns DESC, trace_id DESC, span_id DESC LIMIT ?",
+                          (from_ns, to_ns, *p, limit))
+
+    def step_counts(self, from_ns: int, to_ns: int, bucket_ns: int, *, queue: Optional[str] = None,
+                    service: Optional[str] = None, kinds: Optional[tuple] = None) -> list[tuple]:
+        where, p = self._step_where(queue, service, kinds)
+        return [tuple(r) for r in self.query(
+            f"SELECT time_ns / ? AS b, kind, COUNT(*) FROM spans INDEXED BY spans_kind_time "
+            f"WHERE time_ns >= ? AND time_ns < ?{where} GROUP BY kind, b",
+            (bucket_ns, from_ns, to_ns, *p))]
+
     def stuck_messages(self, cutoff_ns: int, limit: int, queue: Optional[str] = None, *,
                        from_ns: Optional[int] = None, after: Optional[tuple] = None,
                        version: Optional[str] = None) -> list[StuckCandidate]:

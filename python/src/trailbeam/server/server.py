@@ -25,6 +25,7 @@ from .backpressure import GRPC_RESOURCE_EXHAUSTED, GRPC_UNAVAILABLE, IngestGate,
 from .sessions import Sessions
 from .signin import SignIn
 from .tokens import Tokens
+from . import events as events_mod
 from .store import ExportAbandoned, Store, StoreFull, StoreTimeout, StoreUnavailable, WriterBusy
 from .proxy import TrustedProxies
 from .otlp import PROBE_NOT_STORED, DecodeError, decode, valid_probe_id
@@ -86,7 +87,7 @@ class App:
         self.stats = {"requests": 0, "inserted": 0, "duplicates": 0, "ignored": 0, "rejected": 0}
         self.routes: dict[str, Callable[[dict, list[str]], object]] = {
             "health": self.health, "stats": self.stats_counts, "messages": self.messages, "duplicates": self.duplicates,
-            "stuck": self.stuck, "tenants": self.tenants, "probes": self.probes, "me": self.me}
+            "stuck": self.stuck, "events": self.events, "tenants": self.tenants, "probes": self.probes, "me": self.me}
         self._init_metrics()
 
     # ---- /metrics -------------------------------------------------------------------------
@@ -431,6 +432,20 @@ class App:
                                   mrc=self.max_receive_counts, from_ns=frm, cursor=q.get("cursor"),
                                   version=q.get("version") or None)
         return {"older_than_s": older, "messages": page.items, "next_cursor": page.next_cursor}
+
+    def events(self, q: dict, rest: list[str]) -> dict:
+        """``/api/events``: the recorded steps in [from_ms, to_ms], or the last ``since_s`` seconds (default a day),
+        newest first, and on the first page their counts per time bucket (events.py)."""
+        if rest:
+            raise ApiError(404, "no such endpoint")
+        from_ms, to_ms = self._window(q)
+        try:
+            kinds = events_mod.parse_kinds(q.get("kind"))
+        except events_mod.EventQueryError as e:
+            raise ApiError(400, str(e)) from None
+        return events_mod.page(self.db, from_ms, to_ms, _limit(q), queue=q.get("queue") or None,
+                               service=q.get("service") or None, kinds=kinds,
+                               message_id=q.get("message_id") or None, cursor=q.get("cursor"))
 
     def tenants(self, q: dict, rest: list[str]) -> dict:
         """``/api/tenants``: the Tenants page (contract/tenants.md) for [from_ms, to_ms], or the last
