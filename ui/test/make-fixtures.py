@@ -9,6 +9,8 @@ is tested on what Trailbeam really returns.
 - test/fixtures/sns-timelines.json: contract 3.4 SNS fan-out (section 21): one publish that reached two queues, one
   through the envelope (raw delivery off) and one through the publish ID (raw delivery on), and a message that
   arrived via SNS from a publisher with no Trailbeam package, from the same span builder
+- test/fixtures/origin-timelines.json: contract 3.5 (section 23): a message an EventBridge rule sent, one an S3
+  notification sent (body captured: with the key), and S3's test message, from the same span builder
 
     pip install -e "python[server]"   # from the repository root
     python ui/test/make-fixtures.py
@@ -77,4 +79,28 @@ write("sns-timelines.json",
                             C.sns_receive(T0 + 9 * SEC, "sns-arrived", "rh-x", sns_id="sns-msg-2",
                                           topic="audit-topic", sns_ts_ms=T0_MS + 7000, sent_ms=T0_MS + 7025,
                                           start=T0 + 8 * SEC)]).SerializeToString(),
+                  "application/x-protobuf")]))
+
+EB_ATTRS = {"trailbeam.eventbridge.event_id": "6a7e8feb-b491-4cf7-a9f1-bf3703467718",
+            "trailbeam.eventbridge.source": "com.example.orders", "trailbeam.eventbridge.detail_type": "OrderPlaced",
+            "trailbeam.eventbridge.account": "111122223333", "trailbeam.eventbridge.region": "eu-west-1",
+            "trailbeam.eventbridge.time_ms": T0_MS}
+S3_ATTRS = {"trailbeam.s3.event_name": "ObjectCreated:Put", "trailbeam.s3.bucket": "uploads",
+            "trailbeam.s3.region": "us-west-2", "trailbeam.s3.event_time_ms": T0_MS + 5000,
+            "trailbeam.s3.configuration_id": "new-uploads", "trailbeam.s3.sequencer": "0055AED6DCD90281E5",
+            "trailbeam.s3.object_key": "red+flower.jpg"}
+S3_TEST_ATTRS = {"trailbeam.s3.event_name": "s3:TestEvent", "trailbeam.s3.bucket": "uploads",
+                 "trailbeam.s3.event_time_ms": T0_MS + 8000}
+write("origin-timelines.json",
+      "GET /api/messages/{id} for messages an EventBridge rule or an S3 notification sent (contract 3.5, section 23), "
+      "made by Trailbeam itself (ui/test/make-fixtures.py) from python/tests/server/spans.py: eb-order (an EventBridge "
+      "event, delivered 1.2 s after its time), s3-upload (ObjectCreated:Put with the key, from a captured queue) and "
+      "s3-test (S3's test message).",
+      timelines([(to_proto([C.receive_with(T0 + 2 * SEC, "eb-order", "rh-e", EB_ATTRS, sent_ms=T0_MS + 1200,
+                                           start=T0 + SEC),
+                            C.delete(T0 + 3 * SEC, "rh-e", "eb-order", queue="orders", start=T0 + 2 * SEC + 500_000_000),
+                            C.receive_with(T0 + 7 * SEC, "s3-upload", "rh-s", S3_ATTRS, sent_ms=T0_MS + 5400,
+                                           start=T0 + 6 * SEC),
+                            C.receive_with(T0 + 9 * SEC, "s3-test", "rh-t", S3_TEST_ATTRS, sent_ms=T0_MS + 8100,
+                                           start=T0 + 8 * SEC)]).SerializeToString(),
                   "application/x-protobuf")]))

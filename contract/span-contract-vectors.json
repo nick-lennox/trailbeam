@@ -1314,5 +1314,167 @@
         }
       ]
     }
+  },
+  "origin": {
+    "description": "Revision 3.5 (section 23): what a receive records from an EventBridge event or an S3 event notification body, on queue `orders`. `body_captured`: whether `orders` is in the body-capture list (section 15.1). Every other body attribute is as without this section.",
+    "receive": [
+      {
+        "name": "EventBridge: an AWS service event; detail and resources are not read",
+        "body": "{\n  \"version\": \"0\",\n  \"id\": \"6a7e8feb-b491-4cf7-a9f1-bf3703467718\",\n  \"detail-type\": \"EC2 Instance State-change Notification\",\n  \"source\": \"aws.ec2\",\n  \"account\": \"111122223333\",\n  \"time\": \"2017-12-22T18:43:48Z\",\n  \"region\": \"us-west-1\",\n  \"resources\": [\n    \"arn:aws:ec2:us-west-1:123456789012:instance/i-1234567890abcdef0\"\n  ],\n  \"detail\": {\n    \"instance-id\": \"i-1234567890abcdef0\",\n    \"state\": \"terminated\"\n  }\n}",
+        "body_captured": false,
+        "attributes": {
+          "trailbeam.eventbridge.event_id": "6a7e8feb-b491-4cf7-a9f1-bf3703467718",
+          "trailbeam.eventbridge.source": "aws.ec2",
+          "trailbeam.eventbridge.detail_type": "EC2 Instance State-change Notification",
+          "trailbeam.eventbridge.account": "111122223333",
+          "trailbeam.eventbridge.region": "us-west-1",
+          "trailbeam.eventbridge.time_ms": 1513968228000
+        }
+      },
+      {
+        "name": "EventBridge: the AWS reference example, whose time (April 31) is not a date, so it is left out",
+        "body": "{\n  \"version\": \"0\",\n  \"source\": \"aws.cloudformation\",\n  \"account\": \"123456789012\",\n  \"id\": \"12345678-1234-1234-1234-111122223333\",\n  \"region\": \"us-east-1\",\n  \"detail-type\": \"CloudFormation Stack Status Change\",\n  \"time\": \"2022-04-31T17:00:00Z\",\n  \"resources\": [\n    \"arn:aws:cloudformation:us-east-1:123456789012:stack/teststack\"\n  ],\n  \"detail\": {\n    \"stack-id\": \"arn:aws:cloudformation:us-west-1:123456789012:stack/teststack\",\n    \"status-details\": {\n      \"status\": \"CREATE_COMPLETE\",\n      \"status-reason\": \"\"\n    }\n  }\n}",
+        "body_captured": false,
+        "attributes": {
+          "trailbeam.eventbridge.event_id": "12345678-1234-1234-1234-111122223333",
+          "trailbeam.eventbridge.source": "aws.cloudformation",
+          "trailbeam.eventbridge.detail_type": "CloudFormation Stack Status Change",
+          "trailbeam.eventbridge.account": "123456789012",
+          "trailbeam.eventbridge.region": "us-east-1"
+        }
+      },
+      {
+        "name": "EventBridge: a custom PutEvents event; the same on a captured queue",
+        "body": "{\"version\": \"0\", \"id\": \"0d5d4cf1-8e5b-4b8a-a1d2-0b4c8e8e0b11\", \"detail-type\": \"OrderPlaced\", \"source\": \"com.example.orders\", \"account\": \"111122223333\", \"time\": \"2026-11-24T05:12:09Z\", \"region\": \"eu-west-1\", \"resources\": [], \"detail\": {\"order\": 42, \"customer\": {\"email\": \"a@example.com\"}}}",
+        "body_captured": true,
+        "attributes": {
+          "trailbeam.eventbridge.event_id": "0d5d4cf1-8e5b-4b8a-a1d2-0b4c8e8e0b11",
+          "trailbeam.eventbridge.source": "com.example.orders",
+          "trailbeam.eventbridge.detail_type": "OrderPlaced",
+          "trailbeam.eventbridge.account": "111122223333",
+          "trailbeam.eventbridge.region": "eu-west-1",
+          "trailbeam.eventbridge.time_ms": 1795497129000
+        }
+      },
+      {
+        "name": "EventBridge: no detail member, not an event",
+        "body": "{\"version\": \"0\", \"id\": \"0d5d4cf1-8e5b-4b8a-a1d2-0b4c8e8e0b11\", \"detail-type\": \"OrderPlaced\", \"source\": \"com.example.orders\", \"account\": \"111122223333\", \"time\": \"2026-11-24T05:12:09Z\", \"region\": \"eu-west-1\", \"resources\": []}",
+        "body_captured": false,
+        "attributes": {}
+      },
+      {
+        "name": "EventBridge: account not 12 digits, not an event",
+        "body": "{\"version\": \"0\", \"id\": \"0d5d4cf1-8e5b-4b8a-a1d2-0b4c8e8e0b11\", \"detail-type\": \"OrderPlaced\", \"source\": \"com.example.orders\", \"account\": \"1111\", \"time\": \"2026-11-24T05:12:09Z\", \"region\": \"eu-west-1\", \"resources\": [], \"detail\": {\"order\": 42, \"customer\": {\"email\": \"a@example.com\"}}}",
+        "body_captured": false,
+        "attributes": {}
+      },
+      {
+        "name": "EventBridge: an input transformer's output, not an event",
+        "body": "{\"detail-type\": \"OrderPlaced\", \"order\": 42}",
+        "body_captured": false,
+        "attributes": {}
+      },
+      {
+        "name": "S3: ObjectCreated:Put, body not captured: no object key",
+        "body": "{\n  \"Records\": [\n    {\n      \"eventVersion\": \"2.6\",\n      \"eventSource\": \"aws:s3\",\n      \"awsRegion\": \"us-west-2\",\n      \"eventTime\": \"1970-01-01T00:00:00.000Z\",\n      \"eventName\": \"ObjectCreated:Put\",\n      \"userIdentity\": {\n        \"principalId\": \"AIDAJDPLRKLG7UEXAMPLE\"\n      },\n      \"requestParameters\": {\n        \"sourceIPAddress\": \"172.16.0.1\"\n      },\n      \"responseElements\": {\n        \"x-amz-request-id\": \"C3D13FE58DE4C810\",\n        \"x-amz-id-2\": \"FMyUVURIY8/IgAtTv8xRjskZQpcIZ9KG4V5Wp6S7S/JRWeUWerMUE5JgHvANOjpD\"\n      },\n      \"s3\": {\n        \"s3SchemaVersion\": \"1.0\",\n        \"configurationId\": \"testConfigRule\",\n        \"bucket\": {\n          \"name\": \"amzn-s3-demo-bucket\",\n          \"ownerIdentity\": {\n            \"principalId\": \"A3NL1KOZZKExample\"\n          },\n          \"arn\": \"arn:aws:s3:::amzn-s3-demo-bucket\"\n        },\n        \"object\": {\n          \"key\": \"HappyFace.jpg\",\n          \"size\": 1024,\n          \"eTag\": \"d41d8cd98f00b204e9800998ecf8427e\",\n          \"versionId\": \"096fKKXTRTtl3on89fVO.nfljtsv6qko\",\n          \"sequencer\": \"0055AED6DCD90281E5\"\n        }\n      }\n    }\n  ]\n}",
+        "body_captured": false,
+        "attributes": {
+          "trailbeam.s3.event_name": "ObjectCreated:Put",
+          "trailbeam.s3.bucket": "amzn-s3-demo-bucket",
+          "trailbeam.s3.region": "us-west-2",
+          "trailbeam.s3.event_time_ms": 0,
+          "trailbeam.s3.configuration_id": "testConfigRule",
+          "trailbeam.s3.sequencer": "0055AED6DCD90281E5"
+        }
+      },
+      {
+        "name": "S3: ObjectCreated:Put, body captured: the object key, as S3 encodes it",
+        "body": "{\n  \"Records\": [\n    {\n      \"eventVersion\": \"2.6\",\n      \"eventSource\": \"aws:s3\",\n      \"awsRegion\": \"us-west-2\",\n      \"eventTime\": \"1970-01-01T00:00:00.000Z\",\n      \"eventName\": \"ObjectCreated:Put\",\n      \"userIdentity\": {\n        \"principalId\": \"AIDAJDPLRKLG7UEXAMPLE\"\n      },\n      \"requestParameters\": {\n        \"sourceIPAddress\": \"172.16.0.1\"\n      },\n      \"responseElements\": {\n        \"x-amz-request-id\": \"C3D13FE58DE4C810\",\n        \"x-amz-id-2\": \"FMyUVURIY8/IgAtTv8xRjskZQpcIZ9KG4V5Wp6S7S/JRWeUWerMUE5JgHvANOjpD\"\n      },\n      \"s3\": {\n        \"s3SchemaVersion\": \"1.0\",\n        \"configurationId\": \"testConfigRule\",\n        \"bucket\": {\n          \"name\": \"amzn-s3-demo-bucket\",\n          \"ownerIdentity\": {\n            \"principalId\": \"A3NL1KOZZKExample\"\n          },\n          \"arn\": \"arn:aws:s3:::amzn-s3-demo-bucket\"\n        },\n        \"object\": {\n          \"key\": \"red+flower.jpg\",\n          \"size\": 1024,\n          \"eTag\": \"d41d8cd98f00b204e9800998ecf8427e\",\n          \"versionId\": \"096fKKXTRTtl3on89fVO.nfljtsv6qko\",\n          \"sequencer\": \"0055AED6DCD90281E5\"\n        }\n      }\n    }\n  ]\n}",
+        "body_captured": true,
+        "attributes": {
+          "trailbeam.s3.event_name": "ObjectCreated:Put",
+          "trailbeam.s3.bucket": "amzn-s3-demo-bucket",
+          "trailbeam.s3.region": "us-west-2",
+          "trailbeam.s3.event_time_ms": 0,
+          "trailbeam.s3.configuration_id": "testConfigRule",
+          "trailbeam.s3.sequencer": "0055AED6DCD90281E5",
+          "trailbeam.s3.object_key": "red+flower.jpg"
+        }
+      },
+      {
+        "name": "S3: body captured: the object key is redacted like the body",
+        "body": "{\"Records\": [{\"eventVersion\": \"2.6\", \"eventSource\": \"aws:s3\", \"awsRegion\": \"us-west-2\", \"eventTime\": \"1970-01-01T00:00:00.000Z\", \"eventName\": \"ObjectCreated:Put\", \"userIdentity\": {\"principalId\": \"AIDAJDPLRKLG7UEXAMPLE\"}, \"requestParameters\": {\"sourceIPAddress\": \"172.16.0.1\"}, \"responseElements\": {\"x-amz-request-id\": \"C3D13FE58DE4C810\", \"x-amz-id-2\": \"FMyUVURIY8/IgAtTv8xRjskZQpcIZ9KG4V5Wp6S7S/JRWeUWerMUE5JgHvANOjpD\"}, \"s3\": {\"s3SchemaVersion\": \"1.0\", \"configurationId\": \"testConfigRule\", \"bucket\": {\"name\": \"amzn-s3-demo-bucket\", \"ownerIdentity\": {\"principalId\": \"A3NL1KOZZKExample\"}, \"arn\": \"arn:aws:s3:::amzn-s3-demo-bucket\"}, \"object\": {\"key\": \"users/a@example.com/avatar.png\", \"size\": 1024, \"eTag\": \"d41d8cd98f00b204e9800998ecf8427e\", \"versionId\": \"096fKKXTRTtl3on89fVO.nfljtsv6qko\", \"sequencer\": \"0055AED6DCD90281E5\"}}}]}",
+        "body_captured": true,
+        "attributes": {
+          "trailbeam.s3.event_name": "ObjectCreated:Put",
+          "trailbeam.s3.bucket": "amzn-s3-demo-bucket",
+          "trailbeam.s3.region": "us-west-2",
+          "trailbeam.s3.event_time_ms": 0,
+          "trailbeam.s3.configuration_id": "testConfigRule",
+          "trailbeam.s3.sequencer": "0055AED6DCD90281E5",
+          "trailbeam.s3.object_key": "users/[REDACTED]/avatar.png"
+        }
+      },
+      {
+        "name": "S3: ObjectRestore:Completed has no sequencer",
+        "body": "{\"Records\": [{\"eventVersion\": \"2.6\", \"eventSource\": \"aws:s3\", \"awsRegion\": \"us-west-2\", \"eventTime\": \"1970-01-01T00:00:00.000Z\", \"eventName\": \"ObjectRestore:Completed\", \"userIdentity\": {\"principalId\": \"AIDAJDPLRKLG7UEXAMPLE\"}, \"requestParameters\": {\"sourceIPAddress\": \"172.16.0.1\"}, \"responseElements\": {\"x-amz-request-id\": \"C3D13FE58DE4C810\", \"x-amz-id-2\": \"FMyUVURIY8/IgAtTv8xRjskZQpcIZ9KG4V5Wp6S7S/JRWeUWerMUE5JgHvANOjpD\"}, \"s3\": {\"s3SchemaVersion\": \"1.0\", \"configurationId\": \"testConfigRule\", \"bucket\": {\"name\": \"amzn-s3-demo-bucket\", \"ownerIdentity\": {\"principalId\": \"A3NL1KOZZKExample\"}, \"arn\": \"arn:aws:s3:::amzn-s3-demo-bucket\"}, \"object\": {\"key\": \"HappyFace.jpg\", \"size\": 1024, \"eTag\": \"d41d8cd98f00b204e9800998ecf8427e\", \"versionId\": \"096fKKXTRTtl3on89fVO.nfljtsv6qko\"}}}]}",
+        "body_captured": false,
+        "attributes": {
+          "trailbeam.s3.event_name": "ObjectRestore:Completed",
+          "trailbeam.s3.bucket": "amzn-s3-demo-bucket",
+          "trailbeam.s3.region": "us-west-2",
+          "trailbeam.s3.event_time_ms": 0,
+          "trailbeam.s3.configuration_id": "testConfigRule"
+        }
+      },
+      {
+        "name": "S3: two records: the first, and the count",
+        "body": "{\"Records\": [{\"eventVersion\": \"2.6\", \"eventSource\": \"aws:s3\", \"awsRegion\": \"us-west-2\", \"eventTime\": \"1970-01-01T00:00:00.000Z\", \"eventName\": \"ObjectCreated:Put\", \"userIdentity\": {\"principalId\": \"AIDAJDPLRKLG7UEXAMPLE\"}, \"requestParameters\": {\"sourceIPAddress\": \"172.16.0.1\"}, \"responseElements\": {\"x-amz-request-id\": \"C3D13FE58DE4C810\", \"x-amz-id-2\": \"FMyUVURIY8/IgAtTv8xRjskZQpcIZ9KG4V5Wp6S7S/JRWeUWerMUE5JgHvANOjpD\"}, \"s3\": {\"s3SchemaVersion\": \"1.0\", \"configurationId\": \"testConfigRule\", \"bucket\": {\"name\": \"amzn-s3-demo-bucket\", \"ownerIdentity\": {\"principalId\": \"A3NL1KOZZKExample\"}, \"arn\": \"arn:aws:s3:::amzn-s3-demo-bucket\"}, \"object\": {\"key\": \"HappyFace.jpg\", \"size\": 1024, \"eTag\": \"d41d8cd98f00b204e9800998ecf8427e\", \"versionId\": \"096fKKXTRTtl3on89fVO.nfljtsv6qko\", \"sequencer\": \"0055AED6DCD90281E5\"}}}, {\"eventVersion\": \"2.6\", \"eventSource\": \"aws:s3\", \"awsRegion\": \"us-west-2\", \"eventTime\": \"1970-01-01T00:00:00.000Z\", \"eventName\": \"ObjectRemoved:Delete\", \"userIdentity\": {\"principalId\": \"AIDAJDPLRKLG7UEXAMPLE\"}, \"requestParameters\": {\"sourceIPAddress\": \"172.16.0.1\"}, \"responseElements\": {\"x-amz-request-id\": \"C3D13FE58DE4C810\", \"x-amz-id-2\": \"FMyUVURIY8/IgAtTv8xRjskZQpcIZ9KG4V5Wp6S7S/JRWeUWerMUE5JgHvANOjpD\"}, \"s3\": {\"s3SchemaVersion\": \"1.0\", \"configurationId\": \"testConfigRule\", \"bucket\": {\"name\": \"amzn-s3-demo-bucket\", \"ownerIdentity\": {\"principalId\": \"A3NL1KOZZKExample\"}, \"arn\": \"arn:aws:s3:::amzn-s3-demo-bucket\"}, \"object\": {\"key\": \"b.jpg\", \"size\": 1024, \"eTag\": \"d41d8cd98f00b204e9800998ecf8427e\", \"versionId\": \"096fKKXTRTtl3on89fVO.nfljtsv6qko\", \"sequencer\": \"0055AED6DCD90281F0\"}}}]}",
+        "body_captured": false,
+        "attributes": {
+          "trailbeam.s3.event_name": "ObjectCreated:Put",
+          "trailbeam.s3.bucket": "amzn-s3-demo-bucket",
+          "trailbeam.s3.record_count": 2,
+          "trailbeam.s3.region": "us-west-2",
+          "trailbeam.s3.event_time_ms": 0,
+          "trailbeam.s3.configuration_id": "testConfigRule",
+          "trailbeam.s3.sequencer": "0055AED6DCD90281E5"
+        }
+      },
+      {
+        "name": "S3: the test message sent when a notification configuration is saved",
+        "body": "{\n  \"Service\": \"Amazon S3\",\n  \"Event\": \"s3:TestEvent\",\n  \"Time\": \"2014-10-13T15:57:02.089Z\",\n  \"Bucket\": \"amzn-s3-demo-bucket\",\n  \"RequestId\": \"5582815E1AEA5ADF\",\n  \"HostId\": \"8cLeGAmw098X5cv4Zkwcmo8vvZa3eH3eKxsPzbB9wrR+YstdA6Knx4Ip8EXAMPLE\"\n}",
+        "body_captured": false,
+        "attributes": {
+          "trailbeam.s3.event_name": "s3:TestEvent",
+          "trailbeam.s3.bucket": "amzn-s3-demo-bucket",
+          "trailbeam.s3.event_time_ms": 1413215822089
+        }
+      },
+      {
+        "name": "S3: a record whose eventSource is not aws:s3",
+        "body": "{\"Records\": [{\"eventVersion\": \"2.6\", \"eventSource\": \"aws:sqs\", \"awsRegion\": \"us-west-2\", \"eventTime\": \"1970-01-01T00:00:00.000Z\", \"eventName\": \"ObjectCreated:Put\", \"userIdentity\": {\"principalId\": \"AIDAJDPLRKLG7UEXAMPLE\"}, \"requestParameters\": {\"sourceIPAddress\": \"172.16.0.1\"}, \"responseElements\": {\"x-amz-request-id\": \"C3D13FE58DE4C810\", \"x-amz-id-2\": \"FMyUVURIY8/IgAtTv8xRjskZQpcIZ9KG4V5Wp6S7S/JRWeUWerMUE5JgHvANOjpD\"}, \"s3\": {\"s3SchemaVersion\": \"1.0\", \"configurationId\": \"testConfigRule\", \"bucket\": {\"name\": \"amzn-s3-demo-bucket\", \"ownerIdentity\": {\"principalId\": \"A3NL1KOZZKExample\"}, \"arn\": \"arn:aws:s3:::amzn-s3-demo-bucket\"}, \"object\": {\"key\": \"HappyFace.jpg\", \"size\": 1024, \"eTag\": \"d41d8cd98f00b204e9800998ecf8427e\", \"versionId\": \"096fKKXTRTtl3on89fVO.nfljtsv6qko\", \"sequencer\": \"0055AED6DCD90281E5\"}}}]}",
+        "body_captured": false,
+        "attributes": {}
+      },
+      {
+        "name": "S3: a test message from another service",
+        "body": "{\"Service\": \"Example\", \"Event\": \"s3:TestEvent\", \"Time\": \"2014-10-13T15:57:02.089Z\", \"Bucket\": \"amzn-s3-demo-bucket\", \"RequestId\": \"5582815E1AEA5ADF\", \"HostId\": \"8cLeGAmw098X5cv4Zkwcmo8vvZa3eH3eKxsPzbB9wrR+YstdA6Knx4Ip8EXAMPLE\"}",
+        "body_captured": false,
+        "attributes": {}
+      },
+      {
+        "name": "neither: a JSON body that only mentions the words",
+        "body": "{\"note\": \"\\\"detail-type\\\" and \\\"aws:s3\\\" and s3:TestEvent\"}",
+        "body_captured": false,
+        "attributes": {}
+      },
+      {
+        "name": "neither: not JSON",
+        "body": "detail-type aws:s3",
+        "body_captured": false,
+        "attributes": {}
+      }
+    ]
   }
 }

@@ -1,0 +1,390 @@
+{
+ "note": "GET /api/messages/{id} for messages an EventBridge rule or an S3 notification sent (contract 3.5, section 23), made by Trailbeam itself (ui/test/make-fixtures.py) from python/tests/server/spans.py: eb-order (an EventBridge event, delivered 1.2 s after its time), s3-upload (ObjectCreated:Put with the key, from a captured queue) and s3-test (S3's test message).",
+ "timelines": [
+  {
+   "message_id": "eb-order",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": false,
+   "deliveries": 1,
+   "successful_deliveries": 1,
+   "first_seen": "2025-11-14T00:26:41.200000Z",
+   "first_seen_clock": "sqs",
+   "last_seen": "2025-11-14T00:26:43.000000Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:41.000000Z",
+     "end": "2025-11-14T00:26:42.000000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:42.500000Z",
+     "end": "2025-11-14T00:26:43.000000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "arrived_via_eventbridge",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": null,
+      "to": "2025-11-14T00:26:42.000000Z"
+     },
+     "reason": "The body of receive 1 is an EventBridge event from source com.example.orders, detail-type OrderPlaced: an EventBridge rule sent it to orders. The event does not name the rule. Inferred from the body's shape (anything can send such a body), so the step has no time of its own; it came before that receive.",
+     "source": "eventbridge_event",
+     "queue": "orders",
+     "reported_on_delivery": 1,
+     "event_id": "6a7e8feb-b491-4cf7-a9f1-bf3703467718",
+     "eventbridge_source": "com.example.orders",
+     "detail_type": "OrderPlaced",
+     "account": "111122223333",
+     "region": "eu-west-1",
+     "event_time": "2025-11-14T00:26:40.000000Z",
+     "event_time_ms": 1763080000000,
+     "delivery_ms": 1200,
+     "group": null,
+     "after": [],
+     "before": {
+      "event": "e2",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from receive 1: its body is an EventBridge event, sent before that receive."
+     }
+    },
+    {
+     "id": "e2",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-14T00:26:42.000000Z",
+     "time_unix_nano": "1763080002000000000",
+     "start": "2025-11-14T00:26:41.000000Z",
+     "start_unix_nano": "1763080001000000000",
+     "end": "2025-11-14T00:26:42.000000Z",
+     "end_unix_nano": "1763080002000000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "orders-worker",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "3458ad07b8ce4581c3bb14e8d958b9c1",
+      "span_id": "000000000000000c"
+     },
+     "process_order": null,
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2025-11-14T00:26:41.200000Z",
+     "sent_timestamp_ms": 1763080001200,
+     "after": []
+    },
+    {
+     "id": "e3",
+     "type": "deleted",
+     "inferred": false,
+     "time": "2025-11-14T00:26:43.000000Z",
+     "time_unix_nano": "1763080003000000000",
+     "start": "2025-11-14T00:26:42.500000Z",
+     "start_unix_nano": "1763080002500000000",
+     "end": "2025-11-14T00:26:43.000000Z",
+     "end_unix_nano": "1763080003000000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "orders-worker",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "6894ead1d269c61c6b51cf5388fa5d7f",
+      "span_id": "000000000000000d"
+     },
+     "process_order": null,
+     "delivery": 1,
+     "result": "ok",
+     "status": "final",
+     "after": [
+      {
+       "event": "e2",
+       "type": "received",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "Receive 1 ended (2025-11-14T00:26:42.000000Z) before this started (2025-11-14T00:26:42.500000Z), on the hosts' clocks."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e2",
+      "to": "e3",
+      "sources": [
+       "clock"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 1,
+     "process_order": 0,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": [
+    {
+     "code": "send_not_observed",
+     "message": "No trailbeam send span for this message: the producer is not instrumented, or the send is older than the stored data."
+    }
+   ]
+  },
+  {
+   "message_id": "s3-test",
+   "state": "not_deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": false,
+   "deliveries": 1,
+   "successful_deliveries": 0,
+   "first_seen": "2025-11-14T00:26:48.100000Z",
+   "first_seen_clock": "sqs",
+   "last_seen": "2025-11-14T00:26:49.000000Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:48.000000Z",
+     "end": "2025-11-14T00:26:49.000000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "s3_event",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": null,
+      "to": "2025-11-14T00:26:49.000000Z"
+     },
+     "reason": "The body of receive 1 is the test message S3 sends to orders when a notification configuration on bucket uploads is saved. Inferred from the body's shape (anything can send such a body), so the step has no time of its own; it came before that receive.",
+     "source": "s3_event",
+     "queue": "orders",
+     "reported_on_delivery": 1,
+     "s3_event_name": "s3:TestEvent",
+     "bucket": "uploads",
+     "test_event": true,
+     "event_time": "2025-11-14T00:26:48.000000Z",
+     "event_time_ms": 1763080008000,
+     "delivery_ms": 100,
+     "group": null,
+     "after": [],
+     "before": {
+      "event": "e2",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from receive 1: its body is S3's test message, sent before that receive."
+     }
+    },
+    {
+     "id": "e2",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-14T00:26:49.000000Z",
+     "time_unix_nano": "1763080009000000000",
+     "start": "2025-11-14T00:26:48.000000Z",
+     "start_unix_nano": "1763080008000000000",
+     "end": "2025-11-14T00:26:49.000000Z",
+     "end_unix_nano": "1763080009000000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "orders-worker",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "f39ccfc38d828b66935c284311950714",
+      "span_id": "000000000000000f"
+     },
+     "process_order": null,
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2025-11-14T00:26:48.100000Z",
+     "sent_timestamp_ms": 1763080008100,
+     "after": []
+    }
+   ],
+   "order": {
+    "edges": [],
+    "edges_by_source": {
+     "clock": 0,
+     "process_order": 0,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": [
+    {
+     "code": "send_not_observed",
+     "message": "No trailbeam send span for this message: the producer is not instrumented, or the send is older than the stored data."
+    }
+   ]
+  },
+  {
+   "message_id": "s3-upload",
+   "state": "not_deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": false,
+   "deliveries": 1,
+   "successful_deliveries": 0,
+   "first_seen": "2025-11-14T00:26:45.400000Z",
+   "first_seen_clock": "sqs",
+   "last_seen": "2025-11-14T00:26:47.000000Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:46.000000Z",
+     "end": "2025-11-14T00:26:47.000000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "s3_event",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": null,
+      "to": "2025-11-14T00:26:47.000000Z"
+     },
+     "reason": "The body of receive 1 is an S3 event notification, ObjectCreated:Put on object red+flower.jpg in bucket uploads: S3 sent it to orders. Inferred from the body's shape (anything can send such a body), so the step has no time of its own; it came before that receive.",
+     "source": "s3_event",
+     "queue": "orders",
+     "reported_on_delivery": 1,
+     "s3_event_name": "ObjectCreated:Put",
+     "bucket": "uploads",
+     "test_event": false,
+     "region": "us-west-2",
+     "configuration_id": "new-uploads",
+     "sequencer": "0055AED6DCD90281E5",
+     "object_key": "red+flower.jpg",
+     "event_time": "2025-11-14T00:26:45.000000Z",
+     "event_time_ms": 1763080005000,
+     "delivery_ms": 400,
+     "group": null,
+     "after": [],
+     "before": {
+      "event": "e2",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from receive 1: its body is an S3 event notification, sent before that receive."
+     }
+    },
+    {
+     "id": "e2",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-14T00:26:47.000000Z",
+     "time_unix_nano": "1763080007000000000",
+     "start": "2025-11-14T00:26:46.000000Z",
+     "start_unix_nano": "1763080006000000000",
+     "end": "2025-11-14T00:26:47.000000Z",
+     "end_unix_nano": "1763080007000000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "orders-worker",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "87e649d78813154f970bcd817e4a6198",
+      "span_id": "000000000000000e"
+     },
+     "process_order": null,
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2025-11-14T00:26:45.400000Z",
+     "sent_timestamp_ms": 1763080005400,
+     "after": []
+    }
+   ],
+   "order": {
+    "edges": [],
+    "edges_by_source": {
+     "clock": 0,
+     "process_order": 0,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": [
+    {
+     "code": "send_not_observed",
+     "message": "No trailbeam send span for this message: the producer is not instrumented, or the send is older than the stored data."
+    }
+   ]
+  }
+ ]
+}

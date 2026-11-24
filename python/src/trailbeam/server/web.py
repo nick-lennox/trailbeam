@@ -64,6 +64,8 @@ EVENT_LABELS = {
     "queue_purged": "Queue purged (PurgeQueue)",
     "published": "Published to SNS topic",
     "arrived_via_sns": "Arrived via SNS topic",
+    "arrived_via_eventbridge": "Arrived via an EventBridge rule",
+    "s3_event": "S3",
 }
 
 DLQ_MOVE_LABELS = {
@@ -493,6 +495,9 @@ def _event(e: dict, by_id: Optional[dict] = None, bar: str = "", self_id: Option
         label = "Sent again, deduplicated by SQS"
     if e["type"] in ("published", "arrived_via_sns") and e.get("topic"):
         label += f' <code>{escape(str(e["topic"]))}</code>'
+    elif e["type"] == "s3_event":  # contract 23.3: "S3 ObjectCreated:Put", or the test message
+        label = ("S3 test message" if e.get("test_event")
+                 else f'S3 <code>{escape(str(e.get("s3_event_name")))}</code>')
     failed = e.get("result") == "failed" or (e["type"] == "lambda_outcome" and e.get("outcome") != "success")
     cls = ["event", "inferred" if inferred else "observed"] + (["failed"] if failed else [])
     head = []
@@ -561,6 +566,19 @@ def _details(e: dict) -> list[str]:
     if e.get("joined_by"):
         d.append("joined by " + " and ".join(escape(JOINED_BY.get(j, j)) for j in e["joined_by"]))
     add("SNS message ID", "sns_message_id", lambda v: f"<code>{escape(str(v))}</code>")
+    code = lambda v: f"<code>{escape(str(v))}</code>"  # noqa: E731
+    # EventBridge and S3 origins (contract 23.3)
+    add("source", "eventbridge_source", code)
+    add("detail-type", "detail_type", code)
+    add("event ID", "event_id", code)
+    add("account", "account", code)
+    add("bucket", "bucket", code)
+    add("key", "object_key", code)
+    add("sequencer", "sequencer", code)
+    add("configuration", "configuration_id", code)
+    add("records in the message", "record_count")
+    add("event time", "event_time")
+    add("delivery ms", "delivery_ms")
     add("delivery", "delivery")
     add("receive count", "receive_count")
     add("after delivery", "after_delivery")

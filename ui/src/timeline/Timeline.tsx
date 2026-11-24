@@ -72,6 +72,8 @@ function title(e: TimelineEvent): string {
     case "queue_purged": return e.removal === "possible" ? "Queue purged (may have removed it)" : "Queue purged";
     case "published": return `Published to topic ${e.topic}`;
     case "arrived_via_sns": return `Arrived via SNS topic ${e.topic}`;
+    case "arrived_via_eventbridge": return `Arrived via an EventBridge rule: ${e.detail_type}`;
+    case "s3_event": return e.test_event ? `S3 test message for bucket ${e.bucket}` : `S3 ${e.s3_event_name} in ${e.bucket}`;
     case "aws_step":
       return { trigger_delete: "Deleted by Lambda's trigger", filter_drop: "Dropped by the event filter", second_function: "Taken by another function",
         timeout: "Timed out", out_of_memory: "Ran out of memory", never_handled: "Sent, never handled" }[e.aws_kind];
@@ -90,6 +92,8 @@ function shortLabel(e: TimelineEvent): string {
     case "queue_purged": return "the purge";
     case "published": return "the publish";
     case "arrived_via_sns": return "SNS delivery";
+    case "arrived_via_eventbridge": return "EventBridge delivery";
+    case "s3_event": return "S3 notification";
     case "visibility_timeout_expired": return "timeout ended";
     case "deliveries_not_observed": return "unseen pickups";
     case "deleted_by_lambda": return "Lambda delete";
@@ -110,6 +114,8 @@ function refLabel(e: TimelineEvent): string {
 function where(e: TimelineEvent): string {
   if (e.type === "aws_step") return e.aws_kind === "never_handled" ? "AWS side" : e.function_name ? `AWS · ${e.function_name}` : "AWS side";
   if (e.type === "arrived_via_sns") return "SNS";
+  if (e.type === "arrived_via_eventbridge") return `EventBridge · ${e.eventbridge_source}`;
+  if (e.type === "s3_event") return "S3";
   if (e.type === "moved_to_dead_letter_queue" || e.inferred) return "SQS";
   const name = e.consumer.service_name ?? "unknown service";
   return e.consumer.service_version ? `${name} ${e.consumer.service_version}` : name;
@@ -170,6 +176,9 @@ function sourceTags(e: TimelineEvent) {
   }
   if (e.type === "moved_to_dead_letter_queue") return <SourceTag kind="recorded">SQS · DLQ receive</SourceTag>;
   if (e.type === "arrived_via_sns") return <SourceTag kind="recorded">SNS envelope</SourceTag>;
+  if (e.type === "arrived_via_eventbridge" || e.type === "s3_event") {
+    return <SourceTag kind="inferred">inferred · {e.type === "s3_event" ? "S3 event body" : "EventBridge event body"}</SourceTag>;
+  }
   if (e.inferred) return <SourceTag kind="inferred">inferred</SourceTag>;
   return <SourceTag kind="recorded">Trailbeam pkg</SourceTag>;
 }
@@ -248,6 +257,10 @@ function facts(e: TimelineEvent): string[] {
   if (e.type === "arrived_via_sns") {
     out.push(`reported on delivery ${e.reported_on_delivery}`);
     if (e.sns_delivery_ms !== undefined) out.push(`SNS delivery ${dur(e.sns_delivery_ms)}`);
+  }
+  if (e.type === "arrived_via_eventbridge" || e.type === "s3_event") {
+    out.push(`body of delivery ${e.reported_on_delivery}`);
+    if (e.delivery_ms !== undefined) out.push(`delivery ${dur(e.delivery_ms)}`);
   }
   if (e.type === "moved_to_dead_letter_queue") out.push(`${e.from_queue} → ${e.to_queue}`, `reported on delivery ${e.reported_on_delivery}`);
   if (e.type === "aws_step") {
@@ -337,6 +350,23 @@ function Detail({ e }: { e: TimelineEvent }) {
     }
     if (e.type === "arrived_via_sns" && e.sns_timestamp) rows.push(["Timestamp (SNS)", clock(e.sns_timestamp)]);
     if (e.sns_delivery_ms !== undefined) rows.push(["SNS delivery", `${dur(e.sns_delivery_ms)}: SentTimestamp (SQS) − Timestamp (SNS), both AWS clocks`]);
+  }
+  if (e.type === "arrived_via_eventbridge") {
+    rows.push(["source", e.eventbridge_source], ["detail-type", e.detail_type], ["Event ID", e.event_id]);
+    if (e.account) rows.push(["Account", e.account]);
+    if (e.region) rows.push(["Region", e.region]);
+  }
+  if (e.type === "s3_event") {
+    rows.push(["Event", e.s3_event_name], ["Bucket", e.bucket]);
+    if (e.object_key) rows.push(["Key", e.object_key]);
+    if (e.sequencer) rows.push(["sequencer", e.sequencer]);
+    if (e.configuration_id) rows.push(["Notification configuration", e.configuration_id]);
+    if (e.record_count) rows.push(["Records in the message", `${e.record_count} (this step is the first)`]);
+    if (e.region) rows.push(["Region", e.region]);
+  }
+  if ((e.type === "arrived_via_eventbridge" || e.type === "s3_event") && e.event_time) {
+    rows.push(["Event time (AWS)", clock(e.event_time)]);
+    if (e.delivery_ms !== undefined) rows.push(["Delivery", `${dur(e.delivery_ms)}: SentTimestamp (SQS) − event time, both AWS clocks`]);
   }
   if (e.type === "aws_step") for (const [k, v] of Object.entries(e.record)) rows.push([k, String(v)]);
   if (!rows.length) return null;

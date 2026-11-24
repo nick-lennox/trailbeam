@@ -775,6 +775,18 @@ def _scenario_spans():
                       sent_ms=T0 // ms + 1040, start=T0 + 2 * SEC),
         c.sns_receive(T0 + 3 * SEC, "via-raw", "rh-s2", publish_id="pid-1", start=T0 + 2 * SEC),
         c.sns_receive(T0 + 3 * SEC, "via-unknown", "rh-s3", sns_id="sns-unrecorded", start=T0 + 2 * SEC),
+        # arrived_via_eventbridge and s3_event (inferred from the body's shape): contract 23.3
+        c.receive_with(T0 + 3 * SEC, "via-eventbridge", "rh-e1", {
+            "trailbeam.eventbridge.event_id": "6a7e8feb-b491-4cf7-a9f1-bf3703467718",
+            "trailbeam.eventbridge.source": "aws.ec2", "trailbeam.eventbridge.detail_type": "EC2 Instance State-change Notification",
+            "trailbeam.eventbridge.account": "111122223333", "trailbeam.eventbridge.region": "us-west-1",
+            "trailbeam.eventbridge.time_ms": T0 // ms}, sent_ms=T0 // ms + 300, start=T0 + 2 * SEC),
+        c.receive_with(T0 + 3 * SEC, "via-s3", "rh-e2", {
+            "trailbeam.s3.event_name": "ObjectCreated:Put", "trailbeam.s3.bucket": "amzn-s3-demo-bucket",
+            "trailbeam.s3.region": "us-west-2", "trailbeam.s3.event_time_ms": T0 // ms,
+            "trailbeam.s3.configuration_id": "testConfigRule", "trailbeam.s3.sequencer": "0055AED6DCD90281E5",
+            "trailbeam.s3.object_key": "red+flower.jpg", "trailbeam.s3.record_count": 2},
+            sent_ms=T0 // ms + 900, start=T0 + 2 * SEC),
     ]
 
 

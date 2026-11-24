@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from . import order as order_mod
+from . import origin as origin_mod
 from . import purge as purge_mod
 from . import sns as sns_mod
 from . import systems
@@ -318,6 +319,11 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
     elif (arrived := sns_mod.arrived_from(receives)) is not None:
         r, arn = arrived
         infer(None, r, 1, _arrived_event(r, arn, by_row[r["row"]], delivery))
+    elif not sends and (came := origin_mod.arrived_from(receives)) is not None:
+        # EventBridge rule or S3 notification (contract section 23.3): inferred from the body's shape, so not
+        # shown when a send of the message was seen (a process re-sent the body) or SNS delivered it.
+        r, o = came
+        infer(None, r, 1, _origin_event(r, o, by_row[r["row"]]))
 
     evs, n_groups, order_doc = _arrange(steps, observed, inferred, order, idx)
     dlqs = {b["queue"] for _, b, _ in moves}
@@ -422,6 +428,39 @@ def _arrived_event(r, arn: str, delivery_no: int, delivery: Optional[int]) -> di
     return ev
 
 
+EVENTBRIDGE_SOURCE = "eventbridge_event"  # the receive's body is an EventBridge event (contract section 23.1)
+S3_SOURCE = "s3_event"  # the receive's body is an S3 event notification (contract section 23.2)
+
+
+def _origin_event(r, o: dict, delivery_no: int) -> dict:
+    """The inferred first step of a message an EventBridge rule or an S3 notification sent (contract section 23.3)."""
+    ts = o["event_time_ms"]
+    extra = {k: v for k, v in o.items() if k not in ("kind", "event_time_ms") and v is not None}
+    if o["kind"] == origin_mod.EVENTBRIDGE:
+        type_, src = "arrived_via_eventbridge", EVENTBRIDGE_SOURCE
+        why = (f"The body of receive {delivery_no} is an EventBridge event from source {o['eventbridge_source']}, "
+               f"detail-type {o['detail_type']}: an EventBridge rule sent it to {r['queue']}. The event does not "
+               f"name the rule.")
+    else:
+        type_, src = "s3_event", S3_SOURCE
+        if o["test_event"]:
+            why = (f"The body of receive {delivery_no} is the test message S3 sends to {r['queue']} when a "
+                   f"notification configuration on bucket {o['bucket']} is saved.")
+        else:
+            what = f"object {o['object_key']} in bucket {o['bucket']}" if o.get("object_key") else f"bucket {o['bucket']}"
+            why = (f"The body of receive {delivery_no} is an S3 event notification, {o['s3_event_name']} on {what}: "
+                   f"S3 sent it to {r['queue']}.")
+    ev = _inferred(type_, None, r["time_ns"], why + " Inferred from the body's shape (anything can send such a "
+                   "body), so the step has no time of its own; it came before that receive.",
+                   source=src, queue=r["queue"], reported_on_delivery=delivery_no, **extra)
+    if ts is not None:
+        ev["event_time"] = iso(ts * 1_000_000)
+        ev["event_time_ms"] = ts
+        if r["sent_ts_ms"] is not None:  # both AWS clocks, as SNS's delivery time (contract 21.5)
+            ev["delivery_ms"] = r["sent_ts_ms"] - ts
+    return ev
+
+
 def _arrange(rows: list, observed: list[dict], inferred: list, order: "order_mod.Order",
              idx: dict) -> tuple[list[dict], int, dict]:
     """Put observed and inferred events in display order, number their groups, give each event an ``id``
@@ -456,7 +495,14 @@ def _arrange(rows: list, observed: list[dict], inferred: list, order: "order_mod
                            sorted(order.immediate(node), key=lambda i: pos[i])]
         else:
             a, b = anchors[node - n]
-            if ev["inferred"]:
+            if ev.get("source") in (EVENTBRIDGE_SOURCE, S3_SOURCE):  # contract section 23.3
+                src = "inferred_from"
+                why_a = ""
+                what = ("an EventBridge event" if ev["source"] == EVENTBRIDGE_SOURCE else
+                        "S3's test message" if ev.get("test_event") else "an S3 event notification")
+                why_b = (f"Inferred from {_label(events[b])}: its body is {what}, sent before that receive."
+                         if b is not None else "")
+            elif ev["inferred"]:
                 src = "inferred_from"
                 why_a = f"Inferred from {_label(events[a])}: it came after it." if a is not None else ""
                 why_b = f"Inferred from {_label(events[b])}: it came before it." if b is not None else ""

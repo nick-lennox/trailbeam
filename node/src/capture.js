@@ -592,7 +592,91 @@ function snsReceiveAttrs(config, queueName, body, attributes, lambdaRecord = fal
   return out;
 }
 
+// -- EventBridge and S3 notification origins (section 23, revision 3.5) -----------------------------
+
+const EB_ID_RE = /^[A-Za-z0-9-]{1,100}$/;
+const ACCOUNT_RE = /^[0-9]{12}$/;
+const REGION_RE = /^[a-z0-9-]{1,32}$/;
+const SEQUENCER_RE = /^[0-9A-Fa-f]{1,64}$/;
+const MAX_ORIGIN_TEXT = 256; // longest source, detail-type, event name, bucket or configuration ID recorded
+const MAX_S3_KEY_BYTES = 1024; // S3's own key limit; the URL-encoded form in the event can be longer
+const S3_TEST_EVENT = 's3:TestEvent';
+
+// Code points, as Python's len(), so both packages cut at the same strings.
+const originText = (v, limit = MAX_ORIGIN_TEXT) => (typeof v === 'string' && v.length > 0 && [...v].length <= limit ? v : undefined);
+function putText(out, name, v) {
+  const t = originText(v);
+  if (t !== undefined) out[name] = t;
+}
+
+/** Section 23.1: the routing fields of an EventBridge event, as receive attributes, or undefined. `detail` and
+ * `resources` are never read. */
+function eventbridgeEvent(doc) {
+  if (!isObject(doc) || !('detail' in doc)) return undefined;
+  const eid = doc.id;
+  const source = originText(doc.source);
+  const dtype = originText(doc['detail-type']);
+  const account = doc.account;
+  if (!(typeof eid === 'string' && EB_ID_RE.test(eid) && source && dtype && typeof account === 'string' && ACCOUNT_RE.test(account))) return undefined;
+  const out = {
+    'trailbeam.eventbridge.event_id': eid,
+    'trailbeam.eventbridge.source': source,
+    'trailbeam.eventbridge.detail_type': dtype,
+    'trailbeam.eventbridge.account': account,
+  };
+  if (typeof doc.region === 'string' && REGION_RE.test(doc.region)) out['trailbeam.eventbridge.region'] = doc.region;
+  const ts = snsTimestampMs(doc.time);
+  if (ts !== undefined) out['trailbeam.eventbridge.time_ms'] = ts;
+  return out;
+}
+
+/** Section 23.2: an S3 event notification (its first record) or the s3:TestEvent message, as receive
+ * attributes, or undefined. The object key only on a queue whose body is captured, redacted like the body. */
+function s3Event(config, queueName, doc) {
+  if (!isObject(doc)) return undefined;
+  if (doc.Event === S3_TEST_EVENT && doc.Service === 'Amazon S3') {
+    const out = { 'trailbeam.s3.event_name': S3_TEST_EVENT };
+    putText(out, 'trailbeam.s3.bucket', doc.Bucket);
+    const ts = snsTimestampMs(doc.Time);
+    if (ts !== undefined) out['trailbeam.s3.event_time_ms'] = ts;
+    return out;
+  }
+  const records = doc.Records;
+  if (!Array.isArray(records) || records.length === 0 || !isObject(records[0])) return undefined;
+  const rec = records[0];
+  const s3 = isObject(rec.s3) ? rec.s3 : undefined;
+  const bucket = s3 && isObject(s3.bucket) ? s3.bucket : undefined;
+  const name = originText(rec.eventName);
+  const bname = bucket ? originText(bucket.name) : undefined;
+  if (rec.eventSource !== 'aws:s3' || !name || !bname) return undefined;
+  const out = { 'trailbeam.s3.event_name': name, 'trailbeam.s3.bucket': bname };
+  if (records.length > 1) out['trailbeam.s3.record_count'] = records.length;
+  if (typeof rec.awsRegion === 'string' && REGION_RE.test(rec.awsRegion)) out['trailbeam.s3.region'] = rec.awsRegion;
+  const ts = snsTimestampMs(rec.eventTime);
+  if (ts !== undefined) out['trailbeam.s3.event_time_ms'] = ts;
+  putText(out, 'trailbeam.s3.configuration_id', s3.configurationId);
+  const obj = s3.object;
+  if (isObject(obj)) {
+    if (typeof obj.sequencer === 'string' && SEQUENCER_RE.test(obj.sequencer)) out['trailbeam.s3.sequencer'] = obj.sequencer;
+    const key = obj.key;
+    if (config.bodyOn(queueName) && typeof key === 'string' && key.length > 0 && utf8Bytes(key) <= 3 * MAX_S3_KEY_BYTES) {
+      out['trailbeam.s3.object_key'] = redactText(key, config)[0];
+    }
+  }
+  return out;
+}
+
+/** Section 23 attributes of one received message: what an EventBridge event or an S3 notification body says
+ * about where the message came from. Read on every queue; nothing else in the body is read or exported. */
+function originReceiveAttrs(config, queueName, body) {
+  if (typeof body !== 'string' || body.replace(/^[ \t\n\r]+/, '')[0] !== '{') return {};
+  if (!body.includes('"detail-type"') && !body.includes('"aws:s3"') && !body.includes(S3_TEST_EVENT)) return {};
+  const doc = parse(body);
+  return eventbridgeEvent(doc) || s3Event(config, queueName, doc) || {};
+}
+
 module.exports = {
+  originReceiveAttrs,
   PUBLISH_ID_ATTRIBUTE,
   snsEntryBytes,
   snsInject,

@@ -164,6 +164,12 @@ class Consumer:
             a["trailbeam.batch_entry_id"] = batch_entry
         return self._s("trailbeam publish", t, a, start=start, order=order)
 
+    def receive_with(self, t, mid, handle, attrs: dict, **kw):
+        """A receive with extra attributes, such as the section 23 ones of an EventBridge or S3 body (3.5)."""
+        sp = self.receive(t, mid, handle, **kw)
+        sp.attrs.update(attrs)
+        return sp
+
     def sns_receive(self, t, mid, handle, sns_id=None, topic="orders-topic", publish_id=None, sns_ts_ms=None,
                     account="111122223333", **kw):
         """A receive of a message SNS delivered (contract section 21.3): with ``sns_id``, raw delivery off (the

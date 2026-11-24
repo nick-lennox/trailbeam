@@ -98,6 +98,36 @@
   the export missed the summary that had moved there and wrote a second one, without the newer span. Lists then
   showed the message twice, and its page could miss the delete. The export now reads the places again once it
   holds the message's lock.
+- **EventBridge and S3 notifications: an inferred first step** (QV-314, contract revision 3.5, section 23). A message that an EventBridge rule or an S3 bucket notification sent has no send in the team's code. The
+  Python and Node.js receives (client hooks and Lambda wrappers) now record, on every queue, the routing fields of a
+  body that is an EventBridge event (`trailbeam.eventbridge.*`: `id`, `source`, `detail-type`, account, region, time)
+  or an S3 event notification or `s3:TestEvent` message (`trailbeam.s3.*`: event name, bucket, region, time,
+  configuration ID, `sequencer`, and the record count when more than one). The S3 object key is recorded only on a
+  queue whose body is captured, redacted like the body. Nothing else in the body is read. Not read when the body is an
+  SNS envelope. The server reads them from the stored receive (no schema change) and gives the message an
+  inferred first step, `arrived_via_eventbridge` or `s3_event` (`inferred: true`, no time of its own, before that
+  receive), with the event's time and the delivery time (`SentTimestamp` minus the event time, both AWS clocks). It is
+  not shown when the message has a send (a process re-sent the body) or came through SNS. Both local UIs show it:
+  "Arrived via an EventBridge rule: *detail-type*", "S3 *event* in *bucket*" or "S3 test message", tagged inferred
+  (`@trailbeam/ui` 0.1.0-dev.12, `fixtures/origin-timelines.json`). On queues whose body is not captured, only the routing
+  fields are read, and never the object key (board decision on QV-314, contract 23.5).
+- **SNS fan-out: messages that came through an SNS topic get their sender** (QV-313, contract revision 3.4, section 21; the Java jar does not hook SNS yet). The Python and Node.js packages record SNS
+  `Publish` and `PublishBatch` to a topic as a `trailbeam publish` span (`trailbeam.kind = sns.publish`) with the SNS
+  message ID and `aws.sns.topic.arn`. Receives carry what joins them to it: the `trailbeam.publish_id` message
+  attribute the publish hooks add (raw delivery on; skipped when the message already has 10 attributes, would pass
+  256 KiB or uses `MessageStructure: json`; `TRAILBEAM_SNS_INJECT=off` turns it off), and, with raw delivery off,
+  three fields of the SNS envelope: `MessageId`, `TopicArn` and `Timestamp`. These three are read on every queue,
+  including queues whose body is not captured. Nothing else in the body is read, and the body is never exported. Node.js: pass an `SNSClient` to `instrument`. The server stores publishes apart from messages
+  (SQLite schema 18: three partial indexes, built from one scan of `spans`; Postgres schema 12: `sns_publishes` and
+  `sns_receives`) and joins them when a message is read: its timeline gets a `published` step with the SQS messages
+  the publish reached, by queue, and the SNS delivery time (`SentTimestamp` minus the envelope's `Timestamp`, both
+  AWS clocks). A message whose envelope names a topic but joins no recorded publish gets `arrived_via_sns`, placed
+  before that receive. `/api/stats` counts `spans.publish`. A server before 3.4 rejects the publish span as an
+  unknown kind (one rejected span in `partial_success`) and stores the rest. Both local UIs (the server's pages and
+  `@trailbeam/ui`) show the "Published to topic" step with the publisher, how it joined, the SNS delivery time and
+  the other messages it reached (links), and the "Arrived via SNS topic" step, with no time, before its receive.
+  `TimelineView` takes an optional `messageHref` for those links; `@trailbeam/ui/fixtures/sns-timelines.json` is
+  what the server returns after a fan-out (`@trailbeam/ui` 0.1.0-dev.4).
 - **Go package, stage 1: SQS spans from aws-sdk-go-v2 middleware** (QV-321, pre-release, not published). In
   `go/`, `trailbeamsqs`: one line where the AWS config is built, `trailbeamsqs.AppendMiddlewares(&cfg.APIOptions)`,
   the same hook as otelaws and dd-trace-go. It emits every client span of the contract (send, receive, delete,

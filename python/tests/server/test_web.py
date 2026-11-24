@@ -529,3 +529,32 @@ def test_a_deduplicated_fifo_send_is_shown_as_such_with_its_reason(server):
     assert html.count('<span class="etype">Sent</span>') == 1
     assert '<span class="etype">Sent again, deduplicated by SQS</span>' in html
     assert f'<div class="reason">{DEDUPLICATED_REASON}</div>' in html
+
+
+def test_eventbridge_and_s3_origins_are_inferred_first_steps(server):
+    """Contract section 23.3: a receive whose body is an EventBridge event or an S3 notification gets an inferred
+    first step, with no time, naming the event's source and detail-type, or the S3 event, bucket and key."""
+    c = Consumer("orders-worker")
+    t0_ms = T0 // 10**6
+    post(server, [
+        c.receive_with(T0 + 3 * SEC, "via-eb", "rh-1", {
+            "trailbeam.eventbridge.event_id": "6a7e8feb-b491-4cf7-a9f1-bf3703467718",
+            "trailbeam.eventbridge.source": "com.example.orders", "trailbeam.eventbridge.detail_type": "OrderPlaced",
+            "trailbeam.eventbridge.account": "111122223333", "trailbeam.eventbridge.time_ms": t0_ms},
+            sent_ms=t0_ms + 300, start=T0 + 2 * SEC),
+        c.receive_with(T0 + 3 * SEC, "via-s3", "rh-2", {
+            "trailbeam.s3.event_name": "ObjectCreated:Put", "trailbeam.s3.bucket": "uploads",
+            "trailbeam.s3.object_key": "red+flower.jpg", "trailbeam.s3.sequencer": "0055AED6DCD90281E5"},
+            start=T0 + 2 * SEC),
+        c.receive_with(T0 + 3 * SEC, "s3-test", "rh-3", {
+            "trailbeam.s3.event_name": "s3:TestEvent", "trailbeam.s3.bucket": "uploads"}, start=T0 + 2 * SEC)])
+    _, _, html = get(server, page("via-eb"))
+    assert events(html)[:2] == [("arrived_via_eventbridge", True), ("received", False)]
+    assert "Arrived via an EventBridge rule" in html and "source <code>com.example.orders</code>" in html
+    assert "detail-type <code>OrderPlaced</code>" in html and "delivery ms 300" in html
+    assert "The event does not name the rule" in html
+    _, _, html = get(server, page("via-s3"))
+    assert events(html)[:2] == [("s3_event", True), ("received", False)]
+    assert "S3 <code>ObjectCreated:Put</code>" in html and "key <code>red+flower.jpg</code>" in html
+    _, _, html = get(server, page("s3-test"))
+    assert "S3 test message" in html and "notification configuration on bucket uploads" in html
