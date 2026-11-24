@@ -21,6 +21,7 @@ import re
 from typing import Any, Iterator, Optional
 
 ROLES = ("admin", "member")
+MAX_SESSIONS = 50  # per person: a new session beyond it ends their oldest (QV-472)
 MAX_EMAIL = 254
 MAX_NAME = 200
 _EMAIL = re.compile(r"[^@\s]+@[^@\s]+")
@@ -318,10 +319,16 @@ class Accounts:
 
     # ---- sessions -----------------------------------------------------------------------------------
 
-    def create_session(self, id_sha256: str, user_id: int, now_ms: int, expires_at_ms: int) -> None:
+    def create_session(self, id_sha256: str, user_id: int, now_ms: int, expires_at_ms: int, *,
+                       max_sessions: int = MAX_SESSIONS) -> None:
+        """A new session; the person's oldest go beyond their newest ``max_sessions``, so signing in over and over
+        can't grow the table without bound. Other replicas see an ended one within sessions.CACHE_TTL_S."""
         with self._write() as tx:
             tx.run("INSERT INTO sessions (id_sha256, user_id, created_at_ms, expires_at_ms, last_seen_ms) "
                    "VALUES (?, ?, ?, ?, ?)", (id_sha256, user_id, now_ms, expires_at_ms, now_ms))
+            tx.run("DELETE FROM sessions WHERE user_id = ? AND id_sha256 IN (SELECT id_sha256 FROM sessions "
+                   "WHERE user_id = ? AND id_sha256 <> ? ORDER BY created_at_ms DESC, id_sha256 LIMIT 1000000 OFFSET ?)",
+                   (user_id, user_id, id_sha256, max(0, max_sessions - 1)))
             # ended sessions go when a new one starts: no thread of its own, and the index keeps it cheap
             tx.run("DELETE FROM sessions WHERE expires_at_ms <= ?", (now_ms,))
 

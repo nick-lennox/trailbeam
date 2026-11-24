@@ -575,9 +575,11 @@ own store (SQLite or Postgres). Nothing changes until the first admin exists. Af
 - `x-trailbeam-key` is the header the hosted app takes, so a service moves between the two by changing only
   the address and the key. When a request has both headers, only `x-trailbeam-key` is read.
 - `GET /api/me` says how a request was let in, and as whom: use it to check a personal token.
-- Signing in has two limits. 10 failed attempts in a row lock that account for 15 minutes, on every replica.
-  20 failures from one client address in 10 minutes get "try again later" from that replica. Behind a proxy,
-  set `--trusted-proxy` (below), or every request seems to come from the proxy.
+- Signing in has three limits. 10 failed attempts in a row lock that account for 15 minutes, on every replica.
+  20 failures from one client address in 10 minutes get "try again later" from that replica. More than 10
+  sign-ins that work for one account in a minute get "try again later" from that replica too, from any address.
+  Behind a proxy, set `--trusted-proxy` (below), or every request seems to come from the proxy.
+- A person keeps at most 50 sessions: signing in a 51st time ends their oldest.
 - A `--db :memory:` store loses its people and tokens when the server stops.
 
 ### The first admin, and people and tokens from the command line

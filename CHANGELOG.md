@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **One person signing in over and over no longer keeps everyone else out** (QV-472). Sign-ins that worked were
+  not limited, so one account signing in correctly in a loop kept the password hasher full, and every other
+  sign-in was answered `503`. Now more than 10 sign-ins that work for one account in a minute are answered `429`
+  with `Retry-After`, from any address, without a password check (per replica, like the hasher). A person also
+  keeps at most 50 sessions: a new one beyond that ends their oldest, so such a loop can't grow the sessions table.
+
 - **`npx trailbeam start` no longer leaves its output in Docker's log** (QV-409). It runs the container with
   `--log-driver none`, so the output still shows in the terminal but is not kept by `docker logs` or sent to a log
   service the Docker daemon is set up with (gelf, fluentd, awslogs, ...). That output holds the first run's token
