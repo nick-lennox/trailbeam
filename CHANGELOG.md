@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **A page per queue** (QV-364): `/queue?name=<queue>`, and a **Queues** list at `/queues` (a new item in the
+  header). The page asks whether work is arriving faster than it is finished: sends vs handled (the band between
+  them is the backlog building), receives vs handled with dead-letter moves (seen, and inferred from
+  maxReceiveCount), p95 time in queue and p95 time in handler, on one time axis with a shared crosshair. Click or
+  drag across minutes to get links to the messages behind them. Deploys show as markers, and "By version" splits
+  handled and the p95s per `service.version`. A health verdict from your services' spans, labelled as such; the
+  senders and consumers; the queue's stuck messages and dead-letter moves; and a plain list of what Trailbeam
+  can't see without AWS (depth, in flight, the oldest message's age, the DLQ's depth), with a link to the SQS
+  console. The time range, the selected minutes and "By version" are in the URL. The view is
+  `QueuePage` in `@trailbeam/ui`, which the hosted app uses too.
 - **The Stuck page groups its messages by cause, and lists the dead-letter queues** (QV-367, step 2). `/stuck`
   now reads `/api/causes`. It shows one row per cause, with its count, first and last seen, a 24-hour trend,
   the dead-letter split, and the newest error text. Below that are the stuck messages, each with its cause
@@ -22,6 +32,10 @@
 - **`trailbeam --version`** (QV-346). `trailbeam --version` (or `-V`, also after `start`) prints
   `trailbeam <version>` and exits 0; it used to fail with `unrecognized arguments`. `npx trailbeam --version` prints
   the same line (it printed the bare version before).
+- **A SIGTERM in the last moment of startup closes the store too** (QV-434). The server set its SIGTERM handler
+  a few lines before the block that, on the way out, stops the retention thread and closes the store. A SIGTERM
+  (docker stop, a Kubernetes rolling restart) that arrived in between, while the retention thread was starting,
+  ended the process without either, with a traceback and exit code 1. Both now run whenever the signal comes.
 - **The Java jar has its Maven Central name and release setup** (QV-319). The group ID is `app.trailbeam`, as
   the board chose, and the Java package moves with it from `dev.trailbeam.sqs` to `app.trailbeam.sqs`, so the
   Lambda handler is now `app.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`. Builds also make a sources
@@ -74,6 +88,17 @@
   the export missed the summary that had moved there and wrote a second one, without the newer span. Lists then
   showed the message twice, and its page could miss the delete. The export now reads the places again once it
   holds the message's lock.
+- **Go package, stage 1: SQS spans from aws-sdk-go-v2 middleware** (QV-321, pre-release, not published). In
+  `go/`, `trailbeamsqs`: one line where the AWS config is built, `trailbeamsqs.AppendMiddlewares(&cfg.APIOptions)`,
+  the same hook as otelaws and dd-trace-go. It emits every client span of the contract (send, receive, delete,
+  change visibility, their batch forms, purge) with the receipt-handle HMAC, receive count, timestamps, DLQ source
+  ARN, per-entry results, call-order ticks, the message ID on settle spans, body size and FIFO fields. The parent
+  is the span in the call's context, read after every middleware has started its own, so the order of the
+  `AppendMiddlewares` lines doesn't matter. It passes the conformance kit, 20 of 20 spans, alone, beside otelaws
+  v0.72.0 (each span a child of its exported span), with the application's sampler at 0, and beside dd-trace-go
+  v2.12.0. A new CI job, "Go package", runs the unit tests on Go 1.23 (with the minimum SDK and OpenTelemetry
+  versions) and on the newest Go, then the kit. Still to come: tenants and body capture, the aws-lambda-go
+  wrapper, a version matrix and the docs.
 - **Java package, stage 6: the contract's Java note** (QV-319, pre-release, not published). New section 20 of
   the span contract says how the jar meets it: the parent read from the request's trace header, receives in a
   polling loop as root spans beside an agent, where times and call-order ticks are taken, one counter per class
