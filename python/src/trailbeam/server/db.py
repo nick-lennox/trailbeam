@@ -33,8 +33,8 @@ from typing import Callable, Iterable, Iterator, Optional
 
 from . import body_table, migrations, purge, queues, rollup, sns, summary_table
 from .events import HOUR_NS, KINDS as STEP_KINDS, hour_split
-from .otlp import RECORD_FIELDS
-from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store, StoreFull,
+from .otlp import AMQP_KINDS, RECORD_FIELDS
+from .store import (SETTLE_KINDS, SETTLE_KINDS_SQL, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store, StoreFull,
                     StuckCandidate, TenantActivity, WriterBusy)
 
 # The body and the attributes that describe it (contract 15.2). trailbeam.body.capture_status is kept:
@@ -67,11 +67,11 @@ SETTLE_JOIN_SQL = """SELECT row, message_id FROM spans INDEXED BY spans_receive_
    LIMIT 1"""
 # The settle spans the receive join takes, and the message each was in (its own message ID, or none), so the
 # summaries of both messages are rewritten. Same rows as RECEIVE_JOIN_SQL, by the same index.
-RECEIVE_JOIN_FROM_SQL = """SELECT row, mid FROM spans INDEXED BY spans_unjoined_hash
-   WHERE kind IN ('delete', 'change_visibility') AND receive_row IS NULL
+RECEIVE_JOIN_FROM_SQL = f"""SELECT row, mid FROM spans INDEXED BY spans_unjoined_hash
+   WHERE kind IN {SETTLE_KINDS_SQL} AND receive_row IS NULL
      AND receipt_hmac = ? AND key_id = ?"""
-RECEIVE_JOIN_SQL = """UPDATE spans INDEXED BY spans_unjoined_hash SET mid = ?, mid_source = 'receipt_hash', receive_row = ?
-   WHERE kind IN ('delete', 'change_visibility') AND receive_row IS NULL
+RECEIVE_JOIN_SQL = f"""UPDATE spans INDEXED BY spans_unjoined_hash SET mid = ?, mid_source = 'receipt_hash', receive_row = ?
+   WHERE kind IN {SETTLE_KINDS_SQL} AND receive_row IS NULL
      AND receipt_hmac = ? AND key_id = ?"""
 
 
@@ -918,7 +918,7 @@ class SqliteStore(Store):
         with self.reader() as c:
             kinds = {k: n for k, n in c.execute("SELECT kind, COUNT(*) FROM spans GROUP BY kind")}
             unjoined = c.execute(
-                "SELECT COUNT(*) FROM spans WHERE kind IN ('delete', 'change_visibility') AND receive_row IS NULL"
+                f"SELECT COUNT(*) FROM spans WHERE kind IN {SETTLE_KINDS_SQL} AND receive_row IS NULL"
             ).fetchone()[0]
             messages = c.execute("SELECT COUNT(*) FROM messages").fetchone()[0]  # one summary per message
         return {"spans": kinds, "messages": messages, "unjoined_settles": unjoined}
@@ -941,9 +941,11 @@ _INSERT_COLUMNS = RECORD_FIELDS + ["attributes", "mid", "mid_source", "receive_r
 _INSERT_SQL = f"INSERT OR IGNORE INTO spans ({', '.join(_INSERT_COLUMNS)}) VALUES ({', '.join('?' * len(_INSERT_COLUMNS))})"
 
 AUTO_VACUUM_INCREMENTAL = 2  # PRAGMA auto_vacuum
-SPAN_KINDS = ("send", "receive", "delete", "change_visibility", "outcome", "purge", "publish")  # every kind a row can have
-# Rows that belong to no message by design or until joined: retention takes each by its own time and queue.
-LOOSE_KINDS = SETTLE_KINDS + ("purge", "publish")
+# every kind a row can have: SQS's and SNS's, and those only RabbitMQ has (otlp.AMQP_KINDS)
+SPAN_KINDS = ("send", "receive", "delete", "change_visibility", "outcome", "purge", "publish") + AMQP_KINDS
+# Rows that belong to no message, by design (purge, publish, cancel, a RabbitMQ span with no message ID) or until
+# joined (a settle span): retention takes each by its own time and queue. Any kind can be one.
+LOOSE_KINDS = SPAN_KINDS
 def _prefetch_delete(c: sqlite3.Connection, mids: list, rows: list) -> None:
     """Read every page purge_step's delete of these messages and unjoined rows will change: the rows, an entry
     in each index of spans (the UNIQUE one too), the foreign-key lookup of their settle spans, and the summary
@@ -962,7 +964,7 @@ def _prefetch_delete(c: sqlite3.Connection, mids: list, rows: list) -> None:
             c.execute("SELECT 1 FROM spans INDEXED BY spans_receive_hash WHERE kind = 'receive' AND receipt_hmac = ? "
                       "AND key_id IS ? AND row = ?", (r["receipt_hmac"], r["key_id"], r["row"])).fetchall()
         elif r["receipt_hmac"] is not None and r["receive_row"] is None:
-            c.execute("SELECT 1 FROM spans INDEXED BY spans_unjoined_hash WHERE kind IN ('delete', 'change_visibility') "
+            c.execute(f"SELECT 1 FROM spans INDEXED BY spans_unjoined_hash WHERE kind IN {SETTLE_KINDS_SQL} "
                       "AND receive_row IS NULL AND receipt_hmac = ? AND key_id IS ? AND row = ?",
                       (r["receipt_hmac"], r["key_id"], r["row"])).fetchall()
         # the foreign key: deleting a row looks for settle spans that point at it

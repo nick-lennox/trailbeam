@@ -27,7 +27,10 @@ The fields (every one is a column of the SQLite ``messages`` table, migrations.C
   outcome: its time, else NULL).
 - ``tenant``: the message's tenant (contract/tenants.md), NULL if none.
 - Duplicates: ``dup_received`` (more than one receive), ``dup_succeeded`` (more than one success: accepted
-  deletes counted once per delivery, plus distinct invocation IDs with a ``success`` outcome).
+  deletes counted once per delivery, plus distinct invocation IDs with a ``success`` outcome). A RabbitMQ message
+  (systems.py) is counted per queue copy, its fan-out not being a duplicate: more than one delivery, or more than
+  one accepted ack, on one queue; and ``final_delete`` (so ``stuck_open``) holds when every copy's latest delivery
+  has an accepted ack.
 - Stuck: ``stuck_first_ns`` and ``stuck_sqs_clock`` (first seen as Store.stuck_messages defines it; NULL for a
   message with neither a send nor a receive, which is never stuck), ``stuck_open`` (no final delete and no
   success for the latest receive's invocation).
@@ -49,7 +52,7 @@ from __future__ import annotations
 import json
 from typing import Any, Mapping, Optional
 
-from . import purge, queues, timeline
+from . import purge, queues, systems, timeline
 from .store import TENANT_ATTR, TENANT_KINDS, TENANT_MAX_CHARS
 
 Summary = Mapping[str, Any]
@@ -84,7 +87,7 @@ def summarize(rows) -> dict:
     receives = [r for r in rows if r["kind"] == "receive"]
     sends = [r for r in rows if r["kind"] == "send"]
     latest = receives[-1] if receives else None
-    source_queue = sends[0]["queue"] if sends else (receives[0]["queue"] if receives else rows[0]["queue"])
+    source_queue = timeline.source_queue_of(rows[0]["mid"], sends, receives, rows[0]["queue"])
     current_queue = latest["queue"] if latest else source_queue
     outcomes = {r["faas_invocation_id"]: r for r in rows if r["kind"] == "outcome"}  # as timeline.build
 
@@ -127,6 +130,24 @@ def summarize(rows) -> dict:
         stuck_first, on_sqs = None, False
     latest_inv = latest["faas_invocation_id"] if latest is not None else None
     stuck_open = not final_delete and not (latest_inv is not None and latest_inv in ok_invocations)
+    dup_received = len(receives) > 1
+    dup_succeeded = len(ok_deliveries) + len(ok_invocations) > 1
+    if systems.system_of(rows[0]["mid"]) == systems.RABBITMQ:
+        # One copy per queue (contract/span-contract-amqp.md A6): a fanout publish to two queues is one message
+        # with two copies, not a duplicate. Duplicates and Stuck are per copy: received more than once on one
+        # queue, acked more than once on one queue, or a copy whose latest delivery has no accepted ack.
+        copies: dict = {}
+        for r in receives:
+            copies.setdefault(r["queue"], []).append(r)
+        ok_by_queue: dict = {}
+        by_row = {r["row"]: r for r in receives}
+        for d in ok_deliveries:
+            if d in by_row:
+                ok_by_queue.setdefault(by_row[d]["queue"], set()).add(d)
+        dup_received = any(len(c) > 1 for c in copies.values())
+        dup_succeeded = any(len(c) > 1 for c in ok_by_queue.values())
+        final_delete = bool(copies) and all(c[-1]["row"] in ok_deliveries for c in copies.values())
+        stuck_open = not final_delete
 
     named: dict = {}
     for r in rows:
@@ -157,7 +178,7 @@ def summarize(rows) -> dict:
         "current_queue": current_queue,
         "in_dlq": current_queue in dlqs,
         "moved": bool(reports),
-        "source_receive_count": max((r["receive_count"] for r in receives if r["queue"] == source_queue), default=0),
+        "source_receive_count": max((r["receive_count"] or 0 for r in receives if r["queue"] == source_queue), default=0),
         "deliveries": len(receives),
         "successes": timeline.successful_deliveries(rows),
         "consumers": json.dumps(consumers),
@@ -165,8 +186,8 @@ def summarize(rows) -> dict:
         "lambda_ok": lambda_ok,
         "lambda_wait_ns": lambda_wait,
         "tenant": message_tenant(rows),
-        "dup_received": len(receives) > 1,
-        "dup_succeeded": len(ok_deliveries) + len(ok_invocations) > 1,
+        "dup_received": dup_received,
+        "dup_succeeded": dup_succeeded,
         "stuck_first_ns": stuck_first,
         "stuck_sqs_clock": on_sqs,
         "stuck_open": stuck_open,

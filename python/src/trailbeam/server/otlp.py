@@ -2,23 +2,49 @@
 
 Only spans with instrumentation scope ``trailbeam`` are read (contract section 1). They are classified by
 ``trailbeam.kind`` and ``messaging.operation.name``; span names are never parsed.
+
+**RabbitMQ** (schema version 4, contract/span-contract-amqp.md). An ``amqp.*`` span is read by ``_amqp_record``
+into a record of the same fields, with the step its kind maps to (A2) as its kind:
+
+| ``trailbeam.kind`` | record kind |
+|---|---|
+| ``amqp.publish`` | ``send`` (``queue``: the exchange) |
+| ``amqp.return`` | ``return`` (``queue``: the exchange) |
+| ``amqp.deliver`` | ``receive`` |
+| ``amqp.ack`` | ``delete`` |
+| ``amqp.nack``, ``amqp.reject`` with ``requeue = true`` | ``change_visibility``, ``visibility_timeout`` 0: released |
+| ``amqp.nack``, ``amqp.reject`` with ``requeue = false`` | ``reject``: refused by the consumer |
+| ``amqp.cancel`` | ``cancel`` (belongs to no message: a consumer, not a delivery) |
+| ``amqp.channel_closed`` | ``channel_closed`` |
+
+``message_id`` is the message's key (systems.py), ``~rabbitmq~<ID>``, None when the publisher set no
+``message_id`` (A6: such spans are kept and counted, and belong to no message). A delivery's settle and close
+spans join it as SQS settles join their receive, through ``receipt_hmac`` and ``key_id``: for RabbitMQ those hold
+the delivery's (``trailbeam.amqp.channel.id``, ``rabbitmq.message.delivery_tag``) and ``AMQP_KEY_ID``, not a hash
+(A15). ``queue_url`` is the queue's (or exchange's) place, ``amqp_place``, so the queues of two virtual hosts are
+two queue keys (queues.key). ``receive_count`` is set only with a known ``trailbeam.receive_count.source`` (A7, A12).
 """
 from __future__ import annotations
 
 import base64
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional
+from urllib.parse import quote
 
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
 
 from .sns import valid_topic_arn
+from .systems import RABBITMQ, SQS, message_key
 
 SCOPE_NAME = "trailbeam"
 SCHEMA_VERSION = 3
 # Version 2 spans are still read: they only lack the call-order attributes (trailbeam.order.*), so their
-# steps are ordered by the other sources alone. Version 1 spans are rejected (contract section 12).
-ACCEPTED_SCHEMA_VERSIONS = (2, 3)
+# steps are ordered by the other sources alone. Version 1 spans are rejected (contract section 12). Version 4
+# (contract/span-contract-amqp.md A1) means for SQS and SNS spans what 3 means; amqp.* spans must be 4.
+ACCEPTED_SCHEMA_VERSIONS = (2, 3, 4)
+AMQP_SCHEMA_VERSION = 4
 DEFAULT_KEY_ID = "b5e633f7"  # key ID of the published default key, contract section 7
 
 DELETE_OPS = {"DeleteMessage", "DeleteMessageBatch"}
@@ -69,6 +95,47 @@ _REQUIRED = {
     "purge": ("queue", "result"),  # revision 3.3, section 18: no message ID, no receipt hash
     "publish": ("queue", "message_id"),  # revision 3.4, section 21.1: the topic name and the SNS message ID
 }
+
+# ---- RabbitMQ (contract/span-contract-amqp.md) ----
+AMQP_KEY_ID = "amqp"  # key_id of a RabbitMQ delivery's join key: (channel ID, delivery tag), not a hash (A15)
+# kind -> the messaging.operation.name values it may have (A4)
+AMQP_OPERATIONS = {
+    "amqp.publish": ("basic.publish",),
+    "amqp.return": ("basic.return",),
+    "amqp.deliver": ("basic.deliver", "basic.get"),
+    "amqp.ack": ("basic.ack",),
+    "amqp.nack": ("basic.nack",),
+    "amqp.reject": ("basic.reject",),
+    "amqp.cancel": ("basic.cancel",),
+    "amqp.channel_closed": ("channel.close", "connection.close", "connection.lost"),
+}
+_DEST, _VHOST, _CHANNEL, _TAG = ("messaging.destination.name", "trailbeam.amqp.vhost", "trailbeam.amqp.channel.id",
+                                 "rabbitmq.message.delivery_tag")
+# kind -> its required attributes (A12), in the table's order
+AMQP_REQUIRED = {
+    "amqp.publish": (_DEST, _VHOST, "trailbeam.amqp.confirmed", "trailbeam.amqp.mandatory", "trailbeam.result"),
+    "amqp.return": (_DEST, _VHOST, "trailbeam.amqp.reply_code"),
+    "amqp.deliver": (_DEST, _VHOST, _CHANNEL, _TAG, "trailbeam.amqp.redelivered"),
+    "amqp.ack": (_DEST, _VHOST, _CHANNEL, _TAG, "trailbeam.amqp.multiple", "trailbeam.result"),
+    "amqp.nack": (_DEST, _VHOST, _CHANNEL, _TAG, "trailbeam.amqp.multiple", "trailbeam.result",
+                  "trailbeam.amqp.requeue"),
+    "amqp.reject": (_DEST, _VHOST, _CHANNEL, _TAG, "trailbeam.amqp.requeue", "trailbeam.result"),
+    "amqp.cancel": (_DEST, _VHOST, _CHANNEL, "trailbeam.amqp.consumer_tag", "trailbeam.amqp.cancelled_by"),
+    "amqp.channel_closed": (_DEST, _VHOST, _CHANNEL, _TAG, "trailbeam.amqp.close.initiator"),
+}
+AMQP_BOOLS = frozenset({"trailbeam.amqp.confirmed", "trailbeam.amqp.mandatory", "trailbeam.amqp.redelivered",
+                        "trailbeam.amqp.multiple", "trailbeam.amqp.requeue"})
+AMQP_INTS = frozenset({_TAG, "trailbeam.amqp.reply_code"})
+AMQP_ENUMS = {
+    "trailbeam.amqp.cancelled_by": ("client", "broker"),
+    "trailbeam.amqp.close.initiator": ("client", "broker", "network"),
+    "trailbeam.receive_count.source": ("x-acquired-count", "x-delivery-count", "first_delivery"),
+}
+# The record kinds only RabbitMQ spans have (the module docstring's table).
+AMQP_KINDS = ("return", "reject", "cancel", "channel_closed")
+# The fields an amqp span sets as an SQS span does; the rest are worked out (_amqp_record) or None.
+_AMQP_FIELDS = ("source", "operation", "queue", "result", "error_code", "client_id", "pid", "thread_name",
+                "order_scope", "order_issued", "order_returned")
 
 
 # The test span of trailbeam doctor (contract section 17): stored as a probe, never as a span or a message.
@@ -212,6 +279,8 @@ def _resource_str(resource: dict, key: str) -> Optional[str]:
 def to_record(resource: dict, trace_id: str, span_id: str, start_ns: int, end_ns: int,
               attrs: dict) -> tuple[Optional[dict], str]:
     """Returns (record, "") or (None, reason)."""
+    if isinstance(attrs.get("trailbeam.kind"), str) and attrs["trailbeam.kind"].startswith("amqp."):
+        return _amqp_record(resource, trace_id, span_id, start_ns, end_ns, attrs)
     if attrs.get("trailbeam.schema_version") not in ACCEPTED_SCHEMA_VERSIONS:
         return None, (f"trailbeam.schema_version {attrs.get('trailbeam.schema_version')!r} is not one of "
                       f"{', '.join(map(str, ACCEPTED_SCHEMA_VERSIONS))}")
@@ -219,10 +288,9 @@ def to_record(resource: dict, trace_id: str, span_id: str, start_ns: int, end_ns
     if kind is None:
         return None, (f"unknown trailbeam.kind {attrs.get('trailbeam.kind')!r} / messaging.operation.name "
                       f"{attrs.get('messaging.operation.name')!r}")
-    if not trace_id or not span_id or not start_ns or not end_ns:
-        return None, "span without trace ID, span ID, start time or end time"
-    if end_ns < start_ns:
-        return None, "span ends before it starts"
+    bad = _span_checks(trace_id, span_id, start_ns, end_ns)
+    if bad:
+        return None, bad
     if kind in ("purge", "publish") and attrs.get("trailbeam.start_observed") is False:
         return None, f"{kind} span without an observed start"  # always a client call (sections 18, 21.1)
     observed = attrs.get("trailbeam.start_observed") is not False
@@ -244,6 +312,107 @@ def to_record(resource: dict, trace_id: str, span_id: str, start_ns: int, end_ns
         return None, "publish span without a valid aws.sns.topic.arn"
     if kind == "outcome" and rec["outcome"] not in OUTCOMES:
         return None, f"unknown trailbeam.outcome {rec['outcome']!r}"
+    if kind != "publish":  # an SNS message ID names no message of a queue (store.py, Publishes)
+        rec["message_id"] = message_key(SQS, rec["message_id"])
+    rec["attributes"] = attrs
+    return rec, ""
+
+
+def _span_checks(trace_id: str, span_id: str, start_ns: int, end_ns: int) -> str:
+    if not trace_id or not span_id or not start_ns or not end_ns:
+        return "span without trace ID, span ID, start time or end time"
+    if end_ns < start_ns:
+        return "span ends before it starts"
+    return ""
+
+
+def _amqp_int(v) -> Optional[int]:
+    """An integer attribute: an OTLP int, or a decimal string (A12); None for anything else, booleans included."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, str) and re.fullmatch(r"-?[0-9]+", v):
+        return int(v)
+    return None
+
+
+def _amqp_has(name: str, v) -> bool:
+    if name in AMQP_BOOLS:
+        return isinstance(v, bool)
+    if name in AMQP_INTS:
+        return _amqp_int(v) is not None
+    return isinstance(v, str) and v != ""
+
+
+def amqp_place(vhost: str, name: str, exchange: bool = False) -> str:
+    """The ``queue_url`` of a RabbitMQ queue (or exchange) of a virtual host: ``amqp://rabbitmq/<vhost>/<queue>``,
+    each part percent-encoded, exchanges under ``exchange/``. Its last path segment is the name, so queues.key
+    keys it by this URL and queues.place_of_key names it. Brokers are not told apart (A3), so the host is fixed."""
+    return ("amqp://rabbitmq/" + quote(vhost, safe="") + ("/exchange/" if exchange else "/")
+            + quote(name, safe=""))
+
+
+def _amqp_kind(kind: str, attrs: dict) -> str:
+    if kind in ("amqp.nack", "amqp.reject"):
+        return "change_visibility" if attrs["trailbeam.amqp.requeue"] else "reject"
+    return {"amqp.publish": "send", "amqp.return": "return", "amqp.deliver": "receive", "amqp.ack": "delete",
+            "amqp.cancel": "cancel", "amqp.channel_closed": "channel_closed"}[kind]
+
+
+def _amqp_record(resource: dict, trace_id: str, span_id: str, start_ns: int, end_ns: int,
+                 attrs: dict) -> tuple[Optional[dict], str]:
+    """A RabbitMQ span (contract/span-contract-amqp.md) as a record, checked as A12 says: (record, "") or (None,
+    reason). The reasons are A12's, in its order."""
+    kind = attrs["trailbeam.kind"]
+    version = attrs.get("trailbeam.schema_version")
+    if version != AMQP_SCHEMA_VERSION or isinstance(version, bool):
+        return None, f"amqp span with trailbeam.schema_version {version}; needs {AMQP_SCHEMA_VERSION}"
+    system = attrs.get("messaging.system.name")
+    if system != RABBITMQ:
+        return None, f"amqp span with messaging.system.name {system!r}; needs {RABBITMQ!r}"
+    op = attrs.get("messaging.operation.name")
+    if op not in AMQP_OPERATIONS.get(kind, ()):
+        return None, f"unknown trailbeam.kind {kind!r} / messaging.operation.name {op!r}"
+    missing = [a for a in AMQP_REQUIRED[kind] if not _amqp_has(a, attrs.get(a))]
+    if missing:
+        return None, f"{kind} span without {', '.join(missing)}"
+    for name, allowed in AMQP_ENUMS.items():
+        if name in attrs and attrs[name] not in allowed:
+            return None, f"{kind} span with {name} {attrs[name]!r}; not one of {', '.join(allowed)}"
+    if "trailbeam.result" in attrs and attrs["trailbeam.result"] not in ("ok", "failed"):
+        return None, f"trailbeam.result {attrs['trailbeam.result']!r} is not ok or failed"
+    bad = _span_checks(trace_id, span_id, start_ns, end_ns)
+    if bad:
+        return None, bad
+
+    record_kind = _amqp_kind(kind, attrs)
+    observed = attrs.get("trailbeam.start_observed") is not False
+    rec = {f: None for f in RECORD_FIELDS}
+    rec.update({"trace_id": trace_id, "span_id": span_id, "kind": record_kind, "time_ns": int(end_ns),
+                "start_ns": int(start_ns) if observed else None,
+                "service_name": _resource_str(resource, "service.name"),
+                "service_version": _resource_str(resource, "service.version")})
+    for attr, (name, typ) in _FIELDS.items():
+        if name in _AMQP_FIELDS:
+            v = attrs.get(attr)
+            if typ is int:
+                v = _amqp_int(v)
+            rec[name] = v if isinstance(v, typ) and not isinstance(v, bool) and v != "" else None
+    vhost = attrs[_VHOST]
+    rec["queue_url"] = amqp_place(vhost, rec["queue"], exchange=kind in ("amqp.publish", "amqp.return"))
+    mid = attrs.get("messaging.message.id")
+    rec["message_id"] = message_key(RABBITMQ, mid) if isinstance(mid, str) else None
+    # A span about one delivery of a message: its join key (A6). A delivery without a message ID belongs to no
+    # message (A6, P2), so neither it nor its settles are joined: each is kept and dropped by its own time.
+    if _TAG in AMQP_REQUIRED[kind] and rec["message_id"] is not None:
+        rec["receipt_hmac"] = f"{attrs[_CHANNEL]}:{_amqp_int(attrs[_TAG])}"
+        rec["key_id"] = AMQP_KEY_ID
+    count = _amqp_int(attrs.get("trailbeam.receive_count"))
+    if record_kind == "receive" and count is not None and count >= 1 and "trailbeam.receive_count.source" in attrs:
+        rec["receive_count"] = count  # A12: without its source, no count
+    if record_kind == "change_visibility":
+        rec["visibility_timeout"] = 0  # requeued: back in the queue at once (A2, "released to the queue")
     rec["attributes"] = attrs
     return rec, ""
 

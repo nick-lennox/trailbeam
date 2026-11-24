@@ -273,8 +273,7 @@ CREATE INDEX IF NOT EXISTS spans_row ON spans ("row");
 CREATE INDEX IF NOT EXISTS spans_mid ON spans (mid, time_ns);
 CREATE INDEX IF NOT EXISTS spans_hash ON spans (receipt_hmac, key_id);
 CREATE INDEX IF NOT EXISTS spans_receive_row ON spans (receive_row) WHERE receive_row IS NOT NULL;
-CREATE INDEX IF NOT EXISTS spans_unjoined ON spans (queue)
-    WHERE receive_row IS NULL AND kind IN ('delete', 'change_visibility');
+CREATE INDEX IF NOT EXISTS spans_loose ON spans (queue) WHERE mid IS NULL AND receive_row IS NULL;
 CREATE INDEX IF NOT EXISTS spans_body ON spans (mid) WHERE body_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS messages (
     rclass BIGINT NOT NULL,
@@ -715,8 +714,17 @@ MIGRATIONS: tuple = (
     # Version 12 (QV-227): who may sign in through a proxy (proxy_auth.py); NULL, nobody, for the people before it.
     Migration(12, "users.proxy_linked_at_ms (QV-227)", (account_tables.PG_ADD_PROXY,)),
     Migration(13, "SNS publishes and the receives they reached (QV-313)", tuple(statements(SNS))),
+    # Version 14 (QV-306): RabbitMQ spans (schema version 4). Retention takes every span of no message by its own
+    # time and queue: unjoined settle spans as before, and now also the RabbitMQ spans that belong to no message (a
+    # cancel, a span without a message ID), of any kind. spans_unjoined, on the settle kinds, becomes spans_loose,
+    # on every row with no message. Built on each place's partition, from one scan of it. No database before it holds
+    # a RabbitMQ span, and an SQS message's key is its message ID as before (systems.py): no span data changes.
+    Migration(14, "RabbitMQ spans: the index of spans of no message (QV-306)", (
+        "DROP INDEX IF EXISTS spans_unjoined",
+        "CREATE INDEX IF NOT EXISTS spans_loose ON spans (queue) WHERE mid IS NULL AND receive_row IS NULL",
+    )),
 )
-LATEST = 13
+LATEST = 14
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 

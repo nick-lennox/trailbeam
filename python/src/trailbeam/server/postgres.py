@@ -143,7 +143,7 @@ from . import body_table, pg_schema, purge, queues, rollup, sns, summary
 from .lookup_filter import LookupFilter, hash_key, mid_key
 from .db import gate_body
 from .otlp import RECORD_FIELDS
-from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Cutoffs, ExportAbandoned, PurgeStep, Store,
+from .store import (SETTLE_KINDS, SETTLE_KINDS_SQL, TENANT_MAX_CHARS, Cutoffs, ExportAbandoned, PurgeStep, Store,
                     StoreFull, StoreTimeout, StoreUnavailable, StuckCandidate, TenantActivity, WriterBusy)
 from .summary_table import COLUMNS, FIELDS, LISTS, ascii_lower
 
@@ -1156,7 +1156,7 @@ class PostgresStore(Store):
                                     receive_row
                              FROM spans WHERE {p}
                                AND (receipt_hmac, key_id) IN (SELECT * FROM unnest(%s::text[], %s::text[]))
-                               AND (kind = 'receive' OR (kind IN ('delete', 'change_visibility') AND receive_row IS NULL))""",
+                               AND (kind = 'receive' OR (kind IN """ + SETTLE_KINDS_SQL + """ AND receive_row IS NULL))""",
                           [a, b])
             for x in conn.execute(f'SELECT * FROM ({q}) u ORDER BY "row"', qp).fetchall():
                 if x["row"] in mine:
@@ -1551,7 +1551,7 @@ class PostgresStore(Store):
                     self._note_hashes(c, [(h["receipt_hmac"], h["key_id"], x["rclass"], x["bucket"]) for h in c.execute(
                         """SELECT DISTINCT receipt_hmac, key_id FROM spans WHERE rclass = %s AND bucket = %s AND mid = %s
                              AND receipt_hmac IS NOT NULL AND key_id IS NOT NULL
-                             AND kind IN ('receive', 'delete', 'change_visibility')""", (pc, pb, x["mid"])).fetchall()])
+                             AND (kind = 'receive' OR kind IN """ + SETTLE_KINDS_SQL + ")", (pc, pb, x["mid"])).fetchall()])
                     c.execute("UPDATE spans SET rclass = %s, bucket = %s WHERE mid = %s AND rclass = %s AND bucket = %s",
                               (x["rclass"], x["bucket"], x["mid"], pc, pb))
                     c.execute("UPDATE messages SET strays_json = %s WHERE rclass = %s AND bucket = %s AND mid = %s",
@@ -1644,10 +1644,11 @@ class PostgresStore(Store):
                     _apply_queue_rollup(c, qdeltas)
                     c.execute("DELETE FROM strays WHERE mid = ANY(%s)", (ids,))
                 unjoined = 0
-                if len(msgs) < limit:  # the messages are done: the place's unjoined settle spans, by their own queue
+                if len(msgs) < limit:  # the messages are done: the place's spans of no message (unjoined settle
+                    # spans; RabbitMQ cancels and spans without a message ID), by their own queue
                     unjoined = c.execute(
                         """DELETE FROM spans WHERE rclass = %s AND bucket = %s AND mid IS NULL AND receive_row IS NULL
-                           AND kind IN ('delete', 'change_visibility') AND queue = ANY(%s)""",
+                           AND queue = ANY(%s)""",
                         (pc, pb, sorted(expired))).rowcount
                     n += unjoined
         done = None if len(msgs) < limit else (msgs[-1]["last_ns"], msgs[-1]["mid"])
@@ -2199,7 +2200,7 @@ class PostgresStore(Store):
         for r in self._walk_all(
                 """SELECT kind, COUNT(*) AS n FROM spans WHERE {p} GROUP BY kind
                    UNION ALL SELECT '', COUNT(*) FROM spans
-                   WHERE {p} AND kind IN ('delete', 'change_visibility') AND receive_row IS NULL
+                   WHERE {p} AND kind IN """ + SETTLE_KINDS_SQL + """ AND receive_row IS NULL
                    UNION ALL SELECT NULL, COUNT(*) FROM messages WHERE {p}"""):
             if r["kind"] is None:
                 messages += r["n"]
