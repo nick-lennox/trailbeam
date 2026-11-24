@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **A SIGTERM in the last moment of startup closes the store too** (QV-434). The server set its SIGTERM handler
+  a few lines before the block that, on the way out, stops the retention thread and closes the store. A SIGTERM
+  (docker stop, a Kubernetes rolling restart) that arrived in between, while the retention thread was starting,
+  ended the process without either, with a traceback and exit code 1. Both now run whenever the signal comes.
 - **Users and roles are a preview, off unless switched on** (QV-349). They haven't had their security review
   (QV-229) yet, so a server built from this version ignores them unless it runs with `--accounts`
   (`TRAILBEAM_ACCOUNTS=1`, also `true`, `yes` or `on`; any other value but `0`, `false`, `no`, `off` or empty
