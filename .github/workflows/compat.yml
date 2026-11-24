@@ -1,29 +1,19 @@
 # The compatibility matrix (QV-335): every Python, Node.js, AWS SDK and Postgres version in compat/matrix.toml.
-# Too many jobs for every push (ci.yml tests one or two versions of each), so it runs every night, on release
-# branches, by hand, and on a pull request that changes the matrix or this file. README.md's supported-versions
-# table is generated from the same file (ci.yml checks it is up to date).
+# Too many jobs for every push (ci.yml tests one or two versions of each), so ci.yml calls this workflow in its
+# full run (every night, on release/** branches, before a release publishes, by hand) and on a pull request that
+# changes compat/ or this file (QV-389). README.md's supported-versions table is generated from the same file
+# (ci.yml checks it is up to date).
 #
 # A red cell: fix it, or file an issue and add it to compat/matrix.toml as a [[known_failure]] with that issue.
 # A known failure still runs and shows its result, but doesn't fail the run.
 name: Compatibility matrix
 
 on:
-  schedule:
-    - cron: "17 3 * * *"
-  push:
-    branches: ["release/**"]
-  pull_request:
-    paths:
-      - compat/**
-      - .github/workflows/compat.yml
+  workflow_call:
   workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: compat-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   plan:
