@@ -1,8 +1,10 @@
 /*
   Self-hosted Trailbeam's pages drawn with the shared views (../src): Messages at / (the first-run screen while
   no span is stored: home.tsx), Duplicates (lists.tsx), Stuck grouped by cause (stuck.tsx), the message page
-  at /message?id=<message ID> (the timeline, and with &tab=body the Body tab), the Tenants page at /tenants, and
-  the queue list and a queue's page at /queues and /queue?name=<queue> (queue.tsx). They read Trailbeam's own
+  at /message?id=<message ID> (the timeline, and with &tab=body the Body tab), the Tenants page at /tenants,
+  the Overview at /overview (overview.tsx; /queues redirects there), a queue's page at /queue?name=<queue>
+  (queue.tsx), the Event explorer at /events (events.tsx), for admins the People page at /people (people.tsx),
+  and for anyone signed in the Tokens page at /tokens (tokens.tsx). They read Trailbeam's own
   API on the same origin. Without the build, or with scripts off, the server's HTML pages answer instead.
 */
 import { StrictMode, useEffect, useState } from "react";
@@ -14,9 +16,13 @@ import {
 } from "../src/index.ts";
 import { ApiError, CopyLink, Header, bodyAccess, getHealth, getJSON, messageHref, tenantHref, useMe } from "./chrome.tsx";
 import { HomePage } from "./home.tsx";
+import { EventsPage } from "./events.tsx";
 import { DuplicatesPage } from "./lists.tsx";
-import { QueueShellPage, QueuesListPage } from "./queue.tsx";
+import { OverviewPage, QueuesRedirect } from "./overview.tsx";
+import { PeoplePage } from "./people.tsx";
+import { QueueShellPage } from "./queue.tsx";
 import { StuckPage } from "./stuck.tsx";
+import { TokensPage } from "./tokens.tsx";
 import "./styles.css";
 
 type State = { kind: "loading" } | { kind: "missing" } | { kind: "error"; message: string } | { kind: "not-found"; empty: EmptyStateProps } | { kind: "ok"; t: Timeline };
@@ -176,6 +182,6 @@ function MessagePage() {
   );
 }
 
-const PAGES: Record<string, () => React.JSX.Element> = { "/": HomePage, "/duplicates": DuplicatesPage, "/stuck": StuckPage, "/tenants": TenantsPage, "/queue": QueueShellPage, "/queues": QueuesListPage };
+const PAGES: Record<string, () => React.JSX.Element> = { "/": HomePage, "/duplicates": DuplicatesPage, "/stuck": StuckPage, "/tenants": TenantsPage, "/queue": QueueShellPage, "/queues": QueuesRedirect, "/overview": OverviewPage, "/events": EventsPage, "/people": PeoplePage, "/tokens": TokensPage };
 const App = PAGES[location.pathname] ?? MessagePage;
 createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);

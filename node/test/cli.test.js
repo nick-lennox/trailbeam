@@ -73,7 +73,7 @@ test('dockerProblem tells the three failures apart', () => {
 test('default: the Docker volume, 127.0.0.1:4318, the matching image', () => {
   const { args } = cli.dockerArgs([], { env: {}, uid: 1000, gid: 1000 });
   const s = args.join(' ');
-  assert.ok(s.startsWith('run --rm --init --pull never --label trailbeam.start=1 -p 127.0.0.1:4318:4318 '), s);
+  assert.ok(s.startsWith('run --rm --init --pull never --log-driver none --label trailbeam.start=1 -p 127.0.0.1:4318:4318 '), s);
   assert.ok(s.includes('-v trailbeam-data:/data'), s);
   assert.ok(s.includes('-e TRAILBEAM_START_SHOWN_DATA_DIR=the Docker volume trailbeam-data'), s);
   assert.ok(!args.includes('--user'), 'the volume belongs to the image user');
@@ -87,6 +87,23 @@ test('the setup link is asked for only when npx runs in a terminal', () => {
   assert.ok(cli.dockerArgs([], { env: {}, uid: 1, gid: 1, terminal: true }).args.includes('TRAILBEAM_START_TERMINAL=1'));
   const { args } = cli.dockerArgs([], { env: { TRAILBEAM_START_TERMINAL: '1' }, uid: 1, gid: 1, terminal: false });
   assert.ok(!args.includes('TRAILBEAM_START_TERMINAL=1') && !args.includes('TRAILBEAM_START_TERMINAL'), args.join(' '));
+});
+
+test("the server's output is not kept in Docker's log, whatever the data or options (QV-409)", (t) => {
+  // The first run prints the token and key, and a terminal gets the setup link: docker logs, or the daemon's log
+  // service, must not keep them. Attached docker run still shows the output in the terminal.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trailbeam-cli-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const runs = [[], ['--data-dir', dir], ['--port', '5000', '--retention', '7d']];
+  for (const argv of runs) {
+    for (const terminal of [true, false]) {
+      const { args } = cli.dockerArgs(argv, { env: {}, uid: 1, gid: 1, terminal, log: () => {} });
+      const i = args.indexOf('--log-driver');
+      assert.ok(i > 0 && args[i + 1] === 'none', args.join(' '));
+      assert.ok(i < args.indexOf(cli.IMAGE), 'a docker option, before the image');
+      assert.strictEqual(args.filter((a) => a.startsWith('--log-')).length, 1, args.join(' '));
+    }
+  }
 });
 
 test('flags pass through; --host and --port become the published port', () => {
