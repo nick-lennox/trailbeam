@@ -2,9 +2,32 @@
 
 ## Unreleased
 
+- **The Stuck page groups its messages by cause, and lists the dead-letter queues** (QV-367, step 2). `/stuck`
+  now reads `/api/causes`. It shows one row per cause, with its count, first and last seen, a 24-hour trend,
+  the dead-letter split, and the newest error text. Below that are the stuck messages, each with its cause
+  (`?cause=` narrows them to one cause), and the dead-letter queues holding them, per queue. The time range now
+  picks causes seen in it, with a start and an end. The table lists the oldest `limit` (100 by default, up to
+  1,000) and has no Next page; `/api/stuck` still pages. The views are in `@trailbeam/ui` (`CauseList`,
+  `CauseMessagesTable`, `DeadLetterQueues` and the hosted app's words for a group), so the hosted Needs attention
+  page can draw the same ones. Redrive stays in the hosted app: it needs AWS's redrive permissions. The theme
+  adds two role tokens the hosted app already defines, `canvas` and `critical`.
+- **`GET /api/causes`: stuck messages grouped by why they didn't finish** (QV-367, step 1 of the open-source
+  Needs attention page). One group per cause (an exception class and its error text with numbers and IDs taken
+  out, a failed delete, no Lambda outcome, received and not deleted, never received), for its queue and
+  consumer, with counts by outcome, first and last seen, the times for a trend, tenants and service.versions.
+  Groups are listed worst outcome first. The response also groups the messages in a dead-letter queue by that
+  queue. The rules and the group shape are the hosted app's, and both are tested on one shared fixture
+  (`@trailbeam/ui/fixtures/causes-parity.json`), so a cause has the same `id` in both. The groups are worked out
+  when the endpoint is read, from up to 5,000 stuck messages, oldest first. Nothing new is stored.
 - **`trailbeam --version`** (QV-346). `trailbeam --version` (or `-V`, also after `start`) prints
   `trailbeam <version>` and exits 0; it used to fail with `unrecognized arguments`. `npx trailbeam --version` prints
   the same line (it printed the bare version before).
+- **The Java jar has its Maven Central name and release setup** (QV-319). The group ID is `app.trailbeam`, as
+  the board chose, and the Java package moves with it from `dev.trailbeam.sqs` to `app.trailbeam.sqs`, so the
+  Lambda handler is now `app.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`. Builds also make a sources
+  jar and a javadoc jar, the pom lists developers and scm as Central requires, and a `release` profile signs with
+  GPG and uploads through the Central Portal with automatic publishing off. `java/RELEASING.md` has the steps.
+  Nothing is published yet: the namespace still has to be verified on the Central Portal.
 - **Users and roles are a preview, off unless switched on** (QV-349). They haven't had their security review
   (QV-229) yet, so a server built from this version ignores them unless it runs with `--accounts`
   (`TRAILBEAM_ACCOUNTS=1`, also `true`, `yes` or `on`; any other value but `0`, `false`, `no`, `off` or empty
@@ -99,7 +122,7 @@
   an export whose client hangs up, and the client sends it again. No change in the Python or Node.js packages:
   the retry is the OTLP exporter's.
 - **Java package, stage 4: the Lambda wrapper** (QV-319, pre-release, not published). For a function invoked by
-  an SQS event source mapping, set the handler to `dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`
+  an SQS event source mapping, set the handler to `app.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`
   and name your own in `TRAILBEAM_LAMBDA_HANDLER`, or extend `TrailbeamSqsHandler`. Each record gets a
   `trailbeam receive`, exported before the handler runs, and a `trailbeam outcome` after it, with the batch
   fields and opt-in error text (`TRAILBEAM_CAPTURE_ERROR_QUEUES`). `trailbeam.error_type` is the exception's fully
