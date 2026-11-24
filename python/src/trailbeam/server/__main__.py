@@ -13,7 +13,7 @@ import sys
 import time
 
 from .. import __version__
-from . import access, auth, config, first_admin, trace_links
+from . import access, auth, config, first_admin, proxy_auth as proxy_auth_mod, trace_links
 from .accounts import Accounts
 from .backpressure import DEFAULT_MAX_PENDING, DEFAULT_MAX_WAIT_S, IngestGate
 from .db import SqliteStore, parse_queue_list
@@ -121,6 +121,25 @@ def build_parser(prog: str = "trailbeam", description: str = "") -> argparse.Arg
                         "whose X-Forwarded-For, X-Forwarded-Proto and X-Forwarded-Host are believed: the client's "
                         "address for sign-in limits and logs, and HTTPS for the session cookie (env "
                         "TRAILBEAM_TRUSTED_PROXY). Default: none, those headers are ignored")
+    p.add_argument("--proxy-auth-header", default=os.environ.get("TRAILBEAM_PROXY_AUTH_HEADER", "").strip() or None,
+                   help="sign-in through a proxy you run (oauth2-proxy, Pomerium, Cloudflare Access...): the header "
+                        "holding the email it signed in, e.g. X-Forwarded-Email (env TRAILBEAM_PROXY_AUTH_HEADER). "
+                        "Believed only from --trusted-proxy addresses and/or with --proxy-auth-secret-file; a "
+                        "first-time email becomes a member. Default: off")
+    p.add_argument("--proxy-auth-name-header",
+                   default=os.environ.get("TRAILBEAM_PROXY_AUTH_NAME_HEADER", "").strip() or None,
+                   help="the header holding the person's name, for people the proxy signs in the first time, e.g. "
+                        "X-Forwarded-Preferred-Username (env TRAILBEAM_PROXY_AUTH_NAME_HEADER). Default: the "
+                        "email's part before @")
+    p.add_argument("--proxy-auth-secret-file",
+                   default=os.environ.get("TRAILBEAM_PROXY_AUTH_SECRET_FILE", "").strip() or None,
+                   help="a file holding a secret the proxy sends in X-Trailbeam-Proxy-Secret; the email header is "
+                        "believed only with it (env TRAILBEAM_PROXY_AUTH_SECRET_FILE, or the secret itself in "
+                        "TRAILBEAM_PROXY_AUTH_SECRET)")
+    p.add_argument("--proxy-auth-sign-out-url",
+                   default=os.environ.get("TRAILBEAM_PROXY_AUTH_SIGN_OUT_URL", "").strip() or None,
+                   help="where Sign out sends someone the proxy signed in, to end the proxy's session, e.g. "
+                        "/oauth2/sign_out (env TRAILBEAM_PROXY_AUTH_SIGN_OUT_URL). Default: no Sign out for them")
     p.add_argument("--ingest-max-pending", type=_positive_int,
                    default=_env(_positive_int, "TRAILBEAM_INGEST_MAX_PENDING", DEFAULT_MAX_PENDING),
                    help="exports in progress at once; one more is answered 429 with Retry-After "
@@ -185,6 +204,10 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
         logging.getLogger("trailbeam.server").error(
             "%s is set, but %s", first_admin.EMAIL_ENV, access.SWITCHED_OFF)
         sys.exit(2)
+    if not accounts_on and getattr(a, "proxy_auth_header", None):  # it signs people in: it needs users and roles
+        logging.getLogger("trailbeam.server").error(
+            "--proxy-auth-header (TRAILBEAM_PROXY_AUTH_HEADER) is set, but %s", access.SWITCHED_OFF)
+        sys.exit(2)
     if a.store_bodies:
         where = redact_url(a.store_url) if a.store_url else a.db
         logging.getLogger("trailbeam.server").warning(body_warning(a.store_bodies, where, token is not None))
@@ -222,11 +245,17 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
             "space, but the file does not shrink. To give the space back, stop the server and run trailbeam "
             "--db %s --vacuum once (it rewrites the file)", a.db, a.db)
     try:
+        proxy_auth = proxy_auth_config(a)
+    except proxy_auth_mod.ProxyAuthError as e:
+        db.close()
+        logging.getLogger("trailbeam.server").error("%s", e)
+        sys.exit(2)
+    try:
         httpd = make_server(db, a.host, a.port, stuck_after_s=a.stuck_after,
                             lambda_timeout_s=a.lambda_timeout, max_receive_counts=a.max_receive_count,
                             purger=purger, auth=auth.Auth(token) if token else None,
                             gate=IngestGate(a.ingest_max_pending, a.ingest_max_wait), trace_link=a.trace_link,
-                            trusted_proxies=TrustedProxies(trusted_proxies(a)),
+                            trusted_proxies=TrustedProxies(trusted_proxies(a)), proxy_auth=proxy_auth,
                             **({} if accounts_on else {"accounts": None}))
     except OSError as e:
         db.close()
@@ -368,6 +397,24 @@ def _arg(parse):
     return typ
 
 
+def proxy_auth_config(a: argparse.Namespace):
+    """--proxy-auth-header and its settings (proxy_auth.py); None when it is off. Raises ProxyAuthError."""
+    secret = None
+    path = getattr(a, "proxy_auth_secret_file", None)
+    if path:
+        try:
+            with open(path, encoding="utf-8") as f:
+                secret = f.read().strip()
+        except (OSError, UnicodeDecodeError) as e:
+            raise proxy_auth_mod.ProxyAuthError(f"--proxy-auth-secret-file {path}: {e}") from None
+    elif os.environ.get("TRAILBEAM_PROXY_AUTH_SECRET", "").strip():
+        secret = os.environ["TRAILBEAM_PROXY_AUTH_SECRET"].strip()
+    return proxy_auth_mod.configure(getattr(a, "proxy_auth_header", None),
+                                    name_header=getattr(a, "proxy_auth_name_header", None), secret=secret,
+                                    sign_out_url=getattr(a, "proxy_auth_sign_out_url", None),
+                                    proxies=TrustedProxies(trusted_proxies(a)))
+
+
 def trusted_proxies(a: argparse.Namespace) -> tuple:
     """--trusted-proxy, else TRAILBEAM_TRUSTED_PROXY, else none."""
     if a.trusted_proxy:
@@ -493,6 +540,15 @@ def access_log(app, token: bool, host: str) -> list:
         out.append((logging.INFO, "ingest needs an ingest token (tbi_...): the store holds at least one"))
     if mode != "accounts" and app.accounts is not None:
         out.append((logging.INFO, first_admin.NO_ADMIN))
+    pa = getattr(app, "proxy_signin", None)
+    if pa is not None:
+        c = pa.config
+        source = " and ".join(x for x in (
+            "from --trusted-proxy addresses" if c.by_address else "",
+            f"with the shared secret in {proxy_auth_mod.SECRET_HEADER}" if c.secret is not None else "") if x)
+        out.append((logging.INFO, f"sign-in through a proxy: {c.header} is believed {source}; people it signs in "
+                                  "the first time become members" + ("" if mode == "accounts" else
+                                                                     ", once this server has an admin")))
     return out
 
 

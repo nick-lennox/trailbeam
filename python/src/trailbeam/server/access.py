@@ -21,8 +21,9 @@ seconds and none needs a restart.
 - **No admin yet** (as in 0.3.0): with ``TRAILBEAM_TOKEN`` set, every level but ``OPEN`` needs it (as
   ``Authorization: Bearer`` or ``x-trailbeam-key``, or the login page's ``trailbeam_session`` cookie); without it,
   everything is served. ``ADMIN`` is refused either way: there is nobody to be one.
-- **An admin exists:** ``MEMBER`` needs a person: a session (``trailbeam_sid``, sessions.py) or a personal API
-  token (``tbp_…``), of an admin or a member; ``ADMIN`` needs an admin. ``TRAILBEAM_TOKEN`` keeps working for
+- **An admin exists:** ``MEMBER`` needs a person: a personal API token (``tbp_…``), the email a proxy in front
+  of Trailbeam signed in (``--proxy-auth-header``, proxy_auth.py), or a session (``trailbeam_sid``, sessions.py),
+  looked for in that order, of an admin or a member; ``ADMIN`` needs an admin. ``TRAILBEAM_TOKEN`` keeps working for
   ``INGEST`` and ``METRICS`` only, and the ``trailbeam_session`` cookie no longer works.
 
 **Ingest** needs a token when ``TRAILBEAM_TOKEN`` is set or at least one ingest token exists (revoked ones count),
@@ -40,7 +41,7 @@ import threading
 import time
 from typing import Callable, NamedTuple, Optional
 
-from . import auth as auth_mod, sessions as sessions_mod
+from . import auth as auth_mod, proxy_auth, sessions as sessions_mod
 from .tokens import INGEST_PREFIX, PERSONAL_PREFIX
 
 log = logging.getLogger("trailbeam.server")
@@ -105,8 +106,8 @@ class AccessUnavailable(Exception):
 
 
 class Who(NamedTuple):
-    """Who a request is. ``via``: ``none``, ``shared_token``, ``shared_cookie``, ``session``, ``personal_token``
-    or ``ingest_token``. ``role``: the person's, for a session or personal token."""
+    """Who a request is. ``via``: ``none``, ``shared_token``, ``shared_cookie``, ``session``, ``personal_token``,
+    ``proxy`` or ``ingest_token``. ``role``: the person's, for a session or personal token."""
     via: str
     role: Optional[str] = None
     user_id: Optional[int] = None
@@ -215,11 +216,12 @@ class Access:
     ``sessions``, ``tokens``: None on a store without account tables (then only the shared-token rules apply)."""
 
     def __init__(self, shared: Optional[auth_mod.Auth] = None, accounts=None, sessions=None, tokens=None,
-                 state: Optional[State] = None):
+                 state: Optional[State] = None, proxy: Optional[proxy_auth.ProxySignIn] = None):
         self.shared = shared
         self.accounts = accounts
         self.sessions = sessions
         self.tokens = tokens
+        self.proxy = proxy  # sign-in through a proxy (proxy_auth.py); None: off
         self.state = state or State(accounts)
 
     def mode(self) -> str:
@@ -242,22 +244,43 @@ class Access:
         except Exception as e:  # noqa: BLE001
             raise AccessUnavailable(f"the store can't check the ingest token: {e}") from e
 
-    def _person(self, headers, cred: Optional[str], secure: bool) -> Optional[Who]:
-        """The person behind a personal token (when one is sent) or else a session cookie (over HTTPS
-        only the ``__Host-`` one, sessions.py)."""
+    def _person(self, headers, cred: Optional[str], secure: bool, peer: Optional[str] = None) -> Optional[Who]:
+        """The person behind a personal token (when one is sent), else the email the proxy names (when it is on
+        and the request comes from it), else a session cookie (over HTTPS only the ``__Host-`` one, sessions.py).
+        Raises ProxyRefused."""
         try:
             if cred and cred.startswith(PERSONAL_PREFIX) and self.tokens is not None:
                 u = self.tokens.personal(cred)
                 return None if u is None else Who("personal_token", u.role, u.user_id, u.email, u.name)
+            if self.proxy is not None and peer is not None:
+                p = self.proxy.user(headers, peer)
+                if p is not None:
+                    return Who("proxy", p["role"], int(p["id"]), p["email"], p["name"])
             if self.sessions is not None:
                 u = self.sessions.lookup(sessions_mod.cookie_value(headers.get("Cookie"), secure))
                 return None if u is None else Who("session", u.role, u.user_id, u.email, u.name)
+        except proxy_auth.ProxyRefused:
+            raise
         except Exception as e:  # noqa: BLE001
             raise AccessUnavailable(f"the store can't check the sign-in: {e}") from e
         return None
 
-    def check(self, headers, level: str, scheme: str = "http") -> Decision:
-        """May this request have a route of this level? ``scheme`` is the request's, as proxy.py says.
+    def proxy_person(self, headers, peer: str) -> Optional[Who]:
+        """Who the proxy says this request is, once an admin exists; None: nobody, refused, or proxy sign-in off.
+        For the sign-in page, which sends someone the proxy signed in on to the page they asked for."""
+        if self.proxy is None or not self.state.admin_exists():
+            return None
+        try:
+            p = self.proxy.user(headers, peer)
+        except proxy_auth.ProxyRefused:
+            return None
+        except Exception as e:  # noqa: BLE001
+            raise AccessUnavailable(f"the store can't check the sign-in: {e}") from e
+        return None if p is None else Who("proxy", p["role"], int(p["id"]), p["email"], p["name"])
+
+    def check(self, headers, level: str, scheme: str = "http", peer: Optional[str] = None) -> Decision:
+        """May this request have a route of this level? ``scheme`` is the request's, as proxy.py says. ``peer``:
+        the TCP peer's address, for sign-in through a proxy (without it, the proxy's header is not looked at).
         Raises AccessUnavailable when the store can't say."""
         if level == OPEN:
             return Decision(True)
@@ -283,7 +306,10 @@ class Access:
         # an admin exists: people, and the shared token for /metrics only
         if level == METRICS and self._is_shared(cred):
             return Decision(True, Who("shared_token"))
-        who = self._person(headers, cred, scheme == "https")
+        try:
+            who = self._person(headers, cred, scheme == "https", peer)
+        except proxy_auth.ProxyRefused as e:
+            return Decision(False, status=403, message=e.message)
         if who is None:
             return Decision(False, status=401, message=SHARED_UI_GONE if self._is_shared(cred) else NEEDS_PERSON)
         if level == ADMIN and who.role != "admin":
