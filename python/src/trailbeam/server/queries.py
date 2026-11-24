@@ -15,9 +15,8 @@ import math
 from datetime import datetime, timedelta, timezone
 from typing import NamedTuple, Optional
 
-from . import bodies, rollup, sns, summary, timeline
+from . import bodies, rabbitmq, rollup, sns, summary, timeline
 from .store import Store
-from .otlp import AMQP_KINDS
 from .summary import message_tenant, span_tenant  # noqa: F401  (part of this module's interface)
 
 MAX_LIMIT = 1000
@@ -27,10 +26,12 @@ def message(db: Store, message_id: str, now_ns: int, lambda_timeout_s: int,
             max_receive_counts: Optional[dict] = None) -> Optional[dict]:
     """``max_receive_counts``: queue name -> maxReceiveCount, as configured (``--max-receive-count``)."""
     rows = db.message_rows(message_id)
-    if not any(r["kind"] not in AMQP_KINDS for r in rows):
-        # None, or only spans of the kinds the timeline doesn't show yet (a RabbitMQ return whose publish was not
-        # stored): no timeline until QV-307 shows them (timeline.build)
+    if not rows:
         return None
+    if rabbitmq.is_rabbitmq(rows):  # no purges and no SNS; the broker's consumer cancels of its queues (A10)
+        times = [r["time_ns"] for r in rows]
+        cancels = db.consumer_cancels({r["queue"] for r in rows if r["kind"] == "receive"}, min(times), max(times))
+        return timeline.build(rows, now_ns, lambda_timeout_s, max_receive_counts, cancels=cancels)
     return timeline.build(rows, now_ns, lambda_timeout_s, max_receive_counts, db.purges({r["queue"] for r in rows}),
                           sns_publishes(db, rows))
 

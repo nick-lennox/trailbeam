@@ -176,11 +176,11 @@ def test_queues_of_two_virtual_hosts_are_two_queue_keys(vhost):
     assert publish["queue"] == "amq.default" and "/exchange/" in publish["queue_url"]
 
 
-def test_a_message_with_only_a_return_has_no_timeline_yet(new_store):
-    """Its return is stored and counted; the timeline shows returns from QV-307, so until then the message page
-    finds nothing to show rather than failing."""
+def test_a_message_with_only_a_return_is_a_returned_step(new_store):
+    """Its return is stored and counted, and the timeline shows it (QV-307): unroutable, and not stuck."""
     s = new_store()
     d = decode(otlp_json([sp for sp in FIXTURE["spans"] if sp["attributes"]["trailbeam.kind"] == "amqp.return"]),
                "application/json")
     assert s.insert(d.records) == (1, 0) and s.counts()["spans"] == {"return": 1}
-    assert queries.message(s, key("m-noroute"), 2 ** 62, LT) is None
+    t = queries.message(s, key("m-noroute"), 2 ** 62, LT)
+    assert [e["type"] for e in t["events"]] == ["returned"] and t["state"] == "not_deleted"

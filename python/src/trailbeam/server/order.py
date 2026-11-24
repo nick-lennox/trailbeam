@@ -8,7 +8,9 @@ observed, never a rule about what causes what:
   returned before B's call was issued (``A.order_returned < B.order_issued``, a per-process counter
   shared by every thread of a Python process, or every async task of a Node.js realm: contract 2a).
 - ``receive_count``: A and B are receives on the same queue and SQS gave A a lower
-  ``ApproximateReceiveCount`` than B: delivery n came before delivery n + 1.
+  ``ApproximateReceiveCount`` than B: delivery n came before delivery n + 1. On RabbitMQ the counts must come
+  from the same source, or one be a first delivery (contract/span-contract-amqp.md A9): a row timeline.build
+  made with rabbitmq.facts carries its ``count_source``.
 - ``sqs_timestamps``: A is the send and B is the first receive (receive count 1) on the send's queue, and
   B's ``SentTimestamp`` is earlier than its ``ApproximateFirstReceiveTimestamp``. Both come from SQS's clock;
   it is never compared with a host clock. Equal timestamps (the same millisecond) prove nothing.
@@ -35,13 +37,25 @@ def _edge_sources(a, b) -> list[str]:
         out.append("process_order")
     if (a["kind"] == "receive" and b["kind"] == "receive" and a["queue"] == b["queue"]
             and a["receive_count"] is not None and b["receive_count"] is not None
-            and a["receive_count"] < b["receive_count"]):
+            and a["receive_count"] < b["receive_count"] and _comparable_counts(a, b)):
         out.append("receive_count")
     if (a["kind"] == "send" and b["kind"] == "receive" and a["queue"] == b["queue"] and b["receive_count"] == 1
             and b["sent_ts_ms"] is not None and b["first_receive_ts_ms"] is not None
             and b["sent_ts_ms"] < b["first_receive_ts_ms"]):
         out.append("sqs_timestamps")
     return out
+
+
+def _count_source(r) -> Optional[str]:
+    try:
+        return r["count_source"]
+    except (IndexError, KeyError):  # an SQS row: one source
+        return None
+
+
+def _comparable_counts(a, b) -> bool:
+    sa, sb = _count_source(a), _count_source(b)
+    return sa == sb or "first_delivery" in (sa, sb)
 
 
 def _closure(n: int, edges) -> list[int]:

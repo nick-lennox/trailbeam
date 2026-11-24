@@ -24,6 +24,7 @@ from typing import Optional
 
 from . import order as order_mod
 from . import purge as purge_mod
+from . import rabbitmq as amqp_mod
 from . import sns as sns_mod
 from . import systems
 from .otlp import AMQP_KINDS, DEFAULT_KEY_ID
@@ -50,7 +51,10 @@ def deduplicated_sends(rows) -> set:
     """The row IDs of the sends SQS deduplicated. A FIFO queue (name ending ``.fifo``) accepts a second send
     with the same MessageDeduplicationId within its 5-minute window and returns the first send's MessageId, but
     enqueues nothing; a standard queue never returns one MessageId twice. So every send of a message on a FIFO
-    queue after its first there (by end time, then row) was deduplicated."""
+    queue after its first there (by end time, then row) was deduplicated. RabbitMQ deduplicates nothing: a
+    publish's ``queue`` is its exchange, and a second publish with one ID is a second message (A6)."""
+    if amqp_mod.is_rabbitmq(rows):
+        return set()
     seen: set = set()
     out: set = set()
     for r in sorted((r for r in rows if r["kind"] == "send"), key=lambda r: (r["time_ns"], r["row"])):
@@ -131,18 +135,23 @@ def source_queue_of(mid: Optional[str], sends: list, receives: list, fallback: s
 
 
 def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S,
-          max_receive_counts: Optional[dict] = None, purges=(), publishes=()) -> dict:
+          max_receive_counts: Optional[dict] = None, purges=(), publishes=(), cancels=()) -> dict:
     """``rows``: every stored row of one message (Store.message_rows), any order. ``max_receive_counts``:
     queue name -> the maxReceiveCount of its redrive policy, as configured (spans don't carry it). ``purges``:
     purge rows (Store.purges) that include those of the message's current queue (contract section 18).
     ``publishes``: the SNS publishes this message's receives join (contract section 21.5), as queries.message gives
-    them: each ``{"publish": row, "joined_by": [...], "reached": [...], "reached_truncated": bool}``."""
+    them: each ``{"publish": row, "joined_by": [...], "reached": [...], "reached_truncated": bool}``.
+
+    A RabbitMQ message (contract/span-contract-amqp.md, rabbitmq.py): ``max_receive_counts`` gives each queue's
+    x-delivery-limit, and ``cancels`` the stored consumer cancels (Store.consumer_cancels) of its queues, which show
+    when the broker cancelled the consumer holding a delivery (A10)."""
     rows = sorted(rows, key=lambda r: (r["time_ns"], r["row"]))
     mid = rows[0]["mid"]
     fallback_queue = rows[0]["queue"]
-    # The kinds only RabbitMQ has (return, reject, channel_closed; otlp.AMQP_KINDS) are stored, and not shown here
-    # yet: their steps are QV-307's (contract/span-contract-amqp.md A10).
-    rows = [r for r in rows if r["kind"] not in AMQP_KINDS]
+    amqp = systems.system_of(mid) == systems.RABBITMQ
+    if amqp:
+        return _build_amqp([amqp_mod.facts(r) for r in rows], now_ns, max_receive_counts, cancels)
+    rows = [r for r in rows if r["kind"] not in AMQP_KINDS]  # an SQS message has none
     receives = [r for r in rows if r["kind"] == "receive"]
     sends = [r for r in rows if r["kind"] == "send"]
     by_row = {r["row"]: i + 1 for i, r in enumerate(receives)}  # receive row -> delivery number
@@ -465,6 +474,13 @@ def _arrange(rows: list, observed: list[dict], inferred: list, order: "order_mod
                 why_a = ""
                 why_b = (f"The SNS envelope of {_label(events[b])} names topic {ev['topic']}: SNS delivered the "
                          f"message before that receive.") if b is not None else ""
+            elif ev["source"] == amqp_mod.DLQ_SOURCE:  # the move x-death reports (span-contract-amqp.md A8)
+                src = amqp_mod.DLQ_SOURCE
+                frm = ev["from_queue"]
+                why_a = (f"RabbitMQ dead-letters a message off {frm} only after its deliveries there, and reported "
+                         f"the move later, so it came after {_label(events[a])}.") if a is not None else ""
+                why_b = (f"RabbitMQ reported the move on {_label(events[b])}: its x-death header names "
+                         f"{frm}.") if b is not None else ""
             else:  # the observed move to a dead-letter queue (contract section 9b)
                 src = DLQ_SOURCE
                 frm = ev["from_queue"]
@@ -497,9 +513,19 @@ def _label(ev: dict) -> str:
     d = ev.get("delivery")
     of = f" of delivery {d}" if d is not None else ""
     if t == "sent":
+        if "exchange" in ev:  # a RabbitMQ publish
+            return "the publish" if ev.get("publish", 1) == 1 else f"publish {ev['publish']}"
         return "the send"
     if t == "received":
+        if "redelivered" in ev:  # a RabbitMQ delivery
+            return f"delivery {d}" if d is not None else "a delivery"
         return f"receive {d}" if d is not None else "a receive"
+    if t in ("acked", "requeued", "rejected"):
+        return {"acked": "the ack", "requeued": "the requeue", "rejected": "the refusal"}[t] + of
+    if t == "channel_closed":
+        return "the channel close" + of
+    if t == "returned":
+        return "the return"
     if t == "deleted":
         return "the delete" + of
     if t == "visibility_changed":
@@ -529,6 +555,10 @@ def _after_entry(rows, events, order, i: int, j: int, ev_id: str) -> dict:
                        f"on the hosts' clocks.")
         elif src == "process_order":
             why.append(f"Same process: {who} returned before this call was issued.")
+        elif src == "receive_count" and _is_amqp_row(a):
+            why.append(f"The receive counts RabbitMQ gave ({_count_from(a)} and {_count_from(b)}) show {who} "
+                       f"(receive count {a['receive_count']}) came before this one (receive count "
+                       f"{b['receive_count']}).")
         elif src == "receive_count":
             why.append(f"SQS's receive count shows {who} (receive count {a['receive_count']}) came before this "
                        f"one (receive count {b['receive_count']}).")
@@ -536,6 +566,14 @@ def _after_entry(rows, events, order, i: int, j: int, ev_id: str) -> dict:
             why.append(f"SQS's timestamps show this message was sent ({_ms(b['sent_ts_ms'])}) before its first "
                        f"receive ({_ms(b['first_receive_ts_ms'])}).")
     return {"event": ev_id, "type": events[i]["type"], "sources": sources, "source": sources[0], "why": " ".join(why)}
+
+
+def _is_amqp_row(r) -> bool:
+    return isinstance(r, dict) and "count_source" in r
+
+
+def _count_from(r) -> str:
+    return "redelivered = false" if r["count_source"] == amqp_mod.FIRST_DELIVERY else f"the {r['count_source']} header"
 
 
 def _groups(evs: list[dict], n: int) -> list[dict]:
@@ -559,27 +597,28 @@ def _queue_of_arn(arn: str) -> str:
     return arn.rsplit(":", 1)[-1]
 
 
-def _dlq_moves(receives: list, sends: list, proven) -> list[tuple]:
+def _dlq_moves(receives: list, sends: list, proven, source_of=None) -> list[tuple]:
     """(earlier anchor or None, the reporting receive, source queue name) per observed move (section 9b).
 
     One move per (source queue, dead-letter queue) pair, reported by its earliest dead-letter receive
     that carries DeadLetterQueueSourceArn. The earlier anchor is the last receive on the source queue
     (one no other receive there is proven to follow, and not proven to come after the report), or the
-    send on it if no receive there was observed."""
+    send on it if no receive there was observed. ``source_of``: receive -> the queue it reports the message was
+    moved from, or None (default: SQS's DeadLetterQueueSourceArn; RabbitMQ: rabbitmq.dlq_source, from x-death)."""
     out = []
     pairs: dict[tuple[str, str], list] = {}
     for r in receives:
-        if r["dlq_source_arn"]:
-            frm = _queue_of_arn(r["dlq_source_arn"])
-            if frm != r["queue"]:
-                pairs.setdefault((frm, r["queue"]), []).append(r)
+        frm = source_of(r) if source_of is not None else (
+            _queue_of_arn(r["dlq_source_arn"]) if r["dlq_source_arn"] else None)
+        if frm is not None and frm != r["queue"]:
+            pairs.setdefault((frm, r["queue"]), []).append(r)
     for (frm, _), reports in pairs.items():
         first = [x for x in reports if not any(proven(y, x) for y in reports if y is not x)]
-        b = min(first, key=lambda x: (x["receive_count"], x["time_ns"], x["row"]))
+        b = min(first, key=lambda x: (x["receive_count"] or 0, x["time_ns"], x["row"]))
         on_src = [x for x in receives if x["queue"] == frm and not proven(b, x)]
         last = [x for x in on_src if not any(proven(x, y) for y in on_src if y is not x)]
         if last:
-            a = max(last, key=lambda x: (x["receive_count"], x["time_ns"], x["row"]))
+            a = max(last, key=lambda x: (x["receive_count"] or 0, x["time_ns"], x["row"]))
         else:
             a = next((x for x in sends if x["queue"] == frm and not proven(b, x)), None)
         out.append((a, b, frm))
@@ -674,4 +713,313 @@ def _notices(rows, receives, order=None) -> list[dict]:
         out.append({"code": "send_not_observed", "message":
                     "No trailbeam send span for this message: the producer is not instrumented, or the send is older "
                     "than the stored data."})
+    return out
+
+
+# ---- RabbitMQ (contract/span-contract-amqp.md A4 to A10; rabbitmq.py) ------------------------------------------
+# The steps of a RabbitMQ message, by stored kind. A publish is "sent", a delivery "received"; the settle steps
+# have their own types, because AMQP 0-9-1 has no delete and no visibility timeout.
+AMQP_SETTLE_TYPES = {"delete": "acked", "change_visibility": "requeued", "reject": "rejected",
+                     "channel_closed": "channel_closed"}
+
+
+def _op(r) -> Optional[str]:
+    v = r["amqp"].get("messaging.operation.name")
+    return v if isinstance(v, str) else None
+
+
+def _amqp_event(r, base: dict, by_row: dict, n_publish: int, latest_on: dict, seen: list) -> dict:
+    """The observed event of one RabbitMQ row. ``n_publish``: which publish of the message this is (sends only);
+    ``latest_on``: queue -> its latest delivery; ``seen``: every delivery of the message."""
+    k, a = r["kind"], r["amqp"]
+    ev: dict
+    if k == "send":
+        ev = {"type": "sent", **base, "exchange": r["queue"], "operation": _op(r), "result": r["result"],
+              "confirmed": a.get("trailbeam.amqp.confirmed") is True, "mandatory": a.get("trailbeam.amqp.mandatory") is True,
+              "publish": n_publish}
+        if isinstance(a.get(amqp_mod.ROUTING_KEY), str):
+            ev["routing_key"] = a[amqp_mod.ROUTING_KEY]
+        if r["error_code"]:
+            ev["error_code"] = r["error_code"]
+        if a.get("trailbeam.amqp.message_id.source") == "package":
+            ev["message_id_source"] = "package"
+        if n_publish > 1:
+            ev["published_again"] = True
+            ev["reason"] = (f"Published again with the same message_id (publish {n_publish}). RabbitMQ does not "
+                            f"deduplicate, so this is a second message in the queue under the same ID, most "
+                            f"likely a publisher retry.")
+        elif not ev["confirmed"]:
+            ev["reason"] = ("Published on a channel without publisher confirms: the frame was written, and nothing "
+                            "says the broker got the message.")
+        return ev
+    if k == "return":
+        ev = {"type": "returned", **base, "exchange": r["queue"], "operation": _op(r),
+              "reply_code": a.get("trailbeam.amqp.reply_code")}
+        if isinstance(a.get(amqp_mod.ROUTING_KEY), str):
+            ev["routing_key"] = a[amqp_mod.ROUTING_KEY]
+        text = a.get("trailbeam.amqp.reply_text")
+        if isinstance(text, str) and text:
+            ev["reply_text"] = text
+        rk = f" with routing key {ev['routing_key']}" if "routing_key" in ev else ""
+        ev["reason"] = (f"Unroutable: exchange {r['queue']} has no queue for this message{rk}, so the broker "
+                        f"returned it to the publisher with basic.return ({ev['reply_code']}"
+                        f"{' ' + text if isinstance(text, str) and text else ''}) and enqueued nothing.")
+        return ev
+    if k == "receive":
+        ev = {"type": "received", **base, "delivery": by_row[r["row"]], "receive_count": r["receive_count"],
+              "operation": _op(r), "redelivered": a.get("trailbeam.amqp.redelivered") is True}
+        if r["count_source"] is not None:
+            ev["receive_count_source"] = r["count_source"]
+        for name, key in ((amqp_mod.CONSUMER_TAG, "consumer_tag"), ("trailbeam.amqp.exchange", "exchange"),
+                          (amqp_mod.ROUTING_KEY, "routing_key")):
+            if isinstance(a.get(name), str) and a[name]:
+                ev[key] = a[name]
+        for name, key in ((amqp_mod.DELIVERY_COUNT, "x_delivery_count"), (amqp_mod.ACQUIRED_COUNT, "x_acquired_count")):
+            v = amqp_mod._int(a.get(name))
+            if v is not None:
+                ev[key] = v
+        dl = amqp_mod.dead_letter(r)
+        if dl is not None:
+            ev["dead_letter"] = dl
+        return ev
+    # a settle or close of one delivery
+    rec = by_row.get(r["receive_row"])
+    ev = {"type": AMQP_SETTLE_TYPES[k], **base, "delivery": rec, "operation": _op(r), "result": r["result"]}
+    if r["error_code"]:
+        ev["error_code"] = r["error_code"]
+    if isinstance(a.get("trailbeam.amqp.multiple"), bool):
+        ev["multiple"] = a["trailbeam.amqp.multiple"]
+    if k == "delete":
+        ev["status"] = _ack_status(r, latest_on)
+    elif k == "change_visibility":
+        ev["requeue"] = True
+    elif k == "reject":
+        ev["requeue"] = False
+        # seen again: delivered again on its queue, or on a dead-letter queue that reports the move off it
+        seen_again = any((x["queue"] == r["queue"] and x["time_ns"] > r["time_ns"]) or amqp_mod.dlq_source(x) == r["queue"]
+                         for x in seen if x["row"] != r["receive_row"])
+        ev["reason"] = (f"Refused by the consumer with {ev['operation']} (requeue = false). RabbitMQ dead-letters the "
+                        f"message if its queue has a dead-letter exchange, and drops it otherwise"
+                        + ("." if seen_again else "; it has not been seen since."))
+    else:
+        who = a.get("trailbeam.amqp.close.initiator")
+        ev["initiator"] = who
+        for name, key in (("trailbeam.amqp.close.reply_code", "reply_code"), ("trailbeam.amqp.close.reply_text", "reply_text")):
+            if a.get(name) is not None:
+                ev[key] = a[name]
+        text = ev.get("reply_text") if isinstance(ev.get("reply_text"), str) else ""
+        if who == "broker" and amqp_mod.is_consumer_timeout_close(r):
+            ev["consumer_timeout"] = True
+            ev["reason"] = ("The broker closed the channel because this delivery was not acked within its "
+                            "consumer_timeout. RabbitMQ returns the channel's unacked deliveries to the queue.")
+        elif text.startswith(amqp_mod.UNKNOWN_TAG_TEXT):
+            ev["reason"] = ("The broker closed the channel because a settle named a delivery tag it did not know (an "
+                            "ack or nack sent twice, or on the wrong channel). Trailbeam can't tell which settle it "
+                            "refused. RabbitMQ returns the channel's unacked deliveries to the queue.")
+        else:
+            by = {"client": "The application closed the channel", "broker": "The broker closed the channel",
+                  "network": "The connection was lost"}.get(who, "The channel closed")
+            ev["reason"] = (f"{by} while this delivery was not settled"
+                            + (f" ({ev.get('reply_code')} {text})" if text else "")
+                            + ". RabbitMQ returns the channel's unacked deliveries to the queue.")
+    return ev
+
+
+def _ack_status(r, latest_on: dict) -> str:
+    """As _delete_status, per copy: an ack of the latest delivery on its queue is final."""
+    if r["result"] != "ok":
+        return "failed"
+    if r["receive_row"] is None:
+        return "unmatched_handle"
+    if any(x["row"] == r["receive_row"] for x in latest_on.values()):
+        return "final"
+    return "stale_handle"
+
+
+def _build_amqp(rows: list, now_ns: int, delivery_limits: Optional[dict], cancels) -> dict:
+    """timeline.build for a RabbitMQ message: ``rows`` are rabbitmq.facts rows, by (time_ns, row)."""
+    mid = rows[0]["mid"]
+    receives = [r for r in rows if r["kind"] == "receive"]
+    sends = [r for r in rows if r["kind"] == "send"]
+    by_row = {r["row"]: i + 1 for i, r in enumerate(receives)}
+    latest = receives[-1] if receives else None
+    source_queue = source_queue_of(mid, sends, receives, rows[0]["queue"])
+    order = order_mod.Order(rows)
+    idx = {r["row"]: i for i, r in enumerate(rows)}
+
+    def proven(a, b) -> bool:
+        return order.before(idx[a["row"]], idx[b["row"]])
+
+    inferred: list[tuple[Optional[int], Optional[int], int, dict]] = []
+
+    def infer(after, before, rank: int, ev: dict) -> None:
+        inferred.append((after["row"] if after is not None else None,
+                         before["row"] if before is not None else None, rank, ev))
+
+    # ---- deliveries of one copy: returns to the queue and their causes (A10) -------------------------------
+    prev_on_queue: dict[str, dict] = {}
+    for r in receives:
+        q = r["queue"]
+        p = prev_on_queue.get(q)
+        dl = amqp_mod.dead_letter(r)
+        if p is None and q == source_queue and (r["receive_count"] or 0) > 1 and dl is None:
+            s0 = sends[0] if sends else None
+            infer(s0, r, 2, _inferred(
+                "deliveries_not_observed", _start(s0) if s0 else None, r["time_ns"],
+                f"The first observed delivery has receive count {r['receive_count']} (from {r['count_source']}), so "
+                f"{r['receive_count'] - 1} earlier delivery(s) were not observed (a consumer without Trailbeam, or "
+                f"lost spans).", count=r["receive_count"] - 1, queue=q))
+        if p is not None and amqp_mod.redelivery_of(p, r):
+            if (None not in (p["receive_count"], r["receive_count"]) and p["count_source"] == r["count_source"]
+                    or p["count_source"] == amqp_mod.FIRST_DELIVERY and r["receive_count"] is not None):
+                gap = r["receive_count"] - p["receive_count"] - 1
+                if gap > 0:
+                    infer(p, r, 2, _inferred(
+                        "deliveries_not_observed", _start(p), r["time_ns"],
+                        f"Receive count went from {p['receive_count']} to {r['receive_count']}, so {gap} "
+                        f"delivery(s) in between were not observed.", count=gap, queue=q))
+            cause, shown_by, why = amqp_mod.cause_of(rows, p, cancels)
+            # The return is inferred from the requeue, a call the consumer made, so it comes after that call. A
+            # close is when the client saw it, not when the broker returned the message (A4.6), so that return is
+            # placed after the delivery only.
+            a = shown_by if cause == amqp_mod.REQUEUED else p
+            infer(a, r, 3, _inferred(
+                "returned_to_queue", _start(a), r["time_ns"], why, queue=q, cause=cause,
+                cause_observed=cause != amqp_mod.NOT_OBSERVED, after_delivery=by_row[p["row"]],
+                before_delivery=by_row[r["row"]]))
+        # otherwise a second first delivery: a second message published under the same ID, not a return
+        prev_on_queue[q] = r
+
+    # ---- observed steps ------------------------------------------------------------------------------
+    latest_on = {}
+    for r in receives:
+        latest_on[r["queue"]] = r
+    observed: list[dict] = []
+    n_publish = 0
+    for r in rows:
+        base = {"inferred": False, **_time(_start(r), r["time_ns"]), "group": None,
+                "queue": r["queue"], "consumer": consumer(r), "span": _span(r), "process_order": _ticks(r)}
+        if r["kind"] == "send":
+            n_publish += 1
+        if r["kind"] == "cancel":  # pragma: no cover - a cancel belongs to no message (otlp.py)
+            continue
+        observed.append(_amqp_event(r, base, by_row, n_publish, latest_on, receives))
+
+    # ---- routed to N queues (A5): from the queues it was delivered on, a lower bound --------------------
+    moves = _dlq_moves(receives, sends, proven, source_of=amqp_mod.dlq_source)
+    dlqs = {b["queue"] for _, b, _ in moves}
+    routed = []
+    for r in receives:
+        if r["queue"] not in dlqs and r["queue"] not in routed:
+            routed.append(r["queue"])
+    if sends and routed:
+        s0 = sends[0]
+        first = next(r for r in receives if r["queue"] == routed[0])
+        n = len(routed)
+        infer(s0, first if n == 1 else None, 1, _inferred(
+            "routed", _start(s0), first["time_ns"],
+            f"Exchange {s0['queue']} routed this message to {n} queue{'s' if n > 1 else ''}: {', '.join(routed)}. "
+            f"Counted from the queues it was delivered on, so it is a lower bound: a queue that no consumer with "
+            f"Trailbeam reads is not seen. Each queue holds its own copy, which is not a duplicate.",
+            exchange=s0["queue"], queues=routed, count=n, lower_bound=True))
+
+    # ---- the move to a dead-letter queue, as x-death reports it (A8) -------------------------------------
+    for a, b, frm in moves:
+        dl = amqp_mod.dead_letter(b)
+        what = amqp_mod.DEAD_LETTER_REASONS.get(dl["reason"], f"reason {dl['reason']}")
+        when = ""
+        ev = {"type": "moved_to_dead_letter_queue", "inferred": False, "source": amqp_mod.DLQ_SOURCE, "time": None,
+              "window": {"from": iso(_start(a)) if a is not None else None, "to": iso(b["time_ns"])},
+              "reported_by": amqp_mod.DLQ_REPORTED_BY, "reported_on_delivery": by_row[b["row"]],
+              "from_queue": frm, "to_queue": b["queue"], "dead_letter_reason": dl["reason"]}
+        if "count" in dl:
+            ev["dead_letter_count"] = dl["count"]
+        if "time_ms" in dl:
+            ev["first_dead_lettered"] = _ms(dl["time_ms"])
+            ev["first_dead_lettered_ms"] = dl["time_ms"]
+            when = (f" x-death says it was first dead-lettered from {frm} for this reason at "
+                    f"{_ms(dl['time_ms'])}, to the second, on the broker's clock.")
+        ev["reason"] = (f"RabbitMQ reported this move: the delivery on {b['queue']} carries an x-death header naming "
+                        f"{frm}, with reason {dl['reason']} ({what}).{when} It happened after the last delivery on "
+                        f"{frm} and before that delivery.")
+        infer(a, b, 1, ev)
+
+    # ---- state: per copy (A6) ---------------------------------------------------------------------------
+    moved_from = {frm for _, _, frm in moves}
+    final, _left = amqp_mod.done(rows, moved_from)
+    state = "deleted" if final else "not_deleted"
+    current_queue = latest["queue"] if latest else source_queue
+
+    evs, n_groups, order_doc = _arrange(rows, observed, inferred, order, idx)
+    groups = _groups(evs, n_groups)
+    limit = (delivery_limits or {}).get(source_queue)
+    failed = amqp_mod.failed_returns(rows, source_queue)
+    if moves:
+        dlq_move = "observed"
+    elif amqp_mod.delivery_limit_reached(failed, limit) and state != "deleted":
+        dlq_move = "not_seen_on_dlq_yet"
+    else:
+        dlq_move = None
+    first_ns, first_clock = first_seen_ns(rows)
+    notices = _amqp_notices(rows, sends, order)
+    if dlq_move == "not_seen_on_dlq_yet":
+        notices.append({"code": "dlq_move_not_seen", "message":
+                        f"x-delivery-limit passed; not seen on a dead-letter queue yet. The copy on {source_queue} "
+                        f"was returned to the queue by a failure {failed} time(s) (its x-delivery-count), and "
+                        f"{source_queue}'s x-delivery-limit is {limit} as configured, so RabbitMQ dead-letters the "
+                        f"message if the queue has a dead-letter exchange, and drops it otherwise. This is inferred "
+                        f"from the configured value; no delivery from a dead-letter queue has reported the move."})
+    return {
+        "message_id": mid,
+        "system": systems.RABBITMQ,
+        "state": state,
+        "source_queue": source_queue,
+        "current_queue": current_queue,
+        "in_dead_letter_queue": current_queue in dlqs,
+        "dead_letter_queue_move": dlq_move,
+        "send_observed": bool(sends),
+        "publishes": len(sends),
+        "deliveries": len(receives),
+        "successful_deliveries": successful_deliveries(rows),
+        "copies": [{"queue": q, "deliveries": sum(1 for r in receives if r["queue"] == q), "ended": e}
+                   for q, (_, e) in amqp_mod.copies(rows, moved_from).items()],
+        "first_seen": iso(first_ns),
+        "first_seen_clock": first_clock,
+        "last_seen": iso(rows[-1]["time_ns"]),
+        "concurrent_groups": sum(g["concurrent"] for g in groups),
+        "groups": groups,
+        "events": evs,
+        "order": order_doc,
+        "notices": notices,
+    }
+
+
+def _amqp_notices(rows, sends, order) -> list[dict]:
+    out = []
+    if order.conflicts:
+        out.append({"code": "order_conflict", "message":
+                    "The observed facts contradict each other about the order of some steps (for example, a "
+                    "host clock that jumped), so no order is shown between those steps. The conflicting edges "
+                    "are listed in order.conflicts."})
+    if len(sends) > 1:
+        out.append({"code": "published_twice", "message":
+                    f"Published {len(sends)} times with the same message_id. RabbitMQ does not deduplicate: each "
+                    f"publish is its own message in the queue, so the work can be done once per publish. This is "
+                    f"most often a publisher retry after a lost confirm."})
+    by_queue: dict = {}
+    for r in rows:
+        if r["kind"] == "change_visibility" and r["result"] == "ok" and _op(r) == "basic.nack":
+            by_queue[r["queue"]] = by_queue.get(r["queue"], 0) + 1
+    for q, n in sorted(by_queue.items()):
+        if n >= amqp_mod.REQUEUE_LOOP_MIN:
+            out.append({"code": "requeue_loop", "queue": q, "requeues": n, "message":
+                        f"Requeued {n} times on {q} with basic.nack (requeue = true). On a quorum queue since "
+                        f"RabbitMQ 4.3, basic.nack does not count toward x-delivery-limit, so the queue never "
+                        f"dead-letters the message for it, and a consumer that keeps failing receives it again and "
+                        f"again. To end the loop after some attempts, refuse it with requeue = false (it goes to the "
+                        f"dead-letter exchange, if there is one), or use basic.reject, which counts toward the limit."})
+    if not sends:
+        out.append({"code": "send_not_observed", "message":
+                    "No trailbeam publish span for this message: the publisher is not instrumented, or the publish "
+                    "is older than the stored data."})
     return out

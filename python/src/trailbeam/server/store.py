@@ -58,6 +58,7 @@ Summary = Mapping[str, Any]  # summary.summarize, as stored
 # Spans about one delivery that join its receive (db.py): SQS's by receipt hash; RabbitMQ's reject and
 # channel_closed (otlp.py) by channel and delivery tag, through the same columns.
 SETTLE_KINDS = ("delete", "change_visibility", "reject", "channel_closed")
+MAX_CANCELS = 1000  # Store.consumer_cancels: a message's window rarely holds more than a few
 SETTLE_KINDS_SQL = "(" + ", ".join(f"'{k}'" for k in SETTLE_KINDS) + ")"  # kind IN SETTLE_KINDS_SQL
 
 # Tenants (contract/tenants.md): a span's tenant is its trailbeam.tenant attribute when that is a non-empty
@@ -257,6 +258,14 @@ class Store(abc.ABC):
         """The purge records (contract section 18) stored for these queues, every column of purge.COLUMNS, by
         (time_ns, row); ``row`` is unique among purges. Few: one per PurgeQueue call. Not abstract, so a store
         written before revision 3.3 still loads: by default, none."""
+        return []
+
+    def consumer_cancels(self, queues, from_ns: int, to_ns: int) -> list[Row]:
+        """The RabbitMQ consumer cancels (kind ``cancel``, contract/span-contract-amqp.md A4.5) stored for these
+        queues with from_ns <= time_ns <= to_ns: ``row``, ``time_ns``, ``queue``, ``queue_url`` and ``attributes``,
+        by (time_ns, row), at most MAX_CANCELS. A cancel belongs to no message; the timeline reads it to tell a
+        broker cancel as the cause of a redelivery (rabbitmq.cause_of). Not abstract: by default none, and the
+        cause is then shown as not observed."""
         return []
 
     def publishes(self, keys) -> list[Row]:

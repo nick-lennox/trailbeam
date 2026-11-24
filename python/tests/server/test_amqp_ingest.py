@@ -107,7 +107,7 @@ def test_the_fixture_through_the_server_and_a_rabbitmq_message_by_its_key(server
     assert status == 200 and "partialSuccess" not in json.loads(body or b"{}")
     status, t = get(server, "/api/messages/~rabbitmq~m-happy")
     assert status == 200 and t["message_id"] == "~rabbitmq~m-happy"
-    assert [e["type"] for e in t["events"] if not e["inferred"]] == ["sent", "received", "deleted"]
+    assert [e["type"] for e in t["events"] if not e["inferred"]] == ["sent", "received", "acked"]
     assert get(server, "/api/messages/m-happy")[0] == 404  # no SQS message has that ID
     with urllib.request.urlopen(server + "/message?id=~rabbitmq~m-happy", timeout=5) as r:
         assert r.status == 200 and b"m-happy" in r.read()

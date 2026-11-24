@@ -139,3 +139,19 @@ def test_server_runs_with_the_file_and_overrides(tmp_path):
     finally:
         p.terminate()
         p.wait(timeout=10)
+
+
+def test_a_rabbitmq_delivery_limit_is_the_queues_limit(tmp_path):
+    c = config.load(write(tmp_path, "[queues.payments]\ndelivery_limit = 20\n"))
+    assert c.max_receive_counts == {"payments": 20}
+
+
+@pytest.mark.parametrize("text,problem", [
+    ("[queues.p]\ndelivery_limit = 0\n", "queues.p.delivery_limit: expected a whole number from 1"),
+    ("[queues.p]\ndelivery_limit = true\n", "queues.p.delivery_limit: expected a whole number"),
+    ("[queues.p]\nmax_receive_count = 3\ndelivery_limit = 3\n", "not both"),
+])
+def test_a_bad_delivery_limit_is_a_problem(tmp_path, text, problem):
+    with pytest.raises(config.ConfigError) as e:
+        config.load(write(tmp_path, text))
+    assert problem in str(e.value)
