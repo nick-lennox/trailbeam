@@ -40,16 +40,17 @@ const Icon = ({ lambda, color }: { lambda: boolean; color: string }) =>
     </svg>
   );
 
-function useWidth<T extends Element>() {
+/* An element's content width or height, kept up to date as it changes (0 until it is measured). */
+function useSize<T extends Element>(side: "width" | "height") {
   const ref = useRef<T>(null);
-  const [w, setW] = useState(0);
+  const [n, setN] = useState(0);
   useLayoutEffect(() => {
     if (!ref.current || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(([e]) => setW(e.contentRect.width));
+    const ro = new ResizeObserver(([e]) => setN(e.contentRect[side]));
     ro.observe(ref.current);
     return () => ro.disconnect();
-  }, []);
-  return [ref, w] as const;
+  }, [side]);
+  return [ref, n] as const;
 }
 
 /* Curved, dashed connectors across one gap of the drawing. Dashes move the way messages do (not under
@@ -57,7 +58,7 @@ function useWidth<T extends Element>() {
    its bend, so the wire never crosses its own label. */
 export type Line = { key: string; y1: number; y2: number; color: string; rate?: { n: string; bytes?: string; at: "start" | "end" } };
 export function Wires({ lines, height }: { lines: Line[]; height: number }) {
-  const [ref, w] = useWidth<HTMLDivElement>();
+  const [ref, w] = useSize<HTMLDivElement>("width");
   const halo = { paintOrder: "stroke" as const, stroke: "var(--color-canvas)", strokeWidth: 4, strokeLinejoin: "round" as const };
   return (
     <div ref={ref} style={{ height }}>
@@ -118,7 +119,9 @@ export function FlowDrawing({ flow: f, flows, range, href, Link = A, queueCard, 
   const outs = f.consumers.filter((c) => c.n > 0);
   const dlqRef: QueueRef | null = f.dlq ? flows.find((x) => x.queue === f.dlq!.name) ?? { queue: f.dlq.name, name: f.dlq.name, account: null, region: null } : null;
   const rights = outs.length + (f.dlq ? 1 : 0);
-  const H = Math.max(200, Math.max(ins.length, rights) * PITCH + 36);
+  /* the queue card sets the drawing's height when the host's card makes it taller than the nodes need */
+  const [card, cardH] = useSize<HTMLDivElement>("height");
+  const H = Math.max(200, Math.max(ins.length, rights) * PITCH + 36, Math.ceil(cardH) + 16);
   const y = (i: number, n: number) => H / 2 + (i - (n - 1) / 2) * PITCH;
   const port = (i: number, n: number) => H / 2 + (i - (n - 1) / 2) * 22;
   const place = [f.account, f.region].filter(Boolean).join(" / ");
@@ -148,7 +151,7 @@ export function FlowDrawing({ flow: f, flows, range, href, Link = A, queueCard, 
           </div>
           <Wires height={H} lines={ins.map((p, i) => ({ key: p.name, y1: y(i, ins.length), y2: port(i, ins.length), color: SEND, rate: { ...pace(p.n), at: "start" as const } }))} />
           <div className="flex items-center" style={{ height: H }}>
-            <div className="w-full rounded-lg border border-line-strong bg-surface">
+            <div ref={card} className="w-full rounded-lg border border-line-strong bg-surface">
               <div className="flex items-baseline gap-2.5 px-4 pt-3">
                 <Link href={href.queue(f)} className="min-w-0 truncate font-mono text-[15px] text-ink hover:underline">{f.queue}</Link>
                 {place && <span className="ml-auto shrink-0 font-mono text-micro text-ink-3">{place}</span>}
