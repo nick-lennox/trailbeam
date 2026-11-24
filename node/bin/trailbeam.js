@@ -120,7 +120,11 @@ function dockerArgs(argv, { env = process.env, image = (env.TRAILBEAM_IMAGE || '
   }
   const childEnv = { ...env };
   // --pull never: the image was pulled (if missing) and inspected first, so what runs is what was announced.
-  const args = ['run', '--rm', '--init', '--pull', 'never', '--label', `${LABEL}=1`,
+  // --log-driver none: docker run is attached, so the server's output still reaches this terminal, but Docker
+  // keeps no copy of it. Its first run prints the token and receipt key, and the first admin's setup link is as good
+  // as an admin password for an hour: in Docker's log they could be read with docker logs, or sent to whatever
+  // log service the daemon is set up with (QV-409).
+  const args = ['run', '--rm', '--init', '--pull', 'never', '--log-driver', 'none', '--label', `${LABEL}=1`,
     '-p', `${host.includes(':') ? `[${host}]` : host}:${port}:${port}`,
     // The container listens on every address inside it; Docker publishes the port on --host only.
     '-e', 'TRAILBEAM_HOST=0.0.0.0', '-e', `TRAILBEAM_PORT=${port}`,
