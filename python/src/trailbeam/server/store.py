@@ -186,6 +186,16 @@ class Store(abc.ABC):
     def message_rows(self, message_id: str) -> list[Row]:
         """Every row whose ``mid`` is the message ID, by (time_ns, row)."""
 
+    def messages_rows(self, message_ids: list[str]) -> dict:
+        """``message_rows`` of each message ID, as message ID -> rows (only those with rows). A backend where one
+        read per message costs a round trip reads them in batches."""
+        out = {}
+        for mid in message_ids:
+            rows = self.message_rows(mid)
+            if rows:
+                out[mid] = rows
+        return out
+
     # ---- lists of messages: IDs, at most ``limit`` --------------------------------------------
     # Each reads the per-message summaries (summary.py), which the Store keeps up to date as spans arrive.
     # ``queue``: only messages with a span on that queue. "By newest span, latest first": the message's

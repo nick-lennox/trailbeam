@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **`GET /api/causes`: stuck messages grouped by why they didn't finish** (QV-367, step 1 of the open-source
+  Needs attention page). One group per cause (an exception class and its error text with numbers and IDs taken
+  out, a failed delete, no Lambda outcome, received and not deleted, never received), for its queue and
+  consumer, with counts by outcome, first and last seen, the times for a trend, tenants and service.versions.
+  Groups are listed worst outcome first. The response also groups the messages in a dead-letter queue by that
+  queue. The rules and the group shape are the hosted app's, and both are tested on one shared fixture
+  (`@trailbeam/ui/fixtures/causes-parity.json`), so a cause has the same `id` in both. The groups are worked out
+  when the endpoint is read, from up to 5,000 stuck messages, oldest first. Nothing new is stored.
 - **Java package, stage 5: version matrix and strict parent checks** (QV-319, pre-release, not published). CI
   runs the Java driver in every variant on JDK 11 and 17 and on AWS SDK 2.17.295, 2.20.162, 2.24.13 and 2.25.0,
   beside the existing JDK 21 run on the newest SDK. The supported floor is SDK 2.17. The agent variants now check

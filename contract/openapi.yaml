@@ -548,6 +548,113 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '500': {$ref: '#/components/responses/InternalError'}
+  /api/causes:
+    get:
+      operationId: list-causes
+      x-example-request: /api/causes?limit=1
+      tags: [Problems]
+      summary: List stuck messages grouped by cause
+      description: |
+        Groups the stuck messages (as `/api/stuck` lists them) by why they didn't finish: what went
+        wrong on each message's latest delivery that shows a failure, for its queue and consumer. One
+        group per cause, worst outcome first (dead-lettered, then stuck, then filtered), then the most
+        messages. The groups have the same shape as the hosted app's, so one view reads either.
+
+        At most `read_limit` stuck messages are read, oldest first; `capped` is true when there are
+        more. `messages` lists up to `limit` of them, oldest first, each with its group's `id`, and
+        `dead_letter_queues` the ones in a dead-letter queue, grouped by that queue.
+      parameters:
+        - name: older_than_s
+          in: query
+          description: The age in seconds after which a message with no final delete counts. Defaults to the server's `--stuck-after`, which defaults to 300.
+          schema: {type: integer, minimum: 0, maximum: 1000000000}
+        - name: from_ms
+          in: query
+          description: Only causes seen at or after this time, in Unix milliseconds. A message's cause is seen when its evidence was (for example the failed outcome), else when the message was first seen.
+          schema: {type: integer, minimum: 0, maximum: 1000000000000000}
+        - name: to_ms
+          in: query
+          description: Only causes seen at or before this time, in Unix milliseconds.
+          schema: {type: integer, minimum: 0, maximum: 1000000000000000}
+        - name: cause
+          in: query
+          description: List only the messages of this group (its `id`). The groups are not narrowed. An `id` with no messages now lists every message.
+          schema: {type: string}
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/queue'
+        - $ref: '#/components/parameters/lambda_timeout_s'
+      responses:
+        '200':
+          description: The groups, and the stuck messages with their group.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CausePage'}
+              example:
+                older_than_s: 300
+                from_ms: null
+                to_ms: null
+                capped: false
+                read_limit: 5000
+                total: 1
+                in_dead_letter_queue: 1
+                groups:
+                - id: 7fc2a3d79616
+                  key: v1|000000000000//payments|orders-worker|exc:TimeoutError:Stripe timed out after <n> ms
+                  kind: exc
+                  signature: 'exc:TimeoutError:Stripe timed out after <n> ms'
+                  label: 'orders-worker raised TimeoutError: Stripe timed out after 10000 ms'
+                  basis: spans
+                  inferred: false
+                  why: null
+                  queue: payments
+                  queueKey: 000000000000//payments
+                  consumer: orders-worker
+                  outcome: dead_lettered
+                  count: 1
+                  counts: {dead_lettered: 1, stuck: 0, filtered: 0}
+                  dlqInferred: 0
+                  firstMs: 1794852337425
+                  lastMs: 1794852337425
+                  times: [1794852337425]
+                  tenants: []
+                  sampleError: Stripe timed out after 10000 ms
+                  sampleMid: m-pay-2
+                  examples: [m-pay-2]
+                  earlier: [{what: raised an exception, n: 2}]
+                  retrying: 0
+                  versions: [{version: 1.4.2, count: 1, firstMs: 1794852337425, lastMs: 1794852337425}]
+                dead_letter_queues:
+                - key: 000000000000//payments-dlq
+                  name: payments-dlq
+                  account: '000000000000'
+                  region: null
+                  messageIds: [m-pay-2]
+                  sources: [payments]
+                  newest: 1794852337425
+                cause: null
+                listed: 1
+                messages:
+                - message_id: m-pay-2
+                  state: not_deleted
+                  source_queue: payments
+                  current_queue: payments-dlq
+                  in_dead_letter_queue: true
+                  dead_letter_queue_move: observed
+                  deliveries: 3
+                  successful_deliveries: 0
+                  consumers:
+                  - service_name: orders-worker
+                    client_id: 999116e7-988b-43d2-89b1-06277f0766e4
+                    service_version: 1.4.2
+                  first_seen: '2026-11-16T18:05:36.914000Z'
+                  first_seen_clock: host
+                  last_seen: '2026-11-16T18:05:37.425000Z'
+                  age_s: 173861.197
+                  age_across_clocks: false
+                  cause: 7fc2a3d79616
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/tenants:
     get:
       operationId: list-tenants
@@ -1273,6 +1380,110 @@ components:
               age_s: {type: number, description: Seconds since the message was first seen.}
               age_across_clocks: {type: boolean, description: 'True when `first_seen` is on SQS''s clock. The age then compares SQS''s clock with the server''s, so it includes any skew between them.'}
         next_cursor: {$ref: '#/components/schemas/NextCursor'}
+    CausePage:
+      type: object
+      additionalProperties: false
+      required: [older_than_s, from_ms, to_ms, capped, read_limit, total, in_dead_letter_queue, groups, dead_letter_queues, cause, listed, messages]
+      properties:
+        older_than_s: {type: integer, description: 'The age threshold the request used, in seconds.'}
+        from_ms: {type: [integer, 'null'], description: 'The range''s start the request used, or null.'}
+        to_ms: {type: [integer, 'null'], description: 'The range''s end the request used, or null.'}
+        capped: {type: boolean, description: 'More messages are stuck than `read_limit`; the groups are of the oldest `read_limit`.'}
+        read_limit: {type: integer, description: How many stuck messages are read at most.}
+        total: {type: integer, description: How many stuck messages the groups count.}
+        in_dead_letter_queue: {type: integer, description: Of those, how many are in a dead-letter queue.}
+        groups:
+          type: array
+          items: {$ref: '#/components/schemas/CauseGroup'}
+        dead_letter_queues:
+          type: array
+          description: The messages in a dead-letter queue, grouped by that queue, the most messages first.
+          items: {$ref: '#/components/schemas/DeadLetterQueueGroup'}
+        cause: {type: [string, 'null'], description: The `cause` the request asked for, or null.}
+        listed: {type: integer, description: 'How many messages `messages` would hold with no `limit`.'}
+        messages:
+          type: array
+          items:
+            allOf: [{$ref: '#/components/schemas/MessageSummary'}]
+            unevaluatedProperties: false
+            required: [age_s, age_across_clocks, cause]
+            properties:
+              age_s: {type: number, description: Seconds since the message was first seen.}
+              age_across_clocks: {type: boolean, description: 'True when `first_seen` is on SQS''s clock.'}
+              cause: {type: string, description: 'The `id` of the message''s group.'}
+    CauseGroup:
+      type: object
+      additionalProperties: false
+      description: One cause. Times are Unix milliseconds, on the clock of the host that reported the evidence; null when no evidence had a time.
+      required: [id, key, kind, signature, label, basis, inferred, why, queue, queueKey, consumer, outcome, count, counts, dlqInferred, firstMs, lastMs, times, tenants, sampleError, sampleMid, examples, earlier, retrying, versions]
+      properties:
+        id: {type: string, description: 'The first 12 hex characters of the sha256 of `key`. Stable across reads and servers.'}
+        key: {type: string, description: 'v1|source queue key|consumer|signature.'}
+        kind:
+          type: string
+          description: What went wrong. `filter`, `fn_timeout` and `fn_oom` come from the AWS account's records and appear only in the hosted app; `fifo_blocked` needs FIFO message groups, which the server doesn't store.
+          enum: [filter, fn_timeout, fn_oom, exc, invalid_batch_response, reported_failure, no_outcome, delete_failed, not_deleted, in_flight, fifo_blocked, never_received]
+        signature: {type: string, description: The kind plus what tells two of a kind apart (exception class and error-text fingerprint, error code).}
+        label: {type: string, description: The cause in words. Inferred ones say so.}
+        basis: {type: string, enum: [spans, function logs, CloudTrail, inferred]}
+        inferred: {type: boolean}
+        why: {type: [string, 'null'], description: Why an inferred cause is thought so.}
+        queue: {type: string, description: The source queue.}
+        queueKey: {type: string, description: 'The source queue''s account/region/name, from its URL, else its URL or name.'}
+        consumer: {type: string, description: The consumer's service name; empty when there is none.}
+        outcome: {type: string, enum: [dead_lettered, stuck, filtered], description: The worst outcome among the group's messages.}
+        count: {type: integer}
+        counts:
+          type: object
+          additionalProperties: false
+          required: [dead_lettered, stuck, filtered]
+          properties:
+            dead_lettered: {type: integer}
+            stuck: {type: integer}
+            filtered: {type: integer}
+        dlqInferred: {type: integer, description: 'Of `counts.dead_lettered`, those inferred from maxReceiveCount, not seen on the dead-letter queue yet.'}
+        firstMs: {type: [number, 'null']}
+        lastMs: {type: [number, 'null']}
+        times: {type: array, items: {type: number}, description: 'Each message''s evidence time, for a trend over any window.'}
+        tenants: {type: array, items: {type: string}}
+        sampleError: {type: [string, 'null'], description: The newest error text, as stored (redacted by the package).}
+        sampleMid: {type: string, description: The message the newest evidence is from.}
+        examples: {type: array, items: {type: string}, description: 'Up to 50 message IDs, newest evidence first.'}
+        earlier:
+          type: array
+          description: The failures earlier deliveries had, with how many messages had them.
+          items:
+            type: object
+            additionalProperties: false
+            required: [what, n]
+            properties:
+              what: {type: string}
+              n: {type: integer}
+        retrying: {type: integer, description: 'Messages still on their queue whose latest delivery failed, received twice or more.'}
+        versions:
+          type: array
+          description: The consumer service.versions the cause was seen on, first seen first.
+          items:
+            type: object
+            additionalProperties: false
+            required: [version, count, firstMs, lastMs]
+            properties:
+              version: {type: string}
+              count: {type: integer}
+              firstMs: {type: [number, 'null']}
+              lastMs: {type: [number, 'null']}
+    DeadLetterQueueGroup:
+      type: object
+      additionalProperties: false
+      required: [key, name, account, region, messageIds, sources, newest]
+      properties:
+        key: {type: string, description: account/region/name.}
+        name: {type: string}
+        account: {type: [string, 'null'], description: 'From the source queue''s URL.'}
+        region: {type: [string, 'null']}
+        messageIds: {type: array, items: {type: string}}
+        sources: {type: array, items: {type: string}, description: The queues the messages came from.}
+        newest: {type: [integer, 'null'], description: 'When any of its messages was last seen, Unix ms.'}
     Timeline:
       type: object
       additionalProperties: false
