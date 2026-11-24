@@ -31,7 +31,7 @@ import threading
 import time
 from typing import Callable, Iterable, Iterator, Optional
 
-from . import body_table, migrations, purge, rollup, summary_table
+from . import body_table, migrations, purge, rollup, sns, summary_table
 from .otlp import RECORD_FIELDS
 from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store, StoreFull,
                     StuckCandidate, TenantActivity, WriterBusy)
@@ -351,6 +351,8 @@ class SqliteStore(Store):
         for r in records:
             own, kind = r.get("message_id"), r["kind"]
             mid, mid_source, receive_row = own, "span" if own else None, None
+            if kind == sns.KIND:  # an SNS message ID: the publish belongs to no message (store.py, Publishes)
+                mid = mid_source = None
             join_s = 0.0
             if kind in SETTLE_KINDS:  # joined first, so the row is written once, joined
                 j0 = time.perf_counter()
@@ -582,6 +584,60 @@ class SqliteStore(Store):
                           f"WHERE kind = 'purge' AND queue IN ({', '.join('?' * len(queues))}) ORDER BY time_ns, row",
                           tuple(queues))
 
+    # SNS fan-out (contract section 20). Each lookup is by one of the partial indexes of migrations.SNS_INDEXES,
+    # named with INDEXED BY so a plan that scanned spans fails instead of running.
+    def publishes(self, keys) -> list[sqlite3.Row]:
+        if not keys:
+            return []
+        cols = ", ".join(sns.COLUMNS)
+        out = {}
+        if keys.envelope:
+            ids = sorted({m for _, m in keys.envelope})
+            for r in self.query(f"SELECT {cols} FROM spans INDEXED BY spans_publish_msg WHERE kind = 'publish' "
+                                f"AND message_id IN (SELECT value FROM json_each(?))", (json.dumps(ids),)):
+                out[r["row"]] = r
+        if keys.publish_ids:
+            for r in self.query(f"SELECT {cols} FROM spans INDEXED BY spans_sns_pid "
+                                f"WHERE kind IN ('publish', 'receive') AND {migrations.SNS_PID} IS NOT NULL "
+                                f"AND {migrations.SNS_PID} IN (SELECT value FROM json_each(?)) AND kind = 'publish'",
+                                (json.dumps(sorted(keys.publish_ids)),)):
+                out[r["row"]] = r
+        rows = [r for r in out.values() if sns.join_of(keys, r)]
+        return sorted(rows, key=lambda r: (r["time_ns"], r["row"]))[:sns.MAX_PUBLISHES]
+
+    def sns_receivers(self, keys) -> list[sqlite3.Row]:
+        if not keys:
+            return []
+        cols = "row, mid, queue, time_ns, attributes"
+        out: dict = {}
+        if keys.envelope:
+            ids = sorted({m for _, m in keys.envelope})
+            for r in self.query(f"SELECT {cols} FROM spans INDEXED BY spans_receive_sns "
+                                f"WHERE kind = 'receive' AND {migrations.SNS_MSG} IS NOT NULL "
+                                f"AND {migrations.SNS_MSG} IN (SELECT value FROM json_each(?))", (json.dumps(ids),)):
+                if sns.receive_keys(r)[0] in keys.envelope:
+                    out[r["row"]] = {"row": r["row"], "mid": r["mid"], "queue": r["queue"], "time_ns": r["time_ns"],
+                                     "by": sns.BY_ENVELOPE}
+        if keys.publish_ids:
+            for r in self.query(f"SELECT {cols} FROM spans INDEXED BY spans_sns_pid "
+                                f"WHERE kind IN ('publish', 'receive') AND {migrations.SNS_PID} IS NOT NULL "
+                                f"AND {migrations.SNS_PID} IN (SELECT value FROM json_each(?)) AND kind = 'receive'",
+                                (json.dumps(sorted(keys.publish_ids)),)):
+                if r["row"] not in out:
+                    out[r["row"]] = {"row": r["row"], "mid": r["mid"], "queue": r["queue"], "time_ns": r["time_ns"],
+                                     "by": sns.BY_PUBLISH_ID}
+        rows = [r for r in out.values() if r["mid"] is not None]
+        return sorted(rows, key=lambda r: (r["time_ns"], r["row"]))[:sns.MAX_REACHED]
+
+    def sent_messages(self, message_ids) -> set:
+        mids = sorted(set(message_ids))
+        if not mids:
+            return set()
+        rows = self.query("""SELECT DISTINCT m.mid FROM messages m, json_each(m.rows_json) j, spans s
+                             WHERE m.mid IN (SELECT value FROM json_each(?)) AND s.row = j.value AND s.kind = 'send'""",
+                          (json.dumps(mids),))
+        return {r["mid"] for r in rows}
+
     def summaries(self, message_ids: list[str]) -> list[sqlite3.Row]:
         if not message_ids:
             return []
@@ -751,9 +807,9 @@ _INSERT_COLUMNS = RECORD_FIELDS + ["attributes", "mid", "mid_source", "receive_r
 _INSERT_SQL = f"INSERT OR IGNORE INTO spans ({', '.join(_INSERT_COLUMNS)}) VALUES ({', '.join('?' * len(_INSERT_COLUMNS))})"
 
 AUTO_VACUUM_INCREMENTAL = 2  # PRAGMA auto_vacuum
-SPAN_KINDS = ("send", "receive", "delete", "change_visibility", "outcome", "purge")  # every kind a row can have
+SPAN_KINDS = ("send", "receive", "delete", "change_visibility", "outcome", "purge", "publish")  # every kind a row can have
 # Rows that belong to no message by design or until joined: retention takes each by its own time and queue.
-LOOSE_KINDS = SETTLE_KINDS + ("purge",)
+LOOSE_KINDS = SETTLE_KINDS + ("purge", "publish")
 def _prefetch_delete(c: sqlite3.Connection, mids: list, rows: list) -> None:
     """Read every page purge_step's delete of these messages and unjoined rows will change: the rows, an entry
     in each index of spans (the UNIQUE one too), the foreign-key lookup of their settle spans, and the summary

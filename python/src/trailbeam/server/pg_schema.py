@@ -50,6 +50,9 @@ before this version (0.3.0 and earlier) refuses the database from then on.
 **Purges** (version 9, QV-245). ``purges``: the PurgeQueue calls (contract section 18), not partitioned: they
 belong to no message, and every list page reads them by queue.
 
+**SNS fan-out** (version 10, QV-313). ``sns_publishes`` and ``sns_receives``: the SNS publishes (contract section
+20) and, by key, the receives they reached; not partitioned, like ``purges``.
+
 **Message-ID indexes** (version 3, QV-118). ``message_queues``, ``message_tenants`` and ``tenant_events`` are
 indexed by ``mid``, so rewriting a message's summary deletes its old list rows by index instead of scanning its
 place's partition.
@@ -92,6 +95,42 @@ CREATE TABLE IF NOT EXISTS purges (
     UNIQUE (trace_id, span_id, time_ns)
 );
 CREATE INDEX IF NOT EXISTS purges_queue ON purges (queue, start_ns);
+"""
+
+# Version 10 (QV-313): SNS fan-out (contract section 20). ``sns_publishes``: one row per SNS message a Publish or
+# PublishBatch sent, with the keys a receive joins it by (``topic_arn`` and ``message_id``, ``publish_id``).
+# ``sns_receives``: one row per (key, message) for each receive carrying a key, ``key`` being ``e:<topic ARN>
+# <SNS message ID>`` or ``p:<publish ID>``: the receives a publish reached, which the spans' places can't be searched
+# for. Neither is partitioned: a publish belongs to no message and its receives to any place. Retention deletes both
+# by their own time against their topic's or queue's cutoff (postgres.py, purge_step); a receive's row expires no
+# later than its message. ``id`` orders publishes as ``row`` orders spans.
+SNS = """
+CREATE TABLE IF NOT EXISTS sns_publishes (
+    id BIGSERIAL PRIMARY KEY,
+    trace_id TEXT NOT NULL, span_id TEXT NOT NULL,
+    start_ns BIGINT, time_ns BIGINT NOT NULL,
+    service_name TEXT, source TEXT, operation TEXT,
+    queue TEXT NOT NULL,                  -- the topic's name
+    message_id TEXT COLLATE "C" NOT NULL, -- the SNS message ID
+    topic_arn TEXT COLLATE "C" NOT NULL,
+    publish_id TEXT COLLATE "C",
+    batch_entry_id TEXT,
+    client_id TEXT, pid BIGINT, thread_name TEXT,
+    order_scope TEXT, order_issued BIGINT, order_returned BIGINT,
+    attributes TEXT NOT NULL,
+    UNIQUE (trace_id, span_id, time_ns)
+);
+CREATE INDEX IF NOT EXISTS sns_publishes_message ON sns_publishes (topic_arn, message_id);
+CREATE INDEX IF NOT EXISTS sns_publishes_publish_id ON sns_publishes (publish_id) WHERE publish_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS sns_publishes_time ON sns_publishes (time_ns);
+CREATE TABLE IF NOT EXISTS sns_receives (
+    key TEXT COLLATE "C" NOT NULL,
+    mid TEXT COLLATE "C" NOT NULL,
+    queue TEXT NOT NULL,
+    time_ns BIGINT NOT NULL,              -- the newest receive of the message with the key
+    PRIMARY KEY (key, mid)
+);
+CREATE INDEX IF NOT EXISTS sns_receives_time ON sns_receives (time_ns);
 """
 
 SEALING = """
@@ -290,7 +329,7 @@ CREATE TABLE IF NOT EXISTS hash_places (
     bucket BIGINT NOT NULL,
     PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
 ) PARTITION BY RANGE (rclass, bucket);
-""" + SEALING + PROBES + account_tables.PG_CREATE + PURGES + """CREATE TABLE IF NOT EXISTS schema_version (
+""" + SEALING + PROBES + account_tables.PG_CREATE + PURGES + SNS + """CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
     name TEXT NOT NULL,
@@ -543,8 +582,9 @@ MIGRATIONS: tuple = (
     Migration(7, "FIFO deduplicated sends out of the tenant events (QV-246)", (), per_place=(_dedup_place,)),
     Migration(8, "users, sessions and tokens (QV-225)", tuple(statements(account_tables.PG_CREATE))),
     Migration(9, "purges: the PurgeQueue calls (QV-245)", tuple(statements(PURGES))),
+    Migration(10, "SNS publishes and the receives they reached (QV-313)", tuple(statements(SNS))),
 )
-LATEST = 9
+LATEST = 10
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 

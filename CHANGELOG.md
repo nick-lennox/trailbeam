@@ -3,14 +3,40 @@
 ## Unreleased
 
 - **SNS fan-out: messages that came through an SNS topic get their sender** (QV-313, contract revision 3.4; in
-  progress: the packages are done, the server and UI are not yet). The Python and Node.js packages record SNS
+  progress: the packages and the server are done, the web UI is not yet). The Python and Node.js packages record SNS
   `Publish` and `PublishBatch` to a topic as a `trailbeam publish` span (`trailbeam.kind = sns.publish`) with the SNS
   message ID and `aws.sns.topic.arn`. Receives carry what joins them to it: the `trailbeam.publish_id` message
   attribute the publish hooks add (raw delivery on; skipped when the message already has 10 attributes, would pass
   256 KiB or uses `MessageStructure: json`; `TRAILBEAM_SNS_INJECT=off` turns it off), and, with raw delivery off,
   three fields of the SNS envelope: `MessageId`, `TopicArn` and `Timestamp`. These three are read on every queue,
-  including queues whose body is not captured. Nothing else in the body is read, and the body is never exported. Node.js: pass an `SNSClient` to `instrument`. Until the server reads them, a
-  server rejects the publish span as an unknown kind (one rejected span in `partial_success`) and stores the rest.
+  including queues whose body is not captured. Nothing else in the body is read, and the body is never exported. Node.js: pass an `SNSClient` to `instrument`. The server stores publishes apart from messages
+  (SQLite schema 16: three partial indexes, built from one scan of `spans`; Postgres schema 10: `sns_publishes` and
+  `sns_receives`) and joins them when a message is read: its timeline gets a `published` step with the SQS messages
+  the publish reached, by queue, and the SNS delivery time (`SentTimestamp` minus the envelope's `Timestamp`, both
+  AWS clocks). A message whose envelope names a topic but joins no recorded publish gets `arrived_via_sns`, placed
+  before that receive. `/api/stats` counts `spans.publish`. A server before 3.4 rejects the publish span as an
+  unknown kind (one rejected span in `partial_success`) and stores the rest.
+
+- **Java package, stage 1** (QV-319, pre-release, not published). `java/` is a jar for the AWS SDK for Java v2:
+  add it as a dependency and a global `ExecutionInterceptor` (registered through the SDK's classpath file, no code)
+  emits the contract's send, receive, delete, change-visibility and purge spans, with the keyed receipt-handle
+  hash, receive count, dead-letter source ARN, per-entry results, call-order ticks, body size and FIFO fields. It
+  has its own always-on tracer provider with a relocated OpenTelemetry SDK (1.4 MB jar). The parent comes from the
+  stock instrumentation's trace header, so interceptor order doesn't matter. A hand registration on top of the
+  global one emits each span once. A Java driver for the conformance kit passes it in CI alone, beside the
+  OpenTelemetry Java agent 2.34.0 (also sampled to 0) and beside dd-java-agent 1.69.1. Not yet built: body capture
+  and tenants, the Lambda wrapper, the SDK version matrix, a strict parent check for the agent variants, and
+  Maven Central.
+
+- **Conformance kit for Trailbeam packages** (QV-318, stage 1). `conformance/` runs a language package's small
+  driver through one scripted scenario (send, batch send, receive, delete, batch delete with a failed entry,
+  visibility-timeout retry, dead-letter move, ChangeMessageVisibility and its batch form, a failing delete,
+  PurgeQueue) against ElasticMQ, collects its spans through an OpenTelemetry Collector, and checks them against
+  the span contract with no per-language logic: one span per message, required attributes and types, the
+  receipt-handle HMAC recomputed from the driver's ground truth, call-order ticks, no handle or key exported.
+  Each driver runs alone, beside the application's own OpenTelemetry, with the application's sampler at 0, and
+  with body capture on; agents are configured per variant. A failing package gets a report per call. The Python
+  and Node.js packages pass it in CI. The Lambda wrapper (through the Runtime Interface Emulator) is stage 2.
 
 - **Purged messages no longer show as stuck** (QV-245, contract revision 3.3). The Python and Node.js packages
   record `PurgeQueue` calls (a `trailbeam purge` span, `trailbeam.kind = sqs.purge`, contract section 18), and

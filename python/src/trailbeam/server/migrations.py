@@ -100,6 +100,18 @@ CREATE INDEX IF NOT EXISTS spans_unjoined_hash ON spans (receipt_hmac, key_id)
 CREATE INDEX IF NOT EXISTS spans_kind_time ON spans (kind, time_ns);
 CREATE INDEX IF NOT EXISTS spans_receive_row ON spans (receive_row) WHERE receive_row IS NOT NULL;
 """
+# The SNS fan-out indexes (schema 16, QV-313, contract section 20): publishes by SNS message ID, and publishes and
+# receives by the attributes that join them. Partial, so a span without SNS keys has no entry in them; the publish
+# ID and envelope message ID stay in ``attributes`` (no column), and these expressions are how the queries in db.py
+# name them. Not in SPANS_INDEXES, which migration 11 builds.
+SNS_PID = """json_extract(attributes, '$."trailbeam.sns.publish_id"')"""
+SNS_MSG = """json_extract(attributes, '$."trailbeam.sns.message_id"')"""
+SNS_INDEXES = f"""
+CREATE INDEX IF NOT EXISTS spans_publish_msg ON spans (message_id) WHERE kind = 'publish';
+CREATE INDEX IF NOT EXISTS spans_sns_pid ON spans ({SNS_PID})
+    WHERE kind IN ('publish', 'receive') AND {SNS_PID} IS NOT NULL;
+CREATE INDEX IF NOT EXISTS spans_receive_sns ON spans ({SNS_MSG}) WHERE kind = 'receive' AND {SNS_MSG} IS NOT NULL;
+"""
 SPANS_COLUMNS = ("row, trace_id, span_id, kind, time_ns, start_ns, service_name, source, operation, queue, queue_url, "
                  "message_id, receipt_hmac, key_id, receive_count, sent_ts_ms, first_receive_ts_ms, dlq_source_arn, "
                  "result, error_code, visibility_timeout, outcome, error_type, batch_entry_id, client_id, pid, "
@@ -113,7 +125,7 @@ CREATE TABLE IF NOT EXISTS probes (id TEXT PRIMARY KEY, received_ns INTEGER NOT 
 """
 
 # The schema a new file gets: the result of every migration below.
-CREATE = SPANS_TABLE.format(name="spans") + SPANS_INDEXES + """
+CREATE = SPANS_TABLE.format(name="spans") + SPANS_INDEXES + SNS_INDEXES + """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """ + """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -166,6 +178,9 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # rollup's deltas). Rare: other messages are not read past their summary row.
 # Schema 15 (QV-225) adds the tables of people and tokens (account_tables.py), empty. It changes no span data. A
 # Trailbeam before it (0.3.0 and earlier) refuses the file from then on.
+# Schema 16 (QV-313) adds the SNS fan-out indexes (SNS_INDEXES). Publish spans are rows of spans (kind 'publish', no
+# mid); no file before it has any, and no receive before it carries the SNS attributes, so the indexes are built
+# from one scan of spans and start empty. It changes no span data.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new"))
                   + [f"INSERT INTO spans_new ({SPANS_COLUMNS}) SELECT {SPANS_COLUMNS} FROM spans ORDER BY row",
                      "DROP TABLE spans",
@@ -237,6 +252,7 @@ MIGRATIONS = (
     Migration(13, "probes (trailbeam doctor)", tuple(statements(PROBES_CREATE))),
     Migration(14, "FIFO deduplicated sends out of the tenant events", (), run=_to_14),
     Migration(15, "users, sessions and tokens", tuple(statements(account_tables.SQLITE_CREATE))),
+    Migration(16, "SNS fan-out indexes", tuple(statements(SNS_INDEXES))),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

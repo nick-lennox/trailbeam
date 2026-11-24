@@ -1038,6 +1038,14 @@ option (20.3).
 - SNS can deliver one publish to a queue more than once [not checked for 3.4: standard topics are documented as
   at-least-once]. Each delivery is its own SQS message; each joins the publish.
 
+In the API (`GET /api/messages/{message_id}`, [`openapi.yaml`](openapi.yaml)) the publish is a `published` step
+(`source: sns_publish`, `joined_by`, `reached`, `sns_delivery_ms` when joined through the envelope) and the arrival
+an `arrived_via_sns` step (`source: sns_envelope`, a window ending at the receive, no time of its own). A publish is
+the topic's step, not the message's: it does not change the message's first seen, last seen, state or list pages.
+Each store keeps publishes apart from messages, like purges (SQLite: rows of `spans` with no message, schema 16;
+Postgres: `sns_publishes` and `sns_receives`, schema 10), and retention drops a publish by its own time against the
+cutoff of the topic's name (`--retention-queues` takes it like a queue name).
+
 ### 20.6 Verified and not verified
 
 Verified:

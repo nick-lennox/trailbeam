@@ -24,6 +24,7 @@ from typing import Optional
 
 from . import order as order_mod
 from . import purge as purge_mod
+from . import sns as sns_mod
 from .otlp import DEFAULT_KEY_ID
 
 DEFAULT_LAMBDA_TIMEOUT_S = 900  # the longest Lambda timeout; Trailbeam does not know the real one
@@ -108,10 +109,12 @@ def _inferred(type_: str, frm: Optional[int], to: Optional[int], reason: str, **
 
 
 def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S,
-          max_receive_counts: Optional[dict] = None, purges=()) -> dict:
+          max_receive_counts: Optional[dict] = None, purges=(), publishes=()) -> dict:
     """``rows``: every stored row of one message (Store.message_rows), any order. ``max_receive_counts``:
     queue name -> the maxReceiveCount of its redrive policy, as configured (spans don't carry it). ``purges``:
-    purge rows (Store.purges) that include those of the message's current queue (contract section 18)."""
+    purge rows (Store.purges) that include those of the message's current queue (contract section 18).
+    ``publishes``: the SNS publishes this message's receives join (contract section 20.5), as queries.message gives
+    them: each ``{"publish": row, "joined_by": [...], "reached": [...], "reached_truncated": bool}``."""
     rows = sorted(rows, key=lambda r: (r["time_ns"], r["row"]))
     mid = rows[0]["mid"]
     receives = [r for r in rows if r["kind"] == "receive"]
@@ -275,6 +278,21 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
         if verdict.status == purge_mod.PURGED:
             state = purge_mod.PURGED
 
+    # ---- SNS fan-out (contract section 20.5) --------------------------------------------------------
+    # A joined publish is an observed step, placed by the proven order (clock and process_order only: SNS's and
+    # SQS's timestamps are never compared with a host clock). Without one, a receive whose envelope names a topic
+    # shows that SNS delivered it, placed before that receive only.
+    delivery = sns_mod.delivery_ms(receives)
+    if publishes:
+        prows = [sns_mod.as_row(x["publish"]) for x in publishes]
+        steps = steps + prows
+        observed.extend(_publish_event(prow, x, delivery) for prow, x in zip(prows, publishes))
+        order = order_mod.Order(steps)
+        idx = {r["row"]: i for i, r in enumerate(steps)}
+    elif (arrived := sns_mod.arrived_from(receives)) is not None:
+        r, arn = arrived
+        infer(None, r, 1, _arrived_event(r, arn, by_row[r["row"]], delivery))
+
     evs, n_groups, order_doc = _arrange(steps, observed, inferred, order, idx)
     dlqs = {b["queue"] for _, b, _ in moves}
     mrc = (max_receive_counts or {}).get(source_queue)
@@ -332,6 +350,52 @@ def _purge_event(prow, status: str) -> dict:
             "process_order": _ticks(prow), "result": prow["result"], "removal": removal, "reason": reason}
 
 
+PUBLISH_SOURCE = "sns_publish"    # a recorded SNS publish this message's receives join (contract section 20.5)
+SNS_ENVELOPE_SOURCE = "sns_envelope"  # SNS delivered the message: its receive's envelope names the topic
+
+
+def _publish_event(prow, joined: dict, delivery: Optional[int]) -> dict:
+    """A recorded SNS publish this message's receives join, as a step of its timeline."""
+    a = sns_mod.attributes(prow)
+    arn = a.get(sns_mod.TOPIC_ARN)
+    topic = sns_mod.topic_name(arn)
+    by = joined["joined_by"]
+    how = ("the SNS message ID in the envelope of its receive" if by == [sns_mod.BY_ENVELOPE] else
+           "the trailbeam.publish_id attribute its receive carries" if by == [sns_mod.BY_PUBLISH_ID] else
+           "the SNS message ID in its envelope and the trailbeam.publish_id attribute")
+    ev = {"type": "published", "inferred": False, "source": PUBLISH_SOURCE, **_time(prow["start_ns"], prow["time_ns"]),
+          "group": None, "queue": topic, "consumer": consumer(prow), "span": _span(prow),
+          "process_order": _ticks(prow), "topic": topic, "topic_arn": arn, "sns_message_id": prow["message_id"],
+          "joined_by": by, "reached": joined["reached"], "reached_truncated": joined["reached_truncated"],
+          "reason": f"Published to topic {topic}. This message is joined to the publish by {how}."}
+    if isinstance(a.get(sns_mod.PUBLISH_ID), str):
+        ev["publish_id"] = a[sns_mod.PUBLISH_ID]
+    if prow["batch_entry_id"]:
+        ev["batch_entry_id"] = prow["batch_entry_id"]
+    if delivery is not None and sns_mod.BY_ENVELOPE in by:
+        ev["sns_delivery_ms"] = delivery
+    return ev
+
+
+def _arrived_event(r, arn: str, delivery_no: int, delivery: Optional[int]) -> dict:
+    """SNS delivered this message, and no recorded publish joins it (the publisher runs no Trailbeam package)."""
+    topic = sns_mod.topic_name(arn)
+    e, _ = sns_mod.receive_keys(r)
+    ts = sns_mod.envelope_timestamp_ms(r)
+    ev = {"type": "arrived_via_sns", "inferred": False, "source": SNS_ENVELOPE_SOURCE, "time": None,
+          "window": {"from": None, "to": iso(r["time_ns"])}, "topic": topic, "topic_arn": arn,
+          "sns_message_id": e[1], "reported_on_delivery": delivery_no,
+          "reason": f"The SNS envelope of receive {delivery_no} names topic {topic}: SNS delivered this message to "
+                    f"{r['queue']}. The publish is not recorded (its publisher runs no Trailbeam package, or its "
+                    f"span was lost), so the step has no time of its own; it came before that receive."}
+    if ts is not None:
+        ev["sns_timestamp"] = iso(ts * 1_000_000)
+        ev["sns_timestamp_ms"] = ts
+    if delivery is not None:
+        ev["sns_delivery_ms"] = delivery
+    return ev
+
+
 def _arrange(rows: list, observed: list[dict], inferred: list, order: "order_mod.Order",
              idx: dict) -> tuple[list[dict], int, dict]:
     """Put observed and inferred events in display order, number their groups, give each event an ``id``
@@ -370,6 +434,11 @@ def _arrange(rows: list, observed: list[dict], inferred: list, order: "order_mod
                 src = "inferred_from"
                 why_a = f"Inferred from {_label(events[a])}: it came after it." if a is not None else ""
                 why_b = f"Inferred from {_label(events[b])}: it came before it." if b is not None else ""
+            elif ev["source"] == SNS_ENVELOPE_SOURCE:  # arrived via SNS (contract section 20.5)
+                src = SNS_ENVELOPE_SOURCE
+                why_a = ""
+                why_b = (f"The SNS envelope of {_label(events[b])} names topic {ev['topic']}: SNS delivered the "
+                         f"message before that receive.") if b is not None else ""
             else:  # the observed move to a dead-letter queue (contract section 9b)
                 src = DLQ_SOURCE
                 frm = ev["from_queue"]
@@ -413,6 +482,8 @@ def _label(ev: dict) -> str:
         return "the Lambda outcome" + of
     if t == "queue_purged":
         return "the purge of the queue"
+    if t == "published":
+        return f"the publish to topic {ev['topic']}"
     return t.replace("_", " ")
 
 

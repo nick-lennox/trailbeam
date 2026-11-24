@@ -145,6 +145,37 @@ class Consumer:
             a["trailbeam.error_code"] = error
         return self._s("trailbeam purge", t, a, start=start, order=order)
 
+    def publish(self, t, sns_id, topic="orders-topic", publish_id=None, skipped=None, batch_entry=None, start=None,
+                order=None, account="111122223333"):
+        """A trailbeam publish (contract section 20.1): one SNS message, to ``topic``."""
+        arn = f"arn:aws:sns:us-east-1:{account}:{topic}"
+        a = {"trailbeam.schema_version": 3, "trailbeam.kind": "sns.publish", "trailbeam.source": self.source,
+             "messaging.system.name": "aws.sns", "messaging.operation.type": "send",
+             "messaging.operation.name": "PublishBatch" if batch_entry else "Publish",
+             "messaging.destination.name": topic, "aws.sns.topic.arn": arn, "messaging.message.id": sns_id,
+             "messaging.client.id": self.client_id, "process.pid": 4242, "thread.name": "worker-1"}
+        if publish_id:
+            a["trailbeam.sns.publish_id"] = publish_id
+        if skipped:
+            a["trailbeam.sns.publish_id_skipped"] = skipped
+        if batch_entry:
+            a["trailbeam.batch_entry_id"] = batch_entry
+        return self._s("trailbeam publish", t, a, start=start, order=order)
+
+    def sns_receive(self, t, mid, handle, sns_id=None, topic="orders-topic", publish_id=None, sns_ts_ms=None,
+                    account="111122223333", **kw):
+        """A receive of a message SNS delivered (contract section 20.3): with ``sns_id``, raw delivery off (the
+        envelope's MessageId, TopicArn and Timestamp); with ``publish_id``, raw delivery on."""
+        sp = self.receive(t, mid, handle, **kw)
+        if sns_id:
+            sp.attrs["trailbeam.sns.message_id"] = sns_id
+            sp.attrs["trailbeam.sns.topic_arn"] = f"arn:aws:sns:us-east-1:{account}:{topic}"
+            if sns_ts_ms is not None:
+                sp.attrs["trailbeam.sns.timestamp_ms"] = sns_ts_ms
+        if publish_id:
+            sp.attrs["trailbeam.sns.publish_id"] = publish_id
+        return sp
+
 
 def _value(v) -> AnyValue:
     if isinstance(v, bool):

@@ -31,6 +31,12 @@ sorted keys, bodies removed per ``store_bodies``), and these, which the Store se
 **Purges** (contract section 18, revision 3.3). A ``purge`` record (a ``PurgeQueue`` call) belongs to no message:
 SQS does not say which messages it deleted. A Store keeps it with its queue and times (``purges``) and drops it by
 its own time against its queue's cutoff, like an unjoined settle span; what it means for a message is purge.py.
+
+**Publishes** (contract section 20, revision 3.4). A ``publish`` record (one message of an SNS ``Publish`` or
+``PublishBatch``) belongs to no message either: one publish reaches each subscribed queue as a different SQS
+message. Its ``message_id`` is the SNS message ID, its ``queue`` the topic name, and it never has a ``mid``. A Store
+keeps it, finds it by its keys (``publishes``), finds the receives that carry those keys (``sns_receivers``), and
+drops it by its own time against its topic name's cutoff, like a purge; what a join means is sns.py.
 """
 from __future__ import annotations
 
@@ -223,6 +229,26 @@ class Store(abc.ABC):
         (time_ns, row); ``row`` is unique among purges. Few: one per PurgeQueue call. Not abstract, so a store
         written before revision 3.3 still loads: by default, none."""
         return []
+
+    def publishes(self, keys) -> list[Row]:
+        """The publish records (contract section 20) with one of these keys (sns.Keys): an envelope key
+        ``(topic_arn, sns_message_id)`` equal to their ``(aws.sns.topic.arn, message_id)``, or a publish ID equal
+        to their ``trailbeam.sns.publish_id``. Every column of sns.COLUMNS, by (time_ns, row), at most
+        sns.MAX_PUBLISHES; ``row`` is unique among publishes. Not abstract, so a store written before revision 3.4
+        still loads: by default, none."""
+        return []
+
+    def sns_receivers(self, keys) -> list[Row]:
+        """The receives that carry one of these keys (sns.Keys) as ``trailbeam.sns.topic_arn`` and
+        ``trailbeam.sns.message_id``, or as ``trailbeam.sns.publish_id``: one mapping per receive with ``mid``,
+        ``queue``, ``time_ns``, ``row`` and ``by`` (sns.BY_ENVELOPE when its envelope key is one of ``keys``, else
+        sns.BY_PUBLISH_ID), by (time_ns, row), at most sns.MAX_REACHED. ``row`` identifies the receive within this
+        answer. By default, none."""
+        return []
+
+    def sent_messages(self, message_ids) -> set:
+        """Those of these messages that have a send span. By default from message_rows, one message at a time."""
+        return {m for m in set(message_ids) if any(r["kind"] == "send" for r in self.message_rows(m))}
 
     @abc.abstractmethod
     def summaries(self, message_ids: list[str]) -> list[Summary]:

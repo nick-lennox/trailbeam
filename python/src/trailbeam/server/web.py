@@ -29,7 +29,7 @@ from typing import Callable, Iterable, Optional
 from urllib.parse import quote, urlencode
 
 from . import __version__
-from .timeline import DLQ_SOURCE, iso
+from .timeline import DLQ_SOURCE, SNS_ENVELOPE_SOURCE, iso
 
 Response = tuple[int, dict, bytes]
 
@@ -62,6 +62,8 @@ EVENT_LABELS = {
     "deleted_by_lambda": "Deleted by Lambda",
     "lambda_invocation_ended_without_outcome": "Lambda invocation ended without an outcome",
     "queue_purged": "Queue purged (PurgeQueue)",
+    "published": "Published to SNS topic",
+    "arrived_via_sns": "Arrived via SNS topic",
 }
 
 DLQ_MOVE_LABELS = {
@@ -374,7 +376,7 @@ def _ns_of_iso(s: Optional[str]) -> Optional[int]:
 def _span_of(e: dict) -> tuple[Optional[int], Optional[int], bool]:
     """(from, to, is_window) in ns on the hosts' clocks: an observed step's interval, or the window of an
     inferred step or of a move to a dead-letter queue (which SQS gives no time). Either end may be unknown."""
-    if e.get("inferred") or e.get("source") == DLQ_SOURCE:
+    if e.get("inferred") or e.get("source") in (DLQ_SOURCE, SNS_ENVELOPE_SOURCE):
         w = e.get("window") or {}
         return _ns_of_iso(w.get("from")), _ns_of_iso(w.get("to")), True
     start = e.get("start_unix_nano")
@@ -443,7 +445,7 @@ def _why(e: dict, by_id: dict) -> list[str]:
     """One line per step this one is shown after, saying which observed fact proves it."""
     out = []
     entries = list(e.get("after") or [])
-    if e.get("source") == DLQ_SOURCE and e.get("before"):
+    if e.get("source") in (DLQ_SOURCE, SNS_ENVELOPE_SOURCE) and e.get("before"):
         entries.append(e["before"])
     for a in entries:
         src = a.get("sources") or [a.get("source")]
@@ -472,7 +474,9 @@ def _event(e: dict, by_id: Optional[dict] = None, bar: str = "") -> str:
     failed = e.get("result") == "failed" or (e["type"] == "lambda_outcome" and e.get("outcome") != "success")
     cls = ["event", "inferred" if inferred else "observed"] + (["failed"] if failed else [])
     head = []
-    reported = e.get("source") == DLQ_SOURCE  # observed, but SQS gives no time for it (contract 9b)
+    # observed, but with no time of its own: the DLQ move SQS reports (contract 9b), the SNS delivery an envelope
+    # reports (20.5)
+    reported = e.get("source") in (DLQ_SOURCE, SNS_ENVELOPE_SOURCE)
     if reported:
         cls.append("reported")
     if inferred:
@@ -492,7 +496,7 @@ def _event(e: dict, by_id: Optional[dict] = None, bar: str = "") -> str:
         out.append(f'<div class="reported-by"><strong>{escape(e.get("reported_by") or "")}</strong></div>')
     if details:
         out.append(f'<div class="detail">{" · ".join(details)}</div>')
-    if (inferred or reported or dedup or e["type"] == "queue_purged") and e.get("reason"):
+    if (inferred or reported or dedup or e["type"] in ("queue_purged", "published")) and e.get("reason"):
         out.append(f'<div class="reason">{escape(e["reason"])}</div>')
     out.extend(_why(e, by_id or {}))
     out.append("</li>")
@@ -508,8 +512,11 @@ def _details(e: dict) -> list[str]:
 
     if e.get("from_queue") or e.get("to_queue"):
         d.append(f'from <code>{escape(str(e.get("from_queue")))}</code> to <code>{escape(str(e.get("to_queue")))}</code>')
+    elif e.get("topic"):
+        d.append(f'topic <code>{escape(str(e["topic"]))}</code>')
     elif e.get("queue"):
         d.append(f'queue <code>{escape(e["queue"])}</code>')
+    add("SNS delivery ms", "sns_delivery_ms")
     add("delivery", "delivery")
     add("receive count", "receive_count")
     add("after delivery", "after_delivery")

@@ -15,7 +15,7 @@ import math
 from datetime import datetime, timedelta, timezone
 from typing import NamedTuple, Optional
 
-from . import bodies, rollup, summary, timeline
+from . import bodies, rollup, sns, summary, timeline
 from .store import Store
 from .summary import message_tenant, span_tenant  # noqa: F401  (part of this module's interface)
 
@@ -28,7 +28,35 @@ def message(db: Store, message_id: str, now_ns: int, lambda_timeout_s: int,
     rows = db.message_rows(message_id)
     if not rows:
         return None
-    return timeline.build(rows, now_ns, lambda_timeout_s, max_receive_counts, db.purges({r["queue"] for r in rows}))
+    return timeline.build(rows, now_ns, lambda_timeout_s, max_receive_counts, db.purges({r["queue"] for r in rows}),
+                          sns_publishes(db, rows))
+
+
+def sns_publishes(db: Store, rows) -> list[dict]:
+    """The SNS publishes one message's receives join (contract section 20.5), each with how and the SQS messages it
+    reached, by queue: what timeline.build takes as ``publishes``. A receiver joined only by publish ID is left out
+    when its message has a send, as the message itself would not join (sns.py)."""
+    keys = sns.message_keys(rows)
+    if not keys:
+        return []
+    out = []
+    for p, how in sns.joined(keys, db.publishes(keys)):
+        pkeys = sns.keys_of_publish(p)
+        receivers = db.sns_receivers(pkeys)
+        env_mids = {r["mid"] for r in receivers if r["by"] == sns.BY_ENVELOPE}
+        pid_only = {r["mid"] for r in receivers} - env_mids
+        sent = db.sent_messages(pid_only) if pid_only else set()
+        by_queue: dict[str, list[str]] = {}
+        for r in receivers:
+            if r["mid"] in sent and r["mid"] not in env_mids:
+                continue
+            q = by_queue.setdefault(r["queue"], [])
+            if r["mid"] not in q:
+                q.append(r["mid"])
+        out.append({"publish": p, "joined_by": how,
+                    "reached": [{"queue": q, "message_ids": m} for q, m in sorted(by_queue.items())],
+                    "reached_truncated": len(receivers) >= sns.MAX_REACHED})
+    return out
 
 
 class Page(NamedTuple):
