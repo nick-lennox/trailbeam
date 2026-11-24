@@ -1,0 +1,15 @@
+{
+  "name": "node-lambda",
+  "description": "trailbeam.wrapHandler (Node.js) in public.ecr.aws/lambda/nodejs:22, invoked through its Runtime Interface Emulator by the kit's event source mapping (drivers/lambda-poller). Needs Docker and boto3 in the kit's Python.",
+  "setup": ["{python}", "{kit}/drivers/lambda-poller/poller.py", "build", "--name", "node-lambda",
+            "--dockerfile", "{driver_dir}/Dockerfile", "--context", "node", "--context", "conformance/drivers/node-lambda"],
+  "command": ["{python}", "{kit}/drivers/lambda-poller/poller.py", "run", "--name", "node-lambda",
+              "--language", "node", "--runtime", "public.ecr.aws/lambda/nodejs:22"],
+  "variants": [
+    {"name": "alone", "parent": "any",
+     "about": "the wrapper with its defaults: no body capture, no error text"},
+    {"name": "capture", "parent": "any", "capture": true,
+     "env": {"TRAILBEAM_CAPTURE_BODY_QUEUES": "*", "TRAILBEAM_CAPTURE_ERROR_QUEUES": "*"},
+     "about": "body capture and error text on for every queue (contract 15): every receive carries the body, the thrown error's message is on its outcomes"}
+  ]
+}
