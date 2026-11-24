@@ -3,7 +3,7 @@ name: CI
 # Three tiers (QV-389), so a pull request waits only for the checks its change can break:
 #   1. every pull request, the fast core: Python 3.12, Node.js 22, the Postgres 16 store, the conformance kit,
 #      the shared UI and the container smoke test.
-#   2. when its paths change (the `changes` job below says which): Java, the examples and demo, Kubernetes and
+#   2. when its paths change (the `changes` job below says which): Java, Go, the examples and demo, Kubernetes and
 #      the team install, the collector configuration, the docs commands, and the second Python, Node.js and
 #      Postgres versions.
 #   3. everything, every night, on release/** branches, on a release tag (release.yaml calls this workflow
@@ -53,6 +53,7 @@ jobs:
       node_versions: ${{ steps.c.outputs.node_versions }}
       postgres_versions: ${{ steps.c.outputs.postgres_versions }}
       java: ${{ steps.c.outputs.java }}
+      go: ${{ steps.c.outputs.go }}
       examples: ${{ steps.c.outputs.examples }}
       deploy: ${{ steps.c.outputs.deploy }}
       collector: ${{ steps.c.outputs.collector }}
@@ -94,6 +95,7 @@ jobs:
             area node '^node/'
             area store '^python/src/trailbeam/server/|^python/tests/(server|conformance)/|^python/pyproject\.toml$|^contract/'
             area java '^java/|^conformance/(drivers/java|kit\.py|bench/|checker\.py)'
+            area go '^go/|^conformance/(drivers/go/|kit\.py|bench/|checker\.py)'
             # the client libraries the examples and demo use (the server is covered by the core jobs)
             area examples '^examples/|^demo/|^python/src/trailbeam/[^/]+\.py$|^python/pyproject\.toml$|^node/(src/|bin/|package)|^Dockerfile$'
             area deploy '^deploy/helm/|^docker-compose\.yaml$|^\.env\.example$|^Dockerfile$'
@@ -296,6 +298,52 @@ jobs:
             ${{ runner.temp }}/kit/*.driver.log
             ${{ runner.temp }}/kit/*.setup.log
             ${{ runner.temp }}/kit/*.function.log
+            ${{ runner.temp }}/kit/collector/spans.jsonl
+          if-no-files-found: ignore
+
+  go:
+    # Tier 2: when go/ or the kit changes.
+    # go/: the aws-sdk-go-v2 package (QV-321). Unit tests (contract vectors, a real sqs.Client over a canned HTTP
+    # layer) on Go 1.23 with the module's minimum SDK and OpenTelemetry versions, and on the newest Go; then the
+    # conformance kit's Go driver on the newest SDK: alone, beside otelaws (appended after Trailbeam's middleware,
+    # also with the application's sampler at 0, each with the strict parent check) and beside dd-trace-go v2.
+    name: Go package (unit tests and conformance kit)
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: go/go.sum
+      - name: Unit tests on Go 1.23, the module's minimum
+        working-directory: go
+        run: go vet ./... && go test -race -count=1 ./...
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache-dependency-path: |
+            go/go.sum
+            conformance/drivers/go/go.sum
+      - name: Unit tests on the newest Go
+        working-directory: go
+        run: test -z "$(gofmt -l .)" && go vet ./... && go test -race -count=1 ./...
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Go package on the bench (every variant; the driver's setup builds it)
+        run: python conformance/kit.py run conformance/drivers/go/driver.json --workdir "$RUNNER_TEMP/kit"
+      - name: Keep the report, driver logs and spans (not the ground truth, which holds the bench's raw receipt handles)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-kit-go
+          path: |
+            ${{ runner.temp }}/kit/report.json
+            ${{ runner.temp }}/kit/bench.log
+            ${{ runner.temp }}/kit/*.driver.log
+            ${{ runner.temp }}/kit/*.setup.log
             ${{ runner.temp }}/kit/collector/spans.jsonl
           if-no-files-found: ignore
 
@@ -901,7 +949,7 @@ jobs:
     # exceeded" before docs.yml got its Docker Hub fallback; QV-411 takes it out once the fallback has held.
     name: ci-ok
     if: always()
-    needs: [changes, python, perf, postgres, node, conformance, java, java-matrix, ui, collector, container,
+    needs: [changes, python, perf, postgres, node, conformance, go, java, java-matrix, ui, collector, container,
             upgrade, backup-restore, demo, examples, team-install, kubernetes, concurrency-check,
             concurrency-check-aws, monitoring, compat-table, docs, compat]
     runs-on: ubuntu-latest
