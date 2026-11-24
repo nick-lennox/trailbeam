@@ -1,6 +1,6 @@
 # demo
 
-Trailbeam on your machine against an SQS emulator: no AWS account, no AWS credentials. Needs Docker with
+Trailbeam on your machine against an SQS emulator and a RabbitMQ broker: no AWS account, no AWS credentials. Needs Docker with
 Compose v2. Step-by-step from a fresh clone: [quickstart](https://docs.trailbeam.app/quickstart).
 
 ```sh
@@ -42,6 +42,9 @@ are not the ones you set.
 | `consumer-python` | Python, 4 consumer threads on `orders`, plus one thread that empties `orders-dlq`. |
 | `consumer-node` | Node.js, [`node/trailbeamdemo.js`](node/trailbeamdemo.js) with `trailbeam`: 4 concurrent consumers on `orders`. |
 | `deleter` | Python, a separate process that deletes the messages the consumers hand to it, by receipt handle. |
+| `rabbitmq` | RabbitMQ 4 (`rabbitmq:4`). Not published to the host. |
+| `rabbitmq-publisher` | Python, [`python/rabbitmqdemo.py`](python/rabbitmqdemo.py) with the `trailbeam` pika hooks: one message a second to the quorum queue `rmq-orders`, with publisher confirms. |
+| `rabbitmq-consumer` | Python, one consumer on `rmq-orders` and one on its dead-letter queue `rmq-orders-dlq`. |
 
 The Python and Node.js consumers share the queue, so a message can be received by one and redelivered to
 the other. `orders` has a visibility timeout of 10 s and a redrive policy to `orders-dlq` after 3 receives.
@@ -59,6 +62,15 @@ Every message body is `{"kind": ..., "n": ...}`, and the kind decides what the c
 | `xproc` | 1 in 10 | hands the receipt handle to the `deleter` process | a delete from another process, joined by receipt-handle hash |
 | `slow` | 1 in 10 | works for 13 s, past the 10 s visibility timeout, then deletes with its old handle | a duplicate delivery (`/duplicates`), and a late delete |
 | `poison` | 1 in 25 | always fails | three deliveries, a move to the dead-letter queue **reported by SQS** (`DeadLetterQueueSourceArn` on the `orders-dlq` receive, never inferred), a receive on `orders-dlq` |
+
+On RabbitMQ (`rmq-orders`, a quorum queue that dead-letters to `rmq-orders-dlq`):
+
+| Kind | Share | Consumer behaviour | What the timeline shows |
+|---|---|---|---|
+| `ok` | most | `basic.ack` | published, routed, delivered, acked |
+| `retry_once` | 1 in 10 | `basic.nack` with requeue on the first delivery, acks the next | requeued, an **inferred** return to the queue (cause: requeued), a second delivery counted from `x-acquired-count` |
+| `crash` | 1 in 10 | closes its connection with the delivery open, reconnects, acks the next | the channel closed (by the client), returned to the queue, a second delivery |
+| `poison` | 1 in 25 | `basic.reject` without requeue | refused, a move to the dead-letter queue **reported by RabbitMQ** (`x-death`, reason `rejected`), a delivery on `rmq-orders-dlq` |
 
 Pick a message on the start page, or look at `/duplicates` and `/stuck` (stuck after 60 s in the demo).
 The JSON API is under `/api/` ([API reference](https://docs.trailbeam.app/reference/api)).

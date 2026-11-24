@@ -1,10 +1,12 @@
 # Trailbeam local demo: an SQS emulator, the Collector, the Trailbeam, and a producer and consumers in Python and
-# Node.js. No AWS account and no AWS credentials: the SDKs get dummy keys and talk only to the emulator.
+# Node.js. No AWS account and no AWS credentials: the SDKs get dummy keys and talk only to the emulator. Next to
+# them, a RabbitMQ 4 broker with a publisher and a consumer in Python (the pika hooks, QV-309).
 #
 #   docker compose -f demo/compose.yaml up -d --build
 #   open http://127.0.0.1:4318/
 #
 # Message flow: producer --SendMessage--> orders (ElasticMQ) --ReceiveMessage--> consumers / deleter
+#               rabbitmq-publisher --basic.publish--> rmq-orders (RabbitMQ quorum queue) --basic.deliver--> rabbitmq-consumer
 # Span flow:    every driver --OTLP/HTTP--> collector:4318 --Trailbeam spans only--> trailbeam:4318 (Trailbeam and its web screen)
 #
 # See demo/README.md. The concurrency check (demo/check.sh) reuses these images with `docker compose run`.
@@ -85,6 +87,42 @@ services:
   deleter:
     <<: *python
     command: ["deleter", "--queue", "orders", "--port", "8080", "--visibility-timeout", "10"]
+
+  # RabbitMQ (contract/span-contract-amqp.md): one message a second on the quorum queue rmq-orders, a mix of kinds (see
+  # python/rabbitmqdemo.py): acked, requeued once, redelivered after the consumer's connection closed, and refused
+  # into the dead-letter queue rmq-orders-dlq. The broker's guest user may connect only from localhost, hence a user.
+  rabbitmq:
+    image: rabbitmq:4
+    environment:
+      RABBITMQ_DEFAULT_USER: demo
+      RABBITMQ_DEFAULT_PASS: demo-not-a-secret
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  rabbitmq-publisher:
+    <<: *python
+    entrypoint: ["python", "/app/rabbitmqdemo.py"]
+    command: ["produce", "--interval", "1"]
+    environment: &rabbitmq-env
+      TRAILBEAM_DEMO_AMQP_URL: amqp://demo:demo-not-a-secret@rabbitmq:5672/%2F
+      TRAILBEAM_OTLP_TRACES_ENDPOINT: http://collector:4318/v1/traces
+    volumes: []
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      collector: { condition: service_started }
+
+  rabbitmq-consumer:
+    <<: *python
+    entrypoint: ["python", "/app/rabbitmqdemo.py"]
+    command: ["consume"]
+    environment: *rabbitmq-env
+    volumes: []
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      collector: { condition: service_started }
 
   # The concurrency checker, used only by demo/check.sh (`docker compose run`); `up` doesn't start it.
   checker:
