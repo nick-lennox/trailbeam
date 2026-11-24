@@ -4,13 +4,18 @@ name: CI
 #   1. every pull request, the fast core: Python 3.12, Node.js 22, the Postgres 16 store, the conformance kit,
 #      the shared UI and the container smoke test.
 #   2. when its paths change (the `changes` job below says which): Java, the examples and demo, Kubernetes and
-#      the team install, the collector configuration, the docs commands, and the second Python, Node.js and
-#      Postgres versions.
+#      the team install, the collector configuration and the docs commands.
 #   3. everything, every night, on release/** branches, on a release tag (release.yaml calls this workflow
 #      with full: true and publishes only if it passes) and by hand: also the upgrade from the last release,
 #      backup and restore under load, the perf check, monitoring, the concurrency check on real SQS and the
-#      compatibility matrix (compat.yml, which this workflow calls).
-# A change to this file or docs.yml runs everything. `ci-ok` at the end passes when every job that ran passed:
+#      compatibility matrix (compat.yml, which this workflow calls), and the second Python, Node.js and Postgres
+#      versions (3.10, 20, 14).
+# The account runs 20 jobs at once and the board chose not to pay for more (QV-389, 2026-11-24), so pull requests
+# run as few jobs as possible: a draft runs none (marking it ready starts the run), and a change to Markdown files,
+# LICENSE or assets/ only runs no core job (a README change still runs the docs commands).
+# A change to this file runs the tiers its other paths need, not everything: seven pull requests editing ci.yml
+# ran about 55 jobs on every push (QV-389). A job definition a pull request breaks in the nightly tier shows up in
+# the next nightly run, which opens an issue, and a release still runs everything. `ci-ok` at the end passes when every job that ran passed:
 # it is the one result to look at (the merge watchdog merges on it).
 # A failing nightly run opens an issue for the Software Engineer with the commits it could have come from
 # (the watchdog's nightly.mjs).
@@ -18,6 +23,7 @@ on:
   push:
     branches: [main, "release/**"]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]   # ready_for_review: a draft gets its first run
   schedule:
     - cron: "23 5 * * *"
   workflow_dispatch:
@@ -44,11 +50,14 @@ concurrency:
 jobs:
   changes:
     # What changed, and so which tier-2 and tier-3 jobs run. Everything runs when full (nightly, release
-    # branches and tags, by hand), when this file changes, or when what changed can't be worked out.
+    # branches and tags, by hand), or when what changed can't be worked out.
     name: What changed
+    # a draft pull request runs nothing: every job below is skipped, ci-ok too
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     outputs:
       full: ${{ steps.c.outputs.full }}
+      core: ${{ steps.c.outputs.core }}
       python_versions: ${{ steps.c.outputs.python_versions }}
       node_versions: ${{ steps.c.outputs.node_versions }}
       postgres_versions: ${{ steps.c.outputs.postgres_versions }}
@@ -84,12 +93,15 @@ jobs:
           fi
           if [ "$full" = false ]; then
             echo "Changed files:"; printf '  %s\n' $files
-            if grep -qE '^\.github/workflows/(ci|docs)\.yml$' <<<"$files"; then full=true; fi
           fi
           # area NAME REGEX: true when a changed file matches (every area is true when full)
           area() { if [ "$full" = true ] || grep -qE "$2" <<<"$files"; then echo "$1=true"; else echo "$1=false"; fi; }
+          # docs only: every changed file is Markdown, LICENSE or under assets/ (nothing a test or build reads)
+          core=true
+          if [ "$full" = false ] && ! grep -qvE '\.md$|^LICENSE$|^assets/' <<<"$files"; then core=false; fi
           {
             echo "full=$full"
+            echo "core=$core"
             area python '^python/'
             area node '^node/'
             area store '^python/src/trailbeam/server/|^python/tests/(server|conformance)/|^python/pyproject\.toml$|^contract/'
@@ -98,7 +110,7 @@ jobs:
             area examples '^examples/|^demo/|^python/src/trailbeam/[^/]+\.py$|^python/pyproject\.toml$|^node/(src/|bin/|package)|^Dockerfile$'
             area deploy '^deploy/helm/|^docker-compose\.yaml$|^\.env\.example$|^Dockerfile$'
             area collector '^collector/'
-            area docs '^README\.md$|^(python|node|java)/README\.md$|^\.env\.example$'
+            area docs '^README\.md$|^(python|node|java)/README\.md$|^\.env\.example$|^\.github/workflows/docs\.yml$'
             area perf '^python/bench/'
             area upgrade '^python/smoke/|^python/src/trailbeam/server/(migrations|pg_schema|db|postgres|store)\.py$'
             area monitoring '^deploy/monitoring/'
@@ -108,16 +120,18 @@ jobs:
           get() { grep "^$1=" "$RUNNER_TEMP/areas" | cut -d= -f2; }
           {
             grep -vE '^(python|node|store)=' "$RUNNER_TEMP/areas"
-            echo "python_versions=$([ "$(get python)" = true ] && echo '["3.12","3.10"]' || echo '["3.12"]')"
-            echo "node_versions=$([ "$(get node)" = true ] && echo '["22","20"]' || echo '["22"]')"
-            echo "postgres_versions=$([ "$(get store)" = true ] && echo '["16","14"]' || echo '["16"]')"
+            # the second versions run in the full run only (nightly, release); pull requests get one of each
+            echo "python_versions=$([ "$full" = true ] && echo '["3.12","3.10"]' || echo '["3.12"]')"
+            echo "node_versions=$([ "$full" = true ] && echo '["22","20"]' || echo '["22"]')"
+            echo "postgres_versions=$([ "$full" = true ] && echo '["16","14"]' || echo '["16"]')"
           } >> "$GITHUB_OUTPUT"
 
   python:
-    # Tier 1 on 3.12; 3.10, the oldest supported, when python/ changes. pytest-xdist: the suite mostly waits on
+    # Tier 1 on 3.12; 3.10, the oldest supported, in the full run only. pytest-xdist: the suite mostly waits on
     # servers it starts, so 6 workers on the 4-CPU runner take it from about 7 minutes to about 2.
     name: Python ${{ matrix.python }}
     needs: changes
+    if: needs.changes.outputs.core == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -175,12 +189,13 @@ jobs:
             ${{ runner.temp }}/ci-perf-broken/
 
   postgres:
-    # The Postgres store (TRAILBEAM_STORE_URL): tier 1 on 16, the current version; 14, the oldest supported,
-    # when the store changes. Each version runs as three jobs side by side, each with a Postgres of its own (the
+    # The Postgres store (TRAILBEAM_STORE_URL): tier 1 on 16, the current version; 14, the oldest supported, in the
+    # full run only. Each version runs as three jobs side by side, each with a Postgres of its own (the
     # tests share database objects, so they can't run in parallel on one), and that Postgres skips fsync: it is
     # thrown away after the job, and its CREATE and DROP DATABASE no longer wait on disk.
     name: Postgres ${{ matrix.postgres }} store (${{ matrix.part }})
     needs: changes
+    if: needs.changes.outputs.core == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -232,9 +247,10 @@ jobs:
         run: pytest -q tests/server/test_replicas_e2e.py
 
   node:
-    # Tier 1 on 22; 20 when node/ changes.
+    # Tier 1 on 22; 20 in the full run only.
     name: Node.js ${{ matrix.node }}
     needs: changes
+    if: needs.changes.outputs.core == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -265,6 +281,7 @@ jobs:
     # application's sampler at 0, and with body capture on.
     name: Conformance kit (Python and Node.js packages)
     needs: changes
+    if: needs.changes.outputs.core == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -409,6 +426,7 @@ jobs:
   ui:
     name: Shared UI (@trailbeam/ui)
     needs: changes
+    if: needs.changes.outputs.core == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -447,6 +465,7 @@ jobs:
   container:
     name: Container smoke test
     needs: changes
+    if: needs.changes.outputs.core == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -869,6 +888,7 @@ jobs:
     # Tier 1 (a few seconds).
     name: Supported-versions table matches compat/matrix.toml
     needs: changes
+    if: needs.changes.outputs.core == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -900,7 +920,7 @@ jobs:
     # Quarantined now: docs (the docs commands), whose public ECR image pull failed twice on #86 with "Data limit
     # exceeded" before docs.yml got its Docker Hub fallback; QV-411 takes it out once the fallback has held.
     name: ci-ok
-    if: always()
+    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     needs: [changes, python, perf, postgres, node, conformance, java, java-matrix, ui, collector, container,
             upgrade, backup-restore, demo, examples, team-install, kubernetes, concurrency-check,
             concurrency-check-aws, monitoring, compat-table, docs, compat]
