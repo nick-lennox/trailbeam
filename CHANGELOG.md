@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+- **`trailbeam --version`** (QV-346). `trailbeam --version` (or `-V`, also after `start`) prints
+  `trailbeam <version>` and exits 0; it used to fail with `unrecognized arguments`. `npx trailbeam --version` prints
+  the same line (it printed the bare version before).
+- **The Java jar has its Maven Central name and release setup** (QV-319). The group ID is `app.trailbeam`, as
+  the board chose, and the Java package moves with it from `dev.trailbeam.sqs` to `app.trailbeam.sqs`, so the
+  Lambda handler is now `app.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`. Builds also make a sources
+  jar and a javadoc jar, the pom lists developers and scm as Central requires, and a `release` profile signs with
+  GPG and uploads through the Central Portal with automatic publishing off. `java/RELEASING.md` has the steps.
+  Nothing is published yet: the namespace still has to be verified on the Central Portal.
+- **Users and roles are a preview, off unless switched on** (QV-349). They haven't had their security review
+  (QV-229) yet, so a server built from this version ignores them unless it runs with `--accounts`
+  (`TRAILBEAM_ACCOUNTS=1`, also `true`, `yes` or `on`; any other value but `0`, `false`, `no`, `off` or empty
+  stops the server). Off, access is as in 0.4.0, `TRAILBEAM_TOKEN` alone: `trailbeam start` prints no setup link,
+  `/setup` answers `404`, an admin or ingest tokens already in the store are ignored (with a warning at start),
+  `TRAILBEAM_ADMIN_EMAIL` stops the server at start, and `trailbeam users` and `trailbeam tokens` refuse to run
+  without `--accounts` or the variable. On, everything works as described below. The `--trusted-proxy` handling,
+  the cross-site form check and the account tables are not behind the switch.
+- **Sign-in no longer tells which emails have accounts through a password over 1024 bytes** (QV-229, security
+  review of users and roles). With a known email it was refused without a password hash (about 6 ms), with an
+  unknown one after a hash (about 190 ms). Now every refusal costs one hash. Accounts are not on in any
+  release yet.
+- **A queue's series for the queue page** (QV-363): `GET /api/queues/{queue}/series?from_ms=&to_ms=&step_s=`. For each
+  bucket it gives sends, receives and re-receives, handled messages (accepted deletes plus Lambda successes),
+  failed Lambda invocations, dead-letter moves (seen on the dead-letter queue, and inferred from the configured
+  maxReceiveCount, kept apart), and the p95 time in queue and time in handler. A queue is keyed by account,
+  region and name, as the hosted app keys it. `split=version` adds, per bucket, each `service.version`'s handled
+  messages and both p95s, and `versions` lists the deploys in the range, for the page's markers.
+- **Flows for the overview** (QV-363): `GET /api/flows?from_ms=&to_ms=`. One flow per queue: the services that
+  send to it and receive from it, the counts of sends, receives, deletes and visibility changes, the average body
+  size, and its dead-letter queue when a receive from one has named it. Each flow has the hosted app's `Flow`
+  shape, field for field. The counts come from a new hourly rollup per queue (`queue_rollup`) plus the events of
+  the partial hours at either end, so they are exact.
+  - Both endpoints work on SQLite and Postgres. SQLite schema 17 and Postgres schema 11 add `queue_events` and
+    `queue_rollup` (Postgres also adds `place_queue_keys`). They are built from every message's spans when the
+    store is upgraded: one pass over the messages on SQLite, and one place at a time on Postgres.
+- **Postgres, several replicas: a message could get a second summary** (QV-422). A delete or
+  ChangeMessageVisibility span carries no message ID, so its export finds its message by the receipt handle and
+  locks it only then. If another replica stored a newer span of that message in a new day (bucket) meanwhile,
+  the export missed the summary that had moved there and wrote a second one, without the newer span. Lists then
+  showed the message twice, and its page could miss the delete. The export now reads the places again once it
+  holds the message's lock.
+- **Java package, stage 6: the contract's Java note** (QV-319, pre-release, not published). New section 20 of
+  the span contract says how the jar meets it: the parent read from the request's trace header, receives in a
+  polling loop as root spans beside an agent, where times and call-order ticks are taken, one counter per class
+  loader, the SnapStart reset, the fully qualified `trailbeam.error_type`, and why bad capture settings fail
+  closed instead of failing at install. It changes no rule and no attribute; the schema version stays 3. The
+  README and the kit's README now point to the Java package.
 - **Java package, stage 5: Spring Boot executable jars** (QV-319, pre-release, not published). The kit's Java
   driver is also built as a Spring Boot executable jar, with the SDK and Trailbeam nested under `BOOT-INF/lib`,
   and two new variants run it with `java -jar`: `spring-boot` (alone) and `spring-boot-otel-agent` (beside the
@@ -50,7 +97,7 @@
   an export whose client hangs up, and the client sends it again. No change in the Python or Node.js packages:
   the retry is the OTLP exporter's.
 - **Java package, stage 4: the Lambda wrapper** (QV-319, pre-release, not published). For a function invoked by
-  an SQS event source mapping, set the handler to `dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`
+  an SQS event source mapping, set the handler to `app.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`
   and name your own in `TRAILBEAM_LAMBDA_HANDLER`, or extend `TrailbeamSqsHandler`. Each record gets a
   `trailbeam receive`, exported before the handler runs, and a `trailbeam outcome` after it, with the batch
   fields and opt-in error text (`TRAILBEAM_CAPTURE_ERROR_QUEUES`). `trailbeam.error_type` is the exception's fully

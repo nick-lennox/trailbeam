@@ -15,7 +15,7 @@ from trailbeam.server.accounts import AccountError, Accounts, EmailTaken
 from trailbeam.server.db import Database
 from trailbeam.server.passwords import Hasher
 from trailbeam.server.sessions import Sessions, cookie_value, id_hash
-from trailbeam.server.signin import BUSY, LOCKED, OK, SLOW_DOWN, WRONG, AddressLimit, SignIn
+from trailbeam.server.signin import ADDRESS_FAILURES, BUSY, LOCKED, OK, SLOW_DOWN, WRONG, AddressLimit, SignIn
 
 ROOT = Path(__file__).resolve().parents[2]
 PG = os.environ.get("TRAILBEAM_TEST_POSTGRES_URL")
@@ -232,12 +232,17 @@ def test_cookies():
     assert "Secure" not in plain and "Domain" not in plain
     assert secure.startswith(f"__Host-trailbeam_sid={sid}; Path=/;") and secure.endswith("; Secure")
     assert "Max-Age=0" in sessions_mod.clear_cookie(True) and sessions_mod.clear_cookie(True).startswith("__Host-")
-    assert cookie_value(f"a=1; trailbeam_sid={sid}") == sid
-    assert cookie_value(f"trailbeam_sid=other-value-but-long-enough; __Host-trailbeam_sid={sid}") == sid
-    # the shared token's cookie (auth.py) is never a session
-    assert cookie_value(f"trailbeam_session={sid}") is None
-    assert cookie_value("trailbeam_sid=short") is None and cookie_value("trailbeam_sid=" + "x" * 200) is None
-    assert cookie_value('trailbeam_sid="unterminated') is None and cookie_value(None) is None
+    for secure in (False, True):
+        assert cookie_value(f"trailbeam_sid=other-value-but-long-enough; __Host-trailbeam_sid={sid}", secure) == sid
+        # the shared token's cookie (auth.py) is never a session
+        assert cookie_value(f"trailbeam_session={sid}", secure) is None
+        assert cookie_value("__Host-trailbeam_sid=short", secure) is None
+        assert cookie_value('__Host-trailbeam_sid="unterminated', secure) is None and cookie_value(None, secure) is None
+    assert cookie_value(f"a=1; trailbeam_sid={sid}", False) == sid
+    assert cookie_value("trailbeam_sid=short", False) is None and cookie_value("trailbeam_sid=" + "x" * 200, False) is None
+    # over HTTPS a plain trailbeam_sid is not a session: anyone who can set a cookie on the host (a sibling
+    # subdomain, or whoever answers its plain http://) could plant one and sign the victim in as themselves
+    assert cookie_value(f"a=1; trailbeam_sid={sid}", True) is None
 
 
 # ---- signing in -----------------------------------------------------------------------------------------
@@ -273,7 +278,7 @@ def test_every_kind_of_wrong_answer_is_the_same_and_costs_one_hash(acc, hasher, 
     hasher._scrypt = lambda *a: calls.append(a) or real(*a)
     r = si.sign_in(email, pw, "198.51.100.7")
     assert r.outcome == WRONG and r.session_id is None and r.user is None
-    assert len(calls) == (0 if case == "too_long" else 1)
+    assert len(calls) == 1  # too_long too (QV-229): no hash for a known email would say it has an account
 
 
 def test_the_account_locks_after_too_many_failures_whatever_the_address(acc, hasher, clock):
@@ -349,6 +354,86 @@ def test_the_address_limit_is_bounded():
     assert len(limit._failures) == 100
 
 
+def _parallel_sign_ins(si, hasher, n, address_of):
+    """n wrong sign-ins at once; the answers and how many password hashes ran."""
+    hashes, lock, barrier = [0], threading.Lock(), threading.Barrier(n)
+    real = hasher._scrypt
+
+    def counting(*a):
+        out = real(*a)  # raises HashBusy without hashing
+        with lock:
+            hashes[0] += 1
+        return out
+
+    hasher._scrypt = counting
+    outcomes = []
+
+    def one(i):
+        barrier.wait()
+        r = si.sign_in("ada@example.com", "wrong password!", address_of(i))
+        with lock:
+            outcomes.append(r.outcome)
+
+    threads = [threading.Thread(target=one, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    hasher._scrypt = real
+    return outcomes, hashes[0]
+
+
+@pytest.mark.parametrize("waiting", ["unlimited", "default"])
+def test_parallel_sign_ins_from_one_address_run_at_most_its_allowance_of_hashes(acc, hasher, clock, waiting):
+    """QV-407: the address limit was checked before the hash and counted after, so 300 at once got 102 hashes."""
+    make(acc, hasher)
+    h = Hasher(log2_n=10, r=8, p=1, max_concurrent=2, wait_s=30,
+               max_waiting=1000 if waiting == "unlimited" else None)
+    si, _ = sign_in(acc, clock, h, lock_after=10_000)
+    outcomes, hashes = _parallel_sign_ins(si, h, 120, lambda i: "198.51.100.7")
+    assert hashes <= ADDRESS_FAILURES
+    assert outcomes.count(WRONG) == hashes and set(outcomes) <= {WRONG, SLOW_DOWN, BUSY}
+    if waiting == "unlimited":  # nobody busy: exactly the allowance ran, the rest were told to slow down
+        assert hashes == ADDRESS_FAILURES and outcomes.count(SLOW_DOWN) == 120 - ADDRESS_FAILURES
+    # busy answers gave their places back, and the failures that ran are all counted
+    assert len(si.address_limit._failures["198.51.100.7"][0]) == hashes
+    assert si.address_limit._failures["198.51.100.7"][1] == 0
+
+
+def test_an_ipv6_network_counts_as_one_address(acc, hasher, clock):
+    make(acc, hasher)
+    limit = AddressLimit(max_failures=3, window_s=60, clock=clock.monotonic)
+    si, _ = sign_in(acc, clock, hasher, address_limit=limit, lock_after=1000)
+    for i in range(3):  # three addresses in one /64
+        assert si.sign_in("ada@example.com", "wrong password!", f"2001:db8:1:2::{i + 1:x}").outcome == WRONG
+    assert si.sign_in("ada@example.com", PW, "2001:db8:1:2:ffff:1:2:3").outcome == SLOW_DOWN
+    assert si.sign_in("ada@example.com", PW, "2001:db8:1:3::1").outcome == OK  # the next /64 is someone else
+
+
+@pytest.mark.parametrize("address, key", [
+    ("2001:db8:1:2:3:4:5:6", "2001:db8:1:2::/64"),
+    ("2001:DB8:1:2::9%eth0", "2001:db8:1:2::/64"),
+    ("::ffff:198.51.100.7", "198.51.100.7"),  # IPv4 written as IPv6 is the IPv4 address
+    ("198.51.100.7", "198.51.100.7"),
+    ("not an address", "not an address"),
+])
+def test_what_the_address_limit_counts_by(address, key):
+    assert AddressLimit.key(address) == key
+
+
+def test_a_reserved_attempt_counts_before_it_settles(clock):
+    limit = AddressLimit(max_failures=2, window_s=60, clock=clock.monotonic)
+    assert limit.begin("198.51.100.7") is None and limit.begin("198.51.100.7") is None
+    assert limit.begin("198.51.100.7") == 1  # both still running: try again shortly
+    limit.end("198.51.100.7", failed=False)  # one worked (or was busy): its place is free again
+    assert limit.begin("198.51.100.7") is None
+    limit.end("198.51.100.7", failed=True)
+    limit.end("198.51.100.7", failed=True)
+    assert 59 <= limit.begin("198.51.100.7") <= 60 and limit.retry_after("198.51.100.7") >= 59
+    clock.advance(61)
+    assert limit.retry_after("198.51.100.7") is None
+
+
 def test_busy_hashing_is_its_own_answer(acc, clock):
     h = Hasher(log2_n=10, r=8, p=1, max_concurrent=1, wait_s=0.01)
     acc.create_user("ada@example.com", "Ada", "member", h.hash(PW), NOW)
@@ -357,6 +442,7 @@ def test_busy_hashing_is_its_own_answer(acc, clock):
         r = si.sign_in("ada@example.com", PW, "198.51.100.7")
     assert r.outcome == BUSY and r.retry_after_s == 1
     assert acc.user_by_email("ada@example.com")["failed_count"] == 0  # not counted as a failure
+    assert "198.51.100.7" not in si.address_limit._failures  # nor against the address
 
 
 def test_a_weaker_hash_is_replaced_after_a_sign_in_that_works(acc, clock):

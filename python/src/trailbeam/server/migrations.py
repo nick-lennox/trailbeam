@@ -112,7 +112,7 @@ SPANS_COLUMNS = ("row, trace_id, span_id, kind, time_ns, start_ns, service_name,
 SPANS_ADDED = """,
     service_version TEXT             -- the resource's service.version (QV-362)"""
 
-# Schema 17 (QV-394): the steps /api/events counts, per hour, queue, service and kind (events.py, db.py). Kept
+# Schema 18 (QV-394): the steps /api/events counts, per hour, queue, service and kind (events.py, db.py). Kept
 # exact: ingest adds the spans it stores, retention takes out the ones it deletes. Purges are not steps.
 STEP_ROLLUP_CREATE = """
 CREATE TABLE IF NOT EXISTS step_rollup (
@@ -192,7 +192,10 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # Schema 16 (QV-362) adds spans.service_version, the resource's service.version (the build that sent the span). Rows
 # stored before it are migrated with NULL: the version was not kept. Their summaries are left as they are: a
 # consumer without a version is listed as [service_name, client_id], as before (summary.py).
-# Schema 17 (QV-394) adds step_rollup (STEP_ROLLUP_CREATE), built from the spans in one pass: GROUP BY over every
+# Schema 17 (QV-363) adds queue_events, the queue page's events by queue and time (queues.py), and
+# messages.qevents_json, the list of a message's rows in it. Both are built from every message's spans: one pass
+# over messages, reading each message's spans by row ID, as migration 12 does with the summaries.
+# Schema 18 (QV-394) adds step_rollup (STEP_ROLLUP_CREATE), built from the spans in one pass: GROUP BY over every
 # span, about a second per million. It changes no span data. It rebuilds the table rather than adding to it, so a file
 # whose recorded version is older than its tables (a restore, or a test rolling the number back) still ends exact.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new", added=""))
@@ -230,6 +233,16 @@ def _to_16(conn: sqlite3.Connection) -> None:
     whose recorded version was set back by hand (the tests of the earlier migrations) has the column already."""
     if "service_version" not in {r[1] for r in conn.execute("PRAGMA table_info(spans)")}:
         conn.execute("ALTER TABLE spans ADD COLUMN service_version TEXT")
+
+
+def _to_17(conn: sqlite3.Connection) -> None:
+    # A file built by migration 7, 9 or 11 under this code has the column and the table already (they create the
+    # summary tables as summary_table.CREATE is now). SQLite has no ADD COLUMN IF NOT EXISTS.
+    if "qevents_json" not in {r[1] for r in conn.execute("PRAGMA table_info(messages)")}:
+        conn.execute("ALTER TABLE messages ADD COLUMN qevents_json TEXT NOT NULL DEFAULT '[]'")
+    for sql in statements(summary_table.QUEUE_CREATE):
+        conn.execute(sql)
+    summary_table.rebuild_queue_events(conn)
 
 
 def _to_14(conn: sqlite3.Connection) -> None:
@@ -274,7 +287,8 @@ MIGRATIONS = (
     Migration(14, "FIFO deduplicated sends out of the tenant events", (), run=_to_14),
     Migration(15, "users, sessions and tokens", tuple(statements(account_tables.SQLITE_CREATE))),
     Migration(16, "spans.service_version", (), run=_to_16),
-    Migration(17, "hourly step rollup (/api/events)", tuple(statements(STEP_ROLLUP_CREATE))
+    Migration(17, "queue events (the queue page)", (), run=_to_17),
+    Migration(18, "hourly step rollup (/api/events)", tuple(statements(STEP_ROLLUP_CREATE))
               + ("DELETE FROM step_rollup", STEP_ROLLUP_BACKFILL)),
 )
 LATEST = MIGRATIONS[-1].version

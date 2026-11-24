@@ -12,6 +12,10 @@
 - ``message_tenants``: (tenant, last_ns, mid) for every tenant a span of the message names, with the newest
   time a span named it (``named_ns``): the tenant filter, and by ``message_tenants_search`` the tenant search.
 - ``tenant_events``: what each message adds to the Tenants page, by time (summary.py), keyed (at_ms, mid, seq).
+- ``queue_events`` (schema 17, QV-363): what each message adds to each queue's page (queues.py), keyed (queue_key,
+  at_ms, mid, seq), so one queue's range is a range of the primary key; ``messages.qevents_json`` lists a message's.
+  ``queue_rollup`` adds them up per (hour, queue_key, kind, service, lambda, peer), for the flows: kept exact the
+  same way as ``tenant_rollup`` (below), by adding a message's new events and taking out the ones it lost.
 - ``tenant_rollup`` (schema 12, QV-128): those events added up per hour and tenant (rollup.py), which is what the
   Tenants page reads for whole hours. ``refresh`` adds what a message adds now and takes away what it added
   before, and ``forget`` takes it all away, so a row is always the sum over the stored messages.
@@ -61,7 +65,10 @@ CREATE TABLE IF NOT EXISTS messages (
     queues_json TEXT NOT NULL,           -- JSON [queue, ...]: its message_queues rows
     tenants_json TEXT NOT NULL,          -- JSON {tenant: named_ns}: its message_tenants rows
     events_json TEXT NOT NULL,           -- JSON [[at_ms, kind, wait_ms], ...]: its tenant_events rows, seq = index
-    rows_json TEXT NOT NULL              -- JSON [row, ...]: its spans (spans.row, ascending)
+    rows_json TEXT NOT NULL,             -- JSON [row, ...]: its spans (spans.row, ascending)
+    qevents_json TEXT NOT NULL DEFAULT '[]'  -- JSON [[at_ms, kind, queue_key, service, lambda, value, peer, version],
+                                         -- ...]: its
+                                         -- queue_events rows, seq = index (schema 17)
 );
 CREATE INDEX IF NOT EXISTS messages_last ON messages (last_ns DESC, mid);
 CREATE INDEX IF NOT EXISTS messages_duplicates ON messages (last_ns DESC, mid) WHERE dup_received OR dup_succeeded;
@@ -108,20 +115,80 @@ CREATE TABLE IF NOT EXISTS tenant_rollup (
 """
 CREATE += ROLLUP_CREATE
 
-TABLES = ("messages", "message_queues", "message_tenants", "tenant_events", "tenant_rollup")
+# Schema 17 (QV-363): the queue page's events (queues.py), by queue and time.
+QUEUE_CREATE = """
+CREATE TABLE IF NOT EXISTS queue_events (
+    queue_key TEXT NOT NULL,             -- account/region/name, else the URL, else the name (queues.key)
+    at_ms INTEGER NOT NULL,
+    mid TEXT NOT NULL,
+    seq INTEGER NOT NULL,                -- its place in the message's qevents_json
+    kind TEXT NOT NULL,                  -- queues.KINDS
+    service TEXT,                        -- the span's service.name
+    lambda INTEGER NOT NULL,             -- the span came from a Lambda function (queues._lambda)
+    value INTEGER,                       -- receive count, time in queue, time in handler or body size (queues.py)
+    peer TEXT,                           -- dlq_receive: the source queue's key
+    version TEXT,                        -- the span's service.version (QV-362)
+    PRIMARY KEY (queue_key, at_ms, mid, seq)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS queue_rollup (
+    hour INTEGER NOT NULL,               -- at_ms // 3,600,000
+    queue_key TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    service TEXT NOT NULL,               -- '' for none
+    lambda INTEGER NOT NULL,
+    peer TEXT NOT NULL,                  -- '' for none
+    n INTEGER NOT NULL,                  -- the events
+    vn INTEGER NOT NULL,                 -- of them with a value
+    vsum INTEGER NOT NULL,               -- the sum of those values
+    PRIMARY KEY (hour, queue_key, kind, service, lambda, peer)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS queue_rollup_dlq ON queue_rollup (queue_key, peer) WHERE kind = 'dlq_receive';
+"""
+CREATE += QUEUE_CREATE
+
+TABLES = ("messages", "message_queues", "message_tenants", "tenant_events", "tenant_rollup", "queue_events",
+          "queue_rollup")
 LISTS = ("queues_json", "tenants_json", "events_json")  # the lists that key the other tables' rows
 COLUMNS = FIELDS + LISTS  # the summary columns both stores keep (postgres.py imports these)
-_SQLITE_COLUMNS = COLUMNS + ("rows_json",)  # SQLite also lists a message's span rows: it has no spans_mid index
+_SQLITE_COLUMNS = COLUMNS + ("rows_json", "qevents_json")  # SQLite also lists a message's span rows: it has no
+# spans_mid index; and its queue events (postgres.py keeps qevents_json in a column of its own, with strays_json)
 
 _UPSERT = f"INSERT INTO messages ({', '.join(_SQLITE_COLUMNS)}) VALUES ({', '.join('?' * len(_SQLITE_COLUMNS))})"
 _ROWS = "SELECT * FROM spans WHERE row IN (SELECT value FROM json_each(?))"
-_OLD = f"SELECT mid, last_ns, tenant, {', '.join(LISTS)} FROM messages WHERE mid = ?"
+_OLD = f"SELECT mid, last_ns, tenant, {', '.join(LISTS)}, qevents_json FROM messages WHERE mid = ?"
 _DEL_QUEUE = "DELETE FROM message_queues WHERE queue = ? AND last_ns = ? AND mid = ?"
 _ADD_QUEUE = "INSERT INTO message_queues (queue, last_ns, mid) VALUES (?, ?, ?)"
 _DEL_TENANT = "DELETE FROM message_tenants WHERE tenant = ? AND last_ns = ? AND mid = ?"
 _ADD_TENANT = "INSERT INTO message_tenants (tenant, last_ns, mid, tenant_lower, named_ns) VALUES (?, ?, ?, ?, ?)"
 _DEL_EVENT = "DELETE FROM tenant_events WHERE at_ms = ? AND mid = ? AND seq = ?"
 _ADD_EVENT = "INSERT INTO tenant_events (at_ms, mid, seq, kind, tenant, wait_ms) VALUES (?, ?, ?, ?, ?, ?)"
+_DEL_QEVENT = "DELETE FROM queue_events WHERE queue_key = ? AND at_ms = ? AND mid = ? AND seq = ?"
+_ADD_QEVENT = ("INSERT INTO queue_events (queue_key, at_ms, mid, seq, kind, service, lambda, value, peer, version) "
+               "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+_ADD_QROLLUP = """INSERT INTO queue_rollup (hour, queue_key, kind, service, lambda, peer, n, vn, vsum)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (hour, queue_key, kind, service, lambda, peer)
+DO UPDATE SET n = n + excluded.n, vn = vn + excluded.vn, vsum = vsum + excluded.vsum"""
+_DEL_QROLLUP = ("DELETE FROM queue_rollup WHERE hour = ? AND queue_key = ? AND kind = ? AND service = ? "
+                "AND lambda = ? AND peer = ? AND n <= 0")
+
+
+def _qevents(mid, events: list) -> list:
+    """queue_events rows of a message's qevents_json."""
+    return [(e[2], e[0], mid, i, e[1], e[3], e[4], e[5], e[6], e[7] if len(e) > 7 else None)
+            for i, e in enumerate(events)]
+
+
+def _qroll(conn, added: Iterable = (), removed: Iterable = ()) -> None:
+    """Add queue events (as qevents_json entries) to queue_rollup, and take others out, in one pass per row they
+    change; a row that comes to nothing is deleted. Exact: counts and sums subtract."""
+    from .queues import rollup_sums
+    d = rollup_sums(added, removed)
+    conn.executemany(_ADD_QROLLUP, [k + tuple(c) for k, c in d.items()])
+    conn.executemany(_DEL_QROLLUP, [k for k, c in d.items() if c[0] < 0])
+
+
+def _qkeys(mid, events: list) -> list:
+    return [(k, at, mid, i) for i, (at, _, k, *_rest) in enumerate(events)]
 
 
 def ascii_lower(s: str) -> str:
@@ -223,6 +290,8 @@ def prefetch(conn: sqlite3.Connection, mids: Iterable[str]) -> None:
             conn.execute("SELECT 1 FROM tenant_events WHERE at_ms = ? AND mid = ? AND seq = ?", (e[0], mid, i)).fetchall()
         for h, t in rollup.of_summary(old):
             conn.execute(_GET_ROLLUP, (h, t)).fetchall()
+        for k in _qkeys(mid, json.loads(old["qevents_json"])):
+            conn.execute("SELECT 1 FROM queue_events WHERE queue_key = ? AND at_ms = ? AND mid = ? AND seq = ?", k).fetchall()
 
 
 def _drop(conn: sqlite3.Connection, old) -> None:
@@ -231,6 +300,9 @@ def _drop(conn: sqlite3.Connection, old) -> None:
     conn.executemany(_DEL_QUEUE, queues)
     conn.executemany(_DEL_TENANT, [(t, last, mid) for t in tenants])
     conn.executemany(_DEL_EVENT, [(e[0], mid, i) for i, e in enumerate(events)])
+    gone = json.loads(old["qevents_json"])
+    conn.executemany(_DEL_QEVENT, _qkeys(mid, gone))
+    _qroll(conn, removed=gone)
 
 
 def refresh(conn: sqlite3.Connection, changes: Changes) -> None:
@@ -265,7 +337,7 @@ def _refresh_one(conn, cur, changes: Changes, mid, old, deltas: "rollup.Deltas")
         write(conn, [new], deltas)
         return
     lists = _lists(new)
-    values = [new[f] for f in FIELDS] + list(lists) + [new["rows_json"]]
+    values = [new[f] for f in FIELDS] + list(lists) + [new["rows_json"], json.dumps(new["queue_events"])]
     changed = [(c, v) for c, v in zip(_SQLITE_COLUMNS, values) if old[c] != v]
     if not changed:
         return
@@ -291,6 +363,19 @@ def _refresh_one(conn, cur, changes: Changes, mid, old, deltas: "rollup.Deltas")
     if lists[2] != old["events_json"] or (old_events and old["tenant"] != new["tenant"]):
         conn.executemany(_DEL_EVENT, [(e[0], mid, i) for i, e in enumerate(old_events)])
         conn.executemany(_ADD_EVENT, _events(new, json.loads(lists[2])))
+    if values[-1] != old["qevents_json"]:
+        _rewrite_qevents(conn, mid, json.loads(old["qevents_json"]), new["queue_events"])
+
+
+def _rewrite_qevents(conn, mid, old: list, new: list) -> None:
+    """Replace a message's queue_events rows: only those whose place in the list or contents changed. A message
+    gains events at the end of its list nearly always (spans arrive in time order), so most refreshes add a row
+    or two and delete none."""
+    old_rows, new_rows = _qevents(mid, old), _qevents(mid, [list(e) for e in new])
+    keep = len(old_rows) if old_rows == new_rows[:len(old_rows)] else 0
+    conn.executemany(_DEL_QEVENT, [r[:4] for r in old_rows[keep:]])
+    conn.executemany(_ADD_QEVENT, new_rows[keep:])
+    _qroll(conn, [list(e) for e in new[keep:]], old[keep:])
 
 
 _GET_ROLLUP = "SELECT sent, first_deliveries, dead_letter_moves, waits FROM tenant_rollup WHERE hour = ? AND tenant = ?"
@@ -344,12 +429,39 @@ def write(conn: sqlite3.Connection, sums: list, deltas: Optional["rollup.Deltas"
     rows = []
     for s in sums:
         lists = _lists(s)
-        rows.append(([s[f] for f in FIELDS] + list(lists) + [s["rows_json"]], json.loads(lists[2])))
+        rows.append(([s[f] for f in FIELDS] + list(lists) + [s["rows_json"], json.dumps(s["queue_events"])],
+                     json.loads(lists[2])))
     conn.executemany(_UPSERT, [r for r, _ in rows])
     conn.executemany(_ADD_QUEUE, [(q, s["last_ns"], s["mid"]) for s in sums for q in s["queues"]])
     conn.executemany(_ADD_TENANT, [(t, s["last_ns"], s["mid"], ascii_lower(t), ns)
                                    for s in sums for t, ns in s["tenants"].items()])
     conn.executemany(_ADD_EVENT, [e for s, (_, ev) in zip(sums, rows) for e in _events(s, ev)])
+    conn.executemany(_ADD_QEVENT, [r for s in sums for r in _qevents(s["mid"], [list(e) for e in s["queue_events"]])])
+    _qroll(conn, [e for s in sums for e in s["queue_events"]])
+
+
+def rebuild_queue_events(conn: sqlite3.Connection, chunk: int = 5000) -> int:
+    """queue_events, queue_rollup and messages.qevents_json from every message's spans (migration 17). Returns the
+    messages."""
+    from . import queues, timeline
+    conn.execute("DELETE FROM queue_events")
+    conn.execute("DELETE FROM queue_rollup")
+    cur = conn.cursor()
+    cur.row_factory = sqlite3.Row
+    n, last = 0, -1
+    while True:
+        batch = conn.execute("SELECT rowid, mid, rows_json FROM messages WHERE rowid > ? ORDER BY rowid LIMIT ?",
+                             (last, chunk)).fetchall()
+        if not batch:
+            return n
+        for rowid, mid, rows_json in batch:
+            spans = sorted(cur.execute(_ROWS, (rows_json,)).fetchall(), key=lambda r: (r["time_ns"], r["row"]))
+            ev = queues.events(spans, timeline.deduplicated_sends(spans)) if spans else []
+            conn.execute("UPDATE messages SET qevents_json = ? WHERE rowid = ?", (json.dumps(ev), rowid))
+            conn.executemany(_ADD_QEVENT, _qevents(mid, ev))
+            _qroll(conn, ev)
+            last = rowid
+        n += len(batch)
 
 
 def backfill(conn: sqlite3.Connection, chunk: int = 5000) -> int:

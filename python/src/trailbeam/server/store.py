@@ -268,6 +268,22 @@ class Store(abc.ABC):
         with none), the summaries' tenant_events in the range added up. Tenants with nothing in the range are
         left out; any order."""
 
+    def queue_keys(self) -> list[str]:
+        """Every queue key (queues.key) a stored message has queue events on, sorted (QV-363; SQLite and Postgres).
+        A store without the queue page raises NotImplementedError, and the API answers 501."""
+        raise NotImplementedError("per-queue series are not available on this store yet")
+
+    def queue_flows(self, from_ms: int, to_ms: int, now_ms: Optional[int] = None) -> tuple:
+        """What queues.flows takes for [from_ms, to_ms], both included: (every queue key, {key: its latest event's
+        at_ms}, the queue events in the range added up per (key, kind, service, lambda, peer) as (..., n, vn, vsum),
+        every (dead-letter queue key, source key) pair ever seen)."""
+        raise NotImplementedError("flows are not available on this store yet")
+
+    def queue_events(self, keys: list[str], from_ms: int, to_ms: int) -> list[tuple]:
+        """(at_ms, kind, value, service, version) of the queue events (queues.py) of the queues ``keys`` in
+        [from_ms, to_ms], both included, any order."""
+        raise NotImplementedError("per-queue series are not available on this store yet")
+
     @abc.abstractmethod
     def find_tenants(self, text: str, limit: int, *, from_ns: Optional[int] = None, to_ns: Optional[int] = None,
                      queue: Optional[str] = None) -> list[str]:

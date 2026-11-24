@@ -51,6 +51,13 @@ backend PID): only that connection's transactions, one at a time, write it, so n
 rollup row. A key has as many rows as connections wrote it (the ingest pools of every replica, and a few more as
 connections are replaced); the page adds them up in SQL. Rows built by the version 4 migration have writer 0.
 
+**Queue events** (QV-363, queues.py). A message's queue events are kept as on SQLite (``qevents_json``, its
+``queue_events`` rows), in the message's place, and move with it. ``queue_rollup`` adds them up per hour, queue key,
+kind, service, Lambda flag and peer, one row per writing connection as ``tenant_rollup`` (above), counts added
+in SQL: an export adds what a message gains and takes out what it lost, in the place it was in; a sweep takes out
+what it deletes; a drop removes the place's rows. ``place_queue_keys`` lists each place's queue keys, so the
+queue list and each queue's latest event are read without scanning every place's events.
+
 **Locks** (QV-113). A statement on a partitioned table locks, until its transaction ends, every partition (and
 its indexes) that it can't rule out when it is planned. So no statement of an export, a by-message read or
 retention looks a message ID or a receipt hash up across all places: the lookup tables (``mid_places``,
@@ -132,7 +139,7 @@ import psycopg_pool
 from psycopg import errors, sql
 from psycopg.rows import dict_row
 
-from . import body_table, pg_schema, purge, rollup, summary
+from . import body_table, pg_schema, purge, queues, rollup, summary
 from .lookup_filter import LookupFilter, hash_key, mid_key
 from .db import gate_body
 from .otlp import RECORD_FIELDS
@@ -286,6 +293,7 @@ class PostgresStore(Store):
         self.reads = psycopg_pool.ConnectionPool(url, min_size=1, max_size=read_connections, kwargs=kw,
                                                  configure=read_conf, name="trailbeam-read", open=True)
         self._known_queues: set = set()      # (rclass, bucket, queue) rows of place_queues written
+        self._known_qkeys: set = set()       # (rclass, bucket, queue_key) rows of place_queue_keys written
         self._written: Counter = Counter()   # place -> spans written, until it is analysed or known to be
         self._analysed: set = set()          # places whose partitions have statistics (or were just analysed)
         self._to_analyse: set = set()        # places due for ANALYZE, after the export that made them due
@@ -465,6 +473,16 @@ class PostgresStore(Store):
         conn.cursor().executemany(
             "INSERT INTO place_queues (rclass, bucket, queue) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING", new)
         self._tx.noted += new  # cached once the export commits
+
+    def _note_queue_keys(self, conn, rows) -> None:
+        """place_queue_keys rows for these (rclass, bucket, queue_key), each written once per process."""
+        with self._cache_lock:
+            new = sorted(set(rows) - self._known_qkeys)
+        if not new:
+            return
+        conn.cursor().executemany(
+            "INSERT INTO place_queue_keys (rclass, bucket, queue_key) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING", new)
+        self._tx.qnoted += new  # cached once the export commits
 
     # ---- lookups (QV-127) ---------------------------------------------------------------------
 
@@ -851,6 +869,7 @@ class PostgresStore(Store):
                             self._watched[id(watch)] = watch
                     try:
                         self._tx.noted, self._tx.written, self._tx.locked = [], Counter(), set()
+                        self._tx.qnoted = []
                         self._tx.places = None
                         with conn.transaction():
                             result = self._insert(conn, prepared, more_locks)
@@ -866,6 +885,7 @@ class PostgresStore(Store):
                                 conn.close()  # a cancel may still be on its way: never reuse the connection
                     with self._cache_lock:
                         self._known_queues.update(self._tx.noted)
+                        self._known_qkeys.update(self._tx.qnoted)
                         for p, n in self._tx.written.items():
                             if p not in self._analysed:
                                 self._written[p] += n
@@ -1004,9 +1024,15 @@ class PostgresStore(Store):
         # Taken without waiting (waiting here, out of the sorted order, could deadlock): when another export
         # holds one, this attempt is rolled back and the next takes it with the others, in order.
         extra = sorted({_key("m:" + m) for m in touched} - keys)
-        if extra and not conn.execute("SELECT bool_and(pg_try_advisory_xact_lock(k)) AS ok FROM unnest(%s::bigint[]) AS k",
-                                      (extra,)).fetchone()["ok"]:
-            raise _NeedLocks(extra)
+        if extra:
+            if not conn.execute("SELECT bool_and(pg_try_advisory_xact_lock(k)) AS ok FROM unnest(%s::bigint[]) AS k",
+                                (extra,)).fetchone()["ok"]:
+                raise _NeedLocks(extra)
+            # The places were read (_split) before these locks were held: an export of one of these messages that
+            # committed since may have made a place and moved the message's summary there, and a lookup with the
+            # old list finds no summary and writes a second one (QV-422). Read them again, now that no other
+            # writer of these messages can run.
+            self._tx.places = None
         by_place: dict = {}
         for u in updates:
             by_place.setdefault((u[0], u[1]), []).append(u)
@@ -1145,7 +1171,8 @@ class PostgresStore(Store):
         for r in conn.execute(f'SELECT * FROM ({q}) u ORDER BY mid, time_ns, "row"', qp).fetchall():
             rows_by.setdefault(r["mid"], []).append(r)
         old_by = {r["mid"]: r for r in conn.execute(*_each(
-            where, f"SELECT rclass, bucket, strays_json, {', '.join(COLUMNS)} FROM messages WHERE {{p}} AND mid = ANY(%s)",
+            where, f"SELECT rclass, bucket, strays_json, qevents_json, {', '.join(COLUMNS)} FROM messages "
+                   "WHERE {p} AND mid = ANY(%s)",
             [mids])).fetchall()}
         # every place this changes rows in must be live
         self._require_live(conn, {(o["rclass"], o["bucket"]) for o in old_by.values()})
@@ -1155,9 +1182,11 @@ class PostgresStore(Store):
 
         cur = conn.cursor()
         deltas = rollup.Deltas()
+        qdeltas: dict = {}  # queue_rollup: {(place, rollup key): [n, vn, vsum]}
         ins_msg, del_rows, upd_cols = [], [], []
         add_q, add_t, add_e, upd_q, upd_t = [], [], [], [], []
-        strays_new, bodies_move, noted = [], [], set()
+        add_qe, del_qe = [], []  # queue_events rows; (rclass, bucket, mid, from seq)
+        strays_new, bodies_move, noted, qnoted = [], [], set(), set()
         for m in mids:
             new, old = news.get(m), old_by.get(m)
             if new is None:
@@ -1172,11 +1201,29 @@ class PostgresStore(Store):
             values = [int(v) if isinstance(v, bool) else v for v in (new[f] for f in FIELDS)] + list(lists)
             deltas.change(None if old is None else (old["rclass"], old["bucket"]),
                           None if old is None else rollup.of_summary(old), (pc, pb), rollup.of_summary(new))
+            qnew = [list(e) for e in new["queue_events"]]
+            qjson = json.dumps(qnew)
+            qnoted.update((pc, pb, e[2]) for e in qnew)
+            if old is None or (old["rclass"], old["bucket"]) != (pc, pb):
+                qkeep = 0  # a new row, or one that moves: every queue event goes in the new place
+                if old is not None:
+                    _qdelta(qdeltas, (old["rclass"], old["bucket"]), removed=json.loads(old["qevents_json"]))
+            else:
+                qold = json.loads(old["qevents_json"])
+                # a message nearly always gains events at the end of its list: keep the rows before the change
+                qkeep = len(qold) if qold == qnew[:len(qold)] else 0
+                if qjson != old["qevents_json"]:
+                    del_qe.append((pc, pb, m, qkeep))
+                    _qdelta(qdeltas, (pc, pb), removed=qold[qkeep:])
+            if old is None or qjson != old["qevents_json"]:
+                add_qe += [(pc, pb, e[2], e[0], m, i, e[1], e[3], e[4], e[5], e[6], e[7])
+                           for i, e in enumerate(qnew) if i >= qkeep]
+                _qdelta(qdeltas, (pc, pb), added=qnew[qkeep:])
             if old is not None and (old["rclass"], old["bucket"]) != (pc, pb):
                 del_rows.append((old["rclass"], old["bucket"], m))
                 old = None
             if old is None:
-                ins_msg.append([pc, pb] + values + [strays_json])
+                ins_msg.append([pc, pb] + values + [strays_json, qjson])
                 add_q += [(pc, pb, q, new["last_ns"], m) for q in new["queues"]]
                 add_t += [(pc, pb, t, new["last_ns"], m, ascii_lower(t), ns) for t, ns in new["tenants"].items()]
                 add_e += [(pc, pb) + e for e in _events(new, json.loads(lists[2]))]
@@ -1184,6 +1231,8 @@ class PostgresStore(Store):
                 changed = [(c, v) for c, v in zip(COLUMNS, values) if old[c] != v]
                 if old["strays_json"] != strays_json:
                     changed.append(("strays_json", strays_json))
+                if old["qevents_json"] != qjson:
+                    changed.append(("qevents_json", qjson))
                 if changed:
                     upd_cols.append((pc, pb, m, changed))
                 last, was = new["last_ns"], old["last_ns"]
@@ -1201,7 +1250,7 @@ class PostgresStore(Store):
         # Rewriting a message's list rows replaces them (they are keyed by last_ns): the old ones go in the same
         # transaction. Summary upkeep, not retention; the rows are the message's own few.
         whole = [d for d in del_rows if len(d) == 3]
-        for table in ("messages", "message_queues", "message_tenants", "tenant_events"):
+        for table in ("messages", "message_queues", "message_tenants", "tenant_events", "queue_events"):
             if whole:
                 cur.executemany(f"DELETE FROM {table} WHERE rclass = %s AND bucket = %s AND mid = %s", whole)
         for code, table in (("q", "message_queues"), ("t", "message_tenants"), ("e", "tenant_events")):
@@ -1213,7 +1262,7 @@ class PostgresStore(Store):
                 sql.SQL(", ").join(sql.SQL("{} = %s").format(sql.Identifier(c)) for c, _ in changed)),
                 [v for _, v in changed] + [pc, pb, m])
         if ins_msg:
-            mcols = ["rclass", "bucket"] + list(COLUMNS) + ["strays_json"]
+            mcols = ["rclass", "bucket"] + list(COLUMNS) + ["strays_json", "qevents_json"]
             cur.executemany(f"INSERT INTO messages ({', '.join(mcols)}) VALUES ({', '.join(['%s'] * len(mcols))})",
                             ins_msg)
         if add_q:
@@ -1225,6 +1274,14 @@ class PostgresStore(Store):
         if add_e:
             cur.executemany("""INSERT INTO tenant_events (rclass, bucket, at_ms, mid, seq, kind, tenant, wait_ms)
                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""", add_e)
+        if del_qe:
+            cur.executemany("DELETE FROM queue_events WHERE rclass = %s AND bucket = %s AND mid = %s AND seq >= %s",
+                            del_qe)
+        if add_qe:
+            cur.executemany("""INSERT INTO queue_events (rclass, bucket, queue_key, at_ms, mid, seq, kind, service,
+                               lambda, value, peer, version) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                            add_qe)
+        _apply_queue_rollup(conn, qdeltas)
         if bodies_move:
             cur.executemany("UPDATE bodies SET rclass = %s, bucket = %s WHERE rclass = %s AND bucket = %s AND mid = %s",
                             bodies_move)
@@ -1234,6 +1291,7 @@ class PostgresStore(Store):
             cur.executemany("INSERT INTO strays (rclass, bucket, mid) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
                             sorted(set(strays_new)))
         self._note_queues(conn, noted)
+        self._note_queue_keys(conn, qnoted)
 
     # ---- retention ------------------------------------------------------------------------
 
@@ -1456,9 +1514,11 @@ class PostgresStore(Store):
                 c.execute("DELETE FROM hash_places_late WHERE rclass = %s AND bucket = %s", (pc, pb))
                 c.execute("DELETE FROM strays WHERE rclass = %s AND bucket = %s", (pc, pb))
                 c.execute("DELETE FROM place_queues WHERE rclass = %s AND bucket = %s", (pc, pb))
+                c.execute("DELETE FROM place_queue_keys WHERE rclass = %s AND bucket = %s", (pc, pb))
                 c.execute("DELETE FROM places WHERE rclass = %s AND bucket = %s", (pc, pb))
         with self._cache_lock:
             self._known_queues = {k for k in self._known_queues if (k[0], k[1]) != (pc, pb)}
+            self._known_qkeys = {k for k in self._known_qkeys if (k[0], k[1]) != (pc, pb)}
             self._analysed.discard((pc, pb))
             self._written.pop((pc, pb), None)
         return n, examined, (time.monotonic() - t0) * 1000
@@ -1491,7 +1551,7 @@ class PostgresStore(Store):
                     where = " AND (last_ns, mid) > (%s, %s)"
                     p += list(after)
                 msgs = c.execute(
-                    f"""SELECT mid, last_ns, queues_json, strays_json, tenant, events_json
+                    f"""SELECT mid, last_ns, queues_json, strays_json, tenant, events_json, qevents_json
                         FROM messages WHERE rclass = %s AND bucket = %s{where}
                         ORDER BY last_ns, mid LIMIT %s""", p + [limit]).fetchall()
                 gone = [m for m in msgs if set(json.loads(m["queues_json"])) <= expired]
@@ -1504,12 +1564,16 @@ class PostgresStore(Store):
                                                                         self.reads.connection).values())):
                         n += c.execute("DELETE FROM spans WHERE rclass = %s AND bucket = %s AND mid = ANY(%s)",
                                        (kc, kb, ids)).rowcount
-                    for t in ("messages", "message_queues", "message_tenants", "tenant_events", "bodies"):
+                    for t in ("messages", "message_queues", "message_tenants", "tenant_events", "bodies",
+                              "queue_events"):
                         c.execute(f"DELETE FROM {t} WHERE rclass = %s AND bucket = %s AND mid = ANY(%s)", (pc, pb, ids))
                     deltas = rollup.Deltas()
+                    qdeltas: dict = {}
                     for m in gone:
                         deltas.add((pc, pb), rollup.of_summary(m), -1)
+                        _qdelta(qdeltas, (pc, pb), removed=json.loads(m["qevents_json"]))
                     _apply_rollup(c, deltas)
+                    _apply_queue_rollup(c, qdeltas)
                     c.execute("DELETE FROM strays WHERE mid = ANY(%s)", (ids,))
                 unjoined = 0
                 if len(msgs) < limit:  # the messages are done: the place's unjoined settle spans, by their own queue
@@ -1839,6 +1903,76 @@ class PostgresStore(Store):
                AND at_ms BETWEEN %s AND %s AND at_ms - wait_ms >= %s""", [from_ms, to_ms, from_ms], from_ms * 10 ** 6)]
         return rollup.tenant_page(rows, events, again)
 
+    # ---- the queue page (QV-363) ------------------------------------------------------------------
+
+    def queue_keys(self) -> list[str]:
+        """From place_queue_keys: one small table, not every place's events. A key stays listed until its place is
+        dropped, also when a sweep took out its last events (rare: only places that mix retention classes)."""
+        with self._reading() as c:
+            return [r["queue_key"] for r in c.execute(
+                "SELECT DISTINCT queue_key FROM place_queue_keys ORDER BY queue_key").fetchall()]
+
+    def queue_events(self, keys: list[str], from_ms: int, to_ms: int) -> list[tuple]:
+        """One index range of each place's partition per key, the places that can hold events in the range (a
+        place's events are no newer than its bucket's end), a batch a statement."""
+        if not keys:
+            return []
+        return [(r["at_ms"], r["kind"], r["value"], r["service"], r["version"]) for r in self._walk_all(
+            "SELECT at_ms, kind, value, service, version FROM queue_events "
+            "WHERE {p} AND queue_key = ANY(%s) AND at_ms BETWEEN %s AND %s",
+            [list(keys), from_ms, to_ms], from_ms * 10 ** 6)]
+
+    def queue_flows(self, from_ms: int, to_ms: int, now_ms: Optional[int] = None) -> tuple:
+        """As SqliteStore.queue_flows: queue_rollup for the hours ``rollup.plan`` says, plus or minus the queue
+        events of the parts of hours it says, added up in SQL a batch of places a statement (a message's rollup
+        rows and events are in one place, so each batch's snapshot agrees with itself); each key's latest event,
+        one index seek per key and place that has it (place_queue_keys); and the (dead-letter queue, source)
+        pairs whose dlq_receive rows add up to more than nothing."""
+        hours, parts = rollup.plan(from_ms, to_ms, now_ms)
+        grp = "queue_key, kind, service, lambda, peer"
+        qs, params = [], []
+        if hours is not None:
+            qs.append(f"SELECT {grp}, SUM(n) AS n, SUM(vn) AS vn, SUM(vsum) AS vsum FROM queue_rollup "
+                      f"WHERE {{p}} AND hour BETWEEN %s AND %s GROUP BY {grp}")
+            params += list(hours)
+        ecols = "queue_key, kind, COALESCE(service, '') AS service, lambda, COALESCE(peer, '') AS peer"
+        for lo, hi, sign in parts:  # '' for none, as in queue_rollup, so the two add up row by row
+            qs.append(f"SELECT {ecols}, COUNT(*) * {int(sign)} AS n, COUNT(value) * {int(sign)} AS vn, "
+                      f"COALESCE(SUM(value), 0) * {int(sign)} AS vsum FROM queue_events "
+                      f"WHERE {{p}} AND at_ms BETWEEN %s AND %s AND {queues.FLOW_KINDS_SQL} GROUP BY 1, 2, 3, 4, 5")
+            params += [lo, hi]
+        first = min([from_ms] + [a for a, _, _ in parts] + ([hours[0] * rollup.HOUR_MS] if hours else []))
+        sums: dict = {}
+        with self._reading() as c:
+            places = self._places_from(c, first * 10 ** 6)
+            for batch in self._batches(places):
+                if qs:
+                    for r in c.execute(*_each(batch, " UNION ALL ".join(f"({q})" for q in qs), params)).fetchall():
+                        k = (r["queue_key"], r["kind"], r["service"], r["lambda"], r["peer"])
+                        t = sums.setdefault(k, [0, 0, 0])
+                        t[0] += int(r["n"] or 0)
+                        t[1] += int(r["vn"] or 0)
+                        t[2] += int(r["vsum"] or 0)
+            have: dict = {}
+            for r in c.execute("SELECT rclass, bucket, queue_key FROM place_queue_keys").fetchall():
+                have.setdefault((r["rclass"], r["bucket"]), []).append(r["queue_key"])
+            last: dict = {}
+            jobs = [(p, [have[p]]) for p in sorted(have)]
+            for k in range(0, len(jobs), self.PAGE_PLACES):
+                q, p = _per_place(jobs[k:k + self.PAGE_PLACES], """SELECT k.k AS queue_key, (SELECT MAX(at_ms)
+                    FROM queue_events WHERE {p} AND queue_key = k.k) AS at FROM unnest(%s::text[]) AS k(k)""")
+                for r in c.execute(q, p).fetchall():
+                    if r["at"] is not None and r["at"] > last.get(r["queue_key"], -1):
+                        last[r["queue_key"]] = r["at"]
+            links: set = set()
+            all_places = self._places_from(c)
+            for batch in self._batches(all_places):
+                links.update((r["queue_key"], r["peer"]) for r in c.execute(*_each(
+                    batch, "SELECT queue_key, peer FROM queue_rollup WHERE {p} AND kind = 'dlq_receive' "
+                           "GROUP BY queue_key, peer HAVING SUM(n) <> 0")).fetchall())
+        counts = [(*k[:2], k[2] or None, k[3], k[4] or None, *v) for k, v in sums.items() if v[0]]
+        return sorted(last), last, counts, sorted(links)
+
     def find_tenants(self, text: str, limit: int, *, from_ns: Optional[int] = None, to_ns: Optional[int] = None,
                      queue: Optional[str] = None) -> list[str]:
         if not text:
@@ -1996,6 +2130,37 @@ def _apply_rollup(conn, deltas: "rollup.Deltas") -> None:
         if gone:
             cur.executemany("""DELETE FROM tenant_rollup WHERE rclass = %s AND bucket = %s AND hour = %s
                                AND tenant = %s AND writer = %s""", gone)
+
+
+def _qdelta(into: dict, place, added=(), removed=()) -> None:
+    """Add to ``into`` ({(place, rollup key): [n, vn, vsum]}) what these queue events change in queue_rollup."""
+    for k, c in queues.rollup_sums(added, removed).items():
+        t = into.setdefault((place, k), [0, 0, 0])
+        for i in range(3):
+            t[i] += c[i]
+
+
+def _apply_queue_rollup(conn, deltas: dict) -> None:
+    """Add the deltas to queue_rollup: to this connection's own rows (``writer``), as _apply_rollup, so concurrent
+    exports touching one queue's hour never wait for each other. Counts add in SQL; a row that comes to nothing is
+    deleted. A writer's row can go below zero (it took out what another connection added): the reads add every
+    writer's rows up."""
+    items = sorted((p, k, c) for (p, k), c in deltas.items() if c != [0, 0, 0])
+    if not items:
+        return
+    me = conn.info.backend_pid
+    rows = [p + k[:1] + k[1:] + (me,) + tuple(c) for p, k, c in items]
+    cur = conn.cursor()
+    cur.executemany(
+        """INSERT INTO queue_rollup (rclass, bucket, hour, queue_key, kind, service, lambda, peer, writer, n, vn, vsum)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+           ON CONFLICT (rclass, bucket, hour, queue_key, kind, service, lambda, peer, writer) DO UPDATE
+           SET n = queue_rollup.n + EXCLUDED.n, vn = queue_rollup.vn + EXCLUDED.vn,
+               vsum = queue_rollup.vsum + EXCLUDED.vsum""", rows)
+    cur.executemany(
+        """DELETE FROM queue_rollup WHERE rclass = %s AND bucket = %s AND hour = %s AND queue_key = %s AND kind = %s
+           AND service = %s AND lambda = %s AND peer = %s AND writer = %s AND n = 0 AND vn = 0 AND vsum = 0""",
+        [r[:9] for r in rows])
 
 
 def _lists(s) -> tuple:

@@ -15,4 +15,4 @@ COPY --from=build /build/fn/target/classes ${LAMBDA_TASK_ROOT}
 COPY --from=build /build/fn/target/lib ${LAMBDA_TASK_ROOT}/lib/
 COPY --from=build /build/kit-versions.txt /kit-versions.txt
 ENV TRAILBEAM_LAMBDA_HANDLER=trailbeam.kit.LambdaHandler
-CMD ["dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest"]
+CMD ["app.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest"]

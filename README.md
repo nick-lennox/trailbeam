@@ -264,7 +264,8 @@ export OTEL_SERVICE_NAME=orders-worker
 If the server has an [access token](#access-token), also set
 `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<token>`.
 
-Full guides: [Python](python/README.md), [Node.js](node/README.md), and the Lambda sections in each.
+Full guides: [Python](python/README.md), [Node.js](node/README.md), and the Lambda sections in each. A Java
+jar for the AWS SDK for Java v2 is in [`java/`](java/README.md); it is pre-release and not published yet.
 
 ### Supported versions
 
@@ -531,6 +532,14 @@ ingest.
 
 ### Accounts, ingest tokens and personal API tokens
 
+> **A preview, off by default.** Users and roles are in this release for trying out, but haven't had their
+> security review yet, so the server ignores them unless it runs with `--accounts` (or `TRAILBEAM_ACCOUNTS=1`).
+> Off, the server is guarded by `TRAILBEAM_TOKEN` alone, as in 0.4.0: `trailbeam start` prints no setup link,
+> `/setup` doesn't exist, `TRAILBEAM_ADMIN_EMAIL` stops the server at start, and `trailbeam users` and
+> `trailbeam tokens` refuse to run without `--accounts` (or the variable). A store that already holds an admin or
+> ingest tokens keeps them, and the server warns at start that it ignores them. Everything below assumes the
+> switch is on, on every replica.
+
 The server can also hold people (an email, a password and a role, `admin` or `member`) and named tokens, in its
 own store (SQLite or Postgres). Nothing changes until the first admin exists. After that:
 
@@ -583,7 +592,7 @@ each start replaces it. It is printed only when the output is a terminal, never 
 The server logs `this server has no admin account yet` instead. Either run the command in the container:
 
 ```sh norun="needs a running container; test_cli.py runs these commands against SQLite and Postgres"
-docker exec -it trailbeam trailbeam users create --email ada@example.com --role admin
+docker exec -it trailbeam trailbeam users create --accounts --email ada@example.com --role admin
 # asks for the password twice; or --password-file /run/secrets/admin-password
 ```
 
@@ -1419,7 +1428,8 @@ message, list and tenant count reads the same as before
   0.3.0's 4, about 8 s per 1M spans, see the [changelog](CHANGELOG.md)). Once it has, 0.4.0 and 0.3.0 stop at
   start with `the database is at Postgres schema version 10, written by a newer Trailbeam ... Refusing to
   start, so nothing is lost`. To go back, restore the backup you took first.
-- **Accounts stay off until you create the first admin.** Upgrade every replica first: a replica still on 0.4.0
+- **Accounts stay off** unless every replica runs with `--accounts` (`TRAILBEAM_ACCOUNTS=1`), a preview in this
+  release, and then until you create the first admin. Upgrade every replica first: a replica still on 0.4.0
   or 0.3.0 keeps letting `TRAILBEAM_TOKEN` into the web screen and the API after the others have switched.
   `trailbeam users create` reminds you on Postgres. Once an admin exists, `TRAILBEAM_TOKEN` opens only ingest and
   `/metrics`, and browsers signed in with it are signed out: give Prometheus and scripts a personal API token
@@ -1635,7 +1645,7 @@ The documentation is at [docs.trailbeam.app](https://docs.trailbeam.app).
 What changed in each release, with upgrade notes: [CHANGELOG.md](CHANGELOG.md).
 
 The reference for each part of this repository is next to its code: [`python/`](python/README.md),
-[`node/`](node/README.md), [`collector/`](collector/README.md), [`demo/`](demo/README.md) and
+[`node/`](node/README.md), [`java/`](java/README.md), [`collector/`](collector/README.md), [`demo/`](demo/README.md) and
 [`examples/`](examples/README.md). The span
 contract, the specification the packages and Trailbeam both follow, is
 [`contract/span-contract.md`](contract/span-contract.md).
@@ -1646,6 +1656,7 @@ contract, the specification the packages and Trailbeam both follow, is
 |---|---|
 | [`python/`](python/) | Python package `trailbeam`: boto3 hooks, a Lambda handler wrapper, and Trailbeam itself (`trailbeam.server`, installed with the `server` extra) |
 | [`node/`](node/) | Node.js package `trailbeam`: AWS SDK v3 hooks and a Lambda handler wrapper |
+| [`java/`](java/) | Java jar `trailbeam-aws-sdk-v2` (pre-release): a global AWS SDK for Java v2 interceptor and a Lambda handler wrapper |
 | [`ui/`](ui/) | `@trailbeam/ui`: the views Trailbeam's web screen and the hosted app share (the timeline with Lambda errors grouped by cause, the Tenants table, and the Body tab with `body.*` search) |
 | [`Dockerfile`](Dockerfile) | The Trailbeam container: `trailbeam[server]` with SQLite on a volume |
 | [`collector/`](collector/) | OpenTelemetry Collector configuration |

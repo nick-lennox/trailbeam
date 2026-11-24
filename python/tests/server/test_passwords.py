@@ -71,11 +71,19 @@ def test_a_stored_value_this_version_cant_read_never_matches(stored):
     assert not h.needs_rehash(stored)
 
 
-def test_a_password_over_the_cap_is_refused_without_a_hash():
-    h = fast(max_concurrent=1, wait_s=0.01)
+def test_a_password_over_the_cap_never_matches_but_costs_one_hash_like_any_other_answer():
+    # QV-229: answering an over-long password without a hash for a known email, while an unknown email costs
+    # one (verify_dummy), told which emails have accounts (about 6 ms against 190 ms)
+    h = fast()
+    over = PW + "x" * (passwords.MAX_BYTES - len(PW) + 1)
     stored = h.hash(PW)
-    with h._slots:  # every slot taken: a hash would raise HashBusy
-        assert h.verify("x" * 2000, stored) is False
+    calls = []
+    real = h._scrypt
+    h._scrypt = lambda *a: calls.append(a) or real(*a)
+    assert h.verify(over, stored) is False
+    assert h.verify("x" * 5000, stored) is False
+    assert len(calls) == 2
+    assert all(len(c[0]) <= passwords.MAX_BYTES for c in calls)  # the cost stays capped
 
 
 def test_verify_dummy_does_the_work_and_says_no():
@@ -130,3 +138,25 @@ def test_a_hash_that_cant_start_in_time_is_busy():
         with pytest.raises(HashBusy):
             h.verify_dummy(PW)
     assert h.verify(PW, h.hash(PW))  # the slot is back
+
+
+def test_beyond_max_waiting_a_hash_is_busy_at_once():
+    """QV-407: without a cap, every request beyond the slots waited WAIT_S, and so did everyone after them."""
+    h = fast(max_concurrent=1, wait_s=30, max_waiting=2)
+    assert passwords.MAX_WAITING == 2 * passwords.MAX_CONCURRENT and fast().max_waiting == 2 * fast().max_concurrent
+    h._slots.acquire()
+    waiters = [threading.Thread(target=h.hash, args=(PW,)) for _ in range(2)]
+    for t in waiters:
+        t.start()
+    deadline = time.monotonic() + 5
+    while h._waiting < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert h._waiting == 2
+    started = time.monotonic()
+    with pytest.raises(HashBusy):
+        h.verify_dummy(PW)
+    assert time.monotonic() - started < 1
+    h._slots.release()
+    for t in waiters:
+        t.join(10)
+    assert h._waiting == 0 and h.verify(PW, h.hash(PW))

@@ -3,7 +3,7 @@
   Trailbeam for the AWS SDK for Java v2: a global ExecutionInterceptor that emits the spans of
   contract/span-contract.md. Users add this one dependency and change no code.
 
-  The group ID is a placeholder until the Maven Central namespace is decided (QV-312 report, board choice 2).
+  The group ID app.trailbeam is the board's choice (QV-312 card, 2026-11-23): the product domain, trailbeam.app.
   The OpenTelemetry SDK is relocated into the jar (QV-312 report, section 3, point 4), so it never conflicts
   with the application's own OpenTelemetry and the OpenTelemetry Java agent's API bridge never sees it.
 -->
@@ -12,20 +12,33 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>dev.trailbeam</groupId>
+  <groupId>app.trailbeam</groupId>
   <artifactId>trailbeam-aws-sdk-v2</artifactId>
   <version>0.1.0-SNAPSHOT</version>
   <packaging>jar</packaging>
 
   <name>Trailbeam for the AWS SDK for Java v2</name>
   <description>Per-message SQS timeline spans (Trailbeam span contract 3.x) from a global AWS SDK v2 ExecutionInterceptor.</description>
-  <url>https://github.com/nick-lennox/qv2</url>
+  <url>https://github.com/nick-lennox/trailbeam</url>
   <licenses>
     <license>
       <name>Apache-2.0</name>
       <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
     </license>
   </licenses>
+  <!-- Maven Central requires developers and scm. -->
+  <developers>
+    <developer>
+      <name>Trailbeam maintainers</name>
+      <organization>Trailbeam</organization>
+      <organizationUrl>https://github.com/nick-lennox/trailbeam</organizationUrl>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:https://github.com/nick-lennox/trailbeam.git</connection>
+    <developerConnection>scm:git:https://github.com/nick-lennox/trailbeam.git</developerConnection>
+    <url>https://github.com/nick-lennox/trailbeam</url>
+  </scm>
 
   <properties>
     <maven.compiler.release>11</maven.compiler.release>
@@ -165,7 +178,7 @@
               <relocations>
                 <relocation>
                   <pattern>io.opentelemetry</pattern>
-                  <shadedPattern>dev.trailbeam.sqs.shaded.otel</shadedPattern>
+                  <shadedPattern>app.trailbeam.sqs.shaded.otel</shadedPattern>
                 </relocation>
               </relocations>
               <filters>
@@ -192,6 +205,80 @@
           </execution>
         </executions>
       </plugin>
+      <!-- Maven Central requires a sources jar and a javadoc jar next to the main jar. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+        <version>3.3.1</version>
+        <executions>
+          <execution>
+            <id>attach-sources</id>
+            <goals>
+              <goal>jar-no-fork</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>3.11.2</version>
+        <configuration>
+          <doclint>none</doclint>
+          <quiet>true</quiet>
+        </configuration>
+        <executions>
+          <execution>
+            <id>attach-javadocs</id>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!--
+      Publishing to Maven Central: mvn -Prelease deploy. Not run by CI or by agents; the steps are in
+      RELEASING.md. It needs a GPG key in the local keyring and a Central Portal token in settings.xml under the
+      server ID "central", and the group ID above must be a namespace verified on the Central Portal. Set a
+      release version first (no -SNAPSHOT): the Portal's release upload doesn't take snapshot versions.
+      autoPublish is off: the upload is validated and then waits on the Portal until someone presses Publish,
+      so a mistake can still be dropped.
+    -->
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>3.2.7</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <version>0.7.0</version>
+            <extensions>true</extensions>
+            <configuration>
+              <publishingServerId>central</publishingServerId>
+              <autoPublish>false</autoPublish>
+              <waitUntil>validated</waitUntil>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

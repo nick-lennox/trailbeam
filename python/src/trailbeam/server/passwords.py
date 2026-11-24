@@ -8,7 +8,9 @@ scrypt from the standard library (``hashlib.scrypt``), so no new dependency:
   URL-safe base64), so they can be raised later: ``needs_rehash`` says when a stored hash is weaker than now.
 - At most ``MAX_CONCURRENT`` hashes run at once in a process (a semaphore). The server has a thread per
   request and no thread limit, so without it 50 sign-ins at once would need 1.6 GiB. A hash that can't start
-  within ``WAIT_S`` raises ``HashBusy``; the server answers that 503 with Retry-After.
+  within ``WAIT_S`` raises ``HashBusy``; the server answers that 503 with Retry-After. At most ``MAX_WAITING``
+  more may wait for a slot; beyond that a hash raises ``HashBusy`` at once, so a burst of sign-ins can't park
+  hundreds of threads for ``WAIT_S`` each and make everyone else's wait that long.
 - Passwords are at least ``MIN_LENGTH`` characters (the hosted app's rule) and at most ``MAX_BYTES`` bytes of
   UTF-8, so a huge password can't make a hash expensive.
 - ``verify`` compares with ``hmac.compare_digest``. ``verify_dummy`` hashes against a fixed hash and always says
@@ -32,6 +34,7 @@ MIN_LENGTH = 10
 MAX_BYTES = 1024
 MAX_CONCURRENT = 2
 WAIT_S = 10.0
+MAX_WAITING = 2 * MAX_CONCURRENT
 PREFIX = "scrypt"
 # What a stored hash may ask for: a hash from a database someone else wrote can't make the server use more
 # than MAXMEM (hashlib checks that too) or run for minutes.
@@ -43,7 +46,8 @@ class PasswordError(ValueError):
 
 
 class HashBusy(Exception):
-    """``MAX_CONCURRENT`` hashes were running for ``WAIT_S``: try again shortly (503)."""
+    """``MAX_CONCURRENT`` hashes were running for ``WAIT_S``, or ``MAX_WAITING`` were already waiting: try again
+    shortly (503)."""
 
 
 def check(password: str) -> str:
@@ -71,19 +75,32 @@ class Hasher:
     """Hashes and checks passwords, at most ``max_concurrent`` at once. Thread-safe; one per process."""
 
     def __init__(self, max_concurrent: int = MAX_CONCURRENT, wait_s: float = WAIT_S, *,
-                 log2_n: int = LOG2_N, r: int = R, p: int = P):
+                 max_waiting: Optional[int] = None, log2_n: int = LOG2_N, r: int = R, p: int = P):
         if max_concurrent < 1:
             raise ValueError("max_concurrent must be at least 1")
         self.max_concurrent = max_concurrent
         self._slots = threading.BoundedSemaphore(max_concurrent)
         self.wait_s = wait_s
+        self.max_waiting = 2 * max_concurrent if max_waiting is None else max_waiting
+        self._waiting = 0
+        self._waiting_lock = threading.Lock()
         self.params = (log2_n, r, p)
         self._dummy: Optional[str] = None
         self._dummy_lock = threading.Lock()
 
     def _scrypt(self, password: bytes, salt: bytes, log2_n: int, r: int, p: int, dklen: int) -> bytes:
-        if not self._slots.acquire(timeout=self.wait_s):
-            raise HashBusy(f"{self.max_concurrent} password checks were already running for {self.wait_s:g} s")
+        if not self._slots.acquire(blocking=False):
+            with self._waiting_lock:
+                if self._waiting >= self.max_waiting:
+                    raise HashBusy(f"{self.max_concurrent} password checks running and {self._waiting} waiting")
+                self._waiting += 1
+            try:
+                got = self._slots.acquire(timeout=self.wait_s)
+            finally:
+                with self._waiting_lock:
+                    self._waiting -= 1
+            if not got:
+                raise HashBusy(f"{self.max_concurrent} password checks were already running for {self.wait_s:g} s")
         try:
             return hashlib.scrypt(password, salt=salt, n=1 << log2_n, r=r, p=p, maxmem=MAXMEM, dklen=dklen)
         finally:
@@ -104,7 +121,10 @@ class Hasher:
             self.verify_dummy(password if isinstance(password, str) else "")
             return False
         pw = password.encode("utf-8", "surrogatepass")
-        if len(pw) > MAX_BYTES:  # no hash: the length of the password, not the account, decides this
+        if len(pw) > MAX_BYTES:
+            # never matches, but costs the same one hash as every other answer: answering at once here would
+            # tell a caller that this email has an account (unknown emails go through verify_dummy, which hashes)
+            self.verify_dummy(password)
             return False
         log2_n, r, p, salt, want = parsed
         got = self._scrypt(pw, salt, log2_n, r, p, len(want))

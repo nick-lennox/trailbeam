@@ -31,7 +31,7 @@ import threading
 import time
 from typing import Callable, Iterable, Iterator, Optional
 
-from . import body_table, migrations, purge, rollup, summary_table
+from . import body_table, migrations, purge, queues, rollup, summary_table
 from .events import HOUR_NS, KINDS as STEP_KINDS, hour_split
 from .otlp import RECORD_FIELDS
 from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store, StoreFull,
@@ -674,6 +674,61 @@ class SqliteStore(Store):
 
     def queue_messages(self, queue: str) -> set[str]:
         return {r["mid"] for r in self.query("SELECT mid FROM message_queues NOT INDEXED WHERE queue = ?", (queue,))}
+
+    def queue_keys(self) -> list[str]:
+        """The distinct leading keys of queue_events, one index seek each (a queue has many rows; there are few
+        queues), not a scan."""
+        out: list = []
+        with self.reader() as c, _snapshot(c):
+            k = c.execute("SELECT MIN(queue_key) FROM queue_events").fetchone()[0]
+            while k is not None:
+                out.append(k)
+                k = c.execute("SELECT MIN(queue_key) FROM queue_events WHERE queue_key > ?", (k,)).fetchone()[0]
+        return out
+
+    def queue_events(self, keys: list[str], from_ms: int, to_ms: int) -> list[tuple]:
+        """One range of the primary key per queue key."""
+        out: list = []
+        with self.reader() as c, _snapshot(c):
+            for k in keys:
+                out += c.execute("SELECT at_ms, kind, value, service, version FROM queue_events WHERE queue_key = ? "
+                                 "AND at_ms BETWEEN ? AND ?", (k, from_ms, to_ms)).fetchall()
+        return [tuple(r) for r in out]
+
+    def queue_flows(self, from_ms: int, to_ms: int, now_ms: Optional[int] = None) -> tuple:
+        """queue_rollup for the hours ``rollup.plan`` says, plus or minus the queue events of the parts of hours it
+        says, added up in SQL; each queue's latest event (one index seek per key); and every (dead-letter queue,
+        source) pair, by queue_rollup_dlq. One read transaction."""
+        hours, parts = rollup.plan(from_ms, to_ms, now_ms)
+        cols = "queue_key, kind, service, lambda, peer"
+        ecols = "queue_key, kind, COALESCE(service, ''), lambda, COALESCE(peer, '')"
+        sums: dict = {}
+
+        def add(rows, sign):
+            for r in rows:
+                c = sums.setdefault(tuple(r[:5]), [0, 0, 0])
+                for i in range(3):
+                    c[i] += sign * int(r[5 + i] or 0)
+
+        with self.reader() as c, _snapshot(c):
+            keys, k = [], c.execute("SELECT MIN(queue_key) FROM queue_events").fetchone()[0]
+            while k is not None:
+                keys.append(k)
+                k = c.execute("SELECT MIN(queue_key) FROM queue_events WHERE queue_key > ?", (k,)).fetchone()[0]
+            last = {k: c.execute("SELECT MAX(at_ms) FROM queue_events WHERE queue_key = ?", (k,)).fetchone()[0]
+                    for k in keys}
+            if hours is not None:
+                add(c.execute(f"SELECT {cols}, SUM(n), SUM(vn), SUM(vsum) FROM queue_rollup "
+                              f"WHERE hour BETWEEN ? AND ? GROUP BY {cols}", hours), 1)
+            for lo, hi, sign in parts:
+                for k in keys:  # '' for none, as in queue_rollup, so the two add up row by row
+                    add(c.execute(f"SELECT {ecols}, COUNT(*), COUNT(value), SUM(value) FROM queue_events "
+                                  f"WHERE queue_key = ? AND at_ms BETWEEN ? AND ? AND {queues.FLOW_KINDS_SQL} "
+                                  f"GROUP BY {ecols}", (k, lo, hi)), sign)
+            links = [tuple(r) for r in c.execute("SELECT DISTINCT queue_key, peer FROM queue_rollup "
+                                                 "INDEXED BY queue_rollup_dlq WHERE kind = 'dlq_receive'")]
+        counts = [(*k[:2], k[2] or None, k[3], k[4] or None, *v) for k, v in sums.items() if v[0]]
+        return keys, last, counts, links
 
     def tenant_activity(self, from_ms: int, to_ms: int) -> list[TenantActivity]:
         """The hourly rollup and the tenant events ``rollup.plan`` says, and the repeat dead-letter moves

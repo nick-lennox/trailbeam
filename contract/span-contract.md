@@ -1,9 +1,10 @@
 # Trailbeam span contract, schema version 3 (revision 3.3)
 
-This file defines the OpenTelemetry spans that the `trailbeam` Python package and the `trailbeam` Node.js
-package emit, and that the Trailbeam reads. Both packages and Trailbeam are built and tested against
-it. A change to anything below is a contract change: bump `trailbeam.schema_version`, and update this file,
-both packages and Trailbeam in the same change. A revision (3.1) only adds an optional attribute that
+This file defines the OpenTelemetry spans that the `trailbeam` Python package, the `trailbeam` Node.js
+package and the Java jar `trailbeam-aws-sdk-v2` emit, and that the Trailbeam reads. The packages and Trailbeam
+are built and tested against it; what is particular to Java is in section 20. A change to anything below is a
+contract change: bump `trailbeam.schema_version`, and update this file, every package and Trailbeam in the same
+change. A revision (3.1) only adds an optional attribute that
 older stores ignore and that Trailbeam does not require, or (3.3) an optional span; it keeps
 `trailbeam.schema_version = 3` (sections 14, 16 and 19). Section 17 (the test span of `trailbeam doctor`) is not emitted by the packages and changes nothing they
 send.
@@ -26,8 +27,9 @@ accepts `4` on them with the same meaning.
 | `trailbeam outcome` | `sqs.outcome` | `process` | Lambda wrapper | once per record, after the handler returns or throws |
 | `trailbeam purge` | `sqs.purge` | `purge` | client hooks | once per `PurgeQueue` call, after the response or error (3.3, section 18) |
 
-"Client hooks" are the boto3 hooks (Python) and the AWS SDK v3 hooks (Node.js). "Lambda wrapper" is
-the handler wrapper in each package. In 0.1, `trailbeam outcome` comes only from the Lambda wrappers; for
+"Client hooks" are the boto3 hooks (Python), the AWS SDK v3 hooks (Node.js) and the global
+`ExecutionInterceptor` for the AWS SDK for Java v2 (Java, section 20). "Lambda wrapper" is the handler wrapper
+in each package. In 0.1, `trailbeam outcome` comes only from the Lambda wrappers; for
 other consumers, the outcome of processing is the `trailbeam delete` (or its absence).
 
 Trailbeam **must** identify Trailbeam spans by instrumentation scope name `trailbeam` and the attribute
@@ -48,7 +50,8 @@ change-visibility span names; that is dropped.)
 - Span kind: `INTERNAL`.
 - Parent: in the client hooks, the stock AWS SDK instrumentation span for the same call
   (`opentelemetry-instrumentation-botocore` in Python, `@opentelemetry/instrumentation-aws-sdk` in
-  Node.js), so the Trailbeam span shares its trace ID. In the Lambda wrapper, the active span at
+  Node.js), so the Trailbeam span shares its trace ID. Java reads it from the request's trace header instead,
+  and a `ReceiveMessage` in a polling loop has none (section 20.1). In the Lambda wrapper, the active span at
   invocation time, or none (a root span).
 - Time (changed in schema version 2, see section 12): a span from the client hooks is an
   **interval** that contains the moment SQS acted:
@@ -100,7 +103,7 @@ and whichever threads made the calls. Calls in flight at the same time (`B.issue
 `A.issued < B.returned`) are not ordered. Trailbeam never compares ticks of different scopes
 (section 9a).
 
-**The scope is the whole process (Python) or the whole realm (Node.js), not one thread or async task.**
+**The scope is the whole process (Python), the whole realm (Node.js) or the class loader (Java, section 20.2), not one thread or async task.**
 One counter is shared by every thread of a Python process (behind a lock) and by every async task of a
 Node.js realm (which runs on one thread), so a call on one thread can be ordered before a call on another.
 That is sound, for the same reason it is sound within one thread. An edge needs A to have *returned*
@@ -218,7 +221,7 @@ receive is shown as a delete with a stale receipt handle.
 |---|---|---|---|
 | `messaging.message.id` | string | must | record `messageId` |
 | `trailbeam.outcome` | string | must | one of the values below |
-| `trailbeam.error_type` | string | must if `failed_exception` | the exception's class name, such as `RuntimeError` or `TypeError` |
+| `trailbeam.error_type` | string | must if `failed_exception` | the exception's class name, such as `RuntimeError` or `TypeError`; in Java the fully qualified name, such as `java.lang.RuntimeException` (section 20.3) |
 | `trailbeam.error_message` | string | may (3.2) | the exception's message, redacted, only for queues with error text turned on (section 15.5) |
 | `faas.name` | string | must | function name |
 | `faas.invocation_id` | string | must | `aws_request_id` / `awsRequestId` |
@@ -594,6 +597,8 @@ variables as a whole.
 | `capture.redact_patterns` / `capture.redactPatterns` | `TRAILBEAM_REDACT_PATTERNS` | all built-in patterns (15.3) |
 | `capture.max_body_bytes` / `capture.maxBodyBytes` | `TRAILBEAM_CAPTURE_MAX_BYTES` | 16384; at most 262144 |
 
+The Java jar has no install call: it reads only the environment variables (section 20.4).
+
 A queue list holds queue names (`messaging.destination.name`), or `*` for every queue. Capture is
 **opt-in per queue**: a body is exported only for a listed queue. Trailbeam adds a second gate when it
 stores spans. That gate belongs to the server, not to this contract:
@@ -906,3 +911,77 @@ seen; its messages still show as stuck.
 
 `trailbeam.schema_version` stays `3`: the span is optional, Trailbeam requires it for nothing, and spans of
 3.2 and before are read as they were.
+
+## 20. The Java package (QV-319)
+
+The jar `trailbeam-aws-sdk-v2` ([`java/`](../java/README.md)) emits the spans of this contract, revision 3.3,
+for the AWS SDK for Java v2 (2.17 or later, Java 11 or later). It registers a global `ExecutionInterceptor`
+through the SDK's classpath file `software/amazon/awssdk/global/handlers/execution.interceptors`, so the
+application changes no code, and it ships a Lambda handler wrapper. Like the other packages it has its own
+always-on tracer provider (a relocated copy of the OpenTelemetry SDK) and exports OTLP over HTTP. Everything
+in sections 1 to 19 applies to it as written, except where this section says how Java does it. It adds no
+attribute and changes no rule, so `trailbeam.schema_version` stays `3`. Its evidence is the QV-312 spike
+(report document `report` on QV-312, section 3) and the conformance kit, which CI runs alone, beside the
+OpenTelemetry Java agent (also at 0% sampling), beside dd-java-agent and in Spring Boot executable jars.
+
+### 20.1 Parent
+
+The SDK runs global interceptors in `HashMap` order, not classpath order, so the jar can't rely on running
+after an agent's interceptor and reading the active span. It reads the parent from the outgoing HTTP request in
+`beforeTransmission`, after every interceptor has changed it: the `X-Amzn-Trace-Id` header (`Root=...;Parent=...`)
+if it has one, else `traceparent`. The OpenTelemetry Java agent and dd-java-agent both put one there, also when
+their sampler dropped the span, so the Trailbeam span shares the stock span's trace ID either way. With no
+header, the span is a root span.
+
+**A `ReceiveMessage` in a polling loop has no stock span.** Neither agent creates a span for a receive unless a
+span is already active, and a consumer's polling loop usually has none. Its `trailbeam receive` spans are then
+root spans. Trailbeam reads only Trailbeam spans, so its timeline doesn't change; only a trace viewer shows
+the receive in a trace of its own. The conformance kit checks exactly this (its variant option
+`receive_roots`): beside either agent, every send and settle span has a parent, and receives may be roots.
+
+### 20.2 Time, call order and identity
+
+- Times are `Instant.now()` in nanoseconds since the epoch, the wall clock (section 2). In `beforeExecution`,
+  `trailbeam.order.issued` is ticked, then the start is read, before the SDK marshals, signs and sends the request and
+  before any retry. The end is read and `trailbeam.order.returned` ticked in `afterExecution` or
+  `onExecutionFailure`.
+- The call-order counter (section 2a) is one per class loader that loads the jar: one per process for a normal
+  application, one per webapp in an application server. It is an `AtomicLong`, so it is strictly increasing
+  and safe from every thread, which is what section 2a's argument needs.
+- `thread.name` is read in `beforeExecution`, on the thread that made the call. An async client completes its
+  response on an SDK thread, which says nothing about the consumer.
+- `service.instance.id` and `messaging.client.id` follow section 5; the random ID is chosen once per class
+  loader, when the jar's tracer provider is created.
+- **SnapStart.** One snapshot becomes many execution environments, which would share one counter scope and one
+  instance ID. After a restore the jar chooses a new `trailbeam.order.scope` (its counter starts again at 1)
+  and a new `service.instance.id`, through the `org.crac` hooks SnapStart runs, and it flushes before the
+  snapshot. Without `org.crac` on the classpath, the application calls `Trailbeam.afterRestore()` itself.
+
+### 20.3 Lambda wrapper
+
+The wrapper is a handler class (`app.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`) that loads the
+real handler named in `TRAILBEAM_LAMBDA_HANDLER`, or a base class the handler extends (`TrailbeamSqsHandler`).
+It follows sections 2, 2a, 4.4 and 15.5 like the other wrappers. `trailbeam.error_type` is the fully qualified
+class name (`java.lang.RuntimeException`), because that is what Lambda's Java runtime reports as `errorType`,
+and the kit compares the two. Its parent is the invocation's X-Ray trace header (the system property
+`com.amazonaws.xray.traceHeader`, else `_X_AMZN_TRACE_ID`), or none.
+
+### 20.4 Configuration and failure
+
+The jar reads the environment variables of sections 2, 7 and 15.1; there are no options in code. It never
+throws into an SQS call or an invocation. Where Python and Node.js refuse a bad setting at install time (an
+invalid redact key, an unknown pattern, an out-of-range `TRAILBEAM_CAPTURE_MAX_BYTES`), the jar logs one
+warning and exports no body and no error text: the spans of a listed queue carry
+`trailbeam.body.capture_status = redaction_failed` until the setting is fixed (section 15.4).
+
+To read the receive count and the other attributes Trailbeam needs, the interceptor adds their names to each
+`ReceiveMessage` request: in `messageSystemAttributeNames` on SDK 2.25 and later, in `attributeNames` before
+that, plus the tenant message attribute (if configured) and the SQS Extended Client's size attributes. It
+keeps every name the application asked for and leaves `All` (and `.*`) alone. This changes what SQS returns,
+not the message, and the jar makes no SQS call of its own.
+
+### 20.5 Not covered
+
+AWS SDK for Java v1 and Java 8 are not supported (QV-312 report, section 9). A client built without the global
+interceptor file on its classpath (an uber jar that dropped it, see the Java README) emits nothing until the
+interceptor is registered by hand.

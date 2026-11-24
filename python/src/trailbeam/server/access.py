@@ -88,6 +88,24 @@ class Decision(NamedTuple):
     message: str = ""
 
 
+SWITCH_ENV = "TRAILBEAM_ACCOUNTS"
+_ON, _OFF = ("1", "true", "yes", "on"), ("", "0", "false", "no", "off")
+SWITCHED_OFF = ("users and roles are off on this server (a preview in this release, not yet security-reviewed): "
+                "start it with --accounts or TRAILBEAM_ACCOUNTS=1 to use them")
+
+
+def switch_on(env) -> bool:
+    """``TRAILBEAM_ACCOUNTS``: users and roles are a preview, off unless this says 1 (or true, yes, on). Off, the
+    server runs as on a store without account tables: the shared token only, as in 0.4.0. ValueError on a value
+    that is neither on nor off, so a typo never leaves the server in the mode nobody asked for."""
+    v = (env.get(SWITCH_ENV) or "").strip().lower()
+    if v in _ON:
+        return True
+    if v in _OFF:
+        return False
+    raise ValueError(f"{SWITCH_ENV}={env.get(SWITCH_ENV)!r}: expected 1 (on) or 0 (off)")
+
+
 class State:
     """Whether an admin exists and whether an ingest token exists, from the store, at most ``ttl_s`` old.
 
@@ -188,21 +206,23 @@ class Access:
         except Exception as e:  # noqa: BLE001
             raise AccessUnavailable(f"the store can't check the ingest token: {e}") from e
 
-    def _person(self, headers, cred: Optional[str]) -> Optional[Who]:
-        """The person behind a personal token (when one is sent) or else a session cookie."""
+    def _person(self, headers, cred: Optional[str], secure: bool) -> Optional[Who]:
+        """The person behind a personal token (when one is sent) or else a session cookie (over HTTPS
+        only the ``__Host-`` one, sessions.py)."""
         try:
             if cred and cred.startswith(PERSONAL_PREFIX) and self.tokens is not None:
                 u = self.tokens.personal(cred)
                 return None if u is None else Who("personal_token", u.role, u.user_id, u.email, u.name)
             if self.sessions is not None:
-                u = self.sessions.lookup(sessions_mod.cookie_value(headers.get("Cookie")))
+                u = self.sessions.lookup(sessions_mod.cookie_value(headers.get("Cookie"), secure))
                 return None if u is None else Who("session", u.role, u.user_id, u.email, u.name)
         except Exception as e:  # noqa: BLE001
             raise AccessUnavailable(f"the store can't check the sign-in: {e}") from e
         return None
 
-    def check(self, headers, level: str) -> Decision:
-        """May this request have a route of this level? Raises AccessUnavailable when the store can't say."""
+    def check(self, headers, level: str, scheme: str = "http") -> Decision:
+        """May this request have a route of this level? ``scheme`` is the request's, as proxy.py says.
+        Raises AccessUnavailable when the store can't say."""
         if level == OPEN:
             return Decision(True)
         cred = credential(headers)
@@ -227,7 +247,7 @@ class Access:
         # an admin exists: people, and the shared token for /metrics only
         if level == METRICS and self._is_shared(cred):
             return Decision(True, Who("shared_token"))
-        who = self._person(headers, cred)
+        who = self._person(headers, cred, scheme == "https")
         if who is None:
             return Decision(False, status=401, message=SHARED_UI_GONE if self._is_shared(cred) else NEEDS_PERSON)
         if level == ADMIN and who.role != "admin":
