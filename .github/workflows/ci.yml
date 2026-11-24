@@ -4,8 +4,8 @@ name: CI
 #   1. every pull request, the fast core: Python 3.12, Node.js 22, the Postgres 16 store, the conformance kit,
 #      the shared UI and the container smoke test.
 #   2. when its paths change (the `changes` job below says which): Java, the examples and demo, Kubernetes and
-#      the team install, the collector configuration, the docs commands, and the second Python, Node.js and
-#      Postgres versions.
+#      the team install, the collector configuration, the docs commands, single sign-on against Keycloak, and
+#      the second Python, Node.js and Postgres versions.
 #   3. everything, every night, on release/** branches, on a release tag (release.yaml calls this workflow
 #      with full: true and publishes only if it passes) and by hand: also the upgrade from the last release,
 #      backup and restore under load, the perf check, monitoring, the concurrency check on real SQS and the
@@ -61,6 +61,7 @@ jobs:
       upgrade: ${{ steps.c.outputs.upgrade }}
       monitoring: ${{ steps.c.outputs.monitoring }}
       compat: ${{ steps.c.outputs.compat }}
+      sso: ${{ steps.c.outputs.sso }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -103,6 +104,8 @@ jobs:
             area upgrade '^python/smoke/|^python/src/trailbeam/server/(migrations|pg_schema|db|postgres|store)\.py$'
             area monitoring '^deploy/monitoring/'
             area compat '^compat/|^\.github/workflows/compat\.yml$'
+            # single sign-on and what it signs people in to (the keycloak job)
+            area sso '^python/src/trailbeam/server/(oidc|accounts|account_tables|access|sessions|server|web|__main__)\.py$|^python/tests/server/(test_oidc|test_oidc_keycloak|oidc_fake)\.py$|^python/tests/server/keycloak/|^python/pyproject\.toml$'
           } > "$RUNNER_TEMP/areas"
           cat "$RUNNER_TEMP/areas"
           get() { grep "^$1=" "$RUNNER_TEMP/areas" | cut -d= -f2; }
@@ -240,8 +243,12 @@ jobs:
     # realm's client requires S256), the client secret and the groups claim turned into roles. The realm is
     # python/tests/server/keycloak/trailbeam-realm.json. Started with docker run, not as a service: a service
     # container can't be given start-dev --import-realm.
+    # Tier 2: when single sign-on or the sign-in code changes (the sso area above).
     name: Single sign-on against Keycloak
+    needs: changes
+    if: needs.changes.outputs.sso == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: python
@@ -941,7 +948,7 @@ jobs:
     # exceeded" before docs.yml got its Docker Hub fallback; QV-411 takes it out once the fallback has held.
     name: ci-ok
     if: always()
-    needs: [changes, python, perf, postgres, node, conformance, java, java-matrix, ui, collector, container,
+    needs: [changes, python, perf, postgres, keycloak, node, conformance, java, java-matrix, ui, collector, container,
             upgrade, backup-restore, demo, examples, team-install, kubernetes, concurrency-check,
             concurrency-check-aws, monitoring, compat-table, docs, compat]
     runs-on: ubuntu-latest
