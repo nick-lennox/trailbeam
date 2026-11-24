@@ -1,0 +1,539 @@
+{
+ "note": "GET /api/messages/{id} for messages an EventBridge rule sent from a recorded PutEvents entry (contract 3.6, section 25), made by Trailbeam itself (ui/test/make-fixtures.py) from python/tests/server/spans.py: one entry on orders-bus, with a Time the sender gave, reached pe-orders (handled and deleted) and pe-billing; a failed entry in the same call joins nothing; pe-default came from an entry on the default bus, timed by EventBridge.",
+ "timelines": [
+  {
+   "message_id": "pe-billing",
+   "state": "not_deleted",
+   "source_queue": "billing",
+   "current_queue": "billing",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": false,
+   "deliveries": 1,
+   "successful_deliveries": 0,
+   "first_seen": "2025-11-14T00:26:40.450000Z",
+   "first_seen_clock": "sqs",
+   "last_seen": "2025-11-14T00:26:43.000000Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:40.000000Z",
+     "end": "2025-11-14T00:26:41.000000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:42.000000Z",
+     "end": "2025-11-14T00:26:43.000000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "put_event",
+     "inferred": false,
+     "source": "eventbridge_put_events",
+     "time": "2025-11-14T00:26:41.000000Z",
+     "time_unix_nano": "1763080001000000000",
+     "start": "2025-11-14T00:26:40.000000Z",
+     "start_unix_nano": "1763080000000000000",
+     "end": "2025-11-14T00:26:41.000000Z",
+     "end_unix_nano": "1763080001000000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders-bus",
+     "consumer": {
+      "service_name": "orders-api",
+      "client_id": "producer",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "646cffd48b039f8a9880ebe0351868b4",
+      "span_id": "0000000000000010"
+     },
+     "process_order": null,
+     "event_bus": "orders-bus",
+     "event_id": "11710aed-b79e-4468-a20b-bb3c0c3b4860",
+     "joined_by": "event_id",
+     "reached": [
+      {
+       "queue": "billing",
+       "message_ids": [
+        "pe-billing"
+       ]
+      },
+      {
+       "queue": "orders",
+       "message_ids": [
+        "pe-orders"
+       ]
+      }
+     ],
+     "reached_truncated": false,
+     "event_time_given": true,
+     "reason": "Put on EventBridge bus orders-bus by PutEvents. This message is joined to the entry by the event ID in the body of its receive.",
+     "eventbridge_source": "com.example.orders",
+     "detail_type": "OrderPlaced",
+     "event_bus_given": "orders-bus",
+     "entry_index": 0,
+     "event_time": "2025-11-14T00:26:40.000000Z",
+     "event_time_ms": 1763080000000,
+     "eventbridge_delivery_ms": 450,
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-14T00:26:43.000000Z",
+     "time_unix_nano": "1763080003000000000",
+     "start": "2025-11-14T00:26:42.000000Z",
+     "start_unix_nano": "1763080002000000000",
+     "end": "2025-11-14T00:26:43.000000Z",
+     "end_unix_nano": "1763080003000000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "billing",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "orders-worker",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "6cad2e64ecd9c584549421aef22d0699",
+      "span_id": "0000000000000013"
+     },
+     "process_order": null,
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2025-11-14T00:26:40.450000Z",
+     "sent_timestamp_ms": 1763080000450,
+     "after": [
+      {
+       "event": "e1",
+       "type": "put_event",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "Put event ended (2025-11-14T00:26:41.000000Z) before this started (2025-11-14T00:26:42.000000Z), on the hosts' clocks."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 1,
+     "process_order": 0,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": [
+    {
+     "code": "send_not_observed",
+     "message": "No trailbeam send span for this message: the producer is not instrumented, or the send is older than the stored data."
+    }
+   ]
+  },
+  {
+   "message_id": "pe-default",
+   "state": "not_deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": false,
+   "deliveries": 1,
+   "successful_deliveries": 0,
+   "first_seen": "2025-11-14T00:26:46.300000Z",
+   "first_seen_clock": "sqs",
+   "last_seen": "2025-11-14T00:26:48.000000Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:45.000000Z",
+     "end": "2025-11-14T00:26:46.000000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:47.000000Z",
+     "end": "2025-11-14T00:26:48.000000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "put_event",
+     "inferred": false,
+     "source": "eventbridge_put_events",
+     "time": "2025-11-14T00:26:46.000000Z",
+     "time_unix_nano": "1763080006000000000",
+     "start": "2025-11-14T00:26:45.000000Z",
+     "start_unix_nano": "1763080005000000000",
+     "end": "2025-11-14T00:26:46.000000Z",
+     "end_unix_nano": "1763080006000000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "default",
+     "consumer": {
+      "service_name": "orders-api",
+      "client_id": "producer",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "77eb6ae5d9b240cf12b2fdeed86832ff",
+      "span_id": "0000000000000015"
+     },
+     "process_order": null,
+     "event_bus": "default",
+     "event_id": "5f0c2d1e-8a3b-4c7d-9e6f-0a1b2c3d4e5f",
+     "joined_by": "event_id",
+     "reached": [
+      {
+       "queue": "orders",
+       "message_ids": [
+        "pe-default"
+       ]
+      }
+     ],
+     "reached_truncated": false,
+     "event_time_given": false,
+     "reason": "Put on EventBridge bus default by PutEvents. This message is joined to the entry by the event ID in the body of its receive.",
+     "eventbridge_source": "com.example.orders",
+     "detail_type": "OrderShipped",
+     "entry_index": 0,
+     "event_time": "2025-11-14T00:26:46.000000Z",
+     "event_time_ms": 1763080006000,
+     "eventbridge_delivery_ms": 300,
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-14T00:26:48.000000Z",
+     "time_unix_nano": "1763080008000000000",
+     "start": "2025-11-14T00:26:47.000000Z",
+     "start_unix_nano": "1763080007000000000",
+     "end": "2025-11-14T00:26:48.000000Z",
+     "end_unix_nano": "1763080008000000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "orders-worker",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "0abe4cedc9676025e1f86b72bd0d7a23",
+      "span_id": "0000000000000016"
+     },
+     "process_order": null,
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2025-11-14T00:26:46.300000Z",
+     "sent_timestamp_ms": 1763080006300,
+     "after": [
+      {
+       "event": "e1",
+       "type": "put_event",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "Put event ended (2025-11-14T00:26:46.000000Z) before this started (2025-11-14T00:26:47.000000Z), on the hosts' clocks."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 1,
+     "process_order": 0,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": [
+    {
+     "code": "send_not_observed",
+     "message": "No trailbeam send span for this message: the producer is not instrumented, or the send is older than the stored data."
+    }
+   ]
+  },
+  {
+   "message_id": "pe-orders",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": false,
+   "deliveries": 1,
+   "successful_deliveries": 1,
+   "first_seen": "2025-11-14T00:26:40.400000Z",
+   "first_seen_clock": "sqs",
+   "last_seen": "2025-11-14T00:26:44.000000Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:40.000000Z",
+     "end": "2025-11-14T00:26:41.000000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:42.000000Z",
+     "end": "2025-11-14T00:26:43.000000Z"
+    },
+    {
+     "group": 2,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-14T00:26:43.500000Z",
+     "end": "2025-11-14T00:26:44.000000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "put_event",
+     "inferred": false,
+     "source": "eventbridge_put_events",
+     "time": "2025-11-14T00:26:41.000000Z",
+     "time_unix_nano": "1763080001000000000",
+     "start": "2025-11-14T00:26:40.000000Z",
+     "start_unix_nano": "1763080000000000000",
+     "end": "2025-11-14T00:26:41.000000Z",
+     "end_unix_nano": "1763080001000000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders-bus",
+     "consumer": {
+      "service_name": "orders-api",
+      "client_id": "producer",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "646cffd48b039f8a9880ebe0351868b4",
+      "span_id": "0000000000000010"
+     },
+     "process_order": null,
+     "event_bus": "orders-bus",
+     "event_id": "11710aed-b79e-4468-a20b-bb3c0c3b4860",
+     "joined_by": "event_id",
+     "reached": [
+      {
+       "queue": "billing",
+       "message_ids": [
+        "pe-billing"
+       ]
+      },
+      {
+       "queue": "orders",
+       "message_ids": [
+        "pe-orders"
+       ]
+      }
+     ],
+     "reached_truncated": false,
+     "event_time_given": true,
+     "reason": "Put on EventBridge bus orders-bus by PutEvents. This message is joined to the entry by the event ID in the body of its receive.",
+     "eventbridge_source": "com.example.orders",
+     "detail_type": "OrderPlaced",
+     "event_bus_given": "orders-bus",
+     "entry_index": 0,
+     "event_time": "2025-11-14T00:26:40.000000Z",
+     "event_time_ms": 1763080000000,
+     "eventbridge_delivery_ms": 400,
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-14T00:26:43.000000Z",
+     "time_unix_nano": "1763080003000000000",
+     "start": "2025-11-14T00:26:42.000000Z",
+     "start_unix_nano": "1763080002000000000",
+     "end": "2025-11-14T00:26:43.000000Z",
+     "end_unix_nano": "1763080003000000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "orders-worker",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "8017bb015d28da96ddb366b0090d80d4",
+      "span_id": "0000000000000012"
+     },
+     "process_order": null,
+     "delivery": 1,
+     "receive_count": 1,
+     "sent_timestamp": "2025-11-14T00:26:40.400000Z",
+     "sent_timestamp_ms": 1763080000400,
+     "after": [
+      {
+       "event": "e1",
+       "type": "put_event",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "Put event ended (2025-11-14T00:26:41.000000Z) before this started (2025-11-14T00:26:42.000000Z), on the hosts' clocks."
+      }
+     ]
+    },
+    {
+     "id": "e3",
+     "type": "deleted",
+     "inferred": false,
+     "time": "2025-11-14T00:26:44.000000Z",
+     "time_unix_nano": "1763080004000000000",
+     "start": "2025-11-14T00:26:43.500000Z",
+     "start_unix_nano": "1763080003500000000",
+     "end": "2025-11-14T00:26:44.000000Z",
+     "end_unix_nano": "1763080004000000000",
+     "start_observed": true,
+     "group": 2,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "orders-worker",
+      "source": "client",
+      "pid": 4242,
+      "thread_name": "worker-1"
+     },
+     "span": {
+      "trace_id": "45ab8ec6055f79d87142d8341dc06fe6",
+      "span_id": "0000000000000014"
+     },
+     "process_order": null,
+     "delivery": 1,
+     "result": "ok",
+     "status": "final",
+     "after": [
+      {
+       "event": "e2",
+       "type": "received",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "Receive 1 ended (2025-11-14T00:26:43.000000Z) before this started (2025-11-14T00:26:43.500000Z), on the hosts' clocks."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e3",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e2",
+      "to": "e3",
+      "sources": [
+       "clock"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 3,
+     "process_order": 0,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": [
+    {
+     "code": "send_not_observed",
+     "message": "No trailbeam send span for this message: the producer is not instrumented, or the send is older than the stored data."
+    }
+   ]
+  }
+ ]
+}
