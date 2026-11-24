@@ -823,11 +823,20 @@ def make_handler(app: App):
             pw, pw2 = form.get("password", ""), form.get("password2", "")
             client = self._client()
             limit = app.signin.address_limit
-            wait = limit.retry_after(client)
+            wait = limit.begin(client)  # reserved now, so parallel wrong codes from one address count at once
             if wait is not None:
                 self._send_page(_with_retry(web.setup_page(code, email, name, "slow_down", retry_after_s=wait,
                                                            status=429), wait))
                 return
+            wrong_code = False
+            try:
+                wrong_code = self._setup_checked(code, email, name, pw, pw2, client)
+            finally:
+                limit.end(client, failed=bool(wrong_code))
+
+        def _setup_checked(self, code, email, name, pw, pw2, client) -> bool:
+            """The rest of POST /setup, once the address limit has reserved an attempt. True if the code was
+            wrong (that counts against the address)."""
             now = time.time_ns() // 1_000_000
             try:
                 if app.access.state.admin_exists():
@@ -839,10 +848,9 @@ def make_handler(app: App):
                 self._send(503, "text/plain", b"the store is unreachable; try again", {"Retry-After": "1"})
                 return
             if not code_ok:
-                limit.failed(client)
                 log.warning("setup: a wrong or used setup code from %s", client)
                 self._send_page(web.setup_page("", email, name, "bad_code", status=403))
-                return
+                return True
             try:
                 email, name = check_email(email), check_name(name)
                 passwords.check(pw)
@@ -859,9 +867,8 @@ def make_handler(app: App):
                 self._send(303, "text/plain", b"", {"Location": "/login"})
                 return
             except BadSetupCode:
-                limit.failed(client)
                 self._send_page(web.setup_page("", email, name, "bad_code", status=403))
-                return
+                return True
             except (AccountError, passwords.PasswordError) as e:
                 self._send_page(web.setup_page(code, email, name, message=str(e)[:1].upper() + str(e)[1:] + ".",
                                                status=400))
@@ -880,6 +887,7 @@ def make_handler(app: App):
                 log.warning("setup: the admin was created, but their session could not be started: %s", e)
                 cookie = {}
             self._send(303, "text/plain", b"", {"Location": "/", "Referrer-Policy": "no-referrer", **cookie})
+            return False
 
         def _send_page(self, r):
             status, headers, body = r
