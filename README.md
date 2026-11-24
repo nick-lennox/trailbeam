@@ -326,6 +326,13 @@ named in the page's range (default the last day) as you type. The same data is i
 [`contract/tenants.md`](contract/tenants.md). The hosted app counts them the same way and is tested
 against the same recorded spans.
 
+Every recorded step (send, receive, delete, visibility change, Lambda outcome) is listed by
+`GET /api/events`, newest first and paged by `cursor`. Filter it by `queue`, `service`, `kind` (a comma
+list) and `message_id`, over `since_s` or `from_ms`/`to_ms`. The first page also counts the steps per
+time bucket and kind, for a histogram. Steps Trailbeam infers (a visibility timeout, a move to a DLQ) are not
+in it. The parameters and answer are in [`contract/openapi.yaml`](contract/openapi.yaml), operation
+`list-events`.
+
 ## Troubleshooting: no data arriving
 
 Set it up and see nothing? Run `trailbeam doctor` (0.4.0 or later; 0.3.0 stops with
@@ -634,8 +641,60 @@ trailbeam tokens revoke 3                            # --personal for a personal
   within 20 seconds, a revoked token within 30 seconds, and a new admin or a first ingest token within 5 seconds.
 - The commands never create or upgrade a store: they refuse a file that doesn't exist, a store at an older or
   newer schema version (start the new server once first), and `--db :memory:`, which only the server can reach.
-- In the web screen, the header shows who is signed in, with **Sign out**. Managing people and tokens there
-  comes in a later release.
+- In the web screen, the header shows who is signed in, with **Sign out**.
+
+**The People page** (`/people`, linked in the header for admins; members get "Not allowed") lists everyone who can
+sign in, with their role, status (active, invited, locked for now, or disabled) and last sign-in. From it an admin:
+
+- **adds a person**: an email, a name (the part before `@` if left out) and a role. The page then shows their
+  one-time invite link, once, to copy and send them privately;
+- **changes a role** between admin and member, or **disables** and **enables** someone;
+- makes a **new invite link** for someone who hasn't used theirs, or a **password reset link** for someone who has a
+  password (for example when they are locked out after too many wrong passwords);
+- **removes** a person, after a confirmation.
+
+The controls that would leave no admin who can sign in (making the last one a member, disabling or removing them)
+are off, and the server refuses them anyway.
+
+**The Tokens page** (`/tokens`, linked in the header for anyone signed in) has two parts:
+
+- **Ingest tokens**, for admins only: one per service that sends spans. Create one with a name (the token is shown
+  once, to copy into the service's `OTEL_EXPORTER_OTLP_HEADERS`), see when each was created, by whom and when it was
+  last used, and revoke one after a confirmation. Revoked tokens stay in the list. If `TRAILBEAM_TOKEN` is set, it
+  is listed as "legacy shared token (from TRAILBEAM_TOKEN)", without its value; it is set in the server's
+  environment, so it is stopped by removing it there and restarting, not from the page. While ingest is open (no
+  `TRAILBEAM_TOKEN` and no ingest token yet), the page says so, and creating the first token needs a tick to
+  confirm that services without a token are refused from then on.
+- **Your personal API tokens**, for everyone: tokens that act as you, with your role, for scripts and the API.
+  Create one that works for 30 days, 90 days (the default), a year or until revoked, and revoke your own. Nobody
+  else, admins included, sees them.
+
+Without the web screen's build, `/people` and `/tokens` say to use `trailbeam users`, `trailbeam tokens` or the API.
+
+**People and tokens over the API.** Admins can do the same through `/api/users` and `/api/tokens/ingest`, and
+anyone signed in manages their own personal API tokens with `/api/me/tokens` (all in
+[`contract/openapi.yaml`](contract/openapi.yaml)). Requests that change something send JSON:
+
+```sh norun="needs a server with an admin; test_people_api.py makes these requests against SQLite and Postgres"
+ADMIN="Authorization: Bearer tbp_..."   # an admin's personal API token
+curl -H "$ADMIN" -H 'Content-Type: application/json' -d '{"email": "cy@example.com", "role": "member"}' \
+  http://127.0.0.1:4318/api/users                       # the answer holds Cy's one-time invite link
+curl -H "$ADMIN" -X PATCH -H 'Content-Type: application/json' -d '{"role": "admin"}' http://127.0.0.1:4318/api/users/3
+curl -H "$ADMIN" -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:4318/api/users/3/link
+curl -H "$ADMIN" -H 'Content-Type: application/json' -d '{"name": "orders-api prod"}' http://127.0.0.1:4318/api/tokens/ingest
+```
+
+- Adding a person gives no password: the answer holds a one-time **invite link**
+  (`/set-password#code=...`, 7 days) for them to choose one. `POST /api/users/{id}/link` makes a new one, or for
+  someone who has a password a **reset link** (24 hours). Choosing a password from a link ends the person's other
+  sessions. Each new link replaces the last, and the store keeps only its hash. Trailbeam sends no email:
+  pass the link on privately, because until it is used it opens that person's account.
+- Two roles, `admin` and `member`. The last admin who can sign in can't be made a member, disabled or removed
+  (`409`).
+- The first ingest token of a server without `TRAILBEAM_TOKEN` needs `"close_open_ingest": true`, because it
+  closes ingest that was open. The ingest token list shows the shared token, if set, as "legacy shared token
+  (from TRAILBEAM_TOKEN)", never its value.
+- These routes refuse requests from another site's pages, and bodies that aren't `application/json`.
 
 ### Behind a proxy (`--trusted-proxy`)
 
@@ -655,6 +714,104 @@ trailbeam --trusted-proxy 10.0.0.0/8      # repeatable, or TRAILBEAM_TRUSTED_PRO
 Make your proxy set `X-Forwarded-For` (nginx: `proxy_set_header X-Forwarded-For
 $proxy_add_x_forwarded_for;`), and don't let clients reach Trailbeam's port directly: anyone who can is
 believed if their address is in the range. [`deploy/replicas`](deploy/replicas/compose.yaml) shows both.
+
+### Sign-in through a proxy (oauth2-proxy, Pomerium, Cloudflare Access)
+
+If your team already signs in to internal tools through a proxy, Trailbeam can believe the email header it adds,
+instead of asking for its own password. It is off unless you turn it on, and the header is believed only from the
+proxy: from its addresses (`--trusted-proxy`), with a shared secret the proxy sends, or both. It signs people in,
+so it needs users and roles switched on (`--accounts`); without them the server refuses to start.
+
+```sh norun="starts a server that keeps running; python/tests/server/test_proxy_auth.py tests every setting"
+trailbeam --accounts --proxy-auth-header X-Forwarded-Email --trusted-proxy 10.0.0.5 \
+  --proxy-auth-name-header X-Forwarded-Preferred-Username --proxy-auth-sign-out-url /oauth2/sign_out
+```
+
+| Setting | Environment variable | What it does |
+|---|---|---|
+| `--proxy-auth-header` | `TRAILBEAM_PROXY_AUTH_HEADER` | The header with the signed-in email. Turns the feature on. |
+| `--trusted-proxy` | `TRAILBEAM_TRUSTED_PROXY` | The proxy's addresses: the header is believed only from them. |
+| `--proxy-auth-secret-file` | `TRAILBEAM_PROXY_AUTH_SECRET_FILE` or `TRAILBEAM_PROXY_AUTH_SECRET` | A secret (16 characters or more) the proxy sends in `X-Trailbeam-Proxy-Secret`. For proxies without a fixed address. |
+| `--proxy-auth-name-header` | `TRAILBEAM_PROXY_AUTH_NAME_HEADER` | The person's name, for new people. Default: the email's part before `@`. |
+| `--proxy-auth-sign-out-url` | `TRAILBEAM_PROXY_AUTH_SIGN_OUT_URL` | Where **Sign out** goes, to end the proxy's session. Without it, people the proxy signs in get no Sign out. |
+
+The server doesn't start with `--proxy-auth-header` alone: without `--trusted-proxy` or a secret, anyone who can
+reach the port could sign in as anyone. With both, a request needs both.
+
+**Who gets in, as what.** It works once the server has an admin (until then accounts aren't used):
+
+- **An email Trailbeam hasn't seen** gets a new account, a **member**, with no password. Never an admin: make
+  someone an admin with `trailbeam users set-role`.
+- **An email with a local account** (made with a password, by `trailbeam users create` or a setup link) is
+  **refused** until an admin links it, so whoever the proxy lets in with that email can't take the account over:
+  `trailbeam users link-proxy ada@example.com`. Linked, the proxy signs them in with their role, and their
+  password still works. `trailbeam users unlink-proxy` undoes it.
+- `trailbeam users create --email ... --proxy` makes an account for the proxy ahead of time, with no password
+  (useful for an admin who only signs in through the proxy). `trailbeam users list` shows who the proxy can sign
+  in to.
+- A disabled person is refused. A request with two email headers, or one that isn't an email, is refused.
+- From any address but the proxy's, or without the secret, the header is ignored and the request counts as signed
+  out. The server logs that at most once a minute, which helps when `--trusted-proxy` is wrong.
+- Changes to a person (role, disabled, linked) reach every replica within 20 seconds.
+
+Personal API tokens (`Authorization: Bearer tbp_...`) still work through the proxy and take precedence over its
+header. Ingest and `/metrics` never look at it.
+
+**Keep the proxy the only way in.** Anyone who can reach Trailbeam from an address in `--trusted-proxy` is
+believed, so give it the proxy's own address, not a whole network, and don't publish Trailbeam's port. The proxy
+must also remove the header from what browsers send, which oauth2-proxy, Pomerium and Cloudflare Access do. Send
+spans and Prometheus to Trailbeam's port directly from inside the network (with an ingest token), not through
+the proxy.
+
+**oauth2-proxy**, in front of the web screen, with Compose. oauth2-proxy sends `X-Forwarded-Email` and
+`X-Forwarded-Preferred-Username` to the address it proxies to (its `pass_user_headers` setting, on by default):
+
+```yaml norun="needs an OAuth app at your identity provider; the settings are the ones test_proxy_auth.py tests"
+services:
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+    command:
+      - --http-address=0.0.0.0:4180
+      - --upstream=http://trailbeam:4318
+      - --provider=oidc
+      - --oidc-issuer-url=https://accounts.google.com   # or Okta, Entra ID, Keycloak...
+      - --email-domain=example.com                      # who may sign in at all
+      - --reverse-proxy=true
+      - --cookie-secure=true
+    environment:
+      OAUTH2_PROXY_CLIENT_ID: ${OAUTH2_PROXY_CLIENT_ID}
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET}
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET}   # openssl rand -base64 32 | tr -- '+/' '-_'
+    ports: ["443:4180"]   # behind your TLS proxy or load balancer
+    networks:
+      default:
+        ipv4_address: 172.30.0.5
+  trailbeam:
+    build: .                                            # this repository's Dockerfile
+    environment:
+      TRAILBEAM_ACCOUNTS: "1"                           # users and roles: proxy sign-in needs them
+      TRAILBEAM_PROXY_AUTH_HEADER: X-Forwarded-Email
+      TRAILBEAM_PROXY_AUTH_NAME_HEADER: X-Forwarded-Preferred-Username
+      TRAILBEAM_PROXY_AUTH_SIGN_OUT_URL: /oauth2/sign_out
+      TRAILBEAM_TRUSTED_PROXY: 172.30.0.5               # oauth2-proxy only
+    # no ports: published: people reach it through oauth2-proxy, services on the internal network
+networks:
+  default:
+    ipam:
+      config: [{subnet: 172.30.0.0/24}]
+```
+
+Then create the first admin (`trailbeam users create --email you@example.com --role admin`, add `--proxy` to sign
+in only through oauth2-proxy), and everyone else is a member the first time they open Trailbeam. Don't use
+oauth2-proxy's `skip_auth_routes` setting for Trailbeam's pages; if you route anything past it with that setting,
+keep `skip_auth_strip_headers` on (the default), so a client can't send its own `X-Forwarded-Email` there.
+
+Other proxies: Pomerium sends the email as `X-Pomerium-Claim-Email` (with `pass_identity_headers`), Cloudflare
+Access as `Cf-Access-Authenticated-User-Email`, Google IAP as `X-Goog-Authenticated-User-Email` (its
+`accounts.google.com:` prefix is dropped), and the AWS ALB in a signed token only. Cloudflare
+Access has no fixed address, so use the shared secret there, added with a Cloudflare rule or a proxy in between.
+Checking these proxies' **signed** tokens (safer than a plain header) comes with the OIDC support, as part of the
+optional `sso` extra.
 
 ### Configuration file
 
@@ -1593,7 +1750,8 @@ What each has today:
 | Message bodies, opt-in per queue, with `body.*` search | yes, for queues in `TRAILBEAM_STORE_BODIES`; anyone who can reach the server can read them | yes, for queues an admin opts in; owners and admins only |
 | Lambda error text on the timeline, errors grouped by cause | yes | yes |
 | JSON API | yes | |
-| Overview of flows between services and queues, event explorer, dashboards | not yet | yes |
+| Event explorer: every recorded step in a range, filtered by queue, service, kind or message, with CSV export | yes | yes, with PDF export too |
+| Overview of flows between services and queues, dashboards | not yet | yes |
 | Queue settings, depth and Lambda triggers read from AWS, and redrive | | yes, with a read-only role you connect (redrive needs a second, separate role) |
 | Retention: global, per queue, or forever | yes | yes |
 | Accounts, sign-in and invitations | | yes |

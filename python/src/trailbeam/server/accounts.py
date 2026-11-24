@@ -26,7 +26,7 @@ MAX_NAME = 200
 _EMAIL = re.compile(r"[^@\s]+@[^@\s]+")
 
 USER_COLUMNS = ("id", "email", "name", "role", "password_hash", "created_at_ms", "updated_at_ms",
-                "disabled_at_ms", "failed_count", "locked_until_ms", "last_sign_in_ms")
+                "disabled_at_ms", "failed_count", "locked_until_ms", "last_sign_in_ms", "proxy_linked_at_ms")
 _USER_SELECT = "SELECT " + ", ".join(USER_COLUMNS) + " FROM users"
 
 
@@ -51,6 +51,8 @@ class BadSetupCode(AccountError):
 
 
 SETUP = "setup"  # setup_codes.kind of the first admin's link (trailbeam start)
+INVITE = "invite"  # a new person's link to choose their password (People page, phase 2)
+RESET = "reset"  # a person's link to choose a new password
 # pg_advisory_xact_lock key, taken by every write that can add or take away an admin, so two replicas (or a CLI and
 # a replica) can't both create "the first admin", or each take away one of the last two
 ADMIN_LOCK = 0x7472_6169_6c62_6d02
@@ -132,14 +134,17 @@ class Accounts:
 
     # ---- people -----------------------------------------------------------------------------------
 
-    def create_user(self, email: str, name: str, role: str, password_hash: Optional[str], now_ms: int) -> int:
-        """A new person; their ID. Raises AccountError (EmailTaken: the email, ignoring case, has an account)."""
+    def create_user(self, email: str, name: str, role: str, password_hash: Optional[str], now_ms: int, *,
+                    proxy: bool = False) -> int:
+        """A new person; their ID. ``proxy``: they may sign in through the proxy (proxy_auth.py). Raises
+        AccountError (EmailTaken: the email, ignoring case, has an account)."""
         email, name, role = check_email(email), check_name(name), check_role(role)
         try:
             with self._write() as tx:
                 return tx.insert_id(
-                    "INSERT INTO users (email, name, role, password_hash, created_at_ms, updated_at_ms) "
-                    "VALUES (?, ?, ?, ?, ?, ?)", (email, name, role, password_hash, now_ms, now_ms))
+                    "INSERT INTO users (email, name, role, password_hash, created_at_ms, updated_at_ms, "
+                    "proxy_linked_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (email, name, role, password_hash, now_ms, now_ms, now_ms if proxy else None))
         except self._unique:
             raise EmailTaken(f"{email} already has an account") from None
 
@@ -187,6 +192,13 @@ class Accounts:
             tx.run("DELETE FROM sessions WHERE user_id = ?", (user_id,))
         return True
 
+    def set_proxy_linked(self, user_id: int, linked: bool, now_ms: int) -> bool:
+        """Let (or stop) a person sign in through the proxy (proxy_auth.py). Their sessions stay: a session was
+        started with a password, which this doesn't change. False: no such person."""
+        with self._write() as tx:
+            return bool(tx.run("UPDATE users SET proxy_linked_at_ms = ?, updated_at_ms = ? WHERE id = ?",
+                               (now_ms if linked else None, now_ms, user_id)))
+
     def set_disabled(self, user_id: int, disabled: bool, now_ms: int) -> bool:
         """Stop (or let again) a person signing in; disabling ends their sessions. Raises LastAdmin for the last
         admin who can sign in."""
@@ -207,8 +219,8 @@ class Accounts:
             _keep_an_admin(tx, user_id)
             return bool(tx.run("DELETE FROM users WHERE id = ?", (user_id,)))
 
-    def create_first_admin(self, email: str, name: str, password_hash: str, now_ms: int, *,
-                           setup_code_sha256: Optional[str] = None) -> int:
+    def create_first_admin(self, email: str, name: str, password_hash: Optional[str], now_ms: int, *,
+                           setup_code_sha256: Optional[str] = None, proxy: bool = False) -> int:
         """The first admin: their ID. One transaction, under ADMIN_LOCK on Postgres, so of two at once (two replicas
         reading TRAILBEAM_ADMIN_EMAIL, or a setup link opened twice) one wins. With ``setup_code_sha256``, the
         setup code is used up in the same transaction. Raises AdminExists, BadSetupCode, EmailTaken, AccountError."""
@@ -222,8 +234,9 @@ class Accounts:
                         "AND used_at_ms IS NULL AND expires_at_ms > ?", (now_ms, setup_code_sha256, SETUP, now_ms)):
                     raise BadSetupCode("this setup link has been used or is out of date")
                 return tx.insert_id(
-                    "INSERT INTO users (email, name, role, password_hash, created_at_ms, updated_at_ms) "
-                    "VALUES (?, ?, 'admin', ?, ?, ?)", (email, name, password_hash, now_ms, now_ms))
+                    "INSERT INTO users (email, name, role, password_hash, created_at_ms, updated_at_ms, "
+                    "proxy_linked_at_ms) VALUES (?, ?, 'admin', ?, ?, ?, ?)",
+                    (email, name, password_hash, now_ms, now_ms, now_ms if proxy else None))
         except self._unique:
             raise EmailTaken(f"{email} already has an account") from None
 
@@ -240,6 +253,48 @@ class Accounts:
         """A setup code that can still be used (unused, in date). Read pool; create_first_admin checks again."""
         return bool(self._read("SELECT 1 AS ok FROM setup_codes WHERE code_sha256 = ? AND kind = ? "
                                "AND used_at_ms IS NULL AND expires_at_ms > ?", (code_sha256, SETUP, now_ms)))
+
+    # ---- invite and reset links ------------------------------------------------------------------------
+
+    def create_user_code(self, user_id: int, kind: str, code_sha256: str, now_ms: int, expires_at_ms: int) -> bool:
+        """A person's invite or reset code. It replaces every earlier code of theirs, so only the newest link works.
+        False: no such person."""
+        assert kind in (INVITE, RESET)
+        with self._write() as tx:
+            if tx.one("SELECT id FROM users WHERE id = ?", (user_id,)) is None:
+                return False
+            tx.run("DELETE FROM setup_codes WHERE user_id = ?", (user_id,))
+            tx.run("INSERT INTO setup_codes (code_sha256, kind, user_id, created_at_ms, expires_at_ms) "
+                   "VALUES (?, ?, ?, ?, ?)", (code_sha256, kind, user_id, now_ms, expires_at_ms))
+        return True
+
+    def user_code(self, code_sha256: str, now_ms: int) -> Optional[dict]:
+        """The invite or reset code that can still be used (unused, in date, its person not disabled), with its
+        person: ``kind``, ``user_id``, ``email``, ``name``, ``expires_at_ms``. Read pool; use_user_code checks again."""
+        rows = self._read(
+            "SELECT c.kind, c.user_id, c.expires_at_ms, u.email, u.name FROM setup_codes c "
+            "JOIN users u ON u.id = c.user_id WHERE c.code_sha256 = ? AND c.kind IN (?, ?) "
+            "AND c.used_at_ms IS NULL AND c.expires_at_ms > ? AND u.disabled_at_ms IS NULL",
+            (code_sha256, INVITE, RESET, now_ms))
+        return rows[0] if rows else None
+
+    def use_user_code(self, code_sha256: str, password_hash: str, now_ms: int) -> int:
+        """Use up an invite or reset code and set its person's password, in one transaction, so a code works once
+        even with several replicas. Ends the person's sessions and clears a sign-in lock. Their ID; raises
+        BadSetupCode when the code is unknown, used, out of date, or its person is disabled."""
+        with self._write() as tx:
+            r = tx.one("SELECT c.user_id FROM setup_codes c JOIN users u ON u.id = c.user_id "
+                       "WHERE c.code_sha256 = ? AND c.kind IN (?, ?) AND c.used_at_ms IS NULL "
+                       "AND c.expires_at_ms > ? AND u.disabled_at_ms IS NULL", (code_sha256, INVITE, RESET, now_ms))
+            if r is None or not tx.run("UPDATE setup_codes SET used_at_ms = ? WHERE code_sha256 = ? "
+                                       "AND used_at_ms IS NULL", (now_ms, code_sha256)):
+                raise BadSetupCode("this link has been used, has been replaced by a newer one, or is out of date")
+            uid = int(r["user_id"])
+            tx.run("UPDATE users SET password_hash = ?, updated_at_ms = ?, failed_count = 0, locked_until_ms = NULL "
+                   "WHERE id = ?", (password_hash, now_ms, uid))
+            tx.run("DELETE FROM sessions WHERE user_id = ?", (uid,))
+            tx.run("DELETE FROM setup_codes WHERE user_id = ? AND used_at_ms IS NULL", (uid,))
+        return uid
 
     # ---- the per-account sign-in limit ------------------------------------------------------------
 

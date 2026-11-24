@@ -9,8 +9,10 @@ is ``MEMBER``, so a page or file added later is never open by mistake):
 - ``INGEST``: ``POST /v1/traces``.
 - ``METRICS``: ``GET /metrics``.
 - ``MEMBER``: the API and the web screen, message bodies included (an admin or a member, proposal section 2).
-- ``ADMIN``: managing people and tokens. No HTTP route has it yet: phase 1 does that from the command line
-  (``trailbeam users``, ``trailbeam tokens``: cli.py).
+- ``ADMIN``: managing people and ingest tokens: ``/api/users`` and ``/api/tokens/ingest`` (``API_ROUTES``,
+  people_api.py), the People page (``/people``), and ``trailbeam users`` / ``trailbeam tokens`` (cli.py). A person's
+  own personal API tokens (``/api/me/tokens``) are ``MEMBER``, and need a person; so is the Tokens page
+  (``/tokens``), which shows the ingest tokens only to an admin.
 
 **Two modes, switched by the store, not by a setting.** ``State`` asks the store whether an admin exists at most
 every ``STATE_TTL_S`` (5 s), on every replica, so when the first admin is created every replica switches within
@@ -19,8 +21,9 @@ seconds and none needs a restart.
 - **No admin yet** (as in 0.3.0): with ``TRAILBEAM_TOKEN`` set, every level but ``OPEN`` needs it (as
   ``Authorization: Bearer`` or ``x-trailbeam-key``, or the login page's ``trailbeam_session`` cookie); without it,
   everything is served. ``ADMIN`` is refused either way: there is nobody to be one.
-- **An admin exists:** ``MEMBER`` needs a person: a session (``trailbeam_sid``, sessions.py) or a personal API
-  token (``tbp_…``), of an admin or a member; ``ADMIN`` needs an admin. ``TRAILBEAM_TOKEN`` keeps working for
+- **An admin exists:** ``MEMBER`` needs a person: a personal API token (``tbp_…``), the email a proxy in front
+  of Trailbeam signed in (``--proxy-auth-header``, proxy_auth.py), or a session (``trailbeam_sid``, sessions.py),
+  looked for in that order, of an admin or a member; ``ADMIN`` needs an admin. ``TRAILBEAM_TOKEN`` keeps working for
   ``INGEST`` and ``METRICS`` only, and the ``trailbeam_session`` cookie no longer works.
 
 **Ingest** needs a token when ``TRAILBEAM_TOKEN`` is set or at least one ingest token exists (revoked ones count),
@@ -33,11 +36,12 @@ headers are read: a refused export is answered before its body is.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from typing import Callable, NamedTuple, Optional
 
-from . import auth as auth_mod, sessions as sessions_mod
+from . import auth as auth_mod, proxy_auth, sessions as sessions_mod
 from .tokens import INGEST_PREFIX, PERSONAL_PREFIX
 
 log = logging.getLogger("trailbeam.server")
@@ -57,11 +61,44 @@ ROUTES: dict[tuple[str, str], str] = {
     ("POST", "/setup"): OPEN,
     ("POST", "/v1/traces"): INGEST,
     ("GET", "/metrics"): METRICS,
+    ("GET", "/set-password"): OPEN,  # invite and reset links (people_api.py); the code in it is the credential
+    ("POST", "/set-password"): OPEN,
+    ("GET", "/people"): ADMIN,  # the People page; its data is /api/users, ADMIN too
+    ("GET", "/tokens"): MEMBER,  # the Tokens page: /api/me/tokens for everyone, /api/tokens/ingest (ADMIN) for admins
 }
+
+# The routes that manage people and tokens (people_api.py): (method, path template, level, handler name).
+# ``{id}`` is a positive integer. Matched by the whole path, so /api/users/x is no route of these (and a 404).
+API_ROUTES: tuple[tuple[str, str, str, str], ...] = (
+    ("GET", "/api/users", ADMIN, "list_users"),
+    ("POST", "/api/users", ADMIN, "create_user"),
+    ("PATCH", "/api/users/{id}", ADMIN, "change_user"),
+    ("DELETE", "/api/users/{id}", ADMIN, "remove_user"),
+    ("POST", "/api/users/{id}/link", ADMIN, "user_link"),
+    ("GET", "/api/tokens/ingest", ADMIN, "list_ingest_tokens"),
+    ("POST", "/api/tokens/ingest", ADMIN, "create_ingest_token"),
+    ("DELETE", "/api/tokens/ingest/{id}", ADMIN, "revoke_ingest_token"),
+    ("GET", "/api/me/tokens", MEMBER, "list_my_tokens"),
+    ("POST", "/api/me/tokens", MEMBER, "create_my_token"),
+    ("DELETE", "/api/me/tokens/{id}", MEMBER, "revoke_my_token"),
+)
+_API_RX = tuple((m, re.compile("^" + re.escape(t).replace(re.escape("{id}"), "([1-9][0-9]{0,17})") + "$"), lvl, h)
+                for m, t, lvl, h in API_ROUTES)
+
+
+def api_route(method: str, path: str) -> Optional[tuple[str, str, Optional[int]]]:
+    """The people-and-tokens route of a request: (level, handler name, the ``{id}`` or None), or None."""
+    for m, rx, lvl, h in _API_RX:
+        if m == method:
+            hit = rx.match(path)
+            if hit:
+                return lvl, h, (int(hit.group(1)) if rx.groups else None)
+    return None
 
 
 def level_of(method: str, path: str) -> str:
-    return ROUTES.get((method, path), MEMBER)
+    r = api_route(method, path)
+    return r[0] if r else ROUTES.get((method, path), MEMBER)
 
 
 class AccessUnavailable(Exception):
@@ -69,8 +106,8 @@ class AccessUnavailable(Exception):
 
 
 class Who(NamedTuple):
-    """Who a request is. ``via``: ``none``, ``shared_token``, ``shared_cookie``, ``session``, ``personal_token``
-    or ``ingest_token``. ``role``: the person's, for a session or personal token."""
+    """Who a request is. ``via``: ``none``, ``shared_token``, ``shared_cookie``, ``session``, ``personal_token``,
+    ``proxy`` or ``ingest_token``. ``role``: the person's, for a session or personal token."""
     via: str
     role: Optional[str] = None
     user_id: Optional[int] = None
@@ -179,11 +216,12 @@ class Access:
     ``sessions``, ``tokens``: None on a store without account tables (then only the shared-token rules apply)."""
 
     def __init__(self, shared: Optional[auth_mod.Auth] = None, accounts=None, sessions=None, tokens=None,
-                 state: Optional[State] = None):
+                 state: Optional[State] = None, proxy: Optional[proxy_auth.ProxySignIn] = None):
         self.shared = shared
         self.accounts = accounts
         self.sessions = sessions
         self.tokens = tokens
+        self.proxy = proxy  # sign-in through a proxy (proxy_auth.py); None: off
         self.state = state or State(accounts)
 
     def mode(self) -> str:
@@ -206,22 +244,43 @@ class Access:
         except Exception as e:  # noqa: BLE001
             raise AccessUnavailable(f"the store can't check the ingest token: {e}") from e
 
-    def _person(self, headers, cred: Optional[str], secure: bool) -> Optional[Who]:
-        """The person behind a personal token (when one is sent) or else a session cookie (over HTTPS
-        only the ``__Host-`` one, sessions.py)."""
+    def _person(self, headers, cred: Optional[str], secure: bool, peer: Optional[str] = None) -> Optional[Who]:
+        """The person behind a personal token (when one is sent), else the email the proxy names (when it is on
+        and the request comes from it), else a session cookie (over HTTPS only the ``__Host-`` one, sessions.py).
+        Raises ProxyRefused."""
         try:
             if cred and cred.startswith(PERSONAL_PREFIX) and self.tokens is not None:
                 u = self.tokens.personal(cred)
                 return None if u is None else Who("personal_token", u.role, u.user_id, u.email, u.name)
+            if self.proxy is not None and peer is not None:
+                p = self.proxy.user(headers, peer)
+                if p is not None:
+                    return Who("proxy", p["role"], int(p["id"]), p["email"], p["name"])
             if self.sessions is not None:
                 u = self.sessions.lookup(sessions_mod.cookie_value(headers.get("Cookie"), secure))
                 return None if u is None else Who("session", u.role, u.user_id, u.email, u.name)
+        except proxy_auth.ProxyRefused:
+            raise
         except Exception as e:  # noqa: BLE001
             raise AccessUnavailable(f"the store can't check the sign-in: {e}") from e
         return None
 
-    def check(self, headers, level: str, scheme: str = "http") -> Decision:
-        """May this request have a route of this level? ``scheme`` is the request's, as proxy.py says.
+    def proxy_person(self, headers, peer: str) -> Optional[Who]:
+        """Who the proxy says this request is, once an admin exists; None: nobody, refused, or proxy sign-in off.
+        For the sign-in page, which sends someone the proxy signed in on to the page they asked for."""
+        if self.proxy is None or not self.state.admin_exists():
+            return None
+        try:
+            p = self.proxy.user(headers, peer)
+        except proxy_auth.ProxyRefused:
+            return None
+        except Exception as e:  # noqa: BLE001
+            raise AccessUnavailable(f"the store can't check the sign-in: {e}") from e
+        return None if p is None else Who("proxy", p["role"], int(p["id"]), p["email"], p["name"])
+
+    def check(self, headers, level: str, scheme: str = "http", peer: Optional[str] = None) -> Decision:
+        """May this request have a route of this level? ``scheme`` is the request's, as proxy.py says. ``peer``:
+        the TCP peer's address, for sign-in through a proxy (without it, the proxy's header is not looked at).
         Raises AccessUnavailable when the store can't say."""
         if level == OPEN:
             return Decision(True)
@@ -247,7 +306,10 @@ class Access:
         # an admin exists: people, and the shared token for /metrics only
         if level == METRICS and self._is_shared(cred):
             return Decision(True, Who("shared_token"))
-        who = self._person(headers, cred, scheme == "https")
+        try:
+            who = self._person(headers, cred, scheme == "https", peer)
+        except proxy_auth.ProxyRefused as e:
+            return Decision(False, status=403, message=e.message)
         if who is None:
             return Decision(False, status=401, message=SHARED_UI_GONE if self._is_shared(cred) else NEEDS_PERSON)
         if level == ADMIN and who.role != "admin":

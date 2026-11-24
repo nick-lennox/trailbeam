@@ -130,7 +130,8 @@ footer{color:#6b7385;font-size:.8em;padding:1rem 1.2rem}
 
 def handle(api: Callable[[str, dict], object], api_error: type, path: str, query: dict) -> Optional[Response]:
     """Render the page for ``path``; None if ``path`` is not a page. ``api`` is ``App.api``."""
-    pages = {"/": _index, "/message": _message, "/duplicates": _duplicates, "/stuck": _stuck, "/tenants": _tenants}
+    pages = {"/": _index, "/message": _message, "/duplicates": _duplicates, "/stuck": _stuck, "/tenants": _tenants,
+             "/people": _people, "/tokens": _tokens}
     page = pages.get(path)
     if page is None:
         return None
@@ -143,6 +144,24 @@ def handle(api: Callable[[str, dict], object], api_error: type, path: str, query
 
 
 # ---- pages ------------------------------------------------------------------------------------
+
+
+def _people(api, q: dict) -> Response:
+    """``/people`` without the shared UI's build (an editable install from a clone that was never built): the
+    People page is drawn only by the shell, so this says how to manage people without it."""
+    return _page(200, "People", "<h1>People</h1><p>The People page is part of the web screen's build, which this "
+                 "install doesn't have (build it with <code>npm run build</code> in <code>ui/</code>). Without it, "
+                 "manage people from a shell with <code>trailbeam users</code>, or with the API: "
+                 "<code>/api/users</code>.</p>")
+
+
+def _tokens(api, q: dict) -> Response:
+    """``/tokens`` without the shared UI's build: as ``/people``, it says how to manage tokens without it."""
+    return _page(200, "Tokens", "<h1>Tokens</h1><p>The Tokens page is part of the web screen's build, which this "
+                 "install doesn't have (build it with <code>npm run build</code> in <code>ui/</code>). Without it, "
+                 "manage tokens from a shell with <code>trailbeam tokens</code>, or with the API: "
+                 "<code>/api/me/tokens</code> for your personal API tokens and, for admins, "
+                 "<code>/api/tokens/ingest</code>.</p>")
 
 
 def _index(api, q: dict) -> Response:
@@ -755,6 +774,36 @@ def setup_page(code: str = "", email: str = "", name: str = "", notice: Optional
             'minlength="10" required></label></p>'
             "<p><button>Create admin account</button></p></form>" + _SETUP_SCRIPT)
     st, headers, html = _page(status, "Create your admin account", body)
+    return st, {**headers, "Referrer-Policy": "no-referrer", "Cache-Control": "no-store"}, html
+
+
+PASSWORD_NOTICES = {
+    "bad_code": "This link has been used, is out of date (invite links last 7 days, reset links 24 hours), or "
+                "isn't the latest one made for you. Ask an admin for a new link.",
+    "mismatch": "The two passwords are not the same.",
+    "busy": "The server is busy. Try again in a moment.",
+    "slow_down": "Too many tries from here. Try again in {minutes}.",
+}
+
+
+def password_page(code: str = "", notice: Optional[str] = None, message: str = "", retry_after_s: Optional[int] = None,
+                  email: str = "", status: int = 200) -> Response:
+    """``/set-password``: choose a password, from an invite or reset link an admin made on the People page
+    (people_api.py). The code travels in the URL fragment, as on /setup."""
+    text = message or PASSWORD_NOTICES.get(notice or "", "")
+    body = ("<h1>Choose your password</h1><p>Choose the password you sign in to this Trailbeam with. If you "
+            "had one, it stops working, and so do your other sign-ins.</p>"
+            + (f'<p class="notice">{escape(text.format(minutes=_minutes(retry_after_s)))}</p>' if text else "")
+            + '<form method="post" action="/set-password">'
+            f'<p id="code-row"><label>Link code <input type="text" id="code" name="code" value="{escape(code)}" '
+            'autocomplete="off" required></label></p>'
+            + (f'<input type="hidden" name="email" value="{escape(email)}" autocomplete="username">' if email else "")
+            + '<p><label>Password <input type="password" name="password" autocomplete="new-password" minlength="10" '
+            'required autofocus></label> (at least 10 characters)</p>'
+            '<p><label>Password again <input type="password" name="password2" autocomplete="new-password" '
+            'minlength="10" required></label></p>'
+            "<p><button>Set password and sign in</button></p></form>" + _SETUP_SCRIPT)
+    st, headers, html = _page(status, "Choose your password", body)
     return st, {**headers, "Referrer-Policy": "no-referrer", "Cache-Control": "no-store"}, html
 
 

@@ -192,6 +192,16 @@ class Store(abc.ABC):
     def message_rows(self, message_id: str) -> list[Row]:
         """Every row whose ``mid`` is the message ID, by (time_ns, row)."""
 
+    def messages_rows(self, message_ids: list[str]) -> dict:
+        """``message_rows`` of each message ID, as message ID -> rows (only those with rows). A backend where one
+        read per message costs a round trip reads them in batches."""
+        out = {}
+        for mid in message_ids:
+            rows = self.message_rows(mid)
+            if rows:
+                out[mid] = rows
+        return out
+
     # ---- lists of messages: IDs, at most ``limit`` --------------------------------------------
     # Each reads the per-message summaries (summary.py), which the Store keeps up to date as spans arrive.
     # ``queue``: only messages with a span on that queue. "By newest span, latest first": the message's
@@ -268,6 +278,23 @@ class Store(abc.ABC):
     @abc.abstractmethod
     def queue_messages(self, queue: str) -> set[str]:
         """Every message with a span on the queue."""
+
+    # ---- steps (/api/events, events.py) --------------------------------------------------------
+    # A step is a stored span of one of events.KINDS (no purge). ``kinds``: only these (None: every one);
+    # ``queue``: only spans on it; ``service``: only spans whose service.name it is.
+
+    @abc.abstractmethod
+    def step_rows(self, from_ns: int, to_ns: int, limit: int, *, queue: Optional[str] = None,
+                  service: Optional[str] = None, kinds: Optional[tuple] = None,
+                  after: Optional[tuple] = None) -> list[Row]:
+        """Steps with from_ns <= time_ns < to_ns, newest first by (time_ns, trace_id, span_id) descending, trace
+        and span IDs compared byte by byte; ``after``: only those before this (time_ns, trace_id, span_id) in that
+        order. At most ``limit``; each with the columns events.step reads."""
+
+    @abc.abstractmethod
+    def step_counts(self, from_ns: int, to_ns: int, bucket_ns: int, *, queue: Optional[str] = None,
+                    service: Optional[str] = None, kinds: Optional[tuple] = None) -> list[tuple]:
+        """The same steps added up: (time_ns // bucket_ns, kind, steps) for each pair with any; any order."""
 
     # ---- aggregates --------------------------------------------------------------------------
 

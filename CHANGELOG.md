@@ -2,9 +2,44 @@
 
 ## Unreleased
 
+- **`npx trailbeam start` no longer leaves its output in Docker's log** (QV-409). It runs the container with
+  `--log-driver none`, so the output still shows in the terminal but is not kept by `docker logs` or sent to a log
+  service the Docker daemon is set up with (gelf, fluentd, awslogs, ...). That output holds the first run's token
+  and receipt key, and the first admin's one-time setup link, which works as an admin password for up to an hour.
+- **A page per queue** (QV-364): `/queue?name=<queue>`, and a **Queues** list at `/queues` (a new item in the
+  header). The page asks whether work is arriving faster than it is finished: sends vs handled (the band between
+  them is the backlog building), receives vs handled with dead-letter moves (seen, and inferred from
+  maxReceiveCount), p95 time in queue and p95 time in handler, on one time axis with a shared crosshair. Click or
+  drag across minutes to get links to the messages behind them. Deploys show as markers, and "By version" splits
+  handled and the p95s per `service.version`. A health verdict from your services' spans, labelled as such; the
+  senders and consumers; the queue's stuck messages and dead-letter moves; and a plain list of what Trailbeam
+  can't see without AWS (depth, in flight, the oldest message's age, the DLQ's depth), with a link to the SQS
+  console. The time range, the selected minutes and "By version" are in the URL. The view is
+  `QueuePage` in `@trailbeam/ui`, which the hosted app uses too.
+- **The Stuck page groups its messages by cause, and lists the dead-letter queues** (QV-367, step 2). `/stuck`
+  now reads `/api/causes`. It shows one row per cause, with its count, first and last seen, a 24-hour trend,
+  the dead-letter split, and the newest error text. Below that are the stuck messages, each with its cause
+  (`?cause=` narrows them to one cause), and the dead-letter queues holding them, per queue. The time range now
+  picks causes seen in it, with a start and an end. The table lists the oldest `limit` (100 by default, up to
+  1,000) and has no Next page; `/api/stuck` still pages. The views are in `@trailbeam/ui` (`CauseList`,
+  `CauseMessagesTable`, `DeadLetterQueues` and the hosted app's words for a group), so the hosted Needs attention
+  page can draw the same ones. Redrive stays in the hosted app: it needs AWS's redrive permissions. The theme
+  adds two role tokens the hosted app already defines, `canvas` and `critical`.
+- **`GET /api/causes`: stuck messages grouped by why they didn't finish** (QV-367, step 1 of the open-source
+  Needs attention page). One group per cause (an exception class and its error text with numbers and IDs taken
+  out, a failed delete, no Lambda outcome, received and not deleted, never received), for its queue and
+  consumer, with counts by outcome, first and last seen, the times for a trend, tenants and service.versions.
+  Groups are listed worst outcome first. The response also groups the messages in a dead-letter queue by that
+  queue. The rules and the group shape are the hosted app's, and both are tested on one shared fixture
+  (`@trailbeam/ui/fixtures/causes-parity.json`), so a cause has the same `id` in both. The groups are worked out
+  when the endpoint is read, from up to 5,000 stuck messages, oldest first. Nothing new is stored.
 - **`trailbeam --version`** (QV-346). `trailbeam --version` (or `-V`, also after `start`) prints
   `trailbeam <version>` and exits 0; it used to fail with `unrecognized arguments`. `npx trailbeam --version` prints
   the same line (it printed the bare version before).
+- **A SIGTERM in the last moment of startup closes the store too** (QV-434). The server set its SIGTERM handler
+  a few lines before the block that, on the way out, stops the retention thread and closes the store. A SIGTERM
+  (docker stop, a Kubernetes rolling restart) that arrived in between, while the retention thread was starting,
+  ended the process without either, with a traceback and exit code 1. Both now run whenever the signal comes.
 - **The Java jar has its Maven Central name and release setup** (QV-319). The group ID is `app.trailbeam`, as
   the board chose, and the Java package moves with it from `dev.trailbeam.sqs` to `app.trailbeam.sqs`, so the
   Lambda handler is now `app.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`. Builds also make a sources
@@ -37,6 +72,26 @@
   - Both endpoints work on SQLite and Postgres. SQLite schema 17 and Postgres schema 11 add `queue_events` and
     `queue_rollup` (Postgres also adds `place_queue_keys`). They are built from every message's spans when the
     store is upgraded: one pass over the messages on SQLite, and one place at a time on Postgres.
+- **The Tokens page in the web screen** (QV-226, users and roles phase 2, part 3 of 3). Anyone signed in finds
+  **Tokens** in the header (`/tokens`): their own personal API tokens, to create (for 30 days, 90 days, a year or
+  until revoked) and revoke. Admins also see the ingest tokens there, to create and revoke, with the shared
+  `TRAILBEAM_TOKEN` listed as "legacy shared token (from TRAILBEAM_TOKEN)" and never shown. A new token is shown
+  once, to copy. Creating the first ingest token on a server with open ingest asks to confirm that it closes it.
+  The parts are in `@trailbeam/ui` as `TokensTable`, `CreateToken` and `OneTimeToken`.
+- **The People page in the web screen** (QV-226, users and roles phase 2, part 2 of 3). Admins find **People** in
+  the header (`/people`): everyone who can sign in, with role, status and last sign-in. They add a person and get
+  their one-time invite link to copy, change a role, disable or enable someone, make a new invite or password
+  reset link, and remove someone after a confirmation. The controls that would leave no admin who can sign in are
+  off. Members are answered "Not allowed". The page is also in `@trailbeam/ui` as `PeopleTable`, `AddPerson` and
+  `OneTimeLink`.
+- **People and tokens over the API** (QV-226, users and roles phase 2, part 1 of 3). Admins add people, change
+  their role, disable or remove them, and make one-time invite and password reset links with `/api/users`, and
+  create, list and revoke ingest tokens with `/api/tokens/ingest`. Anyone signed in manages their own personal API
+  tokens with `/api/me/tokens`. Links lead to the new `/set-password` page. Two roles only, admin and member, and
+  the last admin can't be demoted, disabled or removed. These are the routes the People and Tokens pages of the
+  web screen will use. All are in `contract/openapi.yaml`.
+- **Fixed: re-enabling a person could leave their personal API token refused for up to 20 seconds** on the
+  replica that had refused it while they were disabled.
 - **Postgres, several replicas: a message could get a second summary** (QV-422). A delete or
   ChangeMessageVisibility span carries no message ID, so its export finds its message by the receipt handle and
   locks it only then. If another replica stored a newer span of that message in a new day (bucket) meanwhile,
@@ -54,7 +109,7 @@
   receive), with the event's time and the delivery time (`SentTimestamp` minus the event time, both AWS clocks). It is
   not shown when the message has a send (a process re-sent the body) or came through SNS. Both local UIs show it:
   "Arrived via an EventBridge rule: *detail-type*", "S3 *event* in *bucket*" or "S3 test message", tagged inferred
-  (`@trailbeam/ui` 0.1.0-dev.5, `fixtures/origin-timelines.json`). On queues whose body is not captured, only the routing
+  (`@trailbeam/ui` 0.1.0-dev.12, `fixtures/origin-timelines.json`). On queues whose body is not captured, only the routing
   fields are read, and never the object key (board decision on QV-314, contract 23.5).
 - **SNS fan-out: messages that came through an SNS topic get their sender** (QV-313, contract revision 3.4, section 21; the Java jar does not hook SNS yet). The Python and Node.js packages record SNS
   `Publish` and `PublishBatch` to a topic as a `trailbeam publish` span (`trailbeam.kind = sns.publish`) with the SNS
@@ -73,6 +128,17 @@
   the other messages it reached (links), and the "Arrived via SNS topic" step, with no time, before its receive.
   `TimelineView` takes an optional `messageHref` for those links; `@trailbeam/ui/fixtures/sns-timelines.json` is
   what the server returns after a fan-out (`@trailbeam/ui` 0.1.0-dev.4).
+- **Go package, stage 1: SQS spans from aws-sdk-go-v2 middleware** (QV-321, pre-release, not published). In
+  `go/`, `trailbeamsqs`: one line where the AWS config is built, `trailbeamsqs.AppendMiddlewares(&cfg.APIOptions)`,
+  the same hook as otelaws and dd-trace-go. It emits every client span of the contract (send, receive, delete,
+  change visibility, their batch forms, purge) with the receipt-handle HMAC, receive count, timestamps, DLQ source
+  ARN, per-entry results, call-order ticks, the message ID on settle spans, body size and FIFO fields. The parent
+  is the span in the call's context, read after every middleware has started its own, so the order of the
+  `AppendMiddlewares` lines doesn't matter. It passes the conformance kit, 20 of 20 spans, alone, beside otelaws
+  v0.72.0 (each span a child of its exported span), with the application's sampler at 0, and beside dd-trace-go
+  v2.12.0. A new CI job, "Go package", runs the unit tests on Go 1.23 (with the minimum SDK and OpenTelemetry
+  versions) and on the newest Go, then the kit. Still to come: tenants and body capture, the aws-lambda-go
+  wrapper, a version matrix and the docs.
 - **Java package, stage 6: the contract's Java note** (QV-319, pre-release, not published). New section 20 of
   the span contract says how the jar meets it: the parent read from the request's trace header, receives in a
   polling loop as root spans beside an agent, where times and call-order ticks are taken, one counter per class
@@ -336,6 +402,17 @@
   quorum queues' headers, the dead-letter source and reason from `x-death`, and message identity. It comes with
   vectors and fixtures. Nothing emits or reads these spans yet: the server (QV-306) and the Python package
   (QV-309) follow. SQS and SNS spans are unchanged.
+- **Sign-in through a proxy** (QV-227, users and roles phase 3a). With `--proxy-auth-header X-Forwarded-Email`
+  (`TRAILBEAM_PROXY_AUTH_HEADER`), people signed in by oauth2-proxy, Pomerium, Cloudflare Access or similar need no
+  Trailbeam password. Off by default; the header is believed only from `--trusted-proxy` addresses and/or with a
+  shared secret in `X-Trailbeam-Proxy-Secret` (`--proxy-auth-secret-file`), and the server refuses to start with
+  neither. A first-time email becomes a member, never an admin. An email that has a local account is refused until
+  an admin runs `trailbeam users link-proxy`, so the proxy can't be used to take over an account; `unlink-proxy`
+  undoes it, and `users create --proxy` makes an account for the proxy with no password. `--proxy-auth-sign-out-url`
+  gives those people a Sign out that ends the proxy's session. `/api/me` says `via: proxy` and gains `sign_out`,
+  `/api/health` gains `config.proxy_auth`, and the API's endpoints can answer 403. The README has an oauth2-proxy
+  setup. Schema: SQLite 18, Postgres 12 (`users.proxy_linked_at_ms`, NULL for everyone already stored). Checking
+  proxies' signed tokens (Cloudflare, Pomerium, Google IAP, AWS ALB) comes later, with the `sso` extra.
 
 ## 0.4.0: set up in one command
 

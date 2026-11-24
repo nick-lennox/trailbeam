@@ -115,6 +115,8 @@ def test_a_browser_signs_in_once_and_gets_a_session_cookie(serve):
     session = {"Cookie": cookie.split(";")[0]}
     assert call(url, "/stuck", headers=session)[0] == 200
     assert call(url, "/api/messages", headers=session)[0] == 200
+    junk = {"Cookie": "junk=a b; " + session["Cookie"] + "; junk=x y; other=1"}  # QV-473
+    assert call(url, "/api/messages", headers=junk)[0] == 200
     # the cookie is not an ingest credential
     assert call(url, "/v1/traces", method="POST", data=otlp(), headers={**PROTO, **session})[0] == 401
     status, headers, _ = call(url, "/logout", headers=session)

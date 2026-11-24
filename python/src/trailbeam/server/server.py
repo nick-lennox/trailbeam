@@ -19,19 +19,22 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTrace
 
 from . import __version__
 from . import queues as queues_mod
-from . import access as access_mod, auth as auth_mod, bodies, csrf, first_admin, metrics, passwords, queries, \
+from . import access as access_mod, auth as auth_mod, causes as causes_mod, proxy_auth as proxy_auth_mod, bodies, csrf, first_admin, \
+    metrics, passwords, people_api, queries, \
     sessions as sessions_mod, trace_links, ui_files, web
 from .accounts import AccountError, Accounts, AdminExists, BadSetupCode, check_email, check_name
 from .backpressure import GRPC_RESOURCE_EXHAUSTED, GRPC_UNAVAILABLE, IngestGate, Rejected, status_body
 from .sessions import Sessions
 from .signin import SignIn
 from .tokens import Tokens
+from . import events as events_mod
 from .store import ExportAbandoned, Store, StoreFull, StoreTimeout, StoreUnavailable, WriterBusy
 from .proxy import TrustedProxies
 from .otlp import PROBE_NOT_STORED, DecodeError, decode, valid_probe_id
 from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
 
 log = logging.getLogger("trailbeam.server")
+_UNSET = object()  # App.api: no route given
 
 MAX_BODY = 32 * 1024 * 1024  # bytes, after decompression
 DEFAULT_WINDOW_S = 86_400  # the time window of the Tenants page and the searches, unless given
@@ -55,7 +58,7 @@ class App:
                  max_receive_counts: Optional[dict] = None, ui_dir=ui_files.DEFAULT_UI_DIR, purger=None,
                  auth: Optional[auth_mod.Auth] = None, gate: Optional[IngestGate] = None,
                  trusted_proxies: Optional[TrustedProxies] = None, trace_link: Optional[str] = None,
-                 accounts="auto"):
+                 accounts="auto", proxy_auth: Optional[proxy_auth_mod.ProxyAuthConfig] = None):
         self.db = db
         # --trusted-proxy (proxy.py): whose X-Forwarded-For/-Proto/-Host is believed; empty: nobody's
         self.proxies = trusted_proxies or TrustedProxies()
@@ -68,8 +71,15 @@ class App:
         self.sessions = Sessions(self.accounts) if self.accounts else None
         self.tokens = Tokens(self.accounts) if self.accounts else None
         self.signin = SignIn(self.accounts, self.sessions) if self.accounts else None
+        self.people = people_api.PeopleApi(self)  # /api/users, /api/tokens/ingest, /api/me/tokens
+        # sign-in through a proxy (proxy_auth.py, --proxy-auth-header); None: off
+        self.proxy_auth = proxy_auth
+        self.proxy_signin = (proxy_auth_mod.ProxySignIn(proxy_auth, self.accounts, self.proxies)
+                             if proxy_auth is not None and self.accounts is not None else None)
+        if proxy_auth is not None and self.accounts is None:
+            log.warning("--proxy-auth-header is set, but this store has no tables of people: it is ignored")
         # who may do what (access.py): the shared token until an admin exists, then people
-        self.access = access_mod.Access(auth, self.accounts, self.sessions, self.tokens)
+        self.access = access_mod.Access(auth, self.accounts, self.sessions, self.tokens, proxy=self.proxy_signin)
         try:  # read now, so the first export doesn't wait for it (on a :memory: store, behind the writer)
             self.access.state.get()
         except access_mod.AccessUnavailable as e:
@@ -87,7 +97,8 @@ class App:
         self.stats = {"requests": 0, "inserted": 0, "duplicates": 0, "ignored": 0, "rejected": 0}
         self.routes: dict[str, Callable[[dict, list[str]], object]] = {
             "health": self.health, "stats": self.stats_counts, "messages": self.messages, "duplicates": self.duplicates,
-            "stuck": self.stuck, "tenants": self.tenants, "probes": self.probes, "me": self.me,
+            "stuck": self.stuck, "causes": self.causes, "events": self.events, "tenants": self.tenants, "probes": self.probes,
+            "me": self.me, "users": self._not_a_route, "tokens": self._not_a_route,
             "queues": self.queues, "flows": self.flows}
         self._init_metrics()
 
@@ -284,8 +295,19 @@ class App:
 
     # ---- JSON API -------------------------------------------------------------------------
 
-    def api(self, path: str, query: dict, who: access_mod.Who = access_mod.NOBODY) -> object:
+    def api(self, path: str, query: dict, who: access_mod.Who = access_mod.NOBODY,
+            route: object = _UNSET) -> object:
+        """GET ``/api/{path}``. ``route``: the people-and-tokens route the access check decided on
+        (access.api_route of the exact request path, or None); dispatched on as is, so the handler that runs
+        is the one whose level was checked. Not given (tests, in-process callers): matched on the exact path,
+        the same way. Never normalised here: /api/users/ or /api//users is no route (a 404), not /api/users."""
         parts = [unquote(p) for p in path.split("/") if p]
+        r = access_mod.api_route("GET", "/api/" + path) if route is _UNSET else route
+        if r is not None:  # people and tokens (people_api.py); the level was checked with the request
+            try:
+                return self.people.call(r[1], r[2], None, who, "", self.now() // 1_000_000)[1]
+            except people_api.ApiProblem as e:
+                raise ApiError(e.status, e.message) from None
         if not parts or parts[0] not in self.routes:
             raise ApiError(404, f"no such endpoint: /api/{'/'.join(parts)}")
         try:
@@ -294,6 +316,10 @@ class App:
             return self.routes[parts[0]](query, parts[1:])
         except queries.CursorError as e:
             raise ApiError(400, str(e)) from None
+
+    def _not_a_route(self, query: dict, rest: list[str]) -> dict:
+        """/api/users and /api/tokens paths that aren't one of access.API_ROUTES (matched in api)."""
+        raise ApiError(404, "no such endpoint")
 
     def health(self, query: dict, rest: list[str]) -> dict:
         """Cheap at any size: the ingest counters since start, the configuration, and one indexed read on a
@@ -316,6 +342,7 @@ class App:
                            "stuck_after_s": self.stuck_after_s, "lambda_timeout_s": self.lambda_timeout_s,
                            "max_receive_counts": self.max_receive_counts,
                            "store_bodies": sorted(self.db.store_bodies), "trace_link": self.trace_link,
+                           "proxy_auth": self.proxy_signin is not None,
                            "retention": self.purger.status() if self.purger else None}}
 
     def _mode(self) -> str:
@@ -336,7 +363,11 @@ class App:
             raise ApiError(404, "no such endpoint")
         user = None if who.user_id is None else {"id": who.user_id, "email": who.email, "name": who.name,
                                                  "role": who.role}
-        return {"auth": self._mode(), "via": who.via, "user": user}
+        # whether Sign out (GET /logout) ends anything: a sign-in cookie, or the proxy's own session when
+        # --proxy-auth-sign-out-url says where it ends
+        sign_out = who.via in ("session", "shared_cookie") or (
+            who.via == "proxy" and self.proxy_auth is not None and self.proxy_auth.sign_out_url is not None)
+        return {"auth": self._mode(), "via": who.via, "user": user, "sign_out": sign_out}
 
     def ready(self) -> tuple[int, dict]:
         """``/api/ready``: 200 when the store answers, else 503. For a load balancer or a Kubernetes readiness
@@ -433,6 +464,45 @@ class App:
                                   mrc=self.max_receive_counts, from_ns=frm, cursor=q.get("cursor"),
                                   version=q.get("version") or None)
         return {"older_than_s": older, "messages": page.items, "next_cursor": page.next_cursor}
+
+    def events(self, q: dict, rest: list[str]) -> dict:
+        """``/api/events``: the recorded steps in [from_ms, to_ms], or the last ``since_s`` seconds (default a day),
+        newest first, and on the first page their counts per time bucket (events.py)."""
+        if rest:
+            raise ApiError(404, "no such endpoint")
+        from_ms, to_ms = self._window(q)
+        try:
+            kinds = events_mod.parse_kinds(q.get("kind"))
+        except events_mod.EventQueryError as e:
+            raise ApiError(400, str(e)) from None
+        return events_mod.page(self.db, from_ms, to_ms, _limit(q), queue=q.get("queue") or None,
+                               service=q.get("service") or None, kinds=kinds,
+                               message_id=q.get("message_id") or None, cursor=q.get("cursor"))
+
+    def causes(self, q: dict, rest: list[str]) -> dict:
+        """``/api/causes``: the stuck messages grouped by why they didn't finish (causes.py, QV-367), the Needs
+        attention page's groups. ``from_ms``/``to_ms`` narrow them to causes seen in that range; ``cause`` narrows
+        the messages listed to one group's. The groups count every message read, the list holds ``limit``."""
+        if rest:
+            raise ApiError(404, "no such endpoint")
+        older = _int(q, "older_than_s", self.stuck_after_s, 0, 10 ** 9)
+        frm = _int(q, "from_ms", -1, 0, 10 ** 15) if "from_ms" in q else None
+        to = _int(q, "to_ms", -1, 0, 10 ** 15) if "to_ms" in q else None
+        if frm is not None and to is not None and frm > to:
+            raise ApiError(400, "from_ms must not be after to_ms")
+        read = causes_mod.read_unfinished(self.db, self.now(), self._lambda_timeout(q), self.max_receive_counts, older,
+                                          q.get("queue") or None)
+        assign: dict = {}
+        groups = causes_mod.in_range(read["classified"], read["first_seen"], frm, to, assign)
+        items = [{**i, "cause": assign[i["message_id"]]} for i in read["items"] if i["message_id"] in assign]
+        wanted = q.get("cause") or None
+        listed = [i for i in items if i["cause"] == wanted] if wanted and any(g["id"] == wanted for g in groups) else items
+        return {"older_than_s": older, "from_ms": frm, "to_ms": to, "capped": read["capped"],
+                "read_limit": causes_mod.UNFINISHED_LIMIT, "total": len(items),
+                "in_dead_letter_queue": sum(1 for i in items if i["in_dead_letter_queue"]),
+                "groups": [causes_mod.public(g) for g in groups],
+                "dead_letter_queues": causes_mod.dlq_groups(items, read["urls"]),
+                "cause": wanted, "messages": listed[:_limit(q)], "listed": len(listed)}
 
     def tenants(self, q: dict, rest: list[str]) -> dict:
         """``/api/tenants``: the Tenants page (contract/tenants.md) for [from_ms, to_ms], or the last
@@ -645,13 +715,19 @@ def make_handler(app: App):
                 if why is not None:
                     log.warning("refused POST %s from %s: %s", path, self._client(), why)
                     self.close_connection = True  # the request body is not read
-                    self._send(403, "text/plain; charset=utf-8", f"forbidden: {why}".encode())
+                    self._csrf_refused(path, why)
                     return
             if path == "/login":
                 self._login()
                 return
             if path == first_admin.PATH:
                 self._setup_post()
+                return
+            if path == people_api.LINK_PATH:
+                self._set_password_post()
+                return
+            if path.startswith("/api/"):
+                self._api_write("POST", path)
                 return
             if path != "/v1/traces":
                 self._send(404, "text/plain", b"not found")
@@ -694,6 +770,86 @@ def make_handler(app: App):
                 log.info("the client went away before the %d answer to its export", status)
                 self.close_connection = True
 
+        def do_PATCH(self):
+            self._write_method("PATCH")
+
+        def do_DELETE(self):
+            self._write_method("DELETE")
+
+        def _write_method(self, method: str):
+            self._status = 500
+            path = urlsplit(self.path).path
+            why = csrf.check(self.headers, self._scheme(),
+                             app.proxies.host(self._peer(), self.headers.get("Host"), self.headers.get("X-Forwarded-Host")))
+            if why is not None:
+                log.warning("refused %s %s from %s: %s", method, path, self._client(), why)
+                self.close_connection = True
+                self._csrf_refused(path, why)
+                return
+            if not path.startswith("/api/"):
+                self.close_connection = True
+                self._send(404, "text/plain", b"not found")
+                return
+            self._api_write(method, path)
+
+        def _csrf_refused(self, path: str, why: str):
+            if path.startswith("/api/"):
+                self._json(403, {"error": f"forbidden: {why}", "reason": "csrf"})
+            else:
+                self._send(403, "text/plain; charset=utf-8", f"forbidden: {why}".encode())
+
+        def _api_write(self, method: str, path: str):
+            """POST, PATCH and DELETE on the people-and-tokens routes (people_api.py), after csrf.check. The route
+            and the person are checked before the body is read."""
+            r = access_mod.api_route(method, path)
+            if r is None:
+                self.close_connection = True
+                self._json(404, {"error": f"no such endpoint: {method} {path}"})
+                return
+            level, handler, rid = r
+            try:
+                d = app.access.check(self.headers, level, self._scheme(), peer=self._peer())
+            except access_mod.AccessUnavailable as e:
+                log.warning("%s %s: %s", method, path, e)
+                self.close_connection = True
+                self._send(503, "application/json", json.dumps({"error": "the store is unreachable; try again"})
+                           .encode(), {"Retry-After": "1"})
+                return
+            if not d.ok:
+                self.close_connection = True
+                out = json.dumps({"error": d.message}).encode()
+                if d.status == 401:
+                    self._unauthorized("application/json", out)
+                else:
+                    self._send(d.status, "application/json", out)
+                return
+            n = self.headers.get("Content-Length") or ("" if self.headers.get("Transfer-Encoding") else "0")
+            if not n.isdigit() or int(n) > people_api.MAX_BODY:
+                self.close_connection = True
+                self._json(413, {"error": f"send a request body of at most {people_api.MAX_BODY} bytes, with a "
+                                          "Content-Length"})
+                return
+            raw = self.rfile.read(int(n))
+            host = app.proxies.host(self._peer(), self.headers.get("Host"), self.headers.get("X-Forwarded-Host"))
+            base = f"{self._scheme()}://{host or 'localhost'}"
+            try:
+                body = None if method == "DELETE" else people_api.parse_body(self.headers.get("Content-Type"), raw)
+                status, obj = app.people.call(handler, rid, body, d.who, base, time.time_ns() // 1_000_000)
+            except people_api.ApiProblem as e:
+                self._json(e.status, e.body())
+                return
+            except access_mod.AccessUnavailable as e:
+                log.warning("%s %s: %s", method, path, e)
+                self._send(503, "application/json", json.dumps({"error": "the store is unreachable; try again"})
+                           .encode(), {"Retry-After": "1"})
+                return
+            except Exception:  # noqa: BLE001
+                log.exception("%s %s failed", method, path)
+                self._json(500, {"error": "internal error"})
+                return
+            # a new token or link is in it: never kept by a browser or a proxy
+            self._send(status, "application/json", json.dumps(obj).encode(), {"Cache-Control": "no-store"})
+
         def do_GET(self):
             u = urlsplit(self.path)
             t0 = time.perf_counter()
@@ -718,6 +874,11 @@ def make_handler(app: App):
             if path == first_admin.PATH:
                 self._setup_get()
                 return
+            if path == people_api.LINK_PATH:
+                self._send_page(web.password_page() if app.accounts is not None else
+                                (404, {"Content-Type": "text/plain"}, b"not found"))
+                return
+            api_r = None
             try:
                 if path in ("/login", "/logout"):
                     mode = app.access.mode()
@@ -727,8 +888,11 @@ def make_handler(app: App):
                     d = access_mod.Decision(True)
                 else:
                     # /api/health is open, but says more only to whoever may read the API
+                    # One decision for the level and the handler: app.api dispatches on this same route.
+                    api_r = access_mod.api_route("GET", path)
+                    level = api_r[0] if api_r else access_mod.level_of("GET", path)
                     d = app.access.check(self.headers, access_mod.MEMBER if path == "/api/health"
-                                         else access_mod.level_of("GET", path), self._scheme())
+                                         else level, self._scheme(), peer=self._peer())
             except access_mod.AccessUnavailable as e:
                 log.warning("GET %s: %s", path, e)
                 if path == "/api/health":  # liveness answers while the store is unreachable
@@ -766,7 +930,7 @@ def make_handler(app: App):
                 self._page(u.path, q)
                 return
             try:
-                self._json(200, app.api(u.path[len("/api/"):], q, d.who))
+                self._json(200, app.api(u.path[len("/api/"):], q, d.who, route=api_r))
             except ApiError as e:
                 self._json(e.status, {"error": e.message})
             except Exception:
@@ -787,7 +951,13 @@ def make_handler(app: App):
                     cookie = sessions_mod.clear_cookie(secure)
                 else:
                     cookie = auth_mod.clear_cookie()
-                self._send(303, "text/plain", b"", {"Location": "/login", "Set-Cookie": cookie})
+                # signed in through a proxy: its own session ends at its sign-out URL, if one is set
+                where = (app.proxy_auth.sign_out_url if mode == "accounts" and app.proxy_auth is not None
+                         and app.proxy_auth.sign_out_url else "/login")
+                self._send(303, "text/plain", b"", {"Location": where, "Set-Cookie": cookie})
+            elif mode == "accounts" and app.access.proxy_person(self.headers, self._peer()) is not None:
+                # the proxy signed them in already: on to the page they asked for
+                self._send(303, "text/plain", b"", {"Location": auth_mod.safe_next(q.get("next"))})
             elif mode == "accounts":
                 self._send_page(web.sign_in_page(auth_mod.safe_next(q.get("next")), status=200))
             else:
@@ -942,6 +1112,74 @@ def make_handler(app: App):
                 cookie = {}
             self._send(303, "text/plain", b"", {"Location": "/", "Referrer-Policy": "no-referrer", **cookie})
             return False
+
+        def _set_password_post(self):
+            """POST /set-password: an invite or reset code and a new password; right, the password is set, the
+            code used up and the person's other sessions ended in one transaction (accounts.use_user_code), and
+            they are signed in. The code is checked before the password is hashed, so a wrong one costs no hash."""
+            if app.accounts is None:
+                self.close_connection = True
+                self._send(404, "text/plain", b"not found")
+                return
+            n = self.headers.get("Content-Length") or ""
+            if not n.isdigit() or int(n) > 8192:
+                self.close_connection = True
+                self._send(413, "text/plain", b"form too large")
+                return
+            form = {k: v[-1] for k, v in parse_qs(self.rfile.read(int(n)).decode("utf-8", "replace")).items()}
+            code, pw, pw2 = form.get("code", "").strip(), form.get("password", ""), form.get("password2", "")
+            client = self._client()
+            limit = app.signin.address_limit
+            wait = limit.retry_after(client)
+            if wait is not None:
+                self._send_page(_with_retry(web.password_page(code, "slow_down", retry_after_s=wait, status=429), wait))
+                return
+            now = time.time_ns() // 1_000_000
+            try:
+                found = app.accounts.user_code(first_admin.code_hash(code), now) if first_admin.well_formed(code) \
+                    else None
+            except Exception as e:  # noqa: BLE001
+                log.warning("set-password: the store is unreachable: %s", e)
+                self._send(503, "text/plain", b"the store is unreachable; try again", {"Retry-After": "1"})
+                return
+            if found is None:
+                limit.failed(client)
+                log.warning("set-password: a wrong, used or replaced link code from %s", client)
+                self._send_page(web.password_page("", "bad_code", status=403))
+                return
+            email = found["email"]
+            try:
+                passwords.check(pw)
+                if pw != pw2:
+                    self._send_page(web.password_page(code, "mismatch", email=email, status=400))
+                    return
+                uid = app.accounts.use_user_code(first_admin.code_hash(code), app.signin.hasher.hash(pw), now)
+            except passwords.HashBusy:
+                self._send_page(_with_retry(web.password_page(code, "busy", email=email, status=503), 1))
+                return
+            except BadSetupCode:
+                limit.failed(client)
+                self._send_page(web.password_page("", "bad_code", status=403))
+                return
+            except passwords.PasswordError as e:
+                self._send_page(web.password_page(code, message=str(e)[:1].upper() + str(e)[1:] + ".", email=email,
+                                                  status=400))
+                return
+            except Exception:  # noqa: BLE001
+                log.exception("set-password failed")
+                self._send(500, "text/plain", b"internal error")
+                return
+            app.sessions.forget_user(uid)
+            log.info("user %d set a password from a%s link, from %s", uid,
+                     "n invite" if found["kind"] == "invite" else " reset", client)
+            secure = self._scheme() == "https"
+            try:
+                sid, expires = app.sessions.start(uid)
+                cookie = {"Set-Cookie": sessions_mod.set_cookie(sid, secure, (expires - now) // 1000)}
+            except Exception as e:  # noqa: BLE001 - the password is set; they can sign in
+                log.warning("set-password: the password was set, but the session could not be started: %s", e)
+                cookie = {}
+            self._send(303, "text/plain", b"", {"Location": "/", "Referrer-Policy": "no-referrer", **cookie})
 
         def _send_page(self, r):
             status, headers, body = r

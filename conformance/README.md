@@ -11,7 +11,8 @@ what is missing or wrong.
 The Python and Node.js packages, client hooks and Lambda wrappers, run it in CI (`Conformance kit` in
 [`ci.yml`](../.github/workflows/ci.yml)), and so does the Java package (`Java package` in the same file, driver in
 [`drivers/java`](drivers/java), with agent variants for the OpenTelemetry Java agent and dd-java-agent; its
-Lambda wrapper in [`drivers/java-lambda`](drivers/java-lambda)). New
+Lambda wrapper in [`drivers/java-lambda`](drivers/java-lambda)), and so does the .NET package (`.NET package`,
+driver in [`drivers/dotnet`](drivers/dotnet), with variants beside OpenTelemetry.Instrumentation.AWS). New
 language packages add a driver and must pass it.
 
 ```
@@ -149,7 +150,9 @@ environment is removed first; the variant's `env` comes last.
 ## Adding a language
 
 1. Write a driver that runs [SCENARIO.md](SCENARIO.md) and writes the ground truth. Start from the Python
-   or Node.js driver; on the JVM, from [`drivers/java`](drivers/java) (AWS SDK for Java v2).
+   or Node.js driver; on the JVM, from [`drivers/java`](drivers/java) (AWS SDK for Java v2); in Go, from
+   [`drivers/go`](drivers/go) (aws-sdk-go-v2, with variants beside otelaws and dd-trace-go v2; `Go package` in
+   [`ci.yml`](../.github/workflows/ci.yml)).
 2. Add a `driver.json` with its variants, including the agents the package must work beside.
 3. Run `python conformance/kit.py run path/to/driver.json` until it passes, then add it to the CI job.
 

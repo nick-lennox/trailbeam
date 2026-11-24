@@ -395,7 +395,7 @@ def test_without_users_or_tokens_nothing_changes(serve):
     assert call(url, "/api/messages")[0] == 200 and call(url, "/")[0] == 200 and call(url, "/metrics")[0] == 200
     h = json.loads(call(url, "/api/health")[2])
     assert h["config"]["auth"] == "off" and h["config"]["ingest_auth"] == "open"
-    assert json.loads(call(url, "/api/me")[2]) == {"auth": "off", "via": "none", "user": None}
+    assert json.loads(call(url, "/api/me")[2]) == {"auth": "off", "via": "none", "user": None, "sign_out": False}
     assert call(url, "/login")[0] == 404
 
 
@@ -463,7 +463,7 @@ def test_people_sign_in_and_out_and_personal_tokens_carry_their_role(serve):
     assert call(url, "/tenants", headers={"Cookie": cookie})[0] == 200
     me = json.loads(call(url, "/api/me", headers={"Cookie": cookie})[2])
     assert me == {"auth": "accounts", "via": "session",
-                  "user": {"id": ana, "email": "ana@example.com", "name": "Ana", "role": "member"}}
+                  "user": {"id": ana, "email": "ana@example.com", "name": "Ana", "role": "member"}, "sign_out": True}
     full = json.loads(call(url, "/api/health", headers={"Cookie": cookie})[2])
     assert full["config"]["auth"] == "accounts"
     # a session never sends spans
@@ -522,6 +522,11 @@ def test_over_https_a_plain_session_cookie_is_not_a_session(serve):
     assert call(url, "/api/messages", headers={**https, "Cookie": f"trailbeam_sid={sid}"})[0] == 401
     assert call(url, "/api/messages", headers={**https, "Cookie": f"__Host-trailbeam_sid={sid}"})[0] == 200
     assert call(url, "/api/messages", headers={"Cookie": f"trailbeam_sid={sid}"})[0] == 200  # plain HTTP
+    # a junk cookie someone planted next to it (a space in its value) hides no session (QV-473)
+    for c in (f"__Host-trailbeam_sid={sid}; junk=a b", f"junk=x y; __Host-trailbeam_sid={sid}; other=1"):
+        assert call(url, "/api/messages", headers={**https, "Cookie": c})[0] == 200
+    assert call(url, "/api/messages", headers={**https, "Cookie": f"junk=a b; trailbeam_sid={sid}"})[0] == 401
+    assert call(url, "/api/messages", headers={"Cookie": f"trailbeam_sid={sid}; junk=a b"})[0] == 200
     # /logout over HTTPS doesn't end the session a plain cookie names...
     status, headers, _ = call(url, "/logout", headers={**https, "Cookie": f"trailbeam_sid={sid}"})
     assert status == 303 and headers["Set-Cookie"].startswith("__Host-trailbeam_sid=;")
@@ -559,7 +564,7 @@ def test_disabling_or_removing_someone_stops_their_session_and_tokens(serve):
 
 # Every GET the server answers, API and pages, with what it answers once an admin exists and the request carries
 # nothing. A route added to the server without a level here fails test_every_route_has_a_level.
-PAGES = ["/", "/message?id=m-1", "/duplicates", "/stuck", "/tenants", "/ui/app.js", "/no-such-page",
+PAGES = ["/", "/message?id=m-1", "/duplicates", "/stuck", "/tenants", "/people", "/tokens", "/ui/app.js", "/no-such-page",
          "/metrics"]
 
 
@@ -596,13 +601,26 @@ def test_every_route_has_a_level():
     assert access.ROUTES == {
         ("GET", "/api/ready"): OPEN, ("GET", "/api/health"): OPEN, ("GET", "/login"): OPEN,
         ("POST", "/login"): OPEN, ("GET", "/logout"): OPEN, ("GET", "/setup"): OPEN, ("POST", "/setup"): OPEN,
-        ("POST", "/v1/traces"): INGEST, ("GET", "/metrics"): METRICS}
+        ("POST", "/v1/traces"): INGEST, ("GET", "/metrics"): METRICS,
+        ("GET", "/set-password"): OPEN, ("POST", "/set-password"): OPEN, ("GET", "/people"): ADMIN, ("GET", "/tokens"): MEMBER}
     for p in _api_paths() + PAGES:
         p = p.split("?")[0]
         assert access.level_of("GET", p) == ROUTES_EXPECTED.get(p, MEMBER), p
+    # people and tokens (people_api.py): admins, but a person's own tokens; by the whole path
+    assert {(m, t): lvl for m, t, lvl, _ in access.API_ROUTES} == {
+        ("GET", "/api/users"): ADMIN, ("POST", "/api/users"): ADMIN, ("PATCH", "/api/users/{id}"): ADMIN,
+        ("DELETE", "/api/users/{id}"): ADMIN, ("POST", "/api/users/{id}/link"): ADMIN,
+        ("GET", "/api/tokens/ingest"): ADMIN, ("POST", "/api/tokens/ingest"): ADMIN,
+        ("DELETE", "/api/tokens/ingest/{id}"): ADMIN, ("GET", "/api/me/tokens"): MEMBER,
+        ("POST", "/api/me/tokens"): MEMBER, ("DELETE", "/api/me/tokens/{id}"): MEMBER}
+    assert access.level_of("PATCH", "/api/users/12") == ADMIN
+    assert access.level_of("DELETE", "/api/users/12/x") == MEMBER  # no route: a 404, not an admin check
+    assert access.api_route("DELETE", "/api/users/0") is None and access.api_route("GET", "/api/users/1") is None
+    assert access.api_route("POST", "/api/users/7/link") == (ADMIN, "user_link", 7)
 
 
-ROUTES_EXPECTED = {"/api/ready": OPEN, "/api/health": OPEN, "/metrics": METRICS}
+ROUTES_EXPECTED = {"/api/ready": OPEN, "/api/health": OPEN, "/metrics": METRICS, "/api/users": ADMIN,
+                   "/api/tokens/ingest": ADMIN, "/people": ADMIN}
 
 
 def test_the_switch_reaches_another_replica_within_5_seconds(store, tmp_path):
