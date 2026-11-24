@@ -10,7 +10,7 @@ is ``MEMBER``, so a page or file added later is never open by mistake):
 - ``METRICS``: ``GET /metrics``.
 - ``MEMBER``: the API and the web screen, message bodies included (an admin or a member, proposal section 2).
 - ``ADMIN``: managing people and ingest tokens: ``/api/users`` and ``/api/tokens/ingest`` (``API_ROUTES``,
-  people_api.py; the People and Tokens pages), and ``trailbeam users`` / ``trailbeam tokens`` (cli.py). A person's
+  people_api.py), the People page (``/people``), and ``trailbeam users`` / ``trailbeam tokens`` (cli.py). A person's
   own personal API tokens (``/api/me/tokens``) are ``MEMBER``, and need a person.
 
 **Two modes, switched by the store, not by a setting.** ``State`` asks the store whether an admin exists at most
@@ -61,6 +61,7 @@ ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/metrics"): METRICS,
     ("GET", "/set-password"): OPEN,  # invite and reset links (people_api.py); the code in it is the credential
     ("POST", "/set-password"): OPEN,
+    ("GET", "/people"): ADMIN,  # the People page; its data is /api/users, ADMIN too
 }
 
 # The routes that manage people and tokens (people_api.py): (method, path template, level, handler name).

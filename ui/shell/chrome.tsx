@@ -14,7 +14,7 @@ const suggest = (text: string) => {
 };
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) { super(message); }
+  constructor(public status: number, message: string, public reason?: string) { super(message); }
 }
 
 /** GET a JSON API path; an ApiError says what went wrong in a sentence the page can show. */
@@ -41,6 +41,39 @@ export async function getJSON<T>(path: string, timeoutMs = 15_000): Promise<T> {
     clearTimeout(timer);
   }
 }
+
+/**
+ * POST, PATCH or DELETE a people-and-tokens route (contract/openapi.yaml) with a JSON body, and read the JSON answer.
+ * The page is on the server's own origin, so the browser's Sec-Fetch-Site (same-origin) passes the CSRF check.
+ * An ApiError carries the server's sentence, and its `reason` (last_admin, email_taken, ...) when it gave one.
+ */
+export async function sendJSON<T>(method: "POST" | "PATCH" | "DELETE", path: string, body?: unknown, timeoutMs = 15_000): Promise<T> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    const r = await fetch(path, {
+      method, signal: ctl.signal, credentials: "same-origin",
+      headers: { Accept: "application/json", ...(body !== undefined && { "Content-Type": "application/json" }) },
+      ...(body !== undefined && { body: JSON.stringify(body) }),
+    });
+    if (r.status === 401) {
+      location.assign(signInHref());
+      throw new ApiError(401, "Signed out: taking you to the sign-in page.");
+    }
+    const text = await r.text();
+    let data: { error?: string; reason?: string } = {};
+    try { data = JSON.parse(text) as typeof data; } catch { /* not JSON */ }
+    if (!r.ok) throw new ApiError(r.status, data.error ? capital(data.error) + "." : `Trailbeam answered ${r.status}.`, data.reason);
+    return data as T;
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    throw new ApiError(0, "Couldn't reach Trailbeam's API.");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+/** The server's sentence as the page shows it: a capital first letter (not on an email it starts with), no final stop. */
+const capital = (s: string) => (/^\S+@/.test(s) ? s : s.charAt(0).toUpperCase() + s.slice(1)).replace(/\.$/, "");
 
 export const getHealth = (timeoutMs?: number) => getJSON<Health>("/api/health", timeoutMs);
 
@@ -90,6 +123,8 @@ export function Account({ me }: { me: Me | null }) {
 }
 
 const NAV = [["/", "Messages"], ["/duplicates", "Duplicates"], ["/stuck", "Stuck"], ["/tenants", "Tenants"]] as const;
+/** Only admins manage people (the page is admin-only on the server too). */
+const ADMIN_NAV = [["/people", "People"]] as const;
 
 /* The header's tenant box shows only once a tenant has been seen in the last 7 days (QV-217): on an install
    without tenants it is a box that can find nothing. Remembered for the tab, so pages don't flicker. */
@@ -118,7 +153,7 @@ export function Header({ id = "" }: { id?: string }) {
     <header className="flex flex-wrap items-center gap-4 border-b border-sky-line py-4">
       <a href="/" className="text-[1.25rem] text-sky-ink">Trailbeam</a>
       <nav className="flex gap-4 text-sm text-sky-ink-2">
-        {NAV.map(([href, label]) => (
+        {[...NAV, ...(me?.user?.role === "admin" ? ADMIN_NAV : [])].map(([href, label]) => (
           <a key={href} href={href} aria-current={location.pathname === href ? "page" : undefined}
             className={location.pathname === href ? "text-sky-ink" : "hover:text-sky-ink"}>{label}</a>
         ))}

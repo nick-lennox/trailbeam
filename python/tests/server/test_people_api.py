@@ -161,6 +161,22 @@ def test_before_an_admin_exists_no_admin_route_answers(store):
         httpd.server_close()
 
 
+def test_the_people_page_is_for_admins(srv, tmp_path):
+    """/people: the shell for an admin (the HTML fallback without the build), "Not allowed" for a member, the
+    sign-in page for nobody; the page's data (/api/users) is ADMIN too."""
+    status, _, body = srv("GET", "/people", headers=srv.admin)
+    assert status == 200 and b"<h1>People</h1>" in body and b"trailbeam users" in body  # not built: says what to use
+    (tmp_path / "index.html").write_text('<!doctype html><div id="root"></div>')
+    srv.app.ui_dir = tmp_path
+    assert srv("GET", "/people", headers=srv.admin)[:3:2] == (200, b'<!doctype html><div id="root"></div>')
+    status, _, body = srv("GET", "/people", headers=srv.member)
+    assert status == 403 and b"Not allowed" in body and b"root" not in body
+    status, _, body = srv("GET", "/people")
+    assert b"root" not in body and b"Sign in" in body, body[:300]
+    status, _, body = srv("GET", "/people", headers={"Authorization": f"Bearer {TOKEN}"})
+    assert b"root" not in body, "the shared token reads no admin page"
+
+
 def test_writes_from_another_site_s_page_are_refused_before_anything_changes(srv):
     for site in ("cross-site", "same-site"):
         st, _, out = srv("PATCH", f"/api/users/{srv.ben}", {"role": "admin"}, {**srv.admin, "Sec-Fetch-Site": site})

@@ -535,7 +535,7 @@ def test_disabling_or_removing_someone_stops_their_session_and_tokens(serve):
 
 # Every GET the server answers, API and pages, with what it answers once an admin exists and the request carries
 # nothing. A route added to the server without a level here fails test_every_route_has_a_level.
-PAGES = ["/", "/message?id=m-1", "/duplicates", "/stuck", "/tenants", "/ui/app.js", "/no-such-page",
+PAGES = ["/", "/message?id=m-1", "/duplicates", "/stuck", "/tenants", "/people", "/ui/app.js", "/no-such-page",
          "/metrics"]
 
 
@@ -573,7 +573,7 @@ def test_every_route_has_a_level():
         ("GET", "/api/ready"): OPEN, ("GET", "/api/health"): OPEN, ("GET", "/login"): OPEN,
         ("POST", "/login"): OPEN, ("GET", "/logout"): OPEN, ("GET", "/setup"): OPEN, ("POST", "/setup"): OPEN,
         ("POST", "/v1/traces"): INGEST, ("GET", "/metrics"): METRICS,
-        ("GET", "/set-password"): OPEN, ("POST", "/set-password"): OPEN}
+        ("GET", "/set-password"): OPEN, ("POST", "/set-password"): OPEN, ("GET", "/people"): ADMIN}
     for p in _api_paths() + PAGES:
         p = p.split("?")[0]
         assert access.level_of("GET", p) == ROUTES_EXPECTED.get(p, MEMBER), p
@@ -591,7 +591,7 @@ def test_every_route_has_a_level():
 
 
 ROUTES_EXPECTED = {"/api/ready": OPEN, "/api/health": OPEN, "/metrics": METRICS, "/api/users": ADMIN,
-                   "/api/tokens/ingest": ADMIN}
+                   "/api/tokens/ingest": ADMIN, "/people": ADMIN}
 
 
 def test_the_switch_reaches_another_replica_within_5_seconds(store, tmp_path):

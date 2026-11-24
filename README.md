@@ -617,8 +617,20 @@ trailbeam tokens revoke 3                            # --personal for a personal
   within 20 seconds, a revoked token within 30 seconds, and a new admin or a first ingest token within 5 seconds.
 - The commands never create or upgrade a store: they refuse a file that doesn't exist, a store at an older or
   newer schema version (start the new server once first), and `--db :memory:`, which only the server can reach.
-- In the web screen, the header shows who is signed in, with **Sign out**. The People and Tokens pages are on
-  their way; the API they use is already here.
+- In the web screen, the header shows who is signed in, with **Sign out**.
+
+**The People page** (`/people`, linked in the header for admins; members get "Not allowed") lists everyone who can
+sign in, with their role, status (active, invited, locked for now, or disabled) and last sign-in. From it an admin:
+
+- **adds a person**: an email, a name (the part before `@` if left out) and a role. The page then shows their
+  one-time invite link, once, to copy and send them privately;
+- **changes a role** between admin and member, or **disables** and **enables** someone;
+- makes a **new invite link** for someone who hasn't used theirs, or a **password reset link** for someone who has a
+  password (for example when they are locked out after too many wrong passwords);
+- **removes** a person, after a confirmation.
+
+The controls that would leave no admin who can sign in (making the last one a member, disabling or removing them)
+are off, and the server refuses them anyway. A Tokens page for ingest and personal API tokens comes next.
 
 **People and tokens over the API.** Admins can do the same through `/api/users` and `/api/tokens/ingest`, and
 anyone signed in manages their own personal API tokens with `/api/me/tokens` (all in

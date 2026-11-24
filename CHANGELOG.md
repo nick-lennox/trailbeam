@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **The People page in the web screen** (QV-226, users and roles phase 2, part 2 of 3). Admins find **People** in
+  the header (`/people`): everyone who can sign in, with role, status and last sign-in. They add a person and get
+  their one-time invite link to copy, change a role, disable or enable someone, make a new invite or password
+  reset link, and remove someone after a confirmation. The controls that would leave no admin who can sign in are
+  off. Members are answered "Not allowed". The page is also in `@trailbeam/ui` as `PeopleTable`, `AddPerson` and
+  `OneTimeLink`.
 - **People and tokens over the API** (QV-226, users and roles phase 2, part 1 of 3). Admins add people, change
   their role, disable or remove them, and make one-time invite and password reset links with `/api/users`, and
   create, list and revoke ingest tokens with `/api/tokens/ingest`. Anyone signed in manages their own personal API
