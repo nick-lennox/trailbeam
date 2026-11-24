@@ -223,3 +223,82 @@ def test_receive_counts_from_different_headers_order_nothing():
     c = dict(a, receive_count=1, count_source="first_delivery", time_ns=0)
     assert "receive_count" in order._edge_sources(c, a)
 
+
+
+# ---- the web screen and the queue page's events (QV-307 part 2) ---------------------------------------------
+
+PAGE_SQS_WORDS = ("SQS", "visibility", "Visibility", "ReceiveMessage", "DeleteMessage", "maxReceiveCount",
+                  "receipt", "DeadLetterQueueSourceArn")
+
+
+def _page(store, mid):
+    import re
+    from html import unescape
+    from trailbeam.server import web
+
+    def api(path, params):
+        assert path.startswith("messages/")
+        return queries.message(store, systems.message_key(systems.RABBITMQ, mid), NOW, LT, {"orders": 2})
+    status, _, body = web.handle(api, Exception, "/message", {"id": mid})
+    assert status == 200
+    html = body.decode()
+    main = html[html.index("<main"):html.index("</main>")]
+    main = main[:main.index('<p class="muted">The message body')]  # the body link names the API path
+    return html, re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", " ", main)))
+
+
+@pytest.mark.parametrize("mid", sorted({sp["attributes"].get("messaging.message.id") for sp in FIXTURE["spans"]}
+                                       - {None}))
+def test_no_sqs_wording_on_a_rabbitmq_message_page(store, mid):
+    _, text = _page(store, mid)
+    assert not [w for w in PAGE_SQS_WORDS if w in text], text
+    assert "~rabbitmq~" not in text  # the ID as the application set it
+
+
+def test_the_message_page_names_rabbitmq_steps_causes_and_x_death(store):
+    html, text = _page(store, "m-crash")
+    for words in ("Published", "Routed", "Delivered", "Channel closed", "Returned to the queue", "Dead-lettered",
+                  "Acked (basic.ack)", "cause its channel closed before an ack", "x-death reason delivery_limit",
+                  "reported by RabbitMQ", "Copies", "Deliveries"):
+        assert words in text, words
+    assert 'data-source="amqp_x_death"' in html and 'class="event observed reported"' in html
+    _, text = _page(store, "m-timeout")
+    assert "cause the broker cancelled the consumer" in text
+    _, text = _page(store, "m-noroute")
+    assert "Returned to the publisher (basic.return)" in text and "reply text NO_ROUTE" in text
+    assert "no ack seen" in text
+    _, text = _page(store, "m-fan")
+    assert "fan.a : 1 delivery, acked; fan.b : 1 delivery, acked" in text
+    _, text = _page(store, "m-reject")
+    assert "Refused, not requeued" in text and "x-death reason rejected" in text
+
+
+def test_queue_events_follow_routing_and_x_death(store):
+    from trailbeam.server import queues
+
+    def evs(mid):
+        return [(e[1], e[2], e[6]) for e in queues.events(store.message_rows(systems.message_key(systems.RABBITMQ, mid)))]
+    url = "amqp://rabbitmq/%2F/"
+    # the publish counts on each queue it reached, not on the exchange
+    assert [k for k, q, _ in evs("m-fan") if k == "send"] == ["send", "send"]
+    assert {q for k, q, _ in evs("m-fan") if k == "send"} == {url + "fan.a", url + "fan.b"}
+    # x-death moves: dlq_receive on the dead-letter queue, dlq_seen on the source, keyed as a delivery on it was
+    crash = evs("m-crash")
+    assert ("dlq_receive", url + "orders.dlq", url + "orders") in crash
+    assert ("dlq_seen", url + "orders", None) in crash
+    assert ("send", url + "orders", None) in crash
+    # a requeue is not a visibility change, and no at_max is written for RabbitMQ
+    assert not [k for k, _, _ in evs("m-requeue") + evs("m-stuck") if k in ("visibility", "at_max")]
+    # an unroutable publish stays on its exchange
+    assert [k for k, _, _ in evs("m-noroute")] == ["send"]
+
+
+def test_stuck_causes_of_a_rabbitmq_message_say_unacked_not_visibility(store):
+    from trailbeam.server import causes
+    t = tl(store, "m-stuck")
+    x = causes.cause_of(t, NOW / 1e6 + 3600 * 1000)
+    assert x["kind"] == "in_flight" and x["amqp"] is True and "assumedVisibility" not in x
+    g = causes.group([x])[0]
+    assert g["label"].endswith("has the delivery and hasn't acked it (basic.ack)")
+    assert "consumer_timeout" in g["why"]
+    assert not [w for w in PAGE_SQS_WORDS if w in g["label"] + g["why"]]

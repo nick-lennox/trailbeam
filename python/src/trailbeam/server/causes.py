@@ -32,6 +32,7 @@ from typing import Callable, Iterable, Optional
 from urllib.parse import unquote, urlsplit
 
 from . import summary, timeline
+from .systems import RABBITMQ
 
 KEY_VERSION = "v1"
 UNFINISHED_LIMIT = 5000
@@ -57,6 +58,26 @@ WHY = {
     "never_received": "No instrumented consumer reported a receive. A consumer without Trailbeam, or none at all, may "
                       "be reading the queue.",
 }
+
+# A RabbitMQ message (QV-307): no visibility timeout exists. An unacked delivery stays with its consumer until the
+# consumer settles it, its channel closes or consumer_timeout passes (each a step of its own on the timeline), so a
+# received, unsettled RabbitMQ message is in flight, from its spans, and is never not_deleted.
+AMQP_WHY = {
+    "in_flight": "RabbitMQ keeps an unacked delivery with its consumer until the consumer sends basic.ack, basic.nack "
+                 "or basic.reject, its channel closes, or consumer_timeout passes.",
+    "never_received": "No instrumented consumer reported a delivery. A consumer without Trailbeam, or none at all, "
+                      "may be reading the queue.",
+}
+
+
+def amqp_cause_label(kind: str, consumer: str) -> Optional[str]:
+    """A RabbitMQ message's cause title, where it differs from SQS's (cause_label)."""
+    if kind == "in_flight":
+        return f"{_who(consumer)} has the delivery and hasn't acked it (basic.ack)"
+    if kind == "never_received":
+        return "Published, never delivered to an instrumented consumer (inferred)"
+    return None
+
 
 ASSUMED_VISIBILITY = (f"The queue's visibility timeout wasn't read from AWS, so SQS's default of {DEFAULT_VISIBILITY_S} s "
                       "was assumed for when the message becomes visible again.")
@@ -181,6 +202,8 @@ def cause_of(t: dict, now_ms: float, *, visibility_s: Optional[dict] = None, que
         "group": group_id, "errorType": None, "errorCode": None, "fn": None, "error": None, "earlier": [],
         "dlqInferred": t.get("dead_letter_queue_move") == "not_seen_on_dlq_yet" and not t.get("in_dead_letter_queue"),
         "deliveries": int(t.get("deliveries") or 0), "version": None,
+        # only on a RabbitMQ message's, so an SQS item keeps the app's shape (contract fixture)
+        **({"amqp": True} if t.get("system") == RABBITMQ else {}),
     }
     outcome = "dead_lettered" if t.get("in_dead_letter_queue") or t.get("dead_letter_queue_move") else "stuck"
 
@@ -251,7 +274,7 @@ def cause_of(t: dict, now_ms: float, *, visibility_s: Optional[dict] = None, que
             str(latest.get("queue")))
         vt = DEFAULT_VISIBILITY_S if known is None else known
         # a Lambda invocation still running is in flight whatever the timer says
-        if t.get("state") == "processing":
+        if t.get("state") == "processing" or base.get("amqp"):
             return make("in_flight", "in_flight", c, _end_ms(latest), version=v)
         extra = {"version": v, **({"assumedVisibility": True} if known is None else {})}
         if now_ms < from_ms + vt * 1000:
@@ -356,7 +379,8 @@ def group(items: list, first_seen_ms: Optional[dict] = None, assign: Optional[di
         g = out.get(key)
         if g is None:
             g = {"id": cause_id(key), "key": key, "kind": x["kind"], "signature": sig, "label": "",
-                 "basis": BASIS[x["kind"]], "inferred": BASIS[x["kind"]] == "inferred", "why": WHY.get(x["kind"]),
+                 "basis": BASIS[x["kind"]], "inferred": BASIS[x["kind"]] == "inferred",
+                 "why": (AMQP_WHY if x.get("amqp") else WHY).get(x["kind"]),
                  "queue": x["queue"], "queueKey": x["queueKey"], "consumer": x["consumer"], "outcome": x["outcome"],
                  "count": 0, "counts": {"dead_lettered": 0, "stuck": 0, "filtered": 0}, "dlqInferred": 0,
                  "firstMs": math.inf, "lastMs": -math.inf, "times": [], "tenants": [], "sampleError": None,
@@ -409,8 +433,8 @@ def group(items: list, first_seen_ms: Optional[dict] = None, assign: Optional[di
     for g in out.values():
         first, x, earlier, versions = g.pop("_first"), g.pop("_x"), g.pop("_earlier"), g.pop("_versions")
         n = len(prints.get((x["queueKey"], x["consumer"], x["errorType"]), ())) if g["signature"].endswith(":*") else 0
-        g["label"] = cause_label(g["kind"], g["consumer"], x["fn"], x["errorType"], None if n else first[1],
-                                 x["errorCode"], x.get("group"), n)
+        g["label"] = (x.get("amqp") and amqp_cause_label(g["kind"], g["consumer"])) or cause_label(
+            g["kind"], g["consumer"], x["fn"], x["errorType"], None if n else first[1], x["errorCode"], x.get("group"), n)
         if not _finite(g["firstMs"]):
             g["firstMs"] = g["lastMs"] = NAN
         # newest evidence first, for the examples
