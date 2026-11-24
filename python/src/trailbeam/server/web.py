@@ -538,7 +538,8 @@ def _details(e: dict) -> list[str]:
 
 def _consumer(c: dict) -> str:
     who = c.get("service_name") or c.get("faas_name") or "?"
-    bits = [f"<strong>{escape(str(who))}</strong>"]
+    bits = [f"<strong>{escape(str(who))}</strong>"
+            + (f" {escape(str(c['service_version']))}" if c.get("service_version") else "")]
     for key, name in (("client_id", "client"), ("source", "source"), ("faas_name", "function"),
                       ("faas_invocation_id", "invocation"), ("pid", "pid"), ("thread_name", "thread")):
         if c.get(key) is not None and not (key == "faas_name" and c[key] == who):

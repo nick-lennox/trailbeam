@@ -511,11 +511,15 @@ class SqliteStore(Store):
 
     def recent_messages(self, limit: int, queue: Optional[str] = None, tenant: Optional[str] = None, *,
                         from_ns: Optional[int] = None, to_ns: Optional[int] = None,
-                        after: Optional[tuple] = None) -> list[str]:
-        return self._newest_first(*self._recent_src(queue, tenant), limit, from_ns, to_ns, after)
+                        after: Optional[tuple] = None, version: Optional[str] = None) -> list[str]:
+        return self._newest_first(*self._recent_src(queue, tenant, version), limit, from_ns, to_ns, after)
 
-    @staticmethod
-    def _recent_src(queue: Optional[str], tenant: Optional[str]) -> tuple[str, list]:
+    _BY_VERSION = (" AND EXISTS (SELECT 1 FROM messages v, json_each(v.consumers) WHERE v.mid = s.mid"
+                   " AND json_extract(value, '$[2]') = ?)")
+
+    @classmethod
+    def _recent_src(cls, queue: Optional[str], tenant: Optional[str],
+                    version: Optional[str] = None) -> tuple[str, list]:
         """The summary table, and its WHERE, that recent_messages and newest_messages walk."""
         if tenant:
             src, p = "message_tenants s NOT INDEXED WHERE s.tenant = ?", [tenant[:TENANT_MAX_CHARS]]
@@ -526,11 +530,14 @@ class SqliteStore(Store):
             src, p = "message_queues s NOT INDEXED WHERE s.queue = ?", [queue]
         else:
             src, p = "messages s INDEXED BY messages_last WHERE 1", []
+        if version:
+            src += cls._BY_VERSION
+            p.append(version)
         return src, p
 
     def duplicate_messages(self, limit: int, queue: Optional[str] = None, reason: Optional[str] = None, *,
                            from_ns: Optional[int] = None, to_ns: Optional[int] = None,
-                           after: Optional[tuple] = None) -> list[str]:
+                           after: Optional[tuple] = None, version: Optional[str] = None) -> list[str]:
         src = "messages s INDEXED BY messages_duplicates WHERE (dup_received OR dup_succeeded)"
         src += {None: "", "received_more_than_once": " AND dup_received",
                 "succeeded_more_than_once": " AND dup_succeeded"}[reason]
@@ -538,6 +545,9 @@ class SqliteStore(Store):
         if queue:
             src += " AND EXISTS (SELECT 1 FROM json_each(s.queues_json) WHERE value = ?)"
             p.append(queue)
+        if version:
+            src += self._BY_VERSION
+            p.append(version)
         return self._newest_first(src, p, limit, from_ns, to_ns, after)
 
     def _newest_first(self, src: str, p: list, limit: int, from_ns, to_ns, after, rows: bool = False) -> list:
@@ -559,7 +569,8 @@ class SqliteStore(Store):
         return found if rows else [r["mid"] for r in found]
 
     def stuck_messages(self, cutoff_ns: int, limit: int, queue: Optional[str] = None, *,
-                       from_ns: Optional[int] = None, after: Optional[tuple] = None) -> list[StuckCandidate]:
+                       from_ns: Optional[int] = None, after: Optional[tuple] = None,
+                       version: Optional[str] = None) -> list[StuckCandidate]:
         where, p = "", [cutoff_ns]
         if from_ns is not None:
             where += " AND s.stuck_first_ns >= ?"
@@ -570,6 +581,9 @@ class SqliteStore(Store):
         if queue:
             where += " AND EXISTS (SELECT 1 FROM json_each(s.queues_json) WHERE value = ?)"
             p.append(queue)
+        if version:
+            where += self._BY_VERSION
+            p.append(version)
         rows = self.query(
             f"""SELECT s.mid, s.stuck_first_ns, s.stuck_sqs_clock FROM messages s INDEXED BY messages_stuck
                 WHERE s.stuck_open AND s.stuck_first_ns IS NOT NULL AND s.stuck_first_ns < ?{where}

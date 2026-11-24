@@ -186,7 +186,8 @@
     "consumers": [
      {
       "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
-      "service_name": "billing-fn"
+      "service_name": "billing-fn",
+      "service_version": null
      }
     ],
     "current_queue": "billing",
@@ -208,7 +209,8 @@
     "consumers": [
      {
       "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "payments-dlq",
@@ -246,6 +248,9 @@
     "m-pay-2"
    ],
    "succeeded_more_than_once": []
+  },
+  "duplicates_by_version": {
+   "9.9.9": []
   },
   "find_tenants": {
    "": [],
@@ -2735,7 +2740,8 @@
     "consumers": [
      {
       "client_id": "aca66402-38fd-4b18-98ed-c1406876f92b",
-      "service_name": "legacy-svc"
+      "service_name": "legacy-svc",
+      "service_version": null
      }
     ],
     "current_queue": "orders",
@@ -2754,7 +2760,8 @@
     "consumers": [
      {
       "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
-      "service_name": "billing-fn"
+      "service_name": "billing-fn",
+      "service_version": null
      }
     ],
     "current_queue": "billing",
@@ -2773,7 +2780,8 @@
     "consumers": [
      {
       "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
-      "service_name": "billing-fn"
+      "service_name": "billing-fn",
+      "service_version": null
      }
     ],
     "current_queue": "billing",
@@ -2792,7 +2800,8 @@
     "consumers": [
      {
       "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "orders.fifo",
@@ -2811,7 +2820,8 @@
     "consumers": [
      {
       "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "orders.fifo",
@@ -2830,7 +2840,8 @@
     "consumers": [
      {
       "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "payments-dlq",
@@ -2849,7 +2860,8 @@
     "consumers": [
      {
       "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "payments",
@@ -2868,7 +2880,8 @@
     "consumers": [
      {
       "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "orders",
@@ -2887,7 +2900,8 @@
     "consumers": [
      {
       "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "orders",
@@ -2906,7 +2920,8 @@
     "consumers": [
      {
       "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "orders",
@@ -2965,6 +2980,9 @@
    ],
    "nobody": []
   },
+  "messages_by_version": {
+   "9.9.9": []
+  },
   "messages_limit_2": [
    "m-legacy",
    "m-bill-1"
@@ -2977,7 +2995,8 @@
     "consumers": [
      {
       "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "payments-dlq",
@@ -2998,7 +3017,8 @@
     "consumers": [
      {
       "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
-      "service_name": "billing-fn"
+      "service_name": "billing-fn",
+      "service_version": null
      }
     ],
     "current_queue": "billing",
@@ -3019,7 +3039,8 @@
     "consumers": [
      {
       "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
-      "service_name": "billing-fn"
+      "service_name": "billing-fn",
+      "service_version": null
      }
     ],
     "current_queue": "billing",
@@ -3048,6 +3069,9 @@
    "payments-dlq": [
     "m-pay-2"
    ]
+  },
+  "stuck_by_version": {
+   "9.9.9": []
   },
   "stuck_limit_1": [
    "m-pay-2"
@@ -3379,7 +3403,8 @@
     "consumers": [
      {
       "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
-      "service_name": "billing-fn"
+      "service_name": "billing-fn",
+      "service_version": null
      }
     ],
     "current_queue": "billing",
@@ -3401,7 +3426,8 @@
     "consumers": [
      {
       "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "payments-dlq",
@@ -3439,6 +3465,9 @@
     "m-pay-2"
    ],
    "succeeded_more_than_once": []
+  },
+  "duplicates_by_version": {
+   "9.9.9": []
   },
   "find_tenants": {
    "": [],
@@ -5928,7 +5957,8 @@
     "consumers": [
      {
       "client_id": "aca66402-38fd-4b18-98ed-c1406876f92b",
-      "service_name": "legacy-svc"
+      "service_name": "legacy-svc",
+      "service_version": null
      }
     ],
     "current_queue": "orders",
@@ -5947,7 +5977,8 @@
     "consumers": [
      {
       "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
-      "service_name": "billing-fn"
+      "service_name": "billing-fn",
+      "service_version": null
      }
     ],
     "current_queue": "billing",
@@ -5966,7 +5997,8 @@
     "consumers": [
      {
       "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
-      "service_name": "billing-fn"
+      "service_name": "billing-fn",
+      "service_version": null
      }
     ],
     "current_queue": "billing",
@@ -5985,7 +6017,8 @@
     "consumers": [
      {
       "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "orders.fifo",
@@ -6004,7 +6037,8 @@
     "consumers": [
      {
       "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "orders.fifo",
@@ -6023,7 +6057,8 @@
     "consumers": [
      {
       "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "payments-dlq",
@@ -6042,7 +6077,8 @@
     "consumers": [
      {
       "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "payments",
@@ -6061,7 +6097,8 @@
     "consumers": [
      {
       "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "orders",
@@ -6080,7 +6117,8 @@
     "consumers": [
      {
       "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "orders",
@@ -6099,7 +6137,8 @@
     "consumers": [
      {
       "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "orders",
@@ -6158,6 +6197,9 @@
    ],
    "nobody": []
   },
+  "messages_by_version": {
+   "9.9.9": []
+  },
   "messages_limit_2": [
    "m-legacy",
    "m-bill-1"
@@ -6170,7 +6212,8 @@
     "consumers": [
      {
       "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "payments-dlq",
@@ -6191,7 +6234,8 @@
     "consumers": [
      {
       "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
-      "service_name": "billing-fn"
+      "service_name": "billing-fn",
+      "service_version": null
      }
     ],
     "current_queue": "billing",
@@ -6212,7 +6256,8 @@
     "consumers": [
      {
       "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
-      "service_name": "billing-fn"
+      "service_name": "billing-fn",
+      "service_version": null
      }
     ],
     "current_queue": "billing",
@@ -6241,6 +6286,9 @@
    "payments-dlq": [
     "m-pay-2"
    ]
+  },
+  "stuck_by_version": {
+   "9.9.9": []
   },
   "stuck_limit_1": [
    "m-pay-2"
@@ -6527,7 +6575,8 @@
     "consumers": [
      {
       "client_id": "worker-1",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "orders-dlq",
@@ -6549,7 +6598,8 @@
     "consumers": [
      {
       "client_id": "worker-1",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "orders",
@@ -6571,7 +6621,8 @@
     "consumers": [
      {
       "client_id": "fn-1",
-      "service_name": "billing-fn"
+      "service_name": "billing-fn",
+      "service_version": "1.4.2"
      }
     ],
     "current_queue": "billing",
@@ -6613,6 +6664,13 @@
    "succeeded_more_than_once": [
     "m-b"
    ]
+  },
+  "duplicates_by_version": {
+   "1.4.2": [
+    "m-b"
+   ],
+   "2.0.1": [],
+   "9.9.9": []
   },
   "find_tenants": {
    "": [],
@@ -6759,6 +6817,7 @@
        "client_id": "worker-2",
        "pid": 4242,
        "service_name": "orders-worker-2",
+       "service_version": "2.0.1",
        "source": "client",
        "thread_name": "worker-1"
       },
@@ -6877,6 +6936,7 @@
        "client_id": "worker-2",
        "pid": 4242,
        "service_name": "orders-worker-2",
+       "service_version": "2.0.1",
        "source": "client",
        "thread_name": "worker-1"
       },
@@ -7175,6 +7235,7 @@
        "faas_name": "orders-fn",
        "pid": 4242,
        "service_name": "billing-fn",
+       "service_version": "1.4.2",
        "source": "lambda",
        "thread_name": "worker-1"
       },
@@ -7225,6 +7286,7 @@
        "faas_name": "orders-fn",
        "pid": 4242,
        "service_name": "billing-fn",
+       "service_version": "1.4.2",
        "source": "lambda",
        "thread_name": "worker-1"
       },
@@ -7302,6 +7364,7 @@
        "faas_name": "orders-fn",
        "pid": 4242,
        "service_name": "billing-fn",
+       "service_version": "1.4.2",
        "source": "lambda",
        "thread_name": "worker-1"
       },
@@ -7352,6 +7415,7 @@
        "faas_name": "orders-fn",
        "pid": 4242,
        "service_name": "billing-fn",
+       "service_version": "1.4.2",
        "source": "lambda",
        "thread_name": "worker-1"
       },
@@ -7453,6 +7517,7 @@
        "faas_name": "orders-fn",
        "pid": 4242,
        "service_name": "billing-fn",
+       "service_version": "1.4.2",
        "source": "lambda",
        "thread_name": "worker-1"
       },
@@ -7503,6 +7568,7 @@
        "faas_name": "orders-fn",
        "pid": 4242,
        "service_name": "billing-fn",
+       "service_version": "1.4.2",
        "source": "lambda",
        "thread_name": "worker-1"
       },
@@ -8451,7 +8517,8 @@
     "consumers": [
      {
       "client_id": "worker-1",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "orders-dlq",
@@ -8470,7 +8537,8 @@
     "consumers": [
      {
       "client_id": "worker-1",
-      "service_name": "orders-worker"
+      "service_name": "orders-worker",
+      "service_version": null
      }
     ],
     "current_queue": "orders",
@@ -8503,7 +8571,8 @@
     "consumers": [
      {
       "client_id": "fn-1",
-      "service_name": "billing-fn"
+      "service_name": "billing-fn",
+      "service_version": "1.4.2"
      }
     ],
     "current_queue": "billing",
@@ -8578,6 +8647,13 @@
    ],
    "nobody": []
   },
+  "messages_by_version": {
+   "1.4.2": [
+    "m-b"
+   ],
+   "2.0.1": [],
+   "9.9.9": []
+  },
   "messages_limit_2": [
    "m-d",
    "m-a"
@@ -8626,6 +8702,11 @@
    "payments": [
     "m-pay"
    ]
+  },
+  "stuck_by_version": {
+   "1.4.2": [],
+   "2.0.1": [],
+   "9.9.9": []
   },
   "stuck_limit_1": [
    "m-c"
