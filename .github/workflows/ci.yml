@@ -896,7 +896,9 @@ jobs:
   ci-ok:
     # The one result to look at: passes when every job that ran passed (a job its paths didn't need is skipped,
     # which is fine). A quarantined job, listed in QUARANTINED with the issue to fix it, still runs and shows
-    # its result here, but its failure doesn't fail ci-ok. None is quarantined now.
+    # its result here, but its failure doesn't fail ci-ok.
+    # Quarantined now: docs (the docs commands), whose public ECR image pull failed twice on #86 with "Data limit
+    # exceeded" before docs.yml got its Docker Hub fallback; QV-411 takes it out once the fallback has held.
     name: ci-ok
     if: always()
     needs: [changes, python, perf, postgres, node, conformance, java, java-matrix, ui, collector, container,
@@ -905,7 +907,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NEEDS: ${{ toJSON(needs) }}
-      QUARANTINED: ""   # space-separated job ids, e.g. "docs" (QV-nnn)
+      QUARANTINED: "docs"   # space-separated job ids, each with its issue above
     steps:
       - name: Every job that ran passed
         run: |
