@@ -190,7 +190,8 @@ test('no command or an unknown one prints the usage', () => {
   assert.strictEqual(r.status, 2);
   assert.match(r.stdout, /Usage: npx trailbeam start/);
   assert.strictEqual(runBin(['stop'], { PATH: tmp() }).status, 2);
-  assert.strictEqual(runBin(['--version'], { PATH: tmp() }).stdout.trim(), pkg.version);
+  assert.strictEqual(runBin(['--version'], { PATH: tmp() }).stdout, `trailbeam ${pkg.version}\n`);
+  assert.strictEqual(runBin(['-V'], { PATH: tmp() }).status, 0);
 });
 
 test('port already in use: one line and exit 2, before docker run', { skip: process.platform === 'win32' }, async () => {

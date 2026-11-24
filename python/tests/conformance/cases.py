@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT / "python" / "tests" / "server"))
 
 from spans import SEC, T0, Consumer, to_proto  # noqa: E402
 
-from trailbeam.server import bodies, queries  # noqa: E402
+from trailbeam.server import bodies, queries, queues as queue_mod  # noqa: E402
 from trailbeam.server.otlp import decode  # noqa: E402
 
 LAMBDA_TIMEOUT_S = 900
@@ -159,6 +159,26 @@ def snapshot(store, name: str) -> dict:
         "body_search": {q: {str(queue): _ids(queries.body_search(store, now, lt, 100, queue, bodies.parse_query(q)))
                             for queue in [None] + queues}
                         for q in DATASETS[name]["body_queries"]},
+        **queue_page(store, now // 1_000_000, first_ms, mid_ms, last_ms),
+    }
+
+
+def queue_page(store, now_ms: int, first_ms: int, mid_ms: int, last_ms: int) -> dict:
+    """The queue page's reads (QV-363), as the server makes them: every queue's series, and the flows."""
+    keys = store.queue_keys()
+    series = {}
+    for k in keys:
+        want, _ = queue_mod.resolve(k, keys)
+        rows = store.queue_events(want, 0, now_ms)
+        series[k] = {"series": queue_mod.series(rows, 60, 3, by_version=True), "versions": queue_mod.versions(rows)}
+    return {
+        "queue_keys": keys,
+        "queue_series": series,
+        "flows": {
+            "all": queue_mod.flows(*store.queue_flows(0, now_ms, now_ms)),
+            "first half": queue_mod.flows(*store.queue_flows(first_ms, mid_ms, now_ms)),
+            "second half": queue_mod.flows(*store.queue_flows(mid_ms + 1, last_ms, now_ms)),
+        },
     }
 
 

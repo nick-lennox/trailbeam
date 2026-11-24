@@ -180,6 +180,8 @@ def route_label(path: str, api_routes: Optional[Iterable[str]] = None) -> str:
             return "/api/other"
         if parts[0] == "messages" and len(parts) > 1:
             return "/api/messages/{id}/body" if len(parts) == 3 and parts[2] == "body" else "/api/messages/{id}"
+        if parts[0] == "queues" and len(parts) == 3 and parts[2] == "series":
+            return "/api/queues/{queue}/series"
         if parts[0] == "tenants" and parts[1:] == ["search"]:
             return "/api/tenants/search"
         return f"/api/{parts[0]}" + ("/other" if len(parts) > 1 else "")
