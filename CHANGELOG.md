@@ -362,6 +362,17 @@
   quorum queues' headers, the dead-letter source and reason from `x-death`, and message identity. It comes with
   vectors and fixtures. Nothing emits or reads these spans yet: the server (QV-306) and the Python package
   (QV-309) follow. SQS and SNS spans are unchanged.
+- **Sign-in through a proxy** (QV-227, users and roles phase 3a). With `--proxy-auth-header X-Forwarded-Email`
+  (`TRAILBEAM_PROXY_AUTH_HEADER`), people signed in by oauth2-proxy, Pomerium, Cloudflare Access or similar need no
+  Trailbeam password. Off by default; the header is believed only from `--trusted-proxy` addresses and/or with a
+  shared secret in `X-Trailbeam-Proxy-Secret` (`--proxy-auth-secret-file`), and the server refuses to start with
+  neither. A first-time email becomes a member, never an admin. An email that has a local account is refused until
+  an admin runs `trailbeam users link-proxy`, so the proxy can't be used to take over an account; `unlink-proxy`
+  undoes it, and `users create --proxy` makes an account for the proxy with no password. `--proxy-auth-sign-out-url`
+  gives those people a Sign out that ends the proxy's session. `/api/me` says `via: proxy` and gains `sign_out`,
+  `/api/health` gains `config.proxy_auth`, and the API's endpoints can answer 403. The README has an oauth2-proxy
+  setup. Schema: SQLite 18, Postgres 12 (`users.proxy_linked_at_ms`, NULL for everyone already stored). Checking
+  proxies' signed tokens (Cloudflare, Pomerium, Google IAP, AWS ALB) comes later, with the `sso` extra.
 
 ## 0.4.0: set up in one command
 
