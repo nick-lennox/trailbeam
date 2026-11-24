@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **`trailbeam --version`** (QV-346). `trailbeam --version` (or `-V`, also after `start`) prints
+  `trailbeam <version>` and exits 0; it used to fail with `unrecognized arguments`. `npx trailbeam --version` prints
+  the same line (it printed the bare version before).
 - **Java package, stage 4: the Lambda wrapper** (QV-319, pre-release, not published). For a function invoked by
   an SQS event source mapping, set the handler to `dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`
   and name your own in `TRAILBEAM_LAMBDA_HANDLER`, or extend `TrailbeamSqsHandler`. Each record gets a

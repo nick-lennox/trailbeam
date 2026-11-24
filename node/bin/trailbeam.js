@@ -237,7 +237,7 @@ function portProblem(host, port) {
 
 function main(argv = process.argv.slice(2)) {
   const [command, ...rest] = argv;
-  if (command === '--version' || command === '-V') { console.log(VERSION); return 0; }
+  if (command === '--version' || command === '-V') { console.log(`trailbeam ${VERSION}`); return 0; }
   if (command === undefined || command === '-h' || command === '--help' || command === 'help') {
     console.log(USAGE);
     return command === undefined ? 2 : 0;

@@ -12,6 +12,7 @@ import sqlite3
 import sys
 import time
 
+from .. import __version__
 from . import auth, config, trace_links
 from .backpressure import DEFAULT_MAX_PENDING, DEFAULT_MAX_WAIT_S, IngestGate
 from .db import SqliteStore, parse_queue_list
@@ -23,6 +24,9 @@ from .server import make_server
 
 def main(argv=None) -> None:
     argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] in (["--version"], ["-V"]):
+        print(f"trailbeam {__version__}")
+        return
     if argv[:1] == ["start"]:
         from .start import start
         return start(argv[1:])
@@ -39,6 +43,8 @@ def build_parser(prog: str = "trailbeam", description: str = "") -> argparse.Arg
         epilog="First time? trailbeam start creates an access token and a receipt-hash key, starts the server and "
                "prints the environment variables for your services (trailbeam start --help). "
                "No data arriving? trailbeam doctor checks why (trailbeam doctor --help).")
+    p.add_argument("-V", "--version", action="version", version=f"trailbeam {__version__}",
+                   help="print the version (trailbeam X.Y.Z) and exit")
     p.add_argument("--db", default=os.environ.get("TRAILBEAM_DB", "trailbeam.sqlite"),
                    help="SQLite file (env TRAILBEAM_DB, default trailbeam.sqlite)")
     p.add_argument("--store-url", default=os.environ.get("TRAILBEAM_STORE_URL") or None,
