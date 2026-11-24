@@ -658,7 +658,7 @@ def make_handler(app: App):
                 return
             self._count_ingest_reject = True  # a 401, 413, 415, 400, 501 or 503 below is counted as it is sent
             try:  # x-trailbeam-key or Authorization: Bearer, before the body is read (access.py)
-                d = app.access.check(self.headers, access_mod.INGEST)
+                d = app.access.check(self.headers, access_mod.INGEST, self._scheme())
             except access_mod.AccessUnavailable as e:
                 log.warning("ingest: %s", e)
                 self.close_connection = True  # the request body is not read
@@ -728,7 +728,7 @@ def make_handler(app: App):
                 else:
                     # /api/health is open, but says more only to whoever may read the API
                     d = app.access.check(self.headers, access_mod.MEMBER if path == "/api/health"
-                                         else access_mod.level_of("GET", path))
+                                         else access_mod.level_of("GET", path), self._scheme())
             except access_mod.AccessUnavailable as e:
                 log.warning("GET %s: %s", path, e)
                 if path == "/api/health":  # liveness answers while the store is unreachable
@@ -778,7 +778,7 @@ def make_handler(app: App):
             secure = self._scheme() == "https"
             if path == "/logout":
                 if mode == "accounts":
-                    sid = sessions_mod.cookie_value(self.headers.get("Cookie"))
+                    sid = sessions_mod.cookie_value(self.headers.get("Cookie"), secure)
                     if sid and app.sessions is not None:
                         try:
                             app.sessions.end(sid)
