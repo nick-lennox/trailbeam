@@ -34,10 +34,11 @@ def free_port() -> int:
 
 
 class Sink:
-    """An OTLP/HTTP traces endpoint that records the names of the spans it receives."""
+    """An OTLP/HTTP traces endpoint that records the names of the spans it receives, and the requests' headers."""
 
-    def __init__(self):
+    def __init__(self, port: int = 0):
         self.names: list[str] = []
+        self.headers: list[dict[str, str]] = []
         self.lock = threading.Lock()
         sink = self
 
@@ -48,6 +49,7 @@ class Sink:
                     body = gzip.decompress(body)
                 req = ExportTraceServiceRequest.FromString(body)
                 with sink.lock:
+                    sink.headers.append(dict(self.headers.items()))
                     for rs in req.resource_spans:
                         for ss in rs.scope_spans:
                             sink.names.extend(s.name for s in ss.spans)
@@ -58,7 +60,7 @@ class Sink:
             def log_message(self, *a):
                 pass
 
-        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler)
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 

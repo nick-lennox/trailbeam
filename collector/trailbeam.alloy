@@ -1,0 +1,83 @@
+// Grafana Alloy configuration for Trailbeam: the same Trailbeam pipeline as trailbeam-collector.yaml, plus every
+// span to Tempo or Grafana Cloud.
+//
+//   TRAILBEAM_BACKEND_ENDPOINT=http://tempo:4318 alloy run trailbeam.alloy
+//
+// Applications export OTLP to Alloy (4318 HTTP, 4317 gRPC). Spans whose instrumentation scope is `trailbeam`
+// (contract/span-contract.md) go to the Trailbeam server, with no sampling on the way. Every span, Trailbeam spans
+// included, also goes to the backend. See README.md for the environment variables. Tested with Alloy v1.22.0
+// (tests/test_alloy.py).
+
+otelcol.receiver.otlp "default" {
+  http {
+    endpoint = coalesce(sys.env("TRAILBEAM_COLLECTOR_HTTP_ENDPOINT"), "localhost:4318")
+  }
+
+  grpc {
+    endpoint = coalesce(sys.env("TRAILBEAM_COLLECTOR_GRPC_ENDPOINT"), "localhost:4317")
+  }
+
+  output {
+    traces = [
+      otelcol.processor.filter.trailbeam_only.input,
+      otelcol.processor.batch.backend.input,
+    ]
+  }
+}
+
+// Trailbeam pipeline. The filter processor drops the spans that match: this keeps the Trailbeam spans and drops
+// the rest.
+otelcol.processor.filter "trailbeam_only" {
+  error_mode = "ignore"
+
+  traces {
+    span = [
+      `instrumentation_scope.name != "trailbeam"`,
+    ]
+  }
+
+  output {
+    traces = [otelcol.processor.batch.trailbeam.input]
+  }
+}
+
+otelcol.processor.batch "trailbeam" {
+  output {
+    traces = [otelcol.exporter.otlphttp.trailbeam.input]
+  }
+}
+
+otelcol.exporter.otlphttp "trailbeam" {
+  client {
+    // The Trailbeam server's OTLP/HTTP base URL; the exporter appends /v1/traces.
+    endpoint    = coalesce(sys.env("TRAILBEAM_ENDPOINT"), "http://localhost:4319")
+    compression = "gzip"
+    headers     = {
+      // The server's access token, if it has one. Empty when TRAILBEAM_TOKEN is not set.
+      "Authorization" = "Bearer " + sys.env("TRAILBEAM_TOKEN"),
+    }
+  }
+
+  retry_on_failure {
+    // Keep retrying while the server is down, until the in-memory queue is full.
+    max_elapsed_time = "0s"
+  }
+
+  sending_queue {
+    queue_size = 5000
+  }
+}
+
+// Backend pipeline: every span, unsampled, to Tempo or Grafana Cloud.
+otelcol.processor.batch "backend" {
+  output {
+    traces = [otelcol.exporter.otlphttp.backend.input]
+  }
+}
+
+otelcol.exporter.otlphttp "backend" {
+  client {
+    // Tempo's OTLP/HTTP base URL; the exporter appends /v1/traces. For Grafana Cloud, see README.md.
+    endpoint = sys.env("TRAILBEAM_BACKEND_ENDPOINT")
+  }
+}

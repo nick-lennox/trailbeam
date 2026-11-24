@@ -8,6 +8,7 @@ It needs the **contrib** distribution (`otelcol-contrib`), because it uses the `
 |---|---|
 | [`trailbeam-collector.yaml`](trailbeam-collector.yaml) | Receives OTLP from your applications and sends **every** span with instrumentation scope `trailbeam` to the Trailbeam, unsampled. Sends nothing else to Trailbeam. |
 | [`backend.yaml`](backend.yaml) | Optional overlay. Also sends traces to your own tracing backend: every SQS span (Trailbeam and stock AWS SDK) unsampled, and everything else tail-sampled. |
+| [`trailbeam.alloy`](trailbeam.alloy) | The same Trailbeam pipeline for [Grafana Alloy](https://grafana.com/docs/alloy/), plus every span to Tempo or Grafana Cloud ([Grafana Alloy](#grafana-alloy)). |
 | [`persistent-queue.yaml`](persistent-queue.yaml) | Optional overlay. Keeps the spans for Trailbeam in a queue on disk, so that they survive an outage, a slow Trailbeam and a Collector restart. Use it for high volume ([High volume](#high-volume)). |
 
 ```sh
@@ -40,6 +41,51 @@ never drops Trailbeam spans. This configuration makes sure the Collector doesn't
 Trailbeam listens on 4318 by default, so that the packages can export to it directly without a
 Collector. When the Collector and Trailbeam run on the same host, start Trailbeam on 4319
 (`trailbeam --port 4319`, see [Run Trailbeam](https://docs.trailbeam.app/setup/run)).
+
+## Grafana Alloy
+
+[`trailbeam.alloy`](trailbeam.alloy) does in Alloy's own configuration language what
+`trailbeam-collector.yaml` does: it keeps every span with instrumentation scope `trailbeam` and sends it,
+unsampled and gzipped, to the Trailbeam server. It also sends every span, Trailbeam spans included, to Tempo.
+Tested with Alloy v1.22.0 (`grafana/alloy:v1.22.0`).
+
+```sh
+TRAILBEAM_ENDPOINT=http://localhost:4319 \
+TRAILBEAM_BACKEND_ENDPOINT=http://tempo:4318 \
+  alloy run trailbeam.alloy
+```
+
+It reads the same `TRAILBEAM_COLLECTOR_HTTP_ENDPOINT`, `TRAILBEAM_COLLECTOR_GRPC_ENDPOINT` and
+`TRAILBEAM_ENDPOINT` as `trailbeam-collector.yaml`, and also:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `TRAILBEAM_BACKEND_ENDPOINT` | none, required | Base OTLP/HTTP URL of Tempo or Grafana Cloud. The exporter appends `/v1/traces`. |
+| `TRAILBEAM_TOKEN` | empty | The server's access token or ingest token, sent as `Authorization: Bearer`. Leave it unset for a server without one. |
+
+For Grafana Cloud, add basic auth to the backend exporter. Replace the start of
+`otelcol.exporter.otlphttp "backend"` with:
+
+```alloy
+otelcol.auth.basic "grafana_cloud" {
+  username = sys.env("GRAFANA_CLOUD_INSTANCE_ID")
+  password = sys.env("GRAFANA_CLOUD_API_KEY")
+}
+
+otelcol.exporter.otlphttp "backend" {
+  client {
+    auth     = otelcol.auth.basic.grafana_cloud.handler
+```
+
+and set `TRAILBEAM_BACKEND_ENDPOINT` to the stack's OTLP endpoint, such as
+`https://otlp-gateway-prod-us-east-0.grafana.net/otlp`. Alloy refuses an `otelcol.auth.basic` with no
+credentials, so the file for Tempo can't carry it.
+
+To add Trailbeam to an Alloy configuration you already run, copy the three `trailbeam` components (the filter, the batch processor and the exporter) and add
+`otelcol.processor.filter.trailbeam_only.input` to the `traces` output of your OTLP receiver.
+
+There is no Alloy version of `backend.yaml` or `persistent-queue.yaml`: the Tempo side is not sampled, and the
+Trailbeam spans wait in memory (5,000 batches) while the server is down.
 
 ## Why it is built this way
 
@@ -121,9 +167,15 @@ instrumentation and Java emit, and other spans, and checks that:
 - with `persistent-queue.yaml`, spans accepted while Trailbeam is down survive a killed Collector and
   all arrive, once each, when a new Collector starts on the same directory and Trailbeam is back.
 
+[`tests/test_alloy.py`](tests/test_alloy.py) runs `trailbeam.alloy` in the `grafana/alloy` image with the same
+trace, and checks that the Trailbeam endpoint receives exactly the Trailbeam spans and the backend every span;
+that the access token and the Grafana Cloud credentials are sent; and that spans sent while the Trailbeam endpoint
+is down arrive, once each, when it is back. It needs Docker and is skipped without it. Set
+`TRAILBEAM_ALLOY_IMAGE` to try another image.
+
 ```sh
 pip install pytest opentelemetry-proto
 TRAILBEAM_OTELCOL_BIN=/path/to/otelcol-contrib pytest collector/tests
 ```
 
-Without an `otelcol-contrib` binary the tests are skipped. CI downloads 0.165.0.
+Without an `otelcol-contrib` binary the Collector tests are skipped. CI downloads 0.165.0.
