@@ -262,3 +262,47 @@ def test_flows_read_from_the_rollup_equal_the_events(db, ingest, now_off_s):
     want = {(r[0], r[1]): r[2] for r in db.query(
         "SELECT queue_key, kind, COUNT(*) FROM queue_events WHERE at_ms BETWEEN ? AND ? GROUP BY 1, 2", (lo, hi))}
     assert got == want and keys == [ORDERS_URL_KEY] and links == []
+
+
+# ---- versions (QV-362) -----------------------------------------------------------------------------------------
+
+def spans_of_a_deploy():
+    """orders-worker 1.4.2 handles m1 and m2, then 1.4.3 handles m3 and m4 (one fails); the sender has no version."""
+    prod, old, new = Consumer("producer", service="checkout"), Consumer("w-1", version="1.4.2"), \
+        Consumer("w-2", version="1.4.3")
+    s = []
+    for i, (w, wait_s) in enumerate([(old, 1), (old, 2), (new, 4), (new, 8)], 1):
+        t = T0 + (i - 1) * 10 * SEC
+        s += [prod.send(t, f"v{i}"), w.receive(t + wait_s * SEC, f"v{i}", f"hv{i}")]
+        if i != 4:
+            s.append(w.delete(t + (wait_s + 1) * SEC, f"hv{i}", start=t + wait_s * SEC + 100_000_000 * i))
+    return s
+
+
+def test_split_by_version_gives_handled_and_both_p95s_per_version(db, ingest):
+    ingest(*spans_of_a_deploy())
+    d = api(db, "queues/orders/series", from_ms=MS - 60_000, to_ms=MS + 120_000, step_s=3600, split="version")
+    [b] = d["series"]
+    assert b["handled"] == 3 and b["p95_queue_ms"] == 8000
+    assert b["by_version"] == [
+        {"version": "1.4.2", "handled": 2, "p95_queue_ms": 2000, "p95_handler_ms": 200, "queue_samples": 2,
+         "handler_samples": 2},
+        {"version": "1.4.3", "handled": 1, "p95_queue_ms": 8000, "p95_handler_ms": 300, "queue_samples": 2,
+         "handler_samples": 1}]
+    # the deploy marker: 1.4.3's first span in the range; 1.4.2 was running when the range began
+    assert d["versions"] == [{"service": "orders-worker", "version": "1.4.3", "first_ms": MS + 24_000}]
+    assert "by_version" not in api(db, "queues/orders/series", from_ms=MS - 60_000, to_ms=MS + 120_000,
+                                   step_s=3600)["series"][0]
+    with pytest.raises(ApiError, match="split must be version"):
+        api(db, "queues/orders/series", split="service")
+
+
+def test_spans_without_a_version_are_their_own_entry_last(db, ingest):
+    s = spans_of_a_deploy()
+    w = Consumer("w-3")  # no service.version
+    s += [w.receive(T0 + 50 * SEC, "v5", "hv5"), w.delete(T0 + 51 * SEC, "hv5", start=T0 + 50 * SEC)]
+    ingest(*s)
+    [b] = api(db, "queues/orders/series", from_ms=MS - 60_000, to_ms=MS + 120_000, step_s=3600,
+              split="version")["series"]
+    assert [(v["version"], v["handled"]) for v in b["by_version"]] == [("1.4.2", 2), ("1.4.3", 1), (None, 1)]
+    assert b["no_send_receives"] == 1

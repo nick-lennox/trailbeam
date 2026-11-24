@@ -6,14 +6,16 @@
   bucket it gives sends, receives and re-receives, handled messages (accepted deletes plus Lambda successes),
   failed Lambda invocations, dead-letter moves (seen on the dead-letter queue, and inferred from the configured
   maxReceiveCount, kept apart), and the p95 time in queue and time in handler. A queue is keyed by account,
-  region and name, as the hosted app keys it. SQLite only for now: a Postgres store answers 501.
+  region and name, as the hosted app keys it. `split=version` adds, per bucket, each `service.version`'s handled
+  messages and both p95s, and `versions` lists the deploys in the range, for the page's markers.
 - **Flows for the overview** (QV-363): `GET /api/flows?from_ms=&to_ms=`. One flow per queue: the services that
   send to it and receive from it, the counts of sends, receives, deletes and visibility changes, the average body
   size, and its dead-letter queue when a receive from one has named it. Each flow has the hosted app's `Flow`
   shape, field for field. The counts come from a new hourly rollup per queue (`queue_rollup`) plus the events of
-  the partial hours at either end, so they are exact. SQLite only for now: a Postgres store answers 501.
-  - Schema 17 adds `queue_events` and `queue_rollup`, built from every message's spans when the file is upgraded
-    (one pass over the messages, like schema 12).
+  the partial hours at either end, so they are exact.
+  - Both endpoints work on SQLite and Postgres. SQLite schema 17 and Postgres schema 11 add `queue_events` and
+    `queue_rollup` (Postgres also adds `place_queue_keys`). They are built from every message's spans when the
+    store is upgraded: one pass over the messages on SQLite, and one place at a time on Postgres.
 - **Java package, stage 4: the Lambda wrapper** (QV-319, pre-release, not published). For a function invoked by
   an SQS event source mapping, set the handler to `dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`
   and name your own in `TRAILBEAM_LAMBDA_HANDLER`, or extend `TrailbeamSqsHandler`. Each record gets a

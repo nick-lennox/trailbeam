@@ -66,7 +66,8 @@ CREATE TABLE IF NOT EXISTS messages (
     tenants_json TEXT NOT NULL,          -- JSON {tenant: named_ns}: its message_tenants rows
     events_json TEXT NOT NULL,           -- JSON [[at_ms, kind, wait_ms], ...]: its tenant_events rows, seq = index
     rows_json TEXT NOT NULL,             -- JSON [row, ...]: its spans (spans.row, ascending)
-    qevents_json TEXT NOT NULL DEFAULT '[]'  -- JSON [[at_ms, kind, queue_key, service, lambda, value, peer], ...]: its
+    qevents_json TEXT NOT NULL DEFAULT '[]'  -- JSON [[at_ms, kind, queue_key, service, lambda, value, peer, version],
+                                         -- ...]: its
                                          -- queue_events rows, seq = index (schema 17)
 );
 CREATE INDEX IF NOT EXISTS messages_last ON messages (last_ns DESC, mid);
@@ -126,6 +127,7 @@ CREATE TABLE IF NOT EXISTS queue_events (
     lambda INTEGER NOT NULL,             -- the span came from a Lambda function (queues._lambda)
     value INTEGER,                       -- receive count, time in queue, time in handler or body size (queues.py)
     peer TEXT,                           -- dlq_receive: the source queue's key
+    version TEXT,                        -- the span's service.version (QV-362)
     PRIMARY KEY (queue_key, at_ms, mid, seq)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS queue_rollup (
@@ -149,7 +151,7 @@ TABLES = ("messages", "message_queues", "message_tenants", "tenant_events", "ten
 LISTS = ("queues_json", "tenants_json", "events_json")  # the lists that key the other tables' rows
 COLUMNS = FIELDS + LISTS  # the summary columns both stores keep (postgres.py imports these)
 _SQLITE_COLUMNS = COLUMNS + ("rows_json", "qevents_json")  # SQLite also lists a message's span rows: it has no
-# spans_mid index; and its queue events (Postgres: not yet, QV-363)
+# spans_mid index; and its queue events (postgres.py keeps qevents_json in a column of its own, with strays_json)
 
 _UPSERT = f"INSERT INTO messages ({', '.join(_SQLITE_COLUMNS)}) VALUES ({', '.join('?' * len(_SQLITE_COLUMNS))})"
 _ROWS = "SELECT * FROM spans WHERE row IN (SELECT value FROM json_each(?))"
@@ -161,8 +163,8 @@ _ADD_TENANT = "INSERT INTO message_tenants (tenant, last_ns, mid, tenant_lower, 
 _DEL_EVENT = "DELETE FROM tenant_events WHERE at_ms = ? AND mid = ? AND seq = ?"
 _ADD_EVENT = "INSERT INTO tenant_events (at_ms, mid, seq, kind, tenant, wait_ms) VALUES (?, ?, ?, ?, ?, ?)"
 _DEL_QEVENT = "DELETE FROM queue_events WHERE queue_key = ? AND at_ms = ? AND mid = ? AND seq = ?"
-_ADD_QEVENT = ("INSERT INTO queue_events (queue_key, at_ms, mid, seq, kind, service, lambda, value, peer) "
-               "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+_ADD_QEVENT = ("INSERT INTO queue_events (queue_key, at_ms, mid, seq, kind, service, lambda, value, peer, version) "
+               "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
 _ADD_QROLLUP = """INSERT INTO queue_rollup (hour, queue_key, kind, service, lambda, peer, n, vn, vsum)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (hour, queue_key, kind, service, lambda, peer)
 DO UPDATE SET n = n + excluded.n, vn = vn + excluded.vn, vsum = vsum + excluded.vsum"""
@@ -172,23 +174,15 @@ _DEL_QROLLUP = ("DELETE FROM queue_rollup WHERE hour = ? AND queue_key = ? AND k
 
 def _qevents(mid, events: list) -> list:
     """queue_events rows of a message's qevents_json."""
-    return [(k, at, mid, i, kind, svc, lam, v, peer) for i, (at, kind, k, svc, lam, v, peer) in enumerate(events)]
+    return [(e[2], e[0], mid, i, e[1], e[3], e[4], e[5], e[6], e[7] if len(e) > 7 else None)
+            for i, e in enumerate(events)]
 
 
 def _qroll(conn, added: Iterable = (), removed: Iterable = ()) -> None:
     """Add queue events (as qevents_json entries) to queue_rollup, and take others out, in one pass per row they
     change; a row that comes to nothing is deleted. Exact: counts and sums subtract."""
-    from .queues import rollup_key
-    d: dict = {}
-    for events, sign in ((added, 1), (removed, -1)):
-        for e in events:
-            v = e[5]
-            c = d.setdefault(rollup_key(e), [0, 0, 0])
-            c[0] += sign
-            if v is not None:
-                c[1] += sign
-                c[2] += sign * int(v)
-    d = {k: c for k, c in d.items() if c != [0, 0, 0]}
+    from .queues import rollup_sums
+    d = rollup_sums(added, removed)
     conn.executemany(_ADD_QROLLUP, [k + tuple(c) for k, c in d.items()])
     conn.executemany(_DEL_QROLLUP, [k for k, c in d.items() if c[0] < 0])
 

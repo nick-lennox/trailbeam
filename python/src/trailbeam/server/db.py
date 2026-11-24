@@ -626,7 +626,7 @@ class SqliteStore(Store):
         out: list = []
         with self.reader() as c, _snapshot(c):
             for k in keys:
-                out += c.execute("SELECT at_ms, kind, value FROM queue_events WHERE queue_key = ? "
+                out += c.execute("SELECT at_ms, kind, value, service, version FROM queue_events WHERE queue_key = ? "
                                  "AND at_ms BETWEEN ? AND ?", (k, from_ms, to_ms)).fetchall()
         return [tuple(r) for r in out]
 

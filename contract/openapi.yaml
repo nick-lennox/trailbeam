@@ -638,8 +638,15 @@ paths:
         names an account, else the URL, else the name. Spans that say less about where the queue is (no URL, or
         a local emulator's URL with no region) count for the one queue that fits them.
 
-        A queue no span has named yet answers with no buckets. A Postgres store does not keep these series yet,
-        and answers 501 (QV-363).
+        `split=version` adds `by_version` to each bucket: for each `service.version`, the messages handled and
+        the two percentiles, each by the version of the span that ends the measure (the receive for time in
+        queue; the delete or Lambda outcome for time in handler and for handled). Spans without a version are
+        the entry with `version: null`, listed last. `versions` lists deploys: for each service, every version that first
+        shows on the queue in the window after another version of it did, at its first span. The version a
+        service had when the window began is not a deploy.
+
+        A queue no span has named yet answers with no buckets. SQLite and Postgres both keep these series. A
+        store that doesn't (a third-party `Store`) answers 501.
       parameters:
         - name: queue
           in: path
@@ -656,6 +663,10 @@ paths:
             6 hours), at most 2,000 buckets in the window. The default is the queue page's rule: the window divided by
             120, rounded up to one of those, and at least 60.
           schema: {type: integer, minimum: 60, maximum: 21600, enum: [60, 300, 900, 1800, 3600, 10800, 21600]}
+        - name: split
+          in: query
+          description: '`version`: add `by_version` to each bucket (the queue page''s "By version").'
+          schema: {type: string, enum: [version]}
       responses:
         '200':
           description: The queue's buckets in the window.
@@ -683,6 +694,8 @@ paths:
                   p95_handler_ms: 2310
                   queue_samples: 212
                   handler_samples: 210
+                versions:
+                - {service: orders-worker, version: 1.4.3, first_ms: 1794853140000}
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '500': {$ref: '#/components/responses/InternalError'}
@@ -715,8 +728,8 @@ paths:
         share it, the name with the account (or, within one account, the region) that tells them apart. Ordered
         by sends plus receives, most first. The window is `from_ms` to `to_ms`, both included; without them it
         is the last `since_s` seconds. The counts come from an hourly rollup plus the recorded events of the
-        partial hours at either end, so they are exact. A Postgres store does not keep flows yet, and answers
-        501 (QV-363).
+        partial hours at either end, so they are exact. SQLite and Postgres both keep them. A store that
+        doesn't (a third-party `Store`) answers 501.
       parameters:
         - $ref: '#/components/parameters/window_from_ms'
         - $ref: '#/components/parameters/window_to_ms'
@@ -1909,7 +1922,7 @@ components:
     QueueSeries:
       type: object
       additionalProperties: false
-      required: [queue, from_ms, to_ms, step_s, max_receive_count, series]
+      required: [queue, from_ms, to_ms, step_s, max_receive_count, series, versions]
       properties:
         queue:
           type: object
@@ -1947,6 +1960,31 @@ components:
               p95_handler_ms: {type: [integer, 'null'], description: 'Receive to delete or Lambda outcome, nearest-rank p95, in ms. Null when there was none.'}
               queue_samples: {type: integer}
               handler_samples: {type: integer}
+              by_version:
+                type: array
+                description: 'With `split=version` only: one entry per `service.version` with a handled message or a percentile sample in the bucket, in version order, null last.'
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [version, handled, p95_queue_ms, p95_handler_ms, queue_samples, handler_samples]
+                  properties:
+                    version: {type: [string, 'null'], description: 'The `service.version` of the spans; null for spans without one.'}
+                    handled: {type: integer}
+                    p95_queue_ms: {type: [integer, 'null']}
+                    p95_handler_ms: {type: [integer, 'null']}
+                    queue_samples: {type: integer}
+                    handler_samples: {type: integer}
+        versions:
+          type: array
+          description: 'Deploys in the window, oldest first: a service''s version that first showed after another version of it did.'
+          items:
+            type: object
+            additionalProperties: false
+            required: [service, version, first_ms]
+            properties:
+              service: {type: string, description: The service's `service.name`.}
+              version: {type: string, description: The new `service.version`.}
+              first_ms: {type: integer, description: 'Its first span on this queue in the window, in Unix milliseconds.'}
     FlowService:
       type: object
       additionalProperties: false

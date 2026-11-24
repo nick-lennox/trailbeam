@@ -463,6 +463,9 @@ class App:
             raise ApiError(400, str(e)) from None
         except NotImplementedError as e:
             raise ApiError(501, str(e)) from None
+        split = q.get("split", "")
+        if split not in ("", "version"):
+            raise ApiError(400, "split must be version, or left out")
         want, place = self._queue_keys(rest[0], keys)
         mrc = self.max_receive_counts.get(place.name)
         rows = self.db.queue_events(want, from_ms, to_ms)
@@ -470,7 +473,8 @@ class App:
                           "fifo": place.name.endswith(".fifo")},
                 "from_ms": from_ms, "to_ms": to_ms, "step_s": step,
                 "max_receive_count": mrc,
-                "series": queues_mod.series(rows, step, mrc)}
+                "series": queues_mod.series(rows, step, mrc, by_version=split == "version"),
+                "versions": queues_mod.versions(rows)}
 
     def flows(self, q: dict, rest: list[str]) -> dict:
         """``/api/flows``: the overview's flows over [from_ms, to_ms] (default: the last day): per queue, who sends to

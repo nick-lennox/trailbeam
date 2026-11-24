@@ -7,7 +7,8 @@ every store.
 (trailbeam-app ``lib/app/queue-url.ts``), so both products key a queue the same way.
 
 **Queue events.** ``events(rows)`` turns one message's spans into what it adds to each queue's page, as
-``(at_ms, kind, queue_key, service, lambda, value, peer)``; ``summary.summarize`` keeps them as ``queue_events``
+``(at_ms, kind, queue_key, service, lambda, value, peer, version)`` (``version``: the span's ``service.version``,
+QV-362, or None); ``summary.summarize`` keeps them as ``queue_events``
 and a store indexes them by (queue key, time), so a queue's range is one index range scan, and adds them up per
 hour in ``queue_rollup`` for the flows (below). The kinds:
 
@@ -186,6 +187,14 @@ def _lambda(r) -> int:
     return int(r["source"] == "lambda" or r["operation"] == "LambdaEvent")
 
 
+def _version(r) -> Optional[str]:
+    """The span's service.version; None on a row from before it was kept (an older schema's, mid-migration)."""
+    try:
+        return r["service_version"]
+    except (IndexError, KeyError):
+        return None
+
+
 def _body_size(r) -> Optional[int]:
     try:
         a = r["attributes"]
@@ -207,7 +216,7 @@ def events(rows, deduplicated: Iterable[int] = ()) -> list:
 
     def add(r, kind, value=None, k=None, peer=None):
         out.append([_ms(r["time_ns"]), kind, k if k is not None else key(r["queue"], r["queue_url"]),
-                    r["service_name"], _lambda(r), value, peer])
+                    r["service_name"], _lambda(r), value, peer, _version(r)])
 
     for r in rows:
         kind = r["kind"]
@@ -300,18 +309,29 @@ def p95(values: list) -> Optional[int]:
     return s[max(0, math.ceil(0.95 * len(s)) - 1)]
 
 
-def series(rows: Iterable, step_s: int, max_receive_count: Optional[int]) -> list:
-    """The buckets of one queue's events, ``rows`` ``(at_ms, kind, value)`` in the range, as the API returns them:
-    a bucket for every step with at least one event, in time order. A step with none is left out: the page draws a
-    gap there, not a zero. ``max_receive_count``: the queue's configured one, else no ``dlq_inferred``."""
+def series(rows: Iterable, step_s: int, max_receive_count: Optional[int], by_version: bool = False) -> list:
+    """The buckets of one queue's events, ``rows`` ``(at_ms, kind, value, service, version)`` in the range (the
+    last two may be left off), as the API returns them: a bucket for every step with at least one event, in time
+    order. A step with none is left out: the page draws a gap there, not a zero. ``max_receive_count``: the
+    queue's configured one, else no ``dlq_inferred``.
+
+    ``by_version`` (the page's "By version", QV-360 design 4.6): each bucket also has ``by_version``, one entry per
+    ``service.version`` with a handled message or a p95 sample in it (None: spans without one), in version order,
+    None last: ``handled`` and the two p95s, each by the version of the span that ends it (the receive for time in
+    queue; the delete or Lambda outcome for time in handler and handled)."""
     step_ms = step_s * 1000
     by: dict = {}
-    for at, kind, value in rows:
+    for r in rows:
+        at, kind, value = r[0], r[1], r[2]
         t = (int(at) // step_ms) * step_ms
         b = by.get(t)
         if b is None:
             b = by[t] = {"sends": 0, "receives": 0, "re_receives": 0, "handled": 0, "failed": 0, "dlq_seen": 0,
-                         "dlq_inferred": 0, "no_send_receives": 0, "_wait": [], "_handler": [], "_any": False}
+                         "dlq_inferred": 0, "no_send_receives": 0, "_wait": [], "_handler": [], "_any": False,
+                         "_v": {}}
+        v = None
+        if by_version and kind in (WAIT,) + HANDLER_KINDS:
+            v = b["_v"].setdefault(r[4] if len(r) > 4 else None, {"handled": 0, "_wait": [], "_handler": []})
         if kind == SEND:
             b["sends"] += 1
         elif kind == RECEIVE:
@@ -320,15 +340,21 @@ def series(rows: Iterable, step_s: int, max_receive_count: Optional[int]) -> lis
                 b["re_receives"] += 1
         elif kind == WAIT:
             b["_wait"].append(value)
+            if v is not None:
+                v["_wait"].append(value)
         elif kind == NO_SEND:
             b["no_send_receives"] += 1
         elif kind in HANDLER_KINDS:
             if kind in (DELETE, LAMBDA_OK):
                 b["handled"] += 1
+                if v is not None:
+                    v["handled"] += 1
             elif kind == FAILED:
                 b["failed"] += 1
             if value is not None:
                 b["_handler"].append(value)
+                if v is not None:
+                    v["_handler"].append(value)
         elif kind == DLQ_SEEN:
             b["dlq_seen"] += 1
         elif kind == AT_MAX:
@@ -344,10 +370,39 @@ def series(rows: Iterable, step_s: int, max_receive_count: Optional[int]) -> lis
         b = by[t]
         if not b.pop("_any"):
             continue
-        wait, handler = b.pop("_wait"), b.pop("_handler")
-        out.append({"t_ms": t, **b, "p95_queue_ms": p95(wait), "p95_handler_ms": p95(handler),
-                    "queue_samples": len(wait), "handler_samples": len(handler)})
+        wait, handler, versions = b.pop("_wait"), b.pop("_handler"), b.pop("_v")
+        row = {"t_ms": t, **b, "p95_queue_ms": p95(wait), "p95_handler_ms": p95(handler),
+               "queue_samples": len(wait), "handler_samples": len(handler)}
+        if by_version:
+            row["by_version"] = [
+                {"version": k, "handled": x["handled"], "p95_queue_ms": p95(x["_wait"]),
+                 "p95_handler_ms": p95(x["_handler"]), "queue_samples": len(x["_wait"]),
+                 "handler_samples": len(x["_handler"])}
+                for k, x in sorted(versions.items(), key=lambda kv: (kv[0] is None, kv[0] or ""))
+                if x["handled"] or x["_wait"] or x["_handler"]]
+        out.append(row)
     return out
+
+
+def versions(rows: Iterable) -> list:
+    """The deploy markers (QV-360 design 4.6): for each service, every ``service.version`` that first shows on the
+    queue's events in the range after another version of it did, at that first time; ``rows`` as ``series`` takes
+    them. A service's earliest version in the range was running when the range began, so it is no deploy, and a
+    service with one version has none. By time, then service and version. Events without a service or a version
+    make none."""
+    first: dict = {}
+    for r in rows:
+        if len(r) < 5 or r[3] is None or r[4] is None:
+            continue
+        k = (r[3], r[4])
+        if k not in first or r[0] < first[k]:
+            first[k] = int(r[0])
+    earliest: dict = {}
+    for (svc, v), t in first.items():
+        if svc not in earliest or (t, v) < earliest[svc]:
+            earliest[svc] = (t, v)
+    return [{"service": svc, "version": v, "first_ms": t}
+            for (svc, v), t in sorted(first.items(), key=lambda kv: (kv[1], kv[0])) if earliest[svc] != (t, v)]
 
 
 # ---- the flows -----------------------------------------------------------------------------------------------
@@ -358,8 +413,23 @@ NO_SERVICE = "unknown_service"  # a span without service.name, as the hosted app
 def rollup_key(e) -> tuple:
     """The queue_rollup row (hour, queue_key, kind, service, lambda, peer) an event adds to; '' for no service or
     peer (they are in the primary key)."""
-    at, kind, k, svc, lam, _v, peer = e
+    at, kind, k, svc, lam, _v, peer = e[:7]
     return (int(at) // 3_600_000, k, kind, svc or "", int(lam), peer or "")
+
+
+def rollup_sums(added: Iterable = (), removed: Iterable = ()) -> dict:
+    """{rollup_key: [n, vn, vsum]}: what adding the events ``added`` and taking out ``removed`` changes in
+    queue_rollup, the keys that come to nothing left out. Exact: counts and sums subtract."""
+    d: dict = {}
+    for events, sign in ((added, 1), (removed, -1)):
+        for e in events:
+            v = e[5]
+            c = d.setdefault(rollup_key(e), [0, 0, 0])
+            c[0] += sign
+            if v is not None:
+                c[1] += sign
+                c[2] += sign * int(v)
+    return {k: c for k, c in d.items() if c != [0, 0, 0]}
 
 
 def labels(places: dict) -> dict:
