@@ -1476,5 +1476,302 @@
         "attributes": {}
       }
     ]
+  },
+  "eventbridge": {
+    "description": "Test vectors for contract/span-contract.md section 25 (revision 3.6): EventBridge PutEvents. 'put_events': whole spans of one PutEvents call. Each case has the 'request', and the 'response' or, for a call that failed as a whole, the 'error' code (boto3: a ClientError with that code; Node.js: an error whose name is that code). Each package must emit exactly 'spans', one per request entry in entry order, named 'trailbeam put_event', each with exactly the listed attributes plus the 'present' ones and none of the 'absent' ones. The request must not change.",
+    "put_events": {
+      "present": [
+        "messaging.client.id",
+        "process.pid",
+        "trailbeam.order.scope",
+        "trailbeam.order.issued",
+        "trailbeam.order.returned"
+      ],
+      "absent": [
+        "aws.sqs.queue.url",
+        "trailbeam.receipt_handle.hmac",
+        "trailbeam.start_observed",
+        "trailbeam.eventbridge.detail",
+        "trailbeam.message.body"
+      ],
+      "cases": [
+        {
+          "name": "PutEvents, one entry on the default bus",
+          "request": {
+            "Entries": [
+              {
+                "Source": "com.example.orders",
+                "DetailType": "OrderPlaced",
+                "Detail": "{\"order\": 1}"
+              }
+            ]
+          },
+          "response": {
+            "FailedEntryCount": 0,
+            "Entries": [
+              {
+                "EventId": "11710aed-b79e-4468-a20b-bb3c0c3b4860"
+              }
+            ]
+          },
+          "spans": [
+            {
+              "trailbeam.schema_version": 3,
+              "trailbeam.kind": "eventbridge.put_event",
+              "trailbeam.source": "client",
+              "messaging.system.name": "aws.eventbridge",
+              "messaging.operation.type": "send",
+              "messaging.operation.name": "PutEvents",
+              "messaging.destination.name": "default",
+              "trailbeam.eventbridge.entry_index": 0,
+              "trailbeam.result": "ok",
+              "messaging.message.id": "11710aed-b79e-4468-a20b-bb3c0c3b4860",
+              "trailbeam.eventbridge.source": "com.example.orders",
+              "trailbeam.eventbridge.detail_type": "OrderPlaced",
+              "messaging.message.body.size": 12
+            }
+          ]
+        },
+        {
+          "name": "PutEvents to a bus by ARN, with Time, one entry failed",
+          "request": {
+            "Entries": [
+              {
+                "Source": "com.example.orders",
+                "DetailType": "OrderPlaced",
+                "Detail": "{}",
+                "EventBusName": "arn:aws:events:us-east-2:111122223333:event-bus/orders-bus",
+                "Time": "2026-11-24T10:00:00Z"
+              },
+              {
+                "Source": "com.example.orders",
+                "DetailType": "OrderPlaced",
+                "Detail": "{",
+                "EventBusName": "arn:aws:events:us-east-2:111122223333:event-bus/orders-bus"
+              }
+            ]
+          },
+          "response": {
+            "FailedEntryCount": 1,
+            "Entries": [
+              {
+                "EventId": "d804d26a-88db-4b66-9eaf-9a11c708ae82"
+              },
+              {
+                "ErrorCode": "MalformedDetail",
+                "ErrorMessage": "Detail is malformed."
+              }
+            ]
+          },
+          "spans": [
+            {
+              "trailbeam.schema_version": 3,
+              "trailbeam.kind": "eventbridge.put_event",
+              "trailbeam.source": "client",
+              "messaging.system.name": "aws.eventbridge",
+              "messaging.operation.type": "send",
+              "messaging.operation.name": "PutEvents",
+              "messaging.destination.name": "orders-bus",
+              "trailbeam.eventbridge.entry_index": 0,
+              "trailbeam.result": "ok",
+              "messaging.message.id": "d804d26a-88db-4b66-9eaf-9a11c708ae82",
+              "trailbeam.eventbridge.event_bus": "arn:aws:events:us-east-2:111122223333:event-bus/orders-bus",
+              "trailbeam.eventbridge.source": "com.example.orders",
+              "trailbeam.eventbridge.detail_type": "OrderPlaced",
+              "trailbeam.eventbridge.time_given": true,
+              "messaging.message.body.size": 2
+            },
+            {
+              "trailbeam.schema_version": 3,
+              "trailbeam.kind": "eventbridge.put_event",
+              "trailbeam.source": "client",
+              "messaging.system.name": "aws.eventbridge",
+              "messaging.operation.type": "send",
+              "messaging.operation.name": "PutEvents",
+              "messaging.destination.name": "orders-bus",
+              "trailbeam.eventbridge.entry_index": 1,
+              "trailbeam.result": "failed",
+              "trailbeam.error_code": "MalformedDetail",
+              "trailbeam.eventbridge.event_bus": "arn:aws:events:us-east-2:111122223333:event-bus/orders-bus",
+              "trailbeam.eventbridge.source": "com.example.orders",
+              "trailbeam.eventbridge.detail_type": "OrderPlaced",
+              "messaging.message.body.size": 1
+            }
+          ]
+        },
+        {
+          "name": "PutEvents to a bus by name; an entry without DetailType fails",
+          "request": {
+            "Entries": [
+              {
+                "Source": "com.example.orders",
+                "Detail": "{}",
+                "EventBusName": "orders-bus"
+              }
+            ]
+          },
+          "response": {
+            "FailedEntryCount": 1,
+            "Entries": [
+              {
+                "ErrorCode": "InvalidArgument",
+                "ErrorMessage": "Parameter DetailType is not valid."
+              }
+            ]
+          },
+          "spans": [
+            {
+              "trailbeam.schema_version": 3,
+              "trailbeam.kind": "eventbridge.put_event",
+              "trailbeam.source": "client",
+              "messaging.system.name": "aws.eventbridge",
+              "messaging.operation.type": "send",
+              "messaging.operation.name": "PutEvents",
+              "messaging.destination.name": "orders-bus",
+              "trailbeam.eventbridge.entry_index": 0,
+              "trailbeam.result": "failed",
+              "trailbeam.error_code": "InvalidArgument",
+              "trailbeam.eventbridge.event_bus": "orders-bus",
+              "trailbeam.eventbridge.source": "com.example.orders",
+              "messaging.message.body.size": 2
+            }
+          ]
+        },
+        {
+          "name": "the whole call failed: every entry has a failed span with the call's error",
+          "request": {
+            "Entries": [
+              {
+                "Source": "a.b",
+                "DetailType": "T",
+                "Detail": "{}"
+              },
+              {
+                "Source": "a.b",
+                "DetailType": "T",
+                "Detail": "{}"
+              }
+            ]
+          },
+          "error": "ThrottlingException",
+          "spans": [
+            {
+              "trailbeam.schema_version": 3,
+              "trailbeam.kind": "eventbridge.put_event",
+              "trailbeam.source": "client",
+              "messaging.system.name": "aws.eventbridge",
+              "messaging.operation.type": "send",
+              "messaging.operation.name": "PutEvents",
+              "messaging.destination.name": "default",
+              "trailbeam.eventbridge.entry_index": 0,
+              "trailbeam.result": "failed",
+              "trailbeam.error_code": "ThrottlingException",
+              "trailbeam.eventbridge.source": "a.b",
+              "trailbeam.eventbridge.detail_type": "T",
+              "messaging.message.body.size": 2
+            },
+            {
+              "trailbeam.schema_version": 3,
+              "trailbeam.kind": "eventbridge.put_event",
+              "trailbeam.source": "client",
+              "messaging.system.name": "aws.eventbridge",
+              "messaging.operation.type": "send",
+              "messaging.operation.name": "PutEvents",
+              "messaging.destination.name": "default",
+              "trailbeam.eventbridge.entry_index": 1,
+              "trailbeam.result": "failed",
+              "trailbeam.error_code": "ThrottlingException",
+              "trailbeam.eventbridge.source": "a.b",
+              "trailbeam.eventbridge.detail_type": "T",
+              "messaging.message.body.size": 2
+            }
+          ]
+        },
+        {
+          "name": "a source or detail-type over 256 characters is left out",
+          "request": {
+            "Entries": [
+              {
+                "Source": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+                "DetailType": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "Detail": "{}"
+              }
+            ]
+          },
+          "response": {
+            "FailedEntryCount": 0,
+            "Entries": [
+              {
+                "EventId": "11710aed-b79e-4468-a20b-bb3c0c3b4860"
+              }
+            ]
+          },
+          "spans": [
+            {
+              "trailbeam.schema_version": 3,
+              "trailbeam.kind": "eventbridge.put_event",
+              "trailbeam.source": "client",
+              "messaging.system.name": "aws.eventbridge",
+              "messaging.operation.type": "send",
+              "messaging.operation.name": "PutEvents",
+              "messaging.destination.name": "default",
+              "trailbeam.eventbridge.entry_index": 0,
+              "trailbeam.result": "ok",
+              "messaging.message.id": "11710aed-b79e-4468-a20b-bb3c0c3b4860",
+              "trailbeam.eventbridge.detail_type": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "messaging.message.body.size": 2
+            }
+          ]
+        },
+        {
+          "name": "an EventId that is not 1 to 64 letters, digits or - is left out, and the entry is failed",
+          "request": {
+            "Entries": [
+              {
+                "Source": "a.b",
+                "DetailType": "T",
+                "Detail": "{}"
+              }
+            ]
+          },
+          "response": {
+            "FailedEntryCount": 0,
+            "Entries": [
+              {
+                "EventId": "not an id"
+              }
+            ]
+          },
+          "spans": [
+            {
+              "trailbeam.schema_version": 3,
+              "trailbeam.kind": "eventbridge.put_event",
+              "trailbeam.source": "client",
+              "messaging.system.name": "aws.eventbridge",
+              "messaging.operation.type": "send",
+              "messaging.operation.name": "PutEvents",
+              "messaging.destination.name": "default",
+              "trailbeam.eventbridge.entry_index": 0,
+              "trailbeam.result": "failed",
+              "trailbeam.error_code": "NoEventId",
+              "trailbeam.eventbridge.source": "a.b",
+              "trailbeam.eventbridge.detail_type": "T",
+              "messaging.message.body.size": 2
+            }
+          ]
+        },
+        {
+          "name": "a request with no entries: no span",
+          "request": {
+            "Entries": []
+          },
+          "response": {
+            "FailedEntryCount": 0,
+            "Entries": []
+          },
+          "spans": []
+        }
+      ]
+    }
   }
 }
