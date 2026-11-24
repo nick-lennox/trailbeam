@@ -237,6 +237,7 @@ def test_replicas_starting_with_the_same_admin_make_one(shared_store, tmp_path):
 def test_the_server_reads_the_admin_from_its_environment(tmp_path):
     db = tmp_path / "t.sqlite"
     env = {k: v for k, v in os.environ.items() if not k.startswith(("TRAILBEAM_", "OTEL_"))}
+    env["TRAILBEAM_ACCOUNTS"] = "1"
     env.update(_env(tmp_path), TRAILBEAM_TOKEN="shared-token-0123456789abcdef")
     p = subprocess.Popen([sys.executable, "-m", "trailbeam.server", "--db", str(db), "--port", "0"], env=env,
                          stderr=subprocess.PIPE, text=True)
@@ -414,6 +415,7 @@ def test_setup_after_an_admin_exists_goes_to_sign_in(serve):
 
 def _start(tmp_path, terminal: bool):
     env = {k: v for k, v in os.environ.items() if not k.startswith(("TRAILBEAM_", "OTEL_"))}
+    env["TRAILBEAM_ACCOUNTS"] = "1"
     if terminal:
         env["TRAILBEAM_START_TERMINAL"] = "1"
     p = subprocess.Popen([sys.executable, "-m", "trailbeam.server", "start", "--data-dir", str(tmp_path / "data"),

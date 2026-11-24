@@ -19,6 +19,14 @@
   queue. The rules and the group shape are the hosted app's, and both are tested on one shared fixture
   (`@trailbeam/ui/fixtures/causes-parity.json`), so a cause has the same `id` in both. The groups are worked out
   when the endpoint is read, from up to 5,000 stuck messages, oldest first. Nothing new is stored.
+- **Users and roles are a preview, off unless switched on** (QV-349). They haven't had their security review
+  (QV-229) yet, so a server built from this version ignores them unless it runs with `--accounts`
+  (`TRAILBEAM_ACCOUNTS=1`, also `true`, `yes` or `on`; any other value but `0`, `false`, `no`, `off` or empty
+  stops the server). Off, access is as in 0.4.0, `TRAILBEAM_TOKEN` alone: `trailbeam start` prints no setup link,
+  `/setup` answers `404`, an admin or ingest tokens already in the store are ignored (with a warning at start),
+  `TRAILBEAM_ADMIN_EMAIL` stops the server at start, and `trailbeam users` and `trailbeam tokens` refuse to run
+  without `--accounts` or the variable. On, everything works as described below. The `--trusted-proxy` handling,
+  the cross-site form check and the account tables are not behind the switch.
 - **Postgres, several replicas: a message could get a second summary** (QV-422). A delete or
   ChangeMessageVisibility span carries no message ID, so its export finds its message by the receipt handle and
   locks it only then. If another replica stored a newer span of that message in a new day (bucket) meanwhile,
@@ -31,7 +39,6 @@
   loader, the SnapStart reset, the fully qualified `trailbeam.error_type`, and why bad capture settings fail
   closed instead of failing at install. It changes no rule and no attribute; the schema version stays 3. The
   README and the kit's README now point to the Java package.
-
 - **Java package, stage 5: Spring Boot executable jars** (QV-319, pre-release, not published). The kit's Java
   driver is also built as a Spring Boot executable jar, with the SDK and Trailbeam nested under `BOOT-INF/lib`,
   and two new variants run it with `java -jar`: `spring-boot` (alone) and `spring-boot-otel-agent` (beside the
