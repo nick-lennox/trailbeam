@@ -3,7 +3,6 @@ package dev.trailbeam.sqs;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.common.AttributesBuilder;
 import io.opentelemetry.api.trace.SpanContext;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -574,8 +573,7 @@ public final class TrailbeamSqsExecutionInterceptor implements ExecutionIntercep
   }
 
   static long nowNanos() {
-    Instant now = Instant.now();
-    return now.getEpochSecond() * 1_000_000_000L + now.getNano();
+    return Trailbeam.nowNanos();
   }
 
   private static void debug(String hook, Throwable t) {

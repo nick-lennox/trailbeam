@@ -31,7 +31,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
 IGNORE = shutil.ignore_patterns("node_modules", "__pycache__", ".pytest_cache", "*.egg-info", ".venv", "dist",
-                                "build", "test", "tests", "*.sqlite")
+                                "build", "target", "test", "tests", "*.sqlite")
 RIE_PATH = "/2015-03-31/functions/function/invocations"
 VISIBILITY_TIMEOUT_S = 2
 MAX_RECEIVE_COUNT = 2
