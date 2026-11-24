@@ -100,6 +100,7 @@ paths:
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/queue'
+        - $ref: '#/components/parameters/version'
         - name: tenant
           in: query
           description: Only messages with a span that names this tenant.
@@ -149,6 +150,7 @@ paths:
                   consumers:
                   - service_name: legacy-svc
                     client_id: aca66402-38fd-4b18-98ed-c1406876f92b
+                    service_version: null
                   first_seen: '2026-11-16T18:05:37.664000Z'
                   first_seen_clock: host
                   last_seen: '2026-11-16T18:05:37.716000Z'
@@ -163,6 +165,7 @@ paths:
                   consumers:
                   - service_name: billing-fn
                     client_id: 2b715bf1-05cc-4f28-a3d8-290faca812eb
+                    service_version: null
                   first_seen: '2026-11-16T18:05:37.429000Z'
                   first_seen_clock: sqs
                   last_seen: '2026-11-16T18:05:37.528000Z'
@@ -446,6 +449,7 @@ paths:
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/queue'
+        - $ref: '#/components/parameters/version'
         - name: from_ms
           in: query
           description: Only messages whose newest span ended at or after this time, in Unix milliseconds.
@@ -474,6 +478,7 @@ paths:
                   consumers:
                   - service_name: billing-fn
                     client_id: 2b715bf1-05cc-4f28-a3d8-290faca812eb
+                    service_version: null
                   first_seen: '2026-11-16T18:05:37.429000Z'
                   first_seen_clock: sqs
                   last_seen: '2026-11-16T18:05:37.528000Z'
@@ -501,6 +506,7 @@ paths:
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/queue'
+        - $ref: '#/components/parameters/version'
         - name: from_ms
           in: query
           description: Only messages first seen at or after this time, in Unix milliseconds.
@@ -526,6 +532,7 @@ paths:
                   consumers:
                   - service_name: orders-worker
                     client_id: 999116e7-988b-43d2-89b1-06277f0766e4
+                    service_version: null
                   first_seen: '2026-11-16T18:05:36.914000Z'
                   first_seen_clock: host
                   last_seen: '2026-11-16T18:05:37.425000Z'
@@ -1022,6 +1029,15 @@ components:
       description: Only messages with a span on this queue. The value is the queue's name, not its URL.
       schema: {type: string}
       example: orders
+    version:
+      name: version
+      in: query
+      description: |
+        Only messages received by a consumer whose OpenTelemetry resource sets this `service.version`
+        (a consumer's `service_version`). Not with `body`: a body search does not filter by version, and
+        giving both is a `400`.
+      schema: {type: string}
+      example: 1.4.2
     lambda_timeout_s:
       name: lambda_timeout_s
       in: query
@@ -1170,10 +1186,16 @@ components:
           items:
             type: object
             additionalProperties: false
-            required: [service_name, client_id]
+            required: [service_name, client_id, service_version]
             properties:
               service_name: {type: [string, 'null'], description: The service's `service.name`.}
               client_id: {type: [string, 'null'], description: The ID the package gives one SQS client.}
+              service_version:
+                type: [string, 'null']
+                description: |
+                  The service's `service.version`, the build that received the message. Null when the
+                  resource does not set it, and on messages last summarized before this field existed. A
+                  service and client that received the message under two versions is listed once for each.
         first_seen:
           allOf: [{$ref: '#/components/schemas/Timestamp'}]
           description: When the message was first seen. The send span's end when the send was recorded, otherwise the earliest `SentTimestamp` a receive carries, otherwise the earliest span.
@@ -1391,6 +1413,7 @@ components:
       additionalProperties: false
       properties:
         service_name: {type: string, description: The service's `service.name`.}
+        service_version: {type: string, description: "The service's `service.version`: the build that made the call."}
         client_id: {type: string, description: The ID the package gives one SQS client.}
         source: {type: string, description: '`client` for an SQS client call, `lambda` for a Lambda event source mapping.'}
         pid: {type: integer}

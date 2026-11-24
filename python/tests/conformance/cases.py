@@ -44,8 +44,8 @@ def _contract_exports() -> list[list[dict]]:
 
 def _joins_exports() -> list[list[dict]]:
     w = Consumer(client_id="worker-1", scope="worker-1")
-    w2 = Consumer(client_id="worker-2", service="orders-worker-2")
-    fn = Consumer(client_id="fn-1", service="billing-fn", source="lambda", queue="billing")
+    w2 = Consumer(client_id="worker-2", service="orders-worker-2", version="2.0.1")  # service.version (QV-362)
+    fn = Consumer(client_id="fn-1", service="billing-fn", source="lambda", queue="billing", version="1.4.2")
     p = Consumer(client_id="producer-1", service="checkout-api")
     s = lambda n: T0 + n * SEC  # noqa: E731
 
@@ -124,6 +124,7 @@ def snapshot(store, name: str) -> dict:
     rows = {m: store.message_rows(m) for m in mids}
     queues = sorted({r["queue"] for rs in rows.values() for r in rs})
     tenants = sorted({t for rs in rows.values() if (t := queries.message_tenant(rs))})
+    versions = sorted({r["service_version"] for rs in rows.values() for r in rs if r["service_version"]}) + ["9.9.9"]
     first_ms = min(r["time_ns"] for rs in rows.values() for r in rs) // 1_000_000
     last_ms = max(r["time_ns"] for rs in rows.values() for r in rs) // 1_000_000
     mid_ms = (first_ms + last_ms) // 2
@@ -136,7 +137,10 @@ def snapshot(store, name: str) -> dict:
         "message": {m: queries.message(store, m, now, lt) for m in mids},
         "message_short_lambda_timeout": {m: queries.message(store, m, now, 1)["state"] for m in mids},
         "missing_message": queries.message(store, "no-such-message", now, lt),
+        "messages_by_version": {v: _ids(queries.recent_page(store, now, lt, 100, version=v).items) for v in versions},
         "duplicates": queries.duplicates(store, now, lt, 100),
+        "duplicates_by_version": {v: _ids(queries.duplicates_page(store, now, lt, 100, version=v).items)
+                                  for v in versions},
         "duplicates_by_reason": {reason: _ids(queries.duplicates(store, now, lt, 100, None, reason))
                                  for reason in ("received_more_than_once", "succeeded_more_than_once")},
         "duplicates_by_queue": {q: _ids(queries.duplicates(store, now, lt, 100, q)) for q in queues},
@@ -144,6 +148,7 @@ def snapshot(store, name: str) -> dict:
         "stuck_older_than": {str(after): _ids(queries.stuck(store, now, lt, after, 100)) for after in (60, 10 ** 9)},
         "stuck_by_queue": {q: _ids(queries.stuck(store, now, lt, 0, 100, q)) for q in queues},
         "stuck_limit_1": _ids(queries.stuck(store, now, lt, 0, 1)),
+        "stuck_by_version": {v: _ids(queries.stuck_page(store, now, lt, 0, 100, version=v).items) for v in versions},
         "tenants": {
             "all": queries.tenants(store, now, lt, 0, now // 1_000_000),
             "first half": queries.tenants(store, now, lt, first_ms, mid_ms),

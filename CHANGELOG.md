@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **`service.version` is kept, so a deploy can be seen** (QV-362, the server half). Each stored span keeps its
+  resource's `service.version` beside `service.name` (SQLite schema 16, Postgres schema 10; rows stored before
+  have none). A timeline step's `consumer` has `service_version` when it is set, and the Timeline shows it after
+  the service name. The list rows' `consumers` (messages, duplicates, stuck) each have `service_version`, null
+  when unknown; a service and client seen under two versions is listed once for each. `/api/messages`,
+  `/api/duplicates` and `/api/stuck` take `version=`: only messages a consumer of that version received (not
+  indexed: read off each candidate's summary; `version` with `body` is a `400`). The conformance suite checks
+  the filter on both stores.
 - **Java package, stage 3: tenants and body capture** (QV-319, pre-release, not published). The jar now
   implements contract section 15 like the Python and Node.js packages, and passes the same `capture` vectors:
   the tenant from `TRAILBEAM_TENANT_ATTRIBUTE` or `TRAILBEAM_TENANT_BODY_PATH`, opt-in body capture per queue

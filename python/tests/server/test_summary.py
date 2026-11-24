@@ -57,12 +57,13 @@ def data(request):
 def _timeline_item(rows, now, lt, mrc):
     """What the list pages showed before summaries: the fields of the full timeline."""
     t = timeline.build(rows, now, lt, mrc)
-    consumers = sorted({(e["consumer"].get("service_name"), e["consumer"].get("client_id"))
+    consumers = sorted({(e["consumer"].get("service_name"), e["consumer"].get("client_id"),
+                         e["consumer"].get("service_version"))
                         for e in t["events"] if e["type"] == "received"}, key=str)
     keys = ("state", "source_queue", "current_queue", "in_dead_letter_queue", "dead_letter_queue_move",
             "deliveries", "successful_deliveries", "first_seen", "first_seen_clock", "last_seen")
     return {"message_id": t["message_id"], **{k: t[k] for k in keys},
-            "consumers": [{"service_name": a, "client_id": b} for a, b in consumers]}
+            "consumers": [{"service_name": a, "client_id": b, "service_version": v} for a, b, v in consumers]}
 
 
 def test_the_generated_traffic_has_every_kind_of_message(data):
