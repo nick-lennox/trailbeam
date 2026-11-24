@@ -177,7 +177,10 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # Schema 16 (QV-362) adds spans.service_version, the resource's service.version (the build that sent the span). Rows
 # stored before it are migrated with NULL: the version was not kept. Their summaries are left as they are: a
 # consumer without a version is listed as [service_name, client_id], as before (summary.py).
-# Schema 17 (QV-227) adds users.proxy_linked_at_ms: which people may sign in through a proxy (proxy_auth.py). NULL
+# Schema 17 (QV-363) adds queue_events, the queue page's events by queue and time (queues.py), and
+# messages.qevents_json, the list of a message's rows in it. Both are built from every message's spans: one pass
+# over messages, reading each message's spans by row ID, as migration 12 does with the summaries.
+# Schema 18 (QV-227) adds users.proxy_linked_at_ms: which people may sign in through a proxy (proxy_auth.py). NULL
 # for everyone stored before it, so no local account can be signed in to through the proxy until an admin links it.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new", added=""))
                   + [f"INSERT INTO spans_new ({SPANS_COLUMNS}) SELECT {SPANS_COLUMNS} FROM spans ORDER BY row",
@@ -217,6 +220,16 @@ def _to_16(conn: sqlite3.Connection) -> None:
 
 
 def _to_17(conn: sqlite3.Connection) -> None:
+    # A file built by migration 7, 9 or 11 under this code has the column and the table already (they create the
+    # summary tables as summary_table.CREATE is now). SQLite has no ADD COLUMN IF NOT EXISTS.
+    if "qevents_json" not in {r[1] for r in conn.execute("PRAGMA table_info(messages)")}:
+        conn.execute("ALTER TABLE messages ADD COLUMN qevents_json TEXT NOT NULL DEFAULT '[]'")
+    for sql in statements(summary_table.QUEUE_CREATE):
+        conn.execute(sql)
+    summary_table.rebuild_queue_events(conn)
+
+
+def _to_18(conn: sqlite3.Connection) -> None:
     """Adds users.proxy_linked_at_ms, unless the file has it (as _to_16)."""
     if account_tables.PROXY_COLUMN not in {r[1] for r in conn.execute("PRAGMA table_info(users)")}:
         conn.execute(account_tables.SQLITE_ADD_PROXY)
@@ -264,7 +277,8 @@ MIGRATIONS = (
     Migration(14, "FIFO deduplicated sends out of the tenant events", (), run=_to_14),
     Migration(15, "users, sessions and tokens", tuple(statements(account_tables.SQLITE_CREATE))),
     Migration(16, "spans.service_version", (), run=_to_16),
-    Migration(17, "users.proxy_linked_at_ms", (), run=_to_17),
+    Migration(17, "queue events (the queue page)", (), run=_to_17),
+    Migration(18, "users.proxy_linked_at_ms", (), run=_to_18),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

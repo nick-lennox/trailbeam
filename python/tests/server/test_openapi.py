@@ -252,7 +252,7 @@ def _server_paths(app):
     firsts = set(app.routes) | {
         m.split("/")[2] for m in re.findall(r'"(/api/[a-z_]+)', source)}
     roots = {f"/api/{k}" for k in firsts} | set(re.findall(r'"(/v1/[a-z_/]+)"', source))
-    extra = [MID, "body", "search", "x"]
+    extra = [MID, "body", "search", "series", "x"]
     out = set(roots)
     for r in roots:
         for a in extra:
@@ -585,6 +585,16 @@ def test_every_status_the_file_lists_is_answered_and_matches_it(db, record_api_r
         request(base, "GET", "/api/ready")
         request(base, "GET", "/api/health")
         both_encodings(base)
+
+    # 501: a store without the queue events (QV-363: Postgres, until stage 3)
+    def not_yet(*a, **kw):
+        raise NotImplementedError("not on this store yet")
+
+    with pytest.MonkeyPatch.context() as mp, serve(server.App(db, ui_dir=None)) as base:
+        mp.setattr(db, "queue_flows", not_yet)
+        mp.setattr(db, "queue_keys", not_yet)
+        request(base, "GET", "/api/flows")
+        request(base, "GET", "/api/queues/orders/series")
 
     # 503: the writer is behind (backpressure.py)
     with pytest.MonkeyPatch.context() as mp, serve(server.App(db, ui_dir=None)) as base:

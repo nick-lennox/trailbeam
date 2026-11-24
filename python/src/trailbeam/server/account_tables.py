@@ -15,7 +15,7 @@ Postgres schema 8.
   row (``revoked_at_ms``), so the list can show them.
 - ``personal_tokens``: API tokens (``tbp_…``) that act as their owner, with the owner's role. Removed with the
   owner.
-- ``users.proxy_linked_at_ms`` (SQLite schema 17, Postgres schema 11; QV-227): set when the person may sign in
+- ``users.proxy_linked_at_ms`` (SQLite schema 18, Postgres schema 12; QV-227): set when the person may sign in
   through the proxy (proxy_auth.py): the proxy created the account, or an admin linked it
   (``trailbeam users link-proxy``). NULL: a proxy that names this email is refused, so a local account can't be
   taken over by whoever the proxy lets in with the same email.
