@@ -1,5 +1,6 @@
 """GET /metrics: Prometheus text format, the ingest, join, page and database series, bounded labels."""
 import re
+import time
 import urllib.request
 
 from spans import SEC, T0, Consumer, to_proto
@@ -43,7 +44,14 @@ def test_metrics_after_ingest_and_pages(server, db):
             urllib.request.urlopen(server + path, timeout=5).read()
         except urllib.error.HTTPError:
             pass  # the body view of a server that keeps no bodies may 404; it is still timed
-    s = samples(scrape(server))
+    # A GET is counted after its answer is sent (do_GET's finally), so the scrape, on another server thread, can
+    # come before the last page's count: wait for it (it failed this way on a loaded CI runner, QV-389).
+    deadline = time.monotonic() + 5
+    while True:
+        s = samples(scrape(server))
+        if 'trailbeam_http_requests_total{route="/api/health",code="200"}' in s or time.monotonic() > deadline:
+            break
+        time.sleep(0.05)
     assert s['trailbeam_ingest_requests_total{code="200"}'] == 2
     assert s['trailbeam_ingest_spans_total{result="inserted"}'] == 4
     assert s['trailbeam_ingest_request_duration_seconds_count{outcome="accepted"}'] == 2
