@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Java package, stage 5: Spring Boot executable jars** (QV-319, pre-release, not published). The kit's Java
+  driver is also built as a Spring Boot executable jar, with the SDK and Trailbeam nested under `BOOT-INF/lib`,
+  and two new variants run it with `java -jar`: `spring-boot` (alone) and `spring-boot-otel-agent` (beside the
+  OpenTelemetry Java agent, with its parent check). The JDK picks the Spring Boot line, so CI covers both of its
+  launchers: 2.7.18 on JDK 11, 3.5.16 on JDK 17 and 4.2.0 on JDK 21 (`-Dspring.boot.version` overrides it).
+
 - **Java package, stage 5: version matrix and strict parent checks** (QV-319, pre-release, not published). CI
   runs the Java driver in every variant on JDK 11 and 17 and on AWS SDK 2.17.295, 2.20.162, 2.24.13 and 2.25.0,
   beside the existing JDK 21 run on the newest SDK. The supported floor is SDK 2.17. The agent variants now check
