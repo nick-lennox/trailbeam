@@ -126,7 +126,7 @@ export function Account({ me }: { me: Me | null }) {
   );
 }
 
-const NAV = [["/", "Messages"], ["/queues", "Queues"], ["/events", "Events"], ["/duplicates", "Duplicates"], ["/stuck", "Stuck"], ["/tenants", "Tenants"]] as const;
+const NAV = [["/overview", "Overview"], ["/", "Messages"], ["/events", "Events"], ["/duplicates", "Duplicates"], ["/stuck", "Stuck"], ["/tenants", "Tenants"]] as const;
 /** Only admins manage people (the page is admin-only on the server too). */
 const ADMIN_NAV = [["/people", "People"]] as const;
 /** Tokens belong to a person: anyone signed in has their own personal API tokens (admins manage ingest tokens there too). */
@@ -160,8 +160,8 @@ export function Header({ id = "" }: { id?: string }) {
       <a href="/" className="text-[1.25rem] text-sky-ink">Trailbeam</a>
       <nav className="flex gap-4 text-sm text-sky-ink-2">
         {[...NAV, ...(me?.user?.role === "admin" ? ADMIN_NAV : []), ...(me?.user ? PERSON_NAV : [])].map(([href, label]) => {
-          // a queue's page is under Queues
-          const here = location.pathname === href || (href === "/queues" && location.pathname === "/queue");
+          // a queue's page is under the Overview, which lists the queues
+          const here = location.pathname === href || (href === "/overview" && location.pathname === "/queue");
           return (
             <a key={href} href={href} aria-current={here ? "page" : undefined}
               className={here ? "text-sky-ink" : "hover:text-sky-ink"}>{label}</a>

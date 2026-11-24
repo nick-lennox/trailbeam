@@ -1,12 +1,12 @@
 /*
-  The queue page at /queue?name=<queue> and the queue list at /queues (QV-360 design §2, §8), drawn with the
+  The queue page at /queue?name=<queue> (QV-360 design §2, §8; the queue list is the Overview, overview.tsx), drawn with the
   shared QueuePage. Everything the page shows is in its URL: range=<preset> or from=<ms>&to=<ms>, sel=<from>-<to>
   (the selected minutes), split=version, and at=<account>:<region> when two queues share a name. They read
   /api/queues/{queue}/series, /api/flows and /api/stuck on the same origin.
 */
 import { useEffect, useState } from "react";
 import {
-  QUEUE_PRESETS, QueuePage, flowFor, fmtRate, fromSelfHosted, queueQuery, queueWindow, readQueueUrl, utc,
+  QUEUE_PRESETS, QueuePage, flowFor, fromSelfHosted, queueQuery, queueWindow, readQueueUrl, utc,
   type Flow, type FlowsResponse, type QueueHrefs, type QueuePageData, type QueuePreset, type QueueUrl, type SeriesResponse,
 } from "../src/index.ts";
 import { ApiError, Frame, Json, getHealth, getJSON } from "./chrome.tsx";
@@ -115,7 +115,7 @@ export function QueueShellPage() {
   if (!u0.name) {
     return (
       <Frame>
-        <p className="text-sky-ink-2">Choose a queue from the <a className="text-dawn hover:underline" href="/queues">queue list</a>.</p>
+        <p className="text-sky-ink-2">Choose a queue from the <a className="text-dawn hover:underline" href="/overview">Overview</a>.</p>
       </Frame>
     );
   }
@@ -138,7 +138,7 @@ export function QueueShellPage() {
   }
 
   const href: QueueHrefs = {
-    queues: "/queues",
+    queues: "/overview",
     queue: (name) => queueHref(name),
     // only "Sent" works on this server's lists today: they take a window but no sort or state filter (design §6)
     messages: ({ queue, fromMs, toMs, view }) => (view === "sent" ? `/?queue=${encodeURIComponent(queue)}&from_ms=${fromMs}&to_ms=${toMs - 1}` : null),
@@ -167,61 +167,6 @@ export function QueueShellPage() {
       <p className="mt-6 text-sm text-sky-ink-3">
         Times are in UTC. <Json href={`/api/queues/${encodeURIComponent(u0.name)}/series`} />
       </p>
-    </Frame>
-  );
-}
-
-type ListState = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ok"; r: FlowsResponse };
-
-/** /queues: every queue a span named in the last day, with its traffic, each linking to its page. */
-export function QueuesListPage() {
-  const [state, setState] = useState<ListState>({ kind: "loading" });
-  useEffect(() => {
-    document.title = "Queues · Trailbeam";
-    getJSON<FlowsResponse>("/api/flows").then((r) => setState({ kind: "ok", r }), (e: Error) => setState({ kind: "error", message: e.message }));
-  }, []);
-  const th = "px-3 py-2 text-left font-mono text-caption font-medium text-sky-ink-3";
-  const td = "px-3 py-2.5 font-mono text-caption tabular-nums text-sky-ink-2";
-  return (
-    <Frame>
-      <h1 className="text-[1.75rem] text-sky-ink">Queues</h1>
-      <p className="mt-1 max-w-[80ch] text-sky-ink-2">Every queue your services sent to or received from in the last 24 hours. Open one to see whether work is arriving faster than it&rsquo;s finished.</p>
-      <div className="mt-5">
-        {state.kind === "loading" && <p className="text-sky-ink-3">Loading queues</p>}
-        {state.kind === "error" && <p className="text-sky-ink-2" role="alert">{state.message}</p>}
-        {state.kind === "ok" && state.r.flows.length === 0 && (
-          <p className="text-sky-ink-2">No service reported a send or receive in the last 24 hours. A queue appears here when one does.</p>
-        )}
-        {state.kind === "ok" && state.r.flows.length > 0 && (() => {
-          const mins = Math.max(1, (state.r.to_ms - state.r.from_ms) / 60_000);
-          return (
-            <div className="overflow-x-auto border-y border-sky-line">
-              <table className="w-full min-w-[720px] text-[15px]">
-                <thead><tr className="border-b border-sky-line">
-                  <th className={th}>Queue</th><th className={th}>Senders</th><th className={th}>Consumers</th>
-                  <th className={`${th} text-right`}>Sends/min</th><th className={`${th} text-right`}>Receives/min</th><th className={`${th} text-right`}>Deletes/min</th>
-                  <th className={th}>DLQ (seen on a move)</th><th className={`${th} text-right`}>Last activity</th>
-                </tr></thead>
-                <tbody>
-                  {state.r.flows.map((f) => (
-                    <tr key={f.key} className="border-b border-sky-line/60 last:border-0">
-                      <td className="px-3 py-2.5"><a className="font-mono text-sky-ink hover:underline" href={queueHref(f.name, f.queue !== f.name ? atOf(f) : null)}>{f.queue}</a></td>
-                      <td className="px-3 py-2.5 text-sm text-sky-ink-2">{f.producers.map((p) => p.name).join(", ") || "-"}</td>
-                      <td className="px-3 py-2.5 text-sm text-sky-ink-2">{f.consumers.map((c) => c.name + (c.lambda ? " (Lambda)" : "")).join(", ") || "-"}</td>
-                      <td className={`${td} text-right`}>{fmtRate(f.sent / mins)}</td>
-                      <td className={`${td} text-right`}>{fmtRate(f.received / mins)}</td>
-                      <td className={`${td} text-right`}>{fmtRate(f.deleted / mins)}</td>
-                      <td className={td}>{f.dlq ? <a className="hover:underline" href={queueHref(f.dlq.name)}>{f.dlq.name}</a> : "-"}</td>
-                      <td className={`${td} text-right`}>{f.lastSeen ? `${utc(f.lastSeen, { date: true })} UTC` : "-"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          );
-        })()}
-        <p className="mt-3 text-sm text-sky-ink-3">Rates are averages over the last 24 hours, from your services&rsquo; spans. Trailbeam makes no AWS calls, so queue depth isn&rsquo;t here: the SQS console shows it. <Json href="/api/flows" /></p>
-      </div>
     </Frame>
   );
 }
