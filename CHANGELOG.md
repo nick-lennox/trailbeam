@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- **Java package, stage 5: Spring Boot executable jars** (QV-319, pre-release, not published). The kit's Java
+  driver is also built as a Spring Boot executable jar, with the SDK and Trailbeam nested under `BOOT-INF/lib`,
+  and two new variants run it with `java -jar`: `spring-boot` (alone) and `spring-boot-otel-agent` (beside the
+  OpenTelemetry Java agent, with its parent check). The JDK picks the Spring Boot line, so CI covers both of its
+  launchers: 2.7.18 on JDK 11, 3.5.16 on JDK 17 and 4.2.0 on JDK 21 (`-Dspring.boot.version` overrides it).
+- **A compatibility matrix, run every night** (QV-335). Python 3.10 to 3.14, each with the oldest
+  (boto3 / botocore 1.34.0, OpenTelemetry 1.28 / 0.49b0) and the newest dependencies, Node.js 20, 22 and 24, each
+  with the oldest (3.572.0) and the newest `@aws-sdk/client-sqs`, and Postgres 14 to 18
+  (`.github/workflows/compat.yml`, also on `release/**` branches). It reads `compat/matrix.toml`, and so does
+  the README's new supported-versions table, which CI checks against it.
+- **The oldest supported AWS SDK for JavaScript v3 is now stated: `@aws-sdk/client-sqs` 3.572.0** (May 2024).
+  Older clients silently drop `MessageSystemAttributeNames`, so their spans had no send time, receive count or
+  dead-letter source.
+- **Fixes found by the new compatibility matrix** (QV-335).
+  - **Python 3.11: retention gave back almost no disk space.** On a SQLite file, each retention pass freed one
+    page instead of up to its limit, because Python 3.11's `sqlite3` stops `PRAGMA incremental_vacuum` after
+    its first step. Fixed for every Python version.
+  - **botocore older than mid-2024 (the oldest supported, 1.34.0): every `receive_message` failed** once the
+    hooks were installed. The hooks asked for `MessageSystemAttributeNames`, which that botocore rejects as an
+    unknown parameter. They now ask through `AttributeNames` when botocore doesn't know the newer name.
+  - **The application's own botocore hooks were dropped.** With `opentelemetry-instrumentation-botocore`
+    releases up to at least 0.60b0, `trailbeam.boto.install()` cleared the request and response hooks the
+    application had passed to `BotocoreInstrumentor().instrument(...)`. They are kept now.
+  - **The oldest OpenTelemetry versions are now 1.28 / 0.49b0** (were 1.27 / 0.48b0).
+    `opentelemetry-instrumentation` 0.48b0 imports `pkg_resources` without depending on setuptools, so
+    `import trailbeam.boto` failed in an environment without setuptools.
 - **Java package, stage 5: version matrix and strict parent checks** (QV-319, pre-release, not published). CI
   runs the Java driver in every variant on JDK 11 and 17 and on AWS SDK 2.17.295, 2.20.162, 2.24.13 and 2.25.0,
   beside the existing JDK 21 run on the newest SDK. The supported floor is SDK 2.17. The agent variants now check
@@ -227,6 +253,12 @@
 
   `deploy/helm/check.sh` now runs the documented port-forward, checks what each selector picks, and upgrades a
   release installed by the 0.4.0 chart.
+- **Span contract 4.0: broker-neutral kinds and RabbitMQ spans** (QV-305, contract only). Kinds are
+  `<family>.<operation>`, and `contract/span-contract-amqp.md` defines the `amqp.*` spans of a RabbitMQ client
+  (publish with confirms, return, deliver, ack, nack, reject, cancel, channel closed), the receive count from
+  quorum queues' headers, the dead-letter source and reason from `x-death`, and message identity. It comes with
+  vectors and fixtures. Nothing emits or reads these spans yet: the server (QV-306) and the Python package
+  (QV-309) follow. SQS and SNS spans are unchanged.
 
 ## 0.4.0: set up in one command
 

@@ -482,7 +482,10 @@ class SqliteStore(Store):
                 return 0
             before = c.execute("PRAGMA freelist_count").fetchone()[0]
             if before:
-                c.execute(f"PRAGMA incremental_vacuum({int(max_pages)})").fetchall()  # it frees a page per step
+                # It frees a page per step. executescript runs it to the end on every Python: on 3.11,
+                # execute(...).fetchall() stops after the first step, so one page (QV-335). The connection
+                # is in autocommit mode, so executescript's COMMIT first has nothing to commit.
+                c.executescript(f"PRAGMA incremental_vacuum({int(max_pages)});")
             return before - c.execute("PRAGMA freelist_count").fetchone()[0]
 
     def vacuum(self) -> None:
