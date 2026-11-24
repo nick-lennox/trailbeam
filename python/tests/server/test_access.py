@@ -303,6 +303,10 @@ def test_every_level_once_an_admin_exists(store):
     assert acc.check(H(bearer(mtok)), ADMIN).status == 403
     assert acc.check(H(bearer(SHARED)), MEMBER).message == access.SHARED_UI_GONE
     assert acc.check(H(), MEMBER).status == 401
+    # over HTTPS only the __Host- cookie is a session (sessions.py)
+    assert not acc.check(cases["member session"], MEMBER, "https").ok
+    assert acc.check(H({"Cookie": f"__Host-trailbeam_sid={sid}"}), MEMBER, "https").ok
+    assert acc.check(H(bearer(mtok)), MEMBER, "https").ok
     assert acc.mode() == "accounts"
 
 
@@ -505,6 +509,26 @@ def test_sign_in_over_https_through_a_trusted_proxy_sets_the_host_cookie(serve):
     status, headers, _ = call(url, "/login", method="POST", data=form, headers={"X-Forwarded-Proto": "https"})
     assert status == 303 and headers["Set-Cookie"].startswith("__Host-trailbeam_sid=")
     assert "Secure" in headers["Set-Cookie"]
+
+
+def test_over_https_a_plain_session_cookie_is_not_a_session(serve):
+    url, app = serve(trusted_proxies=TrustedProxies(parse_networks("127.0.0.1/32")))
+    add_user(app, "root@example.com", "admin")
+    ana = add_user(app, "ana@example.com", "member")
+    sid, _ = app.sessions.start(ana)
+    https = {"X-Forwarded-Proto": "https"}
+    # the same session ID: planted under the plain name it signs no one in over HTTPS
+    assert call(url, "/api/me", headers={**https, "Cookie": f"trailbeam_sid={sid}"})[0] == 401
+    assert call(url, "/api/messages", headers={**https, "Cookie": f"trailbeam_sid={sid}"})[0] == 401
+    assert call(url, "/api/messages", headers={**https, "Cookie": f"__Host-trailbeam_sid={sid}"})[0] == 200
+    assert call(url, "/api/messages", headers={"Cookie": f"trailbeam_sid={sid}"})[0] == 200  # plain HTTP
+    # /logout over HTTPS doesn't end the session a plain cookie names...
+    status, headers, _ = call(url, "/logout", headers={**https, "Cookie": f"trailbeam_sid={sid}"})
+    assert status == 303 and headers["Set-Cookie"].startswith("__Host-trailbeam_sid=;")
+    assert call(url, "/api/messages", headers={**https, "Cookie": f"__Host-trailbeam_sid={sid}"})[0] == 200
+    # ...but does end the __Host- one
+    call(url, "/logout", headers={**https, "Cookie": f"__Host-trailbeam_sid={sid}"})
+    assert call(url, "/api/messages", headers={**https, "Cookie": f"__Host-trailbeam_sid={sid}"})[0] == 401
 
 
 def test_sign_in_from_another_site_is_refused(serve):
