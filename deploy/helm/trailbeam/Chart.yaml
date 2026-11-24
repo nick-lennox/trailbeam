@@ -3,8 +3,8 @@ name: trailbeam
 description: Trailbeam server (per-message timelines for Amazon SQS) on Kubernetes, on Postgres
 type: application
 # Both follow the Trailbeam version; the release workflow checks they match the tag.
-version: 0.4.0
-appVersion: "0.4.0"
+version: 0.5.0
+appVersion: "0.5.0"
 home: https://trailbeam.app
 sources: [https://github.com/nick-lennox/trailbeam]
 annotations:
