@@ -112,7 +112,7 @@ SPANS_COLUMNS = ("row, trace_id, span_id, kind, time_ns, start_ns, service_name,
 SPANS_ADDED = """,
     service_version TEXT             -- the resource's service.version (QV-362)"""
 
-# Schema 18 (QV-394): the steps /api/events counts, per hour, queue, service and kind (events.py, db.py). Kept
+# Schema 19 (QV-394): the steps /api/events counts, per hour, queue, service and kind (events.py, db.py). Kept
 # exact: ingest adds the spans it stores, retention takes out the ones it deletes. Purges are not steps.
 STEP_ROLLUP_CREATE = """
 CREATE TABLE IF NOT EXISTS step_rollup (
@@ -145,7 +145,9 @@ CREATE TABLE IF NOT EXISTS schema_version (
     name TEXT NOT NULL,              -- the migration's name; 'create' for a file made at this version
     trailbeam_version TEXT           -- the Trailbeam that ran it; NULL for versions reached before 6
 );
-""" + summary_table.CREATE + body_table.CREATE + PROBES_CREATE + account_tables.SQLITE_CREATE + STEP_ROLLUP_CREATE
+""" + summary_table.CREATE + body_table.CREATE + PROBES_CREATE + account_tables.SQLITE_CREATE + f"""
+{account_tables.SQLITE_ADD_PROXY};
+""" + STEP_ROLLUP_CREATE
 
 # Schema 1 was the first released (the CREATE of version 1 is in tests/server/test_migrations.py).
 # Schema 1 had no start_ns. Its rows came from contract v1 spans, stamped only when the response arrived,
@@ -195,7 +197,9 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # Schema 17 (QV-363) adds queue_events, the queue page's events by queue and time (queues.py), and
 # messages.qevents_json, the list of a message's rows in it. Both are built from every message's spans: one pass
 # over messages, reading each message's spans by row ID, as migration 12 does with the summaries.
-# Schema 18 (QV-394) adds step_rollup (STEP_ROLLUP_CREATE), built from the spans in one pass: GROUP BY over every
+# Schema 18 (QV-227) adds users.proxy_linked_at_ms: which people may sign in through a proxy (proxy_auth.py). NULL
+# for everyone stored before it, so no local account can be signed in to through the proxy until an admin links it.
+# Schema 19 (QV-394) adds step_rollup (STEP_ROLLUP_CREATE), built from the spans in one pass: GROUP BY over every
 # span, about a second per million. It changes no span data. It rebuilds the table rather than adding to it, so a file
 # whose recorded version is older than its tables (a restore, or a test rolling the number back) still ends exact.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new", added=""))
@@ -245,6 +249,12 @@ def _to_17(conn: sqlite3.Connection) -> None:
     summary_table.rebuild_queue_events(conn)
 
 
+def _to_18(conn: sqlite3.Connection) -> None:
+    """Adds users.proxy_linked_at_ms, unless the file has it (as _to_16)."""
+    if account_tables.PROXY_COLUMN not in {r[1] for r in conn.execute("PRAGMA table_info(users)")}:
+        conn.execute(account_tables.SQLITE_ADD_PROXY)
+
+
 def _to_14(conn: sqlite3.Connection) -> None:
     cur = conn.cursor()
     cur.row_factory = sqlite3.Row
@@ -288,7 +298,8 @@ MIGRATIONS = (
     Migration(15, "users, sessions and tokens", tuple(statements(account_tables.SQLITE_CREATE))),
     Migration(16, "spans.service_version", (), run=_to_16),
     Migration(17, "queue events (the queue page)", (), run=_to_17),
-    Migration(18, "hourly step rollup (/api/events)", tuple(statements(STEP_ROLLUP_CREATE))
+    Migration(18, "users.proxy_linked_at_ms", (), run=_to_18),
+    Migration(19, "hourly step rollup (/api/events)", tuple(statements(STEP_ROLLUP_CREATE))
               + ("DELETE FROM step_rollup", STEP_ROLLUP_BACKFILL)),
 )
 LATEST = MIGRATIONS[-1].version
