@@ -1,0 +1,19 @@
+{
+  "name": "go",
+  "description": "trailbeamsqs (Go): trailbeamsqs.AppendMiddlewares(&cfg.APIOptions) on an aws-sdk-go-v2 config, alone, beside otelaws (also with the application's sampler at 0) and beside dd-trace-go v2. The setup builds the driver with the go on PATH (Go 1.26 or later: the driver takes the newest SDK and instrumentations).",
+  "setup": ["go", "build", "-C", "{driver_dir}", "-o", "bin/driver", "."],
+  "command": ["{driver_dir}/bin/driver"],
+  "variants": [
+    {"name": "alone", "parent": "any",
+     "about": "only Trailbeam: its middleware on the config, no other tracing"},
+    {"name": "otelaws", "parent": "exported",
+     "env": {"KIT_APP_TRACING": "otel"},
+     "about": "beside the application's own tracer provider and the stock otelaws middleware, appended after Trailbeam's: every Trailbeam span is a child of otelaws's exported span for the same call"},
+    {"name": "otelaws-sampled-0", "parent": "unexported",
+     "env": {"KIT_APP_TRACING": "otel", "OTEL_TRACES_SAMPLER": "traceidratio", "OTEL_TRACES_SAMPLER_ARG": "0"},
+     "about": "as otelaws, with the application's sampler at 0: Trailbeam's always-on provider must still export every span, each still a child of otelaws's (unexported) span"},
+    {"name": "dd-trace-go", "parent": "any",
+     "env": {"KIT_APP_TRACING": "datadog", "DD_INSTRUMENTATION_TELEMETRY_ENABLED": "false", "DD_TRACE_STARTUP_LOGS": "false"},
+     "about": "beside dd-trace-go v2's aws-sdk-go-v2 middleware (no Datadog agent running: its spans go nowhere). Its span lives in the context as a Datadog span, not an OpenTelemetry one, and it puts no trace header on the request, so Trailbeam's spans are roots here"}
+  ]
+}

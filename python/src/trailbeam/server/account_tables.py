@@ -15,6 +15,10 @@ Postgres schema 8.
   row (``revoked_at_ms``), so the list can show them.
 - ``personal_tokens``: API tokens (``tbp_…``) that act as their owner, with the owner's role. Removed with the
   owner.
+- ``users.proxy_linked_at_ms`` (SQLite schema 18, Postgres schema 12; QV-227): set when the person may sign in
+  through the proxy (proxy_auth.py): the proxy created the account, or an admin linked it
+  (``trailbeam users link-proxy``). NULL: a proxy that names this email is refused, so a local account can't be
+  taken over by whoever the proxy lets in with the same email.
 - ``setup_codes``: one-time codes. ``kind`` is ``setup`` (the first admin, from ``trailbeam start``); phase 2 adds
   invite and reset links, which name a ``user_id``. ``code_sha256`` as for tokens; ``used_at_ms`` is set in the
   same transaction that acts on the code, so a code works once even with several replicas.
@@ -26,6 +30,12 @@ A ``--db :memory:`` store loses them, people and tokens included, on every resta
 from __future__ import annotations
 
 TABLES = ("users", "sessions", "ingest_tokens", "personal_tokens", "setup_codes")
+
+# Added after the tables were created (migrations.py 17, pg_schema.py 11); the CREATEs below are those of the first
+# migration (SQLite 15, Postgres 8) and stay as they are.
+PROXY_COLUMN = "proxy_linked_at_ms"
+SQLITE_ADD_PROXY = f"ALTER TABLE users ADD COLUMN {PROXY_COLUMN} INTEGER"
+PG_ADD_PROXY = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {PROXY_COLUMN} BIGINT"
 
 SQLITE_CREATE = """
 CREATE TABLE IF NOT EXISTS users (

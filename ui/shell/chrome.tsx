@@ -49,8 +49,10 @@ export const signInHref = () => `/login?next=${encodeURIComponent(location.pathn
 /** GET /api/me (contract/openapi.yaml, Me): how this page was let in, and as whom. */
 export type Me = {
   auth: "off" | "token" | "accounts";
-  via: "none" | "shared_token" | "shared_cookie" | "session" | "personal_token";
+  via: "none" | "shared_token" | "shared_cookie" | "session" | "personal_token" | "proxy";
   user: { id: number; email: string; name: string; role: "admin" | "member" } | null;
+  /** Whether Sign out (/logout) ends anything; absent before 0.5 (then: a session or the token's cookie). */
+  sign_out?: boolean;
 };
 
 let mePromise: Promise<Me | null> | null = null;
@@ -74,9 +76,11 @@ export function bodyAccess(me: Me | null): string {
   return "No logins: anyone who can reach this Trailbeam can read the bodies it keeps.";
 }
 
-/** The header's right end: who is signed in, and Sign out. Nothing on a server without a token or accounts. */
+/** The header's right end: who is signed in, and Sign out. Nothing on a server without a token or accounts.
+    Signed in by a proxy (via "proxy"): the name, and Sign out only when the server knows the proxy's sign-out. */
 export function Account({ me }: { me: Me | null }) {
-  if (!me || (me.via !== "session" && me.via !== "shared_cookie")) return null;
+  if (!me || (me.via !== "session" && me.via !== "shared_cookie" && me.via !== "proxy")) return null;
+  const signOut = me.sign_out ?? me.via !== "proxy";
   return (
     <div className="flex items-center gap-3 text-sm text-sky-ink-2">
       {me.user && (
@@ -84,7 +88,7 @@ export function Account({ me }: { me: Me | null }) {
           {me.user.name}{me.user.role === "admin" && <span className="ml-1 text-caption text-sky-ink-3">admin</span>}
         </span>
       )}
-      <a href="/logout" className="hover:text-sky-ink">Sign out</a>
+      {signOut && <a href="/logout" className="hover:text-sky-ink">Sign out</a>}
     </div>
   );
 }

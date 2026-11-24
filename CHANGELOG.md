@@ -40,6 +40,10 @@
 - **`trailbeam --version`** (QV-346). `trailbeam --version` (or `-V`, also after `start`) prints
   `trailbeam <version>` and exits 0; it used to fail with `unrecognized arguments`. `npx trailbeam --version` prints
   the same line (it printed the bare version before).
+- **A SIGTERM in the last moment of startup closes the store too** (QV-434). The server set its SIGTERM handler
+  a few lines before the block that, on the way out, stops the retention thread and closes the store. A SIGTERM
+  (docker stop, a Kubernetes rolling restart) that arrived in between, while the retention thread was starting,
+  ended the process without either, with a traceback and exit code 1. Both now run whenever the signal comes.
 - **The Java jar has its Maven Central name and release setup** (QV-319). The group ID is `app.trailbeam`, as
   the board chose, and the Java package moves with it from `dev.trailbeam.sqs` to `app.trailbeam.sqs`, so the
   Lambda handler is now `app.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`. Builds also make a sources
@@ -78,6 +82,17 @@
   the export missed the summary that had moved there and wrote a second one, without the newer span. Lists then
   showed the message twice, and its page could miss the delete. The export now reads the places again once it
   holds the message's lock.
+- **Go package, stage 1: SQS spans from aws-sdk-go-v2 middleware** (QV-321, pre-release, not published). In
+  `go/`, `trailbeamsqs`: one line where the AWS config is built, `trailbeamsqs.AppendMiddlewares(&cfg.APIOptions)`,
+  the same hook as otelaws and dd-trace-go. It emits every client span of the contract (send, receive, delete,
+  change visibility, their batch forms, purge) with the receipt-handle HMAC, receive count, timestamps, DLQ source
+  ARN, per-entry results, call-order ticks, the message ID on settle spans, body size and FIFO fields. The parent
+  is the span in the call's context, read after every middleware has started its own, so the order of the
+  `AppendMiddlewares` lines doesn't matter. It passes the conformance kit, 20 of 20 spans, alone, beside otelaws
+  v0.72.0 (each span a child of its exported span), with the application's sampler at 0, and beside dd-trace-go
+  v2.12.0. A new CI job, "Go package", runs the unit tests on Go 1.23 (with the minimum SDK and OpenTelemetry
+  versions) and on the newest Go, then the kit. Still to come: tenants and body capture, the aws-lambda-go
+  wrapper, a version matrix and the docs.
 - **Java package, stage 6: the contract's Java note** (QV-319, pre-release, not published). New section 20 of
   the span contract says how the jar meets it: the parent read from the request's trace header, receives in a
   polling loop as root spans beside an agent, where times and call-order ticks are taken, one counter per class
@@ -341,6 +356,17 @@
   quorum queues' headers, the dead-letter source and reason from `x-death`, and message identity. It comes with
   vectors and fixtures. Nothing emits or reads these spans yet: the server (QV-306) and the Python package
   (QV-309) follow. SQS and SNS spans are unchanged.
+- **Sign-in through a proxy** (QV-227, users and roles phase 3a). With `--proxy-auth-header X-Forwarded-Email`
+  (`TRAILBEAM_PROXY_AUTH_HEADER`), people signed in by oauth2-proxy, Pomerium, Cloudflare Access or similar need no
+  Trailbeam password. Off by default; the header is believed only from `--trusted-proxy` addresses and/or with a
+  shared secret in `X-Trailbeam-Proxy-Secret` (`--proxy-auth-secret-file`), and the server refuses to start with
+  neither. A first-time email becomes a member, never an admin. An email that has a local account is refused until
+  an admin runs `trailbeam users link-proxy`, so the proxy can't be used to take over an account; `unlink-proxy`
+  undoes it, and `users create --proxy` makes an account for the proxy with no password. `--proxy-auth-sign-out-url`
+  gives those people a Sign out that ends the proxy's session. `/api/me` says `via: proxy` and gains `sign_out`,
+  `/api/health` gains `config.proxy_auth`, and the API's endpoints can answer 403. The README has an oauth2-proxy
+  setup. Schema: SQLite 18, Postgres 12 (`users.proxy_linked_at_ms`, NULL for everyone already stored). Checking
+  proxies' signed tokens (Cloudflare, Pomerium, Google IAP, AWS ALB) comes later, with the `sso` extra.
 
 ## 0.4.0: set up in one command
 
