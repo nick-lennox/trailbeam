@@ -169,7 +169,8 @@ def test_dead_letter_queue_source_arn_is_copied_verbatim(trailbeam_spans):
     params = {"QueueUrl": "http://localhost:9324/000000000000/orders-dlq"}
     span = object()
     hooks.request_hook(span, "sqs", "ReceiveMessage", params)
-    assert "DeadLetterQueueSourceArn" in params["MessageSystemAttributeNames"]
+    asked = params.get("MessageSystemAttributeNames") or params["AttributeNames"]  # the latter: old botocore
+    assert "DeadLetterQueueSourceArn" in asked
     hooks.response_hook(span, "sqs", "ReceiveMessage", {"Messages": [
         {"MessageId": "m1", "ReceiptHandle": "rh-1", "Attributes": {"ApproximateReceiveCount": "4",
                                                                  "DeadLetterQueueSourceArn": arn}},
@@ -179,6 +180,8 @@ def test_dead_letter_queue_source_arn_is_copied_verbatim(trailbeam_spans):
     assert got == [arn, None]  # empty: omitted, never ""
 
 
+@pytest.mark.skipif(not trailbeam.boto.botocore_has_system_names_param(),
+                    reason="this botocore predates MessageSystemAttributeNames")
 def test_receive_keeps_what_the_caller_asked_for(trailbeam_spans, make_client, queue_url):
     c = make_client()
     c.send_message(QueueUrl=queue_url, MessageBody="x")
@@ -213,6 +216,26 @@ def test_add_receive_attribute_names(given, expected):
     trailbeam.boto.add_receive_attribute_names(params)
     assert {k: v for k, v in params.items() if k != "QueueUrl"} == expected
     assert given == original  # the caller's lists are not modified in place
+
+
+@pytest.mark.parametrize("given,expected", [
+    ({}, {"AttributeNames": list(trailbeam.boto.RECEIVE_SYSTEM_ATTRIBUTES)}),
+    ({"AttributeNames": ["All"]}, {"AttributeNames": ["All"]}),
+    ({"AttributeNames": ["SenderId"]},
+     {"AttributeNames": ["SenderId"] + list(trailbeam.boto.RECEIVE_SYSTEM_ATTRIBUTES)}),
+])
+def test_add_receive_attribute_names_for_a_botocore_without_the_new_name(given, expected):
+    """botocore before MessageSystemAttributeNames (1.34.0, the oldest supported) rejects it: the names go in
+    AttributeNames instead, so the caller's receive still works (QV-335)."""
+    params = dict(given, QueueUrl="u")
+    trailbeam.boto.add_receive_attribute_names(params, system_names_param=False)
+    assert {k: v for k, v in params.items() if k != "QueueUrl"} == expected
+
+
+def test_the_model_check_matches_this_botocore():
+    import botocore.session
+    members = botocore.session.get_session().get_service_model("sqs").operation_model("ReceiveMessage").input_shape.members
+    assert trailbeam.boto.botocore_has_system_names_param() == ("MessageSystemAttributeNames" in members)
 
 
 # -- delete / change visibility ------------------------------------------------------------------
@@ -516,7 +539,9 @@ def test_existing_instrumentation_keeps_its_hooks_and_sampling(make_client, queu
     app_provider = TracerProvider(sampler=ALWAYS_OFF)
     app_provider.add_span_processor(SimpleSpanProcessor(app_exporter))
     calls = []
-    BotocoreInstrumentor().instrument(
+    # One reference, kept: in older releases (0.49b0 to at least 0.60b0), each BotocoreInstrumentor() call resets the singleton's hooks.
+    app_inst = BotocoreInstrumentor()
+    app_inst.instrument(
         tracer_provider=app_provider,
         request_hook=lambda span, svc, op, p: calls.append(("req", op)),
         response_hook=lambda span, svc, op, r: calls.append(("resp", op)))
@@ -530,13 +555,13 @@ def test_existing_instrumentation_keeps_its_hooks_and_sampling(make_client, queu
         assert ("req", "SendMessage") in calls and ("resp", "SendMessage") in calls
         assert app_exporter.get_finished_spans() == ()
         trailbeam.boto.uninstall()
-        assert BotocoreInstrumentor().is_instrumented_by_opentelemetry  # the app's stays
+        assert app_inst.is_instrumented_by_opentelemetry  # the app's stays
         calls.clear()
         make_client().send_message(QueueUrl=queue_url, MessageBody="y")
         assert ("req", "SendMessage") in calls
         assert len(exporter.get_finished_spans()) == 1  # nothing new from Trailbeam
     finally:
-        BotocoreInstrumentor().uninstrument()
+        app_inst.uninstrument()
 
 
 def test_service_instance_id_from_resource_env(monkeypatch, make_client, queue_url):
