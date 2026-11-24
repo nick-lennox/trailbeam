@@ -114,7 +114,8 @@ def build_parser() -> argparse.ArgumentParser:
         d = us.add_parser(name, parents=[common], help=text)
         d.add_argument("user", help="their email or ID")
         d.set_defaults(run=run)
-    rm = us.add_parser("remove", parents=[common], help="remove a person, their sessions and personal tokens")
+    rm = us.add_parser("remove", parents=[common], help="remove a person, their sessions and personal tokens (someone "
+                       "who signs in with single sign-on can come back as a new person: disable them instead)")
     rm.add_argument("user", help="their email or ID")
     rm.add_argument("--yes", action="store_true", help="don't ask first")
     rm.set_defaults(run=users_remove)
@@ -396,8 +397,16 @@ def users_enable(a, acc: Accounts, where: str) -> int:
     return 0
 
 
+SSO_COMES_BACK = ("signs in with single sign-on: removing them doesn't keep them out. At their next sign-in the "
+                  "identity provider lets them in again, as a new person with the default role. To keep them out, "
+                  "disable them instead (trailbeam users disable)")
+
+
 def users_remove(a, acc: Accounts, where: str) -> int:
     u = _user(acc, a.user)
+    sso = bool(acc.oidc_identities(u["id"]))
+    if sso:
+        _say(f"Note: {u['email']} {SSO_COMES_BACK}.")
     _confirm(f"Remove {u['email']}, with their sessions and personal API tokens?", a.yes, "remove")
     acc.remove_user(u["id"])
     _say(f"Removed {u['email']}. {SEEN_SOON}")

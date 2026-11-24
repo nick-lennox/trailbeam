@@ -623,6 +623,9 @@ trailbeam tokens revoke 3                            # --personal for a personal
 - Creating the first ingest token says first that it closes ingest on a server without `TRAILBEAM_TOKEN`, and
   asks. Without a terminal, pass `--yes`.
 - The server always keeps an admin: the last admin who can sign in can't be made a member, disabled or removed.
+- **Removing someone who signs in with single sign-on doesn't keep them out.** At their next sign-in the provider
+  lets them in again, as a new person with the default role (`trailbeam users remove` says so first). To keep them
+  out, disable them instead.
 - Changing someone's role or password, or disabling or removing them, ends their sessions. Running servers see it
   within 20 seconds, a revoked token within 30 seconds, and a new admin or a first ingest token within 5 seconds.
 - The commands never create or upgrade a store: they refuse a file that doesn't exist, a store at an older or
