@@ -8,23 +8,16 @@
 # DOCS_DEPLOY_KEY secret here. Pull requests from forks get no secrets, so for them the job says so and
 # does nothing.
 #
-# The nightly run catches docs pages changed in trailbeam-app since the last Trailbeam change.
+# ci.yml calls this workflow (QV-389): on pull requests and pushes that change a README or .env.example, and
+# in the nightly full run, which catches docs pages changed in trailbeam-app since the last Trailbeam change.
 name: Docs commands
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-  schedule:
-    - cron: "41 4 * * *"
+  workflow_call:
   workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: docs-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   docs:
@@ -64,6 +57,30 @@ jobs:
         if: steps.key.outputs.run
         with:
           node-version: "22"
+
+      # public.ecr.aws limits anonymous pulls per IP address, and GitHub's runners share addresses, so a pull can
+      # fail with "Data limit exceeded" for reasons that are not the page's (QV-313's PR #86, twice). Pull the
+      # pages' public ECR images first, with retries, and if ECR still refuses, take the same image from Docker
+      # Hub (aws-observability publishes each one as amazon/<name>, same digest) and tag it with the page's name,
+      # so the page's own `docker run` finds it locally.
+      - name: Pull the docs pages' public ECR images (Docker Hub copy if ECR refuses)
+        if: steps.key.outputs.run
+        run: |
+          for ref in $(grep -rhoE 'public\.ecr\.aws/[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+' _docs/content/docs README.md | sort -u); do
+            ok=
+            for i in 1 2 3; do docker pull -q "$ref" && { ok=1; break; }; sleep $((i * 15)); done
+            [ -n "$ok" ] && continue
+            case "$ref" in
+              public.ecr.aws/aws-observability/*) mirror="amazon/${ref#public.ecr.aws/aws-observability/}" ;;
+              *) echo "::error::can't pull $ref from public ECR and know no Docker Hub copy of it"; exit 1 ;;
+            esac
+            docker pull -q "$mirror"
+            want=$(docker buildx imagetools inspect "$ref" --format '{{json .Manifest.Digest}}' 2>/dev/null | tr -d '"' || true)
+            got=$(docker buildx imagetools inspect "$mirror" --format '{{json .Manifest.Digest}}' 2>/dev/null | tr -d '"' || true)
+            if [ -n "$want" ] && [ "$want" != "$got" ]; then echo "::error::$mirror ($got) is not $ref ($want)"; exit 1; fi
+            docker tag "$mirror" "$ref"
+            echo "::warning::public ECR refused $ref; used the Docker Hub copy $mirror${want:+ (same digest $want)}"
+          done
 
       - name: Build Trailbeam (wheelhouse, Node.js package, image)
         if: steps.key.outputs.run
