@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "trailbeam"
 version = "0.4.0"
-description = "Message-level timelines for Amazon SQS: OpenTelemetry hooks for boto3 and AWS Lambda, and, with the server extra, Trailbeam itself."
+description = "Message-level timelines for Amazon SQS and RabbitMQ: OpenTelemetry hooks for boto3, AWS Lambda and pika, and, with the server extra, Trailbeam itself."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
@@ -18,6 +18,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# RabbitMQ (contract/span-contract-amqp.md): the pika hooks, trailbeam.pika. pip install "trailbeam[pika]".
+pika = [
+    "pika>=1.3",
+]
 # Trailbeam itself: receives spans over OTLP/HTTP, keeps them in SQLite, serves the API and web screen.
 # pip install "trailbeam[server]", then run: trailbeam
 server = [
@@ -48,6 +52,8 @@ test = [
     "openapi-spec-validator>=0.7",
     # single sign-on against an in-process identity provider (tests/server/test_oidc.py)
     "PyJWT[crypto]>=2.8",
+    # the RabbitMQ hooks (tests/test_pika_*.py; the broker tests need TRAILBEAM_TEST_AMQP_URL)
+    "pika>=1.3",
 ]
 
 [project.scripts]

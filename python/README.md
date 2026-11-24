@@ -1,8 +1,9 @@
 # Trailbeam (Python)
 
-The `trailbeam` package has two parts: hooks for boto3 SQS clients, and a wrapper for AWS Lambda handlers
-that consume SQS. Both emit the spans defined in
-[`contract/span-contract.md`](../contract/span-contract.md). Python 3.10 or later.
+The `trailbeam` package has three parts: hooks for boto3 SQS clients, a wrapper for AWS Lambda handlers
+that consume SQS, and hooks for pika, the RabbitMQ client. The SQS parts emit the spans defined in
+[`contract/span-contract.md`](../contract/span-contract.md), the pika hooks those of
+[`contract/span-contract-amqp.md`](../contract/span-contract-amqp.md). Python 3.10 or later.
 
 ## Install
 
@@ -104,6 +105,48 @@ Events without SQS records go to the handler unchanged. `messaging.client.id` is
 | `report_batch_item_failures` | `True` | Match the event source mapping's `FunctionResponseTypes`. |
 
 The wrapped function has a `trailbeam_tracer_provider` attribute.
+
+## Add the hooks to pika (RabbitMQ)
+
+```sh
+pip install "trailbeam[pika]"
+```
+
+Call `install` once per process, before you open connections:
+
+```python
+import trailbeam.pika
+trailbeam.pika.install()
+```
+
+The hooks sit on `pika.channel.Channel`, which every pika connection type uses (`BlockingConnection`, pika 1.5's
+thread-safe `Connection`, `SelectConnection`, and the asyncio, Tornado and Twisted adapters). pika 1.3 or later.
+They emit the spans of contract 4.0 (schema version 4):
+
+| What the application or the broker does | Span |
+|---|---|
+| `basic_publish`; with `confirm_delivery`, the span ends at the broker's confirm (or its nack, or the channel closing first) | `trailbeam publish` |
+| the broker returns a `mandatory` publish no queue took (`basic.return`) | `trailbeam return` |
+| a delivery to a `basic_consume` consumer, before your callback runs; a `basic_get` that returned a message | `trailbeam deliver` |
+| `basic_ack`, `basic_nack`, `basic_reject`: one span per delivery covered (`multiple=True` covers several) | `trailbeam ack`, `trailbeam nack`, `trailbeam reject` |
+| `basic_cancel`, or the broker cancelling a consumer (its queue was deleted, or a consumer timeout) | `trailbeam cancel` |
+| the channel or its connection closes, or the connection is lost, with deliveries not settled: one span per delivery | `trailbeam channel_closed` |
+
+The hooks make no broker calls of their own and don't change messages. The receive count comes from the quorum
+queue's `x-acquired-count` header (a classic queue's redelivery has none), the dead-letter move from `x-death`.
+A message is identified by its `message_id` property: a publish without one is counted but gets no timeline, unless
+you turn on `set_message_id`. RabbitMQ streams are not covered.
+
+Limits: a channel opened before `install` is not followed, and a consumer of the server-named queue `""` gets no
+spans (pass the queue's name). With `auto_ack=True` a delivery is settled by the broker as it is sent, so it gets a
+`trailbeam deliver` and nothing more.
+
+### `trailbeam.pika` reference
+
+| Call | Effect |
+|---|---|
+| `install(*, span_exporter=None, span_processor=None, tenant=None, capture=None, set_message_id=None)` | Installs the hooks and returns the Trailbeam `TracerProvider`. `tenant` and `capture` are as for `trailbeam.boto` ([Message contents](#message-contents-opt-in)): the tenant comes from the message header `tenant["message_attribute"]` names, then the body path; `body_queues` lists queues, and exchanges for publishes. Only text bodies are captured (`not_text` otherwise). `set_message_id=True`, or `TRAILBEAM_AMQP_SET_MESSAGE_ID=on`, gives a publish without a `message_id` a random UUID (on a copy of its properties), marked `trailbeam.amqp.message_id.source = package`. A second call replaces the first installation. |
+| `uninstall()` | Removes the hooks, then flushes and shuts down the Trailbeam tracer provider. |
 
 ## Configuration
 
@@ -229,6 +272,11 @@ cd python && pytest -q
 The hook tests use a local SQS emulator and never AWS: they remove every `AWS_*` variable and set
 dummy credentials. By default they start moto's server in-process. To use ElasticMQ or LocalStack,
 set `TRAILBEAM_TEST_SQS_ENDPOINT`, for example to `http://localhost:9324`.
+
+The pika hooks' tests against the contract's vectors need no broker. Their tests against RabbitMQ
+(`tests/test_pika_rabbitmq.py`) run when `TRAILBEAM_TEST_AMQP_URL` names one, for example
+`docker run -d -p 127.0.0.1:5672:5672 rabbitmq:4` and `amqp://guest:guest@127.0.0.1:5672/%2F`. Each test declares
+queues of its own and deletes them.
 
 The Postgres store's tests, and the storage conformance suite on Postgres, run when
 `TRAILBEAM_TEST_POSTGRES_URL` names a database the tests may create schemas in, for example
