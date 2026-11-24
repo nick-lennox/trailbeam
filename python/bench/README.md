@@ -344,12 +344,13 @@ Docker objects are named `qv238-*` and removed at the end (`--keep` keeps them).
 | `pg-down` | `docker stop` Postgres for 60 s, then start it; the server is not touched |
 | `disk-full` | a ballast file fills the store's disk to the last 2 MB for 60 s, then is deleted |
 | `retention-restart` | spans 10–13 days old are stored with a 2-day retention; while the pass deletes them, Postgres is killed and restarted (`docker restart -t 0`), or for SQLite the server is SIGKILLed |
+| `statement-timeout` | (Postgres) `spans` locked for 60 s under steady ingest, and the exports' statements waiting on it cancelled every 0.5 s, as `statement_timeout` cancels them (the same error, sooner); then the lock is released |
 | `replicas` | two replicas on one Postgres behind a round-robin balancer that skips a dead one; SIGKILL one, start it 8 s later |
 | `duplicate` | every export answered `200` is sent again (a client retry after a lost answer) |
 | `disorder` | spans shuffled over a window of 40 exports, so settles come before receives before sends, from 8 services with clocks off by 0 s to ±1 h |
 
 **In CI** (`tests/server/test_faults.py`, 2 s phases): `kill9`, `kill9-relaxed`, `duplicate` and `disorder` on
-SQLite in the Python job; `kill9`, `duplicate`, `disorder` and `replicas` on Postgres in the Postgres job; and a
+SQLite in the Python job; `kill9`, `duplicate`, `disorder`, `replicas` and `statement-timeout` (3 s) on Postgres in the Postgres job; and a
 full SQLite disk through `max_page_count`, which gives the same `SQLITE_FULL`. `pg-down`, `disk-full` with a
 real disk, and `retention-restart` need Docker and a minute or more each, so they run from this script only.
 
@@ -373,6 +374,7 @@ On a desktop with 16 threads and 11 GB of RAM under WSL2, the data on its virtua
 | duplicate | Postgres | pass | 26,176 | 26,176 | 0 | 0 | 0 | yes | n/a; 26,176 duplicates counted |
 | disorder | SQLite | pass | 52,672 | 52,672 | 0 | 0 | 0 | yes | n/a |
 | disorder | Postgres | pass | 24,000 | 24,000 | 0 | 0 | 0 | yes | n/a |
+| statement-timeout (60 s, QV-300) | Postgres | pass | 25,216 | 25,216 | 0 | 0 | 0 | yes | 0.6 after the lock was released; 76 statements cancelled, 76 exports answered `503` `store_timeout` and stored on retry |
 
 "Spans sent" for retention-restart includes the expired ones, which are meant to be deleted. Each one was checked
 to be gone.
@@ -390,9 +392,11 @@ to be gone.
    is in. Reproduced by queueing 9 exports of 512 spans ahead of one, and tested in `test_group_commit.py`.
 3. A client that hung up before its answer printed a `BrokenPipeError` traceback. It now logs one line.
 
-**Filed, for a decision (QV-300):** a Postgres statement that runs past `statement_timeout` (60 s) is answered `500`,
-so the exporter drops the export. A `503` would have it retried, but an export that is always too slow would then
-be retried until the exporter gives up. Not seen in these runs.
+**Fixed after these runs (QV-300):** a Postgres statement that ran past `statement_timeout` (60 s) was answered `500`,
+so the exporter dropped the export. It is now `503` `store_timeout` with `Retry-After: 3`, and the export is stored
+when it is sent again. The `statement-timeout` case covers it: under steady ingest it locks `spans` so that exports
+pile up behind the lock, and cancels their statements for `--outage-s` (`pg_cancel_backend` gives the same error,
+`57014 query_canceled`, as the timeout, without waiting 60 s for each).
 
 **Not tested here:** an OS crash or power loss (the README's guarantee for it comes from SQLite's and Postgres'
 documentation), a network partition between replicas and Postgres (`pg-down` covers Postgres being unreachable),
