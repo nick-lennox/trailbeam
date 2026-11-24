@@ -222,7 +222,7 @@ test("a chart's rule far above its data stays off the scale; y labels fit and ar
   const fmtS = (v: number) => (v >= 60 ? `${Math.floor(v / 60)} min ${Math.round(v % 60)} s` : `${v} s`);
   // a 4-day retention over ages of seconds: named at the top, the scale stays on the data
   const far = renderToStaticMarkup(createElement(Chart, { ...base, lines: line([2, 4]), fmt: fmtS, rules: [{ value: 345_600 * 0.9, label: "90% of retention" }] }));
-  assert.match(far, /90% of retention, above this scale/);
+  assert.match(far, /90% of retention: above this scale/);
   assert.doesNotMatch(far, />[^<]* min[^<]*<\/text>/, "no axis label in minutes or days for data in seconds");
   // a visibility timeout near the data is drawn on the scale
   const near = renderToStaticMarkup(createElement(Chart, { ...base, lines: line([40, 50]), fmt: fmtS, rules: [{ value: 90, label: "visibility timeout" }] }));

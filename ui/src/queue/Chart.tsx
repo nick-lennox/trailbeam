@@ -244,9 +244,6 @@ export function Chart(p: ChartProps) {
                 <text x={W - pad.r} y={y(r.value) - 4} textAnchor="end" fontSize="10" className="font-mono" style={{ fill: "var(--color-ink-3)" }}>{r.label}</text>
               </g>
             ))}
-            {above.map((r, i) => (
-              <text key={r.label} x={W - pad.r} y={pad.t + 12 + i * 12} textAnchor="end" fontSize="10" className="font-mono" style={{ fill: "var(--color-ink-3)" }}>{r.label}, above this scale ↑</text>
-            ))}
             {(p.markers ?? []).map((m) => (
               <g key={`${m.t}-${m.label}`}>
                 <title>{m.title}</title>
@@ -288,6 +285,7 @@ export function Chart(p: ChartProps) {
             {hv !== null && shown.map((l) => (l.values[hv] !== null ? <circle key={l.key} cx={x(hv)} cy={y(l.values[hv]!)} r="3" style={{ fill: l.color }} /> : null))}
           </svg>
         </div>
+        {above.length > 0 && <p className="mt-1 text-right font-mono text-micro text-ink-3">{above.map((r) => `${r.label}: above this scale ↑`).join(" · ")}</p>}
         {hv !== null && (
           <div role="presentation" className="pointer-events-none absolute top-0 z-10 min-w-44 whitespace-nowrap rounded-[8px] border border-line bg-surface px-3 py-2 text-caption text-ink-2 shadow-sm"
             style={{ left: `${(x(hv) / W) * 100}%`, transform: x(hv) > W * 0.6 ? "translateX(calc(-100% - 10px))" : "translateX(10px)" }}>
