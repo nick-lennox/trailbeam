@@ -40,7 +40,30 @@
   - **Changed:** `/metrics` without a valid token answers a plain-text `401`, not the HTML sign-in page.
   - **Changed:** with neither a token nor an ingest token, the server now warns at every start that ingest is
     open, also when it listens only on localhost.
-  - Creating people and tokens from the command line comes with `trailbeam users` and `trailbeam tokens`.
+- **The first admin, and people and tokens from the command line** (QV-225, part 4 of phase 1).
+  - **`trailbeam start` prints a one-time setup link** while the store has no admin:
+    `Create your admin account: http://127.0.0.1:4318/setup#code=...`. The form makes the first admin and signs
+    them in. The code works once, for an hour, and each start replaces it. It is printed only when the output is
+    a terminal (`npx trailbeam start` says so to the container), never in the log, and it sits after `#`, where
+    browsers don't send it. `/setup` answers with `Referrer-Policy: no-referrer`. The code is used up and the
+    admin created in one transaction, so of two forms sent at once only one makes an admin.
+  - **Headless installs:** `TRAILBEAM_ADMIN_EMAIL` with `TRAILBEAM_ADMIN_PASSWORD_FILE` (and optionally
+    `TRAILBEAM_ADMIN_NAME`) creates the first admin at start, only while the store has none. Replicas starting
+    together make one. A password file that can't be used stops the server at start. Servers with no admin log
+    how to make one.
+  - **`trailbeam users create | list | set-role | reset-password | disable | enable | remove`** and
+    **`trailbeam tokens create | list | revoke`**, with `--personal` for personal API tokens (`--user`,
+    `--expires 90d`). They take the server's `--db` / `--store-url` (default: `trailbeam.sqlite` here, else
+    `~/.trailbeam/trailbeam.sqlite`), work while the server runs, and refuse a store they would have to create or
+    upgrade, and `--db :memory:`. A new token is printed once, alone on stdout. Passwords come from
+    `--password-file` or are asked for twice, never as an argument. Creating the first ingest token says first
+    that it closes open ingest, and asks (`--yes` without a terminal). `tokens list` shows the legacy shared
+    token when `TRAILBEAM_TOKEN` is set. `users create` on Postgres says to upgrade every replica first.
+  - **The server keeps an admin:** the last admin who can sign in can't be made a member, disabled or removed.
+  - **The web screen** shows who is signed in, with **Sign out**, and goes to the sign-in page when the session
+    ends. The Body tab says who can read bodies on this server. The first-run screen shows the token line when
+    ingest needs a token.
+  - CI runs `test_replicas_e2e.py` on Postgres, now also the switch to accounts on two replicas at once.
 
 - **Conformance kit: the Lambda wrappers** (QV-339, QV-318 stage 2). `trailbeam.aws_lambda.wrap` (Python) and
   `wrapHandler` (Node.js) run in the AWS Lambda base images, invoked through their Runtime Interface Emulator by
@@ -123,8 +146,8 @@
   `ingest_tokens`, `personal_tokens` and `setup_codes`: SQLite schema 15, Postgres schema 8. They are created
   empty and nothing uses them yet, so the server behaves exactly as before. Emails are unique ignoring case.
   Retention and `--vacuum` leave the tables alone. With `--db :memory:`, people and tokens are lost on every
-  restart, like the spans. **A database upgraded to this version can't be opened by 0.3.0 or 0.4.0 again**:
-  back it up before upgrading. (QV-225)
+  restart, like the spans. **A database upgraded to this version can't be opened by 0.4.0 or earlier (0.3.0
+  included) again**: back it up before upgrading. (QV-225)
 - **Helm chart: a release named `trailbeam` no longer crash-loops** (QV-291). In 0.4.0 its Service, named
   `trailbeam`, made Kubernetes set `TRAILBEAM_PORT=tcp://<ip>:4318` in every pod of the namespace, and the server
   exited on it. The pods now have `enableServiceLinks: false` and `TRAILBEAM_PORT=4318`, and CI installs the

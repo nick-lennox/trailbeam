@@ -39,6 +39,12 @@ info:
 
     Ingest is separate: see `POST /v1/traces`. `/api/ready` and the short form of `/api/health` never
     need a credential.
+
+    **People and tokens** are not managed through this API yet. The first admin is made with
+    `trailbeam users create --role admin`, with `TRAILBEAM_ADMIN_EMAIL` and `TRAILBEAM_ADMIN_PASSWORD_FILE`,
+    or with the one-time link `trailbeam start` prints (`/setup#code=...`). After that, `trailbeam users`
+    and `trailbeam tokens` manage people, ingest tokens and personal API tokens. `/setup`, `/login` and
+    `/logout` are web pages, not part of this API.
 servers:
   - url: http://127.0.0.1:4318
     description: A Trailbeam server started with its defaults.
