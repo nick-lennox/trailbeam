@@ -6,6 +6,8 @@ const { hashReceiptHandle, keyId, SCHEMA_VERSION } = require('./contract');
 const { install, instrument, uninstall, forceFlush } = require('./sqs');
 const { wrapHandler } = require('./lambda');
 const { stats: exportStats } = require('./export');
+// RabbitMQ (contract/span-contract-amqp.md): requires amqplib only when trailbeam.amqplib.install() is called
+const amqplib = require('./amqplib');
 
 module.exports = {
   version,
@@ -18,4 +20,5 @@ module.exports = {
   exportStats,
   hashReceiptHandle,
   keyId,
+  amqplib,
 };

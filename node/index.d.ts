@@ -128,3 +128,34 @@ export declare function wrapHandler<E = any, C = any, R = any>(
   handler: LambdaHandler<E, C, R>,
   options?: WrapHandlerOptions,
 ): WrappedHandler<E, C, R>;
+
+export interface AmqplibInstallOptions {
+  /** Replaces the default OTLP/HTTP exporter to $TRAILBEAM_OTLP_TRACES_ENDPOINT. */
+  spanExporter?: SpanExporter;
+  /** Replaces the default batch span processor (and exporter). */
+  spanProcessor?: SpanProcessor;
+  /** Where the tenant comes from: `messageAttribute` names a message header (contract/span-contract-amqp.md A11). */
+  tenant?: TenantOptions;
+  /** Opt-in body capture: `bodyQueues` lists queues for deliveries and exchanges for publishes. */
+  capture?: CaptureOptions;
+  /**
+   * Give a publish without a `messageId` a random UUID, marked `trailbeam.amqp.message_id.source = package`.
+   * The application's options object is copied, not changed. Default: $TRAILBEAM_AMQP_SET_MESSAGE_ID, else off.
+   */
+  setMessageId?: boolean;
+  /** The folder of the amqplib package to hook, when `require('amqplib')` from here or the working directory finds another. */
+  amqplibDir?: string;
+}
+
+/**
+ * RabbitMQ hooks for amqplib 0.10 or later (contract/span-contract-amqp.md, schema version 4): its promise and
+ * callback APIs. Call `install()` once per process, before opening connections.
+ */
+export declare const amqplib: {
+  /** Install the hooks into amqplib. Calling it again replaces the previous installation. */
+  install(options?: AmqplibInstallOptions): BasicTracerProvider;
+  /** Remove the hooks, then flush and shut down their tracer provider. Never rejects. */
+  uninstall(): Promise<void>;
+  /** Flush spans waiting to be exported. Never rejects. */
+  forceFlush(): Promise<void>;
+};
