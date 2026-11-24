@@ -56,6 +56,12 @@ It takes the same flags as the Python command (`npx trailbeam start --help` list
   [team install](../README.md#team-install-docker-compose-with-postgres).
 
 If Docker is missing, not running, or this user can't use it, it says so in one line and exits.
+
+The container has the label `trailbeam.start=1` (`docker ps --filter label=trailbeam.start` lists them). If
+the process that started `npx trailbeam start` goes away (a supervisor that stops only the `npx` process,
+which npm doesn't pass on), the server is stopped too, within about a second. If the port is already in use,
+it says so; when a Docker container publishes the port, it names the container (saying when it is a
+Trailbeam server from an earlier run) and gives the `docker stop` command.
 Nothing of this is loaded by `require('trailbeam')`, and it adds no dependencies.
 
 ## Client hooks

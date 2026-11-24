@@ -19,6 +19,11 @@
   the other messages it reached (links), and the "Arrived via SNS topic" step, with no time, before its receive.
   `TimelineView` takes an optional `messageHref` for those links; `@trailbeam/ui/fixtures/sns-timelines.json` is
   what the server returns after a fan-out (`@trailbeam/ui` 0.1.0-dev.4).
+- **`npx trailbeam start` no longer leaves the server running when only `npx` is stopped** (QV-344). npm doesn't
+  pass a signal sent to the `npx` process on, so the server kept port 4318. The launcher now stops the server
+  when the process that started it goes away. The container is labelled `trailbeam.start=1`, and when the port
+  is busy the error names the Docker container that publishes it (a Trailbeam server from an earlier run, too,
+  0.4.0 included) with the `docker stop` command.
 - **No spans dropped when a Postgres statement times out** (QV-300). An export whose statement ran past
   `statement_timeout` (60 s: a lock pile-up, a very slow disk) was answered `500`, which OTLP exporters don't
   retry, so its spans were lost. It is now answered `503` with `Retry-After: 3` (`store_timeout` in
