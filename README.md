@@ -688,7 +688,7 @@ spans and Prometheus to Trailbeam's port directly from inside the network (with 
 the proxy.
 
 **oauth2-proxy**, in front of the web screen, with Compose. oauth2-proxy sends `X-Forwarded-Email` and
-`X-Forwarded-Preferred-Username` to the address it proxies to (`--pass-user-headers`, on by default):
+`X-Forwarded-Preferred-Username` to the address it proxies to (its `pass_user_headers` setting, on by default):
 
 ```yaml norun="needs an OAuth app at your identity provider; the settings are the ones test_proxy_auth.py tests"
 services:
@@ -726,8 +726,8 @@ networks:
 
 Then create the first admin (`trailbeam users create --email you@example.com --role admin`, add `--proxy` to sign
 in only through oauth2-proxy), and everyone else is a member the first time they open Trailbeam. Don't use
-oauth2-proxy's `--skip-auth-route` for Trailbeam's pages; if you route anything past it with that flag, keep
-`--skip-auth-strip-headers` on (the default), so a client can't send its own `X-Forwarded-Email` there.
+oauth2-proxy's `skip_auth_routes` setting for Trailbeam's pages; if you route anything past it with that setting,
+keep `skip_auth_strip_headers` on (the default), so a client can't send its own `X-Forwarded-Email` there.
 
 Other proxies: Pomerium sends the email as `X-Pomerium-Claim-Email` (with `pass_identity_headers`), Cloudflare
 Access as `Cf-Access-Authenticated-User-Email`, Google IAP as `X-Goog-Authenticated-User-Email` (its
