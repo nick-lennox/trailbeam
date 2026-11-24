@@ -146,6 +146,8 @@ class LambdaRecorder:
             try:  # 3.4 (section 20.3): the SNS publish this record came from
                 attrs.update(_capture.sns_receive_attrs(self.capture, name, r.get("body"), r.get("messageAttributes"),
                                                         lambda_record=True))
+                if "trailbeam.sns.message_id" not in attrs:  # 3.5 (section 22): EventBridge or S3 sent it
+                    attrs.update(_capture.origin_receive_attrs(self.capture, name, r.get("body")))
             except Exception:  # pragma: no cover - defensive
                 pass
             self.emitter.emit(SPAN_RECEIVE, OPERATION, name, url, attrs, end_ns=t, start_observed=False,

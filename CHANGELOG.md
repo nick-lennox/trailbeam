@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **EventBridge and S3 notifications: an inferred first step** (QV-314, contract revision 3.5, stage 1 of 2: the
+  packages). A message that an EventBridge rule or an S3 bucket notification sent has no send in the team's code. The
+  Python and Node.js receives (client hooks and Lambda wrappers) now record, on every queue, the routing fields of a
+  body that is an EventBridge event (`trailbeam.eventbridge.*`: `id`, `source`, `detail-type`, account, region, time)
+  or an S3 event notification or `s3:TestEvent` message (`trailbeam.s3.*`: event name, bucket, region, time,
+  configuration ID, `sequencer`, and the record count when more than one). The S3 object key is recorded only on a
+  queue whose body is captured, redacted like the body. Nothing else in the body is read. Not read when the body is an
+  SNS envelope. The server's inferred "Arrived via an EventBridge rule" / "S3 *event*" step is stage 2.
 - **SNS fan-out: messages that came through an SNS topic get their sender** (QV-313, contract revision 3.4). The Python and Node.js packages record SNS
   `Publish` and `PublishBatch` to a topic as a `trailbeam publish` span (`trailbeam.kind = sns.publish`) with the SNS
   message ID and `aws.sns.topic.arn`. Receives carry what joins them to it: the `trailbeam.publish_id` message

@@ -1,11 +1,11 @@
-# Trailbeam span contract, schema version 3 (revision 3.4)
+# Trailbeam span contract, schema version 3 (revision 3.5)
 
 This file defines the OpenTelemetry spans that the `trailbeam` Python package and the `trailbeam` Node.js
 package emit, and that the Trailbeam reads. Both packages and Trailbeam are built and tested against
 it. A change to anything below is a contract change: bump `trailbeam.schema_version`, and update this file,
 both packages and Trailbeam in the same change. A revision (3.1) only adds an optional attribute that
-older stores ignore and that Trailbeam does not require, or (3.3, 3.4) an optional span; it keeps
-`trailbeam.schema_version = 3` (sections 14, 16, 19 and 21). Section 17 (the test span of `trailbeam doctor`) is not emitted by the packages and changes nothing they
+older stores ignore and that Trailbeam does not require (3.1, 3.5), or (3.3, 3.4) an optional span; it keeps
+`trailbeam.schema_version = 3` (sections 14, 16, 19, 21 and 23). Section 17 (the test span of `trailbeam doctor`) is not emitted by the packages and changes nothing they
 send.
 
 The keywords **must**, **must not**, **should** and **may** are used as in RFC 2119.
@@ -173,6 +173,7 @@ and produce no `trailbeam send` span in 0.1.
 | `faas.name` | string | must (Lambda) | function name, from the context, else `AWS_LAMBDA_FUNCTION_NAME` |
 | `faas.invocation_id` | string | must (Lambda) | `aws_request_id` / `awsRequestId` |
 | `trailbeam.sns.publish_id`, `trailbeam.sns.message_id`, `trailbeam.sns.topic_arn`, `trailbeam.sns.timestamp_ms` | | when present (3.4) | the SNS publish the message came from (section 20.3) |
+| `trailbeam.eventbridge.*`, `trailbeam.s3.*` | | when present (3.5) | the EventBridge event or S3 notification the body is (section 22) |
 
 - **Client hooks** **must** add `ApproximateReceiveCount`, `SentTimestamp`,
   `ApproximateFirstReceiveTimestamp`, `AWSTraceHeader`, (3.1) `DeadLetterQueueSourceArn` and (3.2)
@@ -1004,7 +1005,8 @@ two fields are still recorded. Nothing else in the envelope (`Message`, `Subject
 signature) is read or exported. Test vectors: `sns.timestamps` and `sns.receive`.
 
 **When the envelope is read.** On every queue, including queues whose body is not captured (section 15.1). This is
-the one exception to body capture being off by default, and it is limited to the three fields above. The body itself,
+an exception to body capture being off by default, and it is limited to the three fields above. (3.5: section 22 is the
+other, for EventBridge and S3 bodies.) The body itself,
 and every other envelope field, is never exported. No option turns it on or off. (Board decision, QV-302,
 2026-11-23.) The publish ID is a message attribute, not the body, and is also read on every queue.
 
@@ -1085,3 +1087,122 @@ Not verified:
 `trailbeam.schema_version` stays `3`: the span and the receive attributes are optional, Trailbeam requires them for
 nothing, and spans of 3.3 and before are read as they were. A Trailbeam built before 3.4 rejects `trailbeam publish` as
 an unknown kind, in `partial_success`, and stores the rest of the export.
+
+## 22. EventBridge and S3 notification origins (revision 3.5)
+
+An EventBridge rule with an SQS target, and an S3 bucket's event notification to SQS, send messages that no call of the
+team's code sends: EventBridge and S3 call `SendMessage` themselves. Before 3.5 the timeline of such a message started at
+its first receive. Revision 3.5 reads, from the body, what the event says about where it came from, and Trailbeam shows
+an **inferred** first step: "Arrived via an EventBridge rule" or "S3 object created" (the S3 event's name). Joining the
+message to the `PutEvents` or `PutObject` that caused it is not part of 3.5.
+
+The attributes below are on `trailbeam receive` (client hooks and Lambda wrapper), read only when the body is not an SNS
+envelope (section 20.3: a receive with `trailbeam.sns.message_id` has none of them). They are read on every queue,
+including queues whose body is not captured, except the S3 object key (22.2). Nothing else in the body is read or
+exported: not EventBridge's `detail` or `resources`, nor S3's `userIdentity`, `requestParameters` (the requester's IP
+address), `responseElements`, object size, `eTag` or `versionId`. Test vectors: `origin.receive` in
+[`span-contract-vectors.json`](span-contract-vectors.json).
+
+A body is read only if it starts (after whitespace) with `{`, contains `"detail-type"`, `"aws:s3"` or `s3:TestEvent`, and
+parses as JSON. Texts (`source`, `detail-type`, event name, bucket, configuration ID) are recorded only if they are 1 to
+256 characters (Unicode code points); a longer one is left out, or, for a field the match needs, makes the body not
+match. Times use the format and rules of the SNS `Timestamp` (section 20.3).
+
+### 22.1 EventBridge events
+
+The body is an EventBridge event if it is one JSON object with a `detail` member, an `id` of 1 to 100 letters, digits or
+`-`, a non-empty `source` and `detail-type`, and an `account` of 12 digits.
+
+| Attribute | Type | Req. | Value |
+|---|---|---|---|
+| `trailbeam.eventbridge.event_id` | string | must | `id` |
+| `trailbeam.eventbridge.source` | string | must | `source`, for example `aws.ec2` or a custom `com.example.orders` |
+| `trailbeam.eventbridge.detail_type` | string | must | `detail-type` |
+| `trailbeam.eventbridge.account` | string | must | `account` |
+| `trailbeam.eventbridge.region` | string | when valid | `region`, 1 to 32 of `a-z`, `0-9`, `-` |
+| `trailbeam.eventbridge.time_ms` | int | when valid | `time`, epoch milliseconds: when the event happened, by EventBridge's or the sender's account |
+
+A rule whose target has an input transformer (or a constant input) sends something else, and matches nothing here; such
+a message keeps its timeline as before. The EventBridge event does not name the rule that matched it, so the step cannot
+name the rule either.
+
+### 22.2 S3 event notifications
+
+The body is an S3 event notification if it is one JSON object whose `Records` is a non-empty array whose first item has
+`eventSource` equal to `aws:s3`, a non-empty `eventName` and a non-empty `s3.bucket.name`. Only the first record is
+read.
+
+| Attribute | Type | Req. | Value |
+|---|---|---|---|
+| `trailbeam.s3.event_name` | string | must | `eventName` as S3 writes it, without the `s3:` prefix: `ObjectCreated:Put`, `ObjectRemoved:Delete`, ...; or `s3:TestEvent` (below) |
+| `trailbeam.s3.bucket` | string | must | `s3.bucket.name` (`Bucket` in the test message) |
+| `trailbeam.s3.record_count` | int | when more than 1 | the length of `Records` |
+| `trailbeam.s3.region` | string | when valid | `awsRegion` |
+| `trailbeam.s3.event_time_ms` | int | when valid | `eventTime` (`Time` in the test message), epoch milliseconds: when S3 finished the request |
+| `trailbeam.s3.configuration_id` | string | when present | `s3.configurationId`, the ID of the bucket's notification configuration that sent it |
+| `trailbeam.s3.sequencer` | string | when valid | `s3.object.sequencer`, 1 to 64 hex digits; S3 sets it only for PUT and DELETE |
+| `trailbeam.s3.object_key` | string | only if the queue's body is captured | `s3.object.key` as S3 encodes it (URL-encoded, `red+flower.jpg`), at most 3,072 UTF-8 bytes, redacted by the body's rules (section 15.3) |
+
+**The object key** is the one field here that is often the team's own data (user IDs, email addresses and file names
+are common in keys), so it follows body capture (section 15.1): on a queue whose body is not captured it is not read.
+[Pending a board decision on QV-314: see 22.5.]
+
+**The test message.** When a notification configuration is saved, S3 sends a message of a different form: one object
+with `Service` equal to `Amazon S3`, `Event` equal to `s3:TestEvent`, `Time`, `Bucket`, `RequestId` and `HostId`. Its
+receive records `trailbeam.s3.event_name = s3:TestEvent`, the bucket and the time.
+
+S3 can also send to EventBridge (an event with `source` `aws.s3`, read by 22.1) or to an SNS topic (the S3 record is in
+the envelope's `Message`, which section 20.3 does not read: such a message shows "Arrived via SNS" only).
+
+### 22.3 How Trailbeam reads it
+
+- A message's receives carrying `trailbeam.eventbridge.event_id` or `trailbeam.s3.event_name` show an **inferred** step
+  (`inferred: true`), before the earliest such receive and ordered only through it, like "Arrived via SNS" (20.5):
+  `arrived_via_eventbridge` (`source: eventbridge_event`) or `s3_event` (`source: s3_event`). Its label names the
+  event's `source` and `detail-type`, or the S3 event name and bucket (and key when recorded); "S3 test message" for
+  `s3:TestEvent`.
+- It is inferred because nothing observed it: the body has the shape of an event, and anything can send such a body.
+  The step is **not** shown when the message has a `trailbeam send` (a process that re-sent the body, a DLQ redrive
+  tool for one, made the send that Trailbeam saw), a joined SNS publish, or an "Arrived via SNS" step.
+- The step has no time of its own. The event's time is shown beside it, and the **delivery time**,
+  `trailbeam.sent_timestamp_ms` of the receive minus the event's time, both AWS clocks, as section 20.5 does for SNS.
+  EventBridge's `time` has whole seconds, so its delivery time can be up to a second too long. A negative value is
+  shown as measured.
+- The step changes nothing else: not the message's first seen, state or list pages. The attributes are stored with the
+  receive, as every other attribute (section 4), so no store schema changes.
+
+### 22.4 Verified and not verified
+
+Verified (2026-11-24):
+
+- The EventBridge event's top-level fields, from the
+  [event structure reference](https://docs.aws.amazon.com/eventbridge/latest/ref/overiew-event-structure.html) and its
+  example (whose `time`, `2022-04-31T17:00:00Z`, is not a date: a vector checks that it is left out).
+- The S3 record's fields, that the key is URL-encoded, that `sequencer` is set only for PUT and DELETE, that `eventName`
+  has no `s3:` prefix, and the test message, from
+  [Event message structure](https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-content-structure.html).
+  The page does not say how many records one message holds; both packages read the first and count the rest.
+
+Not verified:
+
+- That an SQS target of a rule receives the event exactly in this form (it is EventBridge's documented target input
+  when no input transformer is set; not run on AWS for 3.5).
+- S3 and EventBridge on AWS, and how far their clocks and SQS's are apart.
+- That messages in an EventBridge target's dead-letter queue (which carry `RULE_ARN` and `ERROR_CODE` message
+  attributes) have the event as their body; 3.5 does not read those attributes.
+
+### 22.5 Open decision
+
+Reading these fields on queues whose body is not captured goes beyond the board's SNS decision (QV-302, section 20.3),
+which covered three SNS fields. 3.5 is built as recommended on QV-314: the routing and ID fields above on every queue,
+the S3 object key only where the body is captured. If the board decides otherwise, only the gate in 22 and 22.2 changes.
+
+## 23. Changes in revision 3.5
+
+| 3.4 | 3.5 |
+|---|---|
+| a message from an EventBridge rule or an S3 notification had no first step | receives carry the event's routing fields (22.1, 22.2), on every queue; the S3 object key only where the body is captured |
+| | Trailbeam shows an inferred "Arrived via an EventBridge rule" or "S3 *event*" step before the receive (22.3) |
+
+`trailbeam.schema_version` stays `3`: the attributes are optional, Trailbeam requires them for nothing, and a Trailbeam
+before 3.5 keeps them with the receive and ignores them.

@@ -635,3 +635,99 @@ def sns_receive_attrs(config: Config, queue_name: str, body: Any, attributes: An
     if env:
         out.update(env)
     return out
+
+
+# -- EventBridge and S3 notification origins (section 22, revision 3.5) -----------------------------
+
+_EB_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,100}$")
+_ACCOUNT_RE = re.compile(r"^[0-9]{12}$")
+_REGION_RE = re.compile(r"^[a-z0-9-]{1,32}$")
+_SEQUENCER_RE = re.compile(r"^[0-9A-Fa-f]{1,64}$")
+MAX_ORIGIN_TEXT = 256  # longest source, detail-type, event name, bucket or configuration ID recorded
+MAX_S3_KEY_BYTES = 1024  # S3's own key limit; the URL-encoded form in the event can be longer
+S3_TEST_EVENT = "s3:TestEvent"
+
+
+def _text(v: Any, limit: int = MAX_ORIGIN_TEXT) -> Optional[str]:
+    return v if isinstance(v, str) and 0 < len(v) <= limit else None
+
+
+def _put_text(out: dict, name: str, v: Any, limit: int = MAX_ORIGIN_TEXT) -> None:
+    t = _text(v, limit)
+    if t is not None:
+        out[name] = t
+
+
+def eventbridge_event(doc: Any) -> Optional[dict]:
+    """Section 22.1: the routing fields of an EventBridge event, as receive attributes, or None. ``detail`` and
+    ``resources`` are never read."""
+    if not isinstance(doc, dict) or "detail" not in doc:
+        return None
+    eid, source, dtype = doc.get("id"), _text(doc.get("source")), _text(doc.get("detail-type"))
+    account = doc.get("account")
+    if not (isinstance(eid, str) and _EB_ID_RE.match(eid) and source and dtype
+            and isinstance(account, str) and _ACCOUNT_RE.match(account)):
+        return None
+    out = {"trailbeam.eventbridge.event_id": eid, "trailbeam.eventbridge.source": source,
+           "trailbeam.eventbridge.detail_type": dtype, "trailbeam.eventbridge.account": account}
+    region = doc.get("region")
+    if isinstance(region, str) and _REGION_RE.match(region):
+        out["trailbeam.eventbridge.region"] = region
+    ts = sns_timestamp_ms(doc.get("time"))
+    if ts is not None:
+        out["trailbeam.eventbridge.time_ms"] = ts
+    return out
+
+
+def s3_event(config: Config, queue_name: str, doc: Any) -> Optional[dict]:
+    """Section 22.2: an S3 event notification (its first record) or the s3:TestEvent message, as receive
+    attributes, or None. The object key only on a queue whose body is captured, redacted like the body."""
+    if not isinstance(doc, dict):
+        return None
+    if doc.get("Event") == S3_TEST_EVENT and doc.get("Service") == "Amazon S3":
+        out = {"trailbeam.s3.event_name": S3_TEST_EVENT}
+        _put_text(out, "trailbeam.s3.bucket", doc.get("Bucket"))
+        ts = sns_timestamp_ms(doc.get("Time"))
+        if ts is not None:
+            out["trailbeam.s3.event_time_ms"] = ts
+        return out
+    records = doc.get("Records")
+    if not isinstance(records, list) or not records or not isinstance(records[0], dict):
+        return None
+    rec = records[0]
+    s3 = rec.get("s3")
+    bucket = s3.get("bucket") if isinstance(s3, dict) else None
+    name = _text(rec.get("eventName"))
+    bname = _text(bucket.get("name")) if isinstance(bucket, dict) else None
+    if rec.get("eventSource") != "aws:s3" or not name or not bname:
+        return None
+    out = {"trailbeam.s3.event_name": name, "trailbeam.s3.bucket": bname}
+    if len(records) > 1:
+        out["trailbeam.s3.record_count"] = len(records)
+    region = rec.get("awsRegion")
+    if isinstance(region, str) and _REGION_RE.match(region):
+        out["trailbeam.s3.region"] = region
+    ts = sns_timestamp_ms(rec.get("eventTime"))
+    if ts is not None:
+        out["trailbeam.s3.event_time_ms"] = ts
+    _put_text(out, "trailbeam.s3.configuration_id", s3.get("configurationId"))
+    obj = s3.get("object")
+    if isinstance(obj, dict):
+        seq = obj.get("sequencer")
+        if isinstance(seq, str) and _SEQUENCER_RE.match(seq):
+            out["trailbeam.s3.sequencer"] = seq
+        key = obj.get("key")
+        if config.body_on(queue_name) and isinstance(key, str) and 0 < _utf8_len(key) <= 3 * MAX_S3_KEY_BYTES:
+            out["trailbeam.s3.object_key"] = redact_text(key, config)[0]
+    return out
+
+
+def origin_receive_attrs(config: Config, queue_name: str, body: Any) -> dict:
+    """Section 22 attributes of one received message: what an EventBridge event or an S3 notification body says
+    about where the message came from. Read on every queue; nothing else in the body is read or exported."""
+    if not isinstance(body, str) or body.lstrip(" \t\n\r")[:1] != "{":
+        return {}
+    if '"detail-type"' not in body and '"aws:s3"' not in body and S3_TEST_EVENT not in body:
+        return {}
+    doc = _parse(body)
+    return eventbridge_event(doc) or s3_event(config, queue_name, doc) or {}

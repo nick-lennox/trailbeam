@@ -242,7 +242,10 @@ class SqsHooks:
 
     def _sns_received(self, queue_name: str, body, attributes) -> dict:
         try:
-            return _capture.sns_receive_attrs(self.capture, queue_name, body, attributes)
+            out = _capture.sns_receive_attrs(self.capture, queue_name, body, attributes)
+            if not out.get("trailbeam.sns.message_id"):  # 3.5 (section 22): EventBridge or S3 sent it
+                out.update(_capture.origin_receive_attrs(self.capture, queue_name, body))
+            return out
         except Exception:  # pragma: no cover - defensive; must not lose the receive
             log.debug("trailbeam SNS receive attributes failed", exc_info=True)
             return {}
