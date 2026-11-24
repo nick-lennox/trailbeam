@@ -6,6 +6,14 @@
   `--log-driver none`, so the output still shows in the terminal but is not kept by `docker logs` or sent to a log
   service the Docker daemon is set up with (gelf, fluentd, awslogs, ...). That output holds the first run's token
   and receipt key, and the first admin's one-time setup link, which works as an admin password for up to an hour.
+- **Users and roles are a preview, off unless switched on** (QV-349). They haven't had their security review
+  (QV-229) yet, so a server built from this version ignores them unless it runs with `--accounts`
+  (`TRAILBEAM_ACCOUNTS=1`, also `true`, `yes` or `on`; any other value but `0`, `false`, `no`, `off` or empty
+  stops the server). Off, access is as in 0.4.0, `TRAILBEAM_TOKEN` alone: `trailbeam start` prints no setup link,
+  `/setup` answers `404`, an admin or ingest tokens already in the store are ignored (with a warning at start),
+  `TRAILBEAM_ADMIN_EMAIL` stops the server at start, and `trailbeam users` and `trailbeam tokens` refuse to run
+  without `--accounts` or the variable. On, everything works as described below. The `--trusted-proxy` handling,
+  the cross-site form check and the account tables are not behind the switch.
 - **Postgres, several replicas: a message could get a second summary** (QV-422). A delete or
   ChangeMessageVisibility span carries no message ID, so its export finds its message by the receipt handle and
   locks it only then. If another replica stored a newer span of that message in a new day (bucket) meanwhile,
