@@ -165,15 +165,44 @@ def _default_token_path():
     return Path(default_data_dir()) / TOKEN_FILE
 
 
+# The variables an OpenTelemetry exporter reads its headers from, the traces one first, as the services do.
+OTLP_HEADERS_ENV = ("OTEL_EXPORTER_OTLP_TRACES_HEADERS", "OTEL_EXPORTER_OTLP_HEADERS")
+
+
+def _otlp_headers_env() -> str:
+    """The first of OTLP_HEADERS_ENV that is set (and not blank), else ''."""
+    return next((k for k in OTLP_HEADERS_ENV if os.environ.get(k, "").strip()), "")
+
+
+def _token_from_headers(value: str, name: str) -> tuple[Optional[str], Optional[str]]:
+    """(token, error) from an OTEL_EXPORTER_OTLP_HEADERS value: comma-separated key=value pairs, URL-encoded,
+    as the exporters read it. The token is the Bearer one in the Authorization header."""
+    from urllib.parse import unquote
+    for pair in value.split(","):
+        key, sep, val = pair.partition("=")
+        if not sep or unquote(key).strip().lower() != "authorization":
+            continue
+        scheme, _, token = unquote(val).strip().partition(" ")
+        if scheme.lower() != "bearer" or not token.strip():
+            return None, f"the Authorization header in {name} is not 'Bearer <token>' (write the space as %20)"
+        return token.strip(), None
+    return None, f"{name} is set but has no Authorization header"
+
+
 def _token_cause(t: Target, where: str) -> tuple[str, str]:
     if t.token_error:
+        if t.token_source in OTLP_HEADERS_ENV:
+            return (f"the token could not be used: {t.token_error}.",
+                    f"set {t.token_source}=Authorization=Bearer%20<token>, with the token the server was started "
+                    "with, as the services have it.")
         return (f"the token could not be used: {t.token_error}.",
                 "fix or recreate the token file, or set TRAILBEAM_TOKEN to the token the server was started with.")
     if not t.token:
         return (f"the server has an access token and {where} needs it, but none was given.",
                 f"pass --token-file PATH, or set TRAILBEAM_TOKEN, to the token the server was started with "
-                f"(trailbeam start prints it, and keeps it in {_default_token_path()}). Services need it too: "
-                "OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<token>.")
+                f"(trailbeam start prints it, and keeps it in {_default_token_path()}, or in the token file of the "
+                "--data-dir it was given). Services need it too: OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<token>; "
+                "with that set, doctor reads the token from it.")
     at, flag = (t.ingest_url, "--ingest-url") if where == "ingest" else (t.url, "--url")
     return (f"{where} at {at} does not accept the token from {t.token_source}: that server was started with "
             "another one, or it is not the server you mean.",
@@ -253,7 +282,13 @@ def run(t: Target, now_ns: Optional[int] = None) -> list[Result]:
             results.append(Result(name, FAIL, "the API answers without the server's details: the token is "
                                               + ("missing" if not t.token else "not accepted"), cause, fix))
         elif empty.status == 401:
-            if auth == "off":
+            if auth == "off" and (health.get("config") or {}).get("ingest_auth") == "token":
+                results.append(Result(name, FAIL, "ingest answers 401: the server has ingest tokens",
+                                      "the server has no TRAILBEAM_TOKEN, but it holds at least one ingest token "
+                                      "(tbi_...), so ingest needs one.",
+                                      "give doctor and your services an ingest token (--token-file, or "
+                                      "x-trailbeam-key in OTEL_EXPORTER_OTLP_HEADERS)."))
+            elif auth == "off":
                 results.append(Result(name, FAIL, "the server at --url has no token, but ingest answers 401",
                                       "the ingest address is another server, with a token of its own.",
                                       "point --ingest-url (and your services) at the same server as --url, or "
@@ -514,6 +549,11 @@ def target_from_args(a, discover: bool = True) -> Target:
     elif os.environ.get("TRAILBEAM_TOKEN", "").strip():
         t.token, t.token_source = os.environ["TRAILBEAM_TOKEN"].strip(), "TRAILBEAM_TOKEN"
         return t
+    elif _otlp_headers_env():
+        name = _otlp_headers_env()
+        t.token_source = name
+        t.token, t.token_error = _token_from_headers(os.environ[name], name)
+        return t
     elif _default_token_path().is_file():
         path = str(_default_token_path())
         t.token_source = path
@@ -540,7 +580,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--ingest-url", help="where services send spans (env TRAILBEAM_OTLP_TRACES_ENDPOINT, as the "
                                         "services read it; default the server's /v1/traces)")
     p.add_argument("--token-file", help="a file holding the access token (env TRAILBEAM_TOKEN_FILE, or the token "
-                                        f"itself in TRAILBEAM_TOKEN; default {_default_token_path()}, which trailbeam "
+                                        f"itself in TRAILBEAM_TOKEN; else the Bearer token in OTEL_EXPORTER_OTLP_HEADERS, "
+                                        f"as services send it; else {_default_token_path()}, which trailbeam "
                                         "start creates, if it exists)")
     p.add_argument("--timeout", type=float, default=5.0, help="seconds to wait for each answer (default 5)")
     return p
