@@ -107,14 +107,19 @@ variants; `--variant NAME` runs only some. The Python and Node.js drivers have f
 Agents are variants too. A Java driver adds, for example:
 
 ```json
-{"name": "otel-agent", "parent": "exported",
+{"name": "otel-agent", "parent": "exported", "receive_roots": true,
  "env": {"JAVA_TOOL_OPTIONS": "-javaagent:{env:OTEL_JAVA_AGENT_JAR}"}},
-{"name": "otel-agent-sampled-0", "parent": "unexported",
+{"name": "otel-agent-sampled-0", "parent": "unexported", "receive_roots": true,
  "env": {"JAVA_TOOL_OPTIONS": "-javaagent:{env:OTEL_JAVA_AGENT_JAR}",
          "OTEL_TRACES_SAMPLER": "traceidratio", "OTEL_TRACES_SAMPLER_ARG": "0"}},
-{"name": "dd-agent", "parent": "any",
+{"name": "dd-agent", "parent": "unexported", "receive_roots": true,
  "env": {"JAVA_TOOL_OPTIONS": "-javaagent:{env:DD_JAVA_AGENT_JAR}"}}
 ```
+
+`receive_roots: true` lets `ReceiveMessage` spans have no parent. The Java agents make no span for a receive
+unless a span is already active, so a receive in a poll loop has nothing to be a child of. Every other span is
+still checked, and so is a receive that has a parent. dd-agent is `unexported`: with no Datadog agent running
+its spans go nowhere, but the trace header it puts on each request still gives every Trailbeam span a parent.
 
 ## Driver configuration (`driver.json`)
 
@@ -125,7 +130,7 @@ Agents are variants too. A Java driver adds, for example:
 | `cwd` | working directory (default: the repository root) |
 | `env` | variables for every variant |
 | `setup` | optional: a command run once before the variants (the Lambda drivers build their image); a failure fails every variant of the driver, with the end of its log |
-| `variants` | list of `{name, env, prefix, parent, capture, about}`: `prefix` is put before `command` (a wrapper such as `opentelemetry-instrument`); `parent` is `any`, `exported` or `unexported` (above); `capture: true` expects captured bodies |
+| `variants` | list of `{name, env, prefix, parent, receive_roots, capture, about}`: `prefix` is put before `command` (a wrapper such as `opentelemetry-instrument`); `parent` is `any`, `exported` or `unexported` (above); `receive_roots: true` lets receives be roots (above); `capture: true` expects captured bodies |
 
 Strings may use `{repo}`, `{kit}`, `{driver_dir}` and `{env:NAME}` (the kit's own environment; a missing
 variable is an error, so a CI job can't skip an agent by accident).
