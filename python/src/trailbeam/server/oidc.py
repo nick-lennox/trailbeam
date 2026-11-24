@@ -444,14 +444,18 @@ class Provider:
 # ---- the sign-in ------------------------------------------------------------------------------------------
 
 
-def browser_cookie(cookie_header: Optional[str]) -> Optional[str]:
+def browser_cookie(cookie_header: Optional[str], secure: bool) -> Optional[str]:
+    """The sign-in's browser value in a Cookie header. Over HTTPS (``secure``) only ``__Secure-trailbeam_oidc``
+    counts: a plain ``trailbeam_oidc`` can be planted by a sibling subdomain or whoever answers plain ``http://``,
+    with the value of a sign-in the planter started, which would sign the victim in as the planter. Over HTTP
+    ``__Secure-trailbeam_oidc`` if there, else ``trailbeam_oidc`` (as sessions.cookie_value)."""
     if not cookie_header:
         return None
     try:
         c = SimpleCookie(cookie_header)
     except CookieError:
         return None
-    for name in (SECURE_COOKIE, COOKIE):
+    for name in ((SECURE_COOKIE,) if secure else (SECURE_COOKIE, COOKIE)):
         m = c.get(name)
         if m is not None and 20 <= len(m.value) <= 100:
             return m.value

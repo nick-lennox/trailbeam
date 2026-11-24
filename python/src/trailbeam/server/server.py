@@ -840,7 +840,7 @@ def make_handler(app: App):
                 return
             clear = oidc_mod.clear_browser_cookie(secure)
             try:
-                done = app.oidc.finish(q, oidc_mod.browser_cookie(self.headers.get("Cookie")))
+                done = app.oidc.finish(q, oidc_mod.browser_cookie(self.headers.get("Cookie"), secure))
             except oidc_mod.OidcError as e:
                 log.warning("single sign-on refused for %s: %s", client, e.detail)
                 st, headers, body = web.sso_error_page(e.message, e.status)

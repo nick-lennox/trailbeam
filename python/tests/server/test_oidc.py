@@ -607,6 +607,28 @@ def test_https_cookies(tb, idp):
     assert any(x.startswith("__Host-trailbeam_sid=") and "; Secure" in x for x in r.headers.get_all("Set-Cookie"))
 
 
+
+def test_over_https_a_plain_oidc_cookie_is_not_the_browser(tb, idp):
+    """A sibling subdomain can set a plain trailbeam_oidc (Path=/login/oidc) to the value of a sign-in it started,
+    then send the victim to its callback URL: over HTTPS only __Secure-trailbeam_oidc counts, so that is refused."""
+    _admin(tb)
+    from trailbeam.server.proxy import TrustedProxies, parse_networks
+
+    tb.app.proxies = TrustedProxies(parse_networks("127.0.0.1"))
+    h = {"X-Forwarded-Proto": "https"}
+    attacker = tb.browser()
+    r = attacker.get("/login/oidc", h)
+    planted = attacker.cookies.pop("__Secure-trailbeam_oidc")
+    cb = _path(idp.approve(r.headers["Location"], "attacker-sub"))
+    victim = tb.browser()
+    victim.cookies["trailbeam_oidc"] = planted
+    r = victim.get(cb, h)
+    assert r.status == 400 and "another browser" in r.text
+    assert not any("trailbeam_sid=" in x for x in r.headers.get_all("Set-Cookie") or [])
+    assert oidc.browser_cookie("trailbeam_oidc=" + planted, True) is None
+    assert oidc.browser_cookie("trailbeam_oidc=" + planted, False) == planted
+    assert oidc.browser_cookie("__Secure-trailbeam_oidc=" + planted, True) == planted
+
 # ---- settings -------------------------------------------------------------------------------------------------
 
 
