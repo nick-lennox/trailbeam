@@ -18,8 +18,15 @@
   `@trailbeam/ui`) show the "Published to topic" step with the publisher, how it joined, the SNS delivery time and
   the other messages it reached (links), and the "Arrived via SNS topic" step, with no time, before its receive.
   `TimelineView` takes an optional `messageHref` for those links; `@trailbeam/ui/fixtures/sns-timelines.json` is
-  what the server returns after a fan-out.
-
+  what the server returns after a fan-out (`@trailbeam/ui` 0.1.0-dev.4).
+- **No spans dropped when a Postgres statement times out** (QV-300). An export whose statement ran past
+  `statement_timeout` (60 s: a lock pile-up, a very slow disk) was answered `500`, which OTLP exporters don't
+  retry, so its spans were lost. It is now answered `503` with `Retry-After: 3` (`store_timeout` in
+  `trailbeam_ingest_rejected_requests_total`), nothing stored, and logged at ERROR with the export's size; the
+  exporter's retry stores it once the database is faster. An export that is always too slow is retried until the
+  exporter gives up. Clients that time out a request before 60 s (most do) were not affected: the server cancels
+  an export whose client hangs up, and the client sends it again. No change in the Python or Node.js packages:
+  the retry is the OTLP exporter's.
 - **Java package, stage 4: the Lambda wrapper** (QV-319, pre-release, not published). For a function invoked by
   an SQS event source mapping, set the handler to `dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`
   and name your own in `TRAILBEAM_LAMBDA_HANDLER`, or extend `TrailbeamSqsHandler`. Each record gets a

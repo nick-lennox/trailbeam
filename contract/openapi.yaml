@@ -926,7 +926,7 @@ paths:
             text/plain:
               schema: {type: string}
         '500':
-          description: The server failed to store the export. On a Postgres store, this includes a statement timeout.
+          description: The server failed to store the export for a reason other than those answered `503` (a bug). A Postgres statement timeout is a `503`.
           content:
             text/plain:
               schema: {type: string}
@@ -956,7 +956,8 @@ paths:
             writer is behind (the exports ahead of this one did not finish writing in
             `TRAILBEAM_INGEST_MAX_WAIT_S`, default 2 s; `Retry-After` is the estimated backlog, 1 to 3 s), or
             the store is unreachable (`Retry-After: 1`; this includes when the server can't check the
-            ingest token), or the store's disk is full (`Retry-After: 3`). The body is a `google.rpc.Status` in the request's
+            ingest token), or the store's disk is full (`Retry-After: 3`), or a Postgres statement of the export
+            ran past `statement_timeout`, 60 s (`Retry-After: 3`). The body is a `google.rpc.Status` in the request's
             encoding.
           headers:
             Retry-After:

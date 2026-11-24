@@ -804,7 +804,8 @@ must hold (Trailbeam warns at start when it is short). An export that must searc
 settle, a message older than three days) borrows a read connection for it while holding its ingest connection,
 so pages and API reads filling the read pool can hold such exports up. They are for Postgres only: with SQLite, setting either
 stops the server with an error. Every connection runs with
-`statement_timeout = 60s`. An export that waits longer than `TRAILBEAM_INGEST_MAX_WAIT_S` (2 s by default) for a free
+`statement_timeout = 60s`; an export whose statement runs past it is answered `503` (`store_timeout`,
+`Retry-After: 3`), with nothing stored. An export that waits longer than `TRAILBEAM_INGEST_MAX_WAIT_S` (2 s by default) for a free
 ingest connection is answered `503` with `Retry-After`, as one waiting for SQLite's writer is
 ([overload](#when-trailbeam-is-overloaded-429-503-and-retry-after)).
 Each export is one transaction, and an export whose client hangs up or times out is cancelled in the database.
@@ -1100,6 +1101,14 @@ here, and it assumes the disk honours fsync. The same tests cover the other fail
   stored. Once space is freed they are stored again, with no restart. Until QV-238, SQLite answered a full disk
   with `500`, which exporters don't retry, so those spans were dropped. `/api/ready` stays `200` while a SQLite
   disk is full; watch `trailbeam_ingest_rejected_requests_total{reason="store_full"}` and the disk itself.
+- **A Postgres statement timeout** (an export's statement past `statement_timeout`, 60 s: a lock pile-up, a
+  very slow disk): the export is answered `503` (`store_timeout`, `Retry-After: 3`) with nothing stored, and
+  logged at ERROR with its size. It is stored when the exporter sends it again, once the database is faster.
+  Until QV-300 this was a `500`, which exporters don't retry. An export that is always too slow is retried
+  until the exporter's budget runs out (below), each try holding an ingest connection for up to 60 s: watch
+  `trailbeam_ingest_rejected_requests_total{reason="store_timeout"}`. Most exporters time out a request well
+  before 60 s (the Python exporter after 10 s) and hang up; such an export is cancelled in the database and sent
+  again, as before.
 - **Several replicas**: a killed replica loses nothing it answered, and the load balancer sends the retries to
   the others ([Several replicas](#several-replicas-on-one-postgres)).
 - **Order and clocks**: arrival order doesn't change what is stored or shown. Spans shuffled across 40 exports,
@@ -1110,8 +1119,7 @@ here, and it assumes the disk honours fsync. The same tests cover the other fail
 What a `200` can't cover is an export that is never answered `200`: then the exporter's retry budget decides.
 The Python OTel exporter retries only within its 10 s export timeout. The Collector's `retry_on_failure`
 retries for 5 minutes by default, from a sending queue in memory. Send through a Collector to ride out outages
-longer than a few seconds ([`collector/`](collector/README.md)). One more answer isn't retried: a Postgres
-statement that runs past `statement_timeout` (60 s) is answered `500`, and the exporter drops that export.
+longer than a few seconds ([`collector/`](collector/README.md)).
 
 ### Sizing one SQLite server
 
@@ -1385,7 +1393,7 @@ without one, anyone who can reach the port can read it. Labels never hold span d
 |---|---|---|
 | `trailbeam_ingest_spans_total{result}` | counter | Spans in accepted exports: `inserted`, `duplicate` (already stored, e.g. a retry), `invalid` (rejected by the span contract), `ignored` (not Trailbeam spans). `rate()` gives spans/s |
 | `trailbeam_ingest_requests_total{code}` | counter | Exports to `/v1/traces` by response status |
-| `trailbeam_ingest_rejected_requests_total{reason}` | counter | 429s (`queue_full`) and 503s (`writer_behind`; `store_unreachable`: the database can't be reached; `store_full`: its disk is full) |
+| `trailbeam_ingest_rejected_requests_total{reason}` | counter | 429s (`queue_full`) and 503s (`writer_behind`; `store_unreachable`: the database can't be reached; `store_full`: its disk is full; `store_timeout`: a Postgres statement timed out) |
 | `trailbeam_ingest_request_duration_seconds{outcome}` | histogram | Export latency, from body received to response: `accepted`, `rejected`, `error` |
 | `trailbeam_ingest_writer_wait_seconds` | histogram | Time an export waited for the SQLite writer |
 | `trailbeam_ingest_write_duration_seconds` | histogram | One export's write transaction |

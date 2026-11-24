@@ -74,6 +74,13 @@ class StoreFull(StoreUnavailable):
     exporter sends the export again, and it is stored once space is freed. Not a 500, which exporters drop."""
 
 
+class StoreTimeout(StoreUnavailable):
+    """A statement of the export ran past the store's statement timeout (Postgres ``statement_timeout``: a lock
+    pile-up, a very slow disk): the database is there but too slow, and nothing was stored. The server answers 503
+    (``store_timeout``) with Retry-After, so the exporter sends the export again and it is stored if the slowness
+    passes. Not a 500, which exporters drop (QV-300)."""
+
+
 class WriterBusy(Exception):
     """``Store.insert`` gave up waiting to write within ``wait_s``; nothing was written (the server answers 503)."""
 
