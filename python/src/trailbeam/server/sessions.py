@@ -12,6 +12,9 @@
 - The cookie is new: ``trailbeam_sid``, not the shared token's ``trailbeam_session`` (auth.py), so old cookies
   never pass as a session. Over HTTPS it is ``__Host-trailbeam_sid`` with ``Secure``: the browser then refuses
   it from plain HTTP and from other subdomains. Always ``HttpOnly``, ``SameSite=Strict`` and ``Path=/``.
+- Over HTTPS the server reads only ``__Host-trailbeam_sid``. A plain ``trailbeam_sid`` can be planted by
+  anyone who can set a cookie for the host (a sibling subdomain, or whoever answers its plain ``http://``),
+  which would sign the victim in as the planter; so over HTTPS it is not a session.
 
 HTTPS means the request came over TLS to this server, or a proxy in ``--trusted-proxy`` said so in
 ``X-Forwarded-Proto`` (proxy.py).
@@ -52,15 +55,16 @@ def id_hash(session_id: str) -> str:
     return hashlib.sha256(session_id.encode("utf-8", "surrogatepass")).hexdigest()
 
 
-def cookie_value(cookie_header: Optional[str]) -> Optional[str]:
-    """The session ID in a Cookie header: ``__Host-trailbeam_sid`` if there, else ``trailbeam_sid``."""
+def cookie_value(cookie_header: Optional[str], secure: bool) -> Optional[str]:
+    """The session ID in a Cookie header. Over HTTPS (``secure``) only ``__Host-trailbeam_sid`` counts;
+    over HTTP ``__Host-trailbeam_sid`` if there, else ``trailbeam_sid``."""
     if not cookie_header:
         return None
     try:
         c = SimpleCookie(cookie_header)
     except CookieError:
         return None
-    for name in (SECURE_COOKIE, COOKIE):
+    for name in ((SECURE_COOKIE,) if secure else (SECURE_COOKIE, COOKIE)):
         m = c.get(name)
         if m is not None and 20 <= len(m.value) <= 100:
             return m.value
