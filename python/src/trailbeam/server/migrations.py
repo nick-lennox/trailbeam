@@ -112,6 +112,23 @@ SPANS_COLUMNS = ("row, trace_id, span_id, kind, time_ns, start_ns, service_name,
 SPANS_ADDED = """,
     service_version TEXT             -- the resource's service.version (QV-362)"""
 
+# Schema 19 (QV-394): the steps /api/events counts, per hour, queue, service and kind (events.py, db.py). Kept
+# exact: ingest adds the spans it stores, retention takes out the ones it deletes. Purges are not steps.
+STEP_ROLLUP_CREATE = """
+CREATE TABLE IF NOT EXISTS step_rollup (
+    hour INTEGER NOT NULL,               -- time_ns // 3,600 s
+    queue TEXT NOT NULL,
+    service TEXT NOT NULL,               -- the span's service.name, '' for none
+    kind TEXT NOT NULL,                  -- events.KINDS
+    n INTEGER NOT NULL,                  -- the spans
+    PRIMARY KEY (hour, queue, service, kind)
+) WITHOUT ROWID;
+"""
+STEP_ROLLUP_BACKFILL = """INSERT INTO step_rollup (hour, queue, service, kind, n)
+SELECT time_ns / 3600000000000, queue, COALESCE(service_name, ''), kind, COUNT(*) FROM spans
+ WHERE kind IN ('send', 'receive', 'delete', 'change_visibility', 'outcome')
+ GROUP BY 1, 2, 3, 4"""
+
 # The test spans of trailbeam doctor (contract section 17): an ID and when this server stored it. Not spans, so no
 # page, count or retention pass reads them; Store.record_probes keeps them at least a day.
 PROBES_CREATE = """
@@ -130,7 +147,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 );
 """ + summary_table.CREATE + body_table.CREATE + PROBES_CREATE + account_tables.SQLITE_CREATE + f"""
 {account_tables.SQLITE_ADD_PROXY};
-"""
+""" + STEP_ROLLUP_CREATE
 
 # Schema 1 was the first released (the CREATE of version 1 is in tests/server/test_migrations.py).
 # Schema 1 had no start_ns. Its rows came from contract v1 spans, stamped only when the response arrived,
@@ -182,6 +199,9 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # over messages, reading each message's spans by row ID, as migration 12 does with the summaries.
 # Schema 18 (QV-227) adds users.proxy_linked_at_ms: which people may sign in through a proxy (proxy_auth.py). NULL
 # for everyone stored before it, so no local account can be signed in to through the proxy until an admin links it.
+# Schema 19 (QV-394) adds step_rollup (STEP_ROLLUP_CREATE), built from the spans in one pass: GROUP BY over every
+# span, about a second per million. It changes no span data. It rebuilds the table rather than adding to it, so a file
+# whose recorded version is older than its tables (a restore, or a test rolling the number back) still ends exact.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new", added=""))
                   + [f"INSERT INTO spans_new ({SPANS_COLUMNS}) SELECT {SPANS_COLUMNS} FROM spans ORDER BY row",
                      "DROP TABLE spans",
@@ -279,6 +299,8 @@ MIGRATIONS = (
     Migration(16, "spans.service_version", (), run=_to_16),
     Migration(17, "queue events (the queue page)", (), run=_to_17),
     Migration(18, "users.proxy_linked_at_ms", (), run=_to_18),
+    Migration(19, "hourly step rollup (/api/events)", tuple(statements(STEP_ROLLUP_CREATE))
+              + ("DELETE FROM step_rollup", STEP_ROLLUP_BACKFILL)),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

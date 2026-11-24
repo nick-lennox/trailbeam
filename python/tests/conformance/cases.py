@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT / "python" / "tests" / "server"))
 
 from spans import SEC, T0, Consumer, to_proto  # noqa: E402
 
-from trailbeam.server import bodies, queries, queues as queue_mod  # noqa: E402
+from trailbeam.server import bodies, events, queries, queues as queue_mod  # noqa: E402
 from trailbeam.server.otlp import decode  # noqa: E402
 
 LAMBDA_TIMEOUT_S = 900
@@ -129,6 +129,7 @@ def snapshot(store, name: str) -> dict:
     last_ms = max(r["time_ns"] for rs in rows.values() for r in rs) // 1_000_000
     mid_ms = (first_ms + last_ms) // 2
     return {
+        "events": _events(store, rows, queues, first_ms, last_ms),
         "counts": store.counts(),
         "messages": everything,
         "messages_limit_2": _ids(queries.recent(store, now, lt, 2)),
@@ -179,6 +180,33 @@ def queue_page(store, now_ms: int, first_ms: int, mid_ms: int, last_ms: int) -> 
             "first half": queue_mod.flows(*store.queue_flows(first_ms, mid_ms, now_ms)),
             "second half": queue_mod.flows(*store.queue_flows(mid_ms + 1, last_ms, now_ms)),
         },
+    }
+
+
+def _events(store, rows: dict, queues: list, first_ms: int, last_ms: int) -> dict:
+    """/api/events (events.py): the whole window, paged 3 steps at a time to the end, and each filter."""
+    page = lambda **kw: events.page(store, first_ms, last_ms, 100, **kw)  # noqa: E731
+    pages, cursor = [], None
+    while True:
+        p = events.page(store, first_ms, last_ms, 3, cursor=cursor)
+        pages.append(p)
+        if not (cursor := p["next_cursor"]):
+            break
+    services = sorted({r["service_name"] for rs in rows.values() for r in rs if r["service_name"]})
+    return {
+        "all": page(),
+        "pages_of_3": pages,
+        "first_half": events.page(store, first_ms, (first_ms + last_ms) // 2, 100),
+        # hourly buckets: whole hours from a rollup, if the store keeps one, and the partial ends from the spans
+        "week": events.page(store, first_ms - 3 * 86_400_000 + 1234, last_ms + 3 * 86_400_000, 5),
+        "week_by_kind": events.page(store, first_ms - 3 * 86_400_000, last_ms + 3 * 86_400_000, 5,
+                                    kinds=("receive", "outcome")),
+        "by_queue": {q: page(queue=q) for q in queues + ["no-such-queue"]},
+        "by_service": {s: page(service=s) for s in services},
+        "by_kind": {k: page(kinds=(k,)) for k in events.KINDS},
+        "settles": page(kinds=("delete", "change_visibility")),
+        "by_message": {m: page(message_id=m) for m in sorted(rows)[:6]},
+        "by_message_and_kind": {m: page(message_id=m, kinds=("receive",)) for m in sorted(rows)[:3]},
     }
 
 

@@ -146,7 +146,7 @@ def test_the_fixture_is_a_schema_5_file():
 def test_a_file_from_main_upgrades_in_place_and_keeps_every_span(from_main):
     before = raw(from_main)
     db = Database(from_main, store_bodies=frozenset({"orders"}))
-    assert db.migrated == [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+    assert db.migrated == [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
     db.close()
     assert raw(from_main) == before  # every row, every column, same row IDs
     assert meta_version(from_main) == str(LATEST)
@@ -160,8 +160,22 @@ def test_a_file_from_main_upgrades_in_place_and_keeps_every_span(from_main):
                                        (15, "users, sessions and tokens", True),
                                        (16, "spans.service_version", True),
                                        (17, "queue events (the queue page)", True),
-                                       (18, "users.proxy_linked_at_ms", True)]
+                                       (18, "users.proxy_linked_at_ms", True),
+                                       (19, "hourly step rollup (/api/events)", True)]
     assert schema(from_main) == schema_new_file(from_main + ".new")
+
+
+def test_schema_19_builds_the_step_rollup_from_the_spans(from_main):
+    """The backfill gives what ingest keeps: per (hour, queue, service, kind), the stored steps, no purges."""
+    Database(from_main, store_bodies=frozenset({"orders"})).close()
+    c = sqlite3.connect(from_main)
+    try:
+        got = sorted(c.execute("SELECT hour, queue, service, kind, n FROM step_rollup").fetchall())
+        want = sorted(c.execute("""SELECT time_ns / 3600000000000, queue, COALESCE(service_name, ''), kind, COUNT(*)
+                                   FROM spans WHERE kind <> 'purge' GROUP BY 1, 2, 3, 4""").fetchall())
+    finally:
+        c.close()
+    assert got == want and sum(r[4] for r in got) > 0
 
 
 def test_schema_10_takes_the_bodies_out_of_the_spans_and_keeps_each_once(from_main):

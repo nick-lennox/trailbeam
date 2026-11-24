@@ -1728,6 +1728,55 @@ class PostgresStore(Store):
         return self._walk_first(branch, p, lambda r: (-r["last_ns"], r["mid"]), limit, from_ns,
                                 top=lambda r: r["last_ns"])
 
+    # /api/events (events.py). A span is in the place of its own time's bucket, or a later one (a bucket being
+    # dropped, a stray moved home: "Placement"), never an earlier one: so only the places from the window's first
+    # bucket on, and _top_ns bounds a place's span times as it bounds its summaries'. Trace and span IDs compare
+    # byte by byte (COLLATE "C"), as SQLite compares them, so both stores page in the same order.
+    _STEP_COLS = ("s.time_ns, s.start_ns, s.trace_id, s.span_id, s.kind, s.mid, s.queue, s.service_name, "
+                  "s.service_version, s.result, s.error_code, s.outcome, s.error_type, s.receive_count, "
+                  "s.visibility_timeout")
+
+    @staticmethod
+    def _step_where(from_ns: int, to_ns: int, queue, service, kinds) -> tuple[str, list]:
+        from .events import KINDS
+        where, p = "s.time_ns >= %s AND s.time_ns < %s AND s.kind = ANY(%s)", [from_ns, to_ns, list(kinds or KINDS)]
+        if queue is not None:
+            where, p = where + " AND s.queue = %s", p + [queue]
+        if service is not None:
+            where, p = where + " AND s.service_name = %s", p + [service]
+        return where, p
+
+    def step_rows(self, from_ns: int, to_ns: int, limit: int, *, queue: Optional[str] = None,
+                  service: Optional[str] = None, kinds: Optional[tuple] = None,
+                  after: Optional[tuple] = None) -> list:
+        where, p = self._step_where(from_ns, to_ns, queue, service, kinds)
+        if after is not None:
+            where += ' AND (s.time_ns, s.trace_id COLLATE "C", s.span_id COLLATE "C") < (%s, %s, %s)'
+            p += list(after)
+        order = 's.time_ns DESC, s.trace_id COLLATE "C" DESC, s.span_id COLLATE "C" DESC'
+        branch = f"SELECT {self._STEP_COLS} FROM spans s WHERE {{p}} AND {where} ORDER BY {order} LIMIT %s"
+        key = lambda r: (r["time_ns"], r["trace_id"], r["span_id"])  # noqa: E731  (hex IDs: str order is byte order)
+        page: list = []
+        with self._reading() as c:
+            for batch in self._batches(self._places_from(c, from_ns)):
+                if len(page) >= limit and self._top_ns(batch[0]) < page[-1]["time_ns"]:
+                    break
+                q, qp = _each(batch, branch, p + [limit], "s")
+                page = sorted(page + c.execute(f"SELECT * FROM ({q}) u", qp).fetchall(), key=key, reverse=True)[:limit]
+        return page
+
+    def step_counts(self, from_ns: int, to_ns: int, bucket_ns: int, *, queue: Optional[str] = None,
+                    service: Optional[str] = None, kinds: Optional[tuple] = None) -> list[tuple]:
+        where, p = self._step_where(from_ns, to_ns, queue, service, kinds)
+        branch = f"SELECT s.time_ns / %s AS b, s.kind, COUNT(*) AS n FROM spans s WHERE {{p}} AND {where} GROUP BY 1, 2"
+        out: dict = {}
+        with self._reading() as c:
+            for batch in self._batches(self._places_from(c, from_ns)):
+                q, qp = _each(batch, branch, [bucket_ns] + p, "s")
+                for r in c.execute(f"SELECT b, kind, SUM(n) AS n FROM ({q}) u GROUP BY b, kind", qp).fetchall():
+                    out[(r["b"], r["kind"])] = out.get((r["b"], r["kind"]), 0) + int(r["n"])
+        return [(b, k, n) for (b, k), n in out.items()]
+
     _ON_QUEUE = (" AND EXISTS (SELECT 1 FROM message_queues q WHERE {q} AND q.queue = %s AND q.last_ns = s.last_ns"
                  " AND q.mid = s.mid)")
 
