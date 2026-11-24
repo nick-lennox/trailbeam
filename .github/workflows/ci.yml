@@ -8,8 +8,8 @@ name: CI
 #      Postgres versions.
 #   3. everything, every night, on release/** branches, on a release tag (release.yaml calls this workflow
 #      with full: true and publishes only if it passes) and by hand: also the upgrade from the last release,
-#      backup and restore under load, the perf check, monitoring and the concurrency check on real SQS. The
-#      compatibility matrix (compat.yml) runs on the same schedule.
+#      backup and restore under load, the perf check, monitoring, the concurrency check on real SQS and the
+#      compatibility matrix (compat.yml, which this workflow calls).
 # A change to this file or docs.yml runs everything. `ci-ok` at the end passes when every job that ran passed:
 # it is the one result to look at (the merge watchdog merges on it).
 # A failing nightly run opens an issue for the Software Engineer with the commits it could have come from
@@ -60,6 +60,7 @@ jobs:
       perf: ${{ steps.c.outputs.perf }}
       upgrade: ${{ steps.c.outputs.upgrade }}
       monitoring: ${{ steps.c.outputs.monitoring }}
+      compat: ${{ steps.c.outputs.compat }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -101,6 +102,7 @@ jobs:
             area perf '^python/bench/'
             area upgrade '^python/smoke/|^python/src/trailbeam/server/(migrations|pg_schema|db|postgres|store)\.py$'
             area monitoring '^deploy/monitoring/'
+            area compat '^compat/|^\.github/workflows/compat\.yml$'
           } > "$RUNNER_TEMP/areas"
           cat "$RUNNER_TEMP/areas"
           get() { grep "^$1=" "$RUNNER_TEMP/areas" | cut -d= -f2; }
@@ -884,6 +886,13 @@ jobs:
     uses: ./.github/workflows/docs.yml
     secrets: inherit
 
+  compat:
+    # Tier 3: the compatibility matrix (compat.yml, QV-335), and on pull requests that change compat/ or it.
+    name: Compatibility matrix
+    needs: changes
+    if: needs.changes.outputs.compat == 'true'
+    uses: ./.github/workflows/compat.yml
+
   ci-ok:
     # The one result to look at: passes when every job that ran passed (a job its paths didn't need is skipped,
     # which is fine). A quarantined job, listed in QUARANTINED with the issue to fix it, still runs and shows
@@ -892,7 +901,7 @@ jobs:
     if: always()
     needs: [changes, python, perf, postgres, node, conformance, java, java-matrix, ui, collector, container,
             upgrade, backup-restore, demo, examples, team-install, kubernetes, concurrency-check,
-            concurrency-check-aws, monitoring, compat-table, docs]
+            concurrency-check-aws, monitoring, compat-table, docs, compat]
     runs-on: ubuntu-latest
     env:
       NEEDS: ${{ toJSON(needs) }}
