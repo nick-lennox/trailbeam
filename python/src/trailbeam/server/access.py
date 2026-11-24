@@ -9,8 +9,9 @@ is ``MEMBER``, so a page or file added later is never open by mistake):
 - ``INGEST``: ``POST /v1/traces``.
 - ``METRICS``: ``GET /metrics``.
 - ``MEMBER``: the API and the web screen, message bodies included (an admin or a member, proposal section 2).
-- ``ADMIN``: managing people and tokens. No HTTP route has it yet: phase 1 does that from the command line
-  (``trailbeam users``, ``trailbeam tokens``: cli.py).
+- ``ADMIN``: managing people and ingest tokens: ``/api/users`` and ``/api/tokens/ingest`` (``API_ROUTES``,
+  people_api.py; the People and Tokens pages), and ``trailbeam users`` / ``trailbeam tokens`` (cli.py). A person's
+  own personal API tokens (``/api/me/tokens``) are ``MEMBER``, and need a person.
 
 **Two modes, switched by the store, not by a setting.** ``State`` asks the store whether an admin exists at most
 every ``STATE_TTL_S`` (5 s), on every replica, so when the first admin is created every replica switches within
@@ -34,6 +35,7 @@ headers are read: a refused export is answered before its body is.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from typing import Callable, NamedTuple, Optional
@@ -58,11 +60,42 @@ ROUTES: dict[tuple[str, str], str] = {
     ("POST", "/setup"): OPEN,
     ("POST", "/v1/traces"): INGEST,
     ("GET", "/metrics"): METRICS,
+    ("GET", "/set-password"): OPEN,  # invite and reset links (people_api.py); the code in it is the credential
+    ("POST", "/set-password"): OPEN,
 }
+
+# The routes that manage people and tokens (people_api.py): (method, path template, level, handler name).
+# ``{id}`` is a positive integer. Matched by the whole path, so /api/users/x is no route of these (and a 404).
+API_ROUTES: tuple[tuple[str, str, str, str], ...] = (
+    ("GET", "/api/users", ADMIN, "list_users"),
+    ("POST", "/api/users", ADMIN, "create_user"),
+    ("PATCH", "/api/users/{id}", ADMIN, "change_user"),
+    ("DELETE", "/api/users/{id}", ADMIN, "remove_user"),
+    ("POST", "/api/users/{id}/link", ADMIN, "user_link"),
+    ("GET", "/api/tokens/ingest", ADMIN, "list_ingest_tokens"),
+    ("POST", "/api/tokens/ingest", ADMIN, "create_ingest_token"),
+    ("DELETE", "/api/tokens/ingest/{id}", ADMIN, "revoke_ingest_token"),
+    ("GET", "/api/me/tokens", MEMBER, "list_my_tokens"),
+    ("POST", "/api/me/tokens", MEMBER, "create_my_token"),
+    ("DELETE", "/api/me/tokens/{id}", MEMBER, "revoke_my_token"),
+)
+_API_RX = tuple((m, re.compile("^" + re.escape(t).replace(re.escape("{id}"), "([1-9][0-9]{0,17})") + "$"), lvl, h)
+                for m, t, lvl, h in API_ROUTES)
+
+
+def api_route(method: str, path: str) -> Optional[tuple[str, str, Optional[int]]]:
+    """The people-and-tokens route of a request: (level, handler name, the ``{id}`` or None), or None."""
+    for m, rx, lvl, h in _API_RX:
+        if m == method:
+            hit = rx.match(path)
+            if hit:
+                return lvl, h, (int(hit.group(1)) if rx.groups else None)
+    return None
 
 
 def level_of(method: str, path: str) -> str:
-    return ROUTES.get((method, path), MEMBER)
+    r = api_route(method, path)
+    return r[0] if r else ROUTES.get((method, path), MEMBER)
 
 
 class AccessUnavailable(Exception):

@@ -277,17 +277,25 @@ class Recorder:
                     with rec.outermost():
                         super().do_POST()
 
+                def do_PATCH(self):
+                    with rec.outermost():
+                        super().do_PATCH()
+
+                def do_DELETE(self):
+                    with rec.outermost():
+                        super().do_DELETE()
+
             Recording.__name__ = base.__name__
             return Recording
 
         orig_api = server.App.api
 
-        def api(app, path, query, *who):
+        def api(app, path, query, *who, **kw):
             with rec.outermost() as outer:
                 if not outer:
-                    return orig_api(app, path, query, *who)
+                    return orig_api(app, path, query, *who, **kw)
                 try:
-                    out = orig_api(app, path, query, *who)
+                    out = orig_api(app, path, query, *who, **kw)
                 except server.ApiError as e:
                     rec.record("GET", "/api/" + path, e.status, "application/json", {}, {"error": e.message})
                     raise

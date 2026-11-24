@@ -633,8 +633,33 @@ trailbeam tokens revoke 3                            # --personal for a personal
   within 20 seconds, a revoked token within 30 seconds, and a new admin or a first ingest token within 5 seconds.
 - The commands never create or upgrade a store: they refuse a file that doesn't exist, a store at an older or
   newer schema version (start the new server once first), and `--db :memory:`, which only the server can reach.
-- In the web screen, the header shows who is signed in, with **Sign out**. Managing people and tokens there
-  comes in a later release.
+- In the web screen, the header shows who is signed in, with **Sign out**. The People and Tokens pages are on
+  their way; the API they use is already here.
+
+**People and tokens over the API.** Admins can do the same through `/api/users` and `/api/tokens/ingest`, and
+anyone signed in manages their own personal API tokens with `/api/me/tokens` (all in
+[`contract/openapi.yaml`](contract/openapi.yaml)). Requests that change something send JSON:
+
+```sh norun="needs a server with an admin; test_people_api.py makes these requests against SQLite and Postgres"
+ADMIN="Authorization: Bearer tbp_..."   # an admin's personal API token
+curl -H "$ADMIN" -H 'Content-Type: application/json' -d '{"email": "cy@example.com", "role": "member"}' \
+  http://127.0.0.1:4318/api/users                       # the answer holds Cy's one-time invite link
+curl -H "$ADMIN" -X PATCH -H 'Content-Type: application/json' -d '{"role": "admin"}' http://127.0.0.1:4318/api/users/3
+curl -H "$ADMIN" -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:4318/api/users/3/link
+curl -H "$ADMIN" -H 'Content-Type: application/json' -d '{"name": "orders-api prod"}' http://127.0.0.1:4318/api/tokens/ingest
+```
+
+- Adding a person gives no password: the answer holds a one-time **invite link**
+  (`/set-password#code=...`, 7 days) for them to choose one. `POST /api/users/{id}/link` makes a new one, or for
+  someone who has a password a **reset link** (24 hours). Choosing a password from a link ends the person's other
+  sessions. Each new link replaces the last, and the store keeps only its hash. Trailbeam sends no email:
+  pass the link on privately, because until it is used it opens that person's account.
+- Two roles, `admin` and `member`. The last admin who can sign in can't be made a member, disabled or removed
+  (`409`).
+- The first ingest token of a server without `TRAILBEAM_TOKEN` needs `"close_open_ingest": true`, because it
+  closes ingest that was open. The ingest token list shows the shared token, if set, as "legacy shared token
+  (from TRAILBEAM_TOKEN)", never its value.
+- These routes refuse requests from another site's pages, and bodies that aren't `application/json`.
 
 ### Behind a proxy (`--trusted-proxy`)
 
@@ -1690,7 +1715,8 @@ What each has today:
 | Message bodies, opt-in per queue, with `body.*` search | yes, for queues in `TRAILBEAM_STORE_BODIES`; anyone who can reach the server can read them | yes, for queues an admin opts in; owners and admins only |
 | Lambda error text on the timeline, errors grouped by cause | yes | yes |
 | JSON API | yes | |
-| Overview of flows between services and queues, event explorer, dashboards | not yet | yes |
+| Event explorer: every recorded step in a range, filtered by queue, service, kind or message, with CSV export | yes | yes, with PDF export too |
+| Overview of flows between services and queues, dashboards | not yet | yes |
 | Queue settings, depth and Lambda triggers read from AWS, and redrive | | yes, with a read-only role you connect (redrive needs a second, separate role) |
 | Retention: global, per queue, or forever | yes | yes |
 | Accounts, sign-in and invitations | | yes |
