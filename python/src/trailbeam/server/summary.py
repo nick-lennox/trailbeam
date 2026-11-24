@@ -32,7 +32,7 @@ The fields (every one is a column of the SQLite ``messages`` table, migrations.C
   message with neither a send nor a receive, which is never stuck), ``stuck_open`` (no final delete and no
   success for the latest receive's invocation).
 
-And three lists, kept in their own tables so they can be indexed:
+And these lists, kept in their own tables so they can be indexed:
 
 - ``queues``: every queue the message has a span on;
 - ``tenants``: {tenant: the newest time a span of the message named it} (the tenant filter and search);
@@ -40,14 +40,16 @@ And three lists, kept in their own tables so they can be indexed:
   ``sent`` per send span but those SQS deduplicated (timeline.deduplicated_sends), ``first_delivery`` for a first delivery with a time in queue, ``dead_lettered``
   per observed move to a dead-letter queue, at the receive that reported it (contract/tenants.md), and
   ``dead_lettered_again`` for each move after the first, with the time since the move before it in place of a
-  time in queue: the hourly rollup (rollup.py) needs it to count dead-lettered messages, not moves (QV-128).
+  time in queue: the hourly rollup (rollup.py) needs it to count dead-lettered messages, not moves (QV-128);
+- ``queue_events``: what the message adds to each queue's page (queues.py), as (time in ms, kind, queue key,
+  service, lambda, value) (QV-363).
 """
 from __future__ import annotations
 
 import json
 from typing import Any, Mapping, Optional
 
-from . import purge, timeline
+from . import purge, queues, timeline
 from .store import TENANT_ATTR, TENANT_KINDS, TENANT_MAX_CHARS
 
 Summary = Mapping[str, Any]
@@ -171,6 +173,7 @@ def summarize(rows) -> dict:
         "queues": sorted({r["queue"] for r in rows}),
         "tenants": named,
         "tenant_events": events,
+        "queue_events": queues.events(rows, deduplicated),
     }
 
 
