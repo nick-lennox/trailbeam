@@ -23,6 +23,11 @@
   - **The oldest OpenTelemetry versions are now 1.28 / 0.49b0** (were 1.27 / 0.48b0).
     `opentelemetry-instrumentation` 0.48b0 imports `pkg_resources` without depending on setuptools, so
     `import trailbeam.boto` failed in an environment without setuptools.
+- **`npx trailbeam start` no longer leaves the server running when only `npx` is stopped** (QV-344). npm doesn't
+  pass a signal sent to the `npx` process on, so the server kept port 4318. The launcher now stops the server
+  when the process that started it goes away. The container is labelled `trailbeam.start=1`, and when the port
+  is busy the error names the Docker container that publishes it (a Trailbeam server from an earlier run, too,
+  0.4.0 included) with the `docker stop` command.
 - **No spans dropped when a Postgres statement times out** (QV-300). An export whose statement ran past
   `statement_timeout` (60 s: a lock pile-up, a very slow disk) was answered `500`, which OTLP exporters don't
   retry, so its spans were lost. It is now answered `503` with `Retry-After: 3` (`store_timeout` in
