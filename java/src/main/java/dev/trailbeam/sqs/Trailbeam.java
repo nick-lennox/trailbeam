@@ -54,6 +54,7 @@ public final class Trailbeam {
   static final String SPAN_DELETE = "trailbeam delete";
   static final String SPAN_CHANGE_VISIBILITY = "trailbeam change_visibility";
   static final String SPAN_PURGE = "trailbeam purge";
+  static final String SPAN_OUTCOME = "trailbeam outcome";
 
   static final System.Logger LOG = System.getLogger("trailbeam");
   static final String VERSION = readVersion();
@@ -106,6 +107,7 @@ public final class Trailbeam {
     synchronized (LOCK) {
       if (instance == null) {
         instance = new Trailbeam(System::getenv, null);
+        SnapStart.register();
         Thread hook = new Thread(Trailbeam::shutdown, "trailbeam-shutdown");
         try {
           Runtime.getRuntime().addShutdownHook(hook);
@@ -150,6 +152,26 @@ public final class Trailbeam {
     }
   }
 
+  /**
+   * After a Lambda SnapStart restore (or any CRaC restore): starts a new call-order scope and a new runtime, so
+   * that the many execution environments made from one snapshot share neither a scope nor a
+   * {@code service.instance.id} (QV-312 report, section 3, point 6). The jar calls this itself through
+   * {@code org.crac} when that library is on the classpath; call it from your own {@code afterRestore} hook
+   * otherwise. Spans emitted before the snapshot should have been flushed already: the old runtime is stopped
+   * without waiting for its export.
+   */
+  public static void afterRestore() {
+    CallOrder.newScope();
+    Trailbeam t;
+    synchronized (LOCK) {
+      t = instance;
+      instance = null;
+    }
+    if (t != null) {
+      t.provider.shutdown();
+    }
+  }
+
   /** The package version, which is also the instrumentation scope version. */
   public static String version() {
     return VERSION;
@@ -164,20 +186,34 @@ public final class Trailbeam {
    */
   void emit(String name, String operation, String queueUrl, Attributes attrs, SpanContext parent,
             long startNanos, long endNanos, String threadName, CallOrder.Tick issued, CallOrder.Tick returned) {
+    String queue = queueUrl == null || queueUrl.isEmpty() ? null : queueName(queueUrl);
+    emit(name, operation, "client", clientId, queue, queueUrl, attrs, parent, startNanos, endNanos, threadName,
+        issued, returned);
+  }
+
+  /**
+   * As above, for any source: {@code client} (the interceptor) or {@code lambda} (the Lambda wrapper, which names
+   * the queue from the record's event source ARN and identifies the consumer by its log stream, sections 5 and 6).
+   */
+  void emit(String name, String operation, String source, String clientId, String queueName, String queueUrl,
+            Attributes attrs, SpanContext parent, long startNanos, long endNanos, String threadName,
+            CallOrder.Tick issued, CallOrder.Tick returned) {
     AttributesBuilder b = Attributes.builder()
         .put("trailbeam.schema_version", (long) SCHEMA_VERSION)
         .put("trailbeam.kind", kind(name))
-        .put("trailbeam.source", "client")
+        .put("trailbeam.source", source)
         .put("messaging.system.name", "aws.sqs")
         .put("messaging.operation.type", operationType(name))
         .put("messaging.operation.name", operation)
-        .put("messaging.client.id", clientId)
+        .put("messaging.client.id", clientId == null || clientId.isEmpty() ? this.clientId : clientId)
         .put("process.pid", pid);
     if (threadName != null && !threadName.isEmpty()) {
       b.put("thread.name", threadName);
     }
+    if (queueName != null && !queueName.isEmpty()) {
+      b.put("messaging.destination.name", queueName);
+    }
     if (queueUrl != null && !queueUrl.isEmpty()) {
-      b.put("messaging.destination.name", queueName(queueUrl));
       b.put("aws.sqs.queue.url", queueUrl);
     }
     if (returned != null) {
@@ -201,11 +237,21 @@ public final class Trailbeam {
     sb.startSpan().end(endNanos, TimeUnit.NANOSECONDS);
   }
 
+  /**
+   * The wall clock in nanoseconds since the epoch (section 2). Here, not in the interceptor, so the Lambda wrapper
+   * never loads a class that needs the AWS SDK: a function that only reads its SQS event may not have it.
+   */
+  static long nowNanos() {
+    java.time.Instant now = java.time.Instant.now();
+    return now.getEpochSecond() * 1_000_000_000L + now.getNano();
+  }
+
   static String kind(String spanName) {
     switch (spanName) {
       case SPAN_SEND: return "sqs.send";
       case SPAN_RECEIVE: return "sqs.receive";
       case SPAN_PURGE: return "sqs.purge";
+      case SPAN_OUTCOME: return "sqs.outcome";
       default: return "sqs.settle";
     }
   }
@@ -215,6 +261,7 @@ public final class Trailbeam {
       case SPAN_SEND: return "send";
       case SPAN_RECEIVE: return "receive";
       case SPAN_PURGE: return "purge"; // a custom value: the semantic conventions define none for a purge
+      case SPAN_OUTCOME: return "process";
       default: return "settle";
     }
   }

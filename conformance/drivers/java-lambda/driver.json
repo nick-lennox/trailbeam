@@ -1,0 +1,15 @@
+{
+  "name": "java-lambda",
+  "description": "dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper (Java) in public.ecr.aws/lambda/java:21, wrapping a RequestHandler<SQSEvent, SQSBatchResponse> named in TRAILBEAM_LAMBDA_HANDLER, invoked through its Runtime Interface Emulator by the kit's event source mapping (drivers/lambda-poller). Needs Docker and boto3 in the kit's Python; the image builds the jar from java/ itself.",
+  "setup": ["{python}", "{kit}/drivers/lambda-poller/poller.py", "build", "--name", "java-lambda",
+            "--dockerfile", "{driver_dir}/Dockerfile", "--context", "java", "--context", "conformance/drivers/java-lambda"],
+  "command": ["{python}", "{kit}/drivers/lambda-poller/poller.py", "run", "--name", "java-lambda",
+              "--language", "java", "--runtime", "public.ecr.aws/lambda/java:21"],
+  "variants": [
+    {"name": "alone", "parent": "any",
+     "about": "the wrapper with its defaults: no body capture, no error text"},
+    {"name": "capture", "parent": "any", "capture": true,
+     "env": {"TRAILBEAM_CAPTURE_BODY_QUEUES": "*", "TRAILBEAM_CAPTURE_ERROR_QUEUES": "*"},
+     "about": "body capture and error text on for every queue (contract 15): every receive carries the body, the thrown error's message is on its outcomes"}
+  ]
+}
