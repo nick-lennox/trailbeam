@@ -264,7 +264,8 @@ export OTEL_SERVICE_NAME=orders-worker
 If the server has an [access token](#access-token), also set
 `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<token>`.
 
-Full guides: [Python](python/README.md), [Node.js](node/README.md), and the Lambda sections in each.
+Full guides: [Python](python/README.md), [Node.js](node/README.md), and the Lambda sections in each. A Java
+jar for the AWS SDK for Java v2 is in [`java/`](java/README.md); it is pre-release and not published yet.
 
 ### Supported versions
 
@@ -1635,7 +1636,7 @@ The documentation is at [docs.trailbeam.app](https://docs.trailbeam.app).
 What changed in each release, with upgrade notes: [CHANGELOG.md](CHANGELOG.md).
 
 The reference for each part of this repository is next to its code: [`python/`](python/README.md),
-[`node/`](node/README.md), [`collector/`](collector/README.md), [`demo/`](demo/README.md) and
+[`node/`](node/README.md), [`java/`](java/README.md), [`collector/`](collector/README.md), [`demo/`](demo/README.md) and
 [`examples/`](examples/README.md). The span
 contract, the specification the packages and Trailbeam both follow, is
 [`contract/span-contract.md`](contract/span-contract.md).
@@ -1646,6 +1647,7 @@ contract, the specification the packages and Trailbeam both follow, is
 |---|---|
 | [`python/`](python/) | Python package `trailbeam`: boto3 hooks, a Lambda handler wrapper, and Trailbeam itself (`trailbeam.server`, installed with the `server` extra) |
 | [`node/`](node/) | Node.js package `trailbeam`: AWS SDK v3 hooks and a Lambda handler wrapper |
+| [`java/`](java/) | Java jar `trailbeam-aws-sdk-v2` (pre-release): a global AWS SDK for Java v2 interceptor and a Lambda handler wrapper |
 | [`ui/`](ui/) | `@trailbeam/ui`: the views Trailbeam's web screen and the hosted app share (the timeline with Lambda errors grouped by cause, the Tenants table, and the Body tab with `body.*` search) |
 | [`Dockerfile`](Dockerfile) | The Trailbeam container: `trailbeam[server]` with SQLite on a volume |
 | [`collector/`](collector/) | OpenTelemetry Collector configuration |
