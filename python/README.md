@@ -15,7 +15,7 @@ To install from a clone instead: `pip install ./trailbeam/python`.
 To work on the package itself, run `pip install -e 'python[test]'` from the repository root.
 
 Dependencies: `opentelemetry-api`, `opentelemetry-sdk` and `opentelemetry-exporter-otlp-proto-http`
-1.27 or later, `opentelemetry-instrumentation-botocore` 0.48b0 or later, and `botocore` 1.34 or
+1.28 or later, `opentelemetry-instrumentation-botocore` 0.49b0 or later, and `botocore` 1.34 or
 later.
 
 ## Add the hooks to boto3 code

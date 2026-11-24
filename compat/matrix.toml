@@ -1,0 +1,60 @@
+# The compatibility matrix (QV-335). One file says what is tested:
+#   .github/workflows/compat.yml reads it (nightly, on release/** branches, and on a pull request that changes it),
+#   and the "Supported versions" table in README.md is generated from it:
+#     python3 compat/matrix.py readme          # rewrite the table
+#     python3 compat/matrix.py readme --check  # CI: fail when README.md and this file disagree
+#
+# A cell that fails and isn't fixed yet goes in [[known_failure]] with its issue: the nightly run still runs it
+# but doesn't go red for it, and the README table says it isn't supported.
+
+[python]
+# Each version runs the Python package's tests (the client hooks and the SQLite server) with the oldest
+# and with the newest dependencies below. SQLite is the one built into that Python (the job log prints its version).
+versions = ["3.10", "3.11", "3.12", "3.13", "3.14"]
+
+[python.deps.oldest]
+# The lower bounds in python/pyproject.toml, pinned. boto3 1.34.0 is the release that goes with botocore 1.34.0.
+label = "boto3 / botocore 1.34.0, OpenTelemetry 1.28 / 0.49b0"
+pins = [
+    "boto3==1.34.0",
+    "botocore==1.34.0",
+    "opentelemetry-api==1.28.0",
+    "opentelemetry-sdk==1.28.0",
+    "opentelemetry-exporter-otlp-proto-http==1.28.0",
+    "opentelemetry-proto==1.28.0",
+    "opentelemetry-instrumentation-botocore==0.49b0",
+]
+
+[python.deps.latest]
+label = "the newest boto3 / botocore and OpenTelemetry on PyPI that night"
+pins = []
+
+[node]
+# Each version runs the Node.js package's tests against ElasticMQ, with the oldest and the newest AWS SDK v3.
+versions = ["20", "22", "24"]
+
+[node.sdk.oldest]
+# The first @aws-sdk/client-sqs with MessageSystemAttributeNames (8 May 2024). Older clients drop that
+# parameter silently, so Trailbeam gets no SentTimestamp, receive count or dead-letter source (QV-335).
+label = "@aws-sdk/client-sqs 3.572.0"
+version = "3.572.0"
+
+[node.sdk.latest]
+label = "the newest @aws-sdk/client-sqs on npm that night"
+version = "latest"
+
+[postgres]
+# The Postgres store's conformance suite, store, fault and account tests, on Python 3.12. 14 is the floor:
+# retention needs DETACH PARTITION ... CONCURRENTLY.
+versions = ["14", "15", "16", "17", "18"]
+
+[not_supported]
+# Shown under the table, so nobody reads a missing row as "untested but fine".
+aiobotocore = "The Python package instruments boto3 and botocore clients only, not aiobotocore (asyncio) clients."
+aws_sdk_js_v2 = "The Node.js package instruments AWS SDK for JavaScript v3 clients only, not v2 (`aws-sdk`)."
+
+# [[known_failure]]
+# axis = "python"            # python, node or postgres
+# cell = { python = "3.14", deps = "oldest" }
+# issue = "QV-000"
+# what = "one line: what fails"
