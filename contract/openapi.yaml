@@ -43,6 +43,10 @@ info:
     Ingest is separate: see `POST /v1/traces`. `/api/ready` and the short form of `/api/health` never
     need a credential.
 
+    Accounts are a preview: the server ignores them unless it runs with `--accounts`
+    (`TRAILBEAM_ACCOUNTS=1`). Off, the rules without an admin apply, whatever the store holds, and
+    `/api/users`, `/api/tokens/ingest` and `/api/me/tokens` behave as on a store without accounts.
+
     **People and tokens.** The first admin is made with `trailbeam users create --role admin`, with
     `TRAILBEAM_ADMIN_EMAIL` and `TRAILBEAM_ADMIN_PASSWORD_FILE`, or with the one-time link
     `trailbeam start` prints (`/setup#code=...`). After that, admins manage people and ingest tokens with

@@ -31,6 +31,7 @@ def quick_hashes(monkeypatch):
     for name in ("TRAILBEAM_TOKEN", "TRAILBEAM_TOKEN_FILE", "TRAILBEAM_DB", "TRAILBEAM_STORE_URL"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(cli, "_interactive", lambda: False)
+    monkeypatch.setenv("TRAILBEAM_ACCOUNTS", "1")  # users and roles are off by default in 0.5.0 (test_accounts_switch)
 
 
 class Target:
@@ -313,6 +314,7 @@ def test_the_trailbeam_command_runs_it(tmp_path):
     path = tmp_path / "t.sqlite"
     Database(str(path)).close()
     env = {k: v for k, v in os.environ.items() if not k.startswith(("TRAILBEAM_", "OTEL_"))}
+    env["TRAILBEAM_ACCOUNTS"] = "1"
     r = subprocess.run([sys.executable, "-m", "trailbeam.server", "tokens", "create", "--db", str(path), "--name", "x",
                         "--yes"], env=env, capture_output=True, text=True, timeout=60)
     assert r.returncode == 0 and well_formed(r.stdout.strip(), "tbi_")
