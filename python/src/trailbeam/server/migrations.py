@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 );
 """ + summary_table.CREATE + body_table.CREATE + PROBES_CREATE + account_tables.SQLITE_CREATE + f"""
 {account_tables.SQLITE_ADD_PROXY};
-""" + STEP_ROLLUP_CREATE
+""" + STEP_ROLLUP_CREATE + account_tables.SQLITE_OIDC
 
 # Schema 1 was the first released (the CREATE of version 1 is in tests/server/test_migrations.py).
 # Schema 1 had no start_ns. Its rows came from contract v1 spans, stamped only when the response arrived,
@@ -217,6 +217,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # Schema 20 (QV-313) adds the SNS fan-out indexes (SNS_INDEXES). Publish spans are rows of spans (kind 'publish', no
 # mid); no file before it has any, and no receive before it carries the SNS attributes, so the indexes are built
 # from one scan of spans and start empty. It changes no span data.
+# Schema 21 (QV-228) adds the two single sign-on tables (account_tables.py: oidc_logins, oidc_identities), empty.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new", added=""))
                   + [f"INSERT INTO spans_new ({SPANS_COLUMNS}) SELECT {SPANS_COLUMNS} FROM spans ORDER BY row",
                      "DROP TABLE spans",
@@ -317,6 +318,7 @@ MIGRATIONS = (
     Migration(19, "hourly step rollup (/api/events)", tuple(statements(STEP_ROLLUP_CREATE))
               + ("DELETE FROM step_rollup", STEP_ROLLUP_BACKFILL)),
     Migration(20, "SNS fan-out indexes", tuple(statements(SNS_INDEXES))),
+    Migration(21, "OpenID Connect sign-ins and identities", tuple(statements(account_tables.SQLITE_OIDC))),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

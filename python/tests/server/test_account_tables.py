@@ -95,6 +95,8 @@ def add_everything(s, user: int) -> None:
           "VALUES ('orders-api prod', ?, 'tbi_abcd', 1, ?)", (f"i{user}", user))
     s.sql("INSERT INTO setup_codes (code_sha256, kind, user_id, created_at_ms, expires_at_ms) VALUES (?, 'reset', ?, 1, 2)",
           (f"c{user}", user))
+    s.sql("INSERT INTO oidc_identities (issuer, subject, user_id, email, created_at_ms) "
+          "VALUES ('https://id.example.com', ?, ?, 'x@example.com', 1)", (f"sub{user}", user))
 
 
 def counts(s) -> dict:
@@ -122,7 +124,8 @@ def test_removing_a_person_removes_their_sessions_tokens_and_codes_and_keeps_the
     add_everything(store, ada)
     add_everything(store, grace)
     store.sql("DELETE FROM users WHERE id = ?", (grace,))
-    assert counts(store) == {"users": 1, "sessions": 1, "personal_tokens": 1, "setup_codes": 1, "ingest_tokens": 2}
+    assert counts(store) == {"users": 1, "sessions": 1, "personal_tokens": 1, "setup_codes": 1, "ingest_tokens": 2,
+                             "oidc_identities": 1, "oidc_logins": 0}
     # a service's token outlives whoever made it: revoking it is a decision of its own
     assert sorted(store.sql("SELECT token_sha256, created_by FROM ingest_tokens")) == [(f"i{ada}", ada), (f"i{grace}", None)]
 

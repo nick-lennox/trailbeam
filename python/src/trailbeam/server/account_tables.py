@@ -1,5 +1,5 @@
 """The tables of people and tokens (users and roles, phase 1; proposal on QV-149, section 7): SQLite schema 15,
-Postgres schema 8.
+Postgres schema 8. The two single sign-on tables (phase 3b, oidc.py) came with SQLite schema 21, Postgres schema 14.
 
 - ``users``: a person. ``email`` is the sign-in name, unique ignoring case (``COLLATE NOCASE`` in SQLite, a
   unique index on ``lower(email)`` in Postgres). ``role`` is ``admin`` or ``member``; it has no CHECK, so a
@@ -22,6 +22,14 @@ Postgres schema 8.
 - ``setup_codes``: one-time codes. ``kind`` is ``setup`` (the first admin, from ``trailbeam start``); phase 2 adds
   invite and reset links, which name a ``user_id``. ``code_sha256`` as for tokens; ``used_at_ms`` is set in the
   same transaction that acts on the code, so a code works once even with several replicas.
+- ``oidc_logins``: OpenID Connect sign-ins in progress, for at most 10 minutes (oidc.LOGIN_TTL_MS). The row is
+  found by the SHA-256 of the ``state`` sent to the identity provider and is deleted when the browser comes back,
+  so each works once, on whichever replica the browser returns to. ``browser_sha256`` is the SHA-256 of a random
+  value kept in the browser's ``trailbeam_oidc`` cookie: the callback must come from the browser that started the
+  sign-in. ``nonce`` and ``code_verifier`` (PKCE) are kept as they are: the ID token and the code exchange need
+  them, and they are useless once the row is gone.
+- ``oidc_identities``: which person an identity provider's account is. ``issuer`` and ``subject`` are the ID token's
+  ``iss`` and ``sub``, which never change for an account (an email can). Removed with the person.
 
 Times are milliseconds since the epoch, like ``schema_version.applied_at_ms``. None of these tables hold spans:
 retention, ``--vacuum`` and the page queries never touch them (a vacuum rewrites the file with them in it).
@@ -29,7 +37,7 @@ A ``--db :memory:`` store loses them, people and tokens included, on every resta
 """
 from __future__ import annotations
 
-TABLES = ("users", "sessions", "ingest_tokens", "personal_tokens", "setup_codes")
+TABLES = ("users", "sessions", "ingest_tokens", "personal_tokens", "setup_codes", "oidc_logins", "oidc_identities")
 
 # Added after the tables were created (migrations.py 17, pg_schema.py 11); the CREATEs below are those of the first
 # migration (SQLite 15, Postgres 8) and stay as they are.
@@ -147,4 +155,50 @@ CREATE TABLE IF NOT EXISTS setup_codes (
     expires_at_ms BIGINT NOT NULL,
     used_at_ms BIGINT
 );
+"""
+
+SQLITE_OIDC = """
+CREATE TABLE IF NOT EXISTS oidc_logins (
+    state_sha256 TEXT PRIMARY KEY,
+    browser_sha256 TEXT NOT NULL,        -- SHA-256 of the trailbeam_oidc cookie's value
+    nonce TEXT NOT NULL,
+    code_verifier TEXT NOT NULL,         -- PKCE
+    next_path TEXT NOT NULL,             -- where to go once signed in
+    created_at_ms INTEGER NOT NULL,
+    expires_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS oidc_logins_expires ON oidc_logins (expires_at_ms);
+CREATE TABLE IF NOT EXISTS oidc_identities (
+    issuer TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,                 -- as the identity provider last sent it, for the list
+    created_at_ms INTEGER NOT NULL,
+    last_sign_in_ms INTEGER,
+    PRIMARY KEY (issuer, subject)
+);
+CREATE INDEX IF NOT EXISTS oidc_identities_user ON oidc_identities (user_id);
+"""
+
+PG_OIDC = """
+CREATE TABLE IF NOT EXISTS oidc_logins (
+    state_sha256 TEXT PRIMARY KEY,
+    browser_sha256 TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    code_verifier TEXT NOT NULL,
+    next_path TEXT NOT NULL,
+    created_at_ms BIGINT NOT NULL,
+    expires_at_ms BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS oidc_logins_expires ON oidc_logins (expires_at_ms);
+CREATE TABLE IF NOT EXISTS oidc_identities (
+    issuer TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    created_at_ms BIGINT NOT NULL,
+    last_sign_in_ms BIGINT,
+    PRIMARY KEY (issuer, subject)
+);
+CREATE INDEX IF NOT EXISTS oidc_identities_user ON oidc_identities (user_id);
 """

@@ -85,6 +85,7 @@ header form{margin-left:auto;display:flex;gap:.4rem}
 main{padding:1.2rem;max-width:72rem}
 input[type=text],input[type=number],select{padding:.3rem;border:1px solid #b8bfcc;border-radius:3px}
 input[type=text]{min-width:22rem}input[type=number]{width:6rem}button{padding:.3rem .8rem}
+a.button{display:inline-block;padding:.45rem 1rem;border:1px solid #1d2330;border-radius:4px;color:#1d2330;text-decoration:none;background:#fff}
 table{border-collapse:collapse;width:100%;background:#fff}
 th,td{text-align:left;padding:.35rem .6rem;border-bottom:1px solid #e3e6ec;vertical-align:top}
 th{background:#eef0f4;font-weight:600}
@@ -684,9 +685,18 @@ def _page(status: int, title: str, body: str) -> Response:
     return status, {"Content-Type": "text/html; charset=utf-8"}, html.encode()
 
 
-def login_page(next_path: str, error: bool = False, status: int = 401) -> Response:
+def _sso_button(next_path: str, label: Optional[str]) -> str:
+    """The single sign-on link (oidc.py), when it is on."""
+    if not label:
+        return ""
+    href = "/login/oidc?" + urlencode({"next": next_path})
+    return f'<p><a class="button" href="{escape(href)}">Sign in with {escape(label)}</a></p>'
+
+
+def login_page(next_path: str, error: bool = False, status: int = 401, sso: Optional[str] = None) -> Response:
     """The page a browser gets without the session cookie when the server has a token and no admin (auth.py)."""
-    body = ("<h1>Sign in</h1><p>This Trailbeam server needs its access token (<code>TRAILBEAM_TOKEN</code>).</p>"
+    body = ("<h1>Sign in</h1>" + _sso_button(next_path, sso)
+            + "<p>This Trailbeam server needs its access token (<code>TRAILBEAM_TOKEN</code>).</p>"
             + ('<p class="notice">That is not the token.</p>' if error else "")
             + '<form method="post" action="/login"><input type="password" name="token" placeholder="Token" '
             'autocomplete="current-password" required autofocus>'
@@ -708,11 +718,16 @@ def _minutes(seconds: Optional[int]) -> str:
 
 
 def sign_in_page(next_path: str, email: str = "", outcome: Optional[str] = None, retry_after_s: Optional[int] = None,
-                 status: int = 401) -> Response:
-    """The page a browser gets without a session once the server has an admin (access.py): email and password."""
+                 status: int = 401, sso: Optional[str] = None, password: bool = True) -> Response:
+    """The page a browser gets without a session once the server has an admin (access.py): email and password, and
+    single sign-on when it is on (``sso``: its label). ``password=False``: single sign-on only (no admin yet)."""
     notice = SIGN_IN_NOTICES.get(outcome or "")
-    body = ("<h1>Sign in</h1><p>Sign in with your Trailbeam account.</p>"
-            + (f'<p class="notice">{escape(notice.format(minutes=_minutes(retry_after_s)))}</p>' if notice else "")
+    head = "<h1>Sign in</h1>" + (f'<p class="notice">{escape(notice.format(minutes=_minutes(retry_after_s)))}</p>'
+                                 if notice else "") + _sso_button(next_path, sso)
+    if not password:
+        return _page(status, "Sign in", head)
+    body = (head + ("<p>Or sign in with your Trailbeam email and password.</p>" if sso
+                    else "<p>Sign in with your Trailbeam account.</p>")
             + '<form method="post" action="/login">'
             f'<input type="email" name="email" placeholder="Email" value="{escape(email)}" autocomplete="username" '
             'required autofocus> <input type="password" name="password" placeholder="Password" '
@@ -757,6 +772,13 @@ def setup_page(code: str = "", email: str = "", name: str = "", notice: Optional
             "<p><button>Create admin account</button></p></form>" + _SETUP_SCRIPT)
     st, headers, html = _page(status, "Create your admin account", body)
     return st, {**headers, "Referrer-Policy": "no-referrer", "Cache-Control": "no-store"}, html
+
+
+def sso_error_page(message: str, status: int = 400) -> Response:
+    """Single sign-on didn't work (oidc.OidcError): why, in words for the person, and a way back."""
+    st, headers, html = _page(status, "Sign-in failed", f"<h1>Sign-in failed</h1><p>{escape(message)}</p>"
+                              '<p><a href="/login">Back to sign in</a></p>')
+    return st, {**headers, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}, html
 
 
 PASSWORD_NOTICES = {

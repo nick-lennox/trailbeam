@@ -51,6 +51,14 @@ class BadSetupCode(AccountError):
     """The setup code is unknown, used, or out of date."""
 
 
+class SsoRefused(AccountError):
+    """A single sign-on that the rules refuse (oidc_sign_in); ``reason`` says which rule, the message says why."""
+
+    def __init__(self, reason: str, message: str):
+        super().__init__(message)
+        self.reason = reason
+
+
 SETUP = "setup"  # setup_codes.kind of the first admin's link (trailbeam start)
 INVITE = "invite"  # a new person's link to choose their password (People page, phase 2)
 RESET = "reset"  # a person's link to choose a new password
@@ -255,6 +263,108 @@ class Accounts:
         return bool(self._read("SELECT 1 AS ok FROM setup_codes WHERE code_sha256 = ? AND kind = ? "
                                "AND used_at_ms IS NULL AND expires_at_ms > ?", (code_sha256, SETUP, now_ms)))
 
+    # ---- single sign-on (oidc.py) ---------------------------------------------------------------------
+
+    def create_oidc_login(self, state_sha256: str, browser_sha256: str, nonce: str, code_verifier: str,
+                          next_path: str, now_ms: int, expires_at_ms: int) -> None:
+        """A sign-in sent to the identity provider. Sign-ins that ran out go at the same time: no thread of its own."""
+        with self._write() as tx:
+            tx.run("DELETE FROM oidc_logins WHERE expires_at_ms <= ?", (now_ms,))
+            tx.run("INSERT INTO oidc_logins (state_sha256, browser_sha256, nonce, code_verifier, next_path, "
+                   "created_at_ms, expires_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                   (state_sha256, browser_sha256, nonce, code_verifier, next_path, now_ms, expires_at_ms))
+
+    def take_oidc_login(self, state_sha256: str, now_ms: int) -> Optional[dict]:
+        """The sign-in with this state, deleted as it is read, so it works once even when two replicas get the same
+        callback; None when it is unknown, used or out of date. ``browser_sha256``, ``nonce``, ``code_verifier``,
+        ``next_path``."""
+        with self._write() as tx:
+            row = tx.one("SELECT browser_sha256, nonce, code_verifier, next_path, expires_at_ms FROM oidc_logins "
+                         "WHERE state_sha256 = ?", (state_sha256,))
+            if row is None or not tx.run("DELETE FROM oidc_logins WHERE state_sha256 = ?", (state_sha256,)):
+                return None
+        return row if row["expires_at_ms"] > now_ms else None
+
+    def oidc_identities(self, user_id: Optional[int] = None) -> list[dict]:
+        q = "SELECT issuer, subject, user_id, email, created_at_ms, last_sign_in_ms FROM oidc_identities"
+        if user_id is None:
+            return self._read(q + " ORDER BY user_id, issuer, subject")
+        return self._read(q + " WHERE user_id = ? ORDER BY issuer, subject", (user_id,))
+
+    def oidc_sign_in(self, issuer: str, subject: str, email: str, name: str, role: Optional[str], now_ms: int, *,
+                     role_from_provider: bool, link_email: bool, email_verified: bool,
+                     allow_unverified_email: bool = False) -> tuple[dict, str]:
+        """The person an identity provider's account signs in as: ``(user, how)``, ``how`` being ``known``, ``linked``
+        (an existing local account with the same email, ``link_email`` on and the email verified) or ``created``. One
+        transaction under ADMIN_LOCK, since it can create, promote or demote an admin.
+
+        The email is the account's only tie to a person before its first sign-in, so it must be one the provider
+        verified: an account is created from an unverified email only with ``allow_unverified_email``, and never
+        linked from one. Linking is only to a local account (a password, or invited from the People page) that no
+        provider account signs in to yet: else a second provider account claiming the same email would share it.
+
+        ``role``: the role the provider's groups give (oidc.Rules.role), None for none. With ``role_from_provider``
+        (groups are mapped to roles), a known person's role is set to it at every sign-in, except that the last admin
+        who can sign in stays one, and None refuses them. Without it, ``role`` is used only for a new person.
+
+        Raises SsoRefused: ``disabled``, ``no_role``, ``no_admin_yet`` (a new person who isn't an admin, while the
+        server has none: their session would let them in nowhere), ``email_unverified`` (a new account, from an email
+        the provider didn't verify), ``email_taken`` (an account has the email, and linking is off, the email isn't
+        verified, or a provider account already signs in to it)."""
+        email, name = check_email(email), check_name(name)
+        if role is not None:
+            check_role(role)
+        with self._write(admins=True) as tx:
+            known = tx.one("SELECT user_id FROM oidc_identities WHERE issuer = ? AND subject = ?", (issuer, subject))
+            how = "known"
+            if known is None:
+                other = tx.one("SELECT id FROM users WHERE " + ("lower(email) = lower(?)" if self.postgres
+                                                                else "email = ?"), (email,))
+                if other is not None:
+                    if not (link_email and email_verified) or tx.one(
+                            "SELECT 1 FROM oidc_identities WHERE user_id = ? LIMIT 1", (other["id"],)) is not None:
+                        raise SsoRefused("email_taken", f"{email} already has an account on this server, which "
+                                         "single sign-on doesn't take over")
+                    uid, how = int(other["id"]), "linked"
+                else:
+                    if not (email_verified or allow_unverified_email):
+                        raise SsoRefused("email_unverified", f"the identity provider hasn't verified {email}, and "
+                                         "--oidc-allow-unverified-email is off")
+                    if role is None:
+                        raise SsoRefused("no_role", "your groups at the identity provider give you no role here")
+                    if role != "admin" and tx.one("SELECT id FROM users WHERE role = 'admin' LIMIT 1") is None:
+                        raise SsoRefused("no_admin_yet", "this server has no admin yet, so only someone in an admin "
+                                         "group can sign in first")
+                    try:
+                        uid = tx.insert_id(
+                            "INSERT INTO users (email, name, role, password_hash, created_at_ms, updated_at_ms) "
+                            "VALUES (?, ?, ?, NULL, ?, ?)", (email, name, role, now_ms, now_ms))
+                    except self._unique:  # created a moment ago by another replica: the same refusal as above
+                        raise SsoRefused("email_taken", f"{email} already has an account on this server") from None
+                    how = "created"
+                tx.run("INSERT INTO oidc_identities (issuer, subject, user_id, email, created_at_ms) "
+                       "VALUES (?, ?, ?, ?, ?)", (issuer, subject, uid, email, now_ms))
+            else:
+                uid = int(known["user_id"])
+            user = tx.one(_USER_SELECT + " WHERE id = ?", (uid,))
+            if user["disabled_at_ms"] is not None:
+                raise SsoRefused("disabled", "your account on this server is disabled")
+            if how != "created" and role_from_provider and role != user["role"]:
+                if role is None:
+                    raise SsoRefused("no_role", "your groups at the identity provider give you no role here")
+                try:
+                    if role != "admin":
+                        _keep_an_admin(tx, uid)
+                    tx.run("UPDATE users SET role = ?, updated_at_ms = ? WHERE id = ?", (role, now_ms, uid))
+                    tx.run("DELETE FROM sessions WHERE user_id = ?", (uid,))
+                    user["role"] = role
+                except LastAdmin:
+                    pass  # the last admin stays one (the caller logs it): the server always keeps an admin
+            tx.run("UPDATE users SET last_sign_in_ms = ?, failed_count = 0, locked_until_ms = NULL WHERE id = ?",
+                   (now_ms, uid))
+            tx.run("UPDATE oidc_identities SET last_sign_in_ms = ?, email = ? WHERE issuer = ? AND subject = ?",
+                   (now_ms, email, issuer, subject))
+        return user, how
     # ---- invite and reset links ------------------------------------------------------------------------
 
     def create_user_code(self, user_id: int, kind: str, code_sha256: str, now_ms: int, expires_at_ms: int) -> bool:

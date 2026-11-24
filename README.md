@@ -557,6 +557,7 @@ own store (SQLite or Postgres). Nothing changes until the first admin exists. Af
 | | Who it lets in | Works for |
 |---|---|---|
 | Signing in with an email and password (`/login`) | the person, with their role | the web screen and the API |
+| [Single sign-on](#single-sign-on-openid-connect) through your identity provider | the person, with their role | the web screen and the API |
 | Personal API token, `tbp_` and 40 letters and digits, as `Authorization: Bearer` | its owner, with the owner's role | the API and `/metrics` (scripts, CI, Prometheus) |
 | Ingest token, `tbi_` and 40 letters and digits, as `x-trailbeam-key` or `Authorization: Bearer` | a service | `POST /v1/traces` only |
 | `TRAILBEAM_TOKEN`, if set | anyone who has it | `POST /v1/traces` and `/metrics` only |
@@ -635,6 +636,9 @@ trailbeam tokens revoke 3                            # --personal for a personal
 - Creating the first ingest token says first that it closes ingest on a server without `TRAILBEAM_TOKEN`, and
   asks. Without a terminal, pass `--yes`.
 - The server always keeps an admin: the last admin who can sign in can't be made a member, disabled or removed.
+- **Removing someone who signs in with single sign-on doesn't keep them out.** At their next sign-in the provider
+  lets them in again, as a new person with the default role (`trailbeam users remove` says so first). To keep them
+  out, disable them instead.
 - Changing someone's role or password, or disabling or removing them, ends their sessions. Running servers see it
   within 20 seconds, a revoked token within 30 seconds, and a new admin or a first ingest token within 5 seconds.
 - The commands never create or upgrade a store: they refuse a file that doesn't exist, a store at an older or
@@ -693,6 +697,99 @@ curl -H "$ADMIN" -H 'Content-Type: application/json' -d '{"name": "orders-api pr
   closes ingest that was open. The ingest token list shows the shared token, if set, as "legacy shared token
   (from TRAILBEAM_TOKEN)", never its value.
 - These routes refuse requests from another site's pages, and bodies that aren't `application/json`.
+
+### Single sign-on (OpenID Connect)
+
+People can sign in through your identity provider ("Sign in with Okta", Microsoft Entra, Google Workspace,
+Keycloak, or any OpenID Connect provider) instead of, or as well as, with a password. It is free and in this
+package, as an optional extra that brings PyJWT and `cryptography` to check the provider's signatures:
+
+```sh norun="starts a server that keeps running; python/tests/server/test_oidc.py and test_oidc_keycloak.py test it"
+pip install "trailbeam[server,sso]"     # in Docker: docker build --build-arg TRAILBEAM_EXTRAS=server,sso .
+trailbeam --accounts --public-url https://trailbeam.example.com \
+  --oidc-issuer https://id.example.com/realms/main --oidc-client-id trailbeam \
+  --oidc-client-secret-file /run/secrets/oidc-client-secret \
+  --oidc-admin-groups trailbeam-admins --oidc-member-groups engineering --oidc-label Keycloak
+```
+
+1. At the provider, create an OpenID Connect application (a "web" or confidential client) with the redirect URI
+   `<public URL>/login/oidc/callback`, for example `https://trailbeam.example.com/login/oidc/callback`. The server
+   logs that URI at start. Without a client secret it works as a public client; PKCE is used either way.
+2. Give Trailbeam the issuer, the client ID and secret, and `--public-url`: the address people open Trailbeam at.
+   The redirect URI is made from it, never from the request's `Host` header, which a client can set.
+3. The sign-in page then shows **Sign in with …** above the password form.
+
+Single sign-on is part of users and roles, so it needs them switched on: with `--oidc-issuer` but without
+`--accounts` (or `TRAILBEAM_ACCOUNTS=1`), the server refuses to start.
+
+Every flag also has an environment variable: `TRAILBEAM_PUBLIC_URL`, `TRAILBEAM_OIDC_ISSUER`,
+`TRAILBEAM_OIDC_CLIENT_ID`, `TRAILBEAM_OIDC_CLIENT_SECRET_FILE` (or the secret itself in
+`TRAILBEAM_OIDC_CLIENT_SECRET`), `TRAILBEAM_OIDC_SCOPES`, `TRAILBEAM_OIDC_GROUPS_CLAIM`,
+`TRAILBEAM_OIDC_ADMIN_GROUPS`, `TRAILBEAM_OIDC_MEMBER_GROUPS`, `TRAILBEAM_OIDC_DEFAULT_ROLE`,
+`TRAILBEAM_OIDC_ALLOWED_DOMAINS`, `TRAILBEAM_OIDC_LINK_EMAIL`, `TRAILBEAM_OIDC_ALLOW_UNVERIFIED_EMAIL`,
+`TRAILBEAM_OIDC_LABEL` and `TRAILBEAM_OIDC_SESSION_HOURS`.
+
+**Who gets which role.**
+
+| Setting | What it does |
+|---|---|
+| `--oidc-admin-groups a,b` | people in any of these groups are admins |
+| `--oidc-member-groups c,d` | people in any of these (and no admin group) are members |
+| `--oidc-default-role member` or `none` | everyone else: a member, or refused. Default `member`, or `none` when member groups are set |
+| `--oidc-groups-claim` | the ID token claim that lists groups (default `groups`; for Entra app roles, `roles`) |
+| `--oidc-allowed-domains example.com` | only verified emails in these domains may sign in |
+
+- **With groups mapped, the provider decides, at sign-in.** A person's role is set again from their groups each time
+  they sign in, and their open sessions end when it changes. Until then they keep the role they had: taking someone
+  out of the admin group makes them a member at their next sign-in, at most `--oidc-session-hours` later. The last
+  admin who can sign in stays an admin (the server logs a warning).
+- **Sessions from single sign-on last 12 hours** (`--oidc-session-hours`, `TRAILBEAM_OIDC_SESSION_HOURS`, up to
+  720), not a password session's 30 days, because the provider is asked only at sign-in. **Disabling someone at the
+  provider doesn't sign them out here**, and the personal API tokens they made keep working. To cut someone off at
+  once, disable them here too: `trailbeam users disable <email>`.
+- **Without group settings,** a new person gets the default role, and an admin changes it here afterwards
+  (`trailbeam users set-role`).
+- **The first admin** can come from single sign-on: while the server has no admin, only someone in an admin group
+  can sign in, and they become the first admin. Everyone else is told the server has no admin yet.
+- An account is the provider's issuer and subject (`iss` and `sub`), not the email, so a changed email is still the
+  same person. People who sign in this way have no password here.
+- **An account is only made from an email the provider verified** (`email_verified`). Otherwise someone who sets
+  another person's address at the provider would hold an account under it, and an admin who promotes "that person"
+  on the People page would promote them. A provider that sends no `email_verified` (Microsoft Entra) needs
+  `--oidc-allow-unverified-email`: only turn it on if people can't choose their own email at your provider.
+- **An email that already has an account here is refused**, so a provider account can't take over a local one, an
+  admin's included. To let the two be one, turn on `--oidc-link-email`: a provider account with a **verified**
+  email then signs in to the account with that email, if that account has a password or was invited from the People
+  page and no provider account signs in to it yet. Only do that if people can't choose their own email at your
+  provider.
+- `/logout` ends the Trailbeam session, not the one at the provider.
+
+**Per provider.**
+
+- **Keycloak:** issuer `https://<host>/realms/<realm>`. Add a "Group Membership" mapper (claim `groups`, full group
+  path off, in the ID token) to the client. CI runs the whole flow against Keycloak 26
+  ([realm](python/tests/server/keycloak/trailbeam-realm.json)).
+- **Okta:** issuer `https://<org>.okta.com` (or your authorization server's). Add a groups claim to the ID token
+  and, if it needs one, the scope: `--oidc-scopes "openid email profile groups"`.
+- **Microsoft Entra ID:** issuer `https://login.microsoftonline.com/<tenant ID>/v2.0`, which already limits sign-in
+  to your tenant. Groups come as object IDs (GUIDs), so list those. **Entra leaves the groups out for someone in
+  more than 200 of them** and points to Microsoft Graph instead; Trailbeam refuses that sign-in with a message
+  saying so. Set the application to send only "groups assigned to the application", or use app roles
+  (`--oidc-groups-claim roles`). Entra doesn't send `email_verified`, so its accounts need
+  `--oidc-allow-unverified-email`, and `--oidc-allowed-domains` and `--oidc-link-email` refuse them: leave those
+  two off and rely on the tenant. Check that people in your tenant can't change their own email address.
+- **Google Workspace:** issuer `https://accounts.google.com`. **Google doesn't send groups** (they need its Admin
+  SDK), so use `--oidc-allowed-domains <your domain>` with a default role, and make admins here with
+  `trailbeam users set-role`. For Google, the allowed domain is checked against the Workspace domain claim (`hd`)
+  too, which a personal Google account doesn't have even when its address is in your domain.
+
+**Behind the scenes.** A sign-in in progress is kept in the store for up to 10 minutes, so any replica can take
+the provider's answer, and it works once. The browser that started it must be the one that finishes it (a short
+cookie, `trailbeam_oidc`). The ID token's signature, issuer, audience, expiry and nonce are checked, and only
+asymmetric signatures (RS256, ES256 and the like) are accepted. The provider's settings are read on the first
+sign-in, so a provider that is down doesn't stop Trailbeam starting. Calls to the provider time out after
+10 seconds. The issuer must be `https`, except on `localhost`. SAML and SCIM (automatic user sync) are not
+supported.
 
 ### Behind a proxy (`--trusted-proxy`)
 

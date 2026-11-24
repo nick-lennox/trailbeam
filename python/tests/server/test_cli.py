@@ -166,6 +166,28 @@ def test_role_password_disable_and_remove(target, tmp_path, capsys):
     assert code == 2 and "no person 'nobody@example.com'" in err
 
 
+
+def test_removing_someone_who_signs_in_with_single_sign_on_says_they_can_come_back(target, tmp_path, capsys):
+    run(capsys, "users", "create", *target.args, "--email", "root@example.com", "--role", "admin",
+        "--password-file", password_file(tmp_path))
+    s = target.open()
+    try:
+        acc = Accounts(s)
+        sign_in = dict(issuer="https://id.example.com", subject="carol-sub", email="carol@example.com", name="Carol",
+                       role="member", now_ms=1, role_from_provider=False, link_email=False, email_verified=True)
+        assert acc.oidc_sign_in(**sign_in)[1] == "created"
+        code, _, err = run(capsys, "users", "remove", *target.args, "carol@example.com", "--yes")
+        assert code == 0 and "single sign-on" in err and "disable them instead" in err
+        assert acc.oidc_sign_in(**sign_in)[1] == "created"  # what the note warns of: back, as a new person
+    finally:
+        s.close()
+    code, _, err = run(capsys, "users", "remove", *target.args, "carol@example.com", "--yes")
+    assert code == 0 and "single sign-on" in err
+    run(capsys, "users", "create", *target.args, "--email", "dan@example.com", "--password-file", password_file(tmp_path))
+    code, _, err = run(capsys, "users", "remove", *target.args, "dan@example.com", "--yes")
+    assert code == 0 and "single sign-on" not in err
+
+
 @pytest.mark.parametrize("command", [["set-role", "root@example.com", "member"], ["disable", "root@example.com"],
                                      ["remove", "root@example.com", "--yes"]])
 def test_the_last_admin_can_t_be_taken_away(target, tmp_path, capsys, command):

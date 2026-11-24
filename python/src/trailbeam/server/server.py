@@ -20,12 +20,12 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTrace
 from . import __version__
 from . import queues as queues_mod
 from . import access as access_mod, auth as auth_mod, causes as causes_mod, proxy_auth as proxy_auth_mod, bodies, csrf, first_admin, \
-    metrics, passwords, people_api, queries, \
+    metrics, oidc as oidc_mod, passwords, people_api, queries, \
     sessions as sessions_mod, trace_links, ui_files, web
 from .accounts import AccountError, Accounts, AdminExists, BadSetupCode, check_email, check_name
 from .backpressure import GRPC_RESOURCE_EXHAUSTED, GRPC_UNAVAILABLE, IngestGate, Rejected, status_body
 from .sessions import Sessions
-from .signin import SignIn
+from .signin import AddressLimit, SignIn
 from .tokens import Tokens
 from . import events as events_mod
 from .store import ExportAbandoned, Store, StoreFull, StoreTimeout, StoreUnavailable, WriterBusy
@@ -58,7 +58,8 @@ class App:
                  max_receive_counts: Optional[dict] = None, ui_dir=ui_files.DEFAULT_UI_DIR, purger=None,
                  auth: Optional[auth_mod.Auth] = None, gate: Optional[IngestGate] = None,
                  trusted_proxies: Optional[TrustedProxies] = None, trace_link: Optional[str] = None,
-                 accounts="auto", proxy_auth: Optional[proxy_auth_mod.ProxyAuthConfig] = None):
+                 accounts="auto", proxy_auth: Optional[proxy_auth_mod.ProxyAuthConfig] = None,
+                 oidc: Optional[oidc_mod.Settings] = None, oidc_provider=None):
         self.db = db
         # --trusted-proxy (proxy.py): whose X-Forwarded-For/-Proto/-Host is believed; empty: nobody's
         self.proxies = trusted_proxies or TrustedProxies()
@@ -80,6 +81,14 @@ class App:
             log.warning("--proxy-auth-header is set, but this store has no tables of people: it is ignored")
         # who may do what (access.py): the shared token until an admin exists, then people
         self.access = access_mod.Access(auth, self.accounts, self.sessions, self.tokens, proxy=self.proxy_signin)
+        # single sign-on (oidc.py); None: off
+        if oidc is not None and self.accounts is None:
+            raise ValueError("single sign-on needs a store with accounts (a SQLite file or Postgres)")
+        self.oidc = oidc_mod.Oidc(oidc, self.accounts, self.sessions, oidc_provider) if oidc is not None else None
+        self.sso_label = oidc.label if oidc is not None else None
+        # sign-ins started per client address (each adds a row to oidc_logins until it runs out): approximate,
+        # per replica, like the sign-in limit
+        self.sso_starts = AddressLimit(max_failures=oidc_mod.STARTS_PER_ADDRESS, window_s=oidc_mod.STARTS_WINDOW_S)
         try:  # read now, so the first export doesn't wait for it (on a :memory: store, behind the writer)
             self.access.state.get()
         except access_mod.AccessUnavailable as e:
@@ -620,7 +629,8 @@ def make_handler(app: App):
             self.send_response(status)
             self.send_header("Content-Type", ctype)
             for k, v in (headers or {}).items():
-                self.send_header(k, v)
+                for one in (v if isinstance(v, (list, tuple)) else (v,)):  # Set-Cookie can come more than once
+                    self.send_header(k, one)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -874,6 +884,9 @@ def make_handler(app: App):
             if path == first_admin.PATH:
                 self._setup_get()
                 return
+            if path in (oidc_mod.START_PATH, oidc_mod.CALLBACK_PATH):
+                self._oidc(path, q)
+                return
             if path == people_api.LINK_PATH:
                 self._send_page(web.password_page() if app.accounts is not None else
                                 (404, {"Content-Type": "text/plain"}, b"not found"))
@@ -884,6 +897,10 @@ def make_handler(app: App):
                     mode = app.access.mode()
                     if mode != "off":
                         self._sign_in_out(path, mode, q)
+                        return
+                    if path == "/login" and app.oidc is not None:  # nobody has an account: single sign-on only
+                        self._send_page(web.sign_in_page(auth_mod.safe_next(q.get("next")), status=200,
+                                                         sso=app.sso_label, password=False))
                         return
                     d = access_mod.Decision(True)
                 else:
@@ -915,9 +932,9 @@ def make_handler(app: App):
                 elif d.status == 403:
                     self._send_page(web.forbidden_page(d.message))
                 elif app.access.mode() == "accounts":
-                    self._send_page(web.sign_in_page(auth_mod.safe_next(self.path)))
+                    self._send_page(web.sign_in_page(auth_mod.safe_next(self.path), sso=app.sso_label))
                 else:
-                    self._send_page(web.login_page(auth_mod.safe_next(self.path)))
+                    self._send_page(web.login_page(auth_mod.safe_next(self.path), sso=app.sso_label))
                 return
             if u.path == "/metrics":  # behind the token when one is set (Prometheus: authorization.credentials_file)
                 try:
@@ -959,9 +976,62 @@ def make_handler(app: App):
                 # the proxy signed them in already: on to the page they asked for
                 self._send(303, "text/plain", b"", {"Location": auth_mod.safe_next(q.get("next"))})
             elif mode == "accounts":
-                self._send_page(web.sign_in_page(auth_mod.safe_next(q.get("next")), status=200))
+                self._send_page(web.sign_in_page(auth_mod.safe_next(q.get("next")), status=200, sso=app.sso_label))
             else:
-                self._send_page(web.login_page(auth_mod.safe_next(q.get("next")), status=200))
+                self._send_page(web.login_page(auth_mod.safe_next(q.get("next")), status=200, sso=app.sso_label))
+
+        def _oidc(self, path: str, q: dict):
+            """GET /login/oidc (to the identity provider) and /login/oidc/callback (back from it): oidc.py."""
+            if app.oidc is None:
+                self._send(404, "text/plain", b"not found")
+                return
+            secure = self._scheme() == "https"
+            client = self._client()
+            if path == oidc_mod.START_PATH:
+                wait = app.sso_starts.retry_after(client)
+                if wait is not None:
+                    self._send_page(_with_retry(web.sso_error_page(
+                        "Too many sign-ins started from here. Try again in a minute.", 429), wait))
+                    return
+                app.sso_starts.failed(client)  # counts every start, not only failed ones
+                try:
+                    url, browser = app.oidc.begin(auth_mod.safe_next(q.get("next")))
+                except oidc_mod.OidcError as e:
+                    log.warning("single sign-on from %s: %s", client, e.detail)
+                    self._send_page(web.sso_error_page(e.message, e.status))
+                    return
+                except Exception as e:  # noqa: BLE001 - the store
+                    log.warning("single sign-on from %s: the store is unreachable: %s", client, e)
+                    self._send(503, "text/plain", b"the store is unreachable; try again", {"Retry-After": "1"})
+                    return
+                self._send(302, "text/plain", b"", {"Location": url, "Cache-Control": "no-store",
+                                                    "Referrer-Policy": "no-referrer",
+                                                    "Set-Cookie": oidc_mod.set_browser_cookie(browser, secure)})
+                return
+            clear = oidc_mod.clear_browser_cookie(secure)
+            try:
+                done = app.oidc.finish(q, oidc_mod.browser_cookie(self.headers.get("Cookie"), secure))
+            except oidc_mod.OidcError as e:
+                log.warning("single sign-on refused for %s: %s", client, e.detail)
+                st, headers, body = web.sso_error_page(e.message, e.status)
+                self._send_page((st, {**headers, "Set-Cookie": clear}, body))
+                return
+            except Exception:  # noqa: BLE001 - the store
+                log.exception("single sign-on failed")
+                self._send(503, "text/plain", b"the store is unreachable; try again",
+                           {"Retry-After": "1", "Set-Cookie": clear})
+                return
+            if done.how != "known" or done.user["role"] == "admin":
+                app.access.state.changed()  # maybe the first admin: every page switches to accounts now
+            log.info("signed in with single sign-on: user %s (%s, %s) from %s", done.user["id"], done.how,
+                     done.user["role"], client)
+            if done.kept_admin:
+                log.warning("single sign-on: user %s is no longer in an admin group, but stays an admin: they are "
+                            "the last admin who can sign in. Make someone else an admin first", done.user["id"])
+            max_age = max(0, (done.expires_at_ms - time.time_ns() // 1_000_000) // 1000)
+            st, headers, body = oidc_mod.continue_page(done.next_path)
+            self._send_page((st, {**headers, "Set-Cookie": [sessions_mod.set_cookie(done.session_id, secure, max_age),
+                                                            clear]}, body))
 
         def _login(self):
             """POST /login: the token from the form (no admin yet), or an email and password (once an admin exists);

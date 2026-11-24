@@ -61,6 +61,9 @@ without touching every place).
 **SNS fan-out** (version 13, QV-313). ``sns_publishes`` and ``sns_receives``: the SNS publishes (contract section
 20) and, by key, the receives they reached; not partitioned, like ``purges``.
 
+**Single sign-on** (version 14, QV-228). ``oidc_logins`` and ``oidc_identities`` (account_tables.py): OpenID
+Connect sign-ins in progress, and which person each identity provider account is. Not spans either.
+
 **Message-ID indexes** (version 3, QV-118). ``message_queues``, ``message_tenants`` and ``tenant_events`` are
 indexed by ``mid``, so rewriting a message's summary deletes its old list rows by index instead of scanning its
 place's partition.
@@ -382,7 +385,7 @@ CREATE TABLE IF NOT EXISTS hash_places (
     bucket BIGINT NOT NULL,
     PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
 ) PARTITION BY RANGE (rclass, bucket);
-""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + QUEUE_CREATE + SNS + """
+""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + QUEUE_CREATE + SNS + account_tables.PG_OIDC + """
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
@@ -715,8 +718,9 @@ MIGRATIONS: tuple = (
     # Version 12 (QV-227): who may sign in through a proxy (proxy_auth.py); NULL, nobody, for the people before it.
     Migration(12, "users.proxy_linked_at_ms (QV-227)", (account_tables.PG_ADD_PROXY,)),
     Migration(13, "SNS publishes and the receives they reached (QV-313)", tuple(statements(SNS))),
+    Migration(14, "OpenID Connect sign-ins and identities (QV-228)", tuple(statements(account_tables.PG_OIDC))),
 )
-LATEST = 13
+LATEST = 14
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 

@@ -1,0 +1,99 @@
+{
+  "realm": "trailbeam",
+  "enabled": true,
+  "sslRequired": "none",
+  "groups": [
+    {
+      "name": "trailbeam-admins"
+    },
+    {
+      "name": "engineering"
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "trailbeam",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "trailbeam-ci-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://127.0.0.1:*"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "false",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "ada",
+      "email": "ada@example.com",
+      "emailVerified": true,
+      "firstName": "Ada",
+      "lastName": "Admin",
+      "enabled": true,
+      "groups": [
+        "trailbeam-admins",
+        "engineering"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ada-password-1",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "bob",
+      "email": "bob@example.com",
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "Member",
+      "enabled": true,
+      "groups": [
+        "engineering"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "bob-password-1",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "eve",
+      "email": "eve@example.com",
+      "emailVerified": true,
+      "firstName": "Eve",
+      "lastName": "Outsider",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "eve-password-1",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}
