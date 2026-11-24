@@ -477,7 +477,7 @@
     ]
   },
   "sns": {
-    "description": "Test vectors for contract/span-contract.md section 20 (revision 3.4): SNS fan-out. 'timestamps': [envelope Timestamp, epoch ms or null]. 'receive': one received message (the SNS envelope is read on every queue); 'message_attributes' are in ReceiveMessage form (a Lambda record has the same with 'stringValue' / 'dataType'); a receive span must carry exactly 'attributes' among the trailbeam.sns.* names. 'inject': one Publish ('entries' has one item, the request) or PublishBatch call; 'results' gives, per entry, 'injected' (the entry gets a trailbeam.publish_id String attribute, a UUID, and the span the same value) or the trailbeam.sns.publish_id_skipped reason; the caller's objects must not change. 'publish': whole spans for calls with injection off: each package must emit one span per item of 'spans', in order, whose attributes include exactly those, carry every name in 'present' and none in 'absent'. A 'Message' written as {\"repeat\": c, \"times\": n} stands for the string c repeated n times.",
+    "description": "Test vectors for contract/span-contract.md section 21 (revision 3.4): SNS fan-out. 'timestamps': [envelope Timestamp, epoch ms or null]. 'receive': one received message (the SNS envelope is read on every queue); 'message_attributes' are in ReceiveMessage form (a Lambda record has the same with 'stringValue' / 'dataType'); a receive span must carry exactly 'attributes' among the trailbeam.sns.* names. 'inject': one Publish ('entries' has one item, the request) or PublishBatch call; 'results' gives, per entry, 'injected' (the entry gets a trailbeam.publish_id String attribute, a UUID, and the span the same value) or the trailbeam.sns.publish_id_skipped reason; the caller's objects must not change. 'publish': whole spans for calls with injection off: each package must emit one span per item of 'spans', in order, whose attributes include exactly those, carry every name in 'present' and none in 'absent'. A 'Message' written as {\"repeat\": c, \"times\": n} stands for the string c repeated n times.",
     "publish_id_attribute": "trailbeam.publish_id",
     "max_attributes": 10,
     "max_message_bytes": 262144,
@@ -1316,7 +1316,7 @@
     }
   },
   "origin": {
-    "description": "Revision 3.5 (section 22): what a receive records from an EventBridge event or an S3 event notification body, on queue `orders`. `body_captured`: whether `orders` is in the body-capture list (section 15.1). Every other body attribute is as without this section.",
+    "description": "Revision 3.5 (section 23): what a receive records from an EventBridge event or an S3 event notification body, on queue `orders`. `body_captured`: whether `orders` is in the body-capture list (section 15.1). Every other body attribute is as without this section.",
     "receive": [
       {
         "name": "EventBridge: an AWS service event; detail and resources are not read",

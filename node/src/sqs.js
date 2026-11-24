@@ -1,6 +1,6 @@
 'use strict';
 // Trailbeam hooks for AWS SDK v3 SQS clients (contract sections 4.1 to 4.3, and 18 for PurgeQueue), and
-// for SNS clients' Publish and PublishBatch (section 20).
+// for SNS clients' Publish and PublishBatch (section 21).
 //
 // The hooks are a middleware on each SQSClient's middleware stack. When the application uses
 // @opentelemetry/instrumentation-aws-sdk, that instrumentation runs the whole stack inside the
@@ -51,7 +51,7 @@ const SETTLE_OPS = {
   ChangeMessageVisibility: [SPAN_CHANGE_VISIBILITY, false],
   ChangeMessageVisibilityBatch: [SPAN_CHANGE_VISIBILITY, true],
 };
-const PUBLISH_OPS = new Set(['Publish', 'PublishBatch']); // 3.4, section 20: SNS clients
+const PUBLISH_OPS = new Set(['Publish', 'PublishBatch']); // 3.4, section 21: SNS clients
 const OPS = new Set(['SendMessage', 'SendMessageBatch', 'ReceiveMessage', 'PurgeQueue', ...Object.keys(SETTLE_OPS), ...PUBLISH_OPS]);
 
 function debug(what, err) {
@@ -138,7 +138,7 @@ class SqsHooks {
   snsReceived(queueName, body, attributes) {
     try {
       const out = capture.snsReceiveAttrs(this.config, queueName, body, attributes);
-      // 3.5 (section 22): EventBridge or S3 sent it
+      // 3.5 (section 23): EventBridge or S3 sent it
       if (!out['trailbeam.sns.message_id']) Object.assign(out, capture.originReceiveAttrs(this.config, queueName, body));
       return out;
     } catch (e) {
@@ -148,7 +148,7 @@ class SqsHooks {
   }
 
   /**
-   * 3.4 (section 20.2): a copy of a Publish / PublishBatch input to a topic with trailbeam.publish_id added,
+   * 3.4 (section 21.2): a copy of a Publish / PublishBatch input to a topic with trailbeam.publish_id added,
    * and the result per message: `{ input, injected }`, or undefined if the call is not to a topic. The
    * caller's objects are never modified.
    */
@@ -373,7 +373,7 @@ let state = null;
  * @param {{messageAttribute?: string, bodyPath?: string}} [options.tenant] contract section 15
  * @param {{bodyQueues?: string[], errorQueues?: string[], redactKeys?: string[], redactPatterns?: string[], maxBodyBytes?: number}} [options.capture]
  *   contract section 15; body capture is off unless a queue is listed in `bodyQueues`
- * @param {{inject?: boolean}} [options.sns] contract section 20: SNS publishes get a `trailbeam.publish_id`
+ * @param {{inject?: boolean}} [options.sns] contract section 21: SNS publishes get a `trailbeam.publish_id`
  *   message attribute unless `inject` is false. Receives on every queue read the SNS envelope's MessageId,
  *   TopicArn and Timestamp, and nothing else in the body
  */

@@ -143,10 +143,10 @@ class LambdaRecorder:
                                                     r.get("md5OfBody"), lambda_record=True))
             except Exception:  # pragma: no cover - defensive
                 attrs["trailbeam.body.capture_status"] = _capture.STATUS_REDACTION_FAILED
-            try:  # 3.4 (section 20.3): the SNS publish this record came from
+            try:  # 3.4 (section 21.3): the SNS publish this record came from
                 attrs.update(_capture.sns_receive_attrs(self.capture, name, r.get("body"), r.get("messageAttributes"),
                                                         lambda_record=True))
-                if "trailbeam.sns.message_id" not in attrs:  # 3.5 (section 22): EventBridge or S3 sent it
+                if "trailbeam.sns.message_id" not in attrs:  # 3.5 (section 23): EventBridge or S3 sent it
                     attrs.update(_capture.origin_receive_attrs(self.capture, name, r.get("body")))
             except Exception:  # pragma: no cover - defensive
                 pass
@@ -228,7 +228,7 @@ def wrap(
 ):
     """Wrap a Lambda handler. Use as ``@wrap`` or ``@wrap(receipt_hash_key=...)``.
 
-    ``tenant``, ``capture`` and ``sns`` are as in ``trailbeam.boto.install`` (contract sections 15 and 20). With the
+    ``tenant``, ``capture`` and ``sns`` are as in ``trailbeam.boto.install`` (contract sections 15 and 21). With the
     record's queue in ``capture["error_queues"]``, a thrown exception's message is recorded, redacted.
 
     ``report_batch_item_failures`` should match the event source mapping's

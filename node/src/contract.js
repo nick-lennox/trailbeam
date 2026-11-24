@@ -19,7 +19,7 @@ const SPAN_DELETE = 'trailbeam delete';
 const SPAN_CHANGE_VISIBILITY = 'trailbeam change_visibility';
 const SPAN_OUTCOME = 'trailbeam outcome';
 const SPAN_PURGE = 'trailbeam purge'; // revision 3.3, section 18
-const SPAN_PUBLISH = 'trailbeam publish'; // revision 3.4, section 20: an SNS Publish
+const SPAN_PUBLISH = 'trailbeam publish'; // revision 3.4, section 21: an SNS Publish
 
 // [trailbeam.kind, messaging.operation.type] per span name.
 const KINDS = {

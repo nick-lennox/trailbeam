@@ -1,5 +1,5 @@
-"""EventBridge and S3 notification origins (contract section 22.3, revision 3.5), through the Store interface only:
-every backend keeps the receive's section 22 attributes, and a message's timeline gets the inferred first step. What
+"""EventBridge and S3 notification origins (contract section 23.3, revision 3.5), through the Store interface only:
+every backend keeps the receive's section 23 attributes, and a message's timeline gets the inferred first step. What
 the step says is origin.py and timeline.py, the same for every backend."""
 import json
 import sys

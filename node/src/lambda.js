@@ -152,9 +152,9 @@ class LambdaRecorder {
         debug('content attributes', e);
         attrs['trailbeam.body.capture_status'] = capture.STATUS_REDACTION_FAILED;
       }
-      try { // 3.4 (section 20.3): the SNS publish this record came from
+      try { // 3.4 (section 21.3): the SNS publish this record came from
         Object.assign(attrs, capture.snsReceiveAttrs(this.config, name, r.body, r.messageAttributes, true));
-        // 3.5 (section 22): EventBridge or S3 sent it
+        // 3.5 (section 23): EventBridge or S3 sent it
         if (!attrs['trailbeam.sns.message_id']) Object.assign(attrs, capture.originReceiveAttrs(this.config, name, r.body));
       } catch (e) {
         debug('SNS receive attributes', e);

@@ -1,5 +1,5 @@
 {
- "note": "GET /api/messages/{id} after an SNS fan-out (contract 3.4, section 20), made by Trailbeam itself (ui/test/make-fixtures.py) from python/tests/server/spans.py: one Publish to orders-topic reached sns-orders (raw delivery off: joined by the envelope, with an SNS delivery time) and sns-billing (raw delivery on: joined by the publish ID, no delivery time); sns-arrived names the topic in its envelope, and no publish was recorded.",
+ "note": "GET /api/messages/{id} after an SNS fan-out (contract 3.4, section 21), made by Trailbeam itself (ui/test/make-fixtures.py) from python/tests/server/spans.py: one Publish to orders-topic reached sns-orders (raw delivery off: joined by the envelope, with an SNS delivery time) and sns-billing (raw delivery on: joined by the publish ID, no delivery time); sns-arrived names the topic in its envelope, and no publish was recorded.",
  "timelines": [
   {
    "message_id": "sns-arrived",

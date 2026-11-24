@@ -6,10 +6,10 @@ is tested on what Trailbeam really returns.
   (contract/fixtures/contract-3.2-spans.json), which the hosted app's tests read too
 - test/fixtures/purge-timelines.json: contract 3.3 PurgeQueue (section 18): a message sent before a purge (purged),
   one sent during it (possibly purged), and one received after it (not purged), from the server tests' span builder
-- test/fixtures/sns-timelines.json: contract 3.4 SNS fan-out (section 20): one publish that reached two queues, one
+- test/fixtures/sns-timelines.json: contract 3.4 SNS fan-out (section 21): one publish that reached two queues, one
   through the envelope (raw delivery off) and one through the publish ID (raw delivery on), and a message that
   arrived via SNS from a publisher with no Trailbeam package, from the same span builder
-- test/fixtures/origin-timelines.json: contract 3.5 (section 22): a message an EventBridge rule sent, one an S3
+- test/fixtures/origin-timelines.json: contract 3.5 (section 23): a message an EventBridge rule sent, one an S3
   notification sent (body captured: with the key), and S3's test message, from the same span builder
 
     pip install -e "python[server]"   # from the repository root
@@ -66,7 +66,7 @@ write("purge-timelines.json",
                   "application/x-protobuf")]))
 T0_MS = T0 // 10**6
 write("sns-timelines.json",
-      "GET /api/messages/{id} after an SNS fan-out (contract 3.4, section 20), made by Trailbeam itself "
+      "GET /api/messages/{id} after an SNS fan-out (contract 3.4, section 21), made by Trailbeam itself "
       "(ui/test/make-fixtures.py) from python/tests/server/spans.py: one Publish to orders-topic reached sns-orders "
       "(raw delivery off: joined by the envelope, with an SNS delivery time) and sns-billing (raw delivery on: joined "
       "by the publish ID, no delivery time); sns-arrived names the topic in its envelope, and no publish was recorded.",
@@ -92,7 +92,7 @@ S3_ATTRS = {"trailbeam.s3.event_name": "ObjectCreated:Put", "trailbeam.s3.bucket
 S3_TEST_ATTRS = {"trailbeam.s3.event_name": "s3:TestEvent", "trailbeam.s3.bucket": "uploads",
                  "trailbeam.s3.event_time_ms": T0_MS + 8000}
 write("origin-timelines.json",
-      "GET /api/messages/{id} for messages an EventBridge rule or an S3 notification sent (contract 3.5, section 22), "
+      "GET /api/messages/{id} for messages an EventBridge rule or an S3 notification sent (contract 3.5, section 23), "
       "made by Trailbeam itself (ui/test/make-fixtures.py) from python/tests/server/spans.py: eb-order (an EventBridge "
       "event, delivered 1.2 s after its time), s3-upload (ObjectCreated:Put with the key, from a captured queue) and "
       "s3-test (S3's test message).",

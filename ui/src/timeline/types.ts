@@ -138,7 +138,7 @@ export type DlqMoveEvent = Windowed & {
   to_queue: string;
 };
 
-/** An SNS Publish (or one message of a PublishBatch) that this message's receives join (contract 3.4, section 20).
+/** An SNS Publish (or one message of a PublishBatch) that this message's receives join (contract 3.4, section 21).
  *  The topic's step, not the message's: the same step is on every SQS message it reached. `queue` is the topic's
  *  name and `consumer` the process that published. */
 export type PublishedEvent = Observed & {
@@ -176,7 +176,7 @@ export type ArrivedViaSnsEvent = Omit<Windowed, "queue"> & {
   sns_delivery_ms?: number;
 };
 
-/** Inferred from the body's shape (contract section 22.3, added in 3.5): a receive's body is an EventBridge event, so
+/** Inferred from the body's shape (contract section 23.3, added in 3.5): a receive's body is an EventBridge event, so
  *  an EventBridge rule most likely sent the message. No time; placed before that receive. The event does not name the
  *  rule. */
 export type ArrivedViaEventBridgeEvent = Windowed & {
@@ -197,7 +197,7 @@ export type ArrivedViaEventBridgeEvent = Windowed & {
   delivery_ms?: number;
 };
 
-/** Inferred from the body's shape (contract section 22.3, added in 3.5): a receive's body is an S3 event notification
+/** Inferred from the body's shape (contract section 23.3, added in 3.5): a receive's body is an S3 event notification
  *  or S3's test message. No time; placed before that receive. */
 export type S3Event = Windowed & {
   inferred: true;

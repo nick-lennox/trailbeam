@@ -23,7 +23,7 @@ export interface InstallOptions {
    */
   capture?: CaptureOptions;
   /**
-   * SNS fan-out (contract section 20). Replaces $TRAILBEAM_SNS_INJECT.
+   * SNS fan-out (contract section 21). Replaces $TRAILBEAM_SNS_INJECT.
    */
   sns?: SnsOptions;
 }

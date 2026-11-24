@@ -1,9 +1,9 @@
-"""EventBridge and S3 notification origins (contract section 22, revision 3.5): the receive attributes that say a
+"""EventBridge and S3 notification origins (contract section 23, revision 3.5): the receive attributes that say a
 message's body is an EventBridge event or an S3 event notification, and the inferred first step they give.
 
 The attributes are stored with the receive like every other attribute, so no store schema changes. What they show is
 worked out when the message is read (timeline.py): the earliest receive carrying them gives an inferred step before it,
-unless the message has a send, a joined SNS publish or an SNS envelope (section 22.3).
+unless the message has a send, a joined SNS publish or an SNS envelope (section 23.3).
 """
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ def _int(a: Mapping, name: str) -> Optional[int]:
 
 def origin(r) -> Optional[dict]:
     """What one receive row's attributes say about where its message came from: a dict with ``kind``
-    (EVENTBRIDGE or S3) and the checked fields, or None. The packages' checks (22.1, 22.2), applied again."""
+    (EVENTBRIDGE or S3) and the checked fields, or None. The packages' checks (23.1, 23.2), applied again."""
     a = sns_mod.attributes(r)
     eid, src, dt = _match(a, EB_EVENT_ID, _ID_RE), _text(a, EB_SOURCE), _text(a, EB_DETAIL_TYPE)
     if eid and src and dt:

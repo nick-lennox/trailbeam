@@ -219,7 +219,7 @@ A self-hosted Trailbeam stores the body only if the queue is also in its own `TR
 
 ### SNS fan-out
 
-Contract section 20. Pass an `SNSClient` to `instrument` too: each `Publish` and `PublishBatch` to a topic records
+Contract section 21. Pass an `SNSClient` to `instrument` too: each `Publish` and `PublishBatch` to a topic records
 a `trailbeam publish` span with the SNS message ID, and a receive of the message on a subscribed queue is joined to
 it. Two ways the join works:
 
@@ -245,7 +245,7 @@ const sns = trailbeam.instrument(new SNSClient({}));
 
 ### EventBridge and S3 notifications
 
-Contract section 22. A message that an EventBridge rule or an S3 bucket notification sent has no send in your code. When
+Contract section 23. A message that an EventBridge rule or an S3 bucket notification sent has no send in your code. When
 its body is an EventBridge event, or an S3 event notification (or S3's `s3:TestEvent` message), the receive records what
 the event says about where it came from, on every queue: the event's `id`, `source`, `detail-type`, account, region and
 time, or the S3 event name, bucket, region, time, notification configuration ID and `sequencer`. Nothing else in the body

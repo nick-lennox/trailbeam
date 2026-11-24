@@ -1,10 +1,10 @@
-"""SNS fan-out (contract section 20, revision 3.4): which recorded publishes a message's receives join.
+"""SNS fan-out (contract section 21, revision 3.4): which recorded publishes a message's receives join.
 
 A ``trailbeam publish`` span (kind ``publish``) is stored apart from messages, like a purge: one SNS publish reaches
 each subscribed queue as a different SQS message, so it belongs to none of them. Its row has the SNS message ID in
 ``message_id``, the topic name in ``queue`` and every attribute in ``attributes``; its ``mid`` is always NULL.
 
-A receive **joins** a publish (section 20.5) through one of two keys, read from the receive's attributes:
+A receive **joins** a publish (section 21.5) through one of two keys, read from the receive's attributes:
 
 - the **envelope key** ``(trailbeam.sns.topic_arn, trailbeam.sns.message_id)``, equal to the publish's
   ``(aws.sns.topic.arn, messaging.message.id)``: raw delivery off;
@@ -25,11 +25,11 @@ from typing import Iterable, Mapping, NamedTuple, Optional
 KIND = "publish"
 OPERATIONS = ("Publish", "PublishBatch")
 
-# On the publish span (20.1)
+# On the publish span (21.1)
 TOPIC_ARN = "aws.sns.topic.arn"
-PUBLISH_ID = "trailbeam.sns.publish_id"  # on the publish span and on the receive (20.3)
+PUBLISH_ID = "trailbeam.sns.publish_id"  # on the publish span and on the receive (21.3)
 PUBLISH_ID_SKIPPED = "trailbeam.sns.publish_id_skipped"
-# On the receive (20.3)
+# On the receive (21.3)
 ENVELOPE_MESSAGE_ID = "trailbeam.sns.message_id"
 ENVELOPE_TOPIC_ARN = "trailbeam.sns.topic_arn"
 ENVELOPE_TIMESTAMP_MS = "trailbeam.sns.timestamp_ms"
@@ -43,7 +43,7 @@ COLUMNS = ("row", "trace_id", "span_id", "start_ns", "time_ns", "service_name", 
            "message_id", "batch_entry_id", "client_id", "pid", "thread_name", "order_scope", "order_issued",
            "order_returned", "attributes")
 
-# The packages' checks (20.3), applied again here: a key the server joins on is one a package could have written.
+# The packages' checks (21.3), applied again here: a key the server joins on is one a package could have written.
 _PUBLISH_ID_RE = re.compile(r"[A-Za-z0-9-]{1,64}")
 _MESSAGE_ID_RE = re.compile(r"[A-Za-z0-9-]{1,100}")
 _TOPIC_ARN_RE = re.compile(r"arn:[A-Za-z0-9-]+:sns:[A-Za-z0-9-]+:[0-9]{12}:[A-Za-z0-9_.-]{1,256}")
@@ -109,7 +109,7 @@ def publish_keys(p) -> tuple[Optional[tuple], Optional[str]]:
 
 
 def message_keys(rows: Iterable) -> Keys:
-    """The keys a message's receives join publishes by. No publish IDs for a message with a send (20.5)."""
+    """The keys a message's receives join publishes by. No publish IDs for a message with a send (21.5)."""
     rows = list(rows)
     env, pids = set(), set()
     for r in rows:
@@ -155,7 +155,7 @@ def envelope_timestamp_ms(r) -> Optional[int]:
 
 
 def delivery_ms(receives: list) -> Optional[int]:
-    """SNS delivery time (20.5): the first receive's SentTimestamp minus its envelope Timestamp, in ms, both on AWS
+    """SNS delivery time (21.5): the first receive's SentTimestamp minus its envelope Timestamp, in ms, both on AWS
     clocks; None without both. ``receives``: the message's receives, in time order."""
     if not receives:
         return None

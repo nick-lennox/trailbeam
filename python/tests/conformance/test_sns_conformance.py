@@ -1,4 +1,4 @@
-"""SNS fan-out (contract section 20, revision 3.4), through the Store interface only: every backend stores publish
+"""SNS fan-out (contract section 21, revision 3.4), through the Store interface only: every backend stores publish
 spans apart from messages, finds them by the keys a receive carries, lists the receives a publish reached, and drops
 them by their own time on a retention pass. What a join means for a timeline is sns.py and timeline.py, the same for
 every backend."""
@@ -84,7 +84,7 @@ def test_the_publish_may_arrive_after_the_receive(new_store):
 
 
 def test_a_receive_is_not_after_its_publish_without_a_clock_or_tick(new_store):
-    # 20.5 "Order": the hosts' times overlap, so nothing orders the publish before the receive; "a receive comes
+    # 21.5 "Order": the hosts' times overlap, so nothing orders the publish before the receive; "a receive comes
     # after its publish" is not a source.
     s = new_store()
     put(s, P.publish(T0 + 3 * SEC, SNS_ID, start=T0),
@@ -96,7 +96,7 @@ def test_a_receive_is_not_after_its_publish_without_a_clock_or_tick(new_store):
 
 
 def test_a_publish_delivered_twice_to_one_queue_joins_both_messages(new_store):
-    # 20.5: SNS can deliver one publish to a queue more than once; each delivery is its own SQS message.
+    # 21.5: SNS can deliver one publish to a queue more than once; each delivery is its own SQS message.
     s = new_store()
     put(s, P.publish(T0 + SEC, SNS_ID, start=T0),
         C.sns_receive(T0 + 3 * SEC, "sqs-a", "rh-a", sns_id=SNS_ID, start=T0 + 2 * SEC),

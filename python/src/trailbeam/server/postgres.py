@@ -917,7 +917,7 @@ class PostgresStore(Store):
         return inserted, dupes
 
     def _insert_publishes(self, conn, publishes) -> tuple[int, int]:
-        """SNS publishes (contract section 20.1). The same span again (trace, span and end time) is a duplicate."""
+        """SNS publishes (contract section 21.1). The same span again (trace, span and end time) is a duplicate."""
         cols = {c: [] for c in _PUBLISH_INSERT}
         for r, _own, attrs, *_ in publishes:
             env, pid = sns.publish_keys({"attributes": attrs, "message_id": r.get("message_id")})
@@ -931,7 +931,7 @@ class PostgresStore(Store):
         return len(got), len(publishes) - len(got)
 
     def _insert_sns_receives(self, conn, prepared) -> None:
-        """The SNS keys of the export's receives (contract section 20.3), for Store.sns_receivers. An exporter's
+        """The SNS keys of the export's receives (contract section 21.3), for Store.sns_receivers. An exporter's
         retry writes the same rows again: the newest time is kept."""
         rows = {}
         for r, own, attrs, *_ in prepared:
@@ -1048,9 +1048,15 @@ class PostgresStore(Store):
         # Taken without waiting (waiting here, out of the sorted order, could deadlock): when another export
         # holds one, this attempt is rolled back and the next takes it with the others, in order.
         extra = sorted({_key("m:" + m) for m in touched} - keys)
-        if extra and not conn.execute("SELECT bool_and(pg_try_advisory_xact_lock(k)) AS ok FROM unnest(%s::bigint[]) AS k",
-                                      (extra,)).fetchone()["ok"]:
-            raise _NeedLocks(extra)
+        if extra:
+            if not conn.execute("SELECT bool_and(pg_try_advisory_xact_lock(k)) AS ok FROM unnest(%s::bigint[]) AS k",
+                                (extra,)).fetchone()["ok"]:
+                raise _NeedLocks(extra)
+            # The places were read (_split) before these locks were held: an export of one of these messages that
+            # committed since may have made a place and moved the message's summary there, and a lookup with the
+            # old list finds no summary and writes a second one (QV-422). Read them again, now that no other
+            # writer of these messages can run.
+            self._tx.places = None
         by_place: dict = {}
         for u in updates:
             by_place.setdefault((u[0], u[1]), []).append(u)

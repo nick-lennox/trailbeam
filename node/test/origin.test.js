@@ -1,5 +1,5 @@
 'use strict';
-// Revision 3.5 (contract section 22): what a receive records from an EventBridge event or an S3 event
+// Revision 3.5 (contract section 23): what a receive records from an EventBridge event or an S3 event
 // notification body, against the shared vectors in contract/span-contract-vectors.json ("origin"). Python checks
 // the same vectors (python/tests/test_origin.py).
 const test = require('node:test');

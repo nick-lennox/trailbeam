@@ -1,5 +1,5 @@
 {
- "note": "GET /api/messages/{id} for messages an EventBridge rule or an S3 notification sent (contract 3.5, section 22), made by Trailbeam itself (ui/test/make-fixtures.py) from python/tests/server/spans.py: eb-order (an EventBridge event, delivered 1.2 s after its time), s3-upload (ObjectCreated:Put with the key, from a captured queue) and s3-test (S3's test message).",
+ "note": "GET /api/messages/{id} for messages an EventBridge rule or an S3 notification sent (contract 3.5, section 23), made by Trailbeam itself (ui/test/make-fixtures.py) from python/tests/server/spans.py: eb-order (an EventBridge event, delivered 1.2 s after its time), s3-upload (ObjectCreated:Put with the key, from a captured queue) and s3-test (S3's test message).",
  "timelines": [
   {
    "message_id": "eb-order",

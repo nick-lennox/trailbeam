@@ -102,7 +102,7 @@ CREATE INDEX IF NOT EXISTS spans_unjoined_hash ON spans (receipt_hmac, key_id)
 CREATE INDEX IF NOT EXISTS spans_kind_time ON spans (kind, time_ns);
 CREATE INDEX IF NOT EXISTS spans_receive_row ON spans (receive_row) WHERE receive_row IS NOT NULL;
 """
-# The SNS fan-out indexes (schema 17, QV-313, contract section 20): publishes by SNS message ID, and publishes and
+# The SNS fan-out indexes (schema 17, QV-313, contract section 21): publishes by SNS message ID, and publishes and
 # receives by the attributes that join them. Partial, so a span without SNS keys has no entry in them; the publish
 # ID and envelope message ID stay in ``attributes`` (no column), and these expressions are how the queries in db.py
 # name them. Not in SPANS_INDEXES, which migration 11 builds.

@@ -1,4 +1,4 @@
-"""Revision 3.5 (contract section 22): what a receive records from an EventBridge event or an S3 event notification
+"""Revision 3.5 (contract section 23): what a receive records from an EventBridge event or an S3 event notification
 body. Shared vectors in contract/span-contract-vectors.json ("origin"); Node.js checks the same."""
 import json
 from pathlib import Path
@@ -63,7 +63,7 @@ def test_origin_vectors_lambda_wrapper(case):
 
 
 def test_nothing_else_from_the_body_is_exported_when_capture_is_off():
-    """With body capture off, the only body-derived attributes are the section 22 ones and the capture status."""
+    """With body capture off, the only body-derived attributes are the section 23 ones and the capture status."""
     case = VECTORS["receive"][0]
     config = _capture.resolve_config({}, {}, {})
     attrs = _capture.content_attrs(config, "orders", case["body"], None, None)

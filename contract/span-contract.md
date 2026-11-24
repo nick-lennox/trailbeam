@@ -1,11 +1,12 @@
 # Trailbeam span contract, schema version 3 (revision 3.5)
 
-This file defines the OpenTelemetry spans that the `trailbeam` Python package and the `trailbeam` Node.js
-package emit, and that the Trailbeam reads. Both packages and Trailbeam are built and tested against
-it. A change to anything below is a contract change: bump `trailbeam.schema_version`, and update this file,
-both packages and Trailbeam in the same change. A revision only adds (3.1, 3.5) an optional attribute that
+This file defines the OpenTelemetry spans that the `trailbeam` Python package, the `trailbeam` Node.js
+package and the Java jar `trailbeam-aws-sdk-v2` emit, and that the Trailbeam reads. The packages and Trailbeam
+are built and tested against it; what is particular to Java is in section 20. A change to anything below is a
+contract change: bump `trailbeam.schema_version`, and update this file, every package and Trailbeam in the same
+change. A revision only adds (3.1, 3.5) an optional attribute that
 older stores ignore and that Trailbeam does not require, or (3.3, 3.4) an optional span; it keeps
-`trailbeam.schema_version = 3` (sections 14, 16, 19, 21 and 23). Section 17 (the test span of `trailbeam doctor`) is not emitted by the packages and changes nothing they
+`trailbeam.schema_version = 3` (sections 14, 16, 19, 22 and 24). Section 17 (the test span of `trailbeam doctor`) is not emitted by the packages and changes nothing they
 send.
 
 The keywords **must**, **must not**, **should** and **may** are used as in RFC 2119.
@@ -25,10 +26,11 @@ accepts `4` on them with the same meaning.
 | `trailbeam change_visibility` | `sqs.settle` | `settle` | client hooks | once per receipt handle in `ChangeMessageVisibility` / `ChangeMessageVisibilityBatch` |
 | `trailbeam outcome` | `sqs.outcome` | `process` | Lambda wrapper | once per record, after the handler returns or throws |
 | `trailbeam purge` | `sqs.purge` | `purge` | client hooks | once per `PurgeQueue` call, after the response or error (3.3, section 18) |
-| `trailbeam publish` | `sns.publish` | `send` | client hooks (SNS clients) | once per message that SNS accepted in `Publish` / `PublishBatch` to a topic (3.4, section 20) |
+| `trailbeam publish` | `sns.publish` | `send` | client hooks (SNS clients) | once per message that SNS accepted in `Publish` / `PublishBatch` to a topic (3.4, section 21) |
 
-"Client hooks" are the boto3 hooks (Python) and the AWS SDK v3 hooks (Node.js). "Lambda wrapper" is
-the handler wrapper in each package. In 0.1, `trailbeam outcome` comes only from the Lambda wrappers; for
+"Client hooks" are the boto3 hooks (Python), the AWS SDK v3 hooks (Node.js) and the global
+`ExecutionInterceptor` for the AWS SDK for Java v2 (Java, section 20). "Lambda wrapper" is the handler wrapper
+in each package. In 0.1, `trailbeam outcome` comes only from the Lambda wrappers; for
 other consumers, the outcome of processing is the `trailbeam delete` (or its absence).
 
 Trailbeam **must** identify Trailbeam spans by instrumentation scope name `trailbeam` and the attribute
@@ -49,7 +51,8 @@ change-visibility span names; that is dropped.)
 - Span kind: `INTERNAL`.
 - Parent: in the client hooks, the stock AWS SDK instrumentation span for the same call
   (`opentelemetry-instrumentation-botocore` in Python, `@opentelemetry/instrumentation-aws-sdk` in
-  Node.js), so the Trailbeam span shares its trace ID. In the Lambda wrapper, the active span at
+  Node.js), so the Trailbeam span shares its trace ID. Java reads it from the request's trace header instead,
+  and a `ReceiveMessage` in a polling loop has none (section 20.1). In the Lambda wrapper, the active span at
   invocation time, or none (a root span).
 - Time (changed in schema version 2, see section 12): a span from the client hooks is an
   **interval** that contains the moment SQS acted:
@@ -101,7 +104,7 @@ and whichever threads made the calls. Calls in flight at the same time (`B.issue
 `A.issued < B.returned`) are not ordered. Trailbeam never compares ticks of different scopes
 (section 9a).
 
-**The scope is the whole process (Python) or the whole realm (Node.js), not one thread or async task.**
+**The scope is the whole process (Python), the whole realm (Node.js) or the class loader (Java, section 20.2), not one thread or async task.**
 One counter is shared by every thread of a Python process (behind a lock) and by every async task of a
 Node.js realm (which runs on one thread), so a call on one thread can be ordered before a call on another.
 That is sound, for the same reason it is sound within one thread. An edge needs A to have *returned*
@@ -133,7 +136,7 @@ don't order anything before it either, because its start is not observed (`trail
 | `messaging.operation.type` | string | must | from the table in section 1 |
 | `messaging.operation.name` | string | must | the SQS API action: `SendMessage`, `SendMessageBatch`, `ReceiveMessage`, `DeleteMessage`, `DeleteMessageBatch`, `ChangeMessageVisibility`, `ChangeMessageVisibilityBatch`, (3.3) `PurgeQueue`; (3.4) the SNS action `Publish` or `PublishBatch`; or `LambdaEvent` for spans from the Lambda wrapper |
 | `messaging.destination.name` | string | must | queue name, the last path segment of the queue URL, or the last `:` field of the event source ARN; (3.4) on `trailbeam publish`, the topic name, the last `:` field of the topic ARN |
-| `aws.sqs.queue.url` | string | must, except (3.4) `trailbeam publish` | queue URL (section 6). A publish has a topic instead: `aws.sns.topic.arn` (section 20.1). |
+| `aws.sqs.queue.url` | string | must, except (3.4) `trailbeam publish` | queue URL (section 6). A publish has a topic instead: `aws.sns.topic.arn` (section 21.1). |
 | `messaging.client.id` | string | must | consumer or producer identity (section 5) |
 | `process.pid` | int | must | OS process ID |
 | `thread.name` | string | should (Python) | `threading.current_thread().name`; not set in Node.js |
@@ -177,8 +180,8 @@ and produce no `trailbeam send` span in 0.1.
 | `trailbeam.queue.arn` | string | must (Lambda) | the record's `eventSourceARN`, verbatim (section 6) |
 | `faas.name` | string | must (Lambda) | function name, from the context, else `AWS_LAMBDA_FUNCTION_NAME` |
 | `faas.invocation_id` | string | must (Lambda) | `aws_request_id` / `awsRequestId` |
-| `trailbeam.sns.publish_id`, `trailbeam.sns.message_id`, `trailbeam.sns.topic_arn`, `trailbeam.sns.timestamp_ms` | | when present (3.4) | the SNS publish the message came from (section 20.3) |
-| `trailbeam.eventbridge.*`, `trailbeam.s3.*` | | when present (3.5) | the EventBridge event or S3 notification the body is (section 22) |
+| `trailbeam.sns.publish_id`, `trailbeam.sns.message_id`, `trailbeam.sns.topic_arn`, `trailbeam.sns.timestamp_ms` | | when present (3.4) | the SNS publish the message came from (section 21.3) |
+| `trailbeam.eventbridge.*`, `trailbeam.s3.*` | | when present (3.5) | the EventBridge event or S3 notification the body is (section 23) |
 
 - **Client hooks** **must** add `ApproximateReceiveCount`, `SentTimestamp`,
   `ApproximateFirstReceiveTimestamp`, `AWSTraceHeader`, (3.1) `DeadLetterQueueSourceArn` and (3.2)
@@ -186,7 +189,7 @@ and produce no `trailbeam send` span in 0.1.
   unless the caller already asked for them or for `All`. They **must not** remove anything the caller
   asked for. The only message attributes they may add to `MessageAttributeNames` are the configured tenant
   attribute (3.2, section 15.2), the Extended Client size attributes (15.2) and (3.4) `trailbeam.publish_id`
-  (section 20.3). What they read from the body, and when they export it, is section 15.
+  (section 21.3). What they read from the body, and when they export it, is section 15.
 - **Lambda wrapper** copies `DeadLetterQueueSourceArn` from the record's `attributes` when it is there.
   Whether Lambda's SQS records carry it is **not verified**; the AWS sample events do not show it.
 - **Lambda wrapper** emits one `trailbeam receive` per record **before** the user handler runs, with
@@ -222,7 +225,7 @@ receive is shown as a delete with a stale receipt handle.
 |---|---|---|---|
 | `messaging.message.id` | string | must | record `messageId` |
 | `trailbeam.outcome` | string | must | one of the values below |
-| `trailbeam.error_type` | string | must if `failed_exception` | the exception's class name, such as `RuntimeError` or `TypeError` |
+| `trailbeam.error_type` | string | must if `failed_exception` | the exception's class name, such as `RuntimeError` or `TypeError`; in Java the fully qualified name, such as `java.lang.RuntimeException` (section 20.3) |
 | `trailbeam.error_message` | string | may (3.2) | the exception's message, redacted, only for queues with error text turned on (section 15.5) |
 | `faas.name` | string | must | function name |
 | `faas.invocation_id` | string | must | `aws_request_id` / `awsRequestId` |
@@ -269,7 +272,7 @@ true:
 - `trailbeam.result` is not `ok` or `failed`, or `trailbeam.outcome` is not one of the four values in section 4.4.
 
 A Trailbeam built before revision 3.3 rejects a `trailbeam purge` as an unknown kind, with that reason; nothing else
-in the export is affected (section 18). One built before 3.4 does the same with a `trailbeam publish` (section 20).
+in the export is affected (section 18). One built before 3.4 does the same with a `trailbeam publish` (section 21).
 
 Trailbeam reads integer attributes sent as decimal strings as integers. It keeps every attribute of
 the span as JSON in the row, and uses only the ones this contract names.
@@ -600,6 +603,8 @@ variables as a whole.
 | `capture.redact_patterns` / `capture.redactPatterns` | `TRAILBEAM_REDACT_PATTERNS` | all built-in patterns (15.3) |
 | `capture.max_body_bytes` / `capture.maxBodyBytes` | `TRAILBEAM_CAPTURE_MAX_BYTES` | 16384; at most 262144 |
 
+The Java jar has no install call: it reads only the environment variables (section 20.4).
+
 A queue list holds queue names (`messaging.destination.name`), or `*` for every queue. Capture is
 **opt-in per queue**: a body is exported only for a listed queue. Trailbeam adds a second gate when it
 stores spans. That gate belongs to the server, not to this contract:
@@ -743,7 +748,7 @@ Trailbeam keeps one body per message ID, preferring the send's, because the prod
 payload before any delivery envelope. The receive copies are the fallback for producers that don't run
 a Trailbeam package. The packages don't try to avoid the duplicate: telling a receive that its producer
 was instrumented would mean adding a marker to the message, and the packages don't change SQS messages (the
-SNS publish ID of section 20.2 is the one marker they add, on SNS publishes only).
+SNS publish ID of section 21.2 is the one marker they add, on SNS publishes only).
 
 The default limit of 16 KiB, and the hard limit of 256 KiB, are a judgment, not measured. A body
 travels as one span attribute in an OTLP export batch. The OpenTelemetry SDKs set no attribute length
@@ -914,22 +919,99 @@ seen; its messages still show as stuck.
 `trailbeam.schema_version` stays `3`: the span is optional, Trailbeam requires it for nothing, and spans of
 3.2 and before are read as they were.
 
-## 20. SNS fan-out (revision 3.4)
+## 20. The Java package (QV-319)
+
+The jar `trailbeam-aws-sdk-v2` ([`java/`](../java/README.md)) emits the spans of this contract, revision 3.3,
+for the AWS SDK for Java v2 (2.17 or later, Java 11 or later). It registers a global `ExecutionInterceptor`
+through the SDK's classpath file `software/amazon/awssdk/global/handlers/execution.interceptors`, so the
+application changes no code, and it ships a Lambda handler wrapper. Like the other packages it has its own
+always-on tracer provider (a relocated copy of the OpenTelemetry SDK) and exports OTLP over HTTP. Everything
+in sections 1 to 19 applies to it as written, except where this section says how Java does it. It adds no
+attribute and changes no rule, so `trailbeam.schema_version` stays `3`. Its evidence is the QV-312 spike
+(report document `report` on QV-312, section 3) and the conformance kit, which CI runs alone, beside the
+OpenTelemetry Java agent (also at 0% sampling), beside dd-java-agent and in Spring Boot executable jars.
+
+### 20.1 Parent
+
+The SDK runs global interceptors in `HashMap` order, not classpath order, so the jar can't rely on running
+after an agent's interceptor and reading the active span. It reads the parent from the outgoing HTTP request in
+`beforeTransmission`, after every interceptor has changed it: the `X-Amzn-Trace-Id` header (`Root=...;Parent=...`)
+if it has one, else `traceparent`. The OpenTelemetry Java agent and dd-java-agent both put one there, also when
+their sampler dropped the span, so the Trailbeam span shares the stock span's trace ID either way. With no
+header, the span is a root span.
+
+**A `ReceiveMessage` in a polling loop has no stock span.** Neither agent creates a span for a receive unless a
+span is already active, and a consumer's polling loop usually has none. Its `trailbeam receive` spans are then
+root spans. Trailbeam reads only Trailbeam spans, so its timeline doesn't change; only a trace viewer shows
+the receive in a trace of its own. The conformance kit checks exactly this (its variant option
+`receive_roots`): beside either agent, every send and settle span has a parent, and receives may be roots.
+
+### 20.2 Time, call order and identity
+
+- Times are `Instant.now()` in nanoseconds since the epoch, the wall clock (section 2). In `beforeExecution`,
+  `trailbeam.order.issued` is ticked, then the start is read, before the SDK marshals, signs and sends the request and
+  before any retry. The end is read and `trailbeam.order.returned` ticked in `afterExecution` or
+  `onExecutionFailure`.
+- The call-order counter (section 2a) is one per class loader that loads the jar: one per process for a normal
+  application, one per webapp in an application server. It is an `AtomicLong`, so it is strictly increasing
+  and safe from every thread, which is what section 2a's argument needs.
+- `thread.name` is read in `beforeExecution`, on the thread that made the call. An async client completes its
+  response on an SDK thread, which says nothing about the consumer.
+- `service.instance.id` and `messaging.client.id` follow section 5; the random ID is chosen once per class
+  loader, when the jar's tracer provider is created.
+- **SnapStart.** One snapshot becomes many execution environments, which would share one counter scope and one
+  instance ID. After a restore the jar chooses a new `trailbeam.order.scope` (its counter starts again at 1)
+  and a new `service.instance.id`, through the `org.crac` hooks SnapStart runs, and it flushes before the
+  snapshot. Without `org.crac` on the classpath, the application calls `Trailbeam.afterRestore()` itself.
+
+### 20.3 Lambda wrapper
+
+The wrapper is a handler class (`dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`) that loads the
+real handler named in `TRAILBEAM_LAMBDA_HANDLER`, or a base class the handler extends (`TrailbeamSqsHandler`).
+It follows sections 2, 2a, 4.4 and 15.5 like the other wrappers. `trailbeam.error_type` is the fully qualified
+class name (`java.lang.RuntimeException`), because that is what Lambda's Java runtime reports as `errorType`,
+and the kit compares the two. Its parent is the invocation's X-Ray trace header (the system property
+`com.amazonaws.xray.traceHeader`, else `_X_AMZN_TRACE_ID`), or none.
+
+### 20.4 Configuration and failure
+
+The jar reads the environment variables of sections 2, 7 and 15.1; there are no options in code. It never
+throws into an SQS call or an invocation. Where Python and Node.js refuse a bad setting at install time (an
+invalid redact key, an unknown pattern, an out-of-range `TRAILBEAM_CAPTURE_MAX_BYTES`), the jar logs one
+warning and exports no body and no error text: the spans of a listed queue carry
+`trailbeam.body.capture_status = redaction_failed` until the setting is fixed (section 15.4).
+
+To read the receive count and the other attributes Trailbeam needs, the interceptor adds their names to each
+`ReceiveMessage` request: in `messageSystemAttributeNames` on SDK 2.25 and later, in `attributeNames` before
+that, plus the tenant message attribute (if configured) and the SQS Extended Client's size attributes. It
+keeps every name the application asked for and leaves `All` (and `.*`) alone. This changes what SQS returns,
+not the message, and the jar makes no SQS call of its own.
+
+### 20.5 Not covered
+
+AWS SDK for Java v1 and Java 8 are not supported (QV-312 report, section 9). A client built without the global
+interceptor file on its classpath (an uber jar that dropped it, see the Java README) emits nothing until the
+interceptor is registered by hand.
+
+## 21. SNS fan-out (revision 3.4)
 
 A message that reaches SQS through an SNS topic has no `SendMessage` that Trailbeam could see: SNS makes that call.
 Before 3.4 its timeline started at the first receive, with no sender. Revision 3.4 records the `Publish` and joins
 it to the receives, through one of two keys:
 
 - **Raw delivery off** (the default for a subscription): the SQS body is SNS's JSON envelope, and its `MessageId` is
-  the publish's SNS message ID. The receive reads it (20.3).
+  the publish's SNS message ID. The receive reads it (21.3).
 - **Raw delivery on**: the body is the message as published, and the SNS message ID does not reach the queue. SNS
   passes the published message attributes on as SQS message attributes, so the publish hooks add one,
-  `trailbeam.publish_id` (20.2), and the receive reads it.
+  `trailbeam.publish_id` (21.2), and the receive reads it.
 
 One publish to a topic with several queue subscriptions reaches each queue as a different SQS message, with its own
 SQS message ID. All of them join the one publish.
 
-### 20.1 `trailbeam publish`
+The Python and Node.js packages implement this section. The Java jar (section 20) emits revision 3.3 and does
+not hook SNS clients yet: a publish from Java is not recorded, and a receive in Java carries no SNS attributes.
+
+### 21.1 `trailbeam publish`
 
 The client hooks of SNS clients (boto3 `sns` clients in Python; `SNSClient` passed to `instrument` in Node.js)
 emit one `trailbeam publish` per message SNS accepted, from the response: one for a `Publish`, one per
@@ -945,8 +1027,8 @@ no queue subscription. The span has the attributes of section 3, with the call's
 | `aws.sns.topic.arn` | string | must | the request's `TopicArn`, verbatim (an OpenTelemetry semantic-convention name) |
 | `messaging.message.id` | string | must | the SNS `MessageId` from the response or `Successful[]` entry |
 | `trailbeam.batch_entry_id` | string | must for batch | the entry `Id` |
-| `trailbeam.sns.publish_id` | string | when added | the `trailbeam.publish_id` the hooks added to this message (20.2) |
-| `trailbeam.sns.publish_id_skipped` | string | when not added | why not: `off`, `json_structure`, `attribute_limit` or `size_limit` (20.2) |
+| `trailbeam.sns.publish_id` | string | when added | the `trailbeam.publish_id` the hooks added to this message (21.2) |
+| `trailbeam.sns.publish_id_skipped` | string | when not added | why not: `off`, `json_structure`, `attribute_limit` or `size_limit` (21.2) |
 | `messaging.message.body.size` | int | unless `MessageStructure` is `json` | UTF-8 length of `Message` in bytes. With `MessageStructure: json`, `Message` holds one text per protocol, and its size is not the size any queue receives. |
 | `trailbeam.message_group_id` | string | when there is one | `MessageGroupId` of the request (entry): FIFO topics |
 | `trailbeam.sequence_number` | string | when SNS returns one | `SequenceNumber` of the response (entry): FIFO topics |
@@ -954,7 +1036,7 @@ no queue subscription. The span has the attributes of section 3, with the call's
 The span carries no `aws.sqs.queue.url`. Its parent is the stock instrumentation's span for the call, as for SQS
 (section 2). Test vectors: `sns.publish` in [`span-contract-vectors.json`](span-contract-vectors.json).
 
-### 20.2 The publish ID
+### 21.2 The publish ID
 
 Before a `Publish` or `PublishBatch` to a topic is sent, the hooks add to each message the attribute
 `trailbeam.publish_id`, `DataType` `String`, value a new lower-case UUID v4, and record it on the message's span. They
@@ -966,7 +1048,7 @@ The hooks skip a message, and record why in `trailbeam.sns.publish_id_skipped`, 
 
 | Reason | When | Why |
 |---|---|---|
-| `off` | injection is turned off (20.4) | |
+| `off` | injection is turned off (21.4) | |
 | `json_structure` | `MessageStructure` is `json` | SNS sends no message attributes for such a message |
 | `attribute_limit` | the message already has 10 attributes besides a `trailbeam.publish_id` | with raw delivery on, SNS **discards** a message with more than 10 attributes, "treating them as client-side errors"; the publish itself still succeeds, so the loss would be silent |
 | `size_limit` | the call would pass 262,144 bytes with the IDs added | the topic's message size limit (default 262,144) counts `Message` and every attribute's name, type and value; for `PublishBatch` the limit is for the whole batch, so every entry that would get an ID is skipped |
@@ -989,7 +1071,7 @@ message attribute gets one more, and the message has one slot fewer of its 10. S
 on the attribute names they list, so the extra attribute should not change which subscriptions get a message [not
 tested].
 
-### 20.3 On a receive
+### 21.3 On a receive
 
 On every `trailbeam receive` (client hooks and Lambda wrapper):
 
@@ -1011,12 +1093,12 @@ two fields are still recorded. Nothing else in the envelope (`Message`, `Subject
 signature) is read or exported. Test vectors: `sns.timestamps` and `sns.receive`.
 
 **When the envelope is read.** On every queue, including queues whose body is not captured (section 15.1). This is
-an exception to body capture being off by default, and it is limited to the three fields above. (3.5: section 22 is the
+an exception to body capture being off by default, and it is limited to the three fields above. (3.5: section 23 is the
 other, for EventBridge and S3 bodies.) The body itself,
 and every other envelope field, is never exported. No option turns it on or off. (Board decision, QV-302,
 2026-11-23.) The publish ID is a message attribute, not the body, and is also read on every queue.
 
-### 20.4 Configuration
+### 21.4 Configuration
 
 | Option (Python / Node.js) | Environment variable | Default |
 |---|---|---|
@@ -1024,9 +1106,9 @@ and every other envelope field, is never exported. No option turns it on or off.
 
 The `sns` group is given to `install` and to the Lambda wrappers like the groups of section 15.1, and replaces its
 environment variables as a whole. Injection is configured where messages are published. Envelope reading has no
-option (20.3).
+option (21.3).
 
-### 20.5 How Trailbeam reads it
+### 21.5 How Trailbeam reads it
 
 - A receive **joins** a publish when its `trailbeam.sns.message_id` and `trailbeam.sns.topic_arn` equal the
   publish's `messaging.message.id` and `aws.sns.topic.arn`, or its `trailbeam.sns.publish_id` equals the publish's.
@@ -1054,7 +1136,7 @@ Each store keeps publishes apart from messages, like purges (SQLite: rows of `sp
 Postgres: `sns_publishes` and `sns_receives`, schema 11), and retention drops a publish by its own time against the
 cutoff of the topic's name (`--retention-queues` takes it like a queue name).
 
-### 20.6 Verified and not verified
+### 21.6 Verified and not verified
 
 Verified:
 
@@ -1081,20 +1163,20 @@ Not verified:
 - SNS and SQS on AWS. moto's envelope matches AWS's documented one; AWS was not run for 3.4.
 - How far apart SNS's `Timestamp` and SQS's `SentTimestamp` clocks can be on AWS, so how exact the delivery time is.
 
-## 21. Changes in revision 3.4
+## 22. Changes in revision 3.4
 
 | 3.3 | 3.4 |
 |---|---|
-| a message that came through SNS had no sender | `trailbeam publish`, kind `sns.publish`, from SNS clients' `Publish` and `PublishBatch` (20.1) |
-| the packages never changed a message | SNS publishes get one `trailbeam.publish_id` attribute, unless it would cost the message (20.2), or injection is off |
-| | receives carry the publish ID and, on every queue, the SNS envelope's `MessageId`, `TopicArn` and `Timestamp`, and nothing else from the body (20.3) |
-| | Trailbeam joins receives to their publish, shows the SNS delivery time, and "Arrived via SNS" for publishers without a package (20.5) |
+| a message that came through SNS had no sender | `trailbeam publish`, kind `sns.publish`, from SNS clients' `Publish` and `PublishBatch` (21.1) |
+| the packages never changed a message | SNS publishes get one `trailbeam.publish_id` attribute, unless it would cost the message (21.2), or injection is off |
+| | receives carry the publish ID and, on every queue, the SNS envelope's `MessageId`, `TopicArn` and `Timestamp`, and nothing else from the body (21.3) |
+| | Trailbeam joins receives to their publish, shows the SNS delivery time, and "Arrived via SNS" for publishers without a package (21.5) |
 
 `trailbeam.schema_version` stays `3`: the span and the receive attributes are optional, Trailbeam requires them for
 nothing, and spans of 3.3 and before are read as they were. A Trailbeam built before 3.4 rejects `trailbeam publish` as
 an unknown kind, in `partial_success`, and stores the rest of the export.
 
-## 22. EventBridge and S3 notification origins (revision 3.5)
+## 23. EventBridge and S3 notification origins (revision 3.5)
 
 An EventBridge rule with an SQS target, and an S3 bucket's event notification to SQS, send messages that no call of the
 team's code sends: EventBridge and S3 call `SendMessage` themselves. Before 3.5 the timeline of such a message started at
@@ -1103,8 +1185,8 @@ an **inferred** first step: "Arrived via an EventBridge rule" or "S3 object crea
 message to the `PutEvents` or `PutObject` that caused it is not part of 3.5.
 
 The attributes below are on `trailbeam receive` (client hooks and Lambda wrapper), read only when the body is not an SNS
-envelope (section 20.3: a receive with `trailbeam.sns.message_id` has none of them). They are read on every queue,
-including queues whose body is not captured, except the S3 object key (22.2). Nothing else in the body is read or
+envelope (section 21.3: a receive with `trailbeam.sns.message_id` has none of them). They are read on every queue,
+including queues whose body is not captured, except the S3 object key (23.2). Nothing else in the body is read or
 exported: not EventBridge's `detail` or `resources`, nor S3's `userIdentity`, `requestParameters` (the requester's IP
 address), `responseElements`, object size, `eTag` or `versionId`. Test vectors: `origin.receive` in
 [`span-contract-vectors.json`](span-contract-vectors.json).
@@ -1112,9 +1194,9 @@ address), `responseElements`, object size, `eTag` or `versionId`. Test vectors: 
 A body is read only if it starts (after whitespace) with `{`, contains `"detail-type"`, `"aws:s3"` or `s3:TestEvent`, and
 parses as JSON. Texts (`source`, `detail-type`, event name, bucket, configuration ID) are recorded only if they are 1 to
 256 characters (Unicode code points); a longer one is left out, or, for a field the match needs, makes the body not
-match. Times use the format and rules of the SNS `Timestamp` (section 20.3).
+match. Times use the format and rules of the SNS `Timestamp` (section 21.3).
 
-### 22.1 EventBridge events
+### 23.1 EventBridge events
 
 The body is an EventBridge event if it is one JSON object with a `detail` member, an `id` of 1 to 100 letters, digits or
 `-`, a non-empty `source` and `detail-type`, and an `account` of 12 digits.
@@ -1132,7 +1214,7 @@ A rule whose target has an input transformer (or a constant input) sends somethi
 a message keeps its timeline as before. The EventBridge event does not name the rule that matched it, so the step cannot
 name the rule either.
 
-### 22.2 S3 event notifications
+### 23.2 S3 event notifications
 
 The body is an S3 event notification if it is one JSON object whose `Records` is a non-empty array whose first item has
 `eventSource` equal to `aws:s3`, a non-empty `eventName` and a non-empty `s3.bucket.name`. Only the first record is
@@ -1151,19 +1233,19 @@ read.
 
 **The object key** is the one field here that is often the team's own data (user IDs, email addresses and file names
 are common in keys), so it follows body capture (section 15.1): on a queue whose body is not captured it is not read.
-[Pending a board decision on QV-314: see 22.5.]
+[Pending a board decision on QV-314: see 23.5.]
 
 **The test message.** When a notification configuration is saved, S3 sends a message of a different form: one object
 with `Service` equal to `Amazon S3`, `Event` equal to `s3:TestEvent`, `Time`, `Bucket`, `RequestId` and `HostId`. Its
 receive records `trailbeam.s3.event_name = s3:TestEvent`, the bucket and the time.
 
-S3 can also send to EventBridge (an event with `source` `aws.s3`, read by 22.1) or to an SNS topic (the S3 record is in
-the envelope's `Message`, which section 20.3 does not read: such a message shows "Arrived via SNS" only).
+S3 can also send to EventBridge (an event with `source` `aws.s3`, read by 23.1) or to an SNS topic (the S3 record is in
+the envelope's `Message`, which section 21.3 does not read: such a message shows "Arrived via SNS" only).
 
-### 22.3 How Trailbeam reads it
+### 23.3 How Trailbeam reads it
 
 - A message's receives carrying `trailbeam.eventbridge.event_id` or `trailbeam.s3.event_name` show an **inferred** step
-  (`inferred: true`), before the earliest such receive and ordered only through it, like "Arrived via SNS" (20.5):
+  (`inferred: true`), before the earliest such receive and ordered only through it, like "Arrived via SNS" (21.5):
   `arrived_via_eventbridge` (`source: eventbridge_event`) or `s3_event` (`source: s3_event`). Its label names the
   event's `source` and `detail-type`, or the S3 event name and bucket (and key when recorded); "S3 test message" for
   `s3:TestEvent`.
@@ -1171,13 +1253,13 @@ the envelope's `Message`, which section 20.3 does not read: such a message shows
   The step is **not** shown when the message has a `trailbeam send` (a process that re-sent the body, a DLQ redrive
   tool for one, made the send that Trailbeam saw), a joined SNS publish, or an "Arrived via SNS" step.
 - The step has no time of its own. The event's time is shown beside it, and the **delivery time**,
-  `trailbeam.sent_timestamp_ms` of the receive minus the event's time, both AWS clocks, as section 20.5 does for SNS.
+  `trailbeam.sent_timestamp_ms` of the receive minus the event's time, both AWS clocks, as section 21.5 does for SNS.
   EventBridge's `time` has whole seconds, so its delivery time can be up to a second too long. A negative value is
   shown as measured.
 - The step changes nothing else: not the message's first seen, state or list pages. The attributes are stored with the
   receive, as every other attribute (section 4), so no store schema changes.
 
-### 22.4 Verified and not verified
+### 23.4 Verified and not verified
 
 Verified (2026-11-24):
 
@@ -1197,18 +1279,18 @@ Not verified:
 - That messages in an EventBridge target's dead-letter queue (which carry `RULE_ARN` and `ERROR_CODE` message
   attributes) have the event as their body; 3.5 does not read those attributes.
 
-### 22.5 Open decision
+### 23.5 Open decision
 
-Reading these fields on queues whose body is not captured goes beyond the board's SNS decision (QV-302, section 20.3),
+Reading these fields on queues whose body is not captured goes beyond the board's SNS decision (QV-302, section 21.3),
 which covered three SNS fields. 3.5 is built as recommended on QV-314: the routing and ID fields above on every queue,
-the S3 object key only where the body is captured. If the board decides otherwise, only the gate in 22 and 22.2 changes.
+the S3 object key only where the body is captured. If the board decides otherwise, only the gate in 23 and 23.2 changes.
 
-## 23. Changes in revision 3.5
+## 24. Changes in revision 3.5
 
 | 3.4 | 3.5 |
 |---|---|
-| a message from an EventBridge rule or an S3 notification had no first step | receives carry the event's routing fields (22.1, 22.2), on every queue; the S3 object key only where the body is captured |
-| | Trailbeam shows an inferred "Arrived via an EventBridge rule" or "S3 *event*" step before the receive (22.3) |
+| a message from an EventBridge rule or an S3 notification had no first step | receives carry the event's routing fields (23.1, 23.2), on every queue; the S3 object key only where the body is captured |
+| | Trailbeam shows an inferred "Arrived via an EventBridge rule" or "S3 *event*" step before the receive (23.3) |
 
 `trailbeam.schema_version` stays `3`: the attributes are optional, Trailbeam requires them for nothing, and a Trailbeam
 before 3.5 keeps them with the receive and ignores them.

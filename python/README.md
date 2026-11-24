@@ -189,7 +189,7 @@ call of its own. A self-hosted Trailbeam stores the body only if the queue is al
 
 ### SNS fan-out
 
-Contract section 20. `install` also hooks boto3 `sns` clients: each `publish` and `publish_batch` to a topic
+Contract section 21. `install` also hooks boto3 `sns` clients: each `publish` and `publish_batch` to a topic
 records a `trailbeam publish` span with the SNS message ID, and a receive of the message on a subscribed queue is
 joined to it. Two ways the join works:
 
@@ -212,7 +212,7 @@ trailbeam.boto.install(
 
 ### EventBridge and S3 notifications
 
-Contract section 22. A message that an EventBridge rule or an S3 bucket notification sent has no send in your code. When
+Contract section 23. A message that an EventBridge rule or an S3 bucket notification sent has no send in your code. When
 its body is an EventBridge event, or an S3 event notification (or S3's `s3:TestEvent` message), the receive records what
 the event says about where it came from, on every queue: the event's `id`, `source`, `detail-type`, account, region and
 time, or the S3 event name, bucket, region, time, notification configuration ID and `sequencer`. Nothing else in the body

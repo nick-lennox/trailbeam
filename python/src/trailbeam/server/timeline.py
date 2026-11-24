@@ -127,7 +127,7 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
     """``rows``: every stored row of one message (Store.message_rows), any order. ``max_receive_counts``:
     queue name -> the maxReceiveCount of its redrive policy, as configured (spans don't carry it). ``purges``:
     purge rows (Store.purges) that include those of the message's current queue (contract section 18).
-    ``publishes``: the SNS publishes this message's receives join (contract section 20.5), as queries.message gives
+    ``publishes``: the SNS publishes this message's receives join (contract section 21.5), as queries.message gives
     them: each ``{"publish": row, "joined_by": [...], "reached": [...], "reached_truncated": bool}``."""
     rows = sorted(rows, key=lambda r: (r["time_ns"], r["row"]))
     mid = rows[0]["mid"]
@@ -292,7 +292,7 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
         if verdict.status == purge_mod.PURGED:
             state = purge_mod.PURGED
 
-    # ---- SNS fan-out (contract section 20.5) --------------------------------------------------------
+    # ---- SNS fan-out (contract section 21.5) --------------------------------------------------------
     # A joined publish is an observed step, placed by the proven order (clock and process_order only: SNS's and
     # SQS's timestamps are never compared with a host clock). Without one, a receive whose envelope names a topic
     # shows that SNS delivered it, placed before that receive only.
@@ -307,7 +307,7 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
         r, arn = arrived
         infer(None, r, 1, _arrived_event(r, arn, by_row[r["row"]], delivery))
     elif not sends and (came := origin_mod.arrived_from(receives)) is not None:
-        # EventBridge rule or S3 notification (contract section 22.3): inferred from the body's shape, so not
+        # EventBridge rule or S3 notification (contract section 23.3): inferred from the body's shape, so not
         # shown when a send of the message was seen (a process re-sent the body) or SNS delivered it.
         r, o = came
         infer(None, r, 1, _origin_event(r, o, by_row[r["row"]]))
@@ -369,7 +369,7 @@ def _purge_event(prow, status: str) -> dict:
             "process_order": _ticks(prow), "result": prow["result"], "removal": removal, "reason": reason}
 
 
-PUBLISH_SOURCE = "sns_publish"    # a recorded SNS publish this message's receives join (contract section 20.5)
+PUBLISH_SOURCE = "sns_publish"    # a recorded SNS publish this message's receives join (contract section 21.5)
 SNS_ENVELOPE_SOURCE = "sns_envelope"  # SNS delivered the message: its receive's envelope names the topic
 
 
@@ -415,12 +415,12 @@ def _arrived_event(r, arn: str, delivery_no: int, delivery: Optional[int]) -> di
     return ev
 
 
-EVENTBRIDGE_SOURCE = "eventbridge_event"  # the receive's body is an EventBridge event (contract section 22.1)
-S3_SOURCE = "s3_event"  # the receive's body is an S3 event notification (contract section 22.2)
+EVENTBRIDGE_SOURCE = "eventbridge_event"  # the receive's body is an EventBridge event (contract section 23.1)
+S3_SOURCE = "s3_event"  # the receive's body is an S3 event notification (contract section 23.2)
 
 
 def _origin_event(r, o: dict, delivery_no: int) -> dict:
-    """The inferred first step of a message an EventBridge rule or an S3 notification sent (contract section 22.3)."""
+    """The inferred first step of a message an EventBridge rule or an S3 notification sent (contract section 23.3)."""
     ts = o["event_time_ms"]
     extra = {k: v for k, v in o.items() if k not in ("kind", "event_time_ms") and v is not None}
     if o["kind"] == origin_mod.EVENTBRIDGE:
@@ -443,7 +443,7 @@ def _origin_event(r, o: dict, delivery_no: int) -> dict:
     if ts is not None:
         ev["event_time"] = iso(ts * 1_000_000)
         ev["event_time_ms"] = ts
-        if r["sent_ts_ms"] is not None:  # both AWS clocks, as SNS's delivery time (contract 20.5)
+        if r["sent_ts_ms"] is not None:  # both AWS clocks, as SNS's delivery time (contract 21.5)
             ev["delivery_ms"] = r["sent_ts_ms"] - ts
     return ev
 
@@ -482,7 +482,7 @@ def _arrange(rows: list, observed: list[dict], inferred: list, order: "order_mod
                            sorted(order.immediate(node), key=lambda i: pos[i])]
         else:
             a, b = anchors[node - n]
-            if ev.get("source") in (EVENTBRIDGE_SOURCE, S3_SOURCE):  # contract section 22.3
+            if ev.get("source") in (EVENTBRIDGE_SOURCE, S3_SOURCE):  # contract section 23.3
                 src = "inferred_from"
                 why_a = ""
                 what = ("an EventBridge event" if ev["source"] == EVENTBRIDGE_SOURCE else
@@ -493,7 +493,7 @@ def _arrange(rows: list, observed: list[dict], inferred: list, order: "order_mod
                 src = "inferred_from"
                 why_a = f"Inferred from {_label(events[a])}: it came after it." if a is not None else ""
                 why_b = f"Inferred from {_label(events[b])}: it came before it." if b is not None else ""
-            elif ev["source"] == SNS_ENVELOPE_SOURCE:  # arrived via SNS (contract section 20.5)
+            elif ev["source"] == SNS_ENVELOPE_SOURCE:  # arrived via SNS (contract section 21.5)
                 src = SNS_ENVELOPE_SOURCE
                 why_a = ""
                 why_b = (f"The SNS envelope of {_label(events[b])} names topic {ev['topic']}: SNS delivered the "

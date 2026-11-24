@@ -490,7 +490,7 @@ def test_purged_and_possibly_purged_messages(server):
 
 
 def test_sns_fan_out_shows_the_publish_and_the_arrival(server):
-    """Contract section 20.5: a publish is a recorded step on each message it reached, with its topic, how it joined,
+    """Contract section 21.5: a publish is a recorded step on each message it reached, with its topic, how it joined,
     the SNS delivery time when joined through the envelope, and the other messages it reached as links. A receive
     whose envelope names a topic with no recorded publish gets an "Arrived via SNS topic" step, with no time."""
     p, c = Consumer("producer", service="orders-api"), Consumer("orders-worker")
@@ -532,7 +532,7 @@ def test_a_deduplicated_fifo_send_is_shown_as_such_with_its_reason(server):
 
 
 def test_eventbridge_and_s3_origins_are_inferred_first_steps(server):
-    """Contract section 22.3: a receive whose body is an EventBridge event or an S3 notification gets an inferred
+    """Contract section 23.3: a receive whose body is an EventBridge event or an S3 notification gets an inferred
     first step, with no time, naming the event's source and detail-type, or the S3 event, bucket and key."""
     c = Consumer("orders-worker")
     t0_ms = T0 // 10**6

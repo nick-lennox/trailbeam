@@ -475,14 +475,14 @@ def _event(e: dict, by_id: Optional[dict] = None, bar: str = "", self_id: Option
         label = "Sent again, deduplicated by SQS"
     if e["type"] in ("published", "arrived_via_sns") and e.get("topic"):
         label += f' <code>{escape(str(e["topic"]))}</code>'
-    elif e["type"] == "s3_event":  # contract 22.3: "S3 ObjectCreated:Put", or the test message
+    elif e["type"] == "s3_event":  # contract 23.3: "S3 ObjectCreated:Put", or the test message
         label = ("S3 test message" if e.get("test_event")
                  else f'S3 <code>{escape(str(e.get("s3_event_name")))}</code>')
     failed = e.get("result") == "failed" or (e["type"] == "lambda_outcome" and e.get("outcome") != "success")
     cls = ["event", "inferred" if inferred else "observed"] + (["failed"] if failed else [])
     head = []
     # observed, but with no time of its own: the DLQ move SQS reports (contract 9b), the SNS delivery an envelope
-    # reports (20.5)
+    # reports (21.5)
     reported = e.get("source") in (DLQ_SOURCE, SNS_ENVELOPE_SOURCE)
     if reported:
         cls.append("reported")
@@ -517,7 +517,7 @@ JOINED_BY = {"envelope_message_id": "the SNS envelope's MessageId (raw delivery 
 
 
 def _reached(e: dict, self_id: Optional[str]) -> str:
-    """The SQS messages an SNS publish reached, by queue (contract section 20.5), each a link but this one."""
+    """The SQS messages an SNS publish reached, by queue (contract section 21.5), each a link but this one."""
     parts = []
     for r in e.get("reached") or []:
         ids = []
@@ -547,7 +547,7 @@ def _details(e: dict) -> list[str]:
         d.append("joined by " + " and ".join(escape(JOINED_BY.get(j, j)) for j in e["joined_by"]))
     add("SNS message ID", "sns_message_id", lambda v: f"<code>{escape(str(v))}</code>")
     code = lambda v: f"<code>{escape(str(v))}</code>"  # noqa: E731
-    # EventBridge and S3 origins (contract 22.3)
+    # EventBridge and S3 origins (contract 23.3)
     add("source", "eventbridge_source", code)
     add("detail-type", "detail_type", code)
     add("event ID", "event_id", code)
