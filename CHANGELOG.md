@@ -162,6 +162,25 @@
   plain "Sent" step. It no longer counts in the Tenants page's `total_sent`, a tenant's `sent` or its share. On
   upgrade, SQLite schema 14 and Postgres schema 7 fix the counts of messages already stored (QV-246).
 
+- **Helm chart with the trial Postgres: the Service, the PDB and the Deployment reach the server only**
+  (QV-342). In 0.4.0 the Postgres pod carried the same two labels the server's selectors use, so
+  `kubectl port-forward service/<release>-trailbeam 4318:4318` (the documented check) failed with "does not have a
+  named port 'http'", `kubectl logs deployment/...` could show Postgres's log, and the PodDisruptionBudget counted
+  Postgres, so a drain could evict both server replicas. Server pods now carry `app.kubernetes.io/component:
+  server`, and the Service, the PDB and the spread constraint select on it. `helm upgrade` from 0.4.0 needs no extra
+  step and fixes the Service and the PDB. The Deployment's selector can't change in place, so a Deployment made by
+  0.4.0 keeps its old one, and `kubectl logs deployment/...` may still pick the Postgres pod. To switch it to the
+  new selector once (the server pods keep running; the new Deployment adopts their ReplicaSet):
+
+  ```
+  kubectl delete deployment <release>-trailbeam --cascade=orphan
+  helm upgrade <release> <chart> <your settings>
+  kubectl delete replicaset -l 'app.kubernetes.io/instance=<release>,app.kubernetes.io/name=trailbeam,!app.kubernetes.io/component'
+  ```
+
+  `deploy/helm/check.sh` now runs the documented port-forward, checks what each selector picks, and upgrades a
+  release installed by the 0.4.0 chart.
+
 ## 0.4.0: set up in one command
 
 Trailbeam 0.4.0 is about getting a server running and the first message on screen without reading the whole

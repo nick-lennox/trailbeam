@@ -4,8 +4,9 @@ kind: PodDisruptionBudget
 metadata:
   name: {{ include "trailbeam.fullname" . }}
   labels: {{- include "trailbeam.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
 spec:
   minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
   selector:
-    matchLabels: {{- include "trailbeam.selectorLabels" . | nindent 6 }}
+    matchLabels: {{- include "trailbeam.serverSelectorLabels" . | nindent 6 }}
 {{- end }}
