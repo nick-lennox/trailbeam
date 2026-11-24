@@ -702,6 +702,44 @@ def sign_in_page(next_path: str, email: str = "", outcome: Optional[str] = None,
     return _page(status, "Sign in", body)
 
 
+SETUP_NOTICES = {
+    "bad_code": "This setup link has been used, is out of date (links last an hour), or isn't the latest one. "
+                "Run trailbeam start again for a new link, or create the admin with trailbeam users create.",
+    "mismatch": "The two passwords are not the same.",
+    "busy": "The server is busy. Try again in a moment.",
+    "slow_down": "Too many tries from here. Try again in {minutes}.",
+}
+# The code is in the URL fragment, which the browser never sends: this moves it into the form and out of the
+# address bar. Without scripts, the code (after "#code=" in the link) can be pasted into the field.
+_SETUP_SCRIPT = (
+    "<script>(function(){var m=/[#&]code=([A-Za-z0-9_-]+)/.exec(location.hash),f=document.getElementById('code');"
+    "if(m&&f&&!f.value){f.value=m[1];}if(f&&f.value){document.getElementById('code-row').hidden=true;}"
+    "if(location.hash){history.replaceState(null,'',location.pathname);}})();</script>")
+
+
+def setup_page(code: str = "", email: str = "", name: str = "", notice: Optional[str] = None, message: str = "",
+               retry_after_s: Optional[int] = None, status: int = 200) -> Response:
+    """``/setup``: the first admin's form, opened from the link trailbeam start prints (first_admin.py)."""
+    text = message or SETUP_NOTICES.get(notice or "", "")
+    body = ("<h1>Create your admin account</h1><p>This account manages the people and tokens of this Trailbeam. "
+            "It becomes the first admin, and you are signed in with it.</p>"
+            + (f'<p class="notice">{escape(text.format(minutes=_minutes(retry_after_s)))}</p>' if text else "")
+            + '<form method="post" action="/setup">'
+            f'<p id="code-row"><label>Setup code <input type="text" id="code" name="code" value="{escape(code)}" '
+            'autocomplete="off" required></label></p>'
+            f'<p><label>Email <input type="email" name="email" value="{escape(email)}" autocomplete="username" '
+            'required autofocus></label></p>'
+            f'<p><label>Name <input type="text" name="name" value="{escape(name)}" autocomplete="name" required>'
+            "</label></p>"
+            '<p><label>Password <input type="password" name="password" autocomplete="new-password" minlength="10" '
+            'required></label> (at least 10 characters)</p>'
+            '<p><label>Password again <input type="password" name="password2" autocomplete="new-password" '
+            'minlength="10" required></label></p>'
+            "<p><button>Create admin account</button></p></form>" + _SETUP_SCRIPT)
+    st, headers, html = _page(status, "Create your admin account", body)
+    return st, {**headers, "Referrer-Policy": "no-referrer", "Cache-Control": "no-store"}, html
+
+
 def forbidden_page(message: str) -> Response:
     return _page(403, "Not allowed", f'<h1>Not allowed</h1><p>{escape(message)}.</p>'
                  '<p><a href="/logout">Sign out</a></p>')

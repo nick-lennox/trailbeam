@@ -11,7 +11,7 @@ import {
   noTenantsText, storeIsEmpty, tenantsEmpty, tenantsFootnote,
   type EmptyStateProps, type MessageBody, type TenantStats, type Timeline,
 } from "../src/index.ts";
-import { ApiError, CopyLink, Header, getHealth, getJSON, messageHref, tenantHref } from "./chrome.tsx";
+import { ApiError, CopyLink, Header, bodyAccess, getHealth, getJSON, messageHref, tenantHref, useMe } from "./chrome.tsx";
 import { HomePage } from "./home.tsx";
 import { DuplicatesPage, StuckPage } from "./lists.tsx";
 import "./styles.css";
@@ -19,8 +19,6 @@ import "./styles.css";
 type State = { kind: "loading" } | { kind: "missing" } | { kind: "error"; message: string } | { kind: "not-found"; empty: EmptyStateProps } | { kind: "ok"; t: Timeline };
 type BodyState = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ok"; v: MessageBody };
 
-/* Self-hosted Trailbeam has no logins: the only gates are TRAILBEAM_STORE_BODIES and who can reach it. */
-const ACCESS = "No logins: anyone who can reach this Trailbeam can read the bodies it keeps.";
 const HINTS = {
   not_opted_in: <>To keep this queue&rsquo;s bodies from now on, add it to <code className="font-mono text-caption">TRAILBEAM_STORE_BODIES</code> on the server.</>,
 };
@@ -94,6 +92,7 @@ function MessagePage() {
   const tab = params.get("tab") === "body" ? "body" : "timeline";
   const [state, setState] = useState<State>(id ? { kind: "loading" } : { kind: "missing" });
   const [body, setBody] = useState<BodyState>({ kind: "loading" });
+  const me = useMe();
 
   useEffect(() => {
     if (!id) return;
@@ -159,7 +158,7 @@ function MessagePage() {
                 {body.kind === "error" && <p className="text-sky-ink-2" role="alert">{body.message}</p>}
                 {body.kind === "ok" && (
                   <div className="overflow-hidden rounded-[16px] border border-sky-line bg-sky-2/55">
-                    <BodyPanel view={body.v} access={ACCESS} hints={HINTS} />
+                    <BodyPanel view={body.v} access={bodyAccess(me)} hints={HINTS} />
                   </div>
                 )}
                 <p className="mt-3 text-sm text-sky-ink-3">
