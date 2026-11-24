@@ -8,6 +8,8 @@ message, with a keyed hash of each receipt handle and never the handle itself or
 ## Install
 
 Plain CommonJS with type declarations; there is no build step. Node.js 20 or later.
+AWS SDK v3 `@aws-sdk/client-sqs` 3.572.0 or later: older clients drop `MessageSystemAttributeNames`, so
+the timeline would have no send time, receive count or dead-letter source ([supported versions](../README.md#supported-versions)).
 
 ```sh
 npm install trailbeam

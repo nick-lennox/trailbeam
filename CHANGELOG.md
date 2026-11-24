@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **A compatibility matrix, run every night** (QV-335). Python 3.10 to 3.14, each with the oldest
+  (boto3 / botocore 1.34.0, OpenTelemetry 1.28 / 0.49b0) and the newest dependencies, Node.js 20, 22 and 24, each
+  with the oldest (3.572.0) and the newest `@aws-sdk/client-sqs`, and Postgres 14 to 18
+  (`.github/workflows/compat.yml`, also on `release/**` branches). It reads `compat/matrix.toml`, and so does
+  the README's new supported-versions table, which CI checks against it.
+- **The oldest supported AWS SDK for JavaScript v3 is now stated: `@aws-sdk/client-sqs` 3.572.0** (May 2024).
+  Older clients silently drop `MessageSystemAttributeNames`, so their spans had no send time, receive count or
+  dead-letter source.
 - **Fixes found by the new compatibility matrix** (QV-335).
   - **Python 3.11: retention gave back almost no disk space.** On a SQLite file, each retention pass freed one
     page instead of up to its limit, because Python 3.11's `sqlite3` stops `PRAGMA incremental_vacuum` after

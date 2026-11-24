@@ -266,6 +266,30 @@ If the server has an [access token](#access-token), also set
 
 Full guides: [Python](python/README.md), [Node.js](node/README.md), and the Lambda sections in each.
 
+### Supported versions
+
+<!-- compat-matrix:start (generated from compat/matrix.toml by compat/matrix.py; don't edit by hand) -->
+
+| | Supported and tested every night |
+|---|---|
+| Python | 3.10, 3.11, 3.12, 3.13, 3.14, each with the SQLite built into it |
+| boto3 / botocore | 1.34.0 / 1.34.0 to the newest |
+| OpenTelemetry for Python | API and SDK 1.28.0, `opentelemetry-instrumentation-botocore` 0.49b0, to the newest |
+| Node.js | 20, 22, 24 |
+| AWS SDK for JavaScript v3 (`@aws-sdk/client-sqs`) | 3.572.0 to the newest |
+| Postgres (the server's store) | 14, 15, 16, 17, 18 |
+
+Each Python version runs with the oldest and the newest Python dependencies, and each Node.js version with the oldest and the newest AWS SDK, so 10 Python runs, 6 Node.js runs and 5 Postgres runs ([compat/matrix.toml](compat/matrix.toml), [the nightly workflow](.github/workflows/compat.yml)).
+
+Not supported:
+
+- The Python package instruments boto3 and botocore clients only, not aiobotocore (asyncio) clients.
+- The Node.js package instruments AWS SDK for JavaScript v3 clients only, not v2 (`aws-sdk`).
+
+<!-- compat-matrix:end -->
+
+To change what is tested, edit [compat/matrix.toml](compat/matrix.toml) and run `python3 compat/matrix.py readme`.
+
 ### Tenants
 
 To see traffic per customer, tell the packages where the tenant is. Set the same value in every
@@ -816,8 +840,8 @@ nothing to Trailbeam's own pools, and we haven't tested one.
 #### Supported versions and managed services
 
 **Postgres 14 and later.** Retention needs `DETACH PARTITION … CONCURRENTLY`, which is new in 14. CI runs the
-storage conformance suite on 14 and 16, and the setup, backup and restore steps here were checked on stock
-Postgres 14 and 16.
+storage conformance suite on 14 and 16 on every change, and on 14 to 18 every night ([Supported
+versions](#supported-versions)). The setup, backup and restore steps here were checked on stock Postgres 14 and 16.
 
 A managed Postgres should work if it gives you version 14 or later, a role that can own a database or schema,
 and a direct connection. **We haven't run Trailbeam on any managed service yet.**
