@@ -1233,7 +1233,7 @@ read.
 
 **The object key** is the one field here that is often the team's own data (user IDs, email addresses and file names
 are common in keys), so it follows body capture (section 15.1): on a queue whose body is not captured it is not read.
-[Pending a board decision on QV-314: see 23.5.]
+(Board decision, QV-314, 2026-11-24: see 23.5.)
 
 **The test message.** When a notification configuration is saved, S3 sends a message of a different form: one object
 with `Service` equal to `Amazon S3`, `Event` equal to `s3:TestEvent`, `Time`, `Bucket`, `RequestId` and `HostId`. Its
@@ -1279,11 +1279,13 @@ Not verified:
 - That messages in an EventBridge target's dead-letter queue (which carry `RULE_ARN` and `ERROR_CODE` message
   attributes) have the event as their body; 3.5 does not read those attributes.
 
-### 23.5 Open decision
+### 23.5 Board decision
 
-Reading these fields on queues whose body is not captured goes beyond the board's SNS decision (QV-302, section 21.3),
-which covered three SNS fields. 3.5 is built as recommended on QV-314: the routing and ID fields above on every queue,
-the S3 object key only where the body is captured. If the board decides otherwise, only the gate in 23 and 23.2 changes.
+Reading these fields on queues whose body is not captured went beyond the board's SNS decision (QV-302, section 21.3),
+which covered three SNS fields, so it was put to the board on QV-314. The board decided (2026-11-24): the routing and ID
+fields of 23.1 and 23.2 are read on every queue, including queues whose body is not captured; the S3 object key is read
+only on a queue whose body is captured, and redacted like the body. No option turns this on or off. Like the SNS
+envelope, this is an exception to body capture being off by default, limited to the fields listed above.
 
 ## 24. Changes in revision 3.5
 

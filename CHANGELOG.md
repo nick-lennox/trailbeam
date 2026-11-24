@@ -54,8 +54,8 @@
   receive), with the event's time and the delivery time (`SentTimestamp` minus the event time, both AWS clocks). It is
   not shown when the message has a send (a process re-sent the body) or came through SNS. Both local UIs show it:
   "Arrived via an EventBridge rule: *detail-type*", "S3 *event* in *bucket*" or "S3 test message", tagged inferred
-  (`@trailbeam/ui` 0.1.0-dev.5, `fixtures/origin-timelines.json`). The board's decision on what may be read when body
-  capture is off is pending on QV-314 (contract 23.5).
+  (`@trailbeam/ui` 0.1.0-dev.5, `fixtures/origin-timelines.json`). On queues whose body is not captured, only the routing
+  fields are read, and never the object key (board decision on QV-314, contract 23.5).
 - **SNS fan-out: messages that came through an SNS topic get their sender** (QV-313, contract revision 3.4, section 21; the Java jar does not hook SNS yet). The Python and Node.js packages record SNS
   `Publish` and `PublishBatch` to a topic as a `trailbeam publish` span (`trailbeam.kind = sns.publish`) with the SNS
   message ID and `aws.sns.topic.arn`. Receives carry what joins them to it: the `trailbeam.publish_id` message
