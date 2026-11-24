@@ -4,7 +4,8 @@
 below are placeholders until the Maven Central namespace is chosen.
 
 Add one dependency and every SQS call made through the AWS SDK for Java v2 emits the spans of the
-[Trailbeam span contract](../contract/span-contract.md). You don't change any code or add an agent flag:
+[Trailbeam span contract](../contract/span-contract.md); what is particular to Java is in its
+[section 20](../contract/span-contract.md#20-the-java-package-qv-319). You don't change any code or add an agent flag:
 
 ```xml
 <dependency>
