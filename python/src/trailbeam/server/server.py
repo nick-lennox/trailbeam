@@ -19,7 +19,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTrace
 
 from . import __version__
 from . import queues as queues_mod
-from . import access as access_mod, auth as auth_mod, bodies, csrf, first_admin, metrics, passwords, queries, \
+from . import access as access_mod, auth as auth_mod, causes as causes_mod, bodies, csrf, first_admin, metrics, passwords, queries, \
     sessions as sessions_mod, trace_links, ui_files, web
 from .accounts import AccountError, Accounts, AdminExists, BadSetupCode, check_email, check_name
 from .backpressure import GRPC_RESOURCE_EXHAUSTED, GRPC_UNAVAILABLE, IngestGate, Rejected, status_body
@@ -88,8 +88,8 @@ class App:
         self.stats = {"requests": 0, "inserted": 0, "duplicates": 0, "ignored": 0, "rejected": 0}
         self.routes: dict[str, Callable[[dict, list[str]], object]] = {
             "health": self.health, "stats": self.stats_counts, "messages": self.messages, "duplicates": self.duplicates,
-            "stuck": self.stuck, "events": self.events, "tenants": self.tenants, "probes": self.probes, "me": self.me,
-            "queues": self.queues, "flows": self.flows}
+            "stuck": self.stuck, "causes": self.causes, "events": self.events, "tenants": self.tenants, "probes": self.probes,
+            "me": self.me, "queues": self.queues, "flows": self.flows}
         self._init_metrics()
 
     # ---- /metrics -------------------------------------------------------------------------
@@ -448,6 +448,31 @@ class App:
         return events_mod.page(self.db, from_ms, to_ms, _limit(q), queue=q.get("queue") or None,
                                service=q.get("service") or None, kinds=kinds,
                                message_id=q.get("message_id") or None, cursor=q.get("cursor"))
+
+    def causes(self, q: dict, rest: list[str]) -> dict:
+        """``/api/causes``: the stuck messages grouped by why they didn't finish (causes.py, QV-367), the Needs
+        attention page's groups. ``from_ms``/``to_ms`` narrow them to causes seen in that range; ``cause`` narrows
+        the messages listed to one group's. The groups count every message read, the list holds ``limit``."""
+        if rest:
+            raise ApiError(404, "no such endpoint")
+        older = _int(q, "older_than_s", self.stuck_after_s, 0, 10 ** 9)
+        frm = _int(q, "from_ms", -1, 0, 10 ** 15) if "from_ms" in q else None
+        to = _int(q, "to_ms", -1, 0, 10 ** 15) if "to_ms" in q else None
+        if frm is not None and to is not None and frm > to:
+            raise ApiError(400, "from_ms must not be after to_ms")
+        read = causes_mod.read_unfinished(self.db, self.now(), self._lambda_timeout(q), self.max_receive_counts, older,
+                                          q.get("queue") or None)
+        assign: dict = {}
+        groups = causes_mod.in_range(read["classified"], read["first_seen"], frm, to, assign)
+        items = [{**i, "cause": assign[i["message_id"]]} for i in read["items"] if i["message_id"] in assign]
+        wanted = q.get("cause") or None
+        listed = [i for i in items if i["cause"] == wanted] if wanted and any(g["id"] == wanted for g in groups) else items
+        return {"older_than_s": older, "from_ms": frm, "to_ms": to, "capped": read["capped"],
+                "read_limit": causes_mod.UNFINISHED_LIMIT, "total": len(items),
+                "in_dead_letter_queue": sum(1 for i in items if i["in_dead_letter_queue"]),
+                "groups": [causes_mod.public(g) for g in groups],
+                "dead_letter_queues": causes_mod.dlq_groups(items, read["urls"]),
+                "cause": wanted, "messages": listed[:_limit(q)], "listed": len(listed)}
 
     def tenants(self, q: dict, rest: list[str]) -> dict:
         """``/api/tenants``: the Tenants page (contract/tenants.md) for [from_ms, to_ms], or the last
