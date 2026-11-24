@@ -34,7 +34,7 @@ const HOST_FLAGS = {
 // Not passed into the container: the ones above are translated, and the image sets its own host, port and db.
 const NOT_PASSED = new Set([...Object.values(HOST_FLAGS), 'TRAILBEAM_IMAGE',
   'TRAILBEAM_START_SHOWN_HOST', 'TRAILBEAM_START_SHOWN_DATA_DIR', 'TRAILBEAM_START_SHOWN_CAT',
-  'TRAILBEAM_START_SHOWN_TOKEN_FILE']);
+  'TRAILBEAM_START_SHOWN_TOKEN_FILE', 'TRAILBEAM_START_TERMINAL']);
 
 class UsageError extends Error {}
 
@@ -110,7 +110,8 @@ function expand(p) {
 /** The `docker run` arguments, and the environment to give the docker command, for `start` with argv. */
 function dockerArgs(argv, { env = process.env, image = (env.TRAILBEAM_IMAGE || '').trim() || IMAGE,
   uid = process.getuid ? process.getuid() : undefined, gid = process.getgid ? process.getgid() : undefined,
-  ownerUid = process.geteuid ? process.geteuid() : undefined, log = console.error } = {}) {
+  ownerUid = process.geteuid ? process.geteuid() : undefined, log = console.error,
+  terminal = Boolean(process.stdout.isTTY) } = {}) {
   const { local, rest } = parseArgs(argv, env);
   const host = local['--host'] || '127.0.0.1';
   const port = local['--port'] || '4318';
@@ -143,6 +144,9 @@ function dockerArgs(argv, { env = process.env, image = (env.TRAILBEAM_IMAGE || '
     args.push('-e', `TRAILBEAM_START_SHOWN_CAT=docker run --rm -v ${VOLUME}:/data --entrypoint cat ${image} /data/{}`);
   }
   args.push('-e', `TRAILBEAM_START_SHOWN_DATA_DIR=${shown}`);
+  // docker runs without a TTY, so the server can't tell a person's terminal from a log: say which it is. Only
+  // a terminal gets the first admin's one-time setup link (python/src/trailbeam/server/first_admin.py).
+  if (terminal) args.push('-e', 'TRAILBEAM_START_TERMINAL=1');
   const passed = [];
   if (local['--db'] !== undefined) {
     const db = expand(local['--db']);
