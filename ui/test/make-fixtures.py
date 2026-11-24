@@ -11,6 +11,8 @@ is tested on what Trailbeam really returns.
   arrived via SNS from a publisher with no Trailbeam package, from the same span builder
 - test/fixtures/origin-timelines.json: contract 3.5 (section 23): a message an EventBridge rule sent, one an S3
   notification sent (body captured: with the key), and S3's test message, from the same span builder
+- test/fixtures/put-event-timelines.json: contract 3.6 EventBridge PutEvents (section 25): one recorded entry on
+  orders-bus, with a sender-given Time, that reached two queues, and one on the default bus, from the same span builder
 
     pip install -e "python[server]"   # from the repository root
     python ui/test/make-fixtures.py
@@ -103,4 +105,22 @@ write("origin-timelines.json",
                                            start=T0 + 6 * SEC),
                             C.receive_with(T0 + 9 * SEC, "s3-test", "rh-t", S3_TEST_ATTRS, sent_ms=T0_MS + 8100,
                                            start=T0 + 8 * SEC)]).SerializeToString(),
+                  "application/x-protobuf")]))
+
+EVENT_A, EVENT_B = "11710aed-b79e-4468-a20b-bb3c0c3b4860", "5f0c2d1e-8a3b-4c7d-9e6f-0a1b2c3d4e5f"
+write("put-event-timelines.json",
+      "GET /api/messages/{id} for messages an EventBridge rule sent from a recorded PutEvents entry (contract 3.6, "
+      "section 25), made by Trailbeam itself (ui/test/make-fixtures.py) from python/tests/server/spans.py: one entry "
+      "on orders-bus, with a Time the sender gave, reached pe-orders (handled and deleted) and pe-billing; a failed "
+      "entry in the same call joins nothing; pe-default came from an entry on the default bus, timed by EventBridge.",
+      timelines([(to_proto([P.put_event(T0 + SEC, EVENT_A, bus="orders-bus", time_given=True, start=T0),
+                            P.put_event(T0 + SEC, error="ThrottlingException", index=1, start=T0),
+                            C.eb_receive(T0 + 3 * SEC, "pe-orders", "rh-po", EVENT_A, time_ms=T0_MS,
+                                         sent_ms=T0_MS + 400, queue="orders", start=T0 + 2 * SEC),
+                            C.eb_receive(T0 + 3 * SEC, "pe-billing", "rh-pb", EVENT_A, time_ms=T0_MS,
+                                         sent_ms=T0_MS + 450, queue="billing", start=T0 + 2 * SEC),
+                            C.delete(T0 + 4 * SEC, "rh-po", "pe-orders", queue="orders", start=T0 + 3 * SEC + 500_000_000),
+                            P.put_event(T0 + 6 * SEC, EVENT_B, detail_type="OrderShipped", start=T0 + 5 * SEC),
+                            C.eb_receive(T0 + 8 * SEC, "pe-default", "rh-pd", EVENT_B, detail_type="OrderShipped",
+                                         time_ms=T0_MS + 6000, sent_ms=T0_MS + 6300, start=T0 + 7 * SEC)]).SerializeToString(),
                   "application/x-protobuf")]))

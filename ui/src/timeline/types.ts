@@ -176,6 +176,39 @@ export type ArrivedViaSnsEvent = Omit<Windowed, "queue"> & {
   sns_delivery_ms?: number;
 };
 
+/** A recorded EventBridge PutEvents entry this message's receives join by the event ID in the body (contract section
+ *  25.3, added in 3.6). One event can reach several queues, each as a different SQS message, so the same step is on
+ *  each of them, and `reached` lists them. It replaces the inferred `arrived_via_eventbridge` step. `queue` is the
+ *  event bus's name and `consumer` the process that called PutEvents. */
+export type PutEventStep = Observed & {
+  type: "put_event";
+  source: "eventbridge_put_events";
+  /** the event bus's name (`default` when the entry named none) */
+  event_bus: string;
+  /** the entry's EventBusName as given: a name or an ARN */
+  event_bus_given?: string;
+  /** the event ID EventBridge returned for the entry; the event's `id` */
+  event_id: string;
+  /** the entry's index in the call's Entries, from 0 */
+  entry_index?: number;
+  /** the entry's Source, such as `com.example.orders` */
+  eventbridge_source?: string;
+  detail_type?: string;
+  joined_by: "event_id";
+  /** the SQS messages whose receives join this entry, by queue (this message among them) */
+  reached: { queue: string; message_ids: string[] }[];
+  reached_truncated: boolean;
+  /** the event's `time` from this message's receive (whole seconds); not used to place the step */
+  event_time?: string;
+  event_time_ms?: number;
+  /** true when the sender gave the entry a Time, so event_time is the sender's value, not EventBridge's */
+  event_time_given: boolean;
+  /** the first receive's SentTimestamp minus event_time_ms: both AWS clocks unless event_time_given; up to a second
+   *  too long, as `time` has whole seconds */
+  eventbridge_delivery_ms?: number;
+  reason: string;
+};
+
 /** Inferred from the body's shape (contract section 23.3, added in 3.5): a receive's body is an EventBridge event, so
  *  an EventBridge rule most likely sent the message. No time; placed before that receive. The event does not name the
  *  rule. */
@@ -293,7 +326,7 @@ export type AwsEvent = {
   after: AfterEntry[];
 };
 
-export type TimelineEvent = SentEvent | ReceivedEvent | DeletedEvent | VisibilityChangedEvent | LambdaOutcomeEvent | QueuePurgedEvent | PublishedEvent | InferredEvent | DlqMoveEvent | ArrivedViaSnsEvent | ArrivedViaEventBridgeEvent | S3Event | AwsEvent;
+export type TimelineEvent = SentEvent | ReceivedEvent | DeletedEvent | VisibilityChangedEvent | LambdaOutcomeEvent | QueuePurgedEvent | PublishedEvent | PutEventStep | InferredEvent | DlqMoveEvent | ArrivedViaSnsEvent | ArrivedViaEventBridgeEvent | S3Event | AwsEvent;
 
 /** PROPOSED (paid): where a message lives in a multi-account workspace. */
 export type Scope = { account: string; account_name: string; region: string; environment: string; tenant?: string; demo?: boolean };

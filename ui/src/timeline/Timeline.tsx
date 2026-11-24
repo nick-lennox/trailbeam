@@ -17,7 +17,7 @@
   No client JS: details/summary does the expanding, so it works with scripts off.
 */
 import type {
-  AfterEntry, AwsEvent, BlindSpot, Group, Notice, PublishedEvent, Timeline, TimelineEvent,
+  AfterEntry, AwsEvent, BlindSpot, Group, Notice, PublishedEvent, PutEventStep, Timeline, TimelineEvent,
 } from "./types.ts";
 import { createContext, useContext } from "react";
 import { ErrorCauses } from "./ErrorCauses.tsx";
@@ -71,6 +71,7 @@ function title(e: TimelineEvent): string {
     case "moved_to_dead_letter_queue": return "Moved to the dead-letter queue";
     case "queue_purged": return e.removal === "possible" ? "Queue purged (may have removed it)" : "Queue purged";
     case "published": return `Published to topic ${e.topic}`;
+    case "put_event": return `Put on EventBridge bus ${e.event_bus}`;
     case "arrived_via_sns": return `Arrived via SNS topic ${e.topic}`;
     case "arrived_via_eventbridge": return `Arrived via an EventBridge rule: ${e.detail_type}`;
     case "s3_event": return e.test_event ? `S3 test message for bucket ${e.bucket}` : `S3 ${e.s3_event_name} in ${e.bucket}`;
@@ -91,6 +92,7 @@ function shortLabel(e: TimelineEvent): string {
     case "moved_to_dead_letter_queue": return "DLQ move";
     case "queue_purged": return "the purge";
     case "published": return "the publish";
+    case "put_event": return "the PutEvents entry";
     case "arrived_via_sns": return "SNS delivery";
     case "arrived_via_eventbridge": return "EventBridge delivery";
     case "s3_event": return "S3 notification";
@@ -254,6 +256,12 @@ function facts(e: TimelineEvent): string[] {
     out.push(e.batch_entry_id ? "PublishBatch" : "Publish", e.joined_by.includes("envelope_message_id") ? "joined by envelope" : "joined by publish ID");
     if (e.sns_delivery_ms !== undefined) out.push(`SNS delivery ${dur(e.sns_delivery_ms)}`);
   }
+  if (e.type === "put_event") {
+    out.push("PutEvents", ...(e.entry_index !== undefined ? [`entry ${e.entry_index}`] : []), "joined by event ID");
+    if (e.eventbridge_delivery_ms !== undefined) {
+      out.push(`EventBridge delivery ${dur(e.eventbridge_delivery_ms)}${e.event_time_given ? " (from the sender's time)" : ""}`);
+    }
+  }
   if (e.type === "arrived_via_sns") {
     out.push(`reported on delivery ${e.reported_on_delivery}`);
     if (e.sns_delivery_ms !== undefined) out.push(`SNS delivery ${dur(e.sns_delivery_ms)}`);
@@ -351,6 +359,20 @@ function Detail({ e }: { e: TimelineEvent }) {
     if (e.type === "arrived_via_sns" && e.sns_timestamp) rows.push(["Timestamp (SNS)", clock(e.sns_timestamp)]);
     if (e.sns_delivery_ms !== undefined) rows.push(["SNS delivery", `${dur(e.sns_delivery_ms)}: SentTimestamp (SQS) − Timestamp (SNS), both AWS clocks`]);
   }
+  if (e.type === "put_event") {
+    rows.push(["Event bus", e.event_bus]);
+    if (e.event_bus_given && e.event_bus_given !== e.event_bus) rows.push(["EventBusName (given)", e.event_bus_given]);
+    rows.push(["Event ID", e.event_id]);
+    if (e.entry_index !== undefined) rows.push(["Entry", `${e.entry_index} (index in the call's Entries)`]);
+    if (e.eventbridge_source) rows.push(["source", e.eventbridge_source]);
+    if (e.detail_type) rows.push(["detail-type", e.detail_type]);
+    if (e.event_time) rows.push([e.event_time_given ? "Event time (sender's)" : "Event time (EventBridge)", clock(e.event_time, "s")]);
+    if (e.eventbridge_delivery_ms !== undefined) {
+      rows.push(["EventBridge delivery", e.event_time_given
+        ? `${dur(e.eventbridge_delivery_ms)}: SentTimestamp (SQS) − event time. The sender gave the entry its Time, so this is measured from the sender's clock, not EventBridge's.`
+        : `${dur(e.eventbridge_delivery_ms)}: SentTimestamp (SQS) − event time, both AWS clocks. The event time is in whole seconds, so this can be up to a second too long.`]);
+    }
+  }
   if (e.type === "arrived_via_eventbridge") {
     rows.push(["source", e.eventbridge_source], ["detail-type", e.detail_type], ["Event ID", e.event_id]);
     if (e.account) rows.push(["Account", e.account]);
@@ -385,8 +407,8 @@ function Detail({ e }: { e: TimelineEvent }) {
 /** Where another message's timeline is, for the messages a publish reached. Without one they are not links. */
 const MessageHref = createContext<((id: string) => string) | undefined>(undefined);
 
-/** The SQS messages an SNS publish reached, by queue: "Reached orders: m-1 (this message) · billing: m-2". */
-export function Reached({ e, self }: { e: PublishedEvent; self: string }) {
+/** The SQS messages an SNS publish or a PutEvents entry reached, by queue: "Reached orders: m-1 (this message) · billing: m-2". */
+export function Reached({ e, self }: { e: PublishedEvent | PutEventStep; self: string }) {
   const href = useContext(MessageHref);
   return (
     <p className="mt-1.5 max-w-[40rem] text-[13px] leading-[1.5] text-sky-ink-2" data-reached>
@@ -446,7 +468,7 @@ function Step({ e, byId, self, open = false, compact = false, last = false }: { 
         </div>
         {f.length > 0 && <p className="mt-1 font-mono text-caption text-sky-ink-3">{f.join(" · ")}</p>}
         {reason && <p className="mt-1.5 max-w-[38rem] text-[15px] leading-[1.5] text-sky-ink-2">{reason}</p>}
-        {e.type === "published" && <Reached e={e} self={self} />}
+        {(e.type === "published" || e.type === "put_event") && <Reached e={e} self={self} />}
         {spots.length > 0 && <ul className="mt-2.5 grid max-w-[40rem] gap-2">{spots.map((s) => <BlindSpotNote key={s} spot={s} />)}</ul>}
         <details className="group mt-2" open={open}>
           <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full text-[13px] text-sky-ink-3 hover:text-sky-ink [&::-webkit-details-marker]:hidden">
