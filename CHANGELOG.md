@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **A page per queue** (QV-364): `/queue?name=<queue>`, and a **Queues** list at `/queues` (a new item in the
+  header). The page asks whether work is arriving faster than it is finished: sends vs handled (the band between
+  them is the backlog building), receives vs handled with dead-letter moves (seen, and inferred from
+  maxReceiveCount), p95 time in queue and p95 time in handler, on one time axis with a shared crosshair. Click or
+  drag across minutes to get links to the messages behind them. Deploys show as markers, and "By version" splits
+  handled and the p95s per `service.version`. A health verdict from your services' spans, labelled as such; the
+  senders and consumers; the queue's stuck messages and dead-letter moves; and a plain list of what Trailbeam
+  can't see without AWS (depth, in flight, the oldest message's age, the DLQ's depth), with a link to the SQS
+  console. The time range, the selected minutes and "By version" are in the URL. The view is
+  `QueuePage` in `@trailbeam/ui`, which the hosted app uses too.
 - **The Stuck page groups its messages by cause, and lists the dead-letter queues** (QV-367, step 2). `/stuck`
   now reads `/api/causes`. It shows one row per cause, with its count, first and last seen, a 24-hour trend,
   the dead-letter split, and the newest error text. Below that are the stuck messages, each with its cause
