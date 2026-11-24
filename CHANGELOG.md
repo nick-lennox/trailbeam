@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **`npx trailbeam start` no longer leaves the server running when only `npx` is stopped** (QV-344). npm doesn't
+  pass a signal sent to the `npx` process on, so the server kept port 4318. The launcher now stops the server
+  when the process that started it goes away. The container is labelled `trailbeam.start=1`, and when the port
+  is busy the error names the Docker container that publishes it (a Trailbeam server from an earlier run, too,
+  0.4.0 included) with the `docker stop` command.
 - **Java package, stage 4: the Lambda wrapper** (QV-319, pre-release, not published). For a function invoked by
   an SQS event source mapping, set the handler to `dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`
   and name your own in `TRAILBEAM_LAMBDA_HANDLER`, or extend `TrailbeamSqsHandler`. Each record gets a
