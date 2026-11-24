@@ -104,7 +104,8 @@ function refLabel(e: TimelineEvent): string {
 function where(e: TimelineEvent): string {
   if (e.type === "aws_step") return e.aws_kind === "never_handled" ? "AWS side" : e.function_name ? `AWS · ${e.function_name}` : "AWS side";
   if (e.type === "moved_to_dead_letter_queue" || e.inferred) return "SQS";
-  return e.consumer.service_name ?? "unknown service";
+  const name = e.consumer.service_name ?? "unknown service";
+  return e.consumer.service_version ? `${name} ${e.consumer.service_version}` : name;
 }
 
 /** The ending a node shows: good (trail), retry (ember), lost (bad ending), plain. */

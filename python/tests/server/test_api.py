@@ -70,6 +70,31 @@ def test_lists(loaded):
     assert get(url, "/api/messages?queue=payments")[1] == {"messages": [], "next_cursor": None}
 
 
+def test_service_version_on_steps_and_list_rows_and_as_a_filter(server):
+    """QV-362: the resource's service.version is kept on each span, shown on the timeline step's consumer and
+    on the list rows' consumers, and filters the three lists. A span without it has none."""
+    old, new = Consumer("consumer-a", version="1.4.2"), Consumer("consumer-b", version="1.4.3")
+    post(server, [Consumer("producer").send(T0, "m-1"), old.receive(T0 + SEC, "m-1", "rh-1"),
+                  new.receive(T0 + 40 * SEC, "m-1", "rh-2", count=2),
+                  Consumer("producer").send(T0, "m-2"), new.receive(T0 + SEC, "m-2", "rh-3")])
+    _, t = get(server, "/api/messages/m-1")
+    assert [(e["type"], e["consumer"].get("service_version")) for e in t["events"] if not e["inferred"]] == \
+        [("sent", None), ("received", "1.4.2"), ("received", "1.4.3")]
+    assert "service_version" not in t["events"][0]["consumer"]  # left out when not set, as the Caller's fields
+    _, d = get(server, "/api/duplicates")
+    assert d["messages"][0]["consumers"] == [
+        {"service_name": "orders-worker", "client_id": "consumer-a", "service_version": "1.4.2"},
+        {"service_name": "orders-worker", "client_id": "consumer-b", "service_version": "1.4.3"}]
+    for path, want in (("/api/messages?version=1.4.3", ["m-1", "m-2"]), ("/api/messages?version=1.4.2", ["m-1"]),
+                       ("/api/messages?version=9", []), ("/api/duplicates?version=1.4.2", ["m-1"]),
+                       ("/api/duplicates?version=9", []), ("/api/stuck?older_than_s=1&version=1.4.3", ["m-1", "m-2"]),
+                       ("/api/stuck?older_than_s=1&version=1.4.2", ["m-1"]),
+                       ("/api/messages?queue=orders&version=1.4.2", ["m-1"])):
+        status, body = get(server, path)
+        assert status == 200 and [m["message_id"] for m in body["messages"]] == want, path
+    assert get(server, "/api/messages?version=1.4.2&body=body:x")[0] == 400
+
+
 @pytest.mark.parametrize("path", [
     "/api/stuck?older_than_s=soon", "/api/stuck?older_than_s=-1", "/api/duplicates?limit=0",
     "/api/duplicates?limit=5000", "/api/duplicates?reason=x", "/api/messages/a?lambda_timeout_s=0",
@@ -95,7 +120,7 @@ def test_unknown_endpoints(server, path):
 
 
 def test_health_shows_configuration(server):
-    assert get(server, "/api/health")[1]["config"] == {"auth": "off", "stuck_after_s": 300, "lambda_timeout_s": 900,
+    assert get(server, "/api/health")[1]["config"] == {"auth": "off", "ingest_auth": "open", "stuck_after_s": 300, "lambda_timeout_s": 900,
                                                          "max_receive_counts": {}, "store_bodies": [], "retention": None,
                                                          "trace_link": None}
 

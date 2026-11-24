@@ -1,0 +1,16 @@
+{
+  "name": "python",
+  "description": "trailbeam (Python) client hooks on boto3. Needs a Python with the package and boto3 installed first on PATH.",
+  "command": ["python", "{driver_dir}/driver.py"],
+  "variants": [
+    {"name": "alone", "parent": "any",
+     "about": "only Trailbeam: trailbeam.boto.install() instruments botocore with its own provider"},
+    {"name": "app-otel", "parent": "exported", "env": {"KIT_APP_TRACING": "otel"},
+     "about": "the application's own provider and stock botocore instrumentation, installed first"},
+    {"name": "app-otel-sampled-0", "parent": "unexported",
+     "env": {"KIT_APP_TRACING": "otel", "OTEL_TRACES_SAMPLER": "traceidratio", "OTEL_TRACES_SAMPLER_ARG": "0"},
+     "about": "as app-otel, with the application's sampler at 0%: Trailbeam's always-on provider must still export every span"},
+    {"name": "capture", "parent": "any", "capture": true, "env": {"TRAILBEAM_CAPTURE_BODY_QUEUES": "*"},
+     "about": "body capture on for every queue (contract 15): every send and receive must carry the body"}
+  ]
+}

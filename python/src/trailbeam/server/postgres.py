@@ -1656,10 +1656,16 @@ class PostgresStore(Store):
 
     def recent_messages(self, limit: int, queue: Optional[str] = None, tenant: Optional[str] = None, *,
                         from_ns: Optional[int] = None, to_ns: Optional[int] = None,
-                        after: Optional[tuple] = None) -> list[str]:
-        return [r["mid"] for r in self._newest_first(*self._recent_src(queue, tenant), limit, from_ns, to_ns, after)]
+                        after: Optional[tuple] = None, version: Optional[str] = None) -> list[str]:
+        return [r["mid"] for r in self._newest_first(*self._recent_src(queue, tenant, version), limit, from_ns, to_ns,
+                                                     after)]
 
-    def _recent_src(self, queue: Optional[str], tenant: Optional[str]) -> tuple[str, list]:
+    # A message's summary is in one place, the place of its list rows: ``{q}`` names it on ``q``.
+    _BY_VERSION = (" AND EXISTS (SELECT 1 FROM messages q, jsonb_array_elements(q.consumers::jsonb) c"
+                   " WHERE {q} AND q.mid = s.mid AND c->>2 = %s)")
+
+    def _recent_src(self, queue: Optional[str], tenant: Optional[str],
+                    version: Optional[str] = None) -> tuple[str, list]:
         """The summary table, and its WHERE, that recent_messages and newest_messages walk."""
         if tenant:
             src, p = "message_tenants s WHERE s.tenant = %s", [tenant[:TENANT_MAX_CHARS]]
@@ -1670,11 +1676,14 @@ class PostgresStore(Store):
             src, p = "message_queues s WHERE s.queue = %s", [queue]
         else:
             src, p = "messages s WHERE TRUE", []
+        if version:
+            src += self._BY_VERSION
+            p.append(version)
         return src, p
 
     def duplicate_messages(self, limit: int, queue: Optional[str] = None, reason: Optional[str] = None, *,
                            from_ns: Optional[int] = None, to_ns: Optional[int] = None,
-                           after: Optional[tuple] = None) -> list[str]:
+                           after: Optional[tuple] = None, version: Optional[str] = None) -> list[str]:
         src = "messages s WHERE (s.dup_received <> 0 OR s.dup_succeeded <> 0)"
         src += {None: "", "received_more_than_once": " AND s.dup_received <> 0",
                 "succeeded_more_than_once": " AND s.dup_succeeded <> 0"}[reason]
@@ -1682,10 +1691,14 @@ class PostgresStore(Store):
         if queue:
             src += self._ON_QUEUE
             p.append(queue)
+        if version:
+            src += self._BY_VERSION
+            p.append(version)
         return [r["mid"] for r in self._newest_first(src, p, limit, from_ns, to_ns, after)]
 
     def stuck_messages(self, cutoff_ns: int, limit: int, queue: Optional[str] = None, *,
-                       from_ns: Optional[int] = None, after: Optional[tuple] = None) -> list[StuckCandidate]:
+                       from_ns: Optional[int] = None, after: Optional[tuple] = None,
+                       version: Optional[str] = None) -> list[StuckCandidate]:
         # Oldest first by stuck_first_ns, which a place's bucket doesn't bound (a message received long ago and
         # kept on its consumer is placed by its newest span; an SQS send time is SQS's clock): every place is read.
         where, p = "", [cutoff_ns]
@@ -1698,6 +1711,9 @@ class PostgresStore(Store):
         if queue:
             where += self._ON_QUEUE
             p.append(queue)
+        if version:
+            where += self._BY_VERSION
+            p.append(version)
         rows = self._walk_first(
             f"""SELECT s.mid, s.stuck_first_ns, s.stuck_sqs_clock, s.rclass, s.bucket FROM messages s
                 WHERE {{p}} AND s.stuck_open <> 0 AND s.stuck_first_ns IS NOT NULL AND s.stuck_first_ns < %s{where}

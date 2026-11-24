@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS messages (
     source_receive_count INTEGER NOT NULL,
     deliveries INTEGER NOT NULL,
     successes INTEGER NOT NULL,
-    consumers TEXT NOT NULL,             -- JSON [[service_name, client_id], ...]
+    consumers TEXT NOT NULL,             -- JSON [[service_name, client_id, service_version], ...]
     final_delete INTEGER NOT NULL,
     lambda_ok INTEGER NOT NULL,
     lambda_wait_ns INTEGER,              -- the latest receive is a Lambda's with no outcome: its time_ns

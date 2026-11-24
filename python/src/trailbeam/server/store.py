@@ -193,18 +193,20 @@ class Store(abc.ABC):
     # ``from_ns``/``to_ns``: only messages whose newest span is in [from_ns, to_ns), each bound optional.
     # ``after``: the (last_ns, message ID) of the last message of the previous page: only messages after it in
     # the list's order (keyset pagination: a page costs the same however deep it is).
+    # ``version``: only messages received by a consumer whose resource set this service.version (the third item
+    # of each of the summary's ``consumers``, QV-362). Read off each candidate summary: not indexed.
 
     @abc.abstractmethod
     def recent_messages(self, limit: int, queue: Optional[str] = None, tenant: Optional[str] = None, *,
                         from_ns: Optional[int] = None, to_ns: Optional[int] = None,
-                        after: Optional[tuple] = None) -> list[str]:
+                        after: Optional[tuple] = None, version: Optional[str] = None) -> list[str]:
         """By newest span, latest first. ``tenant``: only messages with a span naming it (cut to
         TENANT_MAX_CHARS)."""
 
     @abc.abstractmethod
     def duplicate_messages(self, limit: int, queue: Optional[str] = None, reason: Optional[str] = None, *,
                            from_ns: Optional[int] = None, to_ns: Optional[int] = None,
-                           after: Optional[tuple] = None) -> list[str]:
+                           after: Optional[tuple] = None, version: Optional[str] = None) -> list[str]:
         """Messages with more than one receive (``received_more_than_once``) or more than one success
         (``succeeded_more_than_once``), either if ``reason`` is None; by newest span, latest first. A success
         is a delivery with an accepted delete (``result = 'ok'``, counted once per ``receive_row``) or a
@@ -212,7 +214,8 @@ class Store(abc.ABC):
 
     @abc.abstractmethod
     def stuck_messages(self, cutoff_ns: int, limit: int, queue: Optional[str] = None, *,
-                       from_ns: Optional[int] = None, after: Optional[tuple] = None) -> list[StuckCandidate]:
+                       from_ns: Optional[int] = None, after: Optional[tuple] = None,
+                       version: Optional[str] = None) -> list[StuckCandidate]:
         """Messages first seen before ``cutoff_ns`` (and at or after ``from_ns``) with no final delete, oldest
         first. ``after``: the (first_ns, message ID) of the previous page's last message.
 

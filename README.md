@@ -311,11 +311,11 @@ is enough, the server extra is not needed) and checks, one line each:
 
 ```console norun="sample output: the hidden steps after it run trailbeam doctor and check these lines"
 $ trailbeam doctor
-trailbeam doctor: server http://127.0.0.1:4318, ingest http://127.0.0.1:4318/v1/traces, token: /home/me/.trailbeam/token
+trailbeam doctor: server http://127.0.0.1:4318, ingest http://127.0.0.1:4318/v1/traces, token: OTEL_EXPORTER_OTLP_HEADERS
 
   ok    Server reachable: Trailbeam X.Y.Z answers at http://127.0.0.1:4318
   ok    Ingest port accepts connections: 127.0.0.1:4318 accepts connections (http://127.0.0.1:4318/v1/traces)
-  ok    Token accepted: the API and ingest accept the token from /home/me/.trailbeam/token
+  ok    Token accepted: the API and ingest accept the token from OTEL_EXPORTER_OTLP_HEADERS
   ok    Test span stored and read back: sent to http://127.0.0.1:4318/v1/traces and read back from http://127.0.0.1:4318 in 7 ms
   FAIL  Last real span: no span stored yet
         Likely cause: Trailbeam works (the test span went through), so your services are not sending to it: ...
@@ -331,7 +331,7 @@ trailbeam doctor || test $? = 1
 <!-- doc-test expect variant=start
 ok    Server reachable: Trailbeam <version> answers at http://127.0.0.1:4318
 ok    Ingest port accepts connections: 127.0.0.1:4318 accepts connections (http://127.0.0.1:4318/v1/traces)
-ok    Token accepted: the API and ingest accept the token from <path>/.trailbeam/token
+ok    Token accepted: the API and ingest accept the token from OTEL_EXPORTER_OTLP_HEADERS
 ok    Test span stored and read back
 FAIL  Last real span: no span stored yet
 1 of 5 checks failed.
@@ -340,8 +340,10 @@ FAIL  Last real span: no span stored yet
 Each failed check says the likely cause and the fix ([every failure](https://docs.trailbeam.app/reference/troubleshooting#no-data-arrives)). A check that needs an earlier one that failed is skipped.
 The exit code is 1 when a check failed, so it can run in a script or a CI step.
 
-It uses the token `trailbeam start` created (`~/.trailbeam/token`, or the one in `TRAILBEAM_DATA_DIR`), or the
-one given with `--token-file` or `TRAILBEAM_TOKEN`. It checks the server given with `--url` (or `TRAILBEAM_URL`,
+It uses the token given with `--token-file` or `TRAILBEAM_TOKEN`; else the one your services send, the Bearer
+token in `OTEL_EXPORTER_OTLP_HEADERS` (or `OTEL_EXPORTER_OTLP_TRACES_HEADERS`), so with the variables
+`trailbeam start` prints set it checks the exact header the services send; else the token `trailbeam start`
+created (`~/.trailbeam/token`, or the one in `TRAILBEAM_DATA_DIR`). It checks the server given with `--url` (or `TRAILBEAM_URL`,
 or the port in `TRAILBEAM_PORT`). Without one, it checks the server `trailbeam start` started: the host and port
 of `TRAILBEAM_OTLP_TRACES_ENDPOINT` (the variable `trailbeam start` prints), or the address it last listened on,
 which it keeps in the data directory (`~/.trailbeam/address`). So after `trailbeam start --port 4319`, with the
@@ -422,8 +424,9 @@ TRAILBEAM_TOKEN=$DOC_TOKEN python3 python/smoke/team_check.py http://127.0.0.1:4
   Its port is not published: only the Trailbeam container connects.
 - **Settings** in `.env`: `TRAILBEAM_RETENTION` (default `7d`), `TRAILBEAM_STORE_BODIES` and the port. For
   per-queue settings, mount a [configuration file](#configuration-file) in `docker-compose.yaml`.
-- **Upgrading:** `git pull`, then `docker compose up -d --build --wait` ([Upgrades](#upgrades)). The image is
-  built from the checkout with the Postgres driver, because the published image has SQLite only.
+- **Upgrading:** `git pull`, then `docker compose up -d --build --wait` ([Upgrades](#upgrades)). Compose builds
+  the image from the checkout with the Postgres driver, so it runs the code you pulled. Releases from 0.4.0
+  also publish that image as `ghcr.io/nick-lennox/trailbeam:<version>-postgres`, the Helm chart's default.
 
 CI starts it from `.env.example` on every change, sends a span with the token and checks it is still there
 after `docker compose down && up`.
@@ -479,7 +482,8 @@ docker run ... -v $PWD/trailbeam.token:/run/secrets/trailbeam-token:ro \
 
 When it is set:
 
-- **Ingest** (`POST /v1/traces`) needs `Authorization: Bearer <token>`, or it gets `401`. The packages
+- **Ingest** (`POST /v1/traces`) needs `Authorization: Bearer <token>` or `x-trailbeam-key: <token>`, or it
+  gets `401`. The packages
   use the standard OpenTelemetry exporter, so set
   `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<token>` in your services. A Collector sets it in its
   `otlphttp` exporter's `headers`.
@@ -493,13 +497,48 @@ When it is set:
 The token must be at least 16 printable ASCII characters, with no spaces; otherwise Trailbeam refuses
 to start. It travels in plain HTTP, so put Trailbeam behind a TLS proxy when it crosses a network you
 don't trust. The cookie gets `Secure` when that proxy is in `--trusted-proxy` (below) and sends
-`X-Forwarded-Proto: https`. There is one token for everyone: no users, roles or audit log (those are in the
-hosted app).
+`X-Forwarded-Proto: https`. Until the server has an admin account, the token is the same for everyone (see
+the next section).
 
 A form posted to Trailbeam from another site's page (`/login`, and the routes that change things) is
 refused with `403`: the browser's `Sec-Fetch-Site` header, or else its `Origin`, must say the request came
 from Trailbeam's own pages. Requests without either header (curl, scripts) are not affected, and neither is
 ingest.
+
+### Accounts, ingest tokens and personal API tokens
+
+The server can also hold people (an email, a password and a role, `admin` or `member`) and named tokens, in its
+own store (SQLite or Postgres). Nothing changes until the first admin exists. After that:
+
+| | Who it lets in | Works for |
+|---|---|---|
+| Signing in with an email and password (`/login`) | the person, with their role | the web screen and the API |
+| Personal API token, `tbp_` and 40 letters and digits, as `Authorization: Bearer` | its owner, with the owner's role | the API and `/metrics` (scripts, CI, Prometheus) |
+| Ingest token, `tbi_` and 40 letters and digits, as `x-trailbeam-key` or `Authorization: Bearer` | a service | `POST /v1/traces` only |
+| `TRAILBEAM_TOKEN`, if set | anyone who has it | `POST /v1/traces` and `/metrics` only |
+
+- **Admins and members** can both read everything the server shows, message bodies included. Only admins manage
+  people and tokens.
+- **`TRAILBEAM_TOKEN` stops opening the web screen and the API** once an admin exists, and its old sign-in
+  cookie stops working. Running services and Prometheus keep working. The server logs a warning at every start
+  while the token is set.
+- **Every replica switches within 5 seconds** of the first admin being created: each checks the store at least
+  that often. Upgrade every replica before creating the first admin, because an older replica would still let
+  `TRAILBEAM_TOKEN` into the web screen.
+- **Ingest needs a token** when `TRAILBEAM_TOKEN` is set or the store holds at least one ingest token. A revoked
+  token still counts, so revoking the last one doesn't open ingest again. Otherwise ingest stays open, and the
+  server logs a warning at every start. Creating the first ingest token therefore closes ingest that was open.
+- **Ingest tokens can't read anything**, so a leaked service config can't be used to read message bodies.
+  The server keeps only a SHA-256 of each token and its first 8 characters. It sees a revoked token within
+  30 seconds on every replica, and a revoked or disabled person's sessions and personal tokens within
+  20 seconds.
+- `x-trailbeam-key` is the header the hosted app takes, so a service moves between the two by changing only
+  the address and the key. When a request has both headers, only `x-trailbeam-key` is read.
+- `GET /api/me` says how a request was let in, and as whom: use it to check a personal token.
+- Signing in has two limits. 10 failed attempts in a row lock that account for 15 minutes, on every replica.
+  20 failures from one client address in 10 minutes get "try again later" from that replica. Behind a proxy,
+  set `--trusted-proxy` (below), or every request seems to come from the proxy.
+- A `--db :memory:` store loses its people and tokens when the server stops.
 
 ### Behind a proxy (`--trusted-proxy`)
 

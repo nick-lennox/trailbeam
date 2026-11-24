@@ -97,3 +97,36 @@ export function Frame({ id, children }: { id?: string; children: ReactNode }) {
 export const Json = ({ href }: { href: string }) => (
   <>The same data as JSON: <a className="font-mono text-caption text-dawn hover:underline" href={href}>{href.split("?")[0]}</a></>
 );
+
+/**
+ * "Copy link": puts this origin plus ``link()`` on the clipboard. ``link`` is asked on the click, so a list can pin
+ * the window of the rows on screen. Without a clipboard (a plain-http host other than localhost), the link is
+ * shown in a field, selected, to copy by hand.
+ */
+export function CopyLink({ link, label = "Copy link" }: { link: () => string; label?: string }) {
+  const [state, setState] = useState<{ kind: "idle" } | { kind: "copied" } | { kind: "select"; url: string }>({ kind: "idle" });
+  useEffect(() => {
+    if (state.kind !== "copied") return;
+    const t = setTimeout(() => setState({ kind: "idle" }), 2000);
+    return () => clearTimeout(t);
+  }, [state]);
+  const copy = () => {
+    const url = `${location.origin}${link()}`;
+    const clip = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+    if (!clip?.writeText) return setState({ kind: "select", url });
+    clip.writeText(url).then(() => setState({ kind: "copied" }), () => setState({ kind: "select", url }));
+  };
+  return (
+    <span className="inline-flex items-center gap-2">
+      <button type="button" onClick={copy}
+        className="rounded-full border border-sky-line px-3 py-0.5 text-sm text-sky-ink-2 hover:border-sky-ink hover:text-sky-ink">
+        {state.kind === "copied" ? "Copied" : label}
+      </button>
+      {state.kind === "select" && (
+        <input readOnly value={state.url} aria-label="Link to copy" autoFocus onFocus={(e) => e.currentTarget.select()}
+          className="w-72 rounded-full border border-sky-line bg-sky-2 px-3 py-0.5 font-mono text-caption text-sky-ink" />
+      )}
+      <span className="sr-only" aria-live="polite">{state.kind === "copied" ? "Link copied to the clipboard." : state.kind === "select" ? "Couldn't use the clipboard: the link is selected, press Ctrl+C or Cmd+C to copy." : ""}</span>
+    </span>
+  );
+}

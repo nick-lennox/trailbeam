@@ -210,15 +210,11 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
         logging.getLogger("trailbeam.server").info(
             "trusted proxies (X-Forwarded-For, -Proto and -Host believed from): %s",
             ", ".join(str(n) for n in httpd.app.proxies.networks))
-    if token:
-        logging.getLogger("trailbeam.server").info("access token set: ingest, the API and the web screen need it")
-    elif a.host not in ("127.0.0.1", "localhost", "::1"):
-        logging.getLogger("trailbeam.server").warning(
-            "no access token (TRAILBEAM_TOKEN) and listening on %s: anyone who can reach this port can send "
-            "spans and read every timeline", a.host)
     logging.getLogger("trailbeam.server").info("listening on http://%s:%d (OTLP: /v1/traces, API: /api/, "
                                                "metrics: /metrics), db %s",
                                         a.host, httpd.server_address[1], where)
+    for level, message in access_log(httpd.app, token is not None, a.host):  # after "listening on": scripts read it first
+        logging.getLogger("trailbeam.server").log(level, message)
     # docker stop and systemd send SIGTERM; Python ignores it as PID 1 unless a handler is set. Stop the
     # same way as on Ctrl-C, so the SQLite file is closed cleanly.
     signal.signal(signal.SIGTERM, _interrupt)
@@ -413,6 +409,30 @@ def _positive_float(text: str) -> float:
     if not 0 < x <= 3600:
         raise argparse.ArgumentTypeError(f"expected seconds above 0 and at most 3600, got {text!r}")
     return x
+
+
+def access_log(app, token: bool, host: str) -> list:
+    """What start-up says about access (access.py): (logging level, message) pairs."""
+    local = host in ("127.0.0.1", "localhost", "::1")
+    mode, ingest = app._mode(), app._ingest_auth()
+    out = []
+    if mode == "accounts":
+        out.append((logging.INFO, "this server has an admin: the API and the web screen need a sign-in or a "
+                                  "personal API token (tbp_...)"))
+        if token:
+            out.append((logging.WARNING, "TRAILBEAM_TOKEN is set, and now that an admin exists it works only for "
+                                         "ingest and /metrics, not for the API or the web screen"))
+    elif token:
+        out.append((logging.INFO, "access token set: ingest, the API and the web screen need it"))
+    elif not local:
+        out.append((logging.WARNING, f"no access token (TRAILBEAM_TOKEN) and listening on {host}: anyone who can "
+                                     "reach this port can send spans and read every timeline"))
+    if ingest == "open" and (mode == "accounts" or local):
+        out.append((logging.WARNING, "ingest is open: there is no TRAILBEAM_TOKEN and no ingest token, so anyone "
+                                     "who can reach this port can send spans"))
+    elif ingest == "token" and not token:
+        out.append((logging.INFO, "ingest needs an ingest token (tbi_...): the store holds at least one"))
+    return out
 
 
 def body_warning(store_bodies, db_path: str, token: bool = False) -> str:

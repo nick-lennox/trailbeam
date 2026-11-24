@@ -24,6 +24,21 @@ info:
 
     A query parameter the endpoint does not list is ignored. When a parameter is repeated, the last value
     is used.
+
+    **Access.** Which credentials work depends on whether the server has an admin account. Each
+    replica checks this in the store at least every 5 seconds, so all replicas switch over within seconds
+    of the first admin being created.
+
+    - No admin yet: with `TRAILBEAM_TOKEN` set, the API needs it (`Authorization: Bearer` or
+      `x-trailbeam-key`) or the `trailbeam_session` cookie the login page sets. Without it, every
+      request is served.
+    - Once an admin exists: the API needs a person, an admin or a member. That means a personal API
+      token (`Authorization: Bearer tbp_...`) or a sign-in session (the `trailbeam_sid` cookie, or
+      `__Host-trailbeam_sid` over HTTPS). `TRAILBEAM_TOKEN` then works only for ingest and
+      `/metrics`, and the `trailbeam_session` cookie no longer works.
+
+    Ingest is separate: see `POST /v1/traces`. `/api/ready` and the short form of `/api/health` never
+    need a credential.
 servers:
   - url: http://127.0.0.1:4318
     description: A Trailbeam server started with its defaults.
@@ -42,7 +57,33 @@ security:
   - {}
   - accessToken: []
   - session: []
+  - personalToken: []
+  - signInSession: []
 paths:
+  /api/me:
+    get:
+      operationId: get-me
+      x-example-request: /api/me
+      tags: [Server]
+      summary: Show who the request is
+      description: |
+        Returns how the server let this request in and, for a person, who they are and their role.
+        Use it to check a personal API token. Added in 0.4.
+      responses:
+        '200':
+          description: How the request was let in.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Me'}
+              examples:
+                open:
+                  summary: A server without a token or an admin
+                  value: {"auth": "off", "via": "none", "user": null}
+                person:
+                  summary: With a personal API token, once an admin exists
+                  value: {"auth": "accounts", "via": "personal_token", "user": {"id": 2, "email": "ana@example.com", "name": "Ana", "role": "member"}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/messages:
     get:
       operationId: list-messages
@@ -59,6 +100,7 @@ paths:
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/queue'
+        - $ref: '#/components/parameters/version'
         - name: tenant
           in: query
           description: Only messages with a span that names this tenant.
@@ -108,6 +150,7 @@ paths:
                   consumers:
                   - service_name: legacy-svc
                     client_id: aca66402-38fd-4b18-98ed-c1406876f92b
+                    service_version: null
                   first_seen: '2026-11-16T18:05:37.664000Z'
                   first_seen_clock: host
                   last_seen: '2026-11-16T18:05:37.716000Z'
@@ -122,6 +165,7 @@ paths:
                   consumers:
                   - service_name: billing-fn
                     client_id: 2b715bf1-05cc-4f28-a3d8-290faca812eb
+                    service_version: null
                   first_seen: '2026-11-16T18:05:37.429000Z'
                   first_seen_clock: sqs
                   last_seen: '2026-11-16T18:05:37.528000Z'
@@ -405,6 +449,7 @@ paths:
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/queue'
+        - $ref: '#/components/parameters/version'
         - name: from_ms
           in: query
           description: Only messages whose newest span ended at or after this time, in Unix milliseconds.
@@ -433,6 +478,7 @@ paths:
                   consumers:
                   - service_name: billing-fn
                     client_id: 2b715bf1-05cc-4f28-a3d8-290faca812eb
+                    service_version: null
                   first_seen: '2026-11-16T18:05:37.429000Z'
                   first_seen_clock: sqs
                   last_seen: '2026-11-16T18:05:37.528000Z'
@@ -460,6 +506,7 @@ paths:
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/queue'
+        - $ref: '#/components/parameters/version'
         - name: from_ms
           in: query
           description: Only messages first seen at or after this time, in Unix milliseconds.
@@ -485,6 +532,7 @@ paths:
                   consumers:
                   - service_name: orders-worker
                     client_id: 999116e7-988b-43d2-89b1-06277f0766e4
+                    service_version: null
                   first_seen: '2026-11-16T18:05:36.914000Z'
                   first_seen_clock: host
                   last_seen: '2026-11-16T18:05:37.425000Z'
@@ -629,8 +677,9 @@ paths:
         Returns `200` while the server process is running, including while the store is unreachable.
         Use it as a liveness check.
 
-        When the server has an access token and the request carries none, the response holds only
-        `status` and `version`. Otherwise it also holds the ingest counters since the server
+        When the request carries no credential the API accepts (see Access, at the top), the response
+        holds only `status` and `version`. That is also the answer while the store can't say whether
+        the credential is good. Otherwise it also holds the ingest counters since the server
         started, the highest stored row and the time of the span stored last, and the server's
         configuration.
       responses:
@@ -656,6 +705,7 @@ paths:
                       last_span_ns: 1795026191000000000
                     config:
                       auth: 'off'
+                      ingest_auth: open
                       stuck_after_s: 300
                       lambda_timeout_s: 900
                       max_receive_counts:
@@ -772,9 +822,18 @@ paths:
 
         On a Postgres store, when the client abandons an export before the server has stored it,
         the server stores nothing and closes the connection without a response.
+
+        **Tokens.** Ingest needs a token when `TRAILBEAM_TOKEN` is set or the store holds at least
+        one ingest token, revoked or not. Otherwise it is open. The token is `TRAILBEAM_TOKEN` or a
+        live ingest token (`tbi_...`), sent as `x-trailbeam-key` or `Authorization: Bearer`. When both
+        headers are present, only `x-trailbeam-key` is read. Sessions and personal API tokens don't
+        work here, and ingest tokens don't work anywhere else. The server checks the headers before
+        it reads the body.
       security:
         - {}
         - accessToken: []
+        - ingestKey: []
+        - ingestToken: []
       requestBody:
         required: true
         description: An OTLP `ExportTraceServiceRequest`.
@@ -848,14 +907,14 @@ paths:
               schema: {type: string}
               example: "invalid JSON: Expecting value: line 1 column 1 (char 0)"
         '401':
-          description: The server has an access token and the request does not carry it, or carries a wrong one, in `Authorization`. The session cookie is not accepted here.
+          description: Ingest needs a token (see Tokens above) and the request carries none, or a wrong or revoked one, in `x-trailbeam-key` or `Authorization`. Cookies are not accepted here.
           headers:
             WWW-Authenticate:
               schema: {type: string, const: Bearer realm="trailbeam"}
           content:
             text/plain:
               schema: {type: string}
-              example: "this server needs Authorization: Bearer <TRAILBEAM_TOKEN>"
+              example: "this server needs an ingest token: x-trailbeam-key: <token> or Authorization: Bearer <token> (an ingest token, tbi_..., or TRAILBEAM_TOKEN)"
         '413':
           description: The body is larger than 32 MiB, before or after decompression, or its `Content-Length` is not a non-negative integer. A request with neither `Content-Length` nor `Transfer-Encoding` is read as an empty body.
           content:
@@ -896,8 +955,9 @@ paths:
             Nothing was stored. Send the export again after `Retry-After`; OTLP/HTTP exporters do. Either the
             writer is behind (the exports ahead of this one did not finish writing in
             `TRAILBEAM_INGEST_MAX_WAIT_S`, default 2 s; `Retry-After` is the estimated backlog, 1 to 3 s), or
-            the store is unreachable (`Retry-After: 1`), or the store's disk is full (`Retry-After: 3`), or a Postgres
-            statement of the export ran past `statement_timeout`, 60 s (`Retry-After: 3`). The body is a `google.rpc.Status` in the request's
+            the store is unreachable (`Retry-After: 1`; this includes when the server can't check the
+            ingest token), or the store's disk is full (`Retry-After: 3`), or a Postgres statement of the export
+            ran past `statement_timeout`, 60 s (`Retry-After: 3`). The body is a `google.rpc.Status` in the request's
             encoding.
           headers:
             Retry-After:
@@ -919,13 +979,33 @@ components:
       type: http
       scheme: bearer
       description: |
-        The server's access token, set with `TRAILBEAM_TOKEN` or `--token-file`. A server started
-        without one serves every request.
+        The server's shared access token, set with `TRAILBEAM_TOKEN` or `--token-file`. It can also be
+        sent as `x-trailbeam-key`. Until an admin exists, it works everywhere. After that, it works only
+        for ingest and `/metrics`.
     session:
       type: apiKey
       in: cookie
       name: trailbeam_session
-      description: The cookie the web UI's login page sets. The API accepts it. The ingest endpoint does not.
+      description: The cookie the login page sets for `TRAILBEAM_TOKEN`. The API accepts it until an admin exists, and never after. The ingest endpoint does not accept it.
+    personalToken:
+      type: http
+      scheme: bearer
+      description: A personal API token (`tbp_` and 40 letters and digits). It acts as its owner, with the owner's role. It works on the API and `/metrics` once an admin exists, never on ingest.
+    signInSession:
+      type: apiKey
+      in: cookie
+      name: trailbeam_sid
+      description: The cookie that signing in with an email and password sets. Over HTTPS it is named `__Host-trailbeam_sid`. It works on the API and the web screen once an admin exists, never on ingest.
+    ingestKey:
+      type: apiKey
+      in: header
+      name: x-trailbeam-key
+      description: An ingest token (`tbi_...`) or `TRAILBEAM_TOKEN`, the same header the hosted app takes. Ingest only.
+    ingestToken:
+      type: http
+      scheme: bearer
+      description: |
+        An ingest token (`tbi_` and 40 letters and digits) sent as `Authorization: Bearer`. Ingest only.
   parameters:
     message_id:
       name: message_id
@@ -950,6 +1030,15 @@ components:
       description: Only messages with a span on this queue. The value is the queue's name, not its URL.
       schema: {type: string}
       example: orders
+    version:
+      name: version
+      in: query
+      description: |
+        Only messages received by a consumer whose OpenTelemetry resource sets this `service.version`
+        (a consumer's `service_version`). Not with `body`: a body search does not filter by version, and
+        giving both is a `400`.
+      schema: {type: string}
+      example: 1.4.2
     lambda_timeout_s:
       name: lambda_timeout_s
       in: query
@@ -981,7 +1070,7 @@ components:
           schema: {$ref: '#/components/schemas/Error'}
           example: {"error": "limit must be between 1 and 1000"}
     Unauthorized:
-      description: The server has an access token and the request carries neither a valid token nor a valid session cookie.
+      description: The request carries no credential this endpoint accepts (see Access, at the top). Once an admin exists, that includes `TRAILBEAM_TOKEN`.
       headers:
         WWW-Authenticate:
           schema: {type: string, const: Bearer realm="trailbeam"}
@@ -1002,6 +1091,28 @@ components:
           schema: {$ref: '#/components/schemas/Error'}
           example: {"error": "no spans for message ID 'nope'"}
   schemas:
+    Me:
+      type: object
+      additionalProperties: false
+      required: [auth, via, user]
+      properties:
+        auth: {type: string, enum: [accounts, token, 'off'], description: As `config.auth` in `/api/health`.}
+        via:
+          type: string
+          enum: [none, shared_token, shared_cookie, session, personal_token]
+          description: What let the request in. `none` means the server needs no credential.
+        user:
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [id, email, name, role]
+              properties:
+                id: {type: integer}
+                email: {type: string}
+                name: {type: string}
+                role: {type: string, enum: [admin, member]}
+          description: The person, for a session or a personal API token. Otherwise null.
     Error:
       type: object
       additionalProperties: false
@@ -1076,10 +1187,16 @@ components:
           items:
             type: object
             additionalProperties: false
-            required: [service_name, client_id]
+            required: [service_name, client_id, service_version]
             properties:
               service_name: {type: [string, 'null'], description: The service's `service.name`.}
               client_id: {type: [string, 'null'], description: The ID the package gives one SQS client.}
+              service_version:
+                type: [string, 'null']
+                description: |
+                  The service's `service.version`, the build that received the message. Null when the
+                  resource does not set it, and on messages last summarized before this field existed. A
+                  service and client that received the message under two versions is listed once for each.
         first_seen:
           allOf: [{$ref: '#/components/schemas/Timestamp'}]
           description: When the message was first seen. The send span's end when the send was recorded, otherwise the earliest `SentTimestamp` a receive carries, otherwise the earliest span.
@@ -1297,6 +1414,7 @@ components:
       additionalProperties: false
       properties:
         service_name: {type: string, description: The service's `service.name`.}
+        service_version: {type: string, description: "The service's `service.version`: the build that made the call."}
         client_id: {type: string, description: The ID the package gives one SQS client.}
         source: {type: string, description: '`client` for an SQS client call, `lambda` for a Lambda event source mapping.'}
         pid: {type: integer}
@@ -1699,9 +1817,10 @@ components:
           type: object
           description: The configuration this server runs with.
           additionalProperties: false
-          required: [auth, stuck_after_s, lambda_timeout_s, max_receive_counts, store_bodies, retention]
+          required: [auth, ingest_auth, stuck_after_s, lambda_timeout_s, max_receive_counts, store_bodies, retention]
           properties:
-            auth: {type: string, description: '`token` when the server has an access token, otherwise `off`.', enum: [token, 'off']}
+            auth: {type: string, description: '`accounts` once an admin exists (`accounts` added in 0.4), else `token` when the server has `TRAILBEAM_TOKEN`, otherwise `off`.', enum: [accounts, token, 'off']}
+            ingest_auth: {type: string, description: '`token` when ingest needs a token (`TRAILBEAM_TOKEN` is set or an ingest token exists), otherwise `open`. Added in 0.4.', enum: [token, open]}
             stuck_after_s: {type: integer}
             lambda_timeout_s: {type: integer}
             max_receive_counts:
