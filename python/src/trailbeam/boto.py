@@ -12,6 +12,7 @@ Otherwise it instruments botocore with the Trailbeam tracer provider, so the sto
 """
 from __future__ import annotations
 
+import functools
 import logging
 import sys
 import threading
@@ -58,8 +59,12 @@ _SETTLE_OPS = {
 }
 
 
-def add_receive_attribute_names(params: dict) -> None:
-    """Ask for the system attributes Trailbeam needs, keeping everything the caller asked for."""
+def add_receive_attribute_names(params: dict, system_names_param: bool = True) -> None:
+    """Ask for the system attributes Trailbeam needs, keeping everything the caller asked for.
+
+    ``system_names_param`` is False when the installed botocore predates ``MessageSystemAttributeNames``
+    (added in 2024; botocore 1.34.0 rejects it as an unknown parameter): then the names go in
+    ``AttributeNames``, which SQS still accepts for them."""
     new = list(params.get("MessageSystemAttributeNames") or [])
     legacy = list(params.get("AttributeNames") or [])
     asked = set(new) | set(legacy)
@@ -69,10 +74,24 @@ def add_receive_attribute_names(params: dict) -> None:
     if not missing:
         return
     # A caller using only the deprecated AttributeNames keeps using it; otherwise use the current name.
-    if legacy and not new:
+    if (legacy and not new) or not system_names_param:
         params["AttributeNames"] = legacy + missing
     else:
         params["MessageSystemAttributeNames"] = new + missing
+
+@functools.lru_cache(maxsize=1)
+def botocore_has_system_names_param() -> bool:
+    """Whether this botocore's SQS model has ``ReceiveMessage.MessageSystemAttributeNames``."""
+    try:
+        from botocore.loaders import create_loader
+
+        model = create_loader().load_service_model("sqs", "service-2")
+        request = model["operations"]["ReceiveMessage"]["input"]["shape"]
+        return "MessageSystemAttributeNames" in model["shapes"][request]["members"]
+    except Exception:  # pragma: no cover - an unexpected model layout: assume a current botocore
+        log.debug("trailbeam: could not read botocore's SQS model", exc_info=True)
+        return True
+
 
 def add_message_attribute_name(params: dict, name: Optional[str]) -> None:
     """3.2: ask for one message attribute (the configured tenant attribute, or an Extended Client size
@@ -112,7 +131,7 @@ class SqsHooks:
             if operation not in _TRACKED_OPS:
                 return
             if operation == "ReceiveMessage":
-                add_receive_attribute_names(params)
+                add_receive_attribute_names(params, botocore_has_system_names_param())
                 add_message_attribute_name(params, self.capture.tenant_attribute)
                 for name in _capture.OFFLOADED_SIZE_ATTRIBUTES:
                     add_message_attribute_name(params, name)
@@ -295,6 +314,14 @@ _state: dict[str, Any] = {}
 _install_lock = threading.Lock()
 
 
+def _instrumentor() -> BotocoreInstrumentor:
+    """The BotocoreInstrumentor singleton, without calling its constructor again when it exists: in older
+    releases (0.49b0 to at least 0.60b0), ``BotocoreInstrumentor.__init__`` sets the hooks to None on every call, which would drop the
+    hooks the application gave ``instrument`` (QV-335, the oldest supported 0.49b0)."""
+    existing = getattr(BotocoreInstrumentor, "_instance", None)
+    return existing if isinstance(existing, BotocoreInstrumentor) else BotocoreInstrumentor()
+
+
 def _chain(first: Callable, second: Optional[Callable]) -> Callable:
     if second is None:
         return first
@@ -330,7 +357,7 @@ def install(
         config = _capture.resolve_config(tenant, capture)
         provider = make_provider(span_exporter, span_processor)
         hooks = SqsHooks(Emitter(provider, resolve_hasher(receipt_hash_key), source="client"), capture=config)
-        inst = BotocoreInstrumentor()  # a singleton
+        inst = _instrumentor()  # a singleton
         if inst.is_instrumented_by_opentelemetry:
             prev = (inst.request_hook, inst.response_hook)
             inst.request_hook = _chain(hooks.request_hook, prev[0])
@@ -346,7 +373,7 @@ def install(
 def _uninstall_locked() -> None:
     if not _state:
         return
-    inst = BotocoreInstrumentor()
+    inst = _instrumentor()
     if _state["instrumented_by_us"]:
         inst.uninstrument()
     else:

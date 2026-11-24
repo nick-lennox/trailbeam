@@ -143,7 +143,12 @@ def test_server_unreachable_from_the_start(sqs_endpoint):
     assert r.slowest_send < 1.0
     assert r.wall < EXIT_BUDGET_S, r.stderr
     assert "trailbeam: dropped 7 spans" in r.stderr  # 3 sends, 3 stock spans, 1 CreateQueue span
-    assert "TRAILBEAM_SHUTDOWN_TIMEOUT_MS" in r.stderr
+    # The OTLP exporter retries a refused connection until shutdown gives up (a shutdown drop), except
+    # 1.28 (the oldest supported), which fails the batch at once (an export_failed drop).
+    if "(7 shutdown)" in r.stderr:
+        assert "TRAILBEAM_SHUTDOWN_TIMEOUT_MS" in r.stderr
+    else:
+        assert "(7 export failed)" in r.stderr and "unreachable" in r.stderr
 
 
 def test_wrong_token(sqs_endpoint, otlp):

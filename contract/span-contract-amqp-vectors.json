@@ -1,0 +1,1972 @@
+{
+ "description": "Test vectors for contract/span-contract-amqp.md (schema version 4, RabbitMQ over AMQP 0-9-1). 'emit': each case is what the application called or the broker sent ('event', in a client-neutral form; 'recorded' lists the deliveries the package had recorded on the channel and not settled). A package must emit exactly the spans in 'spans', in that order: each named 'span_name', whose attributes include exactly 'attributes', carry every name in 'emit_present' (values depend on the process) and none in its 'absent'. Spans of one call share their interval and ticks. 'receive_count' and 'dead_letter' check sections A7 and A8 alone. 'ingest': whether a 4.0 Trailbeam accepts a span with these attributes, or the start of the reason it rejects it with (section A12).",
+ "context": {
+  "vhost": "/",
+  "server.address": "localhost",
+  "server.port": 5672
+ },
+ "emit_present": [
+  "messaging.client.id",
+  "process.pid",
+  "trailbeam.order.scope",
+  "trailbeam.order.returned"
+ ],
+ "emit_present_on_channel_spans": [
+  "trailbeam.amqp.channel.id"
+ ],
+ "emit": [
+  {
+   "name": "confirmed publish to the default exchange",
+   "event": {
+    "call": "basic.publish",
+    "exchange": "",
+    "routing_key": "orders",
+    "mandatory": false,
+    "confirm_mode": true,
+    "properties": {
+     "message_id": "m-1",
+     "delivery_mode": 2
+    },
+    "broker": {
+     "confirm": "ack"
+    }
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam publish",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.publish",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "send",
+      "messaging.operation.name": "basic.publish",
+      "messaging.destination.name": "amq.default",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "rabbitmq.destination.routing_key": "orders",
+      "messaging.message.id": "m-1",
+      "trailbeam.amqp.message_id.source": "application",
+      "trailbeam.amqp.mandatory": false,
+      "trailbeam.amqp.confirmed": true,
+      "trailbeam.result": "ok",
+      "trailbeam.amqp.delivery_mode": 2
+     },
+     "absent": [
+      "trailbeam.error_code",
+      "trailbeam.amqp.channel.id",
+      "trailbeam.start_observed",
+      "aws.sqs.queue.url"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "fanout publish with an empty routing key",
+   "event": {
+    "call": "basic.publish",
+    "exchange": "fan",
+    "routing_key": "",
+    "mandatory": false,
+    "confirm_mode": true,
+    "properties": {
+     "message_id": "m-fan"
+    },
+    "broker": {
+     "confirm": "ack"
+    }
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam publish",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.publish",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "send",
+      "messaging.operation.name": "basic.publish",
+      "messaging.destination.name": "fan",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "messaging.message.id": "m-fan",
+      "trailbeam.amqp.message_id.source": "application",
+      "trailbeam.amqp.mandatory": false,
+      "trailbeam.amqp.confirmed": true,
+      "trailbeam.result": "ok"
+     },
+     "absent": [
+      "rabbitmq.destination.routing_key",
+      "trailbeam.error_code"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "publish without confirms",
+   "event": {
+    "call": "basic.publish",
+    "exchange": "",
+    "routing_key": "orders",
+    "mandatory": false,
+    "confirm_mode": false,
+    "properties": {
+     "message_id": "m-2"
+    },
+    "client": "wrote"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam publish",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.publish",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "send",
+      "messaging.operation.name": "basic.publish",
+      "messaging.destination.name": "amq.default",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "rabbitmq.destination.routing_key": "orders",
+      "messaging.message.id": "m-2",
+      "trailbeam.amqp.message_id.source": "application",
+      "trailbeam.amqp.mandatory": false,
+      "trailbeam.amqp.confirmed": false,
+      "trailbeam.result": "ok"
+     },
+     "absent": [
+      "trailbeam.error_code"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "publish nacked by the broker",
+   "event": {
+    "call": "basic.publish",
+    "exchange": "",
+    "routing_key": "orders",
+    "mandatory": false,
+    "confirm_mode": true,
+    "properties": {
+     "message_id": "m-3"
+    },
+    "broker": {
+     "confirm": "nack"
+    }
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam publish",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.publish",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "send",
+      "messaging.operation.name": "basic.publish",
+      "messaging.destination.name": "amq.default",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "rabbitmq.destination.routing_key": "orders",
+      "messaging.message.id": "m-3",
+      "trailbeam.amqp.message_id.source": "application",
+      "trailbeam.amqp.mandatory": false,
+      "trailbeam.amqp.confirmed": true,
+      "trailbeam.result": "failed",
+      "trailbeam.error_code": "nack"
+     },
+     "absent": []
+    }
+   ]
+  },
+  {
+   "name": "publish to a missing exchange: channel closed before the confirm",
+   "event": {
+    "call": "basic.publish",
+    "exchange": "nope",
+    "routing_key": "k",
+    "mandatory": false,
+    "confirm_mode": true,
+    "properties": {
+     "message_id": "m-4"
+    },
+    "broker": {
+     "channel.close": {
+      "reply_code": 404,
+      "reply_text": "NOT_FOUND - no exchange 'nope' in vhost '/'"
+     }
+    }
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam publish",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.publish",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "send",
+      "messaging.operation.name": "basic.publish",
+      "messaging.destination.name": "nope",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "rabbitmq.destination.routing_key": "k",
+      "messaging.message.id": "m-4",
+      "trailbeam.amqp.message_id.source": "application",
+      "trailbeam.amqp.mandatory": false,
+      "trailbeam.amqp.confirmed": true,
+      "trailbeam.result": "failed",
+      "trailbeam.error_code": "NOT_FOUND"
+     },
+     "absent": []
+    }
+   ]
+  },
+  {
+   "name": "publish without message_id",
+   "event": {
+    "call": "basic.publish",
+    "exchange": "",
+    "routing_key": "orders",
+    "mandatory": false,
+    "confirm_mode": true,
+    "properties": {},
+    "broker": {
+     "confirm": "ack"
+    }
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam publish",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.publish",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "send",
+      "messaging.operation.name": "basic.publish",
+      "messaging.destination.name": "amq.default",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "rabbitmq.destination.routing_key": "orders",
+      "trailbeam.amqp.mandatory": false,
+      "trailbeam.amqp.confirmed": true,
+      "trailbeam.result": "ok"
+     },
+     "absent": [
+      "messaging.message.id",
+      "trailbeam.amqp.message_id.source"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "mandatory publish no queue takes: a return, then an ok publish",
+   "event": {
+    "call": "basic.publish",
+    "exchange": "",
+    "routing_key": "nobody",
+    "mandatory": true,
+    "confirm_mode": true,
+    "properties": {
+     "message_id": "m-5"
+    },
+    "broker": {
+     "basic.return": {
+      "reply_code": 312,
+      "reply_text": "NO_ROUTE"
+     },
+     "confirm": "ack"
+    }
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam return",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.return",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "send",
+      "messaging.operation.name": "basic.return",
+      "messaging.destination.name": "amq.default",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "trailbeam.start_observed": false,
+      "rabbitmq.destination.routing_key": "nobody",
+      "messaging.message.id": "m-5",
+      "trailbeam.amqp.message_id.source": "application",
+      "trailbeam.amqp.reply_code": 312,
+      "trailbeam.amqp.reply_text": "NO_ROUTE"
+     },
+     "absent": [
+      "trailbeam.order.issued",
+      "trailbeam.amqp.channel.id"
+     ]
+    },
+    {
+     "span_name": "trailbeam publish",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.publish",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "send",
+      "messaging.operation.name": "basic.publish",
+      "messaging.destination.name": "amq.default",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "rabbitmq.destination.routing_key": "nobody",
+      "messaging.message.id": "m-5",
+      "trailbeam.amqp.message_id.source": "application",
+      "trailbeam.amqp.mandatory": true,
+      "trailbeam.amqp.confirmed": true,
+      "trailbeam.result": "ok"
+     },
+     "absent": [
+      "trailbeam.error_code"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "first push delivery from a quorum queue",
+   "event": {
+    "queue": "orders",
+    "consumer_tag": "ctag-1",
+    "delivery_tag": 1,
+    "redelivered": false,
+    "exchange": "",
+    "routing_key": "orders",
+    "properties": {
+     "message_id": "m-1"
+    },
+    "headers": {},
+    "method": "basic.deliver"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam deliver",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.deliver",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "receive",
+      "messaging.operation.name": "basic.deliver",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "trailbeam.start_observed": false,
+      "rabbitmq.message.delivery_tag": 1,
+      "trailbeam.amqp.exchange": "amq.default",
+      "trailbeam.amqp.redelivered": false,
+      "trailbeam.amqp.consumer_tag": "ctag-1",
+      "rabbitmq.destination.routing_key": "orders",
+      "messaging.message.id": "m-1",
+      "trailbeam.receive_count": 1,
+      "trailbeam.receive_count.source": "first_delivery"
+     },
+     "absent": [
+      "trailbeam.amqp.acquired_count",
+      "trailbeam.amqp.delivery_count",
+      "trailbeam.dead_letter.source_queue",
+      "trailbeam.order.issued"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "redelivery after a nack and a reject (quorum, RabbitMQ 4.3+)",
+   "event": {
+    "queue": "orders",
+    "consumer_tag": "ctag-1",
+    "delivery_tag": 3,
+    "redelivered": true,
+    "exchange": "",
+    "routing_key": "orders",
+    "properties": {
+     "message_id": "m-1"
+    },
+    "headers": {
+     "x-acquired-count": 2,
+     "x-delivery-count": 1
+    },
+    "method": "basic.deliver"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam deliver",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.deliver",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "receive",
+      "messaging.operation.name": "basic.deliver",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "trailbeam.start_observed": false,
+      "rabbitmq.message.delivery_tag": 3,
+      "trailbeam.amqp.exchange": "amq.default",
+      "trailbeam.amqp.redelivered": true,
+      "trailbeam.amqp.consumer_tag": "ctag-1",
+      "rabbitmq.destination.routing_key": "orders",
+      "messaging.message.id": "m-1",
+      "trailbeam.receive_count": 3,
+      "trailbeam.receive_count.source": "x-acquired-count",
+      "trailbeam.amqp.acquired_count": 2,
+      "trailbeam.amqp.delivery_count": 1
+     },
+     "absent": [
+      "trailbeam.order.issued"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "redelivery from a classic queue: no count",
+   "event": {
+    "queue": "classic",
+    "consumer_tag": "ctag-2",
+    "delivery_tag": 2,
+    "redelivered": true,
+    "exchange": "",
+    "routing_key": "classic",
+    "properties": {
+     "message_id": "m-6"
+    },
+    "headers": {},
+    "method": "basic.deliver"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam deliver",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.deliver",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "receive",
+      "messaging.operation.name": "basic.deliver",
+      "messaging.destination.name": "classic",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "trailbeam.start_observed": false,
+      "rabbitmq.message.delivery_tag": 2,
+      "trailbeam.amqp.exchange": "amq.default",
+      "trailbeam.amqp.redelivered": true,
+      "trailbeam.amqp.consumer_tag": "ctag-2",
+      "rabbitmq.destination.routing_key": "classic",
+      "messaging.message.id": "m-6"
+     },
+     "absent": [
+      "trailbeam.receive_count",
+      "trailbeam.receive_count.source",
+      "trailbeam.order.issued"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "first delivery on a dead-letter queue, from x-death",
+   "event": {
+    "queue": "orders.dlq",
+    "consumer_tag": "ctag-3",
+    "delivery_tag": 1,
+    "redelivered": false,
+    "exchange": "dlx",
+    "routing_key": "orders",
+    "properties": {
+     "message_id": "m-7"
+    },
+    "headers": {
+     "x-acquired-count": 3,
+     "x-delivery-count": 3,
+     "x-death": [
+      {
+       "queue": "orders",
+       "reason": "delivery_limit",
+       "count": 1,
+       "time": 1763980000,
+       "exchange": "",
+       "routing-keys": [
+        "orders"
+       ]
+      }
+     ],
+     "x-first-death-queue": "orders",
+     "x-first-death-reason": "delivery_limit",
+     "x-first-death-exchange": ""
+    },
+    "method": "basic.deliver"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam deliver",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.deliver",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "receive",
+      "messaging.operation.name": "basic.deliver",
+      "messaging.destination.name": "orders.dlq",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "trailbeam.start_observed": false,
+      "rabbitmq.message.delivery_tag": 1,
+      "trailbeam.amqp.exchange": "dlx",
+      "trailbeam.amqp.redelivered": false,
+      "trailbeam.amqp.consumer_tag": "ctag-3",
+      "rabbitmq.destination.routing_key": "orders",
+      "messaging.message.id": "m-7",
+      "trailbeam.receive_count": 4,
+      "trailbeam.receive_count.source": "x-acquired-count",
+      "trailbeam.amqp.acquired_count": 3,
+      "trailbeam.amqp.delivery_count": 3,
+      "trailbeam.dead_letter.source_queue": "orders",
+      "trailbeam.dead_letter.reason": "delivery_limit",
+      "trailbeam.dead_letter.count": 1,
+      "trailbeam.dead_letter.time_ms": 1763980000000,
+      "trailbeam.dead_letter.exchange": "amq.default",
+      "trailbeam.dead_letter.first_queue": "orders",
+      "trailbeam.dead_letter.first_reason": "delivery_limit"
+     },
+     "absent": [
+      "trailbeam.order.issued"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "delivery without message_id",
+   "event": {
+    "queue": "orders",
+    "consumer_tag": "ctag-1",
+    "delivery_tag": 9,
+    "redelivered": false,
+    "exchange": "",
+    "routing_key": "orders",
+    "properties": {},
+    "headers": {},
+    "method": "basic.deliver"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam deliver",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.deliver",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "receive",
+      "messaging.operation.name": "basic.deliver",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "trailbeam.start_observed": false,
+      "rabbitmq.message.delivery_tag": 9,
+      "trailbeam.amqp.exchange": "amq.default",
+      "trailbeam.amqp.redelivered": false,
+      "trailbeam.amqp.consumer_tag": "ctag-1",
+      "rabbitmq.destination.routing_key": "orders",
+      "trailbeam.receive_count": 1,
+      "trailbeam.receive_count.source": "first_delivery"
+     },
+     "absent": [
+      "messaging.message.id",
+      "trailbeam.order.issued"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "pull delivery with basic.get",
+   "event": {
+    "queue": "orders",
+    "delivery_tag": 4,
+    "redelivered": false,
+    "exchange": "",
+    "routing_key": "orders",
+    "properties": {
+     "message_id": "m-8",
+     "timestamp": 1763980001
+    },
+    "headers": {},
+    "method": "basic.get"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam deliver",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.deliver",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "receive",
+      "messaging.operation.name": "basic.get",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "rabbitmq.message.delivery_tag": 4,
+      "trailbeam.amqp.exchange": "amq.default",
+      "trailbeam.amqp.redelivered": false,
+      "rabbitmq.destination.routing_key": "orders",
+      "messaging.message.id": "m-8",
+      "trailbeam.receive_count": 1,
+      "trailbeam.receive_count.source": "first_delivery",
+      "trailbeam.amqp.timestamp_ms": 1763980001000
+     },
+     "absent": [
+      "trailbeam.start_observed",
+      "trailbeam.amqp.consumer_tag"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "basic.get-empty: no span",
+   "event": {
+    "method": "basic.get",
+    "queue": "orders",
+    "empty": true
+   },
+   "spans": []
+  },
+  {
+   "name": "ack with multiple covers every recorded delivery up to the tag",
+   "event": {
+    "call": "basic.ack",
+    "delivery_tag": 3,
+    "multiple": true,
+    "recorded": [
+     {
+      "delivery_tag": 1,
+      "queue": "orders",
+      "consumer_tag": "ctag-1",
+      "message_id": "m-a"
+     },
+     {
+      "delivery_tag": 2,
+      "queue": "orders",
+      "consumer_tag": "ctag-1",
+      "message_id": "m-b"
+     },
+     {
+      "delivery_tag": 3,
+      "queue": "orders",
+      "consumer_tag": "ctag-1"
+     }
+    ],
+    "client": "wrote"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam ack",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.ack",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "settle",
+      "messaging.operation.name": "basic.ack",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "rabbitmq.message.delivery_tag": 1,
+      "trailbeam.amqp.consumer_tag": "ctag-1",
+      "messaging.message.id": "m-a",
+      "trailbeam.amqp.multiple": true,
+      "trailbeam.result": "ok"
+     },
+     "absent": [
+      "trailbeam.start_observed",
+      "trailbeam.amqp.requeue"
+     ]
+    },
+    {
+     "span_name": "trailbeam ack",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.ack",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "settle",
+      "messaging.operation.name": "basic.ack",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "rabbitmq.message.delivery_tag": 2,
+      "trailbeam.amqp.consumer_tag": "ctag-1",
+      "messaging.message.id": "m-b",
+      "trailbeam.amqp.multiple": true,
+      "trailbeam.result": "ok"
+     },
+     "absent": [
+      "trailbeam.start_observed",
+      "trailbeam.amqp.requeue"
+     ]
+    },
+    {
+     "span_name": "trailbeam ack",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.ack",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "settle",
+      "messaging.operation.name": "basic.ack",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "rabbitmq.message.delivery_tag": 3,
+      "trailbeam.amqp.consumer_tag": "ctag-1",
+      "trailbeam.amqp.multiple": true,
+      "trailbeam.result": "ok"
+     },
+     "absent": [
+      "trailbeam.start_observed",
+      "trailbeam.amqp.requeue",
+      "messaging.message.id"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "nack with requeue",
+   "event": {
+    "call": "basic.nack",
+    "delivery_tag": 2,
+    "multiple": false,
+    "requeue": true,
+    "recorded": [
+     {
+      "delivery_tag": 1,
+      "queue": "orders",
+      "consumer_tag": "ctag-1",
+      "message_id": "m-a"
+     },
+     {
+      "delivery_tag": 2,
+      "queue": "orders",
+      "consumer_tag": "ctag-1",
+      "message_id": "m-b"
+     },
+     {
+      "delivery_tag": 3,
+      "queue": "orders",
+      "consumer_tag": "ctag-1"
+     }
+    ],
+    "client": "wrote"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam nack",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.nack",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "settle",
+      "messaging.operation.name": "basic.nack",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "rabbitmq.message.delivery_tag": 2,
+      "trailbeam.amqp.consumer_tag": "ctag-1",
+      "messaging.message.id": "m-b",
+      "trailbeam.amqp.multiple": false,
+      "trailbeam.amqp.requeue": true,
+      "trailbeam.result": "ok"
+     },
+     "absent": []
+    }
+   ]
+  },
+  {
+   "name": "reject without requeue",
+   "event": {
+    "call": "basic.reject",
+    "delivery_tag": 1,
+    "requeue": false,
+    "recorded": [
+     {
+      "delivery_tag": 1,
+      "queue": "orders",
+      "consumer_tag": "ctag-1",
+      "message_id": "m-a"
+     },
+     {
+      "delivery_tag": 2,
+      "queue": "orders",
+      "consumer_tag": "ctag-1",
+      "message_id": "m-b"
+     },
+     {
+      "delivery_tag": 3,
+      "queue": "orders",
+      "consumer_tag": "ctag-1"
+     }
+    ],
+    "client": "wrote"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam reject",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.reject",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "settle",
+      "messaging.operation.name": "basic.reject",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "rabbitmq.message.delivery_tag": 1,
+      "trailbeam.amqp.consumer_tag": "ctag-1",
+      "messaging.message.id": "m-a",
+      "trailbeam.amqp.requeue": false,
+      "trailbeam.result": "ok"
+     },
+     "absent": [
+      "trailbeam.amqp.multiple"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "ack on a closed channel: the library raised",
+   "event": {
+    "call": "basic.ack",
+    "delivery_tag": 1,
+    "multiple": false,
+    "recorded": [
+     {
+      "delivery_tag": 1,
+      "queue": "orders",
+      "consumer_tag": "ctag-1",
+      "message_id": "m-a"
+     },
+     {
+      "delivery_tag": 2,
+      "queue": "orders",
+      "consumer_tag": "ctag-1",
+      "message_id": "m-b"
+     },
+     {
+      "delivery_tag": 3,
+      "queue": "orders",
+      "consumer_tag": "ctag-1"
+     }
+    ],
+    "client": {
+     "raised": "ChannelWrongStateError"
+    }
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam ack",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.ack",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "settle",
+      "messaging.operation.name": "basic.ack",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "rabbitmq.message.delivery_tag": 1,
+      "trailbeam.amqp.consumer_tag": "ctag-1",
+      "messaging.message.id": "m-a",
+      "trailbeam.amqp.multiple": false,
+      "trailbeam.result": "failed",
+      "trailbeam.error_code": "ChannelWrongStateError"
+     },
+     "absent": []
+    }
+   ]
+  },
+  {
+   "name": "ack of a tag the package never recorded: no span",
+   "event": {
+    "call": "basic.ack",
+    "delivery_tag": 42,
+    "multiple": false,
+    "recorded": [
+     {
+      "delivery_tag": 1,
+      "queue": "orders",
+      "consumer_tag": "ctag-1",
+      "message_id": "m-a"
+     },
+     {
+      "delivery_tag": 2,
+      "queue": "orders",
+      "consumer_tag": "ctag-1",
+      "message_id": "m-b"
+     },
+     {
+      "delivery_tag": 3,
+      "queue": "orders",
+      "consumer_tag": "ctag-1"
+     }
+    ],
+    "client": "wrote"
+   },
+   "spans": []
+  },
+  {
+   "name": "broker closes the channel on a consumer timeout: one span per unsettled delivery",
+   "event": {
+    "broker": {
+     "channel.close": {
+      "reply_code": 406,
+      "reply_text": "PRECONDITION_FAILED - delivery acknowledgement on channel 1 timed out. This timeout value can be configured, see consumers doc guide to learn more"
+     }
+    },
+    "recorded": [
+     {
+      "delivery_tag": 1,
+      "queue": "orders",
+      "consumer_tag": "ctag-1",
+      "message_id": "m-a"
+     },
+     {
+      "delivery_tag": 2,
+      "queue": "orders",
+      "consumer_tag": "ctag-1",
+      "message_id": "m-b"
+     }
+    ]
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam channel_closed",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.channel_closed",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "settle",
+      "messaging.operation.name": "channel.close",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "trailbeam.start_observed": false,
+      "rabbitmq.message.delivery_tag": 1,
+      "trailbeam.amqp.consumer_tag": "ctag-1",
+      "messaging.message.id": "m-a",
+      "trailbeam.amqp.close.initiator": "broker",
+      "trailbeam.amqp.close.reply_code": 406,
+      "trailbeam.amqp.close.reply_text": "PRECONDITION_FAILED - delivery acknowledgement on channel 1 timed out. This timeout value can be configured, see consumers doc guide to learn more"
+     },
+     "absent": [
+      "trailbeam.order.issued"
+     ]
+    },
+    {
+     "span_name": "trailbeam channel_closed",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.channel_closed",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "settle",
+      "messaging.operation.name": "channel.close",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "trailbeam.start_observed": false,
+      "rabbitmq.message.delivery_tag": 2,
+      "trailbeam.amqp.consumer_tag": "ctag-1",
+      "messaging.message.id": "m-b",
+      "trailbeam.amqp.close.initiator": "broker",
+      "trailbeam.amqp.close.reply_code": 406,
+      "trailbeam.amqp.close.reply_text": "PRECONDITION_FAILED - delivery acknowledgement on channel 1 timed out. This timeout value can be configured, see consumers doc guide to learn more"
+     },
+     "absent": [
+      "trailbeam.order.issued"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "connection lost",
+   "event": {
+    "network": "connection reset",
+    "recorded": [
+     {
+      "delivery_tag": 1,
+      "queue": "orders",
+      "consumer_tag": "ctag-1",
+      "message_id": "m-a"
+     }
+    ]
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam channel_closed",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.channel_closed",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "settle",
+      "messaging.operation.name": "connection.lost",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "trailbeam.start_observed": false,
+      "rabbitmq.message.delivery_tag": 1,
+      "trailbeam.amqp.consumer_tag": "ctag-1",
+      "messaging.message.id": "m-a",
+      "trailbeam.amqp.close.initiator": "network"
+     },
+     "absent": [
+      "trailbeam.amqp.close.reply_code",
+      "trailbeam.amqp.close.reply_text",
+      "trailbeam.order.issued"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "client closes the connection with a delivery open",
+   "event": {
+    "call": "connection.close",
+    "recorded": [
+     {
+      "delivery_tag": 3,
+      "queue": "orders",
+      "consumer_tag": "ctag-1"
+     }
+    ]
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam channel_closed",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.channel_closed",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "settle",
+      "messaging.operation.name": "connection.close",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "trailbeam.start_observed": false,
+      "rabbitmq.message.delivery_tag": 3,
+      "trailbeam.amqp.consumer_tag": "ctag-1",
+      "trailbeam.amqp.close.initiator": "client"
+     },
+     "absent": [
+      "messaging.message.id",
+      "trailbeam.order.issued"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "no deliveries open when the channel closes: no span",
+   "event": {
+    "call": "channel.close",
+    "recorded": []
+   },
+   "spans": []
+  },
+  {
+   "name": "broker cancels a consumer",
+   "event": {
+    "broker": {
+     "basic.cancel": {
+      "consumer_tag": "ctag-1"
+     }
+    },
+    "consumer": {
+     "consumer_tag": "ctag-1",
+     "queue": "orders"
+    },
+    "recorded": [
+     {
+      "delivery_tag": 1,
+      "queue": "orders",
+      "consumer_tag": "ctag-1",
+      "message_id": "m-a"
+     },
+     {
+      "delivery_tag": 2,
+      "queue": "orders",
+      "consumer_tag": "ctag-1",
+      "message_id": "m-b"
+     }
+    ]
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam cancel",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.cancel",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "cancel",
+      "messaging.operation.name": "basic.cancel",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "trailbeam.start_observed": false,
+      "trailbeam.amqp.consumer_tag": "ctag-1",
+      "trailbeam.amqp.cancelled_by": "broker",
+      "trailbeam.amqp.unsettled_count": 2
+     },
+     "absent": [
+      "trailbeam.order.issued",
+      "trailbeam.result",
+      "messaging.message.id"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "client cancels a consumer",
+   "event": {
+    "call": "basic.cancel",
+    "consumer": {
+     "consumer_tag": "ctag-1",
+     "queue": "orders"
+    },
+    "recorded": [],
+    "broker": {
+     "basic.cancel-ok": true
+    }
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam cancel",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.cancel",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "cancel",
+      "messaging.operation.name": "basic.cancel",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "trailbeam.amqp.consumer_tag": "ctag-1",
+      "trailbeam.amqp.cancelled_by": "client",
+      "trailbeam.amqp.unsettled_count": 0,
+      "trailbeam.result": "ok"
+     },
+     "absent": [
+      "trailbeam.start_observed"
+     ]
+    }
+   ]
+  }
+ ],
+ "receive_count": [
+  {
+   "name": "first delivery, no headers",
+   "redelivered": false,
+   "headers": {},
+   "receive_count": 1,
+   "source": "first_delivery"
+  },
+  {
+   "name": "x-acquired-count wins over x-delivery-count",
+   "redelivered": true,
+   "headers": {
+    "x-acquired-count": 4,
+    "x-delivery-count": 1
+   },
+   "receive_count": 5,
+   "source": "x-acquired-count"
+  },
+  {
+   "name": "x-delivery-count only (before 4.3)",
+   "redelivered": true,
+   "headers": {
+    "x-delivery-count": 2
+   },
+   "receive_count": 3,
+   "source": "x-delivery-count"
+  },
+  {
+   "name": "headers as decimal strings are not counts",
+   "redelivered": true,
+   "headers": {
+    "x-acquired-count": "2"
+   },
+   "receive_count": null,
+   "source": null
+  },
+  {
+   "name": "classic redelivery",
+   "redelivered": true,
+   "headers": {},
+   "receive_count": null,
+   "source": null
+  },
+  {
+   "name": "carried over to a dead-letter queue",
+   "redelivered": false,
+   "headers": {
+    "x-acquired-count": 3,
+    "x-delivery-count": 3
+   },
+   "receive_count": 4,
+   "source": "x-acquired-count"
+  }
+ ],
+ "dead_letter": [
+  {
+   "name": "rejected",
+   "x-death": [
+    {
+     "queue": "orders",
+     "reason": "rejected",
+     "count": 1,
+     "time": 1763980000,
+     "exchange": "orders-x",
+     "routing-keys": [
+      "orders"
+     ]
+    }
+   ],
+   "attributes": {
+    "trailbeam.dead_letter.source_queue": "orders",
+    "trailbeam.dead_letter.reason": "rejected",
+    "trailbeam.dead_letter.count": 1,
+    "trailbeam.dead_letter.time_ms": 1763980000000,
+    "trailbeam.dead_letter.exchange": "orders-x"
+   }
+  },
+  {
+   "name": "newest entry first: two queues",
+   "x-death": [
+    {
+     "queue": "retry",
+     "reason": "expired",
+     "count": 2,
+     "time": 1763980100,
+     "exchange": "",
+     "routing-keys": [
+      "retry"
+     ]
+    },
+    {
+     "queue": "orders",
+     "reason": "rejected",
+     "count": 2,
+     "time": 1763980000,
+     "exchange": "",
+     "routing-keys": [
+      "orders"
+     ]
+    }
+   ],
+   "attributes": {
+    "trailbeam.dead_letter.source_queue": "retry",
+    "trailbeam.dead_letter.reason": "expired",
+    "trailbeam.dead_letter.count": 2,
+    "trailbeam.dead_letter.time_ms": 1763980100000,
+    "trailbeam.dead_letter.exchange": "amq.default"
+   }
+  },
+  {
+   "name": "no time in the entry",
+   "x-death": [
+    {
+     "queue": "orders",
+     "reason": "maxlen",
+     "count": 1
+    }
+   ],
+   "attributes": {
+    "trailbeam.dead_letter.source_queue": "orders",
+    "trailbeam.dead_letter.reason": "maxlen",
+    "trailbeam.dead_letter.count": 1
+   }
+  },
+  {
+   "name": "not an array: not copied",
+   "x-death": {
+    "queue": "orders"
+   },
+   "attributes": {}
+  },
+  {
+   "name": "first entry without a reason: not copied",
+   "x-death": [
+    {
+     "queue": "orders",
+     "count": 1
+    }
+   ],
+   "attributes": {}
+  },
+  {
+   "name": "empty array: not copied",
+   "x-death": [],
+   "attributes": {}
+  }
+ ],
+ "ingest": [
+  {
+   "name": "amqp.publish from the emit vectors",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.publish",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "send",
+    "messaging.operation.name": "basic.publish",
+    "messaging.destination.name": "amq.default",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "rabbitmq.destination.routing_key": "orders",
+    "messaging.message.id": "m-1",
+    "trailbeam.amqp.message_id.source": "application",
+    "trailbeam.amqp.mandatory": false,
+    "trailbeam.amqp.confirmed": true,
+    "trailbeam.result": "ok",
+    "trailbeam.amqp.delivery_mode": 2,
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12
+   },
+   "accept": true
+  },
+  {
+   "name": "amqp.return from the emit vectors",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.return",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "send",
+    "messaging.operation.name": "basic.return",
+    "messaging.destination.name": "amq.default",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "trailbeam.start_observed": false,
+    "rabbitmq.destination.routing_key": "nobody",
+    "messaging.message.id": "m-5",
+    "trailbeam.amqp.message_id.source": "application",
+    "trailbeam.amqp.reply_code": 312,
+    "trailbeam.amqp.reply_text": "NO_ROUTE",
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12
+   },
+   "accept": true
+  },
+  {
+   "name": "amqp.deliver from the emit vectors",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.deliver",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "receive",
+    "messaging.operation.name": "basic.deliver",
+    "messaging.destination.name": "orders",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "trailbeam.start_observed": false,
+    "rabbitmq.message.delivery_tag": 1,
+    "trailbeam.amqp.exchange": "amq.default",
+    "trailbeam.amqp.redelivered": false,
+    "trailbeam.amqp.consumer_tag": "ctag-1",
+    "rabbitmq.destination.routing_key": "orders",
+    "messaging.message.id": "m-1",
+    "trailbeam.receive_count": 1,
+    "trailbeam.receive_count.source": "first_delivery",
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12,
+    "trailbeam.amqp.channel.id": "3f1b0c9e-58a2-4c1e-9f33-6a0d7e2b4c55"
+   },
+   "accept": true
+  },
+  {
+   "name": "amqp.ack from the emit vectors",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.ack",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "settle",
+    "messaging.operation.name": "basic.ack",
+    "messaging.destination.name": "orders",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "rabbitmq.message.delivery_tag": 1,
+    "trailbeam.amqp.consumer_tag": "ctag-1",
+    "messaging.message.id": "m-a",
+    "trailbeam.amqp.multiple": true,
+    "trailbeam.result": "ok",
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12,
+    "trailbeam.amqp.channel.id": "3f1b0c9e-58a2-4c1e-9f33-6a0d7e2b4c55"
+   },
+   "accept": true
+  },
+  {
+   "name": "amqp.nack from the emit vectors",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.nack",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "settle",
+    "messaging.operation.name": "basic.nack",
+    "messaging.destination.name": "orders",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "rabbitmq.message.delivery_tag": 2,
+    "trailbeam.amqp.consumer_tag": "ctag-1",
+    "messaging.message.id": "m-b",
+    "trailbeam.amqp.multiple": false,
+    "trailbeam.amqp.requeue": true,
+    "trailbeam.result": "ok",
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12,
+    "trailbeam.amqp.channel.id": "3f1b0c9e-58a2-4c1e-9f33-6a0d7e2b4c55"
+   },
+   "accept": true
+  },
+  {
+   "name": "amqp.reject from the emit vectors",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.reject",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "settle",
+    "messaging.operation.name": "basic.reject",
+    "messaging.destination.name": "orders",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "rabbitmq.message.delivery_tag": 1,
+    "trailbeam.amqp.consumer_tag": "ctag-1",
+    "messaging.message.id": "m-a",
+    "trailbeam.amqp.requeue": false,
+    "trailbeam.result": "ok",
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12,
+    "trailbeam.amqp.channel.id": "3f1b0c9e-58a2-4c1e-9f33-6a0d7e2b4c55"
+   },
+   "accept": true
+  },
+  {
+   "name": "amqp.cancel from the emit vectors",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.cancel",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "cancel",
+    "messaging.operation.name": "basic.cancel",
+    "messaging.destination.name": "orders",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "trailbeam.start_observed": false,
+    "trailbeam.amqp.consumer_tag": "ctag-1",
+    "trailbeam.amqp.cancelled_by": "broker",
+    "trailbeam.amqp.unsettled_count": 2,
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12,
+    "trailbeam.amqp.channel.id": "3f1b0c9e-58a2-4c1e-9f33-6a0d7e2b4c55"
+   },
+   "accept": true
+  },
+  {
+   "name": "amqp.channel_closed from the emit vectors",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.channel_closed",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "settle",
+    "messaging.operation.name": "channel.close",
+    "messaging.destination.name": "orders",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "trailbeam.start_observed": false,
+    "rabbitmq.message.delivery_tag": 1,
+    "trailbeam.amqp.consumer_tag": "ctag-1",
+    "messaging.message.id": "m-a",
+    "trailbeam.amqp.close.initiator": "broker",
+    "trailbeam.amqp.close.reply_code": 406,
+    "trailbeam.amqp.close.reply_text": "PRECONDITION_FAILED - delivery acknowledgement on channel 1 timed out. This timeout value can be configured, see consumers doc guide to learn more",
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12,
+    "trailbeam.amqp.channel.id": "3f1b0c9e-58a2-4c1e-9f33-6a0d7e2b4c55"
+   },
+   "accept": true
+  },
+  {
+   "name": "deliver without message id or receive count is accepted",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.deliver",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "receive",
+    "messaging.operation.name": "basic.deliver",
+    "messaging.destination.name": "orders",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "trailbeam.start_observed": false,
+    "rabbitmq.message.delivery_tag": 1,
+    "trailbeam.amqp.exchange": "amq.default",
+    "trailbeam.amqp.redelivered": false,
+    "trailbeam.amqp.consumer_tag": "ctag-1",
+    "rabbitmq.destination.routing_key": "orders",
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12,
+    "trailbeam.amqp.channel.id": "3f1b0c9e-58a2-4c1e-9f33-6a0d7e2b4c55"
+   },
+   "accept": true
+  },
+  {
+   "name": "delivery tag as a decimal string is read as an int",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.ack",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "settle",
+    "messaging.operation.name": "basic.ack",
+    "messaging.destination.name": "orders",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "rabbitmq.message.delivery_tag": "7",
+    "trailbeam.amqp.consumer_tag": "ctag-1",
+    "messaging.message.id": "m-a",
+    "trailbeam.amqp.multiple": true,
+    "trailbeam.result": "ok",
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12,
+    "trailbeam.amqp.channel.id": "3f1b0c9e-58a2-4c1e-9f33-6a0d7e2b4c55"
+   },
+   "accept": true
+  },
+  {
+   "name": "schema version 3 on an amqp span",
+   "attributes": {
+    "trailbeam.schema_version": 3,
+    "trailbeam.kind": "amqp.deliver",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "receive",
+    "messaging.operation.name": "basic.deliver",
+    "messaging.destination.name": "orders",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "trailbeam.start_observed": false,
+    "rabbitmq.message.delivery_tag": 1,
+    "trailbeam.amqp.exchange": "amq.default",
+    "trailbeam.amqp.redelivered": false,
+    "trailbeam.amqp.consumer_tag": "ctag-1",
+    "rabbitmq.destination.routing_key": "orders",
+    "messaging.message.id": "m-1",
+    "trailbeam.receive_count": 1,
+    "trailbeam.receive_count.source": "first_delivery",
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12,
+    "trailbeam.amqp.channel.id": "3f1b0c9e-58a2-4c1e-9f33-6a0d7e2b4c55"
+   },
+   "accept": false,
+   "reason_starts_with": "amqp span with trailbeam.schema_version 3; needs 4"
+  },
+  {
+   "name": "wrong system",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.ack",
+    "trailbeam.source": "client",
+    "messaging.system.name": "aws.sqs",
+    "messaging.operation.type": "settle",
+    "messaging.operation.name": "basic.ack",
+    "messaging.destination.name": "orders",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "rabbitmq.message.delivery_tag": 1,
+    "trailbeam.amqp.consumer_tag": "ctag-1",
+    "messaging.message.id": "m-a",
+    "trailbeam.amqp.multiple": true,
+    "trailbeam.result": "ok",
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12,
+    "trailbeam.amqp.channel.id": "3f1b0c9e-58a2-4c1e-9f33-6a0d7e2b4c55"
+   },
+   "accept": false,
+   "reason_starts_with": "amqp span with messaging.system.name 'aws.sqs'; needs 'rabbitmq'"
+  },
+  {
+   "name": "operation does not match the kind",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.ack",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "settle",
+    "messaging.operation.name": "basic.nack",
+    "messaging.destination.name": "orders",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "rabbitmq.message.delivery_tag": 1,
+    "trailbeam.amqp.consumer_tag": "ctag-1",
+    "messaging.message.id": "m-a",
+    "trailbeam.amqp.multiple": true,
+    "trailbeam.result": "ok",
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12,
+    "trailbeam.amqp.channel.id": "3f1b0c9e-58a2-4c1e-9f33-6a0d7e2b4c55"
+   },
+   "accept": false,
+   "reason_starts_with": "unknown trailbeam.kind 'amqp.ack' / messaging.operation.name 'basic.nack'"
+  },
+  {
+   "name": "unknown amqp kind",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.recover",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "settle",
+    "messaging.operation.name": "basic.ack",
+    "messaging.destination.name": "orders",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "rabbitmq.message.delivery_tag": 1,
+    "trailbeam.amqp.consumer_tag": "ctag-1",
+    "messaging.message.id": "m-a",
+    "trailbeam.amqp.multiple": true,
+    "trailbeam.result": "ok",
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12,
+    "trailbeam.amqp.channel.id": "3f1b0c9e-58a2-4c1e-9f33-6a0d7e2b4c55"
+   },
+   "accept": false,
+   "reason_starts_with": "unknown trailbeam.kind 'amqp.recover' / messaging.operation.name 'basic.ack'"
+  },
+  {
+   "name": "nack without requeue",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.nack",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "settle",
+    "messaging.operation.name": "basic.nack",
+    "messaging.destination.name": "orders",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "rabbitmq.message.delivery_tag": 2,
+    "trailbeam.amqp.consumer_tag": "ctag-1",
+    "messaging.message.id": "m-b",
+    "trailbeam.amqp.multiple": false,
+    "trailbeam.result": "ok",
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12,
+    "trailbeam.amqp.channel.id": "3f1b0c9e-58a2-4c1e-9f33-6a0d7e2b4c55"
+   },
+   "accept": false,
+   "reason_starts_with": "amqp.nack span without trailbeam.amqp.requeue"
+  },
+  {
+   "name": "requeue as a string is the wrong type",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.reject",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "settle",
+    "messaging.operation.name": "basic.reject",
+    "messaging.destination.name": "orders",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "rabbitmq.message.delivery_tag": 1,
+    "trailbeam.amqp.consumer_tag": "ctag-1",
+    "messaging.message.id": "m-a",
+    "trailbeam.amqp.requeue": "false",
+    "trailbeam.result": "ok",
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12,
+    "trailbeam.amqp.channel.id": "3f1b0c9e-58a2-4c1e-9f33-6a0d7e2b4c55"
+   },
+   "accept": false,
+   "reason_starts_with": "amqp.reject span without trailbeam.amqp.requeue"
+  },
+  {
+   "name": "deliver without channel id and delivery tag",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.deliver",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "receive",
+    "messaging.operation.name": "basic.deliver",
+    "messaging.destination.name": "orders",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "trailbeam.start_observed": false,
+    "trailbeam.amqp.exchange": "amq.default",
+    "trailbeam.amqp.redelivered": false,
+    "trailbeam.amqp.consumer_tag": "ctag-1",
+    "rabbitmq.destination.routing_key": "orders",
+    "messaging.message.id": "m-1",
+    "trailbeam.receive_count": 1,
+    "trailbeam.receive_count.source": "first_delivery",
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12
+   },
+   "accept": false,
+   "reason_starts_with": "amqp.deliver span without trailbeam.amqp.channel.id, rabbitmq.message.delivery_tag"
+  },
+  {
+   "name": "publish without vhost",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.publish",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "send",
+    "messaging.operation.name": "basic.publish",
+    "messaging.destination.name": "amq.default",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "rabbitmq.destination.routing_key": "orders",
+    "messaging.message.id": "m-1",
+    "trailbeam.amqp.message_id.source": "application",
+    "trailbeam.amqp.mandatory": false,
+    "trailbeam.amqp.confirmed": true,
+    "trailbeam.result": "ok",
+    "trailbeam.amqp.delivery_mode": 2,
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12
+   },
+   "accept": false,
+   "reason_starts_with": "amqp.publish span without trailbeam.amqp.vhost"
+  },
+  {
+   "name": "unknown close initiator",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.channel_closed",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "settle",
+    "messaging.operation.name": "channel.close",
+    "messaging.destination.name": "orders",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "trailbeam.start_observed": false,
+    "rabbitmq.message.delivery_tag": 1,
+    "trailbeam.amqp.consumer_tag": "ctag-1",
+    "messaging.message.id": "m-a",
+    "trailbeam.amqp.close.initiator": "timeout",
+    "trailbeam.amqp.close.reply_code": 406,
+    "trailbeam.amqp.close.reply_text": "PRECONDITION_FAILED - delivery acknowledgement on channel 1 timed out. This timeout value can be configured, see consumers doc guide to learn more",
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12,
+    "trailbeam.amqp.channel.id": "3f1b0c9e-58a2-4c1e-9f33-6a0d7e2b4c55"
+   },
+   "accept": false,
+   "reason_starts_with": "amqp.channel_closed span with trailbeam.amqp.close.initiator 'timeout'; not one of client, broker, network"
+  },
+  {
+   "name": "unknown cancelled_by",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.cancel",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "cancel",
+    "messaging.operation.name": "basic.cancel",
+    "messaging.destination.name": "orders",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "trailbeam.start_observed": false,
+    "trailbeam.amqp.consumer_tag": "ctag-1",
+    "trailbeam.amqp.cancelled_by": "queue",
+    "trailbeam.amqp.unsettled_count": 2,
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12,
+    "trailbeam.amqp.channel.id": "3f1b0c9e-58a2-4c1e-9f33-6a0d7e2b4c55"
+   },
+   "accept": false,
+   "reason_starts_with": "amqp.cancel span with trailbeam.amqp.cancelled_by 'queue'; not one of client, broker"
+  },
+  {
+   "name": "unknown receive count source",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.deliver",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "receive",
+    "messaging.operation.name": "basic.deliver",
+    "messaging.destination.name": "orders",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "trailbeam.start_observed": false,
+    "rabbitmq.message.delivery_tag": 1,
+    "trailbeam.amqp.exchange": "amq.default",
+    "trailbeam.amqp.redelivered": false,
+    "trailbeam.amqp.consumer_tag": "ctag-1",
+    "rabbitmq.destination.routing_key": "orders",
+    "messaging.message.id": "m-1",
+    "trailbeam.receive_count": 1,
+    "trailbeam.receive_count.source": "redelivered",
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12,
+    "trailbeam.amqp.channel.id": "3f1b0c9e-58a2-4c1e-9f33-6a0d7e2b4c55"
+   },
+   "accept": false,
+   "reason_starts_with": "amqp.deliver span with trailbeam.receive_count.source 'redelivered'; not one of x-acquired-count, x-delivery-count, first_delivery"
+  },
+  {
+   "name": "result not ok or failed",
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "amqp.publish",
+    "trailbeam.source": "client",
+    "messaging.system.name": "rabbitmq",
+    "messaging.operation.type": "send",
+    "messaging.operation.name": "basic.publish",
+    "messaging.destination.name": "amq.default",
+    "trailbeam.amqp.vhost": "/",
+    "server.address": "localhost",
+    "server.port": 5672,
+    "rabbitmq.destination.routing_key": "orders",
+    "messaging.message.id": "m-1",
+    "trailbeam.amqp.message_id.source": "application",
+    "trailbeam.amqp.mandatory": false,
+    "trailbeam.amqp.confirmed": true,
+    "trailbeam.result": "nack",
+    "trailbeam.amqp.delivery_mode": 2,
+    "messaging.client.id": "6f1c2a1e-6e9f-4b7e-9a0c-2f3b6b9d1c11",
+    "process.pid": 41233,
+    "trailbeam.order.scope": "0b6a52d1-2a59-4f86-9a61-0d4bd1b8b9f4",
+    "trailbeam.order.returned": 12
+   },
+   "accept": false,
+   "reason_starts_with": "trailbeam.result 'nack' is not ok or failed"
+  },
+  {
+   "name": "an sqs span with schema version 4 is read as version 3",
+   "accept": true,
+   "attributes": {
+    "trailbeam.schema_version": 4,
+    "trailbeam.kind": "sqs.send",
+    "trailbeam.source": "client",
+    "messaging.system.name": "aws.sqs",
+    "messaging.operation.type": "send",
+    "messaging.operation.name": "SendMessage",
+    "messaging.destination.name": "orders",
+    "aws.sqs.queue.url": "http://localhost:9324/000000000000/orders",
+    "messaging.client.id": "c",
+    "process.pid": 1,
+    "messaging.message.id": "5fea7756-0ea4-451a-a703-a558b933e274"
+   }
+  }
+ ]
+}
