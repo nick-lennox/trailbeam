@@ -173,7 +173,8 @@ jobs:
   java:
     # java/: the AWS SDK for Java v2 package (QV-319). Unit tests (contract vectors, a real SDK client over a
     # canned HTTP layer), then the conformance kit on the installed jar: alone, beside the OpenTelemetry Java
-    # agent (also with its sampler at 0) and beside dd-java-agent.
+    # agent (also with its sampler at 0) and beside dd-java-agent; and the Lambda wrapper in the java:21 Lambda
+    # base image, whose Dockerfile builds the jar from java/ itself.
     name: Java package (unit tests and conformance kit)
     runs-on: ubuntu-latest
     steps:
@@ -186,6 +187,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: pip install boto3
       - name: Unit tests, relocated jar, install to the local repository
         run: mvn -B -ntp -f java/pom.xml install
       - name: Build the conformance driver on the installed jar
@@ -195,11 +197,14 @@ jobs:
           mkdir -p "$RUNNER_TEMP/agents"
           curl -sSfL -o "$RUNNER_TEMP/agents/otel.jar" https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v2.34.0/opentelemetry-javaagent.jar
           curl -sSfL -o "$RUNNER_TEMP/agents/dd.jar" https://repo1.maven.org/maven2/com/datadoghq/dd-java-agent/1.69.1/dd-java-agent-1.69.1.jar
-      - name: Java package on the bench (every variant)
+      - name: Java package on the bench, interceptor and Lambda wrapper (every variant)
         env:
           OTEL_JAVA_AGENT_JAR: ${{ runner.temp }}/agents/otel.jar
           DD_JAVA_AGENT_JAR: ${{ runner.temp }}/agents/dd.jar
-        run: python conformance/kit.py run conformance/drivers/java/driver.json --workdir "$RUNNER_TEMP/kit"
+        run: >-
+          python conformance/kit.py run
+          conformance/drivers/java/driver.json conformance/drivers/java-lambda/driver.json
+          --workdir "$RUNNER_TEMP/kit"
       - name: Keep the report, driver logs and spans (not the ground truth, which holds the bench's raw receipt handles)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -209,6 +214,8 @@ jobs:
             ${{ runner.temp }}/kit/report.json
             ${{ runner.temp }}/kit/bench.log
             ${{ runner.temp }}/kit/*.driver.log
+            ${{ runner.temp }}/kit/*.setup.log
+            ${{ runner.temp }}/kit/*.function.log
 
   ui:
     name: Shared UI (@trailbeam/ui)

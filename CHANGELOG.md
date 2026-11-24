@@ -23,6 +23,15 @@
   - **The oldest OpenTelemetry versions are now 1.28 / 0.49b0** (were 1.27 / 0.48b0).
     `opentelemetry-instrumentation` 0.48b0 imports `pkg_resources` without depending on setuptools, so
     `import trailbeam.boto` failed in an environment without setuptools.
+- **Java package, stage 4: the Lambda wrapper** (QV-319, pre-release, not published). For a function invoked by
+  an SQS event source mapping, set the handler to `dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`
+  and name your own in `TRAILBEAM_LAMBDA_HANDLER`, or extend `TrailbeamSqsHandler`. Each record gets a
+  `trailbeam receive`, exported before the handler runs, and a `trailbeam outcome` after it, with the batch
+  fields and opt-in error text (`TRAILBEAM_CAPTURE_ERROR_QUEUES`). `trailbeam.error_type` is the exception's fully
+  qualified class name, which is what Lambda's Java runtime reports as `errorType`. After a SnapStart restore the
+  jar starts a new call-order scope and `service.instance.id`, through `org.crac` when it is on the classpath. The
+  conformance kit has a Java Lambda driver (`drivers/java-lambda`, on `public.ecr.aws/lambda/java:21`), and CI
+  runs it in the Java job.
 - **`service.version` is kept, so a deploy can be seen** (QV-362, the server half). Each stored span keeps its
   resource's `service.version` beside `service.name` (SQLite schema 16, Postgres schema 10; rows stored before
   have none). A timeline step's `consumer` has `service_version` when it is set, and the Timeline shows it after
