@@ -1,4 +1,4 @@
-package dev.trailbeam.sqs;
+package app.trailbeam.sqs;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;

@@ -22,6 +22,12 @@
 - **`trailbeam --version`** (QV-346). `trailbeam --version` (or `-V`, also after `start`) prints
   `trailbeam <version>` and exits 0; it used to fail with `unrecognized arguments`. `npx trailbeam --version` prints
   the same line (it printed the bare version before).
+- **The Java jar has its Maven Central name and release setup** (QV-319). The group ID is `app.trailbeam`, as
+  the board chose, and the Java package moves with it from `dev.trailbeam.sqs` to `app.trailbeam.sqs`, so the
+  Lambda handler is now `app.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`. Builds also make a sources
+  jar and a javadoc jar, the pom lists developers and scm as Central requires, and a `release` profile signs with
+  GPG and uploads through the Central Portal with automatic publishing off. `java/RELEASING.md` has the steps.
+  Nothing is published yet: the namespace still has to be verified on the Central Portal.
 - **Users and roles are a preview, off unless switched on** (QV-349). They haven't had their security review
   (QV-229) yet, so a server built from this version ignores them unless it runs with `--accounts`
   (`TRAILBEAM_ACCOUNTS=1`, also `true`, `yes` or `on`; any other value but `0`, `false`, `no`, `off` or empty
@@ -108,7 +114,7 @@
   an export whose client hangs up, and the client sends it again. No change in the Python or Node.js packages:
   the retry is the OTLP exporter's.
 - **Java package, stage 4: the Lambda wrapper** (QV-319, pre-release, not published). For a function invoked by
-  an SQS event source mapping, set the handler to `dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`
+  an SQS event source mapping, set the handler to `app.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`
   and name your own in `TRAILBEAM_LAMBDA_HANDLER`, or extend `TrailbeamSqsHandler`. Each record gets a
   `trailbeam receive`, exported before the handler runs, and a `trailbeam outcome` after it, with the batch
   fields and opt-in error text (`TRAILBEAM_CAPTURE_ERROR_QUEUES`). `trailbeam.error_type` is the exception's fully
