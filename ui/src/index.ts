@@ -1,5 +1,5 @@
 /*
-  @trailbeam/ui: Trailbeam's views (the timeline, tenants, message lists, the first-run screen), shared by self-hosted Trailbeam (built into the shell in ../shell)
+  @trailbeam/ui: Trailbeam's views (the timeline, tenants, message lists, Needs attention, the first-run screen), shared by self-hosted Trailbeam (built into the shell in ../shell)
   and the hosted app. A view takes the API's data as props and knows nothing about where it runs.
   Plan: the hosted app's docs/plans/shared-ui.md.
 */
@@ -30,4 +30,8 @@ export {
   RANGE_PARAMS, RANGE_PRESETS, REFRESH_S, apiQuery, formQuery, fromInputUtc, pinnedQuery, rangeText, rangeWindow, readRange, refreshOn, toInputUtc,
   type RangePreset, type TimeRange,
 } from "./messages/range.ts";
+export { CauseList, CauseMessagesTable, DeadLetterQueues, OutcomeTag, TrendBars,
+  type CauseListProps, type CauseMessagesTableProps, type DeadLetterQueuesProps } from "./causes/NeedsAttention.tsx";
+export { causesNote, dlqSplit, tenantsText, trendOf, versionsText, whenFirst, whenLast, OUTCOME_LABELS, TREND_BARS, TREND_MS } from "./causes/text.ts";
+export type * from "./causes/types.ts";
 export { duplicatesEmpty, lookupEmpty, messagesEmpty, stuckEmpty, tenantsEmpty, without } from "./messages/empty.tsx";
