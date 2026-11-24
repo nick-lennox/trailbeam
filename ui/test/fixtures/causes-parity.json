@@ -1,0 +1,3007 @@
+{
+ "note": "Make test/fixtures/causes-parity.json: timelines, and what the cause classifier and grouping make of them. Made by ui/test/make-causes-fixture.py; NaN is written as null.",
+ "nowMs": 1763083600000,
+ "cases": [
+  {
+   "name": "rule 1: an event filter's drop (CloudTrail) is filtered, whatever else happened",
+   "timeline": {
+    "message_id": "m-filter",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080001000000000"
+     },
+     {
+      "type": "aws_step",
+      "aws_kind": "filter_drop",
+      "function_name": "thumbs",
+      "time": "2025-11-14T00:26:45.000Z"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "rule 2: the function's log says it timed out",
+   "timeline": {
+    "message_id": "m-timeout",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080001000000000"
+     },
+     {
+      "type": "aws_step",
+      "aws_kind": "timeout",
+      "delivery": 1,
+      "function_name": "billing-fn",
+      "time": "2025-11-14T00:26:51.000Z"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "rule 3: out of memory",
+   "timeline": {
+    "message_id": "m-oom",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080001000000000"
+     },
+     {
+      "type": "aws_step",
+      "aws_kind": "out_of_memory",
+      "delivery": 1,
+      "function_name": "billing-fn",
+      "time": "2025-11-14T00:26:43.000Z"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "rule 4: an exception, with error text that varies by a number",
+   "timeline": {
+    "message_id": "m-exc-1",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv1",
+       "service_version": "1.4.2"
+      },
+      "end_unix_nano": "1763080001000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_exception",
+      "error_type": "TimeoutError",
+      "error_message": "Stripe timed out after 10000 ms",
+      "end_unix_nano": "1763080002000000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": "acme",
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "rule 4: the same fingerprint, so the same group, on a later version and another tenant",
+   "timeline": {
+    "message_id": "m-exc-2",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv1",
+       "service_version": "1.4.3"
+      },
+      "end_unix_nano": "1763080060000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_exception",
+      "error_type": "TimeoutError",
+      "error_message": "Stripe timed out after 9000 ms",
+      "end_unix_nano": "1763080061000000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": "globex",
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "rule 4: an exception with no error text: the class alone",
+   "timeline": {
+    "message_id": "m-exc-bare",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080001000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_exception",
+      "error_type": "KeyError",
+      "end_unix_nano": "1763080002000000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "rule 5: an invalid batch response",
+   "timeline": {
+    "message_id": "m-invalid",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080001000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_invalid_response",
+      "end_unix_nano": "1763080002000000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "rule 6: reported in batchItemFailures, retried twice: the latest failed delivery decides, earlier ones are listed",
+   "timeline": {
+    "message_id": "m-reported",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 3,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080001000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_exception",
+      "error_type": "ValueError",
+      "error_message": "bad",
+      "end_unix_nano": "1763080002000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 2,
+      "queue": "orders",
+      "receive_count": 2,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv2"
+      },
+      "end_unix_nano": "1763080040000000000"
+     },
+     {
+      "type": "lambda_invocation_ended_without_outcome",
+      "delivery": 2
+     },
+     {
+      "type": "received",
+      "delivery": 3,
+      "queue": "orders",
+      "receive_count": 3,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv3"
+      },
+      "end_unix_nano": "1763080080000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 3,
+      "outcome": "failed_reported",
+      "end_unix_nano": "1763080081000000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "rule 7: no outcome within the Lambda timeout, evidenced at the receive",
+   "timeline": {
+    "message_id": "m-no-outcome",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080001000000000"
+     },
+     {
+      "type": "lambda_invocation_ended_without_outcome",
+      "delivery": 1,
+      "window": {
+       "from": "2025-11-14T00:26:41.000Z",
+       "to": "2025-11-14T00:41:41.000Z"
+      }
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "rule 8: a failed DeleteMessage, by its error code",
+   "timeline": {
+    "message_id": "m-delete",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080001000000000"
+     },
+     {
+      "type": "deleted",
+      "delivery": 1,
+      "result": "failed",
+      "error_code": "ReceiptHandleIsInvalid",
+      "end_unix_nano": "1763080001500000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "rule 9: received, a Lambda invocation still running: in flight",
+   "timeline": {
+    "message_id": "m-processing",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "processing",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763083590000000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "rule 9: received, its visibility timeout (from a ChangeMessageVisibility) not out yet: in flight",
+   "timeline": {
+    "message_id": "m-in-flight",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763083000000000000"
+     },
+     {
+      "type": "visibility_changed",
+      "delivery": 1,
+      "result": "ok",
+      "visibility_timeout_s": 3600,
+      "end_unix_nano": "1763083001000000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "rule 10: received and not deleted, the queue's visibility timeout known",
+   "timeline": {
+    "message_id": "m-not-deleted",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080001000000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": {
+    "orders": 60
+   }
+  },
+  {
+   "name": "rule 10: received and not deleted on a queue whose timeout isn't known: SQS's default is assumed",
+   "timeline": {
+    "message_id": "m-not-deleted-2",
+    "source_queue": "payments",
+    "current_queue": "payments",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "payments",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "payments",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080002000000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/payments",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "rule 11: FIFO, the group's first message (never received)",
+   "timeline": {
+    "message_id": "m-fifo-1",
+    "source_queue": "jobs.fifo",
+    "current_queue": "jobs.fifo",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 0,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "jobs.fifo",
+      "end_unix_nano": "1763080000000000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/jobs.fifo",
+   "tenant": null,
+   "group": "g1",
+   "visibilityS": null
+  },
+  {
+   "name": "rule 11: FIFO, blocked behind it",
+   "timeline": {
+    "message_id": "m-fifo-2",
+    "source_queue": "jobs.fifo",
+    "current_queue": "jobs.fifo",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 0,
+    "first_seen": "2025-11-14T00:26:45.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "jobs.fifo",
+      "end_unix_nano": "1763080000000000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/jobs.fifo",
+   "tenant": null,
+   "group": "g1",
+   "visibilityS": null
+  },
+  {
+   "name": "rule 12: sent, never received, no send seen either: first seen is the evidence",
+   "timeline": {
+    "message_id": "m-never",
+    "source_queue": "audit",
+    "current_queue": "audit",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 0,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": []
+   },
+   "queueUrl": null,
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "dead-lettered (the move seen), and the group's worst outcome",
+   "timeline": {
+    "message_id": "m-dlq",
+    "source_queue": "orders",
+    "current_queue": "orders-dlq",
+    "in_dead_letter_queue": true,
+    "dead_letter_queue_move": "observed",
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv1",
+       "service_version": "1.4.2"
+      },
+      "end_unix_nano": "1763080003000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_exception",
+      "error_type": "TimeoutError",
+      "error_message": "Stripe timed out after 12000 ms",
+      "end_unix_nano": "1763080004000000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": "acme",
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "dead-lettered, inferred from maxReceiveCount",
+   "timeline": {
+    "message_id": "m-dlq-inferred",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": "not_seen_on_dlq_yet",
+    "state": "not_deleted",
+    "deliveries": 2,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080001000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_exception",
+      "error_type": "KeyError",
+      "end_unix_nano": "1763080002000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 2,
+      "queue": "orders",
+      "receive_count": 2,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv2"
+      },
+      "end_unix_nano": "1763080040000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 2,
+      "outcome": "failed_exception",
+      "error_type": "KeyError",
+      "end_unix_nano": "1763080041000000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "the same cause on a queue of the same name in another account is another group",
+   "timeline": {
+    "message_id": "m-other-account",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080001000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_exception",
+      "error_type": "KeyError",
+      "end_unix_nano": "1763080002000000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.eu-west-1.amazonaws.com/222222222222/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "merged: error text 0",
+   "timeline": {
+    "message_id": "m-many-00",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "search",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_exception",
+      "error_type": "LookupError",
+      "error_message": "no index 'a'",
+      "end_unix_nano": "1763080000500000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "merged: error text 1",
+   "timeline": {
+    "message_id": "m-many-01",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "search",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080001000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_exception",
+      "error_type": "LookupError",
+      "error_message": "no index 'b'",
+      "end_unix_nano": "1763080001500000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "merged: error text 2",
+   "timeline": {
+    "message_id": "m-many-02",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "search",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080002000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_exception",
+      "error_type": "LookupError",
+      "error_message": "no index 'c'",
+      "end_unix_nano": "1763080002500000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "merged: error text 3",
+   "timeline": {
+    "message_id": "m-many-03",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "search",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080003000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_exception",
+      "error_type": "LookupError",
+      "error_message": "no index 'd'",
+      "end_unix_nano": "1763080003500000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "merged: error text 4",
+   "timeline": {
+    "message_id": "m-many-04",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "search",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080004000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_exception",
+      "error_type": "LookupError",
+      "error_message": "no index 'e'",
+      "end_unix_nano": "1763080004500000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "merged: error text 5",
+   "timeline": {
+    "message_id": "m-many-05",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "search",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080005000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_exception",
+      "error_type": "LookupError",
+      "error_message": "no index 'f'",
+      "end_unix_nano": "1763080005500000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "merged: error text 6",
+   "timeline": {
+    "message_id": "m-many-06",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "search",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080006000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_exception",
+      "error_type": "LookupError",
+      "error_message": "no index 'g'",
+      "end_unix_nano": "1763080006500000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "merged: error text 7",
+   "timeline": {
+    "message_id": "m-many-07",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "search",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080007000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_exception",
+      "error_type": "LookupError",
+      "error_message": "no index 'h'",
+      "end_unix_nano": "1763080007500000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "merged: error text 8",
+   "timeline": {
+    "message_id": "m-many-08",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "search",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080008000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_exception",
+      "error_type": "LookupError",
+      "error_message": "no index 'i'",
+      "end_unix_nano": "1763080008500000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "merged: error text 9",
+   "timeline": {
+    "message_id": "m-many-09",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "search",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080009000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_exception",
+      "error_type": "LookupError",
+      "error_message": "no index 'j'",
+      "end_unix_nano": "1763080009500000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "merged: error text 10",
+   "timeline": {
+    "message_id": "m-many-10",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "search",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080010000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_exception",
+      "error_type": "LookupError",
+      "error_message": "no index 'k'",
+      "end_unix_nano": "1763080010500000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  }
+ ],
+ "firstSeenMs": {
+  "m-filter": 1763080000000.0,
+  "m-timeout": 1763080000000.0,
+  "m-oom": 1763080000000.0,
+  "m-exc-1": 1763080000000.0,
+  "m-exc-2": 1763080000000.0,
+  "m-exc-bare": 1763080000000.0,
+  "m-invalid": 1763080000000.0,
+  "m-reported": 1763080000000.0,
+  "m-no-outcome": 1763080000000.0,
+  "m-delete": 1763080000000.0,
+  "m-processing": 1763080000000.0,
+  "m-in-flight": 1763080000000.0,
+  "m-not-deleted": 1763080000000.0,
+  "m-not-deleted-2": 1763080000000.0,
+  "m-fifo-1": 1763080000000.0,
+  "m-fifo-2": 1763080005000.0,
+  "m-never": 1763080000000.0,
+  "m-dlq": 1763080000000.0,
+  "m-dlq-inferred": 1763080000000.0,
+  "m-other-account": 1763080000000.0,
+  "m-many-00": 1763080000000.0,
+  "m-many-01": 1763080000000.0,
+  "m-many-02": 1763080000000.0,
+  "m-many-03": 1763080000000.0,
+  "m-many-04": 1763080000000.0,
+  "m-many-05": 1763080000000.0,
+  "m-many-06": 1763080000000.0,
+  "m-many-07": 1763080000000.0,
+  "m-many-08": 1763080000000.0,
+  "m-many-09": 1763080000000.0,
+  "m-many-10": 1763080000000.0
+ },
+ "expected": {
+  "classified": [
+   {
+    "mid": "m-filter",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": null,
+    "errorCode": null,
+    "fn": "thumbs",
+    "error": null,
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "filter",
+    "signature": "filter:thumbs",
+    "consumer": "thumbs",
+    "outcome": "filtered",
+    "evidenceMs": 1763080005000
+   },
+   {
+    "mid": "m-timeout",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": null,
+    "errorCode": null,
+    "fn": "billing-fn",
+    "error": null,
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "fn_timeout",
+    "signature": "fn_timeout:billing-fn",
+    "consumer": "billing-fn",
+    "outcome": "stuck",
+    "evidenceMs": 1763080011000
+   },
+   {
+    "mid": "m-oom",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": null,
+    "errorCode": null,
+    "fn": "billing-fn",
+    "error": null,
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "fn_oom",
+    "signature": "fn_oom:billing-fn",
+    "consumer": "billing-fn",
+    "outcome": "stuck",
+    "evidenceMs": 1763080003000
+   },
+   {
+    "mid": "m-exc-1",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": "acme",
+    "group": null,
+    "errorType": "TimeoutError",
+    "errorCode": null,
+    "fn": null,
+    "error": "Stripe timed out after 10000 ms",
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": "1.4.2",
+    "kind": "exc",
+    "signature": "exc:TimeoutError:Stripe timed out after <n> ms",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "evidenceMs": 1763080002000
+   },
+   {
+    "mid": "m-exc-2",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": "globex",
+    "group": null,
+    "errorType": "TimeoutError",
+    "errorCode": null,
+    "fn": null,
+    "error": "Stripe timed out after 9000 ms",
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": "1.4.3",
+    "kind": "exc",
+    "signature": "exc:TimeoutError:Stripe timed out after <n> ms",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "evidenceMs": 1763080061000
+   },
+   {
+    "mid": "m-exc-bare",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": "KeyError",
+    "errorCode": null,
+    "fn": null,
+    "error": null,
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "exc",
+    "signature": "exc:KeyError:",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "evidenceMs": 1763080002000
+   },
+   {
+    "mid": "m-invalid",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": null,
+    "errorCode": null,
+    "fn": null,
+    "error": null,
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "invalid_batch_response",
+    "signature": "invalid_batch_response",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "evidenceMs": 1763080002000
+   },
+   {
+    "mid": "m-reported",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": null,
+    "errorCode": null,
+    "fn": null,
+    "error": null,
+    "earlier": [
+     "exc",
+     "no_outcome"
+    ],
+    "dlqInferred": false,
+    "deliveries": 3,
+    "version": null,
+    "kind": "reported_failure",
+    "signature": "reported_failure",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "evidenceMs": 1763080081000
+   },
+   {
+    "mid": "m-no-outcome",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": null,
+    "errorCode": null,
+    "fn": null,
+    "error": null,
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "no_outcome",
+    "signature": "no_outcome",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "evidenceMs": 1763080001000
+   },
+   {
+    "mid": "m-delete",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": null,
+    "errorCode": "ReceiptHandleIsInvalid",
+    "fn": null,
+    "error": null,
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "delete_failed",
+    "signature": "delete_failed:ReceiptHandleIsInvalid",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "evidenceMs": 1763080001500
+   },
+   {
+    "mid": "m-processing",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": null,
+    "errorCode": null,
+    "fn": null,
+    "error": null,
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "in_flight",
+    "signature": "in_flight",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "evidenceMs": 1763083590000
+   },
+   {
+    "mid": "m-in-flight",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": null,
+    "errorCode": null,
+    "fn": null,
+    "error": null,
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "in_flight",
+    "signature": "in_flight",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "evidenceMs": 1763083000000
+   },
+   {
+    "mid": "m-not-deleted",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": null,
+    "errorCode": null,
+    "fn": null,
+    "error": null,
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "not_deleted",
+    "signature": "not_deleted",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "evidenceMs": 1763080001000
+   },
+   {
+    "mid": "m-not-deleted-2",
+    "queue": "payments",
+    "queueKey": "111111111111/us-east-1/payments",
+    "tenant": null,
+    "group": null,
+    "errorType": null,
+    "errorCode": null,
+    "fn": null,
+    "error": null,
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "not_deleted",
+    "signature": "not_deleted",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "evidenceMs": 1763080002000,
+    "assumedVisibility": true
+   },
+   {
+    "mid": "m-fifo-1",
+    "queue": "jobs.fifo",
+    "queueKey": "111111111111/us-east-1/jobs.fifo",
+    "tenant": null,
+    "group": "g1",
+    "errorType": null,
+    "errorCode": null,
+    "fn": null,
+    "error": null,
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 0,
+    "version": null,
+    "kind": "never_received",
+    "signature": "never_received",
+    "consumer": "",
+    "outcome": "stuck",
+    "evidenceMs": 1763080000000
+   },
+   {
+    "mid": "m-fifo-2",
+    "queue": "jobs.fifo",
+    "queueKey": "111111111111/us-east-1/jobs.fifo",
+    "tenant": null,
+    "group": "g1",
+    "errorType": null,
+    "errorCode": null,
+    "fn": null,
+    "error": null,
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 0,
+    "version": null,
+    "kind": "never_received",
+    "signature": "never_received",
+    "consumer": "",
+    "outcome": "stuck",
+    "evidenceMs": 1763080000000
+   },
+   {
+    "mid": "m-never",
+    "queue": "audit",
+    "queueKey": "audit",
+    "tenant": null,
+    "group": null,
+    "errorType": null,
+    "errorCode": null,
+    "fn": null,
+    "error": null,
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 0,
+    "version": null,
+    "kind": "never_received",
+    "signature": "never_received",
+    "consumer": "",
+    "outcome": "stuck",
+    "evidenceMs": 1763080000000
+   },
+   {
+    "mid": "m-dlq",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": "acme",
+    "group": null,
+    "errorType": "TimeoutError",
+    "errorCode": null,
+    "fn": null,
+    "error": "Stripe timed out after 12000 ms",
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": "1.4.2",
+    "kind": "exc",
+    "signature": "exc:TimeoutError:Stripe timed out after <n> ms",
+    "consumer": "orders-worker",
+    "outcome": "dead_lettered",
+    "evidenceMs": 1763080004000
+   },
+   {
+    "mid": "m-dlq-inferred",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": "KeyError",
+    "errorCode": null,
+    "fn": null,
+    "error": null,
+    "earlier": [
+     "exc"
+    ],
+    "dlqInferred": true,
+    "deliveries": 2,
+    "version": null,
+    "kind": "exc",
+    "signature": "exc:KeyError:",
+    "consumer": "orders-worker",
+    "outcome": "dead_lettered",
+    "evidenceMs": 1763080041000
+   },
+   {
+    "mid": "m-other-account",
+    "queue": "orders",
+    "queueKey": "222222222222/eu-west-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": "KeyError",
+    "errorCode": null,
+    "fn": null,
+    "error": null,
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "exc",
+    "signature": "exc:KeyError:",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "evidenceMs": 1763080002000
+   },
+   {
+    "mid": "m-many-00",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": "LookupError",
+    "errorCode": null,
+    "fn": null,
+    "error": "no index 'a'",
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "exc",
+    "signature": "exc:LookupError:no index 'a'",
+    "consumer": "search",
+    "outcome": "stuck",
+    "evidenceMs": 1763080000500
+   },
+   {
+    "mid": "m-many-01",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": "LookupError",
+    "errorCode": null,
+    "fn": null,
+    "error": "no index 'b'",
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "exc",
+    "signature": "exc:LookupError:no index 'b'",
+    "consumer": "search",
+    "outcome": "stuck",
+    "evidenceMs": 1763080001500
+   },
+   {
+    "mid": "m-many-02",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": "LookupError",
+    "errorCode": null,
+    "fn": null,
+    "error": "no index 'c'",
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "exc",
+    "signature": "exc:LookupError:no index 'c'",
+    "consumer": "search",
+    "outcome": "stuck",
+    "evidenceMs": 1763080002500
+   },
+   {
+    "mid": "m-many-03",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": "LookupError",
+    "errorCode": null,
+    "fn": null,
+    "error": "no index 'd'",
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "exc",
+    "signature": "exc:LookupError:no index 'd'",
+    "consumer": "search",
+    "outcome": "stuck",
+    "evidenceMs": 1763080003500
+   },
+   {
+    "mid": "m-many-04",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": "LookupError",
+    "errorCode": null,
+    "fn": null,
+    "error": "no index 'e'",
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "exc",
+    "signature": "exc:LookupError:no index 'e'",
+    "consumer": "search",
+    "outcome": "stuck",
+    "evidenceMs": 1763080004500
+   },
+   {
+    "mid": "m-many-05",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": "LookupError",
+    "errorCode": null,
+    "fn": null,
+    "error": "no index 'f'",
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "exc",
+    "signature": "exc:LookupError:no index 'f'",
+    "consumer": "search",
+    "outcome": "stuck",
+    "evidenceMs": 1763080005500
+   },
+   {
+    "mid": "m-many-06",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": "LookupError",
+    "errorCode": null,
+    "fn": null,
+    "error": "no index 'g'",
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "exc",
+    "signature": "exc:LookupError:no index 'g'",
+    "consumer": "search",
+    "outcome": "stuck",
+    "evidenceMs": 1763080006500
+   },
+   {
+    "mid": "m-many-07",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": "LookupError",
+    "errorCode": null,
+    "fn": null,
+    "error": "no index 'h'",
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "exc",
+    "signature": "exc:LookupError:no index 'h'",
+    "consumer": "search",
+    "outcome": "stuck",
+    "evidenceMs": 1763080007500
+   },
+   {
+    "mid": "m-many-08",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": "LookupError",
+    "errorCode": null,
+    "fn": null,
+    "error": "no index 'i'",
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "exc",
+    "signature": "exc:LookupError:no index 'i'",
+    "consumer": "search",
+    "outcome": "stuck",
+    "evidenceMs": 1763080008500
+   },
+   {
+    "mid": "m-many-09",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": "LookupError",
+    "errorCode": null,
+    "fn": null,
+    "error": "no index 'j'",
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "exc",
+    "signature": "exc:LookupError:no index 'j'",
+    "consumer": "search",
+    "outcome": "stuck",
+    "evidenceMs": 1763080009500
+   },
+   {
+    "mid": "m-many-10",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": "LookupError",
+    "errorCode": null,
+    "fn": null,
+    "error": "no index 'k'",
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "exc",
+    "signature": "exc:LookupError:no index 'k'",
+    "consumer": "search",
+    "outcome": "stuck",
+    "evidenceMs": 1763080010500
+   }
+  ],
+  "groups": [
+   {
+    "id": "7fc2a3d79616",
+    "key": "v1|111111111111/us-east-1/orders|orders-worker|exc:TimeoutError:Stripe timed out after <n> ms",
+    "kind": "exc",
+    "signature": "exc:TimeoutError:Stripe timed out after <n> ms",
+    "label": "orders-worker raised TimeoutError: Stripe timed out after 10000 ms",
+    "basis": "spans",
+    "inferred": false,
+    "why": null,
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "consumer": "orders-worker",
+    "outcome": "dead_lettered",
+    "count": 3,
+    "counts": {
+     "dead_lettered": 1,
+     "stuck": 2,
+     "filtered": 0
+    },
+    "dlqInferred": 0,
+    "firstMs": 1763080002000,
+    "lastMs": 1763080061000,
+    "times": [
+     1763080002000,
+     1763080061000,
+     1763080004000
+    ],
+    "tenants": [
+     "acme",
+     "globex"
+    ],
+    "sampleError": "Stripe timed out after 9000 ms",
+    "sampleMid": "m-exc-2",
+    "examples": [
+     "m-exc-2",
+     "m-dlq",
+     "m-exc-1"
+    ],
+    "earlier": [],
+    "retrying": 0,
+    "versions": [
+     {
+      "version": "1.4.2",
+      "count": 2,
+      "firstMs": 1763080002000,
+      "lastMs": 1763080004000
+     },
+     {
+      "version": "1.4.3",
+      "count": 1,
+      "firstMs": 1763080061000,
+      "lastMs": 1763080061000
+     }
+    ]
+   },
+   {
+    "id": "74af82beac6e",
+    "key": "v1|111111111111/us-east-1/orders|orders-worker|exc:KeyError:",
+    "kind": "exc",
+    "signature": "exc:KeyError:",
+    "label": "orders-worker raised KeyError",
+    "basis": "spans",
+    "inferred": false,
+    "why": null,
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "consumer": "orders-worker",
+    "outcome": "dead_lettered",
+    "count": 2,
+    "counts": {
+     "dead_lettered": 1,
+     "stuck": 1,
+     "filtered": 0
+    },
+    "dlqInferred": 1,
+    "firstMs": 1763080002000,
+    "lastMs": 1763080041000,
+    "times": [
+     1763080002000,
+     1763080041000
+    ],
+    "tenants": [],
+    "sampleError": null,
+    "sampleMid": "m-dlq-inferred",
+    "examples": [
+     "m-dlq-inferred",
+     "m-exc-bare"
+    ],
+    "earlier": [
+     {
+      "what": "raised an exception",
+      "n": 1
+     }
+    ],
+    "retrying": 0,
+    "versions": []
+   },
+   {
+    "id": "7819c4846154",
+    "key": "v1|111111111111/us-east-1/orders|search|exc:LookupError:*",
+    "kind": "exc",
+    "signature": "exc:LookupError:*",
+    "label": "search raised LookupError (11 different messages)",
+    "basis": "spans",
+    "inferred": false,
+    "why": null,
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "consumer": "search",
+    "outcome": "stuck",
+    "count": 11,
+    "counts": {
+     "dead_lettered": 0,
+     "stuck": 11,
+     "filtered": 0
+    },
+    "dlqInferred": 0,
+    "firstMs": 1763080000500,
+    "lastMs": 1763080010500,
+    "times": [
+     1763080000500,
+     1763080001500,
+     1763080002500,
+     1763080003500,
+     1763080004500,
+     1763080005500,
+     1763080006500,
+     1763080007500,
+     1763080008500,
+     1763080009500,
+     1763080010500
+    ],
+    "tenants": [],
+    "sampleError": "no index 'k'",
+    "sampleMid": "m-many-10",
+    "examples": [
+     "m-many-10",
+     "m-many-09",
+     "m-many-08",
+     "m-many-07",
+     "m-many-06",
+     "m-many-05",
+     "m-many-04",
+     "m-many-03",
+     "m-many-02",
+     "m-many-01",
+     "m-many-00"
+    ],
+    "earlier": [],
+    "retrying": 0,
+    "versions": []
+   },
+   {
+    "id": "296d0067e0b2",
+    "key": "v1|111111111111/us-east-1/orders|orders-worker|in_flight",
+    "kind": "in_flight",
+    "signature": "in_flight",
+    "label": "orders-worker received it over 5 minutes ago and hasn't deleted it yet",
+    "basis": "spans",
+    "inferred": false,
+    "why": null,
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "count": 2,
+    "counts": {
+     "dead_lettered": 0,
+     "stuck": 2,
+     "filtered": 0
+    },
+    "dlqInferred": 0,
+    "firstMs": 1763083000000,
+    "lastMs": 1763083590000,
+    "times": [
+     1763083590000,
+     1763083000000
+    ],
+    "tenants": [],
+    "sampleError": null,
+    "sampleMid": "m-processing",
+    "examples": [
+     "m-processing",
+     "m-in-flight"
+    ],
+    "earlier": [],
+    "retrying": 0,
+    "versions": []
+   },
+   {
+    "id": "8f7b9acbe2a7",
+    "key": "v1|111111111111/us-east-1/orders|orders-worker|reported_failure",
+    "kind": "reported_failure",
+    "signature": "reported_failure",
+    "label": "orders-worker reported the message in batchItemFailures",
+    "basis": "spans",
+    "inferred": false,
+    "why": null,
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "count": 1,
+    "counts": {
+     "dead_lettered": 0,
+     "stuck": 1,
+     "filtered": 0
+    },
+    "dlqInferred": 0,
+    "firstMs": 1763080081000,
+    "lastMs": 1763080081000,
+    "times": [
+     1763080081000
+    ],
+    "tenants": [],
+    "sampleError": null,
+    "sampleMid": "m-reported",
+    "examples": [
+     "m-reported"
+    ],
+    "earlier": [
+     {
+      "what": "raised an exception",
+      "n": 1
+     },
+     {
+      "what": "no outcome",
+      "n": 1
+     }
+    ],
+    "retrying": 1,
+    "versions": []
+   },
+   {
+    "id": "d92a5fea2810",
+    "key": "v1|111111111111/us-east-1/orders|billing-fn|fn_timeout:billing-fn",
+    "kind": "fn_timeout",
+    "signature": "fn_timeout:billing-fn",
+    "label": "billing-fn timed out (Lambda's log)",
+    "basis": "function logs",
+    "inferred": false,
+    "why": null,
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "consumer": "billing-fn",
+    "outcome": "stuck",
+    "count": 1,
+    "counts": {
+     "dead_lettered": 0,
+     "stuck": 1,
+     "filtered": 0
+    },
+    "dlqInferred": 0,
+    "firstMs": 1763080011000,
+    "lastMs": 1763080011000,
+    "times": [
+     1763080011000
+    ],
+    "tenants": [],
+    "sampleError": null,
+    "sampleMid": "m-timeout",
+    "examples": [
+     "m-timeout"
+    ],
+    "earlier": [],
+    "retrying": 0,
+    "versions": []
+   },
+   {
+    "id": "1dbef06fd894",
+    "key": "v1|111111111111/us-east-1/orders|billing-fn|fn_oom:billing-fn",
+    "kind": "fn_oom",
+    "signature": "fn_oom:billing-fn",
+    "label": "billing-fn ran out of memory (Lambda's log)",
+    "basis": "function logs",
+    "inferred": false,
+    "why": null,
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "consumer": "billing-fn",
+    "outcome": "stuck",
+    "count": 1,
+    "counts": {
+     "dead_lettered": 0,
+     "stuck": 1,
+     "filtered": 0
+    },
+    "dlqInferred": 0,
+    "firstMs": 1763080003000,
+    "lastMs": 1763080003000,
+    "times": [
+     1763080003000
+    ],
+    "tenants": [],
+    "sampleError": null,
+    "sampleMid": "m-oom",
+    "examples": [
+     "m-oom"
+    ],
+    "earlier": [],
+    "retrying": 0,
+    "versions": []
+   },
+   {
+    "id": "0add7bfc4d3c",
+    "key": "v1|111111111111/us-east-1/orders|orders-worker|invalid_batch_response",
+    "kind": "invalid_batch_response",
+    "signature": "invalid_batch_response",
+    "label": "orders-worker returned a batchItemFailures ID that isn't in the batch, so Lambda failed the whole batch",
+    "basis": "spans",
+    "inferred": false,
+    "why": null,
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "count": 1,
+    "counts": {
+     "dead_lettered": 0,
+     "stuck": 1,
+     "filtered": 0
+    },
+    "dlqInferred": 0,
+    "firstMs": 1763080002000,
+    "lastMs": 1763080002000,
+    "times": [
+     1763080002000
+    ],
+    "tenants": [],
+    "sampleError": null,
+    "sampleMid": "m-invalid",
+    "examples": [
+     "m-invalid"
+    ],
+    "earlier": [],
+    "retrying": 0,
+    "versions": []
+   },
+   {
+    "id": "0dfba794bb25",
+    "key": "v1|111111111111/us-east-1/payments|orders-worker|not_deleted",
+    "kind": "not_deleted",
+    "signature": "not_deleted",
+    "label": "orders-worker received it and didn't delete it before its visibility timeout ran out (inferred)",
+    "basis": "inferred",
+    "inferred": true,
+    "why": "The consumer received it and no delete or outcome followed before its visibility timeout ran out, so SQS makes it visible again. The queue's visibility timeout wasn't read from AWS, so SQS's default of 30 s was assumed for when the message becomes visible again.",
+    "queue": "payments",
+    "queueKey": "111111111111/us-east-1/payments",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "count": 1,
+    "counts": {
+     "dead_lettered": 0,
+     "stuck": 1,
+     "filtered": 0
+    },
+    "dlqInferred": 0,
+    "firstMs": 1763080002000,
+    "lastMs": 1763080002000,
+    "times": [
+     1763080002000
+    ],
+    "tenants": [],
+    "sampleError": null,
+    "sampleMid": "m-not-deleted-2",
+    "examples": [
+     "m-not-deleted-2"
+    ],
+    "earlier": [],
+    "retrying": 0,
+    "versions": []
+   },
+   {
+    "id": "8036d2f31159",
+    "key": "v1|222222222222/eu-west-1/orders|orders-worker|exc:KeyError:",
+    "kind": "exc",
+    "signature": "exc:KeyError:",
+    "label": "orders-worker raised KeyError",
+    "basis": "spans",
+    "inferred": false,
+    "why": null,
+    "queue": "orders",
+    "queueKey": "222222222222/eu-west-1/orders",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "count": 1,
+    "counts": {
+     "dead_lettered": 0,
+     "stuck": 1,
+     "filtered": 0
+    },
+    "dlqInferred": 0,
+    "firstMs": 1763080002000,
+    "lastMs": 1763080002000,
+    "times": [
+     1763080002000
+    ],
+    "tenants": [],
+    "sampleError": null,
+    "sampleMid": "m-other-account",
+    "examples": [
+     "m-other-account"
+    ],
+    "earlier": [],
+    "retrying": 0,
+    "versions": []
+   },
+   {
+    "id": "a4a2a9d94566",
+    "key": "v1|111111111111/us-east-1/orders|orders-worker|delete_failed:ReceiptHandleIsInvalid",
+    "kind": "delete_failed",
+    "signature": "delete_failed:ReceiptHandleIsInvalid",
+    "label": "orders-worker's DeleteMessage failed: ReceiptHandleIsInvalid",
+    "basis": "spans",
+    "inferred": false,
+    "why": null,
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "count": 1,
+    "counts": {
+     "dead_lettered": 0,
+     "stuck": 1,
+     "filtered": 0
+    },
+    "dlqInferred": 0,
+    "firstMs": 1763080001500,
+    "lastMs": 1763080001500,
+    "times": [
+     1763080001500
+    ],
+    "tenants": [],
+    "sampleError": null,
+    "sampleMid": "m-delete",
+    "examples": [
+     "m-delete"
+    ],
+    "earlier": [],
+    "retrying": 0,
+    "versions": []
+   },
+   {
+    "id": "b89bccc77576",
+    "key": "v1|111111111111/us-east-1/orders|orders-worker|not_deleted",
+    "kind": "not_deleted",
+    "signature": "not_deleted",
+    "label": "orders-worker received it and didn't delete it before its visibility timeout ran out (inferred)",
+    "basis": "inferred",
+    "inferred": true,
+    "why": "The consumer received it and no delete or outcome followed before its visibility timeout ran out, so SQS makes it visible again.",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "count": 1,
+    "counts": {
+     "dead_lettered": 0,
+     "stuck": 1,
+     "filtered": 0
+    },
+    "dlqInferred": 0,
+    "firstMs": 1763080001000,
+    "lastMs": 1763080001000,
+    "times": [
+     1763080001000
+    ],
+    "tenants": [],
+    "sampleError": null,
+    "sampleMid": "m-not-deleted",
+    "examples": [
+     "m-not-deleted"
+    ],
+    "earlier": [],
+    "retrying": 0,
+    "versions": []
+   },
+   {
+    "id": "ca0e028c1962",
+    "key": "v1|111111111111/us-east-1/orders|orders-worker|no_outcome",
+    "kind": "no_outcome",
+    "signature": "no_outcome",
+    "label": "orders-worker: no outcome within the Lambda timeout, most likely a timeout or out of memory (inferred)",
+    "basis": "inferred",
+    "inferred": true,
+    "why": "A Lambda receive with no outcome within the Lambda timeout: the invocation most likely timed out or ran out of memory.",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "count": 1,
+    "counts": {
+     "dead_lettered": 0,
+     "stuck": 1,
+     "filtered": 0
+    },
+    "dlqInferred": 0,
+    "firstMs": 1763080001000,
+    "lastMs": 1763080001000,
+    "times": [
+     1763080001000
+    ],
+    "tenants": [],
+    "sampleError": null,
+    "sampleMid": "m-no-outcome",
+    "examples": [
+     "m-no-outcome"
+    ],
+    "earlier": [],
+    "retrying": 0,
+    "versions": []
+   },
+   {
+    "id": "9eb199a70000",
+    "key": "v1|111111111111/us-east-1/jobs.fifo||fifo_blocked:g1",
+    "kind": "fifo_blocked",
+    "signature": "fifo_blocked:g1",
+    "label": "Not received: an earlier message in FIFO group g1 hasn't finished (inferred)",
+    "basis": "inferred",
+    "inferred": true,
+    "why": "SQS delivers a FIFO group's messages in order, and an earlier message of the same group hasn't finished.",
+    "queue": "jobs.fifo",
+    "queueKey": "111111111111/us-east-1/jobs.fifo",
+    "consumer": "",
+    "outcome": "stuck",
+    "count": 1,
+    "counts": {
+     "dead_lettered": 0,
+     "stuck": 1,
+     "filtered": 0
+    },
+    "dlqInferred": 0,
+    "firstMs": 1763080000000,
+    "lastMs": 1763080000000,
+    "times": [
+     1763080000000
+    ],
+    "tenants": [],
+    "sampleError": null,
+    "sampleMid": "m-fifo-2",
+    "examples": [
+     "m-fifo-2"
+    ],
+    "earlier": [],
+    "retrying": 0,
+    "versions": []
+   },
+   {
+    "id": "d934ee02b313",
+    "key": "v1|111111111111/us-east-1/jobs.fifo||never_received",
+    "kind": "never_received",
+    "signature": "never_received",
+    "label": "Sent, never received by an instrumented consumer (inferred)",
+    "basis": "inferred",
+    "inferred": true,
+    "why": "No instrumented consumer reported a receive. A consumer without Trailbeam, or none at all, may be reading the queue.",
+    "queue": "jobs.fifo",
+    "queueKey": "111111111111/us-east-1/jobs.fifo",
+    "consumer": "",
+    "outcome": "stuck",
+    "count": 1,
+    "counts": {
+     "dead_lettered": 0,
+     "stuck": 1,
+     "filtered": 0
+    },
+    "dlqInferred": 0,
+    "firstMs": 1763080000000,
+    "lastMs": 1763080000000,
+    "times": [
+     1763080000000
+    ],
+    "tenants": [],
+    "sampleError": null,
+    "sampleMid": "m-fifo-1",
+    "examples": [
+     "m-fifo-1"
+    ],
+    "earlier": [],
+    "retrying": 0,
+    "versions": []
+   },
+   {
+    "id": "e8f85b9f9269",
+    "key": "v1|audit||never_received",
+    "kind": "never_received",
+    "signature": "never_received",
+    "label": "Sent, never received by an instrumented consumer (inferred)",
+    "basis": "inferred",
+    "inferred": true,
+    "why": "No instrumented consumer reported a receive. A consumer without Trailbeam, or none at all, may be reading the queue.",
+    "queue": "audit",
+    "queueKey": "audit",
+    "consumer": "",
+    "outcome": "stuck",
+    "count": 1,
+    "counts": {
+     "dead_lettered": 0,
+     "stuck": 1,
+     "filtered": 0
+    },
+    "dlqInferred": 0,
+    "firstMs": 1763080000000,
+    "lastMs": 1763080000000,
+    "times": [
+     1763080000000
+    ],
+    "tenants": [],
+    "sampleError": null,
+    "sampleMid": "m-never",
+    "examples": [
+     "m-never"
+    ],
+    "earlier": [],
+    "retrying": 0,
+    "versions": []
+   },
+   {
+    "id": "4b0c42ea209b",
+    "key": "v1|111111111111/us-east-1/orders|thumbs|filter:thumbs",
+    "kind": "filter",
+    "signature": "filter:thumbs",
+    "label": "Removed by thumbs's event filter. The function never ran",
+    "basis": "CloudTrail",
+    "inferred": false,
+    "why": null,
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "consumer": "thumbs",
+    "outcome": "filtered",
+    "count": 1,
+    "counts": {
+     "dead_lettered": 0,
+     "stuck": 0,
+     "filtered": 1
+    },
+    "dlqInferred": 0,
+    "firstMs": 1763080005000,
+    "lastMs": 1763080005000,
+    "times": [
+     1763080005000
+    ],
+    "tenants": [],
+    "sampleError": null,
+    "sampleMid": "m-filter",
+    "examples": [
+     "m-filter"
+    ],
+    "earlier": [],
+    "retrying": 0,
+    "versions": []
+   }
+  ],
+  "assign": {
+   "m-filter": "4b0c42ea209b",
+   "m-timeout": "d92a5fea2810",
+   "m-oom": "1dbef06fd894",
+   "m-exc-1": "7fc2a3d79616",
+   "m-exc-2": "7fc2a3d79616",
+   "m-exc-bare": "74af82beac6e",
+   "m-invalid": "0add7bfc4d3c",
+   "m-reported": "8f7b9acbe2a7",
+   "m-no-outcome": "ca0e028c1962",
+   "m-delete": "a4a2a9d94566",
+   "m-processing": "296d0067e0b2",
+   "m-in-flight": "296d0067e0b2",
+   "m-not-deleted": "b89bccc77576",
+   "m-not-deleted-2": "0dfba794bb25",
+   "m-fifo-1": "d934ee02b313",
+   "m-fifo-2": "9eb199a70000",
+   "m-never": "e8f85b9f9269",
+   "m-dlq": "7fc2a3d79616",
+   "m-dlq-inferred": "74af82beac6e",
+   "m-other-account": "8036d2f31159",
+   "m-many-00": "7819c4846154",
+   "m-many-01": "7819c4846154",
+   "m-many-02": "7819c4846154",
+   "m-many-03": "7819c4846154",
+   "m-many-04": "7819c4846154",
+   "m-many-05": "7819c4846154",
+   "m-many-06": "7819c4846154",
+   "m-many-07": "7819c4846154",
+   "m-many-08": "7819c4846154",
+   "m-many-09": "7819c4846154",
+   "m-many-10": "7819c4846154"
+  },
+  "range": {
+   "fromMs": 1763080030000,
+   "toMs": 1763083600000,
+   "groups": [
+    {
+     "id": "74af82beac6e",
+     "key": "v1|111111111111/us-east-1/orders|orders-worker|exc:KeyError:",
+     "kind": "exc",
+     "signature": "exc:KeyError:",
+     "label": "orders-worker raised KeyError",
+     "basis": "spans",
+     "inferred": false,
+     "why": null,
+     "queue": "orders",
+     "queueKey": "111111111111/us-east-1/orders",
+     "consumer": "orders-worker",
+     "outcome": "dead_lettered",
+     "count": 1,
+     "counts": {
+      "dead_lettered": 1,
+      "stuck": 0,
+      "filtered": 0
+     },
+     "dlqInferred": 1,
+     "firstMs": 1763080041000,
+     "lastMs": 1763080041000,
+     "times": [
+      1763080041000
+     ],
+     "tenants": [],
+     "sampleError": null,
+     "sampleMid": "m-dlq-inferred",
+     "examples": [
+      "m-dlq-inferred"
+     ],
+     "earlier": [
+      {
+       "what": "raised an exception",
+       "n": 1
+      }
+     ],
+     "retrying": 0,
+     "versions": []
+    },
+    {
+     "id": "296d0067e0b2",
+     "key": "v1|111111111111/us-east-1/orders|orders-worker|in_flight",
+     "kind": "in_flight",
+     "signature": "in_flight",
+     "label": "orders-worker received it over 5 minutes ago and hasn't deleted it yet",
+     "basis": "spans",
+     "inferred": false,
+     "why": null,
+     "queue": "orders",
+     "queueKey": "111111111111/us-east-1/orders",
+     "consumer": "orders-worker",
+     "outcome": "stuck",
+     "count": 2,
+     "counts": {
+      "dead_lettered": 0,
+      "stuck": 2,
+      "filtered": 0
+     },
+     "dlqInferred": 0,
+     "firstMs": 1763083000000,
+     "lastMs": 1763083590000,
+     "times": [
+      1763083590000,
+      1763083000000
+     ],
+     "tenants": [],
+     "sampleError": null,
+     "sampleMid": "m-processing",
+     "examples": [
+      "m-processing",
+      "m-in-flight"
+     ],
+     "earlier": [],
+     "retrying": 0,
+     "versions": []
+    },
+    {
+     "id": "8f7b9acbe2a7",
+     "key": "v1|111111111111/us-east-1/orders|orders-worker|reported_failure",
+     "kind": "reported_failure",
+     "signature": "reported_failure",
+     "label": "orders-worker reported the message in batchItemFailures",
+     "basis": "spans",
+     "inferred": false,
+     "why": null,
+     "queue": "orders",
+     "queueKey": "111111111111/us-east-1/orders",
+     "consumer": "orders-worker",
+     "outcome": "stuck",
+     "count": 1,
+     "counts": {
+      "dead_lettered": 0,
+      "stuck": 1,
+      "filtered": 0
+     },
+     "dlqInferred": 0,
+     "firstMs": 1763080081000,
+     "lastMs": 1763080081000,
+     "times": [
+      1763080081000
+     ],
+     "tenants": [],
+     "sampleError": null,
+     "sampleMid": "m-reported",
+     "examples": [
+      "m-reported"
+     ],
+     "earlier": [
+      {
+       "what": "raised an exception",
+       "n": 1
+      },
+      {
+       "what": "no outcome",
+       "n": 1
+      }
+     ],
+     "retrying": 1,
+     "versions": []
+    },
+    {
+     "id": "7fc2a3d79616",
+     "key": "v1|111111111111/us-east-1/orders|orders-worker|exc:TimeoutError:Stripe timed out after <n> ms",
+     "kind": "exc",
+     "signature": "exc:TimeoutError:Stripe timed out after <n> ms",
+     "label": "orders-worker raised TimeoutError: Stripe timed out after 9000 ms",
+     "basis": "spans",
+     "inferred": false,
+     "why": null,
+     "queue": "orders",
+     "queueKey": "111111111111/us-east-1/orders",
+     "consumer": "orders-worker",
+     "outcome": "stuck",
+     "count": 1,
+     "counts": {
+      "dead_lettered": 0,
+      "stuck": 1,
+      "filtered": 0
+     },
+     "dlqInferred": 0,
+     "firstMs": 1763080061000,
+     "lastMs": 1763080061000,
+     "times": [
+      1763080061000
+     ],
+     "tenants": [
+      "globex"
+     ],
+     "sampleError": "Stripe timed out after 9000 ms",
+     "sampleMid": "m-exc-2",
+     "examples": [
+      "m-exc-2"
+     ],
+     "earlier": [],
+     "retrying": 0,
+     "versions": [
+      {
+       "version": "1.4.3",
+       "count": 1,
+       "firstMs": 1763080061000,
+       "lastMs": 1763080061000
+      }
+     ]
+    }
+   ]
+  },
+  "trends": {
+   "7fc2a3d79616": [
+    3,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "74af82beac6e": [
+    2,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "7819c4846154": [
+    11,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "296d0067e0b2": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    1
+   ],
+   "8f7b9acbe2a7": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "d92a5fea2810": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "1dbef06fd894": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "0add7bfc4d3c": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "0dfba794bb25": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "8036d2f31159": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "a4a2a9d94566": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "b89bccc77576": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "ca0e028c1962": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "9eb199a70000": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "d934ee02b313": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "e8f85b9f9269": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "4b0c42ea209b": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ]
+  }
+ }
+}

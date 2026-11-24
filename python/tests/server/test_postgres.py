@@ -1495,6 +1495,30 @@ def test_service_version_is_kept_and_filters_the_lists(pg_store):
     assert [m["message_id"] for m in queries.stuck_page(s, now, 900, 1, 10, version="1.4.2").items] == ["m-1"]
 
 
+@needs_pg
+def test_causes_on_postgres(pg_store):
+    """QV-367: GET /api/causes's reading (causes.read_unfinished) on Postgres, as on SQLite (test_causes.py): the
+    stuck messages, each classified from its rows, their source queue's URL and the dead-letter queue grouping."""
+    from spans import T0 as T0_NS
+    from trailbeam.server import causes
+
+    s = pg_store(bucket_ns=SEC)
+    p, w = Consumer("producer"), Consumer("worker", source="lambda")
+    fail = w.outcome(T0_NS + 2 * SEC, "m-1", "failed_exception", "inv-1", error_type="TimeoutError")
+    fail.attrs["trailbeam.error_message"] = "Stripe timed out after 10000 ms"
+    s.insert(records([p.send(T0_NS, "m-1"), w.receive(T0_NS + SEC, "m-1", "rh-1", lambda_inv="inv-1"), fail,
+                      Consumer("dlq-reader").receive(T0_NS + 300 * SEC, "m-1", "rh-d", queue="orders-dlq",
+                                                     dlq_source="orders"),
+                      p.send(T0_NS, "m-2"), Consumer("poller").receive(T0_NS + SEC, "m-2", "rh-2")]))
+    read = causes.read_unfinished(s, T0_NS + 3600 * SEC, 900, None, 300)
+    assign: dict = {}
+    groups = causes.group(read["classified"], read["first_seen"], assign)
+    assert [(g["kind"], g["outcome"], g["count"]) for g in groups] == [("exc", "dead_lettered", 1), ("not_deleted", "stuck", 1)]
+    assert groups[0]["label"] == "orders-worker raised TimeoutError: Stripe timed out after 10000 ms"
+    assert groups[0]["queueKey"] == "000000000000//orders" and set(assign) == {"m-1", "m-2"}
+    assert [(g["name"], g["messageIds"]) for g in causes.dlq_groups(read["items"], read["urls"])] == [("orders-dlq", ["m-1"])]
+
+
 # ---- QV-363: the queue page's events and their rollup -----------------------------------------------------
 
 def _queue_rollup_vs_events(s) -> tuple:
