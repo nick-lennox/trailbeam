@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **A queue's series for the queue page** (QV-363): `GET /api/queues/{queue}/series?from_ms=&to_ms=&step_s=`. For each
+  bucket it gives sends, receives and re-receives, handled messages (accepted deletes plus Lambda successes),
+  failed Lambda invocations, dead-letter moves (seen on the dead-letter queue, and inferred from the configured
+  maxReceiveCount, kept apart), and the p95 time in queue and time in handler. A queue is keyed by account,
+  region and name, as the hosted app keys it. SQLite only for now: a Postgres store answers 501.
+  - Schema 16 adds `queue_events`, built from every message's spans when the file is upgraded (one pass over the
+    messages, like schema 12).
 - **Users and roles switch on when the first admin exists** (QV-225). Each replica checks the store at least
   every 5 seconds for an admin. Until there is one, nothing changes. After that:
   - The web screen and the API need a person: signing in with an email and password on `/login` (cookie

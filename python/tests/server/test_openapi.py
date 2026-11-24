@@ -251,7 +251,7 @@ def _server_paths(app):
     firsts = set(app.routes) | {
         m.split("/")[2] for m in re.findall(r'"(/api/[a-z_]+)', source)}
     roots = {f"/api/{k}" for k in firsts} | set(re.findall(r'"(/v1/[a-z_/]+)"', source))
-    extra = [MID, "body", "search", "x"]
+    extra = [MID, "body", "search", "series", "x"]
     out = set(roots)
     for r in roots:
         for a in extra:

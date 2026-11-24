@@ -596,6 +596,26 @@ class SqliteStore(Store):
     def queue_messages(self, queue: str) -> set[str]:
         return {r["mid"] for r in self.query("SELECT mid FROM message_queues NOT INDEXED WHERE queue = ?", (queue,))}
 
+    def queue_keys(self) -> list[str]:
+        """The distinct leading keys of queue_events, one index seek each (a queue has many rows; there are few
+        queues), not a scan."""
+        out: list = []
+        with self.reader() as c, _snapshot(c):
+            k = c.execute("SELECT MIN(queue_key) FROM queue_events").fetchone()[0]
+            while k is not None:
+                out.append(k)
+                k = c.execute("SELECT MIN(queue_key) FROM queue_events WHERE queue_key > ?", (k,)).fetchone()[0]
+        return out
+
+    def queue_events(self, keys: list[str], from_ms: int, to_ms: int) -> list[tuple]:
+        """One range of the primary key per queue key."""
+        out: list = []
+        with self.reader() as c, _snapshot(c):
+            for k in keys:
+                out += c.execute("SELECT at_ms, kind, value FROM queue_events WHERE queue_key = ? "
+                                 "AND at_ms BETWEEN ? AND ?", (k, from_ms, to_ms)).fetchall()
+        return [tuple(r) for r in out]
+
     def tenant_activity(self, from_ms: int, to_ms: int) -> list[TenantActivity]:
         """The hourly rollup and the tenant events ``rollup.plan`` says, and the repeat dead-letter moves
         (rollup.py). One read transaction: the rollup rows and the events taken out of them agree."""
