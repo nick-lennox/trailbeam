@@ -27,7 +27,7 @@ NOT_FRAGMENTS = {"README.md"}
 # as they are. Delete a line once its branch has merged; the list should end up empty.
 GRANDFATHERED = {
     "qv-226-people-page", "qv-226-people-tokens", "qv-226-tokens-page", "qv-227-proxy-signin", "qv-228-oidc",
-    "qv-313-sns-fanout", "qv-314-inferred-origin", "qv-319-java-release-setup", "qv-320-dotnet",
+    "qv-313-sns-fanout", "qv-314-inferred-origin", "qv-320-dotnet",
     "qv-321-go-middleware", "qv-349-release-0.5.0-prep", "qv-364-queue-page", "qv-367-causes-endpoint",
     "qv-367-needs-attention-ui", "qv-409-start-log-driver", "qv-434-start-stop",
 }

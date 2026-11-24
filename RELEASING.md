@@ -1,8 +1,8 @@
 # Releasing Trailbeam
 
 The steps the 0.4.0 (QV-179) and 0.5.0 (QV-349) releases followed. An agent prepares the release in one pull
-request with the `hold` label; the board merges it, tags and publishes. The Java package is not published yet;
-its own steps come with QV-319 (`java/RELEASING.md`).
+request with the `hold` label; the board merges it, tags and publishes. The Java package has its own steps in
+[java/RELEASING.md](java/RELEASING.md).
 
 ## Prepare (one pull request, labelled `hold`)
 
