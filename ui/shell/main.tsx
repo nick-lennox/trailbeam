@@ -11,7 +11,7 @@ import {
   noTenantsText, storeIsEmpty, tenantsEmpty, tenantsFootnote,
   type EmptyStateProps, type MessageBody, type TenantStats, type Timeline,
 } from "../src/index.ts";
-import { ApiError, Header, getHealth, getJSON, tenantHref } from "./chrome.tsx";
+import { ApiError, CopyLink, Header, getHealth, getJSON, tenantHref } from "./chrome.tsx";
 import { HomePage } from "./home.tsx";
 import { DuplicatesPage, StuckPage } from "./lists.tsx";
 import "./styles.css";
@@ -140,6 +140,8 @@ function MessagePage() {
                 <a key={k} href={href} aria-current={tab === k ? "page" : undefined}
                   className={`-mb-px border-b-2 px-3 py-2 ${tab === k ? "border-sky-ink text-sky-ink" : "border-transparent text-sky-ink-2 hover:text-sky-ink"}`}>{label}</a>
               ))}
+              {/* a message ID names the same timeline later: the link is this page's, with its tab */}
+              <span className="ml-auto self-center"><CopyLink link={() => (tab === "body" ? `${here}&tab=body` : here)} /></span>
             </nav>
             {tab === "timeline" ? (
               <>
