@@ -26,6 +26,19 @@
       <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
     </license>
   </licenses>
+  <!-- Maven Central requires developers and scm. -->
+  <developers>
+    <developer>
+      <name>Trailbeam maintainers</name>
+      <organization>Trailbeam</organization>
+      <organizationUrl>https://github.com/nick-lennox/qv2</organizationUrl>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:https://github.com/nick-lennox/qv2.git</connection>
+    <developerConnection>scm:git:https://github.com/nick-lennox/qv2.git</developerConnection>
+    <url>https://github.com/nick-lennox/qv2</url>
+  </scm>
 
   <properties>
     <maven.compiler.release>11</maven.compiler.release>
@@ -192,6 +205,78 @@
           </execution>
         </executions>
       </plugin>
+      <!-- Maven Central requires a sources jar and a javadoc jar next to the main jar. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+        <version>3.3.1</version>
+        <executions>
+          <execution>
+            <id>attach-sources</id>
+            <goals>
+              <goal>jar-no-fork</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>3.11.2</version>
+        <configuration>
+          <doclint>none</doclint>
+          <quiet>true</quiet>
+        </configuration>
+        <executions>
+          <execution>
+            <id>attach-javadocs</id>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!--
+      Publishing to Maven Central: mvn -Prelease deploy. Not run by CI or by agents. It needs a GPG key in the
+      local keyring and a Central Portal token in settings.xml under the server ID "central", and the group ID
+      above must be a namespace verified on the Central Portal. autoPublish is off: the upload is validated and
+      then waits on the Portal until someone presses Publish, so a mistake can still be dropped.
+    -->
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>3.2.7</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <version>0.7.0</version>
+            <extensions>true</extensions>
+            <configuration>
+              <publishingServerId>central</publishingServerId>
+              <autoPublish>false</autoPublish>
+              <waitUntil>validated</waitUntil>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

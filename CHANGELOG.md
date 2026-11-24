@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **The Java jar is ready for Maven Central, except for its name** (QV-319). Builds now also make a sources jar and
+  a javadoc jar, the pom lists developers and scm as Central requires, and a `release` profile signs with GPG and
+  uploads through the Central Portal with automatic publishing off. Nothing is published: the group ID
+  `dev.trailbeam` stays a placeholder until the board picks the namespace.
 - **Users and roles are a preview, off unless switched on** (QV-349). They haven't had their security review
   (QV-229) yet, so a server built from this version ignores them unless it runs with `--accounts`
   (`TRAILBEAM_ACCOUNTS=1`, also `true`, `yes` or `on`; any other value but `0`, `false`, `no`, `off` or empty
