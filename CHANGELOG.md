@@ -2,13 +2,26 @@
 
 ## Unreleased
 
+- **Users and roles are a preview, off unless switched on** (QV-349). They haven't had their security review
+  (QV-229) yet, so a server built from this version ignores them unless it runs with `--accounts`
+  (`TRAILBEAM_ACCOUNTS=1`, also `true`, `yes` or `on`; any other value but `0`, `false`, `no`, `off` or empty
+  stops the server). Off, access is as in 0.4.0, `TRAILBEAM_TOKEN` alone: `trailbeam start` prints no setup link,
+  `/setup` answers `404`, an admin or ingest tokens already in the store are ignored (with a warning at start),
+  `TRAILBEAM_ADMIN_EMAIL` stops the server at start, and `trailbeam users` and `trailbeam tokens` refuse to run
+  without `--accounts` or the variable. On, everything works as described below. The `--trusted-proxy` handling,
+  the cross-site form check and the account tables are not behind the switch.
+- **Postgres, several replicas: a message could get a second summary** (QV-422). A delete or
+  ChangeMessageVisibility span carries no message ID, so its export finds its message by the receipt handle and
+  locks it only then. If another replica stored a newer span of that message in a new day (bucket) meanwhile,
+  the export missed the summary that had moved there and wrote a second one, without the newer span. Lists then
+  showed the message twice, and its page could miss the delete. The export now reads the places again once it
+  holds the message's lock.
 - **Java package, stage 6: the contract's Java note** (QV-319, pre-release, not published). New section 20 of
   the span contract says how the jar meets it: the parent read from the request's trace header, receives in a
   polling loop as root spans beside an agent, where times and call-order ticks are taken, one counter per class
   loader, the SnapStart reset, the fully qualified `trailbeam.error_type`, and why bad capture settings fail
   closed instead of failing at install. It changes no rule and no attribute; the schema version stays 3. The
   README and the kit's README now point to the Java package.
-
 - **Java package, stage 5: Spring Boot executable jars** (QV-319, pre-release, not published). The kit's Java
   driver is also built as a Spring Boot executable jar, with the SDK and Trailbeam nested under `BOOT-INF/lib`,
   and two new variants run it with `java -jar`: `spring-boot` (alone) and `spring-boot-otel-agent` (beside the
@@ -269,7 +282,7 @@
 - **Single sign-on with OpenID Connect** (QV-228, users and roles phase 3b, free and open source). "Sign in with
   Okta / Microsoft Entra / Google Workspace / Keycloak": the authorization code flow with PKCE, turned on with
   `--oidc-issuer`, `--oidc-client-id`, an optional `--oidc-client-secret-file` and the new `--public-url` (the
-  redirect URI is `<public URL>/login/oidc/callback`). It needs the new extra: `pip install
+  redirect URI is `<public URL>/login/oidc/callback`), with users and roles switched on (`--accounts`). It needs the new extra: `pip install
   "trailbeam[server,sso]"` (PyJWT and `cryptography`); a plain server install still pulls in no crypto library.
   `--oidc-admin-groups` and `--oidc-member-groups` turn the provider's groups into roles at every sign-in, with
   `--oidc-default-role` for everyone else and `--oidc-allowed-domains` to limit who may sign in. An email that

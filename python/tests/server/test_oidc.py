@@ -590,6 +590,20 @@ def test_the_server_refuses_to_start_with_half_the_settings(tmp_path, monkeypatc
     assert e.value.code == 2
 
 
+def test_single_sign_on_needs_users_and_roles_switched_on(tmp_path, monkeypatch, caplog):
+    for k in list(os.environ):
+        if k.startswith("TRAILBEAM_OIDC") or k in ("TRAILBEAM_PUBLIC_URL", "TRAILBEAM_ACCOUNTS"):
+            monkeypatch.delenv(k)
+    a = main_mod.build_parser().parse_args(["--db", str(tmp_path / "x.sqlite"), "--oidc-issuer",
+                                            "https://id.example.com", "--oidc-client-id", "tb",
+                                            "--public-url", "https://tb.example.com"])
+    with pytest.raises(SystemExit) as e:
+        main_mod.serve(a)
+    assert e.value.code == 2
+    assert "--accounts" in caplog.text and "single sign-on" in caplog.text
+    assert not (tmp_path / "x.sqlite").exists()  # refused before the store is opened
+
+
 def test_flags_and_environment(tmp_path, monkeypatch):
     secret = tmp_path / "secret"
     secret.write_text("abc\n")

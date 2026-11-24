@@ -532,6 +532,14 @@ ingest.
 
 ### Accounts, ingest tokens and personal API tokens
 
+> **A preview, off by default.** Users and roles are in this release for trying out, but haven't had their
+> security review yet, so the server ignores them unless it runs with `--accounts` (or `TRAILBEAM_ACCOUNTS=1`).
+> Off, the server is guarded by `TRAILBEAM_TOKEN` alone, as in 0.4.0: `trailbeam start` prints no setup link,
+> `/setup` doesn't exist, `TRAILBEAM_ADMIN_EMAIL` stops the server at start, and `trailbeam users` and
+> `trailbeam tokens` refuse to run without `--accounts` (or the variable). A store that already holds an admin or
+> ingest tokens keeps them, and the server warns at start that it ignores them. Everything below assumes the
+> switch is on, on every replica.
+
 The server can also hold people (an email, a password and a role, `admin` or `member`) and named tokens, in its
 own store (SQLite or Postgres). Nothing changes until the first admin exists. After that:
 
@@ -585,7 +593,7 @@ each start replaces it. It is printed only when the output is a terminal, never 
 The server logs `this server has no admin account yet` instead. Either run the command in the container:
 
 ```sh norun="needs a running container; test_cli.py runs these commands against SQLite and Postgres"
-docker exec -it trailbeam trailbeam users create --email ada@example.com --role admin
+docker exec -it trailbeam trailbeam users create --accounts --email ada@example.com --role admin
 # asks for the password twice; or --password-file /run/secrets/admin-password
 ```
 
@@ -630,7 +638,7 @@ package, as an optional extra that brings PyJWT and `cryptography` to check the 
 
 ```sh norun="starts a server that keeps running; python/tests/server/test_oidc.py and test_oidc_keycloak.py test it"
 pip install "trailbeam[server,sso]"     # in Docker: docker build --build-arg TRAILBEAM_EXTRAS=server,sso .
-trailbeam --public-url https://trailbeam.example.com \
+trailbeam --accounts --public-url https://trailbeam.example.com \
   --oidc-issuer https://id.example.com/realms/main --oidc-client-id trailbeam \
   --oidc-client-secret-file /run/secrets/oidc-client-secret \
   --oidc-admin-groups trailbeam-admins --oidc-member-groups engineering --oidc-label Keycloak
@@ -642,6 +650,9 @@ trailbeam --public-url https://trailbeam.example.com \
 2. Give Trailbeam the issuer, the client ID and secret, and `--public-url`: the address people open Trailbeam at.
    The redirect URI is made from it, never from the request's `Host` header, which a client can set.
 3. The sign-in page then shows **Sign in with …** above the password form.
+
+Single sign-on is part of users and roles, so it needs them switched on: with `--oidc-issuer` but without
+`--accounts` (or `TRAILBEAM_ACCOUNTS=1`), the server refuses to start.
 
 Every flag also has an environment variable: `TRAILBEAM_PUBLIC_URL`, `TRAILBEAM_OIDC_ISSUER`,
 `TRAILBEAM_OIDC_CLIENT_ID`, `TRAILBEAM_OIDC_CLIENT_SECRET_FILE` (or the secret itself in
@@ -1499,7 +1510,8 @@ message, list and tenant count reads the same as before
   0.3.0's 4, about 8 s per 1M spans, see the [changelog](CHANGELOG.md)). Once it has, 0.4.0 and 0.3.0 stop at
   start with `the database is at Postgres schema version 10, written by a newer Trailbeam ... Refusing to
   start, so nothing is lost`. To go back, restore the backup you took first.
-- **Accounts stay off until you create the first admin.** Upgrade every replica first: a replica still on 0.4.0
+- **Accounts stay off** unless every replica runs with `--accounts` (`TRAILBEAM_ACCOUNTS=1`), a preview in this
+  release, and then until you create the first admin. Upgrade every replica first: a replica still on 0.4.0
   or 0.3.0 keeps letting `TRAILBEAM_TOKEN` into the web screen and the API after the others have switched.
   `trailbeam users create` reminds you on Postgres. Once an admin exists, `TRAILBEAM_TOKEN` opens only ingest and
   `/metrics`, and browsers signed in with it are signed out: give Prometheus and scripts a personal API token
