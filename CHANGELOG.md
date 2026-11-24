@@ -11,6 +11,11 @@
 - **Fixed: re-enabling a person could leave their personal API token refused for up to 20 seconds** on the
   replica that had refused it while they were disabled.
 
+- **Java package, stage 5: Spring Boot executable jars** (QV-319, pre-release, not published). The kit's Java
+  driver is also built as a Spring Boot executable jar, with the SDK and Trailbeam nested under `BOOT-INF/lib`,
+  and two new variants run it with `java -jar`: `spring-boot` (alone) and `spring-boot-otel-agent` (beside the
+  OpenTelemetry Java agent, with its parent check). The JDK picks the Spring Boot line, so CI covers both of its
+  launchers: 2.7.18 on JDK 11, 3.5.16 on JDK 17 and 4.2.0 on JDK 21 (`-Dspring.boot.version` overrides it).
 - **A compatibility matrix, run every night** (QV-335). Python 3.10 to 3.14, each with the oldest
   (boto3 / botocore 1.34.0, OpenTelemetry 1.28 / 0.49b0) and the newest dependencies, Node.js 20, 22 and 24, each
   with the oldest (3.572.0) and the newest `@aws-sdk/client-sqs`, and Postgres 14 to 18
@@ -257,6 +262,12 @@
 
   `deploy/helm/check.sh` now runs the documented port-forward, checks what each selector picks, and upgrades a
   release installed by the 0.4.0 chart.
+- **Span contract 4.0: broker-neutral kinds and RabbitMQ spans** (QV-305, contract only). Kinds are
+  `<family>.<operation>`, and `contract/span-contract-amqp.md` defines the `amqp.*` spans of a RabbitMQ client
+  (publish with confirms, return, deliver, ack, nack, reject, cancel, channel closed), the receive count from
+  quorum queues' headers, the dead-letter source and reason from `x-death`, and message identity. It comes with
+  vectors and fixtures. Nothing emits or reads these spans yet: the server (QV-306) and the Python package
+  (QV-309) follow. SQS and SNS spans are unchanged.
 
 ## 0.4.0: set up in one command
 
