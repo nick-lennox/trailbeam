@@ -15,6 +15,25 @@ app.kubernetes.io/name: {{ .Chart.Name }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
+{{/* The server pods only. The trial Postgres pod also carries selectorLabels, so a selector on those alone
+     would pick it as well (QV-342). */}}
+{{- define "trailbeam.serverSelectorLabels" -}}
+{{ include "trailbeam.selectorLabels" . }}
+app.kubernetes.io/component: server
+{{- end -}}
+
+{{/* The Deployment's selector. It can't change on an existing Deployment, so one made by 0.4.0 or older (without
+     the component label) keeps its own; new installs select the server pods only. */}}
+{{- define "trailbeam.deploymentSelector" -}}
+{{- $old := lookup "apps/v1" "Deployment" .Release.Namespace (include "trailbeam.fullname" .) -}}
+{{- $kept := dig "spec" "selector" "matchLabels" dict ($old | default dict) -}}
+{{- if $kept -}}
+{{ toYaml $kept }}
+{{- else -}}
+{{ include "trailbeam.serverSelectorLabels" . }}
+{{- end -}}
+{{- end -}}
+
 {{- define "trailbeam.labels" -}}
 {{ include "trailbeam.selectorLabels" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}

@@ -18,8 +18,13 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceResponse
 
 from . import __version__
-from . import auth as auth_mod, bodies, csrf, metrics, queries, trace_links, ui_files, web
+from . import access as access_mod, auth as auth_mod, bodies, csrf, metrics, queries, sessions as sessions_mod, \
+    trace_links, ui_files, web
+from .accounts import Accounts
 from .backpressure import GRPC_RESOURCE_EXHAUSTED, GRPC_UNAVAILABLE, IngestGate, Rejected, status_body
+from .sessions import Sessions
+from .signin import SignIn
+from .tokens import Tokens
 from .store import ExportAbandoned, Store, StoreFull, StoreUnavailable, WriterBusy
 from .proxy import TrustedProxies
 from .otlp import PROBE_NOT_STORED, DecodeError, decode, valid_probe_id
@@ -48,13 +53,26 @@ class App:
                  lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S, now: Callable[[], int] = time.time_ns,
                  max_receive_counts: Optional[dict] = None, ui_dir=ui_files.DEFAULT_UI_DIR, purger=None,
                  auth: Optional[auth_mod.Auth] = None, gate: Optional[IngestGate] = None,
-                 trusted_proxies: Optional[TrustedProxies] = None, trace_link: Optional[str] = None):
+                 trusted_proxies: Optional[TrustedProxies] = None, trace_link: Optional[str] = None,
+                 accounts="auto"):
         self.db = db
         # --trusted-proxy (proxy.py): whose X-Forwarded-For/-Proto/-Host is believed; empty: nobody's
         self.proxies = trusted_proxies or TrustedProxies()
         # --trace-link (trace_links.py): the URL template behind each step's "Open trace"; None: no links
         self.trace_link = trace_links.check(trace_link) if trace_link else None
-        self.auth = auth  # the shared token (auth.py); None: no token, every request is served (the default)
+        self.auth = auth  # the shared token (auth.py); None: no token
+        # people and tokens in the store (accounts.py); None on a store without the account tables
+        self.accounts = Accounts(db) if accounts == "auto" and has_account_tables(db) else (
+            None if accounts == "auto" else accounts)
+        self.sessions = Sessions(self.accounts) if self.accounts else None
+        self.tokens = Tokens(self.accounts) if self.accounts else None
+        self.signin = SignIn(self.accounts, self.sessions) if self.accounts else None
+        # who may do what (access.py): the shared token until an admin exists, then people
+        self.access = access_mod.Access(auth, self.accounts, self.sessions, self.tokens)
+        try:  # read now, so the first export doesn't wait for it (on a :memory: store, behind the writer)
+            self.access.state.get()
+        except access_mod.AccessUnavailable as e:
+            log.warning("%s; asking again on the next request", e)
         self.purger = purger  # retention.Purger, for /api/health; None: no retention configured (tests)
         self.gate = gate or IngestGate()
         self.started = time.time()
@@ -68,7 +86,7 @@ class App:
         self.stats = {"requests": 0, "inserted": 0, "duplicates": 0, "ignored": 0, "rejected": 0}
         self.routes: dict[str, Callable[[dict, list[str]], object]] = {
             "health": self.health, "stats": self.stats_counts, "messages": self.messages, "duplicates": self.duplicates,
-            "stuck": self.stuck, "tenants": self.tenants, "probes": self.probes}
+            "stuck": self.stuck, "tenants": self.tenants, "probes": self.probes, "me": self.me}
         self._init_metrics()
 
     # ---- /metrics -------------------------------------------------------------------------
@@ -260,11 +278,13 @@ class App:
 
     # ---- JSON API -------------------------------------------------------------------------
 
-    def api(self, path: str, query: dict) -> object:
+    def api(self, path: str, query: dict, who: access_mod.Who = access_mod.NOBODY) -> object:
         parts = [unquote(p) for p in path.split("/") if p]
         if not parts or parts[0] not in self.routes:
             raise ApiError(404, f"no such endpoint: /api/{'/'.join(parts)}")
         try:
+            if parts[0] == "me":
+                return self.routes["me"](query, parts[1:], who)
             return self.routes[parts[0]](query, parts[1:])
         except queries.CursorError as e:
             raise ApiError(400, str(e)) from None
@@ -286,11 +306,31 @@ class App:
             data = {"last_row": None, "last_span_ns": None, "store": "unreachable"}
             log.warning("health: the store is unreachable: %s", e)
         return {"status": "ok", "version": __version__, "ingest": ingest, "data": data,
-                "config": {"auth": "token" if self.auth else "off",
+                "config": {"auth": self._mode(), "ingest_auth": self._ingest_auth(),
                            "stuck_after_s": self.stuck_after_s, "lambda_timeout_s": self.lambda_timeout_s,
                            "max_receive_counts": self.max_receive_counts,
                            "store_bodies": sorted(self.db.store_bodies), "trace_link": self.trace_link,
                            "retention": self.purger.status() if self.purger else None}}
+
+    def _mode(self) -> str:
+        try:
+            return self.access.mode()
+        except access_mod.AccessUnavailable:
+            return "token" if self.auth else "off"
+
+    def _ingest_auth(self) -> str:
+        try:
+            return "token" if self.access.ingest_closed() else "open"
+        except access_mod.AccessUnavailable:
+            return "token"
+
+    def me(self, query: dict, rest: list[str], who: access_mod.Who = access_mod.NOBODY) -> dict:
+        """``/api/me``: how this request was let in, and as whom."""
+        if rest:
+            raise ApiError(404, "no such endpoint")
+        user = None if who.user_id is None else {"id": who.user_id, "email": who.email, "name": who.name,
+                                                 "role": who.role}
+        return {"auth": self._mode(), "via": who.via, "user": user}
 
     def ready(self) -> tuple[int, dict]:
         """``/api/ready``: 200 when the store answers, else 503. For a load balancer or a Kubernetes readiness
@@ -549,16 +589,26 @@ def make_handler(app: App):
                     self.close_connection = True  # the request body is not read
                     self._send(403, "text/plain; charset=utf-8", f"forbidden: {why}".encode())
                     return
-            if path == "/login" and app.auth is not None:
+            if path == "/login":
                 self._login()
                 return
             if path != "/v1/traces":
                 self._send(404, "text/plain", b"not found")
                 return
-            self._count_ingest_reject = True  # a 401, 413, 415, 400 or 501 below is counted as it is sent
-            if app.auth is not None and not app.auth.bearer_ok(self.headers.get("Authorization")):
+            self._count_ingest_reject = True  # a 401, 413, 415, 400, 501 or 503 below is counted as it is sent
+            try:  # x-trailbeam-key or Authorization: Bearer, before the body is read (access.py)
+                d = app.access.check(self.headers, access_mod.INGEST)
+            except access_mod.AccessUnavailable as e:
+                log.warning("ingest: %s", e)
                 self.close_connection = True  # the request body is not read
-                self._unauthorized("text/plain", b"this server needs Authorization: Bearer <TRAILBEAM_TOKEN>")
+                r = app.gate.store_unreachable()
+                json_mode = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() == "application/json"
+                ctype, out = status_body(GRPC_UNAVAILABLE, r.message, json_mode)
+                self._send(503, ctype, out, {"Retry-After": str(r.retry_after_s)})
+                return
+            if not d.ok:
+                self.close_connection = True  # the request body is not read
+                self._unauthorized("text/plain", d.message.encode())
                 return
             body = self._body()
             if body is None:  # 413, 415, 400 or 501, already sent and counted
@@ -603,18 +653,41 @@ def make_handler(app: App):
             if u.path == "/api/ready":  # readiness probes: no token, and nothing but ready or not
                 self._json(*app.ready())
                 return
-            if app.auth is not None and u.path in ("/login", "/logout"):
-                if u.path == "/logout":
-                    self._send(303, "text/plain", b"", {"Location": "/login", "Set-Cookie": auth_mod.clear_cookie()})
+            path = u.path
+            try:
+                if path in ("/login", "/logout"):
+                    mode = app.access.mode()
+                    if mode != "off":
+                        self._sign_in_out(path, mode, q)
+                        return
+                    d = access_mod.Decision(True)
                 else:
-                    self._send_page(web.login_page(auth_mod.safe_next(q.get("next")), status=200))
-                return
-            if app.auth is not None and not app.auth.request_ok(self.headers):
-                if u.path == "/api/health":  # health checks: alive, nothing more
+                    # /api/health is open, but says more only to whoever may read the API
+                    d = app.access.check(self.headers, access_mod.MEMBER if path == "/api/health"
+                                         else access_mod.level_of("GET", path))
+            except access_mod.AccessUnavailable as e:
+                log.warning("GET %s: %s", path, e)
+                if path == "/api/health":  # liveness answers while the store is unreachable
                     self._json(200, {"status": "ok", "version": __version__})
-                elif u.path.startswith("/api/"):
-                    self._unauthorized("application/json", json.dumps(
-                        {"error": "this server needs Authorization: Bearer <TRAILBEAM_TOKEN>"}).encode())
+                elif path.startswith("/api/"):
+                    self._json(500, {"error": "internal error: the store is unreachable"})
+                else:
+                    self._send(500, "text/plain", b"internal error: the store is unreachable")
+                return
+            if not d.ok:
+                if path == "/api/health":  # health checks: alive, nothing more
+                    self._json(200, {"status": "ok", "version": __version__})
+                elif path.startswith("/api/") or path == "/metrics":
+                    body = json.dumps({"error": d.message}).encode() if path != "/metrics" else d.message.encode()
+                    ctype = "application/json" if path != "/metrics" else "text/plain; charset=utf-8"
+                    if d.status == 401:
+                        self._unauthorized(ctype, body)
+                    else:
+                        self._send(d.status, ctype, body)
+                elif d.status == 403:
+                    self._send_page(web.forbidden_page(d.message))
+                elif app.access.mode() == "accounts":
+                    self._send_page(web.sign_in_page(auth_mod.safe_next(self.path)))
                 else:
                     self._send_page(web.login_page(auth_mod.safe_next(self.path)))
                 return
@@ -629,15 +702,47 @@ def make_handler(app: App):
                 self._page(u.path, q)
                 return
             try:
-                self._json(200, app.api(u.path[len("/api/"):], q))
+                self._json(200, app.api(u.path[len("/api/"):], q, d.who))
             except ApiError as e:
                 self._json(e.status, {"error": e.message})
             except Exception:
                 log.exception("API request failed")
                 self._json(500, {"error": "internal error"})
 
+        def _sign_in_out(self, path: str, mode: str, q: dict):
+            """GET /login (the form) and /logout (ends the session), when the server has a token or an admin."""
+            secure = self._scheme() == "https"
+            if path == "/logout":
+                if mode == "accounts":
+                    sid = sessions_mod.cookie_value(self.headers.get("Cookie"))
+                    if sid and app.sessions is not None:
+                        try:
+                            app.sessions.end(sid)
+                        except Exception as e:  # noqa: BLE001 - the cookie is cleared anyway
+                            log.warning("sign-out: the session could not be ended in the store: %s", e)
+                    cookie = sessions_mod.clear_cookie(secure)
+                else:
+                    cookie = auth_mod.clear_cookie()
+                self._send(303, "text/plain", b"", {"Location": "/login", "Set-Cookie": cookie})
+            elif mode == "accounts":
+                self._send_page(web.sign_in_page(auth_mod.safe_next(q.get("next")), status=200))
+            else:
+                self._send_page(web.login_page(auth_mod.safe_next(q.get("next")), status=200))
+
         def _login(self):
-            """POST /login: the token from the form; right, the session cookie and back to the page."""
+            """POST /login: the token from the form (no admin yet), or an email and password (once an admin exists);
+            right, a session cookie and back to the page. 404 on a server with neither."""
+            try:
+                mode = app.access.mode()
+            except access_mod.AccessUnavailable as e:
+                log.warning("sign-in: %s", e)
+                self.close_connection = True
+                self._send(503, "text/plain", b"the store is unreachable; try again", {"Retry-After": "1"})
+                return
+            if mode == "off":
+                self.close_connection = True
+                self._send(404, "text/plain", b"not found")
+                return
             n = self.headers.get("Content-Length") or ""
             if not n.isdigit() or int(n) > 8192:
                 self.close_connection = True
@@ -645,12 +750,35 @@ def make_handler(app: App):
                 return
             form = {k: v[-1] for k, v in parse_qs(self.rfile.read(int(n)).decode("utf-8", "replace")).items()}
             nxt = auth_mod.safe_next(form.get("next"))
-            if not app.auth.token_ok(form.get("token", "")):
-                log.warning("login with a wrong token from %s", self._client())
-                self._send_page(web.login_page(nxt, error=True))
-                return
             secure = self._scheme() == "https"  # X-Forwarded-Proto counts only from a --trusted-proxy
-            self._send(303, "text/plain", b"", {"Location": nxt, "Set-Cookie": app.auth.set_cookie(secure)})
+            if mode == "token":
+                if not app.auth.token_ok(form.get("token", "")):
+                    log.warning("login with a wrong token from %s", self._client())
+                    self._send_page(web.login_page(nxt, error=True))
+                    return
+                self._send(303, "text/plain", b"", {"Location": nxt, "Set-Cookie": app.auth.set_cookie(secure)})
+                return
+            email = form.get("email", "")[:300]
+            try:
+                r = app.signin.sign_in(email, form.get("password", ""), self._client())
+            except Exception:  # noqa: BLE001
+                log.exception("sign-in failed")
+                self._send(500, "text/plain", b"internal error")
+                return
+            if r.outcome == "ok":
+                log.info("signed in: user %s from %s", r.user["id"], self._client())
+                max_age = max(0, (r.expires_at_ms - time.time_ns() // 1_000_000) // 1000)
+                self._send(303, "text/plain", b"", {"Location": nxt,
+                                                    "Set-Cookie": sessions_mod.set_cookie(r.session_id, secure, max_age)})
+                return
+            log.warning("sign-in refused (%s) from %s", r.outcome, self._client())
+            status = {"locked": 429, "slow_down": 429, "busy": 503}.get(r.outcome, 401)
+            st, headers, body = web.sign_in_page(nxt, email if r.outcome != "slow_down" else "", r.outcome,
+                                                 r.retry_after_s, status=status)
+            headers = dict(headers)
+            if r.retry_after_s:
+                headers["Retry-After"] = str(r.retry_after_s)
+            self._send_page((st, headers, body))
 
         def _send_page(self, r):
             status, headers, body = r
@@ -697,6 +825,11 @@ def _client_gone(sock) -> bool:
         return sock.recv(1, socket.MSG_PEEK) == b""
     except (OSError, ValueError):
         return True
+
+
+def has_account_tables(db) -> bool:
+    """A SQLite or Postgres store (schema 15 / 8 or later): it has users and tokens (account_tables.py)."""
+    return callable(getattr(db, "reader", None)) or (hasattr(db, "reads") and hasattr(db, "ingest"))
 
 
 def make_server(db: Store, host: str = "127.0.0.1", port: int = 4318, **app_options) -> ThreadingHTTPServer:

@@ -13,7 +13,8 @@ and changing the token ends every session. It is ``HttpOnly`` and ``SameSite=Str
 when the request came over HTTPS (a proxy saying so in ``X-Forwarded-Proto``); put Trailbeam behind TLS when
 the token crosses a network you don't trust.
 
-One token for everyone: there are no users, roles or audit log (those are in the hosted app).
+Until the server has an admin account. Once it does, access.py lets this token in only for ingest and /metrics,
+and people sign in or use personal API tokens instead (sessions.py, tokens.py).
 """
 from __future__ import annotations
 
