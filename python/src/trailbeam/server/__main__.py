@@ -354,11 +354,12 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
     for level, message in access_log(httpd.app, token is not None, a.host):  # after "listening on": scripts read it first
         logging.getLogger("trailbeam.server").log(level, message)
     # docker stop and systemd send SIGTERM; Python ignores it as PID 1 unless a handler is set. Stop the
-    # same way as on Ctrl-C, so the SQLite file is closed cleanly.
+    # same way as on Ctrl-C, so the SQLite file is closed cleanly. From the handler on, everything is inside
+    # the try: a SIGTERM during the next lines still stops the purger and closes the store (QV-434).
     signal.signal(signal.SIGTERM, _interrupt)
-    logging.getLogger("trailbeam.server").info("retention %s", retention.config())
-    purger.start()
     try:
+        logging.getLogger("trailbeam.server").info("retention %s", retention.config())
+        purger.start()
         if on_listening:
             on_listening(a.host, httpd.server_address[1], token, httpd.app)
         httpd.serve_forever()
