@@ -4,11 +4,13 @@ Every route the server answers has one level (``ROUTES``, checked by ``level_of`
 is ``MEMBER``, so a page or file added later is never open by mistake):
 
 - ``OPEN``: ``/api/ready``, ``/api/health`` (which says only ``status`` and ``version`` to a request that isn't let
-  in at ``MEMBER``), and the sign-in page and its form.
+  in at ``MEMBER``), the sign-in page and its form, and the first admin's setup form (``/setup``, first_admin.py),
+  which needs its one-time code instead.
 - ``INGEST``: ``POST /v1/traces``.
 - ``METRICS``: ``GET /metrics``.
 - ``MEMBER``: the API and the web screen, message bodies included (an admin or a member, proposal section 2).
-- ``ADMIN``: managing people and tokens. No HTTP route has it yet: phase 1 does that from the command line.
+- ``ADMIN``: managing people and tokens. No HTTP route has it yet: phase 1 does that from the command line
+  (``trailbeam users``, ``trailbeam tokens``: cli.py).
 
 **Two modes, switched by the store, not by a setting.** ``State`` asks the store whether an admin exists at most
 every ``STATE_TTL_S`` (5 s), on every replica, so when the first admin is created every replica switches within
@@ -51,6 +53,8 @@ ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/login"): OPEN,
     ("POST", "/login"): OPEN,
     ("GET", "/logout"): OPEN,
+    ("GET", "/setup"): OPEN,   # the first admin's form; the setup code in it is the credential (first_admin.py)
+    ("POST", "/setup"): OPEN,
     ("POST", "/v1/traces"): INGEST,
     ("GET", "/metrics"): METRICS,
 }

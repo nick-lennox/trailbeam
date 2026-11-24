@@ -48,9 +48,10 @@ import secrets
 import shlex
 import stat
 import sys
+import time
 from pathlib import Path
 
-from . import auth
+from . import auth, first_admin
 
 TOKEN_FILE = "token"
 KEY_FILE = "receipt-hash-key"
@@ -62,6 +63,7 @@ SHOWN_DATA_DIR_ENV = "TRAILBEAM_START_SHOWN_DATA_DIR"
 KEY_ENV = "TRAILBEAM_RECEIPT_HASH_KEY"
 SHOWN_CAT_ENV = "TRAILBEAM_START_SHOWN_CAT"
 SHOWN_TOKEN_FILE_ENV = "TRAILBEAM_START_SHOWN_TOKEN_FILE"
+TERMINAL_ENV = "TRAILBEAM_START_TERMINAL"  # set to 1 by npx trailbeam start when its stdout is a terminal
 MIN_KEY_LENGTH = 16  # the packages warn below 16 bytes
 
 log = logging.getLogger("trailbeam.server")
@@ -149,14 +151,45 @@ def start(argv) -> None:
         else:
             token_var = "TRAILBEAM_TOKEN"
 
-    def announce(host, port, token):
-        write_address(data, f"http://{_url_host(shown_host or host)}:{port}")
+    def announce(host, port, token, app=None):
+        url = f"http://{_url_host(shown_host or host)}:{port}"
+        write_address(data, url)
+        accounts, setup_link = admin_banner(app, url)
         sys.stdout.write(banner(_url_host(shown_host or host), port, token, key, shown_data,
                                 token_cmd=token_cmd, key_cmd=key_cmd, token_var=token_var,
-                                key_var=key_var))
+                                key_var=key_var, accounts=accounts, setup_link=setup_link,
+                                no_admin=getattr(app, "accounts", None) is not None and not accounts))
         sys.stdout.flush()
 
     serve(a, on_listening=announce)
+
+
+def in_terminal() -> bool:
+    """stdout is a person's terminal: here, or (npx trailbeam start, whose docker has no TTY) the one npx runs in."""
+    try:
+        if sys.stdout.isatty():
+            return True
+    except (AttributeError, ValueError):
+        pass
+    return os.environ.get(TERMINAL_ENV, "").strip() == "1"
+
+
+def admin_banner(app, url: str) -> tuple:
+    """(an admin exists, the setup link or None). The link is made only while there is no admin, and only for a
+    terminal: a stdout that goes to a log (systemd, docker run -d, CI) gets the trailbeam users create line."""
+    accounts = getattr(app, "accounts", None)
+    if accounts is None:
+        return False, None
+    try:
+        if app.access.state.admin_exists():
+            return True, None
+        if not in_terminal():
+            return False, None
+        code = first_admin.issue_code(accounts, time.time_ns() // 1_000_000)
+    except Exception as e:  # noqa: BLE001 - the server runs; the admin can be made with trailbeam users create
+        log.warning("trailbeam start: could not make a setup link: %s", e)
+        return False, None
+    return False, first_admin.link(url, code)
 
 
 def write_address(data: Path, url: str) -> None:
@@ -332,12 +365,19 @@ def service_env(url: str, token, key: str, service: str) -> list:
 
 
 def banner(host: str, port: int, token, key: str, data, token_cmd=None, key_cmd=None, token_var=None,
-           key_var=None) -> str:
+           key_var=None, accounts: bool = False, setup_link=None, no_admin: bool = False) -> str:
     """The text printed once the server listens. When the token (key) was not created by this run, it is not in
     the text: ``token_cmd`` (``key_cmd``) is the shell command that prints it, or ``token_var`` (``key_var``) the
-    environment variable that holds it, and the environment variable lines use that."""
+    environment variable that holds it, and the environment variable lines use that. ``accounts``: the store has
+    an admin, so the web screen needs an account and the token is for the services. ``setup_link``: the first
+    admin's one-time link (admin_banner); ``no_admin`` without it: say how to make the admin instead."""
     url = f"http://{host}:{port}"
     lines = ["", f"Trailbeam is running: open {url}/"]
+    if setup_link:
+        lines += ["  Create your admin account (the link works once, for an hour; keep it to yourself):",
+                  f"    {setup_link}"]
+    elif accounts:
+        lines.append("  Sign in to the web screen with your Trailbeam account.")
     if token:
         if token_cmd:
             token, shown = f"$({token_cmd})", f"show it with: {token_cmd}"
@@ -345,14 +385,21 @@ def banner(host: str, port: int, token, key: str, data, token_cmd=None, key_cmd=
             token, shown = f"${token_var}", f"the one in {token_var}"
         else:
             shown = token
-        lines.append(f"  Access token (the web screen asks for it once): {shown}")
+        use = ("for your services and /metrics; the web screen needs an account" if accounts else
+               "for your services; the web screen asks for it once, until an admin account exists" if setup_link else
+               "the web screen asks for it once")
+        lines.append(f"  Access token ({use}): {shown}")
     if key_cmd:
         key = f"$({key_cmd})"
         lines.append(f"  Receipt-hash key: show it with: {key_cmd}")
     elif key_var:
         key = f"${key_var}"
         lines.append(f"  Receipt-hash key: the one in {key_var}")
-    lines += [f"  Data directory: {data} (keep it private: it holds the token and the receipt-hash key)", ""]
+    lines.append(f"  Data directory: {data} (keep it private: it holds the token and the receipt-hash key)")
+    if no_admin and not setup_link:
+        lines.append("  No admin account yet. To add one: trailbeam users create --email <email> --role admin "
+                     "(a setup link is printed only when this output is a terminal)")
+    lines.append("")
     for lang, install, service, code in (
             ("Python", "pip install trailbeam", "my-python-service",
              "import trailbeam.boto; trailbeam.boto.install()  # once per process, at startup"),
