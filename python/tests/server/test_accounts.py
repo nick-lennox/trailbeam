@@ -273,7 +273,7 @@ def test_every_kind_of_wrong_answer_is_the_same_and_costs_one_hash(acc, hasher, 
     hasher._scrypt = lambda *a: calls.append(a) or real(*a)
     r = si.sign_in(email, pw, "198.51.100.7")
     assert r.outcome == WRONG and r.session_id is None and r.user is None
-    assert len(calls) == (0 if case == "too_long" else 1)
+    assert len(calls) == 1  # too_long too (QV-229): no hash for a known email would say it has an account
 
 
 def test_the_account_locks_after_too_many_failures_whatever_the_address(acc, hasher, clock):

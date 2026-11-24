@@ -104,7 +104,10 @@ class Hasher:
             self.verify_dummy(password if isinstance(password, str) else "")
             return False
         pw = password.encode("utf-8", "surrogatepass")
-        if len(pw) > MAX_BYTES:  # no hash: the length of the password, not the account, decides this
+        if len(pw) > MAX_BYTES:
+            # never matches, but costs the same one hash as every other answer: answering at once here would
+            # tell a caller that this email has an account (unknown emails go through verify_dummy, which hashes)
+            self.verify_dummy(password)
             return False
         log2_n, r, p, salt, want = parsed
         got = self._scrypt(pw, salt, log2_n, r, p, len(want))

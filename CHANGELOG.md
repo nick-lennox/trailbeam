@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Sign-in no longer tells which emails have accounts through a password over 1024 bytes** (QV-229, security
+  review of users and roles). With a known email it was refused without a password hash (about 6 ms), with an
+  unknown one after a hash (about 190 ms). Now every refusal costs one hash. Accounts are not on in any
+  release yet.
 - **A compatibility matrix, run every night** (QV-335). Python 3.10 to 3.14, each with the oldest
   (boto3 / botocore 1.34.0, OpenTelemetry 1.28 / 0.49b0) and the newest dependencies, Node.js 20, 22 and 24, each
   with the oldest (3.572.0) and the newest `@aws-sdk/client-sqs`, and Postgres 14 to 18

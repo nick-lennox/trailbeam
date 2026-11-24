@@ -71,11 +71,19 @@ def test_a_stored_value_this_version_cant_read_never_matches(stored):
     assert not h.needs_rehash(stored)
 
 
-def test_a_password_over_the_cap_is_refused_without_a_hash():
-    h = fast(max_concurrent=1, wait_s=0.01)
+def test_a_password_over_the_cap_never_matches_but_costs_one_hash_like_any_other_answer():
+    # QV-229: answering an over-long password without a hash for a known email, while an unknown email costs
+    # one (verify_dummy), told which emails have accounts (about 6 ms against 190 ms)
+    h = fast()
+    over = PW + "x" * (passwords.MAX_BYTES - len(PW) + 1)
     stored = h.hash(PW)
-    with h._slots:  # every slot taken: a hash would raise HashBusy
-        assert h.verify("x" * 2000, stored) is False
+    calls = []
+    real = h._scrypt
+    h._scrypt = lambda *a: calls.append(a) or real(*a)
+    assert h.verify(over, stored) is False
+    assert h.verify("x" * 5000, stored) is False
+    assert len(calls) == 2
+    assert all(len(c[0]) <= passwords.MAX_BYTES for c in calls)  # the cost stays capped
 
 
 def test_verify_dummy_does_the_work_and_says_no():
