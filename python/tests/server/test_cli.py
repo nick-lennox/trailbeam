@@ -104,7 +104,7 @@ def test_create_the_first_admin_and_list_people(target, tmp_path, capsys):
                                                                     ("bob@example.com", "member", "active")]
     assert all("password_hash" not in r for r in rows)
     code, out, _ = run(capsys, "users", "list", *target.args)
-    assert out.splitlines()[0].split() == ["ID", "EMAIL", "NAME", "ROLE", "STATUS", "LAST", "SIGN-IN"]
+    assert out.splitlines()[0].split() == ["ID", "EMAIL", "NAME", "ROLE", "STATUS", "PROXY", "LAST", "SIGN-IN"]
 
 
 def test_create_refuses_what_it_can_t_store(target, tmp_path, capsys):

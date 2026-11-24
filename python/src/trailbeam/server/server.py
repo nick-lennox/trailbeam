@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceResponse
 
 from . import __version__
-from . import access as access_mod, auth as auth_mod, bodies, csrf, first_admin, metrics, passwords, queries, \
+from . import access as access_mod, auth as auth_mod, proxy_auth as proxy_auth_mod, bodies, csrf, first_admin, metrics, passwords, queries, \
     sessions as sessions_mod, trace_links, ui_files, web
 from .accounts import AccountError, Accounts, AdminExists, BadSetupCode, check_email, check_name
 from .backpressure import GRPC_RESOURCE_EXHAUSTED, GRPC_UNAVAILABLE, IngestGate, Rejected, status_body
@@ -54,7 +54,7 @@ class App:
                  max_receive_counts: Optional[dict] = None, ui_dir=ui_files.DEFAULT_UI_DIR, purger=None,
                  auth: Optional[auth_mod.Auth] = None, gate: Optional[IngestGate] = None,
                  trusted_proxies: Optional[TrustedProxies] = None, trace_link: Optional[str] = None,
-                 accounts="auto"):
+                 accounts="auto", proxy_auth: Optional[proxy_auth_mod.ProxyAuthConfig] = None):
         self.db = db
         # --trusted-proxy (proxy.py): whose X-Forwarded-For/-Proto/-Host is believed; empty: nobody's
         self.proxies = trusted_proxies or TrustedProxies()
@@ -67,8 +67,14 @@ class App:
         self.sessions = Sessions(self.accounts) if self.accounts else None
         self.tokens = Tokens(self.accounts) if self.accounts else None
         self.signin = SignIn(self.accounts, self.sessions) if self.accounts else None
+        # sign-in through a proxy (proxy_auth.py, --proxy-auth-header); None: off
+        self.proxy_auth = proxy_auth
+        self.proxy_signin = (proxy_auth_mod.ProxySignIn(proxy_auth, self.accounts, self.proxies)
+                             if proxy_auth is not None and self.accounts is not None else None)
+        if proxy_auth is not None and self.accounts is None:
+            log.warning("--proxy-auth-header is set, but this store has no tables of people: it is ignored")
         # who may do what (access.py): the shared token until an admin exists, then people
-        self.access = access_mod.Access(auth, self.accounts, self.sessions, self.tokens)
+        self.access = access_mod.Access(auth, self.accounts, self.sessions, self.tokens, proxy=self.proxy_signin)
         try:  # read now, so the first export doesn't wait for it (on a :memory: store, behind the writer)
             self.access.state.get()
         except access_mod.AccessUnavailable as e:
@@ -314,6 +320,7 @@ class App:
                            "stuck_after_s": self.stuck_after_s, "lambda_timeout_s": self.lambda_timeout_s,
                            "max_receive_counts": self.max_receive_counts,
                            "store_bodies": sorted(self.db.store_bodies), "trace_link": self.trace_link,
+                           "proxy_auth": self.proxy_signin is not None,
                            "retention": self.purger.status() if self.purger else None}}
 
     def _mode(self) -> str:
@@ -334,7 +341,11 @@ class App:
             raise ApiError(404, "no such endpoint")
         user = None if who.user_id is None else {"id": who.user_id, "email": who.email, "name": who.name,
                                                  "role": who.role}
-        return {"auth": self._mode(), "via": who.via, "user": user}
+        # whether Sign out (GET /logout) ends anything: a sign-in cookie, or the proxy's own session when
+        # --proxy-auth-sign-out-url says where it ends
+        sign_out = who.via in ("session", "shared_cookie") or (
+            who.via == "proxy" and self.proxy_auth is not None and self.proxy_auth.sign_out_url is not None)
+        return {"auth": self._mode(), "via": who.via, "user": user, "sign_out": sign_out}
 
     def ready(self) -> tuple[int, dict]:
         """``/api/ready``: 200 when the store answers, else 503. For a load balancer or a Kubernetes readiness
@@ -674,7 +685,7 @@ def make_handler(app: App):
                 else:
                     # /api/health is open, but says more only to whoever may read the API
                     d = app.access.check(self.headers, access_mod.MEMBER if path == "/api/health"
-                                         else access_mod.level_of("GET", path))
+                                         else access_mod.level_of("GET", path), peer=self._peer())
             except access_mod.AccessUnavailable as e:
                 log.warning("GET %s: %s", path, e)
                 if path == "/api/health":  # liveness answers while the store is unreachable
@@ -733,7 +744,13 @@ def make_handler(app: App):
                     cookie = sessions_mod.clear_cookie(secure)
                 else:
                     cookie = auth_mod.clear_cookie()
-                self._send(303, "text/plain", b"", {"Location": "/login", "Set-Cookie": cookie})
+                # signed in through a proxy: its own session ends at its sign-out URL, if one is set
+                where = (app.proxy_auth.sign_out_url if mode == "accounts" and app.proxy_auth is not None
+                         and app.proxy_auth.sign_out_url else "/login")
+                self._send(303, "text/plain", b"", {"Location": where, "Set-Cookie": cookie})
+            elif mode == "accounts" and app.access.proxy_person(self.headers, self._peer()) is not None:
+                # the proxy signed them in already: on to the page they asked for
+                self._send(303, "text/plain", b"", {"Location": auth_mod.safe_next(q.get("next"))})
             elif mode == "accounts":
                 self._send_page(web.sign_in_page(auth_mod.safe_next(q.get("next")), status=200))
             else:

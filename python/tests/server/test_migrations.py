@@ -146,7 +146,7 @@ def test_the_fixture_is_a_schema_5_file():
 def test_a_file_from_main_upgrades_in_place_and_keeps_every_span(from_main):
     before = raw(from_main)
     db = Database(from_main, store_bodies=frozenset({"orders"}))
-    assert db.migrated == [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+    assert db.migrated == [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
     db.close()
     assert raw(from_main) == before  # every row, every column, same row IDs
     assert meta_version(from_main) == str(LATEST)
@@ -158,7 +158,8 @@ def test_a_file_from_main_upgrades_in_place_and_keeps_every_span(from_main):
                                        (12, "hourly tenant rollup", True), (13, "probes (trailbeam doctor)", True),
                                        (14, "FIFO deduplicated sends out of the tenant events", True),
                                        (15, "users, sessions and tokens", True),
-                                       (16, "spans.service_version", True)]
+                                       (16, "spans.service_version", True),
+                                       (17, "users.proxy_linked_at_ms", True)]
     assert schema(from_main) == schema_new_file(from_main + ".new")
 
 

@@ -46,7 +46,8 @@ so they never show as messages.
 
 **People and tokens** (version 8, QV-225). ``users``, ``sessions``, ``ingest_tokens``, ``personal_tokens`` and
 ``setup_codes`` (account_tables.py). Not partitioned and not spans: retention never touches them. A Trailbeam
-before this version (0.3.0 and earlier) refuses the database from then on.
+before this version (0.3.0 and earlier) refuses the database from then on. Version 11 (QV-227) adds
+``users.proxy_linked_at_ms``: who may sign in through a proxy (proxy_auth.py).
 **Purges** (version 9, QV-245). ``purges``: the PurgeQueue calls (contract section 18), not partitioned: they
 belong to no message, and every list page reads them by queue.
 
@@ -291,7 +292,7 @@ CREATE TABLE IF NOT EXISTS hash_places (
     bucket BIGINT NOT NULL,
     PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
 ) PARTITION BY RANGE (rclass, bucket);
-""" + SEALING + PROBES + account_tables.PG_CREATE + PURGES + """CREATE TABLE IF NOT EXISTS schema_version (
+""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + """CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
     name TEXT NOT NULL,
@@ -547,8 +548,10 @@ MIGRATIONS: tuple = (
     # Version 10 (QV-362): the resource's service.version on each span, NULL on rows stored before it. Adding a
     # nullable column with no default to the partitioned parent adds it to every place without rewriting it.
     Migration(10, "spans.service_version (QV-362)", ("ALTER TABLE spans ADD COLUMN IF NOT EXISTS service_version TEXT",)),
+    # Version 11 (QV-227): who may sign in through a proxy (proxy_auth.py); NULL, nobody, for the people before it.
+    Migration(11, "users.proxy_linked_at_ms (QV-227)", (account_tables.PG_ADD_PROXY,)),
 )
-LATEST = 10
+LATEST = 11
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 

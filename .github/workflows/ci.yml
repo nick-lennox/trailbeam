@@ -103,10 +103,10 @@ jobs:
         run: pytest -q tests/server/test_postgres.py
       - name: Fault tests on Postgres (SIGKILL, retries, disorder, a replica killed)
         run: pytest -q tests/server/test_faults.py
-      - name: People, sessions and sign-in on Postgres
+      - name: People, sessions and sign-in (password and through a proxy) on Postgres
         run: >-
           pytest -q tests/server/test_account_tables.py tests/server/test_accounts.py tests/server/test_access.py
-          tests/server/test_first_admin.py tests/server/test_cli.py
+          tests/server/test_first_admin.py tests/server/test_cli.py tests/server/test_proxy_auth.py
       - name: Two replicas on one Postgres (the token, sessions and the switch to accounts on both)
         run: pytest -q tests/server/test_replicas_e2e.py
 

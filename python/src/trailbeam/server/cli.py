@@ -85,6 +85,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--name", help="their name as shown (default: the email's part before @)")
     c.add_argument("--role", choices=ROLES, default="member", help="admin or member (default member)")
     c.add_argument("--password-file", help="a file holding their password; default: asked for twice")
+    c.add_argument("--proxy", action="store_true", help="they sign in through the proxy (--proxy-auth-header): no "
+                   "password is asked for, unless --password-file gives one")
     c.set_defaults(run=users_create)
     ls = us.add_parser("list", parents=[common], help="list people")
     ls.add_argument("--json", action="store_true", help="as JSON")
@@ -99,6 +101,12 @@ def build_parser() -> argparse.ArgumentParser:
     pw.set_defaults(run=users_reset_password)
     for name, run, text in (("disable", users_disable, "stop a person signing in, and end their sessions"),
                             ("enable", users_enable, "let a disabled person sign in again")):
+        d = us.add_parser(name, parents=[common], help=text)
+        d.add_argument("user", help="their email or ID")
+        d.set_defaults(run=run)
+    for name, run, text in (
+            ("link-proxy", users_link_proxy, "let a person sign in through the proxy (--proxy-auth-header) as well"),
+            ("unlink-proxy", users_unlink_proxy, "stop a person signing in through the proxy")):
         d = us.add_parser(name, parents=[common], help=text)
         d.add_argument("user", help="their email or ID")
         d.set_defaults(run=run)
@@ -317,14 +325,16 @@ def users_create(a, acc: Accounts, where: str) -> int:
     if not acc.auth_state()[0] and a.role != "admin":
         _say("Note: this server has no admin yet. Until it has one, accounts aren't used: use --role admin for the "
              "first account.")
-    pw = _password(a.password_file)
+    proxy = getattr(a, "proxy", False)
+    h = None if proxy and not a.password_file else passwords.Hasher().hash(_password(a.password_file))
     name = a.name or default_name(a.email)
-    h = passwords.Hasher().hash(pw)
     if first:
-        uid = acc.create_first_admin(a.email, name, h, _now_ms())
+        uid = acc.create_first_admin(a.email, name, h, _now_ms(), proxy=proxy)
     else:
-        uid = acc.create_user(a.email, name, a.role, h, _now_ms())
-    _say(f"Created {a.role} {a.email} (ID {uid}) in {where}.")
+        uid = acc.create_user(a.email, name, a.role, h, _now_ms(), proxy=proxy)
+    _say(f"Created {a.role} {a.email} (ID {uid}) in {where}."
+         + (" They sign in through the proxy" + (" or with their password." if h else "; they have no password.")
+            if proxy else ""))
     if first:
         _say("This is the first admin: within 5 seconds, every server on this store asks for a sign-in on the web "
              "screen and the API (or a personal API token: trailbeam tokens create --personal). TRAILBEAM_TOKEN, if "
@@ -338,8 +348,9 @@ def users_list(a, acc: Accounts, where: str) -> int:
     out = [{"id": u["id"], "email": u["email"], "name": u["name"], "role": u["role"],
             "status": "disabled" if u["disabled_at_ms"] is not None else
             "locked" if (u["locked_until_ms"] or 0) > now else
-            "no password" if not u["password_hash"] else "active",
-            "created_at_ms": u["created_at_ms"], "last_sign_in_ms": u["last_sign_in_ms"]} for u in users]
+            "no password" if not u["password_hash"] and u["proxy_linked_at_ms"] is None else "active",
+            "created_at_ms": u["created_at_ms"], "last_sign_in_ms": u["last_sign_in_ms"],
+            "proxy": u["proxy_linked_at_ms"] is not None} for u in users]
     if a.json:
         json.dump(out, sys.stdout, indent=2)
         sys.stdout.write("\n")
@@ -347,8 +358,9 @@ def users_list(a, acc: Accounts, where: str) -> int:
     if not out:
         _say(f"No people in {where} yet: trailbeam users create --email <email> --role admin")
         return 0
-    _table([[u["id"], u["email"], u["name"], u["role"], u["status"], _when(u["last_sign_in_ms"])] for u in out],
-           ["ID", "EMAIL", "NAME", "ROLE", "STATUS", "LAST SIGN-IN"])
+    _table([[u["id"], u["email"], u["name"], u["role"], u["status"], "yes" if u["proxy"] else "-",
+             _when(u["last_sign_in_ms"])] for u in out],
+           ["ID", "EMAIL", "NAME", "ROLE", "STATUS", "PROXY", "LAST SIGN-IN"])
     return 0
 
 
@@ -381,6 +393,29 @@ def users_enable(a, acc: Accounts, where: str) -> int:
     u = _user(acc, a.user)
     acc.set_disabled(u["id"], False, _now_ms())
     _say(f"{u['email']} can sign in again.")
+    return 0
+
+
+def users_link_proxy(a, acc: Accounts, where: str) -> int:
+    u = _user(acc, a.user)
+    if u["proxy_linked_at_ms"] is not None:
+        _say(f"{u['email']} can already sign in through the proxy.")
+        return 0
+    acc.set_proxy_linked(u["id"], True, _now_ms())
+    _say(f"{u['email']} can now sign in through the proxy too, as {u['role']}: whoever the proxy signs in with this "
+         f"email is them. {SEEN_SOON}")
+    return 0
+
+
+def users_unlink_proxy(a, acc: Accounts, where: str) -> int:
+    u = _user(acc, a.user)
+    if u["proxy_linked_at_ms"] is None:
+        _say(f"{u['email']} doesn't sign in through the proxy.")
+        return 0
+    acc.set_proxy_linked(u["id"], False, _now_ms())
+    tail = "" if u["password_hash"] else (" They have no password, so they can't sign in at all now: "
+                                          "trailbeam users reset-password gives them one.")
+    _say(f"{u['email']} can no longer sign in through the proxy.{tail} {SEEN_SOON}")
     return 0
 
 

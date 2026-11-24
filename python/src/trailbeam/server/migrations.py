@@ -128,7 +128,9 @@ CREATE TABLE IF NOT EXISTS schema_version (
     name TEXT NOT NULL,              -- the migration's name; 'create' for a file made at this version
     trailbeam_version TEXT           -- the Trailbeam that ran it; NULL for versions reached before 6
 );
-""" + summary_table.CREATE + body_table.CREATE + PROBES_CREATE + account_tables.SQLITE_CREATE
+""" + summary_table.CREATE + body_table.CREATE + PROBES_CREATE + account_tables.SQLITE_CREATE + f"""
+{account_tables.SQLITE_ADD_PROXY};
+"""
 
 # Schema 1 was the first released (the CREATE of version 1 is in tests/server/test_migrations.py).
 # Schema 1 had no start_ns. Its rows came from contract v1 spans, stamped only when the response arrived,
@@ -175,6 +177,8 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # Schema 16 (QV-362) adds spans.service_version, the resource's service.version (the build that sent the span). Rows
 # stored before it are migrated with NULL: the version was not kept. Their summaries are left as they are: a
 # consumer without a version is listed as [service_name, client_id], as before (summary.py).
+# Schema 17 (QV-227) adds users.proxy_linked_at_ms: which people may sign in through a proxy (proxy_auth.py). NULL
+# for everyone stored before it, so no local account can be signed in to through the proxy until an admin links it.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new", added=""))
                   + [f"INSERT INTO spans_new ({SPANS_COLUMNS}) SELECT {SPANS_COLUMNS} FROM spans ORDER BY row",
                      "DROP TABLE spans",
@@ -210,6 +214,12 @@ def _to_16(conn: sqlite3.Connection) -> None:
     whose recorded version was set back by hand (the tests of the earlier migrations) has the column already."""
     if "service_version" not in {r[1] for r in conn.execute("PRAGMA table_info(spans)")}:
         conn.execute("ALTER TABLE spans ADD COLUMN service_version TEXT")
+
+
+def _to_17(conn: sqlite3.Connection) -> None:
+    """Adds users.proxy_linked_at_ms, unless the file has it (as _to_16)."""
+    if account_tables.PROXY_COLUMN not in {r[1] for r in conn.execute("PRAGMA table_info(users)")}:
+        conn.execute(account_tables.SQLITE_ADD_PROXY)
 
 
 def _to_14(conn: sqlite3.Connection) -> None:
@@ -254,6 +264,7 @@ MIGRATIONS = (
     Migration(14, "FIFO deduplicated sends out of the tenant events", (), run=_to_14),
     Migration(15, "users, sessions and tokens", tuple(statements(account_tables.SQLITE_CREATE))),
     Migration(16, "spans.service_version", (), run=_to_16),
+    Migration(17, "users.proxy_linked_at_ms", (), run=_to_17),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table
