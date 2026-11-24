@@ -629,6 +629,16 @@ def test_over_https_a_plain_oidc_cookie_is_not_the_browser(tb, idp):
     assert oidc.browser_cookie("trailbeam_oidc=" + planted, False) == planted
     assert oidc.browser_cookie("__Secure-trailbeam_oidc=" + planted, True) == planted
 
+
+def test_a_junk_cookie_doesn_t_hide_the_sign_in_s():
+    """QV-473: a cookie that doesn't parse (a value with a space), planted by a sibling subdomain or a script,
+    must not hide the sign-in's cookie, else every single sign-on from that browser fails."""
+    value = "v" * 43
+    assert oidc.browser_cookie(f"junk=a b; trailbeam_oidc={value}; x=1", False) == value
+    assert oidc.browser_cookie(f'bad"=x y; __Secure-trailbeam_oidc={value}', True) == value
+    assert oidc.browser_cookie("trailbeam_oidc=short", False) is None
+    assert oidc.browser_cookie(None, False) is None
+
 # ---- settings -------------------------------------------------------------------------------------------------
 
 

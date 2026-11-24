@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
+    <RootNamespace>Trailbeam.Sqs</RootNamespace>
+    <PackageId>Trailbeam.Sqs</PackageId>
+    <Description>Trailbeam spans for Amazon SQS from the AWS SDK for .NET v4: one line at startup (TrailbeamSqs.Register()) adds a pipeline handler to every SQS client. Pre-release, not published.</Description>
+    <PackageTags>trailbeam;sqs;aws;opentelemetry</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- AWSSDK v4: the SDK's own MetricsHandler makes the stock span that OpenTelemetry.Instrumentation.AWS records. -->
+    <PackageReference Include="AWSSDK.SQS" Version="4.0.2.5" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.15.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Trailbeam.Sqs.Tests" />
+  </ItemGroup>
+
+</Project>

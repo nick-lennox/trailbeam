@@ -27,8 +27,9 @@ import secrets
 import threading
 import time
 from collections import OrderedDict
-from http.cookies import CookieError, SimpleCookie
 from typing import Callable, NamedTuple, Optional
+
+from .cookies import cookie
 
 COOKIE = "trailbeam_sid"
 SECURE_COOKIE = "__Host-" + COOKIE
@@ -59,16 +60,10 @@ def id_hash(session_id: str) -> str:
 def cookie_value(cookie_header: Optional[str], secure: bool) -> Optional[str]:
     """The session ID in a Cookie header. Over HTTPS (``secure``) only ``__Host-trailbeam_sid`` counts;
     over HTTP ``__Host-trailbeam_sid`` if there, else ``trailbeam_sid``."""
-    if not cookie_header:
-        return None
-    try:
-        c = SimpleCookie(cookie_header)
-    except CookieError:
-        return None
     for name in ((SECURE_COOKIE,) if secure else (SECURE_COOKIE, COOKIE)):
-        m = c.get(name)
-        if m is not None and 20 <= len(m.value) <= 100:
-            return m.value
+        v = cookie(cookie_header, name)
+        if v is not None and 20 <= len(v) <= 100:
+            return v
     return None
 
 

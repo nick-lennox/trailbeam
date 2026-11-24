@@ -58,6 +58,8 @@ export type QueuePageProps = {
   split: boolean;
   onSplit: (on: boolean) => void;
   Link?: ComponentType<LinkProps>;
+  /** a host's own section, drawn right under the CloudWatch band (hosted: "In ‹queue› now"); nothing when unset */
+  afterCloudWatch?: ReactNode;
 };
 
 const SEND = "var(--color-flow-send)";
@@ -471,7 +473,7 @@ function Tables({ d, p }: { d: QueuePageData; p: QueuePageProps }) {
     </tr>
   );
   return (
-    <section className="border-t border-line py-5">
+    <section id="senders" className="scroll-mt-4 border-t border-line py-5">
       <div className="overflow-x-auto">
         <table className="w-full text-[15px]">
           <thead><tr>
@@ -492,7 +494,7 @@ function Tables({ d, p }: { d: QueuePageData; p: QueuePageProps }) {
         </table>
         {more(senders.length, moreS, setMoreS)}
       </div>
-      <div className="mt-5 overflow-x-auto">
+      <div id="consumers" className="mt-5 scroll-mt-4 overflow-x-auto">
         <table className={`w-full text-[15px] ${cSpan > 4 ? "min-w-[720px]" : ""}`}>
           <thead><tr>
             <th className={`${th} w-1/3`}>Consumers</th><th className={`${th} text-right`}>Receives</th>
@@ -619,6 +621,7 @@ export function QueuePage(p: QueuePageProps) {
       </section>
       {d && <Spike d={d} p={p} />}
       {d && <CloudWatchBand d={d} p={p} hover={hover} setHover={setHover} />}
+      {p.afterCloudWatch}
       {d && <Tables d={d} p={p} />}
       {d && <Causes d={d} p={p} />}
     </div>

@@ -1,0 +1,18 @@
+{
+  "name": "dotnet",
+  "description": "Trailbeam.Sqs (.NET): TrailbeamSqs.Register() at startup adds a pipeline handler to every AWS SDK for .NET v4 SQS client. Build first: dotnet build -c Release conformance/drivers/dotnet.",
+  "command": ["sh", "{driver_dir}/run.sh"],
+  "variants": [
+    {"name": "alone", "parent": "any",
+     "about": "only Trailbeam: one line at startup, no other tracing"},
+    {"name": "app-otel", "parent": "exported", "env": {"KIT_APP_TRACING": "otel"},
+     "about": "the application's own tracer provider with OpenTelemetry.Instrumentation.AWS 1.21.0, set up before Trailbeam: every span is a child of the SDK's exported span for the call"},
+    {"name": "app-otel-trailbeam-first", "parent": "exported", "env": {"KIT_APP_TRACING": "otel", "KIT_TRAILBEAM_FIRST": "1"},
+     "about": "as app-otel, with Trailbeam registered before the stock instrumentation: the order of the two pipeline customizers must not matter"},
+    {"name": "app-otel-sampled-0", "parent": "unexported",
+     "env": {"KIT_APP_TRACING": "otel", "OTEL_TRACES_SAMPLER": "traceidratio", "OTEL_TRACES_SAMPLER_ARG": "0"},
+     "about": "as app-otel, with the application's sampler at 0%: Trailbeam's always-on provider must still export every span, each a child of the stock (unexported) span"},
+    {"name": "capture", "parent": "any", "capture": true, "env": {"TRAILBEAM_CAPTURE_BODY_QUEUES": "*"},
+     "about": "body capture on for every queue (contract 15): every send and receive must carry the body"}
+  ]
+}

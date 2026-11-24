@@ -45,3 +45,9 @@ python/src/trailbeam/server/ui/
 java/target/
 conformance/drivers/java/target/
 java/dependency-reduced-pom.xml
+
+# .NET
+dotnet/**/bin/
+dotnet/**/obj/
+conformance/drivers/dotnet/bin/
+conformance/drivers/dotnet/obj/

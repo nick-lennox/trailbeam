@@ -1,7 +1,8 @@
 """The first admin: the one-time setup link of ``trailbeam start``, and ``TRAILBEAM_ADMIN_EMAIL`` for headless installs.
 
 **The setup link** (proposal on QV-149, section 3). While the store has no admin, ``trailbeam start`` makes a setup
-code and prints ``http://<host>:<port>/setup#code=<code>`` in its terminal (never in the logs). Opening it shows
+code and prints ``http://<host>:<port>/setup#code=<code>`` in its terminal (never in the logs: ``npx trailbeam start``
+runs the container with ``--log-driver none``, so Docker keeps no copy of it). Opening it shows
 a form for an email, a name and a password; that account becomes the first admin and is signed in.
 
 - The code is ``CODE_BYTES`` (32) random bytes; the store keeps only its SHA-256 (``setup_codes``).

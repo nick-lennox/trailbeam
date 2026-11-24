@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **`npx trailbeam start` no longer leaves its output in Docker's log** (QV-409). It runs the container with
+  `--log-driver none`, so the output still shows in the terminal but is not kept by `docker logs` or sent to a log
+  service the Docker daemon is set up with (gelf, fluentd, awslogs, ...). That output holds the first run's token
+  and receipt key, and the first admin's one-time setup link, which works as an admin password for up to an hour.
 - **A page per queue** (QV-364): `/queue?name=<queue>`, and a **Queues** list at `/queues` (a new item in the
   header). The page asks whether work is arriving faster than it is finished: sends vs handled (the band between
   them is the backlog building), receives vs handled with dead-letter moves (seen, and inferred from
@@ -68,6 +72,26 @@
   - Both endpoints work on SQLite and Postgres. SQLite schema 17 and Postgres schema 11 add `queue_events` and
     `queue_rollup` (Postgres also adds `place_queue_keys`). They are built from every message's spans when the
     store is upgraded: one pass over the messages on SQLite, and one place at a time on Postgres.
+- **The Tokens page in the web screen** (QV-226, users and roles phase 2, part 3 of 3). Anyone signed in finds
+  **Tokens** in the header (`/tokens`): their own personal API tokens, to create (for 30 days, 90 days, a year or
+  until revoked) and revoke. Admins also see the ingest tokens there, to create and revoke, with the shared
+  `TRAILBEAM_TOKEN` listed as "legacy shared token (from TRAILBEAM_TOKEN)" and never shown. A new token is shown
+  once, to copy. Creating the first ingest token on a server with open ingest asks to confirm that it closes it.
+  The parts are in `@trailbeam/ui` as `TokensTable`, `CreateToken` and `OneTimeToken`.
+- **The People page in the web screen** (QV-226, users and roles phase 2, part 2 of 3). Admins find **People** in
+  the header (`/people`): everyone who can sign in, with role, status and last sign-in. They add a person and get
+  their one-time invite link to copy, change a role, disable or enable someone, make a new invite or password
+  reset link, and remove someone after a confirmation. The controls that would leave no admin who can sign in are
+  off. Members are answered "Not allowed". The page is also in `@trailbeam/ui` as `PeopleTable`, `AddPerson` and
+  `OneTimeLink`.
+- **People and tokens over the API** (QV-226, users and roles phase 2, part 1 of 3). Admins add people, change
+  their role, disable or remove them, and make one-time invite and password reset links with `/api/users`, and
+  create, list and revoke ingest tokens with `/api/tokens/ingest`. Anyone signed in manages their own personal API
+  tokens with `/api/me/tokens`. Links lead to the new `/set-password` page. Two roles only, admin and member, and
+  the last admin can't be demoted, disabled or removed. These are the routes the People and Tokens pages of the
+  web screen will use. All are in `contract/openapi.yaml`.
+- **Fixed: re-enabling a person could leave their personal API token refused for up to 20 seconds** on the
+  replica that had refused it while they were disabled.
 - **Postgres, several replicas: a message could get a second summary** (QV-422). A delete or
   ChangeMessageVisibility span carries no message ID, so its export finds its message by the receipt handle and
   locks it only then. If another replica stored a newer span of that message in a new day (bucket) meanwhile,

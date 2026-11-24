@@ -318,6 +318,13 @@ named in the page's range (default the last day) as you type. The same data is i
 [`contract/tenants.md`](contract/tenants.md). The hosted app counts them the same way and is tested
 against the same recorded spans.
 
+Every recorded step (send, receive, delete, visibility change, Lambda outcome) is listed by
+`GET /api/events`, newest first and paged by `cursor`. Filter it by `queue`, `service`, `kind` (a comma
+list) and `message_id`, over `since_s` or `from_ms`/`to_ms`. The first page also counts the steps per
+time bucket and kind, for a histogram. Steps Trailbeam infers (a visibility timeout, a move to a DLQ) are not
+in it. The parameters and answer are in [`contract/openapi.yaml`](contract/openapi.yaml), operation
+`list-events`.
+
 ## Troubleshooting: no data arriving
 
 Set it up and see nothing? Run `trailbeam doctor` (0.4.0 or later; 0.3.0 stops with
@@ -630,8 +637,60 @@ trailbeam tokens revoke 3                            # --personal for a personal
   within 20 seconds, a revoked token within 30 seconds, and a new admin or a first ingest token within 5 seconds.
 - The commands never create or upgrade a store: they refuse a file that doesn't exist, a store at an older or
   newer schema version (start the new server once first), and `--db :memory:`, which only the server can reach.
-- In the web screen, the header shows who is signed in, with **Sign out**. Managing people and tokens there
-  comes in a later release.
+- In the web screen, the header shows who is signed in, with **Sign out**.
+
+**The People page** (`/people`, linked in the header for admins; members get "Not allowed") lists everyone who can
+sign in, with their role, status (active, invited, locked for now, or disabled) and last sign-in. From it an admin:
+
+- **adds a person**: an email, a name (the part before `@` if left out) and a role. The page then shows their
+  one-time invite link, once, to copy and send them privately;
+- **changes a role** between admin and member, or **disables** and **enables** someone;
+- makes a **new invite link** for someone who hasn't used theirs, or a **password reset link** for someone who has a
+  password (for example when they are locked out after too many wrong passwords);
+- **removes** a person, after a confirmation.
+
+The controls that would leave no admin who can sign in (making the last one a member, disabling or removing them)
+are off, and the server refuses them anyway.
+
+**The Tokens page** (`/tokens`, linked in the header for anyone signed in) has two parts:
+
+- **Ingest tokens**, for admins only: one per service that sends spans. Create one with a name (the token is shown
+  once, to copy into the service's `OTEL_EXPORTER_OTLP_HEADERS`), see when each was created, by whom and when it was
+  last used, and revoke one after a confirmation. Revoked tokens stay in the list. If `TRAILBEAM_TOKEN` is set, it
+  is listed as "legacy shared token (from TRAILBEAM_TOKEN)", without its value; it is set in the server's
+  environment, so it is stopped by removing it there and restarting, not from the page. While ingest is open (no
+  `TRAILBEAM_TOKEN` and no ingest token yet), the page says so, and creating the first token needs a tick to
+  confirm that services without a token are refused from then on.
+- **Your personal API tokens**, for everyone: tokens that act as you, with your role, for scripts and the API.
+  Create one that works for 30 days, 90 days (the default), a year or until revoked, and revoke your own. Nobody
+  else, admins included, sees them.
+
+Without the web screen's build, `/people` and `/tokens` say to use `trailbeam users`, `trailbeam tokens` or the API.
+
+**People and tokens over the API.** Admins can do the same through `/api/users` and `/api/tokens/ingest`, and
+anyone signed in manages their own personal API tokens with `/api/me/tokens` (all in
+[`contract/openapi.yaml`](contract/openapi.yaml)). Requests that change something send JSON:
+
+```sh norun="needs a server with an admin; test_people_api.py makes these requests against SQLite and Postgres"
+ADMIN="Authorization: Bearer tbp_..."   # an admin's personal API token
+curl -H "$ADMIN" -H 'Content-Type: application/json' -d '{"email": "cy@example.com", "role": "member"}' \
+  http://127.0.0.1:4318/api/users                       # the answer holds Cy's one-time invite link
+curl -H "$ADMIN" -X PATCH -H 'Content-Type: application/json' -d '{"role": "admin"}' http://127.0.0.1:4318/api/users/3
+curl -H "$ADMIN" -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:4318/api/users/3/link
+curl -H "$ADMIN" -H 'Content-Type: application/json' -d '{"name": "orders-api prod"}' http://127.0.0.1:4318/api/tokens/ingest
+```
+
+- Adding a person gives no password: the answer holds a one-time **invite link**
+  (`/set-password#code=...`, 7 days) for them to choose one. `POST /api/users/{id}/link` makes a new one, or for
+  someone who has a password a **reset link** (24 hours). Choosing a password from a link ends the person's other
+  sessions. Each new link replaces the last, and the store keeps only its hash. Trailbeam sends no email:
+  pass the link on privately, because until it is used it opens that person's account.
+- Two roles, `admin` and `member`. The last admin who can sign in can't be made a member, disabled or removed
+  (`409`).
+- The first ingest token of a server without `TRAILBEAM_TOKEN` needs `"close_open_ingest": true`, because it
+  closes ingest that was open. The ingest token list shows the shared token, if set, as "legacy shared token
+  (from TRAILBEAM_TOKEN)", never its value.
+- These routes refuse requests from another site's pages, and bodies that aren't `application/json`.
 
 ### Single sign-on (OpenID Connect)
 
@@ -1780,7 +1839,8 @@ What each has today:
 | Message bodies, opt-in per queue, with `body.*` search | yes, for queues in `TRAILBEAM_STORE_BODIES`; anyone who can reach the server can read them | yes, for queues an admin opts in; owners and admins only |
 | Lambda error text on the timeline, errors grouped by cause | yes | yes |
 | JSON API | yes | |
-| Overview of flows between services and queues, event explorer, dashboards | not yet | yes |
+| Event explorer: every recorded step in a range, filtered by queue, service, kind or message, with CSV export | yes | yes, with PDF export too |
+| Overview of flows between services and queues, dashboards | not yet | yes |
 | Queue settings, depth and Lambda triggers read from AWS, and redrive | | yes, with a read-only role you connect (redrive needs a second, separate role) |
 | Retention: global, per queue, or forever | yes | yes |
 | Accounts, sign-in and invitations | | yes |

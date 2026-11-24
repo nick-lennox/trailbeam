@@ -96,9 +96,10 @@ class _Cache:
             self._d[h] = (hit[0], hit[1], now_ms)
             return True
 
-    def forget(self, match: Callable[[object], bool]) -> None:
+    def forget(self, match: Callable[[object], bool], unknown: bool = False) -> None:
+        """Drop the entries ``match`` picks, and with ``unknown`` the "no such token" ones."""
         with self._lock:
-            for h in [h for h, (_, v, _) in self._d.items() if v is not None and match(v)]:
+            for h in [h for h, (_, v, _) in self._d.items() if (match(v) if v is not None else unknown)]:
                 del self._d[h]
 
 
@@ -143,8 +144,9 @@ class Tokens:
         return ok
 
     def forget_user(self, user_id: int) -> None:
-        """Drop this process's cached personal tokens of a person (their role changed, or they were removed)."""
-        self._personal.forget(lambda v: v.user_id == user_id)
+        """Drop this process's cached personal tokens of a person (their role changed, they were disabled, enabled
+        or removed), and the cached "no such token" answers, which may be theirs (a token of a disabled person)."""
+        self._personal.forget(lambda v: v.user_id == user_id, unknown=True)
 
     # ---- checking -------------------------------------------------------------------------------------
 
