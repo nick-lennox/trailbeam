@@ -1,4 +1,4 @@
-package dev.trailbeam.sqs;
+package app.trailbeam.sqs;
 
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
