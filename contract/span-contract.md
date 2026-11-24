@@ -10,6 +10,11 @@ send.
 
 The keywords **must**, **must not**, **should** and **may** are used as in RFC 2119.
 
+**Schema version 4 (revision 4.0)** adds broker-neutral kinds (`<family>.<operation>`) and the RabbitMQ
+(AMQP 0-9-1) spans, in [`span-contract-amqp.md`](span-contract-amqp.md). It changes nothing in the SQS and
+SNS spans below: their packages keep sending `trailbeam.schema_version = 3`, and a 4.0 Trailbeam also
+accepts `4` on them with the same meaning.
+
 ## 1. Summary
 
 | Span name | `trailbeam.kind` | `messaging.operation.type` | Emitted by | When |
@@ -245,7 +250,8 @@ is `trailbeam`. It counts spans of other scopes as ignored. A span of kind `trai
 rejects any other Trailbeam span, and reports the reason in the OTLP `partial_success` field, when any of these is
 true:
 
-- `trailbeam.schema_version` is not `2` or `3`;
+- `trailbeam.schema_version` is not `2` or `3` (from 4.0: `2`, `3` or `4`, and only `4` on an `amqp.*` span;
+  [`span-contract-amqp.md`](span-contract-amqp.md) section A1);
 - `trailbeam.kind` is unknown, `sqs.settle` comes with a `messaging.operation.name` that is not a delete
   or visibility-change action, or (3.3) `sqs.purge` comes with one that is not `PurgeQueue`;
 - the trace ID, span ID, start time or end time is missing, or the span ends before it starts;
