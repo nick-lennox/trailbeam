@@ -73,7 +73,7 @@ test('dockerProblem tells the three failures apart', () => {
 test('default: the Docker volume, 127.0.0.1:4318, the matching image', () => {
   const { args } = cli.dockerArgs([], { env: {}, uid: 1000, gid: 1000 });
   const s = args.join(' ');
-  assert.ok(s.startsWith('run --rm --init --pull never -p 127.0.0.1:4318:4318 '), s);
+  assert.ok(s.startsWith('run --rm --init --pull never --label trailbeam.start=1 -p 127.0.0.1:4318:4318 '), s);
   assert.ok(s.includes('-v trailbeam-data:/data'), s);
   assert.ok(s.includes('-e TRAILBEAM_START_SHOWN_DATA_DIR=the Docker volume trailbeam-data'), s);
   assert.ok(!args.includes('--user'), 'the volume belongs to the image user');
@@ -184,9 +184,10 @@ test('port already in use: one line and exit 2, before docker run', { skip: proc
   const { port } = taken.address();
   const dir = tmp();
   const ran = path.join(dir, 'ran');
-  // Docker answers `docker version`; a `docker run` would leave a file behind.
+  // Docker answers `docker version`, and no container publishes the port (not a container: say nothing more);
+  // a `docker run` would leave a file behind.
   fs.writeFileSync(path.join(dir, 'docker'), `#!/bin/sh\n[ "$1" = version ] && { echo 29.0.0; exit 0; }\n`
-    + `touch '${ran}'\nexit 0\n`, { mode: 0o755 });
+    + `[ "$1" = ps ] && exit 0\ntouch '${ran}'\nexit 0\n`, { mode: 0o755 });
   try {
     const r = runBin(['start', '--port', String(port)], { PATH: `${dir}:/usr/bin:/bin`, HOME: dir });
     assert.strictEqual(r.status, 2, r.stderr);
@@ -268,3 +269,64 @@ test('npx trailbeam start prints which image it runs, then runs it with --pull n
   assert.match(calls[1], /^image inspect /);
   assert.match(calls[2], /^run --rm --init --pull never .* my\.registry\/tb:x start --data-dir \/data$/);
 });
+
+test('port in use by a leftover npx trailbeam start: says which container, and how to stop it (QV-344)', () => {
+  let asked;
+  const ps = (stdout, status = 0) => (cmd, args) => { asked = args; return { status, stdout }; };
+  const ours = cli.portOwner(4318, { run: ps('abc123\tbold_curie\tghcr.io/nick-lennox/trailbeam:0.5.0\t1\n') });
+  assert.deepStrictEqual(asked.slice(0, 3), ['ps', '--filter', 'publish=4318']);
+  assert.strictEqual(ours, '\ntrailbeam: a Trailbeam server from an earlier npx trailbeam start is still running '
+    + 'in it: container bold_curie (abc123). Stop it with: docker stop bold_curie');
+  // 0.4.0 put no label on it: the image says it's ours.
+  assert.match(cli.portOwner(4318, { run: ps('abc123\tbold_curie\tghcr.io/nick-lennox/trailbeam:0.4.0\t\n') }),
+    /earlier npx trailbeam start .* docker stop bold_curie$/);
+  assert.strictEqual(cli.portOwner(4318, { run: ps('def456\tcollector\totel/opentelemetry-collector:0.1\t\n') }),
+    '\ntrailbeam: the Docker container collector (def456, image otel/opentelemetry-collector:0.1) publishes it. '
+    + 'Stop it with: docker stop collector');
+  assert.strictEqual(cli.portOwner(4318, { run: ps('') }), '');
+  assert.strictEqual(cli.portOwner(4318, { run: ps('', 1) }), '');
+  assert.strictEqual(cli.portOwner(4318, { run: () => ({ error: new Error('ENOENT') }) }), '');
+});
+
+test('watchParent: stops once when the parent changes, not before', async () => {
+  let ppid = 100;
+  let stops = 0;
+  cli.watchParent(() => { stops++; }, { ppid: () => ppid, every: 5 });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.strictEqual(stops, 0);
+  ppid = 1;
+  await new Promise((r) => setTimeout(r, 30));
+  assert.strictEqual(stops, 1);
+});
+
+test('the parent (npx) killed alone: docker run is stopped, so the server lets go of the port (QV-344)',
+  { skip: process.platform === 'win32' }, async () => {
+    const net = require('node:net');
+    const probe = net.createServer();
+    await new Promise((resolve) => probe.listen({ host: '127.0.0.1', port: 0 }, resolve));
+    const { port } = probe.address();
+    await new Promise((resolve) => probe.close(resolve));
+    const dir = tmp();
+    const got = path.join(dir, 'got');
+    // `docker run` stays up until a signal, and writes down which one it got.
+    fs.writeFileSync(path.join(dir, 'docker'), `#!/bin/sh\ncase "$1" in version) echo 29.0.0; exit 0;; `
+      + `image) echo "${ID}"; exit 0;; esac\ntrap 'echo TERM > "${got}"; exit 143' TERM\n`
+      + 'while :; do sleep 0.1; done\n', { mode: 0o755 });
+    // A parent standing in for npx: it starts the launcher, then is killed with SIGKILL, so it passes nothing on.
+    const { spawn } = require('node:child_process');
+    const parent = spawn(process.execPath, ['-e', `require('node:child_process').spawn(process.execPath, `
+      + `[${JSON.stringify(BIN)}, 'start', '--port', '${port}'], { stdio: 'ignore' }); setInterval(() => {}, 1000)`],
+    { env: { PATH: `${dir}:/usr/bin:/bin`, HOME: dir }, stdio: 'ignore' });
+    try {
+      // Wait for docker run to be up (its trap is set once the loop runs).
+      for (let i = 0; i < 100 && !spawnSync('pgrep', ['-f', `${dir}/docker run`]).stdout.length; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      parent.kill('SIGKILL');
+      for (let i = 0; i < 50 && !fs.existsSync(got); i++) await new Promise((r) => setTimeout(r, 100));
+      assert.strictEqual(fs.readFileSync(got, 'utf8').trim(), 'TERM');
+    } finally {
+      parent.kill('SIGKILL');
+      spawnSync('pkill', ['-f', `${dir}/docker run`]);
+    }
+  });
