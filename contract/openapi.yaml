@@ -64,6 +64,8 @@ tags:
     description: Messages delivered more than once, and messages with no final delete.
   - name: Tenants
     description: Per-tenant counts and tenant name search.
+  - name: Queues
+    description: Flows between services and queues, and one queue's figures per time bucket.
   - name: Server
     description: Liveness, readiness and counts for the server itself.
   - name: People
@@ -954,6 +956,168 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '500': {$ref: '#/components/responses/InternalError'}
+  /api/queues/{queue}/series:
+    get:
+      operationId: get-queue-series
+      x-example-request: /api/queues/billing/series?step_s=900
+      tags: [Queues]
+      summary: Get a queue's series
+      description: |
+        Returns one queue's figures per time bucket: what the queue page charts. Every figure counts spans
+        your services reported. Nothing here reads the queue itself.
+
+        - `sends`: messages sent to the queue, except sends SQS deduplicated on a FIFO queue.
+        - `receives`: receives from the queue. `re_receives`: the receives among them with a receive count of 2 or
+          more.
+        - `handled`: accepted deletes, plus Lambda invocations that succeeded (the trigger's delete, which
+          is not observed). `failed`: Lambda invocations whose outcome is a failure.
+        - `dlq_seen`: messages SQS moved from this queue to a dead-letter queue, as a receive from the dead-letter
+          queue reported (its `DeadLetterQueueSourceArn`), at that receive's time. `dlq_inferred`: messages whose
+          receive count on this queue reached its configured `max_receive_count`, that were not deleted and
+          that no receive from a dead-letter queue has shown moved yet, at the time of that receive. These are
+          inferred, not observed. Always 0 when the queue has no `max_receive_count` configured.
+        - `p95_queue_ms`: the 95th percentile (nearest rank, exact) of the time from the message's first recorded send
+          to its first receive (receive count 1), in the bucket of the receive. `no_send_receives`: first receives
+          of messages with no recorded send. They are left out of the percentile.
+        - `p95_handler_ms`: the 95th percentile of the time in the handler: from the end of a receive to the
+          start of its delete (accepted or not), or to its Lambda outcome (success or failure), in the bucket of the
+          delete or outcome. `queue_samples` and `handler_samples` are the number of values behind each percentile.
+
+        A bucket starts at a multiple of `step_s` since the Unix epoch, as CloudWatch's periods do, so a page
+        can ask CloudWatch for the same period and line its buckets up. A bucket with nothing in it is left
+        out, so a chart can show a gap there rather than a zero. The window is `from_ms` to `to_ms`, both
+        included; without them it is the last `since_s` seconds.
+
+        `{queue}` is the queue's key, URL-encoded, or its name when only one queue has that name. A queue is told
+        apart by its account, region and name: its key is `<account>/<region>/<name>` when its spans' queue URL
+        names an account, else the URL, else the name. Spans that say less about where the queue is (no URL, or
+        a local emulator's URL with no region) count for the one queue that fits them.
+
+        `split=version` adds `by_version` to each bucket: for each `service.version`, the messages handled and
+        the two percentiles, each by the version of the span that ends the measure (the receive for time in
+        queue; the delete or Lambda outcome for time in handler and for handled). Spans without a version are
+        the entry with `version: null`, listed last. `versions` lists deploys: for each service, every version that first
+        shows on the queue in the window after another version of it did, at its first span. The version a
+        service had when the window began is not a deploy.
+
+        A queue no span has named yet answers with no buckets. SQLite and Postgres both keep these series. A
+        store that doesn't (a third-party `Store`) answers 501.
+      parameters:
+        - name: queue
+          in: path
+          required: true
+          description: The queue's key or name.
+          schema: {type: string}
+        - $ref: '#/components/parameters/window_from_ms'
+        - $ref: '#/components/parameters/window_to_ms'
+        - $ref: '#/components/parameters/since_s'
+        - name: step_s
+          in: query
+          description: |
+            The bucket length in seconds: 60, 300, 900, 1800, 3600, 10800 or 21600 (1, 5, 15 or 30 minutes, 1, 3 or
+            6 hours), at most 2,000 buckets in the window. The default is the queue page's rule: the window divided by
+            120, rounded up to one of those, and at least 60.
+          schema: {type: integer, minimum: 60, maximum: 21600, enum: [60, 300, 900, 1800, 3600, 10800, 21600]}
+        - name: split
+          in: query
+          description: '`version`: add `by_version` to each bucket (the queue page''s "By version").'
+          schema: {type: string, enum: [version]}
+      responses:
+        '200':
+          description: The queue's buckets in the window.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/QueueSeries'}
+              example:
+                queue: {key: 123456789012/eu-west-1/orders, name: orders, account: '123456789012', region: eu-west-1,
+                        fifo: false}
+                from_ms: 1794852000000
+                to_ms: 1794855599999
+                step_s: 60
+                max_receive_count: 5
+                series:
+                - t_ms: 1794852000000
+                  sends: 212
+                  receives: 230
+                  re_receives: 18
+                  handled: 201
+                  failed: 9
+                  dlq_seen: 1
+                  dlq_inferred: 0
+                  no_send_receives: 0
+                  p95_queue_ms: 840
+                  p95_handler_ms: 2310
+                  queue_samples: 212
+                  handler_samples: 210
+                versions:
+                - {service: orders-worker, version: 1.4.3, first_ms: 1794853140000}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/flows:
+    get:
+      operationId: list-flows
+      x-example-request: /api/flows?since_s=3600
+      tags: [Queues]
+      summary: List flows
+      description: |
+        Returns one flow per queue: the services that send to it and receive from it, and what they did in the
+        window. This is what the overview draws. Each flow has the hosted app's `Flow` shape, field for field
+        (camelCase), so one overview component reads either product.
+
+        - `sent`: sends, except sends SQS deduplicated on a FIFO queue, which were never enqueued.
+          `received`: receives. `deleted`: deletes, accepted or not. `visibilityChanges`: ChangeMessageVisibility
+          calls.
+        - `producers` and `consumers`: the services that sent and received, with how many each, most first. A
+          service without a `service.name` is `unknown_service`. `lambda` on a producer: its sends came from a
+          Lambda function; on a consumer: its receives came through a Lambda event source mapping.
+        - `avgBytes`: the average `messaging.message.body.size` of the sends in the window that reported one.
+        - `dlq`: the queue's dead-letter queue, when a receive from another queue ever named this one in its
+          `DeadLetterQueueSourceArn`, and how many such receives fell in the window. Null otherwise.
+        - `lastSeen`: the time of the queue's latest recorded event, in or out of the window.
+
+        Every queue a stored span has named is listed, with zero counts when nothing happened in the window.
+        Queues are keyed as `/api/queues/{queue}/series` keys them, and spans that say less about where a queue
+        is count for the one queue that fits them. `queue` is the name to show: the name, or, when two queues
+        share it, the name with the account (or, within one account, the region) that tells them apart. Ordered
+        by sends plus receives, most first. The window is `from_ms` to `to_ms`, both included; without them it
+        is the last `since_s` seconds. The counts come from an hourly rollup plus the recorded events of the
+        partial hours at either end, so they are exact. SQLite and Postgres both keep them. A store that
+        doesn't (a third-party `Store`) answers 501.
+      parameters:
+        - $ref: '#/components/parameters/window_from_ms'
+        - $ref: '#/components/parameters/window_to_ms'
+        - $ref: '#/components/parameters/since_s'
+      responses:
+        '200':
+          description: The flows in the window.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FlowPage'}
+              example:
+                from_ms: 1794852000000
+                to_ms: 1794855599999
+                flows:
+                - key: 123456789012/eu-west-1/orders
+                  queue: orders
+                  name: orders
+                  url: null
+                  account: '123456789012'
+                  region: eu-west-1
+                  lastSeen: 1794855598120
+                  sent: 4120
+                  received: 4388
+                  deleted: 4097
+                  visibilityChanges: 12
+                  producers: [{name: checkout, n: 4120, lambda: false}]
+                  consumers: [{name: orders-worker, n: 4388, lambda: false}]
+                  avgBytes: 812.5
+                  dlq: {name: orders-dlq, received: 3}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/tenants/search:
     get:
       operationId: search-tenants
@@ -1520,6 +1684,11 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}
           example: {"error": "internal error"}
+    NotImplemented:
+      description: This store does not have the data for this endpoint yet.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
     NotFound:
       description: No stored span names this message ID.
       content:
@@ -2254,6 +2423,115 @@ components:
               p95_in_queue_ms: {type: [integer, 'null'], description: 'The 95th percentile of the time from send to first delivery, in milliseconds: within 1% of the nearest-rank value (contract/tenants.md). Null when there was no first delivery.'}
               first_deliveries: {type: integer, description: The first deliveries the percentile is computed from.}
               dead_lettered: {type: integer, description: Messages moved to a dead-letter queue in the window.}
+    QueueSeries:
+      type: object
+      additionalProperties: false
+      required: [queue, from_ms, to_ms, step_s, max_receive_count, series, versions]
+      properties:
+        queue:
+          type: object
+          additionalProperties: false
+          required: [key, name, account, region, fifo]
+          properties:
+            key: {type: string, description: 'The key the queue is stored under: account/region/name, else its URL, else its name.'}
+            name: {type: string}
+            account: {type: [string, 'null'], description: The AWS account ID, when the queue's URL or a dead-letter move named it.}
+            region: {type: [string, 'null']}
+            fifo: {type: boolean, description: The name ends in `.fifo`.}
+        from_ms: {type: integer, description: 'The start of the time window, in Unix milliseconds.'}
+        to_ms: {type: integer, description: 'The end of the time window, in Unix milliseconds.'}
+        step_s: {type: integer, description: The bucket length, in seconds.}
+        max_receive_count: {type: [integer, 'null'], description: 'The maxReceiveCount configured for the queue on this server (--max-receive-count, --queue-config), which `dlq_inferred` compares with. Null when none is configured.'}
+        series:
+          type: array
+          description: The buckets with anything in them, oldest first.
+          items:
+            type: object
+            additionalProperties: false
+            required: [t_ms, sends, receives, re_receives, handled, failed, dlq_seen, dlq_inferred, no_send_receives,
+                       p95_queue_ms, p95_handler_ms, queue_samples, handler_samples]
+            properties:
+              t_ms: {type: integer, description: 'The start of the bucket, in Unix milliseconds: a multiple of step_s.'}
+              sends: {type: integer}
+              receives: {type: integer}
+              re_receives: {type: integer, description: Receives with a receive count of 2 or more.}
+              handled: {type: integer, description: Accepted deletes and successful Lambda invocations.}
+              failed: {type: integer, description: Lambda invocations with a failed outcome.}
+              dlq_seen: {type: integer, description: Moves to a dead-letter queue that a receive from it reported.}
+              dlq_inferred: {type: integer, description: Messages that reached the configured max_receive_count and were not seen moved or deleted.}
+              no_send_receives: {type: integer, description: First receives with no recorded send, left out of p95_queue_ms.}
+              p95_queue_ms: {type: [integer, 'null'], description: 'Send to first receive, nearest-rank p95, in ms. Null without a first receive of a recorded send.'}
+              p95_handler_ms: {type: [integer, 'null'], description: 'Receive to delete or Lambda outcome, nearest-rank p95, in ms. Null when there was none.'}
+              queue_samples: {type: integer}
+              handler_samples: {type: integer}
+              by_version:
+                type: array
+                description: 'With `split=version` only: one entry per `service.version` with a handled message or a percentile sample in the bucket, in version order, null last.'
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [version, handled, p95_queue_ms, p95_handler_ms, queue_samples, handler_samples]
+                  properties:
+                    version: {type: [string, 'null'], description: 'The `service.version` of the spans; null for spans without one.'}
+                    handled: {type: integer}
+                    p95_queue_ms: {type: [integer, 'null']}
+                    p95_handler_ms: {type: [integer, 'null']}
+                    queue_samples: {type: integer}
+                    handler_samples: {type: integer}
+        versions:
+          type: array
+          description: 'Deploys in the window, oldest first: a service''s version that first showed after another version of it did.'
+          items:
+            type: object
+            additionalProperties: false
+            required: [service, version, first_ms]
+            properties:
+              service: {type: string, description: The service's `service.name`.}
+              version: {type: string, description: The new `service.version`.}
+              first_ms: {type: integer, description: 'Its first span on this queue in the window, in Unix milliseconds.'}
+    FlowService:
+      type: object
+      additionalProperties: false
+      required: [name, n, lambda]
+      properties:
+        name: {type: string, description: The service's `service.name`, or `unknown_service`.}
+        n: {type: integer, description: Its sends (producers) or receives (consumers) in the window.}
+        lambda: {type: boolean, description: 'Producers: the sends came from a Lambda function. Consumers: the receives came through a Lambda event source mapping.'}
+    Flow:
+      type: object
+      additionalProperties: false
+      required: [key, queue, name, url, account, region, lastSeen, sent, received, deleted, visibilityChanges,
+                 producers, consumers, avgBytes, dlq]
+      properties:
+        key: {type: string, description: 'The queue key: account/region/name, else its URL, else its name.'}
+        queue: {type: string, description: 'The name to show, unique in the list: the name, with the account or region when two queues share it.'}
+        name: {type: string}
+        url: {type: [string, 'null'], description: The queue URL when it is the key (no account in it). Null otherwise.}
+        account: {type: [string, 'null']}
+        region: {type: [string, 'null']}
+        lastSeen: {type: integer, description: 'The latest recorded event on the queue, in Unix milliseconds, in or out of the window.'}
+        sent: {type: integer}
+        received: {type: integer}
+        deleted: {type: integer, description: Deletes, accepted or not.}
+        visibilityChanges: {type: integer}
+        producers: {type: array, items: {$ref: '#/components/schemas/FlowService'}}
+        consumers: {type: array, items: {$ref: '#/components/schemas/FlowService'}}
+        avgBytes: {type: [number, 'null'], description: The average body size of the sends in the window that reported one. Null when none did.}
+        dlq:
+          type: [object, 'null']
+          additionalProperties: false
+          required: [name, received]
+          properties:
+            name: {type: string, description: The dead-letter queue's name to show (its `queue`).}
+            received: {type: integer, description: Receives from it in the window that named this queue as their source.}
+    FlowPage:
+      type: object
+      additionalProperties: false
+      required: [from_ms, to_ms, flows]
+      properties:
+        from_ms: {type: integer}
+        to_ms: {type: integer}
+        flows: {type: array, items: {$ref: '#/components/schemas/Flow'}}
     TenantSearch:
       type: object
       additionalProperties: false
