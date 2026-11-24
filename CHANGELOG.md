@@ -10,7 +10,6 @@
   web screen will use. All are in `contract/openapi.yaml`.
 - **Fixed: re-enabling a person could leave their personal API token refused for up to 20 seconds** on the
   replica that had refused it while they were disabled.
-
 - **Java package, stage 5: Spring Boot executable jars** (QV-319, pre-release, not published). The kit's Java
   driver is also built as a Spring Boot executable jar, with the SDK and Trailbeam nested under `BOOT-INF/lib`,
   and two new variants run it with `java -jar`: `spring-boot` (alone) and `spring-boot-otel-agent` (beside the
