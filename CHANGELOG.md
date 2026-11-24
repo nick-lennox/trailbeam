@@ -259,6 +259,18 @@
   quorum queues' headers, the dead-letter source and reason from `x-death`, and message identity. It comes with
   vectors and fixtures. Nothing emits or reads these spans yet: the server (QV-306) and the Python package
   (QV-309) follow. SQS and SNS spans are unchanged.
+- **Single sign-on with OpenID Connect** (QV-228, users and roles phase 3b, free and open source). "Sign in with
+  Okta / Microsoft Entra / Google Workspace / Keycloak": the authorization code flow with PKCE, turned on with
+  `--oidc-issuer`, `--oidc-client-id`, an optional `--oidc-client-secret-file` and the new `--public-url` (the
+  redirect URI is `<public URL>/login/oidc/callback`). It needs the new extra: `pip install
+  "trailbeam[server,sso]"` (PyJWT and `cryptography`); a plain server install still pulls in no crypto library.
+  `--oidc-admin-groups` and `--oidc-member-groups` turn the provider's groups into roles at every sign-in, with
+  `--oidc-default-role` for everyone else and `--oidc-allowed-domains` to limit who may sign in. An email that
+  already has a local account is refused unless `--oidc-link-email` is on. Google sends no groups, and Entra
+  leaves them out for people in more than 200 groups: the README says what to do for each. Sign-ins in progress
+  are kept in the store, so every replica can finish them: **SQLite schema 17, Postgres schema 11** add the
+  `oidc_logins` and `oidc_identities` tables. CI runs the flow against Keycloak 26. SAML and SCIM are not
+  included.
 
 ## 0.4.0: set up in one command
 

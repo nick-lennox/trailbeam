@@ -38,7 +38,11 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/plain" && "$RUNNER_TEMP/plain"/bin/pip install -q '.[server]'
           ! "$RUNNER_TEMP/plain"/bin/pip show psycopg psycopg-binary psycopg-pool 2>/dev/null | grep -q '^Name'
-          "$RUNNER_TEMP/plain"/bin/python -c "import sys, trailbeam.server.__main__; assert not any(m.startswith('psycopg') for m in sys.modules)"
+          "$RUNNER_TEMP/plain"/bin/python -c "import sys, trailbeam.server.__main__; assert not any(m.startswith(('psycopg', 'jwt', 'cryptography')) for m in sys.modules)"
+      - name: Without the sso extra, single sign-on says which extra it needs
+        run: >-
+          "$RUNNER_TEMP/plain"/bin/trailbeam --db "$RUNNER_TEMP/sso.sqlite" --oidc-issuer https://id.example.com
+          --oidc-client-id trailbeam --public-url https://trailbeam.example.com 2>&1 | grep -F 'trailbeam[server,sso]'
 
   perf:
     # The QV-68 regression check (python/bench/README.md#ci-regression-check): the receipt-hash join plans on a
@@ -106,9 +110,45 @@ jobs:
       - name: People, sessions and sign-in on Postgres
         run: >-
           pytest -q tests/server/test_account_tables.py tests/server/test_accounts.py tests/server/test_access.py
-          tests/server/test_first_admin.py tests/server/test_cli.py
+          tests/server/test_first_admin.py tests/server/test_cli.py tests/server/test_oidc.py
       - name: Two replicas on one Postgres (the token, sessions and the switch to accounts on both)
         run: pytest -q tests/server/test_replicas_e2e.py
+
+  keycloak:
+    # Single sign-on (QV-228) against a real Keycloak: its discovery and signing keys, its login form, PKCE (the
+    # realm's client requires S256), the client secret and the groups claim turned into roles. The realm is
+    # python/tests/server/keycloak/trailbeam-realm.json. Started with docker run, not as a service: a service
+    # container can't be given start-dev --import-realm.
+    name: Single sign-on against Keycloak
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[test,sso]'
+      - name: Start Keycloak with the test realm
+        run: |
+          docker run -d --name keycloak -p 127.0.0.1:8080:8080 \
+            -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+            -v "$PWD/tests/server/keycloak:/opt/keycloak/data/import:ro" \
+            quay.io/keycloak/keycloak:26.0 start-dev --import-realm
+          for i in $(seq 90); do
+            curl -sf http://localhost:8080/realms/trailbeam/.well-known/openid-configuration > /dev/null && exit 0
+            sleep 2
+          done
+          docker logs keycloak
+          exit 1
+      - name: Sign in through Keycloak (first admin, member, refused, wrong secret, replayed callback)
+        env:
+          TRAILBEAM_TEST_KEYCLOAK_URL: http://localhost:8080
+        run: pytest -q -rs tests/server/test_oidc_keycloak.py
+      - name: Keycloak's log
+        if: failure()
+        run: docker logs keycloak
 
   node:
     name: Node.js ${{ matrix.node }}

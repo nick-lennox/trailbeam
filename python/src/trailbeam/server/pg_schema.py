@@ -50,6 +50,9 @@ before this version (0.3.0 and earlier) refuses the database from then on.
 **Purges** (version 9, QV-245). ``purges``: the PurgeQueue calls (contract section 18), not partitioned: they
 belong to no message, and every list page reads them by queue.
 
+**Single sign-on** (version 11, QV-228). ``oidc_logins`` and ``oidc_identities`` (account_tables.py): OpenID
+Connect sign-ins in progress, and which person each identity provider account is. Not spans either.
+
 **Message-ID indexes** (version 3, QV-118). ``message_queues``, ``message_tenants`` and ``tenant_events`` are
 indexed by ``mid``, so rewriting a message's summary deletes its old list rows by index instead of scanning its
 place's partition.
@@ -291,7 +294,7 @@ CREATE TABLE IF NOT EXISTS hash_places (
     bucket BIGINT NOT NULL,
     PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
 ) PARTITION BY RANGE (rclass, bucket);
-""" + SEALING + PROBES + account_tables.PG_CREATE + PURGES + """CREATE TABLE IF NOT EXISTS schema_version (
+""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_OIDC + PURGES + """CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
     name TEXT NOT NULL,
@@ -547,8 +550,9 @@ MIGRATIONS: tuple = (
     # Version 10 (QV-362): the resource's service.version on each span, NULL on rows stored before it. Adding a
     # nullable column with no default to the partitioned parent adds it to every place without rewriting it.
     Migration(10, "spans.service_version (QV-362)", ("ALTER TABLE spans ADD COLUMN IF NOT EXISTS service_version TEXT",)),
+    Migration(11, "OpenID Connect sign-ins and identities (QV-228)", tuple(statements(account_tables.PG_OIDC))),
 )
-LATEST = 10
+LATEST = 11
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 

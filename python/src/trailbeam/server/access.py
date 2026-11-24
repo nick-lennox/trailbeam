@@ -4,8 +4,8 @@ Every route the server answers has one level (``ROUTES``, checked by ``level_of`
 is ``MEMBER``, so a page or file added later is never open by mistake):
 
 - ``OPEN``: ``/api/ready``, ``/api/health`` (which says only ``status`` and ``version`` to a request that isn't let
-  in at ``MEMBER``), the sign-in page and its form, and the first admin's setup form (``/setup``, first_admin.py),
-  which needs its one-time code instead.
+  in at ``MEMBER``), the sign-in page and its form, the first admin's setup form (``/setup``, first_admin.py),
+  which needs its one-time code instead, and single sign-on's two steps (``/login/oidc``, oidc.py).
 - ``INGEST``: ``POST /v1/traces``.
 - ``METRICS``: ``GET /metrics``.
 - ``MEMBER``: the API and the web screen, message bodies included (an admin or a member, proposal section 2).
@@ -55,6 +55,8 @@ ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/logout"): OPEN,
     ("GET", "/setup"): OPEN,   # the first admin's form; the setup code in it is the credential (first_admin.py)
     ("POST", "/setup"): OPEN,
+    ("GET", "/login/oidc"): OPEN,           # single sign-on (oidc.py): to the identity provider
+    ("GET", "/login/oidc/callback"): OPEN,  # and back; its state and the browser's cookie are the credential
     ("POST", "/v1/traces"): INGEST,
     ("GET", "/metrics"): METRICS,
 }

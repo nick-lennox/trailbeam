@@ -12,7 +12,7 @@ import sqlite3
 import sys
 import time
 
-from . import auth, config, first_admin, trace_links
+from . import auth, config, first_admin, oidc, trace_links
 from .backpressure import DEFAULT_MAX_PENDING, DEFAULT_MAX_WAIT_S, IngestGate
 from .db import SqliteStore, parse_queue_list
 from .migrations import SchemaError
@@ -137,8 +137,72 @@ def build_parser(prog: str = "trailbeam", description: str = "") -> argparse.Arg
                         "The timeline then shows Open trace on each recorded step. Placeholders: "
                         + ", ".join("{" + n + "}" for n in trace_links.PLACEHOLDERS)
                         + " (env TRAILBEAM_TRACE_LINK, default none: no links)")
+    sso = p.add_argument_group(
+        "single sign-on (OpenID Connect)",
+        'off unless --oidc-issuer is set; needs pip install "trailbeam[server,sso]". The identity provider sends '
+        "people back to <public URL>/login/oidc/callback: register that redirect URI there")
+    sso.add_argument("--public-url", default=os.environ.get("TRAILBEAM_PUBLIC_URL") or None,
+                     help="the address people open Trailbeam at, such as https://trailbeam.example.com (env "
+                          "TRAILBEAM_PUBLIC_URL). Needed for single sign-on: the request's Host can't be trusted")
+    sso.add_argument("--oidc-issuer", default=os.environ.get("TRAILBEAM_OIDC_ISSUER") or None,
+                     help="the identity provider's issuer URL, exactly as its ID tokens' iss, such as "
+                          "https://id.example.com/realms/main (Keycloak), https://example.okta.com, "
+                          "https://login.microsoftonline.com/<tenant>/v2.0 (Entra) or https://accounts.google.com "
+                          "(env TRAILBEAM_OIDC_ISSUER)")
+    sso.add_argument("--oidc-client-id", default=os.environ.get("TRAILBEAM_OIDC_CLIENT_ID") or None,
+                     help="this server's client ID at the provider (env TRAILBEAM_OIDC_CLIENT_ID)")
+    sso.add_argument("--oidc-client-secret-file", default=os.environ.get("TRAILBEAM_OIDC_CLIENT_SECRET_FILE") or None,
+                     help="a file holding the client secret (env TRAILBEAM_OIDC_CLIENT_SECRET_FILE, or the secret "
+                          "itself in TRAILBEAM_OIDC_CLIENT_SECRET). Without one, a public client with PKCE")
+    sso.add_argument("--oidc-scopes", default=os.environ.get("TRAILBEAM_OIDC_SCOPES") or None,
+                     help="scopes asked for (env TRAILBEAM_OIDC_SCOPES, default \"openid email profile\"; add the one "
+                          "your provider needs for groups, such as groups on Okta)")
+    sso.add_argument("--oidc-groups-claim", default=os.environ.get("TRAILBEAM_OIDC_GROUPS_CLAIM") or None,
+                     help="the ID token claim that lists the person's groups (env TRAILBEAM_OIDC_GROUPS_CLAIM, "
+                          "default groups; roles on some Entra setups)")
+    sso.add_argument("--oidc-admin-groups", default=os.environ.get("TRAILBEAM_OIDC_ADMIN_GROUPS") or None,
+                     help="comma-separated groups whose people are admins (env TRAILBEAM_OIDC_ADMIN_GROUPS). With "
+                          "groups mapped, the provider decides each person's role at every sign-in")
+    sso.add_argument("--oidc-member-groups", default=os.environ.get("TRAILBEAM_OIDC_MEMBER_GROUPS") or None,
+                     help="comma-separated groups whose people are members (env TRAILBEAM_OIDC_MEMBER_GROUPS)")
+    sso.add_argument("--oidc-default-role", choices=("member", "none"),
+                     default=os.environ.get("TRAILBEAM_OIDC_DEFAULT_ROLE") or None,
+                     help="the role of someone in none of those groups: member, or none to refuse them (env "
+                          "TRAILBEAM_OIDC_DEFAULT_ROLE; default member, or none when --oidc-member-groups is set)")
+    sso.add_argument("--oidc-allowed-domains", default=os.environ.get("TRAILBEAM_OIDC_ALLOWED_DOMAINS") or None,
+                     help="comma-separated email domains that may sign in, with a verified email (env "
+                          "TRAILBEAM_OIDC_ALLOWED_DOMAINS; for Google Workspace, its domain). Default: any account "
+                          "the provider signs in")
+    sso.add_argument("--oidc-link-email", action="store_true",
+                     default=os.environ.get("TRAILBEAM_OIDC_LINK_EMAIL", "").strip().lower() in ("1", "true", "yes"),
+                     help="let a provider account with a verified email sign in to the existing account with that "
+                          "email (env TRAILBEAM_OIDC_LINK_EMAIL=true). Off by default: a provider that lets people "
+                          "choose their email would let them take over accounts")
+    sso.add_argument("--oidc-label", default=os.environ.get("TRAILBEAM_OIDC_LABEL") or None,
+                     help='the sign-in button says "Sign in with <label>" (env TRAILBEAM_OIDC_LABEL, default '
+                          "single sign-on), such as Okta")
     p.add_argument("--log-level", default=os.environ.get("TRAILBEAM_LOG_LEVEL", "INFO"))
     return p
+
+
+def oidc_settings(a: argparse.Namespace):
+    """Single sign-on's settings from the flags, checked, or None when it is off. Raises oidc.SettingsError."""
+    if not getattr(a, "oidc_issuer", None):
+        return oidc.make_settings(issuer=None, client_id=getattr(a, "oidc_client_id", None), public_url=None,
+                                  admin_groups=getattr(a, "oidc_admin_groups", None),
+                                  member_groups=getattr(a, "oidc_member_groups", None),
+                                  allowed_domains=getattr(a, "oidc_allowed_domains", None))
+    if a.oidc_client_secret_file:
+        secret = oidc.read_secret_file(a.oidc_client_secret_file)
+    else:
+        secret = os.environ.get("TRAILBEAM_OIDC_CLIENT_SECRET") or None
+    s = oidc.make_settings(issuer=a.oidc_issuer, client_id=a.oidc_client_id, public_url=a.public_url,
+                           client_secret=secret, scopes=a.oidc_scopes, groups_claim=a.oidc_groups_claim,
+                           admin_groups=a.oidc_admin_groups, member_groups=a.oidc_member_groups,
+                           default_role=a.oidc_default_role, allowed_domains=a.oidc_allowed_domains,
+                           link_email=a.oidc_link_email, label=a.oidc_label)
+    oidc.require_pyjwt()
+    return s
 
 
 def serve(a: argparse.Namespace, on_listening=None) -> None:
@@ -163,6 +227,11 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
             auth.check_token(os.environ["TRAILBEAM_TOKEN"]) if os.environ.get("TRAILBEAM_TOKEN", "").strip() else None)
     except auth.TokenError as e:
         logging.getLogger("trailbeam.server").error("TRAILBEAM_TOKEN: %s", e)
+        sys.exit(2)
+    try:
+        sso = oidc_settings(a)
+    except oidc.SettingsError as e:
+        logging.getLogger("trailbeam.server").error("single sign-on: %s", e)
         sys.exit(2)
     if a.store_bodies:
         where = redact_url(a.store_url) if a.store_url else a.db
@@ -205,7 +274,7 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
                             lambda_timeout_s=a.lambda_timeout, max_receive_counts=a.max_receive_count,
                             purger=purger, auth=auth.Auth(token) if token else None,
                             gate=IngestGate(a.ingest_max_pending, a.ingest_max_wait), trace_link=a.trace_link,
-                            trusted_proxies=TrustedProxies(trusted_proxies(a)))
+                            trusted_proxies=TrustedProxies(trusted_proxies(a)), oidc=sso)
     except OSError as e:
         db.close()
         sys.stderr.write(bind_error(e, a.host, a.port, getattr(a, "command", "trailbeam")) + "\n")
@@ -225,6 +294,10 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
         logging.getLogger("trailbeam.server").error("%s: could not create the first admin: %s",
                                                     first_admin.EMAIL_ENV, e)
         sys.exit(2)
+    if sso is not None:
+        logging.getLogger("trailbeam.server").info(
+            "single sign-on with %s (client %s): register the redirect URI %s at the identity provider",
+            sso.issuer, sso.client_id, sso.redirect_uri)
     if httpd.app.proxies:
         logging.getLogger("trailbeam.server").info(
             "trusted proxies (X-Forwarded-For, -Proto and -Host believed from): %s",
