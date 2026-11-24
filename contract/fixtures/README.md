@@ -27,3 +27,13 @@ it matches). It is written by `make-body-views.py` from the open-source server; 
 Checked by `python/tests/server/test_body_view.py` and `ui/test/body.test.ts` here, and by the hosted
 app's `test/body-shared.test.ts`, which runs the app's own store and explorer on the same spans.
 `@trailbeam/ui` ships both files under `@trailbeam/ui/fixtures/`.
+
+## `amqp-4.0-spans.json`
+
+RabbitMQ spans of contract 4.0 ([`../span-contract-amqp.md`](../span-contract-amqp.md)) for the scenarios of the
+QV-303 proof: a normal ack, requeues, a nack loop that never dead-letters, a crash loop to the dead-letter queue,
+a reject to it, fan-out, a publisher retry, an unroutable publish, a classic queue, a message without
+`message_id`, a consumer timeout and a stuck delivery. They are **written** by `make-amqp-spans.py` from the
+contract, not recorded, because no package emits them yet; re-record them from the Python package (QV-309)
+and keep the scenarios. Checked by `python/tests/test_amqp_contract.py`, which also fails if the file is not
+what the script writes.
