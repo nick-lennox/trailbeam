@@ -1130,8 +1130,8 @@ In the API (`GET /api/messages/{message_id}`, [`openapi.yaml`](openapi.yaml)) th
 (`source: sns_publish`, `joined_by`, `reached`, `sns_delivery_ms` when joined through the envelope) and the arrival
 an `arrived_via_sns` step (`source: sns_envelope`, a window ending at the receive, no time of its own). A publish is
 the topic's step, not the message's: it does not change the message's first seen, last seen, state or list pages.
-Each store keeps publishes apart from messages, like purges (SQLite: rows of `spans` with no message, schema 17;
-Postgres: `sns_publishes` and `sns_receives`, schema 11), and retention drops a publish by its own time against the
+Each store keeps publishes apart from messages, like purges (SQLite: rows of `spans` with no message, schema 18;
+Postgres: `sns_publishes` and `sns_receives`, schema 12), and retention drops a publish by its own time against the
 cutoff of the topic's name (`--retention-queues` takes it like a queue name).
 
 ### 21.6 Verified and not verified

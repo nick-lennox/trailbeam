@@ -10,6 +10,20 @@
   `TRAILBEAM_ADMIN_EMAIL` stops the server at start, and `trailbeam users` and `trailbeam tokens` refuse to run
   without `--accounts` or the variable. On, everything works as described below. The `--trusted-proxy` handling,
   the cross-site form check and the account tables are not behind the switch.
+- **A queue's series for the queue page** (QV-363): `GET /api/queues/{queue}/series?from_ms=&to_ms=&step_s=`. For each
+  bucket it gives sends, receives and re-receives, handled messages (accepted deletes plus Lambda successes),
+  failed Lambda invocations, dead-letter moves (seen on the dead-letter queue, and inferred from the configured
+  maxReceiveCount, kept apart), and the p95 time in queue and time in handler. A queue is keyed by account,
+  region and name, as the hosted app keys it. `split=version` adds, per bucket, each `service.version`'s handled
+  messages and both p95s, and `versions` lists the deploys in the range, for the page's markers.
+- **Flows for the overview** (QV-363): `GET /api/flows?from_ms=&to_ms=`. One flow per queue: the services that
+  send to it and receive from it, the counts of sends, receives, deletes and visibility changes, the average body
+  size, and its dead-letter queue when a receive from one has named it. Each flow has the hosted app's `Flow`
+  shape, field for field. The counts come from a new hourly rollup per queue (`queue_rollup`) plus the events of
+  the partial hours at either end, so they are exact.
+  - Both endpoints work on SQLite and Postgres. SQLite schema 17 and Postgres schema 11 add `queue_events` and
+    `queue_rollup` (Postgres also adds `place_queue_keys`). They are built from every message's spans when the
+    store is upgraded: one pass over the messages on SQLite, and one place at a time on Postgres.
 - **Postgres, several replicas: a message could get a second summary** (QV-422). A delete or
   ChangeMessageVisibility span carries no message ID, so its export finds its message by the receipt handle and
   locks it only then. If another replica stored a newer span of that message in a new day (bucket) meanwhile,
@@ -23,7 +37,7 @@
   256 KiB or uses `MessageStructure: json`; `TRAILBEAM_SNS_INJECT=off` turns it off), and, with raw delivery off,
   three fields of the SNS envelope: `MessageId`, `TopicArn` and `Timestamp`. These three are read on every queue,
   including queues whose body is not captured. Nothing else in the body is read, and the body is never exported. Node.js: pass an `SNSClient` to `instrument`. The server stores publishes apart from messages
-  (SQLite schema 17: three partial indexes, built from one scan of `spans`; Postgres schema 11: `sns_publishes` and
+  (SQLite schema 18: three partial indexes, built from one scan of `spans`; Postgres schema 12: `sns_publishes` and
   `sns_receives`) and joins them when a message is read: its timeline gets a `published` step with the SQS messages
   the publish reached, by queue, and the SNS delivery time (`SentTimestamp` minus the envelope's `Timestamp`, both
   AWS clocks). A message whose envelope names a topic but joins no recorded publish gets `arrived_via_sns`, placed
