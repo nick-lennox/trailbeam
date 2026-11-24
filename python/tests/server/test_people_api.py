@@ -18,6 +18,7 @@ from trailbeam.server import auth, people_api
 from trailbeam.server.accounts import Accounts, BadSetupCode
 from trailbeam.server.db import Database
 from trailbeam.server.passwords import Hasher
+from trailbeam.server.proxy import TrustedProxies, parse_networks
 from trailbeam.server.server import make_server
 from trailbeam.server.tokens import Tokens
 
@@ -49,8 +50,9 @@ def store(request, tmp_path):
 class Server:
     """A server with an admin (Ada) and a member (Ben), each with a personal token."""
 
-    def __init__(self, store, token):
-        self.httpd = make_server(store, "127.0.0.1", 0, ui_dir=None, auth=auth.Auth(token) if token else None)
+    def __init__(self, store, token, **opts):
+        self.httpd = make_server(store, "127.0.0.1", 0, ui_dir=None, auth=auth.Auth(token) if token else None,
+                                 **opts)
         self.app = self.httpd.app
         self.app.access.state.ttl_s = 0.0
         self.app.signin.hasher = QUICK
@@ -173,6 +175,24 @@ def test_writes_from_another_site_s_page_are_refused_before_anything_changes(srv
     # the server's own page passes
     assert srv("PATCH", f"/api/users/{srv.ben}", {"role": "admin"}, {**srv.admin, "Sec-Fetch-Site": "same-origin"}
                )[0] == 200
+
+
+def test_over_https_a_plain_session_cookie_changes_no_one(store):
+    """Writes check the scheme like reads do: over HTTPS only the __Host- cookie is a session (QV-408, QV-453)."""
+    s = Server(store, TOKEN, trusted_proxies=TrustedProxies(parse_networks("127.0.0.1/32")))
+    try:
+        sid, _ = s.app.sessions.start(s.ada)
+        https = {"X-Forwarded-Proto": "https", "Sec-Fetch-Site": "same-origin"}
+        plain, host = {"Cookie": f"trailbeam_sid={sid}"}, {"Cookie": f"__Host-trailbeam_sid={sid}"}
+        assert s("PATCH", f"/api/users/{s.ben}", {"role": "admin"}, {**https, **plain})[0] == 401
+        assert s("POST", "/api/users", {"email": "e@example.com"}, {**https, **plain})[0] == 401
+        assert s("POST", "/api/tokens/ingest", {"name": "x"}, {**https, **plain})[0] == 401
+        assert s.acc.user(s.ben)["role"] == "member" and len(s.acc.users()) == 2
+        assert s("PATCH", f"/api/users/{s.ben}", {"role": "admin"}, {**https, **host})[0] == 200
+        assert s("PATCH", f"/api/users/{s.ben}", {"role": "member"}, {"Sec-Fetch-Site": "same-origin", **plain}
+                 )[0] == 200  # plain HTTP
+    finally:
+        s.close()
 
 
 def test_a_form_can_t_post_to_the_api(srv):

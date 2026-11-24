@@ -750,7 +750,7 @@ def make_handler(app: App):
                 return
             level, handler, rid = r
             try:
-                d = app.access.check(self.headers, level)
+                d = app.access.check(self.headers, level, self._scheme())
             except access_mod.AccessUnavailable as e:
                 log.warning("%s %s: %s", method, path, e)
                 self.close_connection = True
