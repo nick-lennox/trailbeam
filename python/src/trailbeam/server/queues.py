@@ -55,6 +55,7 @@ every send span.
 """
 from __future__ import annotations
 
+import functools
 import json
 import math
 import re
@@ -112,8 +113,10 @@ def parse_arn(arn: Optional[str]) -> Optional[Place]:
     return Place(m.group(3), m.group(2) or None, m.group(1) or None) if m else None
 
 
+@functools.lru_cache(maxsize=4096)
 def key(name: str, url: Optional[str]) -> str:
-    """The key a queue is stored and grouped under (queue-url.ts ``queueKey``)."""
+    """The key a queue is stored and grouped under (queue-url.ts ``queueKey``). Cached: every event of a span
+    asks it, and a store has few queues."""
     p = parse_url(url)
     if p is not None and p.account:
         return f"{p.account}/{p.region or ''}/{name}"
