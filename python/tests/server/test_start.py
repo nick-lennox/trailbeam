@@ -26,7 +26,9 @@ def _env(**extra):
 
 class Started:
     def __init__(self, args, env=None, cwd=None):
-        self.p = subprocess.Popen([sys.executable, "-m", "trailbeam.server", *args], env=env or _env(), cwd=cwd,
+        # PYTHONFAULTHANDLER: on SIGABRT the server writes every thread's stack to stderr (stop, QV-434).
+        env = {**(env or _env()), "PYTHONFAULTHANDLER": "1"}
+        self.p = subprocess.Popen([sys.executable, "-m", "trailbeam.server", *args], env=env, cwd=cwd,
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.out = []
         for line in self.p.stdout:
@@ -66,13 +68,22 @@ class Started:
         except urllib.error.HTTPError as e:
             return e.code, e.read()
 
-    def stop(self):
+    def stop(self, timeout=10):
+        """SIGTERM, as docker stop sends; the exit code. A server still running ``timeout`` s later fails the test
+        with what it wrote to stderr, ending with every thread's stack, instead of returning None (QV-434)."""
         if self.p.poll() is None:
             self.p.send_signal(signal.SIGTERM)
             try:
-                self.p.wait(timeout=10)
+                self.p.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
-                self.p.kill()
+                self.p.send_signal(signal.SIGABRT)  # faulthandler (PYTHONFAULTHANDLER) dumps the stacks
+                try:
+                    self.p.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    self.p.kill()
+                    self.p.wait()
+                raise AssertionError(f"trailbeam start was still running {timeout} s after SIGTERM. Its stderr:\n"
+                                     + self.p.stderr.read()) from None
         return self.p.returncode
 
 
