@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- The conformance driver for the Java package. Build the package first (`mvn -f java/pom.xml install`),
      then this (`mvn -f conformance/drivers/java/pom.xml package`); run.sh starts it. aws.sdk.version picks the
-     SDK the driver runs on, for the version matrix. -->
+     SDK the driver runs on, for the version matrix. The package phase also repackages the driver as a Spring Boot
+     executable jar (target/*-boot.jar, the SDK and Trailbeam as nested jars under BOOT-INF/lib), for the
+     spring-boot variants. The JDK picks the Spring Boot line, so each CI job covers one of its two launchers:
+     2.7 on JDK 11 (the classic loader), 3.5 on JDK 17, 4.x on JDK 21 and later (the loader rewritten in 3.2).
+     -Dspring.boot.version overrides it. -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -15,7 +19,21 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <aws.sdk.version>2.59.7</aws.sdk.version>
     <trailbeam.version>0.1.0-SNAPSHOT</trailbeam.version>
+    <spring.boot.version>2.7.18</spring.boot.version>
   </properties>
+
+  <profiles>
+    <profile>
+      <id>boot-3</id>
+      <activation><jdk>[17,21)</jdk></activation>
+      <properties><spring.boot.version>3.5.16</spring.boot.version></properties>
+    </profile>
+    <profile>
+      <id>boot-4</id>
+      <activation><jdk>[21,)</jdk></activation>
+      <properties><spring.boot.version>4.2.0</spring.boot.version></properties>
+    </profile>
+  </profiles>
 
   <dependencies>
     <dependency>
@@ -61,6 +79,22 @@
             <configuration>
               <outputFile>${project.build.directory}/classpath.txt</outputFile>
               <includeScope>runtime</includeScope>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <version>${spring.boot.version}</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>repackage</goal>
+            </goals>
+            <configuration>
+              <classifier>boot</classifier>
+              <mainClass>trailbeam.kit.Driver</mainClass>
             </configuration>
           </execution>
         </executions>

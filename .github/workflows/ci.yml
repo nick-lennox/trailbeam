@@ -178,7 +178,8 @@ jobs:
     # java/: the AWS SDK for Java v2 package (QV-319). Unit tests (contract vectors, a real SDK client over a
     # canned HTTP layer), then the conformance kit on the installed jar: alone, beside the OpenTelemetry Java
     # agent (also with its sampler at 0) and beside dd-java-agent, each agent variant with the strict parent check
-    # (receives may be roots: a poll loop has no stock span); and the Lambda wrapper in the java:21 Lambda
+    # (receives may be roots: a poll loop has no stock span), and as a Spring Boot executable jar (Boot 4.x on this
+    # JDK, alone and beside the OpenTelemetry agent); and the Lambda wrapper in the java:21 Lambda
     # base image, whose Dockerfile builds the jar from java/ itself.
     name: Java package (unit tests and conformance kit)
     runs-on: ubuntu-latest
@@ -227,7 +228,8 @@ jobs:
     # users bring. Each cell runs the jar's unit tests on its JDK, then the kit's Java driver on its SDK, in every
     # variant. The SDKs: 2.17.295, the oldest supported; 2.20.162, the last on SQS's query protocol (JSON came in
     # 2.21); 2.24.13, the last with only ReceiveMessage attributeNames; 2.25.0, the first with
-    # messageSystemAttributeNames. The java job above covers JDK 21 on the newest SDK.
+    # messageSystemAttributeNames. The java job above covers JDK 21 on the newest SDK. The driver's Spring Boot
+    # variants run on Boot 2.7 here on JDK 11 (the classic launcher) and on Boot 3.5 on JDK 17 (the pom picks it).
     name: Java matrix (JDK ${{ matrix.jdk }}, SDK ${{ matrix.sdk }})
     runs-on: ubuntu-latest
     strategy:
