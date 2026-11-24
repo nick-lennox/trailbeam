@@ -62,6 +62,10 @@ class Accounts:
     def __init__(self, store):
         self.store = store
         self.postgres = hasattr(store, "reads") and hasattr(store, "ingest")
+        # True for a SQLite :memory: store: only this process can change it (no replica or CLI reaches it), and
+        # its reads wait for the writer, so access.State reads auth_state again only when ``changes`` moves
+        self.only_this_process = not self.postgres and not getattr(store, "shared_reads", True)
+        self.changes = 0  # people and ingest tokens created, removed or given a new role, by this process
         if self.postgres:
             import psycopg
 
@@ -92,6 +96,8 @@ class Accounts:
             return
         s = self.store
         with s.lock:
+            # every write; under the lock, so a :memory: store's reads (which take it too) see the change
+            self.changes += 1
             c = s.conn
             c.execute("BEGIN IMMEDIATE")
             try:
@@ -220,6 +226,86 @@ class Accounts:
     def end_sessions(self, user_id: int) -> int:
         with self._write() as tx:
             return tx.run("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+
+    # ---- the live switch (access.py) ------------------------------------------------------------------
+
+    def auth_state(self) -> tuple[bool, bool]:
+        """(an admin exists, an ingest token exists). Any admin counts, disabled or not, and any ingest token,
+        revoked or not: disabling someone or revoking a token never opens what an admin or a token closed."""
+        r = self._read("SELECT EXISTS (SELECT 1 FROM users WHERE role = 'admin') AS admin, "
+                       "EXISTS (SELECT 1 FROM ingest_tokens) AS ingest")[0]
+        return bool(r["admin"]), bool(r["ingest"])
+
+    # ---- ingest tokens (tokens.py makes them; only hashes come here) ---------------------------------
+
+    def create_ingest_token(self, name: str, token_sha256: str, prefix: str, now_ms: int,
+                            created_by: Optional[int] = None) -> int:
+        name = check_name(name)
+        with self._write() as tx:
+            return tx.insert_id("INSERT INTO ingest_tokens (name, token_sha256, prefix, created_at_ms, created_by) "
+                                "VALUES (?, ?, ?, ?, ?)", (name, token_sha256, prefix, now_ms, created_by))
+
+    def ingest_tokens(self) -> list[dict]:
+        return self._read("SELECT id, name, prefix, created_at_ms, created_by, last_used_ms, revoked_at_ms "
+                          "FROM ingest_tokens ORDER BY id")
+
+    def ingest_token(self, token_sha256: str) -> Optional[dict]:
+        """The live (not revoked) ingest token with this hash: ``id``, ``name``. Read pool."""
+        rows = self._read("SELECT id, name FROM ingest_tokens WHERE token_sha256 = ? AND revoked_at_ms IS NULL",
+                          (token_sha256,))
+        return rows[0] if rows else None
+
+    def revoke_ingest_token(self, token_id: int, now_ms: int) -> bool:
+        """False: no such token, or already revoked. The row stays, so lists show it."""
+        with self._write() as tx:
+            return bool(tx.run("UPDATE ingest_tokens SET revoked_at_ms = ? WHERE id = ? AND revoked_at_ms IS NULL",
+                               (now_ms, token_id)))
+
+    def touch_ingest_token(self, token_id: int, now_ms: int) -> None:
+        with self._write() as tx:
+            tx.run("UPDATE ingest_tokens SET last_used_ms = ? WHERE id = ?", (now_ms, token_id))
+
+    # ---- personal API tokens ------------------------------------------------------------------------
+
+    def create_personal_token(self, user_id: int, name: str, token_sha256: str, prefix: str, now_ms: int,
+                              expires_at_ms: Optional[int] = None) -> int:
+        """Raises AccountError when there is no such person."""
+        name = check_name(name)
+        with self._write() as tx:
+            if tx.one("SELECT id FROM users WHERE id = ?", (user_id,)) is None:
+                raise AccountError(f"no person with ID {user_id}")
+            return tx.insert_id("INSERT INTO personal_tokens (user_id, name, token_sha256, prefix, created_at_ms, "
+                                "expires_at_ms) VALUES (?, ?, ?, ?, ?, ?)",
+                                (user_id, name, token_sha256, prefix, now_ms, expires_at_ms))
+
+    def personal_tokens(self, user_id: Optional[int] = None) -> list[dict]:
+        q = ("SELECT id, user_id, name, prefix, created_at_ms, expires_at_ms, last_used_ms, revoked_at_ms "
+             "FROM personal_tokens")
+        if user_id is None:
+            return self._read(q + " ORDER BY id")
+        return self._read(q + " WHERE user_id = ? ORDER BY id", (user_id,))
+
+    def personal_token(self, token_sha256: str, now_ms: int) -> Optional[dict]:
+        """The live personal token with this hash and its owner (``id``, ``user_id``, ``email``, ``name``,
+        ``role``), or None: unknown, revoked, expired, or the owner is disabled. Read pool."""
+        rows = self._read(
+            "SELECT t.id, t.user_id, u.email, u.name, u.role FROM personal_tokens t JOIN users u ON u.id = t.user_id "
+            "WHERE t.token_sha256 = ? AND t.revoked_at_ms IS NULL AND (t.expires_at_ms IS NULL OR t.expires_at_ms > ?) "
+            "AND u.disabled_at_ms IS NULL", (token_sha256, now_ms))
+        return rows[0] if rows else None
+
+    def revoke_personal_token(self, token_id: int, now_ms: int, user_id: Optional[int] = None) -> bool:
+        """False: no such token (of ``user_id``, if given), or already revoked."""
+        q = "UPDATE personal_tokens SET revoked_at_ms = ? WHERE id = ? AND revoked_at_ms IS NULL"
+        args: tuple = (now_ms, token_id)
+        if user_id is not None:
+            q, args = q + " AND user_id = ?", args + (user_id,)
+        with self._write() as tx:
+            return bool(tx.run(q, args))
+
+    def touch_personal_token(self, token_id: int, now_ms: int) -> None:
+        with self._write() as tx:
+            tx.run("UPDATE personal_tokens SET last_used_ms = ? WHERE id = ?", (now_ms, token_id))
 
 
 class _Tx:

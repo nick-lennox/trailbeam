@@ -16,6 +16,69 @@
     `opentelemetry-instrumentation` 0.48b0 imports `pkg_resources` without depending on setuptools, so
     `import trailbeam.boto` failed in an environment without setuptools.
 
+- **Users and roles switch on when the first admin exists** (QV-225). Each replica checks the store at least
+  every 5 seconds for an admin. Until there is one, nothing changes. After that:
+  - The web screen and the API need a person: signing in with an email and password on `/login` (cookie
+    `trailbeam_sid`, or `__Host-trailbeam_sid` over HTTPS), or a personal API token (`tbp_...`) as
+    `Authorization: Bearer`. Admins and members can both read everything. Every route has a fixed level: open,
+    ingest, metrics, member or admin.
+  - **Changed:** `TRAILBEAM_TOKEN` keeps working for ingest and `/metrics` only. It no longer opens the web screen
+    or the API, and its old `trailbeam_session` cookie stops working. The server warns at every start while it
+    is set. Upgrade every replica before creating the first admin: an older replica would still let the token
+    into the web screen.
+  - **Ingest tokens** (`tbi_...`): named service tokens that can only send spans, as `x-trailbeam-key` (the hosted
+    app's header) or `Authorization: Bearer`. `TRAILBEAM_TOKEN` is accepted in `x-trailbeam-key` too. Ingest needs
+    a token when `TRAILBEAM_TOKEN` is set or the store holds an ingest token, revoked or not. **Changed:** creating
+    the first ingest token closes ingest on a server that had no `TRAILBEAM_TOKEN`.
+  - Tokens are stored as SHA-256 and checked through a per-process cache (ingest 30 s, personal 20 s). "Last
+    used" is written at most once a minute per token and replica.
+  - `GET /api/me` says how a request was let in and as whom. `/api/health` gains `config.ingest_auth`
+    (`token` or `open`), and `config.auth` can be `accounts`.
+  - **Changed:** `/metrics` without a valid token answers a plain-text `401`, not the HTML sign-in page.
+  - **Changed:** with neither a token nor an ingest token, the server now warns at every start that ingest is
+    open, also when it listens only on localhost.
+  - Creating people and tokens from the command line comes with `trailbeam users` and `trailbeam tokens`.
+
+- **Conformance kit: the Lambda wrappers** (QV-339, QV-318 stage 2). `trailbeam.aws_lambda.wrap` (Python) and
+  `wrapHandler` (Node.js) run in the AWS Lambda base images, invoked through their Runtime Interface Emulator by
+  a poller that plays Lambda's SQS event source mapping (`conformance/drivers/lambda-poller`). Cases: a success,
+  a reported failure in a batch of two, a redelivery, the move to the dead-letter queue after `maxReceiveCount`
+  and its receive there, an invalid `batchItemFailures`, and a thrown exception. The checker's Lambda rules
+  (`conformance/SCENARIO-LAMBDA.md`): `trailbeam.source = lambda` and `LambdaEvent`, zero-length receives with
+  `trailbeam.start_observed = false` and a `returned` tick only, the four outcome values and `error_type` derived
+  from the function's response, `faas.*`, `trailbeam.queue.arn` and the URL built from it, `trailbeam.batch.*`,
+  and that every receive span reached the Collector before the handler started (the bench's Collector now
+  stamps arrival times). Both wrappers pass in CI, with and without body capture and error text. Drivers can
+  have a `setup` command, run once (the Lambda drivers build their image there).
+
+- **Java package, stage 1** (QV-319, pre-release, not published). `java/` is a jar for the AWS SDK for Java v2:
+  add it as a dependency and a global `ExecutionInterceptor` (registered through the SDK's classpath file, no code)
+  emits the contract's send, receive, delete, change-visibility and purge spans, with the keyed receipt-handle
+  hash, receive count, dead-letter source ARN, per-entry results, call-order ticks, body size and FIFO fields. It
+  has its own always-on tracer provider with a relocated OpenTelemetry SDK (1.4 MB jar). The parent comes from the
+  stock instrumentation's trace header, so interceptor order doesn't matter. A hand registration on top of the
+  global one emits each span once. A Java driver for the conformance kit passes it in CI alone, beside the
+  OpenTelemetry Java agent 2.34.0 (also sampled to 0) and beside dd-java-agent 1.69.1. Not yet built: body capture
+  and tenants, the Lambda wrapper, the SDK version matrix, a strict parent check for the agent variants, and
+  Maven Central.
+
+- **`trailbeam doctor` reads the token the services send** (QV-343). With no `--token-file` or `TRAILBEAM_TOKEN`,
+  it takes the Bearer token from `OTEL_EXPORTER_OTLP_TRACES_HEADERS` or `OTEL_EXPORTER_OTLP_HEADERS` (URL-decoded,
+  as the exporters read it) before falling back to `~/.trailbeam/token`, and its header line says
+  `token: OTEL_EXPORTER_OTLP_HEADERS`. So on a service's host, with exactly the variables `trailbeam start`
+  prints, it no longer reports the token missing. A header with no `Authorization=Bearer%20<token>` is reported
+  as such.
+
+- **Conformance kit for Trailbeam packages** (QV-318, stage 1). `conformance/` runs a language package's small
+  driver through one scripted scenario (send, batch send, receive, delete, batch delete with a failed entry,
+  visibility-timeout retry, dead-letter move, ChangeMessageVisibility and its batch form, a failing delete,
+  PurgeQueue) against ElasticMQ, collects its spans through an OpenTelemetry Collector, and checks them against
+  the span contract with no per-language logic: one span per message, required attributes and types, the
+  receipt-handle HMAC recomputed from the driver's ground truth, call-order ticks, no handle or key exported.
+  Each driver runs alone, beside the application's own OpenTelemetry, with the application's sampler at 0, and
+  with body capture on; agents are configured per variant. A failing package gets a report per call. The Python
+  and Node.js packages pass it in CI. The Lambda wrapper (through the Runtime Interface Emulator) is stage 2.
+
 - **Purged messages no longer show as stuck** (QV-245, contract revision 3.3). The Python and Node.js packages
   record `PurgeQueue` calls (a `trailbeam purge` span, `trailbeam.kind = sqs.purge`, contract section 18), and
   the server stores them per queue (SQLite: no schema change; Postgres: schema 9, a `purges` table). A message
@@ -52,8 +115,8 @@
   which send neither header, are not affected. (QV-225)
 - **Passwords and sessions for users and roles, not switched on yet.** scrypt password hashing (N=2^15,
   r=8, p=3, at most 2 hashes at once per process), sessions in the store with a 20-second cache per process,
-  a lock per account after 10 failed sign-ins in a row and a limit per client address. Nothing uses them
-  until a later release adds sign-in. (QV-225)
+  a lock per account after 10 failed sign-ins in a row and a limit per client address. Signing in (above)
+  uses them. (QV-225)
 - **Tables for people and tokens (users and roles, phase 1).** The store gains `users`, `sessions`,
   `ingest_tokens`, `personal_tokens` and `setup_codes`: SQLite schema 15, Postgres schema 8. They are created
   empty and nothing uses them yet, so the server behaves exactly as before. Emails are unique ignoring case.
@@ -80,7 +143,8 @@
   restored server serves a consistent moment and that deletes sent after the restore join receives from before it
   (`python/smoke/backup_restore_check.py`).
 - **The UI no longer says more than the data shows.** A message in its dead-letter queue now counts only the
-  receives on its source queue ("after 2 observed receives on orders", not "after 3 receives"). maxReceiveCount
+  receives on its source queue ("after 2 observed receives on orders", not "after 3 receives"); 0.4.0 counted
+  the receive from the dead-letter queue too, so with maxReceiveCount 3 it said "after 4 receives" (QV-341). maxReceiveCount
   reads "reached", not "more than", and the move it predicts is marked inferred. A receive with no delete yet
   reads "No delete seen" in amber rather than a red "Not deleted". "Being handled" is marked inferred. The
   Receives tooltip, the Tenants p95 note, the Stuck age note and the body tab's "not opted in" text say what

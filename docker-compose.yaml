@@ -10,8 +10,8 @@
 # TRAILBEAM_RECEIPT_HASH_KEY. `docker compose down` keeps the data (the volumes); `docker compose down -v`
 # deletes it. Upgrading: git pull, then `docker compose up -d --build --wait` (README: Upgrades).
 #
-# The server image is built from this checkout with the Postgres driver; the published
-# ghcr.io/nick-lennox/trailbeam image has SQLite only.
+# The server image is built from this checkout with the Postgres driver. Releases from 0.4.0 also publish it as
+# ghcr.io/nick-lennox/trailbeam:<version>-postgres (the plain ghcr.io/nick-lennox/trailbeam:<version> has SQLite only).
 name: trailbeam
 
 services:

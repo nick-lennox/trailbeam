@@ -40,3 +40,8 @@ npm-debug.log*
 # the shared UI's build (npm run build in ui/); made by the container build and releases
 python/src/trailbeam/server/ui/
 !python/tests/server/fixtures/*.sqlite
+
+# Java (Maven)
+java/target/
+conformance/drivers/java/target/
+java/dependency-reduced-pom.xml
