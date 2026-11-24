@@ -15,6 +15,13 @@ TOML, two tables, every key optional::
     [queues."orders-dlq"]         # quote names with characters TOML keys can't have
     retention = "forever"
 
+    [queues.payments]             # a RabbitMQ quorum queue
+    delivery_limit = 20           # its x-delivery-limit (RabbitMQ's default since 4.0 is 20)
+
+``delivery_limit`` is a RabbitMQ queue's ``x-delivery-limit``. It goes in the same per-queue limit as
+``max_receive_count`` (a queue has one or the other), and a RabbitMQ message's timeline checks it against the
+x-delivery-count its copy reached (rabbitmq.py); an SQS message's, against its receive count.
+
 The file is read once, at start, and checked in full: an unknown table or key, a wrong type or a bad value
 stops the server with every problem listed, each with its place in the file (``ConfigError``). A typo never
 silently means "not set".
@@ -39,7 +46,8 @@ from .retention import parse_duration
 UNSET = object()  # [defaults] retention not given
 MAX_RECEIVE_COUNT = (1, 1000)  # what SQS accepts in a redrive policy
 DEFAULT_KEYS = ("retention", "store_bodies")
-QUEUE_KEYS = ("max_receive_count", "store_bodies", "retention")
+QUEUE_KEYS = ("max_receive_count", "delivery_limit", "store_bodies", "retention")
+DELIVERY_LIMIT = (1, 2 ** 31 - 1)  # a RabbitMQ x-delivery-limit; 0 (or none) means no limit, so not set here
 
 
 class ConfigError(ValueError):
@@ -107,6 +115,15 @@ def parse(data: dict, path: str = "config") -> Config:
                 lo, hi = MAX_RECEIVE_COUNT
                 if isinstance(v, bool) or not isinstance(v, int) or not lo <= v <= hi:
                     problems.append(f"{at}: expected a whole number from {lo} to {hi}, got {v!r}")
+                else:
+                    cfg.max_receive_counts[name] = v
+            elif k == "delivery_limit":
+                lo, hi = DELIVERY_LIMIT
+                if isinstance(v, bool) or not isinstance(v, int) or not lo <= v <= hi:
+                    problems.append(f"{at}: expected a whole number from {lo} to {hi}, got {v!r}")
+                elif "max_receive_count" in settings:
+                    problems.append(f"{at}: a queue has max_receive_count (SQS) or delivery_limit (RabbitMQ), "
+                                    "not both")
                 else:
                     cfg.max_receive_counts[name] = v
             elif k == "store_bodies":

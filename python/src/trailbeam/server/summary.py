@@ -18,7 +18,9 @@ The fields (every one is a column of the SQLite ``messages`` table, migrations.C
 
 - ``mid``; ``first_ns`` and ``first_clock`` (timeline.first_seen_ns); ``last_ns``, the newest span's time.
 - ``source_queue``, ``current_queue``, ``in_dlq`` and ``moved`` (an observed move to a dead-letter queue,
-  contract 9b), ``source_receive_count`` (the highest receive count on the source queue, 0 if none).
+  contract 9b; on RabbitMQ from ``x-death``), ``source_receive_count`` (the highest receive count on the source
+  queue, 0 if none; on RabbitMQ the x-delivery-count its copy reached, rabbitmq.failed_returns, which
+  x-delivery-limit is checked against).
 - ``deliveries``, ``successes`` (timeline.successful_deliveries), ``consumers`` (JSON: the receives'
   [service_name, client_id, service_version] triples, sorted as the list pages show them; a summary written
   before schema 16 (QV-362) has [service_name, client_id] pairs, read as a version of null).
@@ -29,8 +31,8 @@ The fields (every one is a column of the SQLite ``messages`` table, migrations.C
 - Duplicates: ``dup_received`` (more than one receive), ``dup_succeeded`` (more than one success: accepted
   deletes counted once per delivery, plus distinct invocation IDs with a ``success`` outcome). A RabbitMQ message
   (systems.py) is counted per queue copy, its fan-out not being a duplicate: more than one delivery, or more than
-  one accepted ack, on one queue; and ``final_delete`` (so ``stuck_open``) holds when every copy's latest delivery
-  has an accepted ack.
+  one accepted ack, on one queue; ``final_delete`` holds when every copy was acked or moved to a dead-letter queue,
+  and ``stuck_open`` when a copy is still open (rabbitmq.done: a refused copy, or an unroutable message, is not).
 - Stuck: ``stuck_first_ns`` and ``stuck_sqs_clock`` (first seen as Store.stuck_messages defines it; NULL for a
   message with neither a send nor a receive, which is never stuck), ``stuck_open`` (no final delete and no
   success for the latest receive's invocation).
@@ -52,7 +54,7 @@ from __future__ import annotations
 import json
 from typing import Any, Mapping, Optional
 
-from . import purge, queues, systems, timeline
+from . import purge, queues, rabbitmq, systems, timeline
 from .store import TENANT_ATTR, TENANT_KINDS, TENANT_MAX_CHARS
 
 Summary = Mapping[str, Any]
@@ -84,6 +86,9 @@ def message_tenant(rows) -> Optional[str]:
 def summarize(rows) -> dict:
     """The summary of one message from every row of it (Store.message_rows), any order."""
     rows = sorted(rows, key=lambda r: (r["time_ns"], r["row"]))
+    amqp = rabbitmq.is_rabbitmq(rows)
+    if amqp:
+        rows = [rabbitmq.facts(r) for r in rows]
     receives = [r for r in rows if r["kind"] == "receive"]
     sends = [r for r in rows if r["kind"] == "send"]
     latest = receives[-1] if receives else None
@@ -94,10 +99,10 @@ def summarize(rows) -> dict:
     # observed moves to a dead-letter queue (timeline._dlq_moves): (source, DLQ) -> the receive reporting it
     reports: dict = {}
     for r in receives:
-        if r["dlq_source_arn"]:
-            frm = r["dlq_source_arn"].rsplit(":", 1)[-1]
+        frm = rabbitmq.dlq_source(r) if amqp else (r["dlq_source_arn"].rsplit(":", 1)[-1] if r["dlq_source_arn"] else None)
+        if frm is not None:
             if frm != r["queue"]:
-                key = (r["receive_count"], r["time_ns"], r["row"])
+                key = (r["receive_count"] or 0, r["time_ns"], r["row"])
                 if (frm, r["queue"]) not in reports or key < reports[(frm, r["queue"])][0]:
                     reports[(frm, r["queue"])] = (key, r)
     dlqs = {q for _, q in reports}
@@ -146,8 +151,11 @@ def summarize(rows) -> dict:
                 ok_by_queue.setdefault(by_row[d]["queue"], set()).add(d)
         dup_received = any(len(c) > 1 for c in copies.values())
         dup_succeeded = any(len(c) > 1 for c in ok_by_queue.values())
-        final_delete = bool(copies) and all(c[-1]["row"] in ok_deliveries for c in copies.values())
-        stuck_open = not final_delete
+        # Done and stuck per copy (rabbitmq.done): every copy acked or moved to a dead-letter queue is the
+        # timeline's "deleted"; a copy refused with requeue = false, or an unroutable message, left its queue and is
+        # not stuck.
+        final_delete, left = rabbitmq.done(rows, {frm for frm, _ in reports})
+        stuck_open = not left
 
     named: dict = {}
     for r in rows:
@@ -178,7 +186,8 @@ def summarize(rows) -> dict:
         "current_queue": current_queue,
         "in_dlq": current_queue in dlqs,
         "moved": bool(reports),
-        "source_receive_count": max((r["receive_count"] or 0 for r in receives if r["queue"] == source_queue), default=0),
+        "source_receive_count": (rabbitmq.failed_returns(rows, source_queue) if amqp else
+                                 max((r["receive_count"] or 0 for r in receives if r["queue"] == source_queue), default=0)),
         "deliveries": len(receives),
         "successes": timeline.successful_deliveries(rows),
         "consumers": json.dumps(consumers),
@@ -220,6 +229,10 @@ def item(s: Summary, now_ns: int, lambda_timeout_s: int, max_receive_counts: Opt
     mrc = (max_receive_counts or {}).get(s["source_queue"])
     if s["moved"]:
         dlq_move = "observed"
+    elif systems.system_of(s["mid"]) == systems.RABBITMQ:
+        # mrc is the queue's x-delivery-limit, checked against the x-delivery-count its copy reached (rabbitmq.py)
+        dlq_move = "not_seen_on_dlq_yet" if (rabbitmq.delivery_limit_reached(s["source_receive_count"], mrc)
+                                            and st != "deleted") else None
     elif mrc and s["source_receive_count"] >= mrc and st not in ("deleted", "deleted_inferred", purge.PURGED):
         dlq_move = "not_seen_on_dlq_yet"
     else:

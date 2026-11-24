@@ -20,6 +20,7 @@ import http.client
 import json
 import re
 import threading
+import sys
 from pathlib import Path
 from urllib.parse import quote, urlencode, urlsplit
 
@@ -807,6 +808,11 @@ def test_every_step_type_notice_and_state_in_the_file_is_answered(db, record_api
         load_fixture(base)
         status, _, _ = request(base, "POST", "/v1/traces", to_proto(_scenario_spans()).SerializeToString(),
                                {"Content-Type": "application/x-protobuf"})
+        assert status == 200
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "conformance"))
+        from test_amqp_conformance import FIXTURE, otlp_json  # RabbitMQ messages: their steps and notices
+        status, _, _ = request(base, "POST", "/v1/traces", otlp_json(FIXTURE["spans"]),
+                               {"Content-Type": "application/json"})
         assert status == 200
         _, _, body = request(base, "GET", "/api/messages?limit=1000")
         mids = [m["message_id"] for m in json.loads(body)["messages"]]

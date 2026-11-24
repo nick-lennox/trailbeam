@@ -2413,7 +2413,27 @@ components:
       additionalProperties: false
       required: [message_id, state, source_queue, current_queue, in_dead_letter_queue, dead_letter_queue_move, send_observed, deliveries, successful_deliveries, first_seen, first_seen_clock, last_seen, concurrent_groups, groups, events, order, notices]
       properties:
-        message_id: {type: string, description: The SQS message ID.}
+        message_id: {type: string, description: 'The message''s key: the SQS message ID, or `~rabbitmq~<message_id>` for a RabbitMQ message.'}
+        system:
+          type: string
+          const: rabbitmq
+          description: Present on a RabbitMQ message only (contract/span-contract-amqp.md). An SQS message has no `system`.
+        publishes: {type: integer, description: 'RabbitMQ only: the number of publish spans. More than 1 is the same `message_id` published again (a notice `published_twice`).'}
+        copies:
+          type: array
+          description: |
+            RabbitMQ only: one copy of the message per queue it was delivered on (a fanout publish to two queues is
+            two copies, not a duplicate). `ended`: `acked` (the latest delivery there was acked), `moved` (a
+            dead-letter queue reported the move off it), `rejected` (refused with requeue = false, not seen since)
+            or null while the copy is still open.
+          items:
+            type: object
+            additionalProperties: false
+            required: [queue, deliveries, ended]
+            properties:
+              queue: {type: string}
+              deliveries: {type: integer}
+              ended: {type: [string, 'null'], enum: [acked, moved, rejected, null]}
         state: {$ref: '#/components/schemas/State'}
         source_queue: {type: string, description: The queue the message was first sent to or received from.}
         current_queue: {type: string, description: The queue of the latest receive. The source queue when there is no receive.}
@@ -2423,7 +2443,8 @@ components:
           description: |
             `observed`: a receive on a dead-letter queue reported the move. `not_seen_on_dlq_yet`:
             the receive count reached the source queue's configured `maxReceiveCount`, the message
-            is not deleted, and no receive on a dead-letter queue has reported a move. Otherwise null.
+            is not deleted, and no receive on a dead-letter queue has reported a move. On RabbitMQ: the
+            copy's `x-delivery-count` went above the queue's configured `x-delivery-limit`. Otherwise null.
           enum: [observed, not_seen_on_dlq_yet, null]
         send_observed: {type: boolean, description: Whether a send span was recorded.}
         deliveries: {type: integer, description: The number of receive spans.}
@@ -2488,6 +2509,13 @@ components:
         - $ref: '#/components/schemas/DeliveriesNotObservedStep'
         - $ref: '#/components/schemas/DeletedByLambdaStep'
         - $ref: '#/components/schemas/LambdaEndedWithoutOutcomeStep'
+        - $ref: '#/components/schemas/AckedStep'
+        - $ref: '#/components/schemas/RequeuedStep'
+        - $ref: '#/components/schemas/RejectedStep'
+        - $ref: '#/components/schemas/ChannelClosedStep'
+        - $ref: '#/components/schemas/ReturnedStep'
+        - $ref: '#/components/schemas/ReturnedToQueueStep'
+        - $ref: '#/components/schemas/RoutedStep'
       discriminator:
         propertyName: type
         mapping:
@@ -2506,6 +2534,13 @@ components:
           deliveries_not_observed: '#/components/schemas/DeliveriesNotObservedStep'
           deleted_by_lambda: '#/components/schemas/DeletedByLambdaStep'
           lambda_invocation_ended_without_outcome: '#/components/schemas/LambdaEndedWithoutOutcomeStep'
+          acked: '#/components/schemas/AckedStep'
+          requeued: '#/components/schemas/RequeuedStep'
+          rejected: '#/components/schemas/RejectedStep'
+          channel_closed: '#/components/schemas/ChannelClosedStep'
+          returned: '#/components/schemas/ReturnedStep'
+          returned_to_queue: '#/components/schemas/ReturnedToQueueStep'
+          routed: '#/components/schemas/RoutedStep'
     RecordedStep:
       type: object
       description: The fields of every step backed by one span.
@@ -2528,7 +2563,8 @@ components:
         end_unix_nano: {type: string, description: '`end` in Unix nanoseconds, as a string.'}
         start_observed: {type: boolean, description: Whether `start` was recorded.}
         group: {type: integer, description: The number of the group the step is in.}
-        queue: {type: string, description: The queue's name.}
+        queue: {type: string, description: 'The queue''s name. On a RabbitMQ publish or return, the exchange''s (`amq.default` for the default exchange).'}
+        operation: {type: [string, 'null'], description: 'RabbitMQ only: the AMQP method of the span, such as `basic.publish`, `basic.deliver`, `basic.get`, `basic.ack`, `basic.nack`, `basic.reject`, `channel.close`.'}
         consumer: {$ref: '#/components/schemas/Caller'}
         span:
           type: object
@@ -2590,10 +2626,12 @@ components:
       description: |
         `clock`: one step ended before the other started, on the hosts' clocks. `process_order`: one
         call returned before the other was issued in the same process. `receive_count`: SQS's receive
-        count. `sqs_timestamps`: SQS's own timestamps. `inferred_from`: an inferred step and the
+        count, or on RabbitMQ the counts of two deliveries on one queue from the same header. `sqs_timestamps`:
+        SQS's own timestamps. `inferred_from`: an inferred step and the
         recorded step it was inferred from. `sqs_dlq_source`: a move SQS reported on a dead-letter
-        queue receive. `sns_envelope`: an SNS delivery whose envelope is on the receive (added in 3.4).
-      enum: [clock, process_order, receive_count, sqs_timestamps, inferred_from, sqs_dlq_source, sns_envelope]
+        queue receive. `amqp_x_death`: a move RabbitMQ reported in the `x-death` header of a delivery from a
+        dead-letter queue. `sns_envelope`: an SNS delivery whose envelope is on the receive (added in 3.4).
+      enum: [clock, process_order, receive_count, sqs_timestamps, inferred_from, sqs_dlq_source, amqp_x_death, sns_envelope]
     SentStep:
       allOf: [{$ref: '#/components/schemas/RecordedStep'}]
       description: A `SendMessage` or one entry of a `SendMessageBatch`.
@@ -2611,7 +2649,16 @@ components:
           type: string
           description: >-
             With `deduplicated`: "SQS returned the same MessageId: this send was deduplicated and enqueued
-            nothing".
+            nothing". On RabbitMQ: why a publish is marked (`published_again`, or no publisher confirms).
+        exchange: {type: string, description: 'RabbitMQ: the exchange the message was published to.'}
+        routing_key: {type: string, description: 'RabbitMQ: the routing key, when not empty.'}
+        result: {type: string, enum: [ok, failed], description: 'RabbitMQ: `ok` when the broker confirmed the publish (or, without confirms, the frame was written).'}
+        error_code: {type: string, description: 'RabbitMQ: why the publish failed (`nack`, a reply-code name, or the client error).'}
+        confirmed: {type: boolean, description: 'RabbitMQ: whether the channel was in publisher-confirm mode. Without it, nothing says the broker got the message.'}
+        mandatory: {type: boolean, description: 'RabbitMQ: the `mandatory` flag. An unroutable mandatory publish comes back as a `returned` step.'}
+        publish: {type: integer, description: 'RabbitMQ: which publish of this message ID this is, from 1.'}
+        published_again: {const: true, description: 'RabbitMQ: present on a publish after the first with the same `message_id`: a second message in the queue (a publisher retry).'}
+        message_id_source: {const: package, description: 'RabbitMQ: present when a Trailbeam package set the `message_id`.'}
     ReceivedStep:
       allOf: [{$ref: '#/components/schemas/RecordedStep'}]
       description: One delivery of the message, from `ReceiveMessage` or a Lambda event.
@@ -2620,7 +2667,27 @@ components:
       properties:
         type: {const: received}
         delivery: {type: integer, description: 'The number of this delivery among the recorded ones, from 1.'}
-        receive_count: {type: integer, description: 'SQS''s `ApproximateReceiveCount` for this receive.'}
+        receive_count: {type: [integer, 'null'], description: 'SQS''s `ApproximateReceiveCount` for this receive. On RabbitMQ, the count from `receive_count_source`, or null when the broker gave none (a classic queue''s redelivery).'}
+        receive_count_source: {type: string, enum: [x-acquired-count, x-delivery-count, first_delivery], description: 'RabbitMQ: where the receive count came from (contract/span-contract-amqp.md A7).'}
+        redelivered: {type: boolean, description: 'RabbitMQ: the delivery''s `redelivered` flag.'}
+        consumer_tag: {type: string, description: 'RabbitMQ: the consumer tag of a `basic.deliver`.'}
+        exchange: {type: string, description: 'RabbitMQ: the exchange the message was published to.'}
+        routing_key: {type: string, description: 'RabbitMQ: the routing key, when not empty.'}
+        x_delivery_count: {type: integer, description: 'RabbitMQ: the `x-delivery-count` header: failed returns, checked against `x-delivery-limit`.'}
+        x_acquired_count: {type: integer, description: 'RabbitMQ: the `x-acquired-count` header: every earlier delivery.'}
+        dead_letter:
+          type: object
+          description: 'RabbitMQ: the newest entry of the `x-death` header (A8).'
+          additionalProperties: false
+          required: [source_queue, reason]
+          properties:
+            source_queue: {type: string}
+            reason: {type: string, description: '`rejected`, `expired`, `maxlen` or `delivery_limit`, as RabbitMQ gave it.'}
+            count: {type: integer}
+            time_ms: {type: integer, description: 'The first dead-lettering from that queue for that reason, Unix ms, to the second.'}
+            exchange: {type: string}
+            first_queue: {type: string}
+            first_reason: {type: string}
         sent_timestamp:
           allOf: [{$ref: '#/components/schemas/Timestamp'}]
           description: 'SQS''s `SentTimestamp`.'
@@ -2843,15 +2910,24 @@ components:
           description: The recorded step this one comes before.
     MovedToDeadLetterQueueStep:
       allOf: [{$ref: '#/components/schemas/PlacedStep'}]
-      description: SQS moved the message to a dead-letter queue. Not inferred. SQS reports the move on the first receive from the dead-letter queue.
+      description: |
+        SQS moved the message to a dead-letter queue. Not inferred. SQS reports the move on the first receive from
+        the dead-letter queue (`source` `sqs_dlq_source`, with `source_arn`). On RabbitMQ the delivery from the
+        dead-letter queue reports it in its `x-death` header (`source` `amqp_x_death`, with `dead_letter_reason`).
       unevaluatedProperties: false
-      required: [source, reported_by, source_arn, reported_on_delivery, from_queue, to_queue]
+      required: [source, reported_by, reported_on_delivery, from_queue, to_queue]
       properties:
         type: {const: moved_to_dead_letter_queue}
         inferred: {const: false}
-        source: {const: sqs_dlq_source}
+        source: {type: string, enum: [sqs_dlq_source, amqp_x_death]}
         reported_by: {type: string}
-        source_arn: {type: string, description: 'The `DeadLetterQueueSourceArn` of the reporting receive.'}
+        source_arn: {type: string, description: 'SQS: the `DeadLetterQueueSourceArn` of the reporting receive.'}
+        dead_letter_reason: {type: string, description: 'RabbitMQ: the `x-death` reason: `rejected`, `expired`, `maxlen` or `delivery_limit`.'}
+        dead_letter_count: {type: integer, description: 'RabbitMQ: the `x-death` count for that queue and reason.'}
+        first_dead_lettered:
+          allOf: [{$ref: '#/components/schemas/Timestamp'}]
+          description: 'RabbitMQ: the `x-death` time, the first dead-lettering from that queue for that reason, to the second, on the broker''s clock. Not used to place the step.'
+        first_dead_lettered_ms: {type: integer}
         reported_on_delivery: {type: integer, description: The delivery that reported the move.}
         from_queue: {type: string}
         to_queue: {type: string}
@@ -2866,6 +2942,37 @@ components:
         queue: {type: string}
         after_delivery: {type: integer}
         before_delivery: {type: integer}
+    ReturnedToQueueStep:
+      allOf: [{$ref: '#/components/schemas/PlacedStep'}]
+      description: |
+        Inferred, RabbitMQ (contract/span-contract-amqp.md A10). The message went back to the queue between two
+        deliveries on it. `cause` is what the spans of the earlier delivery show: `requeued` (a nack or reject with
+        requeue = true), `channel_closed`, `consumer_timeout` (a broker close for an ack timeout),
+        `consumer_cancelled` (the broker cancelled the consumer) or `not_observed`.
+      unevaluatedProperties: false
+      required: [queue, cause, cause_observed, after_delivery, before_delivery]
+      properties:
+        type: {const: returned_to_queue}
+        inferred: {const: true}
+        queue: {type: string}
+        cause: {type: string, enum: [requeued, channel_closed, consumer_timeout, consumer_cancelled, not_observed]}
+        cause_observed: {type: boolean, description: Whether a recorded span shows the cause.}
+        after_delivery: {type: integer}
+        before_delivery: {type: integer}
+    RoutedStep:
+      allOf: [{$ref: '#/components/schemas/PlacedStep'}]
+      description: |
+        Inferred, RabbitMQ (A5). The exchange routed the message to these queues: the queues it was delivered on,
+        dead-letter queues left out. A lower bound: a queue no instrumented consumer reads is not seen.
+      unevaluatedProperties: false
+      required: [exchange, queues, count, lower_bound]
+      properties:
+        type: {const: routed}
+        inferred: {const: true}
+        exchange: {type: string}
+        queues: {type: array, items: {type: string}}
+        count: {type: integer}
+        lower_bound: {const: true}
     DeliveriesNotObservedStep:
       allOf: [{$ref: '#/components/schemas/PlacedStep'}]
       description: Inferred. The receive count skipped, so some receives were not recorded.
@@ -2886,6 +2993,73 @@ components:
         inferred: {const: true}
         queue: {type: string}
         delivery: {type: [integer, 'null']}
+    AckedStep:
+      allOf: [{$ref: '#/components/schemas/RecordedStep'}]
+      description: 'RabbitMQ: a `basic.ack` of one delivery. AMQP 0-9-1 sends no reply, so `ok` means the frame was written.'
+      unevaluatedProperties: false
+      required: [delivery, result, status]
+      properties:
+        type: {const: acked}
+        delivery: {type: [integer, 'null']}
+        result: {type: string, enum: [ok, failed]}
+        status:
+          type: string
+          description: '`final`: the ack is of the latest delivery on its queue. Otherwise as on a deleted step.'
+          enum: [final, stale_handle, unmatched_handle, failed]
+        multiple: {type: boolean}
+        error_code: {type: string}
+    RequeuedStep:
+      allOf: [{$ref: '#/components/schemas/RecordedStep'}]
+      description: 'RabbitMQ: a `basic.nack` or `basic.reject` with requeue = true. The message goes back to the queue at once.'
+      unevaluatedProperties: false
+      required: [delivery, result, requeue]
+      properties:
+        type: {const: requeued}
+        delivery: {type: [integer, 'null']}
+        result: {type: string, enum: [ok, failed]}
+        requeue: {const: true}
+        multiple: {type: boolean}
+        error_code: {type: string}
+    RejectedStep:
+      allOf: [{$ref: '#/components/schemas/RecordedStep'}]
+      description: 'RabbitMQ: a `basic.nack` or `basic.reject` with requeue = false. Dead-lettered if the queue has a dead-letter exchange, dropped otherwise.'
+      unevaluatedProperties: false
+      required: [delivery, result, requeue, reason]
+      properties:
+        type: {const: rejected}
+        delivery: {type: [integer, 'null']}
+        result: {type: string, enum: [ok, failed]}
+        requeue: {const: false}
+        multiple: {type: boolean}
+        error_code: {type: string}
+        reason: {type: string}
+    ChannelClosedStep:
+      allOf: [{$ref: '#/components/schemas/RecordedStep'}]
+      description: 'RabbitMQ: the channel of an unsettled delivery closed. RabbitMQ returns its unacked deliveries to the queue.'
+      unevaluatedProperties: false
+      required: [delivery, initiator, reason]
+      properties:
+        type: {const: channel_closed}
+        delivery: {type: [integer, 'null']}
+        result: {type: [string, 'null']}
+        initiator: {type: string, enum: [client, broker, network]}
+        reply_code: {type: integer}
+        reply_text: {type: string}
+        consumer_timeout: {const: true, description: A broker close for a delivery not acked within `consumer_timeout`.}
+        error_code: {type: string}
+        reason: {type: string}
+    ReturnedStep:
+      allOf: [{$ref: '#/components/schemas/RecordedStep'}]
+      description: 'RabbitMQ: the broker returned a mandatory publish no queue took (`basic.return`). It was not enqueued.'
+      unevaluatedProperties: false
+      required: [exchange, reply_code, reason]
+      properties:
+        type: {const: returned}
+        exchange: {type: string}
+        routing_key: {type: string}
+        reply_code: {type: integer}
+        reply_text: {type: string}
+        reason: {type: string}
     LambdaEndedWithoutOutcomeStep:
       allOf: [{$ref: '#/components/schemas/PlacedStep'}]
       description: Inferred. A Lambda receive has had no outcome for longer than the Lambda timeout.
@@ -2943,9 +3117,14 @@ components:
             `key_mismatch`: a delete or visibility change used a different receipt-hash key than the
             receives. `unmatched_handle`: a delete or visibility change matches no stored receive.
             `send_not_observed`: no send span was recorded. `dlq_move_not_seen`: the receive count
-            reached `maxReceiveCount` and no receive on a dead-letter queue has reported a move.
-          enum: [order_conflict, default_key, key_mismatch, unmatched_handle, send_not_observed, dlq_move_not_seen]
+            reached `maxReceiveCount` (RabbitMQ: `x-delivery-count` passed `x-delivery-limit`) and no receive on a
+            dead-letter queue has reported a move. RabbitMQ only: `published_twice`: more than one publish with
+            this `message_id`; `requeue_loop`: requeued with `basic.nack` at least 3 times on one queue, which on
+            RabbitMQ 4.3 and later never reaches `x-delivery-limit`.
+          enum: [order_conflict, default_key, key_mismatch, unmatched_handle, send_not_observed, dlq_move_not_seen, published_twice, requeue_loop]
         message: {type: string, description: The notice in words.}
+        queue: {type: string, description: '`requeue_loop`: the queue.'}
+        requeues: {type: integer, description: '`requeue_loop`: how many times.'}
     StoredBody:
       type: object
       additionalProperties: false
@@ -3157,8 +3336,12 @@ components:
                 outcome: {type: integer}
                 purge: {type: integer, description: '`PurgeQueue` calls (contract section 18). They belong to no message.'}
                 publish: {type: integer, description: 'SNS messages published to a topic (contract section 21, added in 3.4). They belong to no message.'}
+                return: {type: integer, description: 'RabbitMQ `basic.return`s: unroutable publishes (contract/span-contract-amqp.md A4.2).'}
+                reject: {type: integer, description: 'RabbitMQ deliveries refused with requeue = false.'}
+                channel_closed: {type: integer, description: 'RabbitMQ deliveries whose channel closed before they were settled.'}
+                cancel: {type: integer, description: 'RabbitMQ consumer cancels. They belong to no message.'}
             messages: {type: integer, description: Distinct message IDs.}
-            unjoined_settles: {type: integer, description: Delete and visibility-change spans not joined to a receive.}
+            unjoined_settles: {type: integer, description: Settle spans not joined to a delivery (delete and visibility change; RabbitMQ also refusals and closed channels).}
     Health:
       type: object
       additionalProperties: false

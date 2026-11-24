@@ -34,7 +34,7 @@ from typing import Callable, Iterable, Iterator, Optional
 from . import body_table, migrations, purge, queues, rollup, sns, summary_table
 from .events import HOUR_NS, KINDS as STEP_KINDS, hour_split
 from .otlp import AMQP_KINDS, RECORD_FIELDS
-from .store import (SETTLE_KINDS, SETTLE_KINDS_SQL, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store, StoreFull,
+from .store import (MAX_CANCELS, SETTLE_KINDS, SETTLE_KINDS_SQL, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store, StoreFull,
                     StuckCandidate, TenantActivity, WriterBusy)
 
 # The body and the attributes that describe it (contract 15.2). trailbeam.body.capture_status is kept:
@@ -662,6 +662,15 @@ class SqliteStore(Store):
         return self.query(f"SELECT {', '.join(purge.COLUMNS)} FROM spans INDEXED BY spans_kind_time "
                           f"WHERE kind = 'purge' AND queue IN ({', '.join('?' * len(queues))}) ORDER BY time_ns, row",
                           tuple(queues))
+
+    def consumer_cancels(self, queues: Iterable[str], from_ns: int, to_ns: int) -> list[sqlite3.Row]:
+        queues = sorted(set(queues))
+        if not queues:
+            return []
+        return self.query("SELECT row, time_ns, queue, queue_url, attributes FROM spans INDEXED BY spans_kind_time "
+                          f"WHERE kind = 'cancel' AND time_ns >= ? AND time_ns <= ? "
+                          f"AND queue IN ({', '.join('?' * len(queues))}) ORDER BY time_ns, row LIMIT ?",
+                          (from_ns, to_ns, *queues, MAX_CANCELS))
 
     # SNS fan-out (contract section 21). Each lookup is by one of the partial indexes of migrations.SNS_INDEXES,
     # named with INDEXED BY so a plan that scanned spans fails instead of running.

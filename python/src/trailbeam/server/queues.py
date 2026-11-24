@@ -37,6 +37,15 @@ hour in ``queue_rollup`` for the flows (below), those of the kinds they count (`
 
 Only ``dlq_receive`` has a ``peer``; it is None on the others.
 
+**RabbitMQ** (contract/span-contract-amqp.md A6 to A8; QV-307). A publish goes to an exchange, not a queue, so its
+``send`` is counted on each queue the message was delivered on straight from that exchange (not from a dead-letter
+queue), a lower bound as the timeline's routed step is; on the exchange when no delivery was seen. ``dlq_seen`` and
+``dlq_receive`` come from the ``x-death`` header (rabbitmq.dlq_source) instead of ``DeadLetterQueueSourceArn``,
+the source queue keyed as a delivery on it was (by its URL). A requeue (``basic.nack`` or ``basic.reject`` with requeue) is not a visibility
+change, so it adds no ``visibility``. No ``at_max`` is written: x-delivery-limit is checked against
+``x-delivery-count``, which ``series``' maxReceiveCount rule does not fit, and the message's own timeline says when
+the limit has passed.
+
 **Time in handler** is from the end of the receive to the start of the delete (the time between the two calls,
 an approximation), and for a Lambda from the end of the receive to the outcome (a zero-length span, at the moment
 the wrapper decided). It is the hosted app's processing time (``live-events.ts``, ``overview.ts queueP95``): every
@@ -60,7 +69,9 @@ import json
 import math
 import re
 from typing import Iterable, NamedTuple, Optional
-from urllib.parse import unquote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
+
+from . import rabbitmq
 
 SEND, RECEIVE, WAIT, NO_SEND = "send", "receive", "wait", "no_send"
 DELETE, DELETE_FAILED, LAMBDA_OK, FAILED, VISIBILITY = "delete", "delete_failed", "lambda_ok", "failed", "visibility"
@@ -215,10 +226,32 @@ def events(rows, deduplicated: Iterable[int] = ()) -> list:
     the rows of sends SQS deduplicated (timeline.deduplicated_sends)."""
     deduplicated = set(deduplicated)
     out: list = []
+    amqp = rabbitmq.is_rabbitmq(rows)
+    if amqp:
+        rows = [rabbitmq.facts(r) for r in rows]
     by_row = {r["row"]: r for r in rows}
+    urls = {r["queue"]: r["queue_url"] for r in rows if r["kind"] == "receive" and r["queue_url"]} if amqp else {}
+
+    def amqp_key(name: str, near) -> str:
+        """A RabbitMQ queue's key: by the URL a delivery on it had, else the URL of ``near`` (a queue in the same
+        vhost) with its last segment swapped for this name."""
+        url = urls.get(name)
+        if url is None and near["queue_url"] and near["queue_url"].endswith("/" + quote(near["queue"], safe="")):
+            url = near["queue_url"][: -len(quote(near["queue"], safe=""))] + quote(name, safe="")
+        return key(name, url)
+
+    def dlq_src(r) -> Optional[str]:
+        """The key of the queue a receive reports the message was moved from, when that is another queue."""
+        if amqp:
+            q = rabbitmq.dlq_source(r)
+            return amqp_key(q, r) if q else None
+        src = parse_arn(r["dlq_source_arn"]) if r["dlq_source_arn"] else None
+        return place_key(src) if src is not None and src.name != r["queue"] else None
     receives = [r for r in rows if r["kind"] == "receive"]
     sends = [r for r in rows if r["kind"] == "send"]
     latest = receives[-1] if receives else None
+    # RabbitMQ: the queues a publish reached, by the deliveries not from a dead-letter queue (module docstring)
+    routed = sorted({r["queue"] for r in receives if dlq_src(r) is None}) if amqp else []
 
     def add(r, kind, value=None, k=None, peer=None):
         out.append([_ms(r["time_ns"]), kind, k if k is not None else key(r["queue"], r["queue_url"]),
@@ -227,16 +260,19 @@ def events(rows, deduplicated: Iterable[int] = ()) -> list:
     for r in rows:
         kind = r["kind"]
         if kind == "send":
-            if r["row"] not in deduplicated:
+            if amqp and routed:
+                for q in routed:
+                    add(r, SEND, _body_size(r), key(q, urls.get(q)))
+            elif r["row"] not in deduplicated:
                 add(r, SEND, _body_size(r))
         elif kind == "receive":
             add(r, RECEIVE, r["receive_count"])
-            src = parse_arn(r["dlq_source_arn"]) if r["dlq_source_arn"] else None
-            if src is not None and src.name != r["queue"]:
-                add(r, DLQ_RECEIVE, None, None, place_key(src))
+            src = dlq_src(r)
+            if src is not None:
+                add(r, DLQ_RECEIVE, None, None, src)
         elif kind == "delete":
             add(r, DELETE if r["result"] == "ok" else DELETE_FAILED, _handler_ms(by_row.get(r["receive_row"]), r))
-        elif kind == "change_visibility":
+        elif kind == "change_visibility" and not amqp:
             add(r, VISIBILITY)
 
     # Lambda outcomes: one per invocation, the latest span of it (as timeline.build), against the receive of it
@@ -258,16 +294,16 @@ def events(rows, deduplicated: Iterable[int] = ()) -> list:
     # observed moves (summary.summarize's reports): once per (source, DLQ), at the earliest receive reporting it
     reports: dict = {}
     for r in receives:
-        src = parse_arn(r["dlq_source_arn"]) if r["dlq_source_arn"] else None
-        if src is not None and src.name != r["queue"]:
+        src = dlq_src(r)
+        if src is not None:
             pair = (src, r["queue"])
-            k = (r["receive_count"], r["time_ns"], r["row"])
+            k = (r["receive_count"] or 0, r["time_ns"], r["row"])
             if pair not in reports or k < reports[pair][0]:
                 reports[pair] = (k, r)
     for (src, _), (_, r) in sorted(reports.items(), key=lambda kv: kv[1][0][1:]):
-        add(r, DLQ_SEEN, None, place_key(src))
+        add(r, DLQ_SEEN, None, src)
 
-    if latest is not None and not reports:
+    if latest is not None and not reports and not amqp:
         final_delete = any(r["kind"] == "delete" and r["result"] == "ok" and r["receive_row"] == latest["row"]
                            for r in rows)
         inv = latest["faas_invocation_id"]

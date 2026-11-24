@@ -13,6 +13,10 @@ Pages:
   so the overlap, not the position, says what is known. Inferred steps
   are drawn differently and labelled "inferred". A move to a dead-letter queue says "reported by SQS"
   and which attribute reported it; it is never inferred.
+
+  A RabbitMQ message (contract/span-contract-amqp.md; QV-307) has RabbitMQ's words instead: published to an
+  exchange, routed, delivered, acked, requeued, refused, returned to the queue with its cause, and a move to a
+  dead-letter queue reported by RabbitMQ's ``x-death`` header (``_amqp``).
 - ``/duplicates``: duplicate deliveries.
 - ``/stuck``: stuck messages.
 - ``/tenants``: per tenant, sends, share, p95 time in queue and dead-lettered messages (contract/tenants.md).
@@ -28,8 +32,11 @@ from html import escape
 from typing import Callable, Iterable, Optional
 from urllib.parse import quote, urlencode
 
-from . import __version__
+from . import __version__, systems
+from .rabbitmq import DEAD_LETTER_REASONS, DLQ_SOURCE as AMQP_DLQ_SOURCE
 from .timeline import DLQ_SOURCE, SNS_ENVELOPE_SOURCE, iso
+
+REPORTED_SOURCES = (DLQ_SOURCE, AMQP_DLQ_SOURCE, SNS_ENVELOPE_SOURCE)  # observed steps with no time of their own
 
 Response = tuple[int, dict, bytes]
 
@@ -72,6 +79,92 @@ DLQ_MOVE_LABELS = {
     "observed": "moved, reported by SQS (DeadLetterQueueSourceArn on the DLQ receive)",
     "not_seen_on_dlq_yet": "receive count reached maxReceiveCount, so a move is inferred; not seen on the DLQ yet",
 }
+
+# A RabbitMQ message's words (QV-307): its states, steps and dead-letter moves, in RabbitMQ's terms.
+AMQP_STATE_LABELS = {
+    "deleted": "done",
+    "processing": "being handled (inferred)",
+    "not_deleted": "no ack seen",
+}
+AMQP_STATE_TITLE = ("Done: every queue's copy was acked, refused or moved to a dead-letter queue, and the copy "
+                    "on the dead-letter queue, if any, was acked or refused.")
+
+AMQP_EVENT_LABELS = {
+    "sent": "Published",
+    "routed": "Routed",
+    "received": "Delivered",
+    "acked": "Acked (basic.ack)",
+    "requeued": "Requeued",
+    "rejected": "Refused, not requeued",
+    "channel_closed": "Channel closed",
+    "returned": "Returned to the publisher (basic.return)",
+    "returned_to_queue": "Returned to the queue",
+    "moved_to_dead_letter_queue": "Dead-lettered",
+}
+AMQP_ONLY_TYPES = {"routed", "acked", "requeued", "rejected", "channel_closed", "returned", "returned_to_queue"}
+
+RETURN_CAUSES = {
+    "requeued": "requeued by the consumer",
+    "channel_closed": "its channel closed before an ack",
+    "consumer_timeout": "consumer timeout (consumer_timeout)",
+    "consumer_cancelled": "the broker cancelled the consumer",
+    "not_observed": "not observed",
+}
+
+AMQP_DLQ_MOVE_LABELS = {
+    "observed": "moved, reported by RabbitMQ (the x-death header on the delivery from the dead-letter queue)",
+    "not_seen_on_dlq_yet": "x-delivery-limit passed, so a move is inferred; not seen on a dead-letter queue yet",
+}
+
+AMQP_TIMELINE_NOTE = (
+    "Each step shows when its call was made and when it returned; RabbitMQ acted somewhere in between. A step is "
+    "shown above another only if an observed fact proves it came first, and the step says which: it ended before "
+    "the other started (the hosts' clocks), the same process issued it after the other returned, or the "
+    "delivery's count went up (x-delivery-count, x-acquired-count or redelivered). Nothing is ordered by what "
+    "usually causes what. Steps in a box marked <span class=\"badge badge-concurrent\">concurrent</span> can't be "
+    "put in one order: no observed fact orders some of them. Steps marked <span class=\"badge\">inferred</span> "
+    "were deduced by Trailbeam; no span recorded them, so they have a time window instead of a time. Routed lists "
+    "the queues the message was delivered on, so a queue no consumer with Trailbeam reads is missing from it. Each "
+    "queue holds its own copy of the message, which is not a duplicate. A return to the queue says what caused "
+    "it: a requeue, a closed channel, a consumer timeout or a broker cancel, or not observed when no span shows "
+    "one. A move to a dead-letter queue is shown only when RabbitMQ reports it: the delivery from the dead-letter "
+    "queue carries an x-death header naming the queue it came from and the reason.")
+
+AMQP_DUPLICATES_NOTE = (
+    "RabbitMQ messages are counted per queue copy: a message an exchange routed to two queues has two copies, and "
+    "one delivery of each is not a duplicate. A second delivery on the same queue follows a requeue, a closed "
+    "channel or a consumer timeout, and the message's timeline says which. A message published twice under the "
+    "same message ID is flagged on its timeline.")
+
+AMQP_STUCK_NOTE = (
+    "A RabbitMQ message is listed while a queue's copy of it has no basic.ack, no refusal (requeue = false) and no "
+    "observed move to a dead-letter queue. An unroutable message (basic.return) is not listed: no queue holds it. "
+    "A copy can also leave its queue when its time to live (TTL) runs out or the queue drops it at its length "
+    "limit with no dead-letter exchange; RabbitMQ reports nothing then, so it stays here until Trailbeam's own "
+    "retention removes it.")
+
+
+def _is_amqp(m: dict) -> bool:
+    """Whether a timeline or a list row is a RabbitMQ message's."""
+    return m.get("system") == systems.RABBITMQ or systems.system_of(str(m.get("message_id") or "")) == systems.RABBITMQ
+
+
+def _is_amqp_event(e: dict) -> bool:
+    """Whether a step is a RabbitMQ message's: its type, the x-death source, or its AMQP operation."""
+    op = str(e.get("operation") or "")
+    return (e["type"] in AMQP_ONLY_TYPES or e.get("source") == AMQP_DLQ_SOURCE
+            or op.startswith(("basic.", "channel.", "connection.")))
+
+
+def _label(e: dict) -> str:
+    labels = AMQP_EVENT_LABELS if _is_amqp_event(e) else EVENT_LABELS
+    return labels.get(e["type"], EVENT_LABELS.get(e["type"], e["type"]))
+
+
+def _shown_id(t: dict) -> str:
+    """The message ID as its application set it: a RabbitMQ key without its system mark."""
+    return systems.split(t["message_id"])[1]
+
 
 DUPLICATE_REASONS = {
     "received_more_than_once": "received more than once",
@@ -207,24 +300,37 @@ def _message(api, q: dict) -> Response:
         return 303, {"Location": "/"}, b""
     extra = _pick(q, "lambda_timeout_s")
     t = api("messages/" + _quote_segment(mid), extra)
-    parts = [f'<h1>Message <code>{escape(t["message_id"])}</code></h1>']
+    amqp = _is_amqp(t)
+    parts = [f'<h1>Message <code>{escape(_shown_id(t))}</code>'
+             + (' <span class="muted">RabbitMQ</span>' if amqp else "") + "</h1>"]
     for n in t.get("notices", []):
         parts.append(f'<div class="notice" data-code="{escape(n["code"])}"><strong>{escape(n["code"])}</strong>: '
                      f'{escape(n["message"])}</div>')
     parts.append('<dl class="summary">')
-    parts.append(_dd("State", _state(t["state"], t.get("purge"))))
+    parts.append(_dd("State", _state(t["state"], t.get("purge"), amqp)))
     parts.append(_dd("Source queue", escape(t.get("source_queue") or "?")))
     parts.append(_dd("Current queue", escape(t.get("current_queue") or "?")
                      + (" <strong>(dead-letter queue)</strong>" if t.get("in_dead_letter_queue") else "")))
     if t.get("dead_letter_queue_move"):
-        parts.append(_dd("Dead-letter queue", escape(DLQ_MOVE_LABELS.get(t["dead_letter_queue_move"],
-                                                                         t["dead_letter_queue_move"]))))
-    parts.append(_dd("Send observed", "yes" if t.get("send_observed") else "no"))
-    parts.append(_dd("Receives", f'{t["deliveries"]} ({t["successful_deliveries"]} handled)'))
+        labels = AMQP_DLQ_MOVE_LABELS if amqp else DLQ_MOVE_LABELS
+        parts.append(_dd("Dead-letter queue", escape(labels.get(t["dead_letter_queue_move"],
+                                                                t["dead_letter_queue_move"]))))
+    if amqp:
+        parts.append(_dd("Publish observed", "yes" if t.get("send_observed") else "no"))
+        parts.append(_dd("Deliveries", f'{t["deliveries"]} ({t["successful_deliveries"]} acked)'))
+        if t.get("copies"):
+            parts.append(_dd("Copies", "; ".join(
+                f'<code>{escape(str(c["queue"]))}</code>: {int(c["deliveries"])} '
+                f'deliver{"y" if c["deliveries"] == 1 else "ies"}, {escape(str(c.get("ended") or "not settled"))}'
+                for c in t["copies"])))
+    else:
+        parts.append(_dd("Send observed", "yes" if t.get("send_observed") else "no"))
+        parts.append(_dd("Receives", f'{t["deliveries"]} ({t["successful_deliveries"]} handled)'))
     parts.append(_dd("First seen", _first_seen(t)))
     parts.append(_dd("Last seen", _time(t.get("last_seen"))))
     parts.append("</dl>")
-    parts.append('<h2>Timeline</h2><p class="muted">Each step shows when its SQS request was sent and when the '
+    parts.append('<h2>Timeline</h2><p class="muted">' + AMQP_TIMELINE_NOTE + "</p>" if amqp else
+                 '<h2>Timeline</h2><p class="muted">Each step shows when its SQS request was sent and when the '
                  "response came back; SQS acted somewhere in between. A step is shown above another only if an "
                  "observed fact proves it came first, and the step says which: it ended before the other "
                  "started (the hosts' clocks), the same process issued it after the other returned, SQS's "
@@ -246,7 +352,7 @@ def _message(api, q: dict) -> Response:
     body_url = "/api/messages/" + _quote_segment(t["message_id"]) + "/body"
     parts.append(f'<p class="muted">The message body, or why there is none: <a href="{escape(body_url)}">'
                  f"{escape(body_url)}</a> (the Body tab, with scripts on).</p>")
-    return _page(200, f'Message {t["message_id"]}', "".join(parts))
+    return _page(200, f'Message {_shown_id(t)}', "".join(parts))
 
 
 def _duplicate_why(m: dict) -> str:
@@ -270,6 +376,7 @@ def _duplicates(api, q: dict) -> Response:
             "A second receive is expected after your own <code>ChangeMessageVisibility</code> or a failed "
             "attempt. It is worth a look when the visibility timeout expired while a consumer was still "
             "working, or when a message was handled twice.</p>"
+            f'<p class="muted">{AMQP_DUPLICATES_NOTE}</p>'
             + _filters("/duplicates", q, [("reason", "Reason", reason_opts), ("queue", "Queue", "text"),
                                           ("limit", "Limit", "number")])
             + _summary_table(data["messages"], extra=("Why", _duplicate_why),
@@ -291,6 +398,7 @@ def _stuck(api, q: dict) -> Response:
                              empty=NO_SPANS if not data["messages"] and _store_empty(api) else "No stuck messages.")
             + _next("/stuck", q, data)
             + f'<p class="muted">{STUCK_LEAVES_SQS_NOTE}</p>'
+            + f'<p class="muted">{AMQP_STUCK_NOTE}</p>'
             + '<p class="muted">Times are in UTC. Age is this server\'s clock now minus the send\'s time on the '
             "sender's clock, so skew between the two clocks shows up in it. If Trailbeam never saw the send, it "
             "counts from SQS's <code>SentTimestamp</code>, and the age says so; with neither, from the first "
@@ -398,7 +506,7 @@ def _ns_of_iso(s: Optional[str]) -> Optional[int]:
 def _span_of(e: dict) -> tuple[Optional[int], Optional[int], bool]:
     """(from, to, is_window) in ns on the hosts' clocks: an observed step's interval, or the window of an
     inferred step or of a move to a dead-letter queue (which SQS gives no time). Either end may be unknown."""
-    if e.get("inferred") or e.get("source") in (DLQ_SOURCE, SNS_ENVELOPE_SOURCE):
+    if e.get("inferred") or e.get("source") in REPORTED_SOURCES:
         w = e.get("window") or {}
         return _ns_of_iso(w.get("from")), _ns_of_iso(w.get("to")), True
     start = e.get("start_unix_nano")
@@ -439,10 +547,11 @@ def _waterfall(members: list[dict], by_id: dict, self_id: Optional[str] = None) 
     rows.sort(key=lambda r: r[:3])  # by start (µs); on a tie, observed before a window; then Trailbeam's order
     scale = "" if width <= 0 else (f" The scale runs from {_time(iso(lo))} to {_time(iso(hi))}"
                                    f" ({_took(width)}).")
+    broker = "RabbitMQ" if any(_is_amqp_event(m) for m in members) else "SQS"
     note = ('<p class="group-note">Each bar is one step on the same time scale: from its request sent to its '
             "response received (hatched: a window, for a step with no time of its own). Rows are listed by when "
-            "each request was sent, which is not the order SQS acted in: where bars overlap, SQS may have acted "
-            f"on either first.{scale}</p>")
+            f"each request was sent, which is not the order {broker} acted in: where bars overlap, {broker} may "
+            f"have acted on either first.{scale}</p>")
     return note + '<ul class="waterfall">' + "".join(r[3] for r in rows) + "</ul>"
 
 
@@ -457,6 +566,13 @@ def _ref(e: Optional[dict]) -> str:
         return "an earlier step"
     t, d = e["type"], e.get("delivery")
     of = f" of delivery {d}" if d is not None else ""
+    if _is_amqp_event(e):
+        names = {"sent": "the publish", "received": f"delivery {d}" if d is not None else "a delivery",
+                 "acked": "the ack" + of, "requeued": "the requeue" + of, "rejected": "the refusal" + of,
+                 "channel_closed": "the channel close" + of, "returned": "the basic.return",
+                 "returned_to_queue": "the return to the queue" + of, "routed": "the routing",
+                 "moved_to_dead_letter_queue": "the move to the dead-letter queue"}
+        return names.get(t, _label(e).lower())
     names = {"sent": "the send", "received": f"receive {d}" if d is not None else "a receive",
              "deleted": "the delete" + of, "visibility_changed": "the visibility change" + of,
              "lambda_outcome": "the Lambda outcome" + of}
@@ -467,7 +583,7 @@ def _why(e: dict, by_id: dict) -> list[str]:
     """One line per step this one is shown after, saying which observed fact proves it."""
     out = []
     entries = list(e.get("after") or [])
-    if e.get("source") in (DLQ_SOURCE, SNS_ENVELOPE_SOURCE) and e.get("before"):
+    if e.get("source") in REPORTED_SOURCES and e.get("before"):
         entries.append(e["before"])
     for a in entries:
         src = a.get("sources") or [a.get("source")]
@@ -489,7 +605,8 @@ def _why(e: dict, by_id: dict) -> list[str]:
 
 def _event(e: dict, by_id: Optional[dict] = None, bar: str = "", self_id: Optional[str] = None) -> str:
     inferred = bool(e.get("inferred"))
-    label = escape(EVENT_LABELS.get(e["type"], e["type"]))
+    amqp = _is_amqp_event(e)
+    label = escape(_label(e))
     dedup = e["type"] == "sent" and bool(e.get("deduplicated"))  # a FIFO send SQS deduplicated (QV-246)
     if dedup:
         label = "Sent again, deduplicated by SQS"
@@ -503,7 +620,7 @@ def _event(e: dict, by_id: Optional[dict] = None, bar: str = "", self_id: Option
     head = []
     # observed, but with no time of its own: the DLQ move SQS reports (contract 9b), the SNS delivery an envelope
     # reports (21.5)
-    reported = e.get("source") in (DLQ_SOURCE, SNS_ENVELOPE_SOURCE)
+    reported = e.get("source") in REPORTED_SOURCES
     if reported:
         cls.append("reported")
     if inferred:
@@ -523,7 +640,7 @@ def _event(e: dict, by_id: Optional[dict] = None, bar: str = "", self_id: Option
         out.append(f'<div class="reported-by"><strong>{escape(e["reported_by"])}</strong></div>')
     if details:
         out.append(f'<div class="detail">{" · ".join(details)}</div>')
-    if (inferred or reported or dedup or e["type"] in ("queue_purged", "published")) and e.get("reason"):
+    if (inferred or reported or dedup or amqp or e["type"] in ("queue_purged", "published")) and e.get("reason"):
         out.append(f'<div class="reason">{escape(e["reason"])}</div>')
     if e["type"] == "published":
         out.append(_reached(e, self_id))
@@ -560,8 +677,21 @@ def _details(e: dict) -> list[str]:
         d.append(f'from <code>{escape(str(e.get("from_queue")))}</code> to <code>{escape(str(e.get("to_queue")))}</code>')
     elif e.get("topic"):
         d.append(f'topic <code>{escape(str(e["topic"]))}</code>')
+    elif e.get("exchange") and e["type"] in ("sent", "returned", "routed"):
+        d.append(f'exchange <code>{escape(str(e["exchange"]) or "(default)")}</code>')
     elif e.get("queue"):
         d.append(f'queue <code>{escape(e["queue"])}</code>')
+    if e.get("queues") and e["type"] == "routed":
+        d.append("to " + ", ".join(f"<code>{escape(str(q))}</code>" for q in e["queues"]))
+    add("routing key", "routing_key", lambda v: f"<code>{escape(str(v))}</code>")
+    if e.get("cause"):
+        d.append(f'cause <strong>{escape(RETURN_CAUSES.get(e["cause"], str(e["cause"])))}</strong>')
+    if e.get("dead_letter_reason"):
+        r = str(e["dead_letter_reason"])
+        d.append(f"x-death reason <code>{escape(r)}</code>"
+                 + (f" ({escape(DEAD_LETTER_REASONS[r])})" if r in DEAD_LETTER_REASONS else ""))
+    add("reply code", "reply_code")
+    add("reply text", "reply_text", lambda v: f"<code>{escape(str(v))}</code>")
     add("SNS delivery ms", "sns_delivery_ms")
     if e.get("joined_by"):
         d.append("joined by " + " and ".join(escape(JOINED_BY.get(j, j)) for j in e["joined_by"]))
@@ -580,7 +710,10 @@ def _details(e: dict) -> list[str]:
     add("event time", "event_time")
     add("delivery ms", "delivery_ms")
     add("delivery", "delivery")
-    add("receive count", "receive_count")
+    if e.get("receive_count_source") and e.get("receive_count_source") != "first_delivery":
+        d.append(f'receive count {escape(str(e.get("receive_count")))} (from {escape(str(e["receive_count_source"]))})')
+    else:
+        add("receive count", "receive_count")
     add("after delivery", "after_delivery")
     add("before delivery", "before_delivery")
     add("count", "count")
@@ -636,16 +769,20 @@ def _summary_table(messages: list[dict], *, empty: str, extra: Optional[tuple] =
         cols.append(extra[0])
     rows = []
     for m in messages:
+        amqp = _is_amqp(m)
         queue = escape(m.get("current_queue") or m.get("source_queue") or "?")
         if m.get("in_dead_letter_queue"):
             queue += f' <span class="muted">(DLQ, from {escape(m.get("source_queue") or "?")})</span>'
         elif m.get("dead_letter_queue_move") == "not_seen_on_dlq_yet":
-            queue += ' <span class="muted">(maxReceiveCount reached; DLQ move inferred, not seen yet)</span>'
+            queue += (' <span class="muted">(x-delivery-limit passed; DLQ move inferred, not seen yet)</span>' if amqp
+                      else ' <span class="muted">(maxReceiveCount reached; DLQ move inferred, not seen yet)</span>')
         consumers = ", ".join(escape(str(c.get("service_name") or "?"))
                               + (f' <span class="muted">{escape(str(c["client_id"]))}</span>' if c.get("client_id") else "")
                               for c in m.get("consumers", []))
-        cells = [f'<a class="mono" href="/message?{escape(urlencode({"id": m["message_id"]}))}">{escape(m["message_id"])}</a>',
-                 _state(m["state"], m.get("purge")), queue, _receives(m), consumers,
+        cells = [f'<a class="mono" href="/message?{escape(urlencode({"id": m["message_id"]}))}">'
+                 f'{escape(systems.split(m["message_id"])[1])}</a>'
+                 + (' <span class="muted">RabbitMQ</span>' if amqp else ""),
+                 _state(m["state"], m.get("purge"), amqp), queue, _receives(m), consumers,
                  _first_seen(m, short=True), _time(m.get("last_seen"))]
         if extra:
             cells.append(extra[1](m))
@@ -838,9 +975,12 @@ def _dd(name: str, value: str) -> str:
     return f"<dt>{escape(name)}</dt><dd>{value}</dd>"
 
 
-def _state(s: str, purge: Optional[dict] = None) -> str:
+def _state(s: str, purge: Optional[dict] = None, amqp: bool = False) -> str:
     """A message's state, and what a recorded PurgeQueue call says about it (contract section 18): "purged
     (observed: PurgeQueue at ...)", or the state with "possibly purged" after it."""
+    if amqp:
+        title = f' title="{escape(AMQP_STATE_TITLE)}"' if s == "deleted" else ""
+        return f'<span class="state state-{escape(s)}"{title}>{escape(AMQP_STATE_LABELS.get(s, s))}</span>'
     out = f'<span class="state state-{escape(s)}">{escape(STATE_LABELS.get(s, s))}</span>'
     if not purge:
         return out
@@ -875,7 +1015,7 @@ def _first_seen(m: dict, short: bool = False) -> str:
     if m.get("first_seen_clock") != "sqs":
         if short:
             return t
-        what = "the send" if m.get("send_observed") else "the earliest step"
+        what = ("the publish" if _is_amqp(m) else "the send") if m.get("send_observed") else "the earliest step"
         return t + f' <span class="muted">({what}, on the host\'s clock that recorded it)</span>'
     if short:
         return t + ' <span class="muted clock-sqs">SQS\'s clock</span>'
