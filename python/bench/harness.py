@@ -51,8 +51,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import loadgen  # noqa: E402
 
 from trailbeam.server import body_table, summary_table  # noqa: E402
-from trailbeam.server.db import (RECEIVE_JOIN_SQL, RECORD_FIELDS, SETTLE_JOIN_SQL, SETTLE_KINDS, Database,  # noqa: E402
-                                 gate_body)
+from trailbeam.server.events import HOUR_NS, KINDS as STEP_KINDS  # noqa: E402
+from trailbeam.server.db import (_STEP_ADD_SQL, RECEIVE_JOIN_SQL, RECORD_FIELDS, SETTLE_JOIN_SQL,  # noqa: E402
+                                 SETTLE_KINDS, Database, gate_body)
 
 DAY_NS = 86_400 * 10 ** 9
 
@@ -111,6 +112,12 @@ class Seeder:
                         + [body_table.attributes_json(attrs), mid, src, dropped, rrow,
                            None if body is None else body_table.put(c, own, body)])
         c.executemany(self.sql, rows)
+        steps: dict = {}  # step_rollup, as insert adds to it (generated spans are never duplicates)
+        for r in records:
+            if r["kind"] in STEP_KINDS:
+                k = (r["time_ns"] // HOUR_NS, r["queue"], r.get("service_name") or "", r["kind"])
+                steps[k] = steps.get(k, 0) + 1
+        c.executemany(_STEP_ADD_SQL, [k + (n,) for k, n in steps.items()])
         c.executemany("UPDATE spans SET mid = ?, mid_source = 'receipt_hash', receive_row = ? WHERE row = ?",
                       [u[:3] for u in updates])
         # the summary tables, as insert keeps them: each row's message, then the settle spans the joins moved

@@ -172,3 +172,74 @@ def test_the_hourly_rollup_counts_what_the_spans_count(db, ingest):
     assert deleted > 0
     check()
     assert db.query("SELECT COUNT(*) FROM step_rollup WHERE n <= 0")[0][0] == 0
+
+
+def test_the_hour_plan_adds_up_to_the_window():
+    """events.hour_split (QV-468): its rollup hours plus and minus its span ranges count every step of the window
+    once, wherever the window starts and ends and whatever now is: before, inside or after it."""
+    import random
+    rnd = random.Random(468)
+    hour = events.HOUR_NS
+    times = sorted(rnd.randrange(0, 80 * hour) for _ in range(3000))
+
+    def spans(a, b):
+        return sum(1 for t in times if a <= t < b)
+
+    for _ in range(400):
+        a = rnd.randrange(0, 70 * hour)
+        b = a + rnd.choice([1, hour // 3, hour, 3 * hour + 7, rnd.randrange(1, 60 * hour)])
+        width = rnd.choice([hour, 3 * hour, 24 * hour])
+        now = rnd.choice([a - hour, (a + b) // 2, b, b + 2 * hour, 10 ** 30])
+        ranges, hours = events.hour_split(a, b, width, now)
+        got = sum(sign * spans(x, y) for x, y, sign in ranges)
+        if hours:
+            got += spans(hours[0] * hour, hours[1] * hour)
+        assert got == spans(a, b), (a, b, width, now, ranges, hours)
+        assert all(x // width == (y - 1) // width for x, y, _ in ranges if x < y)  # a range is in one bucket
+    # a window ending now takes its current hour from the rollup, less what is newer than its end
+    ranges, hours = events.hour_split(7 * hour + 5, 75 * hour + 10, hour, now_ns=75 * hour + 10)
+    assert hours == (7, 76) and ranges == [(7 * hour, 7 * hour + 5, -1), (75 * hour + 10, 76 * hour, -1)]
+    assert events.hour_split(0, 10 * hour, 60 * 10 ** 9) is None  # buckets of minutes: all from the spans
+
+
+class _Recorder:
+    """A store whose counts and rows are given, recording the step_rows calls events.page makes."""
+
+    def __init__(self, counted, rows):
+        self.counted, self.rows, self.calls = counted, rows, []
+
+    def step_counts(self, *a, **kw):
+        return self.counted
+
+    def step_rows(self, from_ns, to_ns, limit, **kw):
+        self.calls.append((from_ns, to_ns, kw.get("kinds")))
+        return [r for r in self.rows if from_ns <= r["time_ns"] < to_ns][:limit]
+
+
+def _row(t, kind="send"):
+    return {"time_ns": t, "start_ns": None, "kind": kind, "mid": None, "queue": "q", "service_name": None,
+            "service_version": None, "result": None, "error_code": None, "outcome": None, "error_type": None,
+            "receive_count": None, "visibility_timeout": None, "trace_id": "a" * 32, "span_id": f"{t:016x}"}
+
+
+def test_the_first_page_reads_rows_only_where_the_counts_found_them():
+    hour_ms = 3_600_000
+    frm, to = 0, 7 * 24 * hour_ms - 1  # hourly buckets
+    width = events.bucket_ms(frm, to) * MS
+    # sends in buckets 10 (3) and 150 (2), a delete in 160: a page of 2 (and whether there is more) is in 150 and 160
+    counted = [(10, "send", 3), (150, "send", 2), (160, "delete", 1)]
+    rows = [_row(10 * width + k) for k in range(3)] + [_row(150 * width + k) for k in range(2)] + [_row(160 * width)]
+    rows.sort(key=lambda r: -r["time_ns"])
+    db = _Recorder(counted, rows)
+    page = events.page(db, frm, to, 2, kinds=("send", "delete", "outcome"))
+    assert db.calls == [(150 * width, 161 * width, ("send", "delete"))]  # no outcome: none counted
+    assert len(page["events"]) == 2 and page["next_cursor"]
+    db = _Recorder(counted, rows)
+    assert len(events.page(db, frm, to, 3)["events"]) == 3 and db.calls[0][:2] == (10 * width, 161 * width)
+    db = _Recorder([], [])
+    assert events.page(db, frm, to, 3)["events"] == [] and db.calls == []  # nothing counted: no rows read
+    # the rows aren't there (retention took them after the counts): the whole window is read instead
+    db = _Recorder(counted, [_row(10 * width + 5)])
+    page = events.page(db, frm, to, 3)
+    assert [c[:2] for c in db.calls] == [(10 * width, 161 * width), (0, to * MS + MS)]
+    assert len(page["events"]) == 1

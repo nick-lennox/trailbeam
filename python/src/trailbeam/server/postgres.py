@@ -58,6 +58,15 @@ in SQL: an export adds what a message gains and takes out what it lost, in the p
 what it deletes; a drop removes the place's rows. ``place_queue_keys`` lists each place's queue keys, so the
 queue list and each queue's latest event are read without scanning every place's events.
 
+**Steps** (QV-468, events.py). ``/api/events`` pages the spans newest first by spans_identity (pg_schema.py: the
+spans' unique key, by time), a backward range of it in each place, merged across a batch of places. Its counts
+read ``step_rollup``, the steps per hour, queue, service and kind, in the place of the spans they count (a span's
+own, not its message's), one row per writing connection as ``tenant_rollup`` (above): an export adds its spans'
+steps in one statement; a sweep takes out what it deletes; a drop moves a place's stray spans' steps with them, in
+the same transaction, and takes out what it deletes in other places; the place's own rollup goes with it. A span
+and its steps are always in one place, so a statement reading a batch of places reads both in one snapshot, and
+the spans it takes out of an hour's rollup rows (events.hour_split) are counted in it.
+
 **Locks** (QV-113). A statement on a partitioned table locks, until its transaction ends, every partition (and
 its indexes) that it can't rule out when it is planned. So no statement of an export, a by-message read or
 retention looks a message ID or a receipt hash up across all places: the lookup tables (``mid_places``,
@@ -140,6 +149,7 @@ from psycopg import errors, sql
 from psycopg.rows import dict_row
 
 from . import body_table, pg_schema, purge, queues, rollup, sns, summary
+from .events import HOUR_NS, KINDS as STEP_KINDS, hour_split
 from .lookup_filter import LookupFilter, hash_key, mid_key
 from .db import gate_body
 from .otlp import RECORD_FIELDS
@@ -264,6 +274,7 @@ class PostgresStore(Store):
         self._filter_checked = time.monotonic()
         self._hints: OrderedDict = OrderedDict()  # mid -> its home as a page last listed it ("Lookups")
         self._hints_lock = threading.Lock()
+        self._making_places = threading.Lock()  # _create_places
         self._lock_connections = read_connections  # pages: the statements that lock the most places ("Locks")
         self._lock_warned_at: Optional[float] = None
         self.lock_need: Optional[pg_schema.LockNeed] = None
@@ -340,7 +351,19 @@ class PostgresStore(Store):
         self._create_places(places)
 
     def _create_places(self, places) -> None:
+        # The exports of this replica that need places at once wait here, without a connection each: 120 of them
+        # waiting below, each on a connection of its own, ran out of Postgres's (100 by default).
+        if not self._making_places.acquire(timeout=self.PLACE_WAIT_MS / 1000):
+            raise errors.LockNotAvailable(f"another export was making places for {self.PLACE_WAIT_MS} ms")
+        try:
+            self._create_places_locked(places)
+        finally:
+            self._making_places.release()
+
+    def _create_places_locked(self, places) -> None:
         with psycopg.connect(self.url, autocommit=True) as c:
+            if self._places_made(c, sorted(places)):
+                return  # made by the export that held the lock before
             # One connection, of any replica, makes places at a time: ATTACH locks the parent against other
             # ATTACHes anyway, and the many that need one new place at once would queue there, each with only
             # DDL_LOCK_TIMEOUT_MS. Here they wait up to PLACE_WAIT_MS, and stop waiting once others have made
@@ -1040,12 +1063,12 @@ class PostgresStore(Store):
         stmt = (f"INSERT INTO spans ({names}) SELECT {names} FROM unnest("
                 + ", ".join(f"%s::{t}" for t in types)
                 + f") WITH ORDINALITY AS u({names}, ord) ORDER BY ord "
-                  "ON CONFLICT DO NOTHING RETURNING \"row\", trace_id, span_id")
+                  "ON CONFLICT DO NOTHING RETURNING \"row\", time_ns, trace_id, span_id")
         got = conn.execute(stmt, [cols[c] for c in _INSERT_COLUMNS]).fetchall()
-        new_rows = {(g["trace_id"], g["span_id"]): g["row"] for g in got}
+        new_rows = {(g["time_ns"], g["trace_id"], g["span_id"]): g["row"] for g in got}  # spans_identity's key
         inserted, dupes, order = 0, 0, []
         for i, (r, *_rest) in enumerate(prepared):
-            k = (r["trace_id"], r["span_id"])
+            k = (r["time_ns"], r["trace_id"], r["span_id"])
             if k in new_rows:
                 order.append((i, new_rows.pop(k)))
                 inserted += 1
@@ -1053,6 +1076,9 @@ class PostgresStore(Store):
                 dupes += 1
         if not order:
             return 0, dupes
+        steps: dict = {}
+        _step_delta(steps, [(places[i], prepared[i][0]) for i, _ in order])
+        _apply_step_rollup(conn, steps)
         self._tx.written.update(places[i] for i, _ in order)
         self._note_mids(conn, [(prepared[i][1], places[i][0], places[i][1]) for i, _ in order])
         hashed = sorted({(prepared[i][0].get("receipt_hmac"), prepared[i][0].get("key_id")) + places[i] for i, _ in order
@@ -1547,13 +1573,17 @@ class PostgresStore(Store):
                     found = c.execute(*_each(homes, "SELECT mid, rclass, bucket, strays_json FROM messages "
                                                     "WHERE {p} AND mid = ANY(%s)", [strays])).fetchall()
                 self._lock_places(c, {(x["rclass"], x["bucket"]) for x in found})  # their sealed_in holds still
+                steps: dict = {}  # step_rollup: the moved spans' steps move with them, the deleted ones' go
                 for x in found:
                     self._note_hashes(c, [(h["receipt_hmac"], h["key_id"], x["rclass"], x["bucket"]) for h in c.execute(
                         """SELECT DISTINCT receipt_hmac, key_id FROM spans WHERE rclass = %s AND bucket = %s AND mid = %s
                              AND receipt_hmac IS NOT NULL AND key_id IS NOT NULL
                              AND (kind = 'receive' OR kind IN """ + SETTLE_KINDS_SQL + ")", (pc, pb, x["mid"])).fetchall()])
-                    c.execute("UPDATE spans SET rclass = %s, bucket = %s WHERE mid = %s AND rclass = %s AND bucket = %s",
-                              (x["rclass"], x["bucket"], x["mid"], pc, pb))
+                    moved = c.execute("UPDATE spans SET rclass = %s, bucket = %s WHERE mid = %s AND rclass = %s "
+                                      "AND bucket = %s RETURNING time_ns, queue, service_name, kind",
+                                      (x["rclass"], x["bucket"], x["mid"], pc, pb)).fetchall()
+                    _step_delta(steps, [((pc, pb), r) for r in moved], -1)
+                    _step_delta(steps, [((x["rclass"], x["bucket"]), r) for r in moved])
                     c.execute("UPDATE messages SET strays_json = %s WHERE rclass = %s AND bucket = %s AND mid = %s",
                               (json.dumps([q for q in json.loads(x["strays_json"]) if q != [pc, pb]]),
                                x["rclass"], x["bucket"], x["mid"]))
@@ -1569,9 +1599,12 @@ class PostgresStore(Store):
                     for sc, sb in json.loads(x["strays_json"]):
                         if (sc, sb) == (pc, pb):
                             continue
-                        n += c.execute("DELETE FROM spans WHERE rclass = %s AND bucket = %s AND mid = %s",
-                                       (sc, sb, x["mid"])).rowcount
+                        gone = c.execute("DELETE FROM spans WHERE rclass = %s AND bucket = %s AND mid = %s "
+                                         "RETURNING time_ns, queue, service_name, kind", (sc, sb, x["mid"])).fetchall()
+                        n += len(gone)
+                        _step_delta(steps, [((sc, sb), r) for r in gone], -1)
                         c.execute("DELETE FROM strays WHERE rclass = %s AND bucket = %s AND mid = %s", (sc, sb, x["mid"]))
+                _apply_step_rollup(c, steps)
                 n += c.execute("SELECT COUNT(*) AS n FROM spans WHERE rclass = %s AND bucket = %s",
                                (pc, pb)).fetchone()["n"]
             # 3. the partitions themselves, its lookups' with them
@@ -1624,14 +1657,17 @@ class PostgresStore(Store):
                         ORDER BY last_ns, mid LIMIT %s""", p + [limit]).fetchall()
                 gone = [m for m in msgs if set(json.loads(m["queues_json"])) <= expired]
                 n = 0
+                steps: dict = {}  # step_rollup loses the deleted spans
                 if gone:
                     ids = [m["mid"] for m in gone]
                     other = {tuple(x) for m in gone for x in json.loads(m["strays_json"])} - {(pc, pb)}
                     self._require_live(c, other)
                     for kc, kb in sorted(set().union(*self._locate_mids(c, ids, {(pc, pb)},
                                                                         self.reads.connection).values())):
-                        n += c.execute("DELETE FROM spans WHERE rclass = %s AND bucket = %s AND mid = ANY(%s)",
-                                       (kc, kb, ids)).rowcount
+                        rows = c.execute("DELETE FROM spans WHERE rclass = %s AND bucket = %s AND mid = ANY(%s) "
+                                         "RETURNING time_ns, queue, service_name, kind", (kc, kb, ids)).fetchall()
+                        n += len(rows)
+                        _step_delta(steps, [((kc, kb), r) for r in rows], -1)
                     for t in ("messages", "message_queues", "message_tenants", "tenant_events", "bodies",
                               "queue_events"):
                         c.execute(f"DELETE FROM {t} WHERE rclass = %s AND bucket = %s AND mid = ANY(%s)", (pc, pb, ids))
@@ -1646,11 +1682,14 @@ class PostgresStore(Store):
                 unjoined = 0
                 if len(msgs) < limit:  # the messages are done: the place's spans of no message (unjoined settle
                     # spans; RabbitMQ cancels and spans without a message ID), by their own queue
-                    unjoined = c.execute(
+                    rows = c.execute(
                         """DELETE FROM spans WHERE rclass = %s AND bucket = %s AND mid IS NULL AND receive_row IS NULL
-                           AND queue = ANY(%s)""",
-                        (pc, pb, sorted(expired))).rowcount
+                           AND queue = ANY(%s) RETURNING time_ns, queue, service_name, kind""",
+                        (pc, pb, sorted(expired))).fetchall()
+                    unjoined = len(rows)
+                    _step_delta(steps, [((pc, pb), r) for r in rows], -1)
                     n += unjoined
+                _apply_step_rollup(c, steps)
         done = None if len(msgs) < limit else (msgs[-1]["last_ns"], msgs[-1]["mid"])
         return n, len(msgs) + unjoined, done, (time.monotonic() - t0) * 1000
 
@@ -1797,33 +1836,36 @@ class PostgresStore(Store):
         return self._walk_first(branch, p, lambda r: (-r["last_ns"], r["mid"]), limit, from_ns,
                                 top=lambda r: r["last_ns"])
 
-    # /api/events (events.py). A span is in the place of its own time's bucket, or a later one (a bucket being
-    # dropped, a stray moved home: "Placement"), never an earlier one: so only the places from the window's first
-    # bucket on, and _top_ns bounds a place's span times as it bounds its summaries'. Trace and span IDs compare
-    # byte by byte (COLLATE "C"), as SQLite compares them, so both stores page in the same order.
+    # /api/events (events.py, "Steps" in pg_schema.py). A span is in the place of its own time's bucket, or a later one
+    # (a bucket being dropped, a stray moved home: "Placement"), never an earlier one: so only the places from the
+    # window's first bucket on, and _top_ns bounds a place's span times as it bounds its summaries'. Trace and span IDs
+    # compare byte by byte (COLLATE "C"), as SQLite compares them, so both stores page in the same order. A place's
+    # page is a backward range of spans_identity, which is in that order, and the places of a batch are merged (a
+    # Merge Append that stops after the page), so a page reads about a page of rows whatever the window.
     _STEP_COLS = ("s.time_ns, s.start_ns, s.trace_id, s.span_id, s.kind, s.mid, s.queue, s.service_name, "
                   "s.service_version, s.result, s.error_code, s.outcome, s.error_type, s.receive_count, "
                   "s.visibility_timeout")
+    _STEP_ORDER = 'time_ns DESC, trace_id COLLATE "C" DESC, span_id COLLATE "C" DESC'
 
     @staticmethod
-    def _step_where(from_ns: int, to_ns: int, queue, service, kinds) -> tuple[str, list]:
-        from .events import KINDS
-        where, p = "s.time_ns >= %s AND s.time_ns < %s AND s.kind = ANY(%s)", [from_ns, to_ns, list(kinds or KINDS)]
+    def _step_where(queue, service, kinds, prefix: str = "s.", service_col: str = "service_name") -> tuple[str, list]:
+        where, p = f"{prefix}kind = ANY(%s)", [list(kinds or STEP_KINDS)]
         if queue is not None:
-            where, p = where + " AND s.queue = %s", p + [queue]
+            where, p = where + f" AND {prefix}queue = %s", p + [queue]
         if service is not None:
-            where, p = where + " AND s.service_name = %s", p + [service]
+            where, p = where + f" AND {prefix}{service_col} = %s", p + [service]
         return where, p
 
     def step_rows(self, from_ns: int, to_ns: int, limit: int, *, queue: Optional[str] = None,
                   service: Optional[str] = None, kinds: Optional[tuple] = None,
                   after: Optional[tuple] = None) -> list:
-        where, p = self._step_where(from_ns, to_ns, queue, service, kinds)
+        where, p = self._step_where(queue, service, kinds)
+        where, p = "s.time_ns >= %s AND s.time_ns < %s AND " + where, [from_ns, to_ns] + p
         if after is not None:
             where += ' AND (s.time_ns, s.trace_id COLLATE "C", s.span_id COLLATE "C") < (%s, %s, %s)'
             p += list(after)
-        order = 's.time_ns DESC, s.trace_id COLLATE "C" DESC, s.span_id COLLATE "C" DESC'
-        branch = f"SELECT {self._STEP_COLS} FROM spans s WHERE {{p}} AND {where} ORDER BY {order} LIMIT %s"
+        branch = (f"SELECT {self._STEP_COLS} FROM spans s WHERE {{p}} AND {where} "
+                  'ORDER BY s.time_ns DESC, s.trace_id COLLATE "C" DESC, s.span_id COLLATE "C" DESC LIMIT %s')
         key = lambda r: (r["time_ns"], r["trace_id"], r["span_id"])  # noqa: E731  (hex IDs: str order is byte order)
         page: list = []
         with self._reading() as c:
@@ -1831,20 +1873,35 @@ class PostgresStore(Store):
                 if len(page) >= limit and self._top_ns(batch[0]) < page[-1]["time_ns"]:
                     break
                 q, qp = _each(batch, branch, p + [limit], "s")
-                page = sorted(page + c.execute(f"SELECT * FROM ({q}) u", qp).fetchall(), key=key, reverse=True)[:limit]
+                got = c.execute(f"SELECT * FROM ({q}) u ORDER BY {self._STEP_ORDER} LIMIT %s", qp + [limit]).fetchall()
+                page = sorted(page + got, key=key, reverse=True)[:limit]
         return page
 
     def step_counts(self, from_ns: int, to_ns: int, bucket_ns: int, *, queue: Optional[str] = None,
                     service: Optional[str] = None, kinds: Optional[tuple] = None) -> list[tuple]:
-        where, p = self._step_where(from_ns, to_ns, queue, service, kinds)
-        branch = f"SELECT s.time_ns / %s AS b, s.kind, COUNT(*) AS n FROM spans s WHERE {{p}} AND {where} GROUP BY 1, 2"
+        """As SqliteStore.step_counts: step_rollup for the hours events.hour_split says, plus or minus the spans of the
+        parts of hours it says, a batch of places a statement. A span's rollup rows are in its own place, and move
+        with it in one transaction, so the spans a batch takes out of its rollup rows are in the same snapshot."""
+        split = hour_split(from_ns, to_ns, bucket_ns)
+        ranges, hours = split if split else ([(from_ns, to_ns, 1)], None)
+        parts, params = [], []
+        where, wp = self._step_where(queue, service, kinds, "")
+        for a, b, sign in ranges:
+            parts.append(f"SELECT time_ns / %s AS b, kind, COUNT(*) * {int(sign)} AS n FROM spans "
+                         f"WHERE {{p}} AND time_ns >= %s AND time_ns < %s AND {where} GROUP BY 1, 2")
+            params += [bucket_ns, a, b] + wp
+        if hours:
+            rwhere, rp = self._step_where(queue, service, kinds, "", "service")
+            parts.append(f"SELECT hour / %s AS b, kind, SUM(n) AS n FROM step_rollup "
+                         f"WHERE {{p}} AND hour >= %s AND hour < %s AND {rwhere} GROUP BY 1, 2")
+            params += [bucket_ns // HOUR_NS, *hours] + rp
+        # the earliest time read: an hour's rollup rows and spans start at the hour
+        lo = min([a for a, _, _ in ranges] + ([hours[0] * HOUR_NS] if hours else []))
         out: dict = {}
-        with self._reading() as c:
-            for batch in self._batches(self._places_from(c, from_ns)):
-                q, qp = _each(batch, branch, [bucket_ns] + p, "s")
-                for r in c.execute(f"SELECT b, kind, SUM(n) AS n FROM ({q}) u GROUP BY b, kind", qp).fetchall():
-                    out[(r["b"], r["kind"])] = out.get((r["b"], r["kind"]), 0) + int(r["n"])
-        return [(b, k, n) for (b, k), n in out.items()]
+        for r in self._walk_all(" UNION ALL ".join(f"({q})" for q in parts), params, lo):
+            k = (int(r["b"]), r["kind"])
+            out[k] = out.get(k, 0) + int(r["n"])
+        return [(b, k, n) for (b, k), n in out.items() if n]
 
     _ON_QUEUE = (" AND EXISTS (SELECT 1 FROM message_queues q WHERE {q} AND q.queue = %s AND q.last_ns = s.last_ns"
                  " AND q.mid = s.mid)")
@@ -2287,6 +2344,43 @@ def _apply_queue_rollup(conn, deltas: dict) -> None:
         """DELETE FROM queue_rollup WHERE rclass = %s AND bucket = %s AND hour = %s AND queue_key = %s AND kind = %s
            AND service = %s AND lambda = %s AND peer = %s AND writer = %s AND n = 0 AND vn = 0 AND vsum = 0""",
         [r[:9] for r in rows])
+
+
+def _step_delta(into: dict, spans, sign: int = 1) -> None:
+    """Add to ``into`` ({(place, hour, queue, service, kind): n}) what these (place, span row) change in step_rollup:
+    each span of events.KINDS, ``sign`` once (a purge or a publish is no step)."""
+    for place, r in spans:
+        if r["kind"] in STEP_KINDS:
+            k = (place, r["time_ns"] // HOUR_NS, r["queue"], r.get("service_name") or "", r["kind"])
+            into[k] = into.get(k, 0) + sign
+
+
+def _apply_step_rollup(conn, deltas: dict) -> None:
+    """Add the deltas to step_rollup: to this connection's own rows (``writer``), as _apply_queue_rollup, so
+    concurrent exports to one queue's hour never wait for each other. One statement for all the rows (an export
+    touches a few hundred: a statement each cost an export about 15 % more time), and a second for the rows that
+    came to 0, which are deleted. A writer's row can be below 0 (it took out what another connection added): the
+    reads add every writer's rows up."""
+    items = sorted((k, n) for k, n in deltas.items() if n)
+    if not items:
+        return
+    me = conn.info.backend_pid
+    # one array a column: rclass, bucket, hour, queue, service, kind, n
+    cols = [list(c) for c in zip(*(k[0] + k[1:] + (n,) for k, n in items))]
+    zero = conn.execute(
+        """WITH up AS (
+               INSERT INTO step_rollup (rclass, bucket, hour, queue, service, kind, writer, n)
+               SELECT c, b, h, q, sv, k, %s, n
+               FROM unnest(%s::bigint[], %s::bigint[], %s::bigint[], %s::text[], %s::text[], %s::text[], %s::bigint[])
+                   AS u(c, b, h, q, sv, k, n)
+               ON CONFLICT (rclass, bucket, hour, queue, service, kind, writer)
+                   DO UPDATE SET n = step_rollup.n + EXCLUDED.n
+               RETURNING rclass, bucket, hour, queue, service, kind, n)
+           SELECT rclass, bucket, hour, queue, service, kind FROM up WHERE n = 0""", [me] + cols).fetchall()
+    if zero:
+        conn.cursor().executemany(
+            """DELETE FROM step_rollup WHERE rclass = %s AND bucket = %s AND hour = %s AND queue = %s AND service = %s
+               AND kind = %s AND writer = %s AND n = 0""", [tuple(r.values()) + (me,) for r in zero])
 
 
 def _lists(s) -> tuple:

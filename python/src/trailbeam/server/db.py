@@ -611,18 +611,19 @@ class SqliteStore(Store):
 
     def step_counts(self, from_ns: int, to_ns: int, bucket_ns: int, *, queue: Optional[str] = None,
                     service: Optional[str] = None, kinds: Optional[tuple] = None) -> list[tuple]:
-        """The whole hours from step_rollup when the buckets are whole hours (events.hour_split), the rest from the
-        spans. Each hour is in one bucket, so the two parts' (bucket, kind) pairs are added up."""
+        """The hours events.hour_split says from step_rollup when the buckets are whole hours, plus or minus the spans
+        of the parts of hours it says. Each hour is in one bucket, so the parts' (bucket, kind) pairs are added up.
+        One read transaction: the rollup rows and the spans taken out of them agree."""
         where, p = self._step_where(queue, service, kinds)
         split = hour_split(from_ns, to_ns, bucket_ns)
-        ranges, hours = split if split else ([(from_ns, to_ns)], None)
+        ranges, hours = split if split else ([(from_ns, to_ns, 1)], None)
         out: dict = {}
-        with self.reader() as c:
-            for a, b in ranges:
+        with self.reader() as c, _snapshot(c):
+            for a, b, sign in ranges:
                 for bk, kind, n in c.execute(
                         f"SELECT time_ns / ? AS b, kind, COUNT(*) FROM spans INDEXED BY spans_kind_time "
                         f"WHERE time_ns >= ? AND time_ns < ?{where} GROUP BY kind, b", (bucket_ns, a, b, *p)):
-                    out[(bk, kind)] = out.get((bk, kind), 0) + n
+                    out[(bk, kind)] = out.get((bk, kind), 0) + sign * n
             if hours:
                 rwhere = where.replace("service_name = ?", "service = ?")
                 for bk, kind, n in c.execute(
