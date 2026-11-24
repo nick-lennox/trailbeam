@@ -302,3 +302,10 @@ def test_stuck_causes_of_a_rabbitmq_message_say_unacked_not_visibility(store):
     assert g["label"].endswith("has the delivery and hasn't acked it (basic.ack)")
     assert "consumer_timeout" in g["why"]
     assert not [w for w in PAGE_SQS_WORDS if w in g["label"] + g["why"]]
+
+
+def test_deduplicated_sends_takes_rows_without_a_message_id():
+    """The Postgres version-7 upgrade passes FIFO sends with only kind, queue, time and row (QV-307 CI)."""
+    sends = [{"kind": "send", "queue": "orders.fifo", "time_ns": 1, "row": 1},
+             {"kind": "send", "queue": "orders.fifo", "time_ns": 2, "row": 2}]
+    assert timeline.deduplicated_sends(sends) == {2}

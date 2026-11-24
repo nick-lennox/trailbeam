@@ -58,7 +58,15 @@ REQUEUE_LOOP_MIN = 3
 
 
 def is_rabbitmq(rows) -> bool:
-    return bool(rows) and system_of(rows[0]["mid"]) == RABBITMQ
+    """Whether these stored rows are a RabbitMQ message. Rows without a message ID (the Postgres version-7
+    upgrade reads only kind, queue, time and row of FIFO sends) were stored before RabbitMQ, so are SQS."""
+    if not rows:
+        return False
+    try:
+        mid = rows[0]["mid"]
+    except (IndexError, KeyError):
+        return False
+    return system_of(mid) == RABBITMQ
 
 
 def attributes(r) -> dict:
