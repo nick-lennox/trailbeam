@@ -1,0 +1,48 @@
+# Optional overlay for trailbeam-collector.yaml: also send every span, metric and log to Honeycomb over OTLP.
+#
+#   HONEYCOMB_API_KEY=... otelcol-contrib --config trailbeam-collector.yaml --config honeycomb.yaml
+#
+# Trailbeam spans still go to the Trailbeam server, unsampled (trailbeam-collector.yaml). Honeycomb gets everything
+# the applications send, Trailbeam spans included, unsampled. The two exporters are independent: Honeycomb being
+# down or rejecting the key does not hold up the Trailbeam server's spans. For Honeycomb environments, not
+# Honeycomb Classic. Tested with otelcol-contrib 0.165.0 (tests/test_honeycomb.py). Never put the API key in this
+# file.
+processors:
+  # Honeycomb rejects requests over 15 MB. 2,000 spans per request stays under it for spans up to about 7 KB each
+  # before gzip; Trailbeam spans are about 1 KB.
+  batch/honeycomb:
+    send_batch_size: 2000
+    send_batch_max_size: 2000
+
+exporters:
+  # Traces and logs. Honeycomb puts each in the dataset named after the resource's service.name.
+  otlp_http/honeycomb:
+    # Honeycomb's OTLP/HTTP base URL; the exporter appends /v1/traces and /v1/logs.
+    # EU teams: https://api.eu1.honeycomb.io.
+    endpoint: "${env:HONEYCOMB_OTLP_ENDPOINT:-https://api.honeycomb.io}"
+    compression: gzip
+    headers:
+      # An ingest key (or a configuration key) of the environment the data goes to.
+      x-honeycomb-team: "${env:HONEYCOMB_API_KEY}"
+  # Metrics need a dataset named in the request, so they have an exporter of their own.
+  otlp_http/honeycomb_metrics:
+    endpoint: "${env:HONEYCOMB_OTLP_ENDPOINT:-https://api.honeycomb.io}"
+    compression: gzip
+    headers:
+      x-honeycomb-team: "${env:HONEYCOMB_API_KEY}"
+      x-honeycomb-dataset: "${env:HONEYCOMB_METRICS_DATASET:-metrics}"
+
+service:
+  pipelines:
+    traces/honeycomb:
+      receivers: [otlp]
+      processors: [batch/honeycomb]
+      exporters: [otlp_http/honeycomb]
+    metrics/honeycomb:
+      receivers: [otlp]
+      processors: [batch/honeycomb]
+      exporters: [otlp_http/honeycomb_metrics]
+    logs/honeycomb:
+      receivers: [otlp]
+      processors: [batch/honeycomb]
+      exporters: [otlp_http/honeycomb]
