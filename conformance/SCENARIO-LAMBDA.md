@@ -1,13 +1,16 @@
 # The Lambda scenario and its ground truth
 
-The Lambda wrappers (`trailbeam.aws_lambda.wrap` in Python, `wrapHandler` in Node.js) don't call SQS: Lambda's
+The Lambda wrappers (`trailbeam.aws_lambda.wrap` in Python, `wrapHandler` in Node.js,
+`TrailbeamSqsLambdaWrapper` in Java) don't call SQS: Lambda's
 event source mapping receives the messages, invokes the function with a batch of records, and deletes the
 ones that succeeded. So a Lambda driver has two parts:
 
 - a **function image**: the AWS Lambda base image (`public.ecr.aws/lambda/python:3.12`,
   `public.ecr.aws/lambda/nodejs:22`), which has the Runtime Interface Emulator (RIE), with the package from
   this checkout installed and a handler wrapped the way the package's README says
-  ([`drivers/python-lambda`](drivers/python-lambda), [`drivers/node-lambda`](drivers/node-lambda));
+  ([`drivers/python-lambda`](drivers/python-lambda), [`drivers/node-lambda`](drivers/node-lambda),
+  [`drivers/java-lambda`](drivers/java-lambda), on `public.ecr.aws/lambda/java:21`, whose Dockerfile builds the
+  jar from `java/` first);
 - the **poller** ([`drivers/lambda-poller/poller.py`](drivers/lambda-poller/poller.py)), shared by every
   language, which plays the event source mapping against the RIE and writes the ground truth. It started
   from QV-301's `drivers/lambda-poller/poller.py`. Like Lambda's own poller it has no Trailbeam hooks.

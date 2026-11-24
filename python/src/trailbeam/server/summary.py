@@ -20,7 +20,8 @@ The fields (every one is a column of the SQLite ``messages`` table, migrations.C
 - ``source_queue``, ``current_queue``, ``in_dlq`` and ``moved`` (an observed move to a dead-letter queue,
   contract 9b), ``source_receive_count`` (the highest receive count on the source queue, 0 if none).
 - ``deliveries``, ``successes`` (timeline.successful_deliveries), ``consumers`` (JSON: the receives'
-  [service_name, client_id] pairs, sorted as the list pages show them).
+  [service_name, client_id, service_version] triples, sorted as the list pages show them; a summary written
+  before schema 16 (QV-362) has [service_name, client_id] pairs, read as a version of null).
 - ``final_delete`` (an accepted delete of the latest receive's handle), ``lambda_ok`` (the latest receive is
   a Lambda's and its invocation succeeded), ``lambda_wait_ns`` (the latest receive is a Lambda's with no
   outcome: its time, else NULL).
@@ -105,7 +106,7 @@ def summarize(rows) -> dict:
                  and outcomes[latest["faas_invocation_id"]]["outcome"] == "success")
     lambda_wait = (latest["time_ns"] if latest is not None and latest["source"] == "lambda"
                    and latest["faas_invocation_id"] not in outcomes else None)
-    consumers = sorted({(r["service_name"], r["client_id"]) for r in receives}, key=str)
+    consumers = sorted({(r["service_name"], r["client_id"], timeline.span_version(r)) for r in receives}, key=str)
     first_ns, first_clock = timeline.first_seen_ns(rows)
 
     # Duplicates and Stuck, as Store.duplicate_messages and Store.stuck_messages define them
@@ -211,7 +212,8 @@ def item(s: Summary, now_ns: int, lambda_timeout_s: int, max_receive_counts: Opt
         "dead_letter_queue_move": dlq_move,
         "deliveries": s["deliveries"],
         "successful_deliveries": s["successes"],
-        "consumers": [{"service_name": a, "client_id": b} for a, b in json.loads(s["consumers"])],
+        "consumers": [{"service_name": c[0], "client_id": c[1], "service_version": c[2] if len(c) > 2 else None}
+                      for c in json.loads(s["consumers"])],
         "first_seen": timeline.iso(s["first_ns"]),
         "first_seen_clock": s["first_clock"],
         "last_seen": timeline.iso(s["last_ns"]),

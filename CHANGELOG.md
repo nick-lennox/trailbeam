@@ -7,8 +7,34 @@
   failed Lambda invocations, dead-letter moves (seen on the dead-letter queue, and inferred from the configured
   maxReceiveCount, kept apart), and the p95 time in queue and time in handler. A queue is keyed by account,
   region and name, as the hosted app keys it. SQLite only for now: a Postgres store answers 501.
-  - Schema 16 adds `queue_events`, built from every message's spans when the file is upgraded (one pass over the
+  - Schema 17 adds `queue_events`, built from every message's spans when the file is upgraded (one pass over the
     messages, like schema 12).
+- **Java package, stage 4: the Lambda wrapper** (QV-319, pre-release, not published). For a function invoked by
+  an SQS event source mapping, set the handler to `dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest`
+  and name your own in `TRAILBEAM_LAMBDA_HANDLER`, or extend `TrailbeamSqsHandler`. Each record gets a
+  `trailbeam receive`, exported before the handler runs, and a `trailbeam outcome` after it, with the batch
+  fields and opt-in error text (`TRAILBEAM_CAPTURE_ERROR_QUEUES`). `trailbeam.error_type` is the exception's fully
+  qualified class name, which is what Lambda's Java runtime reports as `errorType`. After a SnapStart restore the
+  jar starts a new call-order scope and `service.instance.id`, through `org.crac` when it is on the classpath. The
+  conformance kit has a Java Lambda driver (`drivers/java-lambda`, on `public.ecr.aws/lambda/java:21`), and CI
+  runs it in the Java job.
+- **`service.version` is kept, so a deploy can be seen** (QV-362, the server half). Each stored span keeps its
+  resource's `service.version` beside `service.name` (SQLite schema 16, Postgres schema 10; rows stored before
+  have none). A timeline step's `consumer` has `service_version` when it is set, and the Timeline shows it after
+  the service name. The list rows' `consumers` (messages, duplicates, stuck) each have `service_version`, null
+  when unknown; a service and client seen under two versions is listed once for each. `/api/messages`,
+  `/api/duplicates` and `/api/stuck` take `version=`: only messages a consumer of that version received (not
+  indexed: read off each candidate's summary; `version` with `body` is a `400`). The conformance suite checks
+  the filter on both stores.
+- **Java package, stage 3: tenants and body capture** (QV-319, pre-release, not published). The jar now
+  implements contract section 15 like the Python and Node.js packages, and passes the same `capture` vectors:
+  the tenant from `TRAILBEAM_TENANT_ATTRIBUTE` or `TRAILBEAM_TENANT_BODY_PATH`, opt-in body capture per queue
+  (`TRAILBEAM_CAPTURE_BODY_QUEUES`) with in-process redaction (`TRAILBEAM_REDACT_KEYS`,
+  `TRAILBEAM_REDACT_PATTERNS`, `TRAILBEAM_CAPTURE_MAX_BYTES`), every capture status, the Extended Client's
+  offloaded size, and SNS and EventBridge envelopes. Receives also ask for the tenant attribute and the
+  Extended Client's size attributes. A bad redaction setting can't be refused at install time (the jar has none),
+  so it fails closed: one warning, no body exported, `redaction_failed` on the listed queues.
+
 - **Users and roles switch on when the first admin exists** (QV-225). Each replica checks the store at least
   every 5 seconds for an admin. Until there is one, nothing changes. After that:
   - The web screen and the API need a person: signing in with an email and password on `/login` (cookie
@@ -51,8 +77,7 @@
   has its own always-on tracer provider with a relocated OpenTelemetry SDK (1.4 MB jar). The parent comes from the
   stock instrumentation's trace header, so interceptor order doesn't matter. A hand registration on top of the
   global one emits each span once. A Java driver for the conformance kit passes it in CI alone, beside the
-  OpenTelemetry Java agent 2.34.0 (also sampled to 0) and beside dd-java-agent 1.69.1. Not yet built: body capture
-  and tenants, the Lambda wrapper, the SDK version matrix, a strict parent check for the agent variants, and
+  OpenTelemetry Java agent 2.34.0 (also sampled to 0) and beside dd-java-agent 1.69.1. Not yet built: the Lambda wrapper, the SDK version matrix, a strict parent check for the agent variants, and
   Maven Central.
 
 - **`trailbeam doctor` reads the token the services send** (QV-343). With no `--token-file` or `TRAILBEAM_TOKEN`,

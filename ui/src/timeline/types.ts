@@ -14,6 +14,8 @@ export type PlacementSource = "inferred_from" | "sqs_dlq_source";
 
 export type Consumer = {
   service_name?: string;
+  /** The resource's service.version: the build that made the call (QV-362). Left out when not set. */
+  service_version?: string;
   client_id?: string;
   source?: "lambda" | "worker" | string;
   pid?: number;

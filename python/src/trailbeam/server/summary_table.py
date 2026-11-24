@@ -12,7 +12,7 @@
 - ``message_tenants``: (tenant, last_ns, mid) for every tenant a span of the message names, with the newest
   time a span named it (``named_ns``): the tenant filter, and by ``message_tenants_search`` the tenant search.
 - ``tenant_events``: what each message adds to the Tenants page, by time (summary.py), keyed (at_ms, mid, seq).
-- ``queue_events`` (schema 16, QV-363): what each message adds to each queue's page (queues.py), keyed (queue_key,
+- ``queue_events`` (schema 17, QV-363): what each message adds to each queue's page (queues.py), keyed (queue_key,
   at_ms, mid, seq), so one queue's range is a range of the primary key; ``messages.qevents_json`` lists a message's.
 - ``tenant_rollup`` (schema 12, QV-128): those events added up per hour and tenant (rollup.py), which is what the
   Tenants page reads for whole hours. ``refresh`` adds what a message adds now and takes away what it added
@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS messages (
     source_receive_count INTEGER NOT NULL,
     deliveries INTEGER NOT NULL,
     successes INTEGER NOT NULL,
-    consumers TEXT NOT NULL,             -- JSON [[service_name, client_id], ...]
+    consumers TEXT NOT NULL,             -- JSON [[service_name, client_id, service_version], ...]
     final_delete INTEGER NOT NULL,
     lambda_ok INTEGER NOT NULL,
     lambda_wait_ns INTEGER,              -- the latest receive is a Lambda's with no outcome: its time_ns
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS messages (
     events_json TEXT NOT NULL,           -- JSON [[at_ms, kind, wait_ms], ...]: its tenant_events rows, seq = index
     rows_json TEXT NOT NULL,             -- JSON [row, ...]: its spans (spans.row, ascending)
     qevents_json TEXT NOT NULL DEFAULT '[]'  -- JSON [[at_ms, kind, queue_key, service, lambda, value], ...]: its
-                                         -- queue_events rows, seq = index (schema 16)
+                                         -- queue_events rows, seq = index (schema 17)
 );
 CREATE INDEX IF NOT EXISTS messages_last ON messages (last_ns DESC, mid);
 CREATE INDEX IF NOT EXISTS messages_duplicates ON messages (last_ns DESC, mid) WHERE dup_received OR dup_succeeded;
@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS tenant_rollup (
 """
 CREATE += ROLLUP_CREATE
 
-# Schema 16 (QV-363): the queue page's events (queues.py), by queue and time.
+# Schema 17 (QV-363): the queue page's events (queues.py), by queue and time.
 QUEUE_CREATE = """
 CREATE TABLE IF NOT EXISTS queue_events (
     queue_key TEXT NOT NULL,             -- account/region/name, else the URL, else the name (queues.key)
@@ -403,7 +403,7 @@ def write(conn: sqlite3.Connection, sums: list, deltas: Optional["rollup.Deltas"
 
 
 def rebuild_queue_events(conn: sqlite3.Connection, chunk: int = 5000) -> int:
-    """queue_events and messages.qevents_json from every message's spans (migration 16). Returns the messages."""
+    """queue_events and messages.qevents_json from every message's spans (migration 17). Returns the messages."""
     from . import queues, timeline
     conn.execute("DELETE FROM queue_events")
     cur = conn.cursor()
