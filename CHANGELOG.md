@@ -2,14 +2,10 @@
 
 ## Unreleased
 
-- **The Overview** (QV-398): `/overview`, the first item in the header (`/` stays Messages). One table with a
-  row per queue for the range: who sends to it and who receives from it, its sends, receives and deletes, and its
-  dead-letter queue. A row opens in place to show the flow drawing (senders, the queue, receivers and the DLQ,
-  with messages a minute on each wire), and links to the queue's page and to Stuck for it. Every figure comes
-  from `/api/flows`. Missing sides are noted as what was reported ("No receive reported"), Lambda consumers'
-  deletes read "By Lambda", and queues with no activity in the range wait behind one line. A range that ends now
-  refreshes every 15 s without reordering rows. `/queues` now redirects to `/overview`, which replaces the
-  Queues list. The view is `Overview` in `@trailbeam/ui`, which the hosted app uses too.
+- **`npx trailbeam start` no longer leaves its output in Docker's log** (QV-409). It runs the container with
+  `--log-driver none`, so the output still shows in the terminal but is not kept by `docker logs` or sent to a log
+  service the Docker daemon is set up with (gelf, fluentd, awslogs, ...). That output holds the first run's token
+  and receipt key, and the first admin's one-time setup link, which works as an admin password for up to an hour.
 - **A page per queue** (QV-364): `/queue?name=<queue>`, and a **Queues** list at `/queues` (a new item in the
   header). The page asks whether work is arriving faster than it is finished: sends vs handled (the band between
   them is the backlog building), receives vs handled with dead-letter moves (seen, and inferred from

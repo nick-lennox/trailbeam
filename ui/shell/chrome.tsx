@@ -93,7 +93,7 @@ export function Account({ me }: { me: Me | null }) {
   );
 }
 
-const NAV = [["/overview", "Overview"], ["/", "Messages"], ["/duplicates", "Duplicates"], ["/stuck", "Stuck"], ["/tenants", "Tenants"]] as const;
+const NAV = [["/overview", "Overview"], ["/", "Messages"], ["/events", "Events"], ["/duplicates", "Duplicates"], ["/stuck", "Stuck"], ["/tenants", "Tenants"]] as const;
 
 /* The header's tenant box shows only once a tenant has been seen in the last 7 days (QV-217): on an install
    without tenants it is a box that can find nothing. Remembered for the tab, so pages don't flicker. */
