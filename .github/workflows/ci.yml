@@ -701,3 +701,15 @@ jobs:
           python-version: "3.12"
       - run: pip install -e 'python[server]'
       - run: deploy/monitoring/check.sh
+
+  compat-table:
+    # README.md's supported-versions table is generated from compat/matrix.toml (QV-335), which the nightly
+    # compatibility workflow (compat.yml) also reads. This fails when someone edits one without the other.
+    name: Supported-versions table matches compat/matrix.toml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python compat/matrix.py readme --check
