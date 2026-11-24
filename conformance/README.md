@@ -150,7 +150,9 @@ environment is removed first; the variant's `env` comes last.
 ## Adding a language
 
 1. Write a driver that runs [SCENARIO.md](SCENARIO.md) and writes the ground truth. Start from the Python
-   or Node.js driver; on the JVM, from [`drivers/java`](drivers/java) (AWS SDK for Java v2).
+   or Node.js driver; on the JVM, from [`drivers/java`](drivers/java) (AWS SDK for Java v2); in Go, from
+   [`drivers/go`](drivers/go) (aws-sdk-go-v2, with variants beside otelaws and dd-trace-go v2; `Go package` in
+   [`ci.yml`](../.github/workflows/ci.yml)).
 2. Add a `driver.json` with its variants, including the agents the package must work beside.
 3. Run `python conformance/kit.py run path/to/driver.json` until it passes, then add it to the CI job.
 
