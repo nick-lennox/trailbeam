@@ -9,8 +9,9 @@ failures, which the per-address limit slows down.
 
 **Per client address (approximate, per replica).** ``AddressLimit``: more than ``ADDRESS_FAILURES`` failed
 sign-ins from one address in ``ADDRESS_WINDOW_S`` and that address is answered "slow down" (429 with
-Retry-After) without a password check, until the window has moved on. Kept in memory, so each replica counts
-its own. The address is the TCP peer's, or the client a proxy in ``--trusted-proxy`` names (proxy.py); without
+Retry-After) without a password check, until the window has moved on. A sign-in takes its place in the count
+before its password check, so parallel sign-ins from one address get at most its remaining allowance of
+checks between them. IPv6 addresses count by /64. Kept in memory, so each replica counts its own. The address is the TCP peer's, or the client a proxy in ``--trusted-proxy`` names (proxy.py); without
 that setting, behind a proxy every request has the proxy's address, and this limit is shared by everyone.
 
 **What the answer says.** An unknown email, a wrong password, a person who is disabled or has no password yet
@@ -19,6 +20,7 @@ answer nor its timing says whether an email has an account.
 """
 from __future__ import annotations
 
+import ipaddress
 import threading
 import time
 from collections import OrderedDict, deque
@@ -44,7 +46,14 @@ class Result(NamedTuple):
 
 
 class AddressLimit:
-    """Failed sign-ins per client address in a sliding window, in memory. Thread-safe."""
+    """Failed sign-ins per client address in a sliding window, in memory. Thread-safe.
+
+    An attempt reserves its place before its password check (``begin``) and settles it after (``end``), so
+    attempts from one address running at the same time count against its allowance at once: however many it
+    sends in parallel, at most its remaining allowance get a password check. IPv6 addresses count by /64 (one
+    customer's network: anyone with one has billions of addresses in it); IPv4 addresses, and IPv4 written as
+    IPv6, count by the exact address.
+    """
 
     def __init__(self, max_failures: int = ADDRESS_FAILURES, window_s: float = ADDRESS_WINDOW_S,
                  clock: Callable[[], float] = time.monotonic, max_addresses: int = ADDRESS_MAX):
@@ -52,35 +61,83 @@ class AddressLimit:
         self.window_s = window_s
         self.clock = clock
         self.max_addresses = max_addresses
-        self._failures: OrderedDict = OrderedDict()  # address -> deque of failure times
+        self._failures: OrderedDict = OrderedDict()  # key -> [deque of failure times, attempts in progress]
         self._lock = threading.Lock()
 
+    @staticmethod
+    def key(address: str) -> str:
+        """What the limit counts by: the IPv6 /64, or the exact address otherwise."""
+        try:
+            ip = ipaddress.ip_address(address.split("%", 1)[0])
+        except (ValueError, AttributeError):
+            return address
+        if ip.version == 6:
+            if ip.ipv4_mapped is not None:
+                return str(ip.ipv4_mapped)
+            return str(ipaddress.IPv6Network((ip, 64), strict=False))
+        return str(ip)
+
+    def _wait(self, entry, now: float) -> Optional[int]:
+        q, pending = entry
+        while q and now - q[0] >= self.window_s:
+            q.popleft()
+        if len(q) + pending < self.max_failures:
+            return None
+        if len(q) < self.max_failures:  # full only with attempts still running: they settle within seconds
+            return 1
+        return max(1, int(q[0] + self.window_s - now + 0.999))
+
     def retry_after(self, address: str) -> Optional[int]:
-        """Seconds until this address may try again, or None if it may now."""
+        """Seconds until this address may try again, or None if it may now. Reserves nothing (see ``begin``)."""
         now = self.clock()
         with self._lock:
-            q = self._failures.get(address)
-            if q is None:
-                return None
-            while q and now - q[0] >= self.window_s:
-                q.popleft()
-            if not q:
-                del self._failures[address]
-                return None
-            if len(q) < self.max_failures:
-                return None
-            return max(1, int(q[0] + self.window_s - now + 0.999))
+            entry = self._failures.get(self.key(address))
+            return None if entry is None else self._wait(entry, now)
+
+    def begin(self, address: str) -> Optional[int]:
+        """Reserve one attempt for this address: None if reserved (call ``end`` once it is decided), otherwise
+        the seconds until it may try again, and nothing is reserved."""
+        now = self.clock()
+        k = self.key(address)
+        with self._lock:
+            entry = self._failures.get(k)
+            if entry is None:
+                entry = self._failures[k] = [deque(), 0]
+            wait = self._wait(entry, now)
+            if wait is not None:
+                return wait
+            entry[1] += 1
+            self._failures.move_to_end(k)
+            self._trim()
+            return None
+
+    def end(self, address: str, failed: bool) -> None:
+        """Settle an attempt ``begin`` reserved: ``failed`` counts it in the window; otherwise (it worked, or
+        there was no password check) the place is given back."""
+        now = self.clock()
+        k = self.key(address)
+        with self._lock:
+            entry = self._failures.get(k)
+            if entry is None:  # dropped while running (more than max_addresses addresses)
+                entry = self._failures[k] = [deque(), 0]
+            entry[1] = max(0, entry[1] - 1)
+            if failed:
+                entry[0].append(now)
+                while len(entry[0]) > self.max_failures:
+                    entry[0].popleft()
+                self._failures.move_to_end(k)
+                self._trim()
+            elif not entry[0] and not entry[1]:
+                del self._failures[k]
 
     def failed(self, address: str) -> None:
-        now = self.clock()
-        with self._lock:
-            q = self._failures.get(address)
-            if q is None:
-                q = self._failures[address] = deque(maxlen=self.max_failures)
-            q.append(now)
-            self._failures.move_to_end(address)
-            while len(self._failures) > self.max_addresses:
-                self._failures.popitem(last=False)
+        """Count a failure that wasn't reserved with ``begin``."""
+        if self.begin(address) is None:
+            self.end(address, True)
+
+    def _trim(self) -> None:
+        while len(self._failures) > self.max_addresses:
+            self._failures.popitem(last=False)
 
 
 class SignIn:
@@ -97,29 +154,32 @@ class SignIn:
         self.lock_ms = lock_ms
 
     def sign_in(self, email: str, password: str, address: str) -> Result:
-        wait = self.address_limit.retry_after(address)
+        wait = self.address_limit.begin(address)
         if wait is not None:
             return Result(SLOW_DOWN, retry_after_s=wait)
+        failed = True  # an error after the password check counts too
         try:
-            return self._sign_in(email, password, address)
-        except HashBusy:
+            r = self._sign_in(email, password)
+            failed = r.outcome != OK
+            return r
+        except HashBusy:  # no password check: the place is given back
+            failed = False
             return Result(BUSY, retry_after_s=1)
+        finally:
+            self.address_limit.end(address, failed)
 
-    def _sign_in(self, email: str, password: str, address: str) -> Result:
+    def _sign_in(self, email: str, password: str) -> Result:
         user = self.accounts.user_by_email(email)
         if user is None or user["disabled_at_ms"] is not None or not user["password_hash"]:
             self.hasher.verify_dummy(password if isinstance(password, str) else "")
-            self.address_limit.failed(address)
             return Result(WRONG)
         now = self.now_ms()
         right = self.hasher.verify(password, user["password_hash"])
         locked = user["locked_until_ms"]
         if locked is not None and locked > now:
             # the same answer whatever the password, so guesses during the lock learn nothing
-            self.address_limit.failed(address)
             return Result(LOCKED, retry_after_s=max(1, (locked - now + 999) // 1000))
         if not right:
-            self.address_limit.failed(address)
             self.accounts.sign_in_failed(user["id"], now, self.lock_after, self.lock_ms)
             return Result(WRONG)
         self.accounts.sign_in_ok(user["id"], now)
