@@ -630,7 +630,22 @@ sign in, with their role, status (active, invited, locked for now, or disabled) 
 - **removes** a person, after a confirmation.
 
 The controls that would leave no admin who can sign in (making the last one a member, disabling or removing them)
-are off, and the server refuses them anyway. A Tokens page for ingest and personal API tokens comes next.
+are off, and the server refuses them anyway.
+
+**The Tokens page** (`/tokens`, linked in the header for anyone signed in) has two parts:
+
+- **Ingest tokens**, for admins only: one per service that sends spans. Create one with a name (the token is shown
+  once, to copy into the service's `OTEL_EXPORTER_OTLP_HEADERS`), see when each was created, by whom and when it was
+  last used, and revoke one after a confirmation. Revoked tokens stay in the list. If `TRAILBEAM_TOKEN` is set, it
+  is listed as "legacy shared token (from TRAILBEAM_TOKEN)", without its value; it is set in the server's
+  environment, so it is stopped by removing it there and restarting, not from the page. While ingest is open (no
+  `TRAILBEAM_TOKEN` and no ingest token yet), the page says so, and creating the first token needs a tick to
+  confirm that services without a token are refused from then on.
+- **Your personal API tokens**, for everyone: tokens that act as you, with your role, for scripts and the API.
+  Create one that works for 30 days, 90 days (the default), a year or until revoked, and revoke your own. Nobody
+  else, admins included, sees them.
+
+Without the web screen's build, `/people` and `/tokens` say to use `trailbeam users`, `trailbeam tokens` or the API.
 
 **People and tokens over the API.** Admins can do the same through `/api/users` and `/api/tokens/ingest`, and
 anyone signed in manages their own personal API tokens with `/api/me/tokens` (all in

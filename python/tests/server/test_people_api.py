@@ -177,6 +177,23 @@ def test_the_people_page_is_for_admins(srv, tmp_path):
     assert b"root" not in body, "the shared token reads no admin page"
 
 
+def test_the_tokens_page_is_for_anyone_signed_in(srv, tmp_path):
+    """/tokens: the shell for an admin and for a member (it shows ingest tokens only to an admin, whose data,
+    /api/tokens/ingest, stays ADMIN), the HTML fallback without the build, the sign-in page for nobody."""
+    status, _, body = srv("GET", "/tokens", headers=srv.member)
+    assert status == 200 and b"<h1>Tokens</h1>" in body and b"trailbeam tokens" in body  # not built: says what to use
+    (tmp_path / "index.html").write_text('<!doctype html><div id="root"></div>')
+    srv.app.ui_dir = tmp_path
+    for who in (srv.admin, srv.member):
+        assert srv("GET", "/tokens", headers=who)[:3:2] == (200, b'<!doctype html><div id="root"></div>')
+    assert srv("GET", "/api/tokens/ingest", headers=srv.member)[0] == 403
+    assert srv("GET", "/api/me/tokens", headers=srv.member)[0] == 200
+    status, _, body = srv("GET", "/tokens")
+    assert b"root" not in body and b"Sign in" in body, body[:300]
+    status, _, body = srv("GET", "/tokens", headers={"Authorization": f"Bearer {TOKEN}"})
+    assert b"root" not in body, "the shared token reads no page"
+
+
 def test_writes_from_another_site_s_page_are_refused_before_anything_changes(srv):
     for site in ("cross-site", "same-site"):
         st, _, out = srv("PATCH", f"/api/users/{srv.ben}", {"role": "admin"}, {**srv.admin, "Sec-Fetch-Site": site})

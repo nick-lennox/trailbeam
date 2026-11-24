@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **The Tokens page in the web screen** (QV-226, users and roles phase 2, part 3 of 3). Anyone signed in finds
+  **Tokens** in the header (`/tokens`): their own personal API tokens, to create (for 30 days, 90 days, a year or
+  until revoked) and revoke. Admins also see the ingest tokens there, to create and revoke, with the shared
+  `TRAILBEAM_TOKEN` listed as "legacy shared token (from TRAILBEAM_TOKEN)" and never shown. A new token is shown
+  once, to copy. Creating the first ingest token on a server with open ingest asks to confirm that it closes it.
+  The parts are in `@trailbeam/ui` as `TokensTable`, `CreateToken` and `OneTimeToken`.
 - **The People page in the web screen** (QV-226, users and roles phase 2, part 2 of 3). Admins find **People** in
   the header (`/people`): everyone who can sign in, with role, status and last sign-in. They add a person and get
   their one-time invite link to copy, change a role, disable or enable someone, make a new invite or password

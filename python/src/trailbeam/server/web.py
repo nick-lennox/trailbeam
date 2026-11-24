@@ -127,7 +127,7 @@ footer{color:#6b7385;font-size:.8em;padding:1rem 1.2rem}
 def handle(api: Callable[[str, dict], object], api_error: type, path: str, query: dict) -> Optional[Response]:
     """Render the page for ``path``; None if ``path`` is not a page. ``api`` is ``App.api``."""
     pages = {"/": _index, "/message": _message, "/duplicates": _duplicates, "/stuck": _stuck, "/tenants": _tenants,
-             "/people": _people}
+             "/people": _people, "/tokens": _tokens}
     page = pages.get(path)
     if page is None:
         return None
@@ -149,6 +149,15 @@ def _people(api, q: dict) -> Response:
                  "install doesn't have (build it with <code>npm run build</code> in <code>ui/</code>). Without it, "
                  "manage people from a shell with <code>trailbeam users</code>, or with the API: "
                  "<code>/api/users</code>.</p>")
+
+
+def _tokens(api, q: dict) -> Response:
+    """``/tokens`` without the shared UI's build: as ``/people``, it says how to manage tokens without it."""
+    return _page(200, "Tokens", "<h1>Tokens</h1><p>The Tokens page is part of the web screen's build, which this "
+                 "install doesn't have (build it with <code>npm run build</code> in <code>ui/</code>). Without it, "
+                 "manage tokens from a shell with <code>trailbeam tokens</code>, or with the API: "
+                 "<code>/api/me/tokens</code> for your personal API tokens and, for admins, "
+                 "<code>/api/tokens/ingest</code>.</p>")
 
 
 def _index(api, q: dict) -> Response:

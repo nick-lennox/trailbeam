@@ -2,7 +2,7 @@
   Self-hosted Trailbeam's pages drawn with the shared views (../src): Messages at / (the first-run screen while
   no span is stored: home.tsx), Duplicates and Stuck (lists.tsx), the message page at /message?id=<message ID>
   (the timeline, and with &tab=body the Body tab), the Tenants page at /tenants and, for admins, the People page at
-  /people (people.tsx). They read Trailbeam's own
+  /people (people.tsx), and for anyone signed in the Tokens page at /tokens (tokens.tsx). They read Trailbeam's own
   API on the same origin. Without the build, or with scripts off, the server's HTML pages answer instead.
 */
 import { StrictMode, useEffect, useState } from "react";
@@ -16,6 +16,7 @@ import { ApiError, CopyLink, Header, bodyAccess, getHealth, getJSON, tenantHref,
 import { HomePage } from "./home.tsx";
 import { DuplicatesPage, StuckPage } from "./lists.tsx";
 import { PeoplePage } from "./people.tsx";
+import { TokensPage } from "./tokens.tsx";
 import "./styles.css";
 
 type State = { kind: "loading" } | { kind: "missing" } | { kind: "error"; message: string } | { kind: "not-found"; empty: EmptyStateProps } | { kind: "ok"; t: Timeline };
@@ -175,6 +176,6 @@ function MessagePage() {
   );
 }
 
-const PAGES: Record<string, () => React.JSX.Element> = { "/": HomePage, "/duplicates": DuplicatesPage, "/stuck": StuckPage, "/tenants": TenantsPage, "/people": PeoplePage };
+const PAGES: Record<string, () => React.JSX.Element> = { "/": HomePage, "/duplicates": DuplicatesPage, "/stuck": StuckPage, "/tenants": TenantsPage, "/people": PeoplePage, "/tokens": TokensPage };
 const App = PAGES[location.pathname] ?? MessagePage;
 createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);

@@ -7,7 +7,8 @@
   controls for that person are off here, and the server refuses it anyway (409, reason last_admin).
   Colored with role tokens (theme.css), as the Tenants table is.
 */
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
+import { useCopy } from "../copy.ts";
 import type { Person, PersonLink, PersonStatus, Role } from "./types.ts";
 
 export const ROLES: readonly [Role, string][] = [["admin", "Admin"], ["member", "Member"]];
@@ -64,7 +65,7 @@ export const removeSentence = (p: Pick<Person, "name" | "email" | "you">) =>
   p.you ? "Remove your own account? You are signed out, and can't sign in again."
     : `Remove ${p.name || p.email}? Their sign-ins, personal API tokens and links stop working. This can't be undone.`;
 
-const btn = "rounded-full border border-line px-3 py-0.5 text-sm text-ink-2 hover:border-ink hover:text-ink disabled:cursor-not-allowed disabled:opacity-50";
+export const btn = "rounded-full border border-line px-3 py-0.5 text-sm text-ink-2 hover:border-ink hover:text-ink disabled:cursor-not-allowed disabled:opacity-50";
 
 export type PeopleTableProps = {
   people: Person[];
@@ -192,17 +193,7 @@ export type OneTimeLinkProps = {
 
 /** The link an add or "new link" answered with, to copy now: it is shown only once. */
 export function OneTimeLink({ person, link, onDismiss }: OneTimeLinkProps) {
-  const [copied, setCopied] = useState<"idle" | "copied" | "select">("idle");
-  useEffect(() => {
-    if (copied !== "copied") return;
-    const t = setTimeout(() => setCopied("idle"), 2000);
-    return () => clearTimeout(t);
-  }, [copied]);
-  const copy = () => {
-    const clip = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
-    if (!clip?.writeText) return setCopied("select");
-    clip.writeText(link.url).then(() => setCopied("copied"), () => setCopied("select"));
-  };
+  const [copied, copy] = useCopy(link.url);
   return (
     <div className="rounded-[16px] border border-brand/60 bg-surface px-5 py-4 text-[15px] leading-[1.5] text-ink-2" role="status">
       <p className="max-w-[80ch]">{linkSentence(person, link)}</p>

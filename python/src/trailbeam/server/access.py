@@ -11,7 +11,8 @@ is ``MEMBER``, so a page or file added later is never open by mistake):
 - ``MEMBER``: the API and the web screen, message bodies included (an admin or a member, proposal section 2).
 - ``ADMIN``: managing people and ingest tokens: ``/api/users`` and ``/api/tokens/ingest`` (``API_ROUTES``,
   people_api.py), the People page (``/people``), and ``trailbeam users`` / ``trailbeam tokens`` (cli.py). A person's
-  own personal API tokens (``/api/me/tokens``) are ``MEMBER``, and need a person.
+  own personal API tokens (``/api/me/tokens``) are ``MEMBER``, and need a person; so is the Tokens page
+  (``/tokens``), which shows the ingest tokens only to an admin.
 
 **Two modes, switched by the store, not by a setting.** ``State`` asks the store whether an admin exists at most
 every ``STATE_TTL_S`` (5 s), on every replica, so when the first admin is created every replica switches within
@@ -62,6 +63,7 @@ ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/set-password"): OPEN,  # invite and reset links (people_api.py); the code in it is the credential
     ("POST", "/set-password"): OPEN,
     ("GET", "/people"): ADMIN,  # the People page; its data is /api/users, ADMIN too
+    ("GET", "/tokens"): MEMBER,  # the Tokens page: /api/me/tokens for everyone, /api/tokens/ingest (ADMIN) for admins
 }
 
 # The routes that manage people and tokens (people_api.py): (method, path template, level, handler name).
