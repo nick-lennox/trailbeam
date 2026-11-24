@@ -527,6 +527,11 @@ def test_over_https_a_plain_session_cookie_is_not_a_session(serve):
         assert call(url, "/api/messages", headers={**https, "Cookie": c})[0] == 200
     assert call(url, "/api/messages", headers={**https, "Cookie": f"junk=a b; trailbeam_sid={sid}"})[0] == 401
     assert call(url, "/api/messages", headers={"Cookie": f"trailbeam_sid={sid}; junk=a b"})[0] == 200
+    # a name that only starts with something str.strip() would take is not the __Host- name: anyone can
+    # plant it, because the browser applies the __Host- rules only to a name starting with __Host- (QV-483)
+    for ch in ("\x0b", "\x1c", "\x1f", "\x85", "\xa0"):
+        for c in (f"{ch}__Host-trailbeam_sid={sid}", f"junk=1; {ch}__Host-trailbeam_sid={sid}"):
+            assert call(url, "/api/me", headers={**https, "Cookie": c})[0] == 401, repr(c)
     # /logout over HTTPS doesn't end the session a plain cookie names...
     status, headers, _ = call(url, "/logout", headers={**https, "Cookie": f"trailbeam_sid={sid}"})
     assert status == 303 and headers["Set-Cookie"].startswith("__Host-trailbeam_sid=;")
