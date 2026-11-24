@@ -232,12 +232,17 @@ def test_cookies():
     assert "Secure" not in plain and "Domain" not in plain
     assert secure.startswith(f"__Host-trailbeam_sid={sid}; Path=/;") and secure.endswith("; Secure")
     assert "Max-Age=0" in sessions_mod.clear_cookie(True) and sessions_mod.clear_cookie(True).startswith("__Host-")
-    assert cookie_value(f"a=1; trailbeam_sid={sid}") == sid
-    assert cookie_value(f"trailbeam_sid=other-value-but-long-enough; __Host-trailbeam_sid={sid}") == sid
-    # the shared token's cookie (auth.py) is never a session
-    assert cookie_value(f"trailbeam_session={sid}") is None
-    assert cookie_value("trailbeam_sid=short") is None and cookie_value("trailbeam_sid=" + "x" * 200) is None
-    assert cookie_value('trailbeam_sid="unterminated') is None and cookie_value(None) is None
+    for secure in (False, True):
+        assert cookie_value(f"trailbeam_sid=other-value-but-long-enough; __Host-trailbeam_sid={sid}", secure) == sid
+        # the shared token's cookie (auth.py) is never a session
+        assert cookie_value(f"trailbeam_session={sid}", secure) is None
+        assert cookie_value("__Host-trailbeam_sid=short", secure) is None
+        assert cookie_value('__Host-trailbeam_sid="unterminated', secure) is None and cookie_value(None, secure) is None
+    assert cookie_value(f"a=1; trailbeam_sid={sid}", False) == sid
+    assert cookie_value("trailbeam_sid=short", False) is None and cookie_value("trailbeam_sid=" + "x" * 200, False) is None
+    # over HTTPS a plain trailbeam_sid is not a session: anyone who can set a cookie on the host (a sibling
+    # subdomain, or whoever answers its plain http://) could plant one and sign the victim in as themselves
+    assert cookie_value(f"a=1; trailbeam_sid={sid}", True) is None
 
 
 # ---- signing in -----------------------------------------------------------------------------------------
@@ -273,7 +278,7 @@ def test_every_kind_of_wrong_answer_is_the_same_and_costs_one_hash(acc, hasher, 
     hasher._scrypt = lambda *a: calls.append(a) or real(*a)
     r = si.sign_in(email, pw, "198.51.100.7")
     assert r.outcome == WRONG and r.session_id is None and r.user is None
-    assert len(calls) == (0 if case == "too_long" else 1)
+    assert len(calls) == 1  # too_long too (QV-229): no hash for a known email would say it has an account
 
 
 def test_the_account_locks_after_too_many_failures_whatever_the_address(acc, hasher, clock):

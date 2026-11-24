@@ -1,4 +1,4 @@
-package dev.trailbeam.sqs;
+package app.trailbeam.sqs;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
@@ -14,7 +14,7 @@ import java.util.function.Function;
 
 /**
  * Wraps a Lambda handler with no change to its code. Set the function's handler to
- * {@code dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest}, and name your own handler in the environment
+ * {@code app.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest}, and name your own handler in the environment
  * variable {@code TRAILBEAM_LAMBDA_HANDLER}, in the form Lambda uses: {@code com.example.OrdersHandler} for a
  * {@code RequestHandler<SQSEvent, ...>}, or {@code com.example.OrdersHandler::handle} for a public method that
  * takes {@code (SQSEvent, Context)} or {@code (SQSEvent)}. That is the shape of the OpenTelemetry Java Lambda
