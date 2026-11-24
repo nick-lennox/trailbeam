@@ -2,6 +2,76 @@
 
 ## Unreleased
 
+## 0.5.0: no lost spans when the store fails, and alerts in the tools you already use
+
+Trailbeam 0.5.0 stops losing spans when the store fails: an export is now answered `503` and retried when
+Postgres times out a statement or the disk fills up, instead of `500`, which exporters don't retry. A message purged with `PurgeQueue` no longer sits on the Stuck page. Stuck
+messages and dead-letter moves can be alerted on from Datadog, Prometheus or Grafana, and each timeline step
+can open the same trace in your tracing tool. Backup and restore are documented and tested, and the Helm chart
+is fixed for a release named `trailbeam` and for `kubectl port-forward`. Users and roles are in this release
+as a preview, **off unless you switch them on** with `--accounts`, because their security review hasn't run
+yet.
+
+### What's new
+
+- **No spans lost when the store fails.** A Postgres statement that runs past its timeout, or a full disk, is
+  answered `503` with `Retry-After` and nothing stored, and the exporter's retry stores it once the store has
+  recovered. The fault tests behind this (a SIGKILL mid-write, Postgres down for a minute, a full disk, a
+  replica killed, every export sent twice) run in CI. The README says what a `200` survives.
+- **Purged messages leave Stuck.** The Python and Node.js packages record `PurgeQueue`, and a message that was
+  in the queue when it was purged reads "purged" with a "Queue purged" step on its timeline.
+- **Alerts and dashboards:** four new gauges on `/metrics` (stuck messages, the oldest one's age, recent
+  dead-letter moves, the stuck threshold), and [`deploy/monitoring`](deploy/monitoring) has a Datadog check
+  and monitors, Prometheus alert rules and a Grafana dashboard.
+- **Open trace:** `--trace-link https://app.datadoghq.com/apm/trace/{trace_id}` (or your Jaeger, or any tool with a trace URL)
+  puts **Open trace** on every recorded step.
+- **See a deploy:** each step shows the consumer's `service.version`, and the lists filter on `version=`.
+- **FIFO sends SQS deduplicated** are marked as such, not shown as a second send, and no longer counted twice.
+- **The UI says no more than the data shows:** receive counts, "No delete seen", and inferred steps marked.
+- **Backup and restore** for SQLite, Postgres, `npx trailbeam start`, Compose and Helm, tested in CI.
+- **Helm chart fixes:** a release named `trailbeam` no longer crash-loops, and the Service and PDB select the
+  server pods only.
+- **`npx trailbeam start`** no longer leaves the server running when only `npx` is stopped, and says which
+  container holds the port. **`trailbeam doctor`** reads the token the services send.
+- **Behind a proxy:** `--trusted-proxy` says which proxies' `X-Forwarded-*` headers to believe. Forms posted from
+  other sites are refused.
+- **Users and roles, a preview** (off by default): email and password sign-in, admins and members, ingest tokens
+  and personal API tokens, managed with `trailbeam users` and `trailbeam tokens`. Switch it on with `--accounts`
+  (`TRAILBEAM_ACCOUNTS=1`) on every replica to try it. Without it, access works exactly as in 0.4.0.
+- **A conformance kit** in [`conformance/`](conformance) checks a language package against the span contract,
+  Lambda wrappers included. A Java package (`java/`) is in the repository and passes it, but is not published
+  yet.
+
+### Upgrading from 0.4.0
+
+Take a backup ([SQLite](README.md#backup-and-restore-sqlite), [Postgres](README.md#backup-and-restore-postgres)),
+stop the 0.4.0 server, then start 0.5.0 on the same SQLite file, Docker volume or Postgres database, with the
+same flags and token. It upgrades the database by itself at start. CI checks the upgrade from 0.4.0 and from
+0.3.0 on every change ([Upgrading](README.md#upgrading)).
+
+- **pip:** `pip install -U "trailbeam[server]"` (add `postgres` to the extras for Postgres).
+  **Docker:** `docker pull ghcr.io/nick-lennox/trailbeam:0.5.0` (or `:0.5.0-postgres`), then recreate the
+  container with the same volume. **npm** (the package in your services): `npm install trailbeam@0.5.0`.
+- **Upgrade the server before the packages in your services.** A 0.5.0 package records `PurgeQueue`, and a 0.4.0
+  server rejects that one span (the rest of the export is stored), so purges sent before the server is upgraded
+  are not recorded.
+- **There is no going back without the backup.** SQLite moves from schema 13 to 16 and Postgres from schema 6
+  to 10. Afterwards a 0.4.0 or 0.3.0 server refuses to start on that database (`written by a newer Trailbeam`),
+  so it can't damage it. Only the summaries of FIFO messages sent more than once are rewritten; the rest adds
+  tables and a column.
+- **Postgres: stop every 0.4.0 replica first**, then start 0.5.0.
+- **Behind a TLS proxy, add `--trusted-proxy <the proxy's address>`.** `X-Forwarded-Proto: https` now counts only
+  from a trusted proxy. Without it the login cookie loses its `Secure` flag (it keeps working).
+- **`/metrics` without a valid token** now answers a plain-text `401`, not the HTML sign-in page.
+- **Helm:** `helm upgrade` needs no extra step. A Deployment made by the 0.4.0 chart keeps its old selector
+  until you switch it once, as described under QV-342 below.
+- **Users and roles stay off.** To try them, run every replica with `--accounts` and see
+  [Accounts](README.md#accounts-ingest-tokens-and-personal-api-tokens).
+- **The token and receipt-hash key don't change**, and signed-in browsers stay signed in. Spans stored before
+  the upgrade have no `service.version`.
+
+### All changes
+
 - **Users and roles are a preview, off unless switched on** (QV-349). They haven't had their security review
   (QV-229) yet, so a server built from this version ignores them unless it runs with `--accounts`
   (`TRAILBEAM_ACCOUNTS=1`, also `true`, `yes` or `on`; any other value but `0`, `false`, `no`, `off` or empty
@@ -78,7 +148,8 @@
   Extended Client's size attributes. A bad redaction setting can't be refused at install time (the jar has none),
   so it fails closed: one warning, no body exported, `redaction_failed` on the listed queues.
 
-- **Users and roles switch on when the first admin exists** (QV-225). Each replica checks the store at least
+- **Users and roles (a preview: only with `--accounts`) switch on when the first admin exists** (QV-225). With
+  `--accounts`, each replica checks the store at least
   every 5 seconds for an admin. Until there is one, nothing changes. After that:
   - The web screen and the API need a person: signing in with an email and password on `/login` (cookie
     `trailbeam_sid`, or `__Host-trailbeam_sid` over HTTPS), or a personal API token (`tbp_...`) as
@@ -99,7 +170,7 @@
   - **Changed:** `/metrics` without a valid token answers a plain-text `401`, not the HTML sign-in page.
   - **Changed:** with neither a token nor an ingest token, the server now warns at every start that ingest is
     open, also when it listens only on localhost.
-- **The first admin, and people and tokens from the command line** (QV-225, part 4 of phase 1).
+- **The first admin, and people and tokens from the command line** (QV-225, part 4 of phase 1; with `--accounts`).
   - **`trailbeam start` prints a one-time setup link** while the store has no admin:
     `Create your admin account: http://127.0.0.1:4318/setup#code=...`. The form makes the first admin and signs
     them in. The code works once, for an hour, and each start replaces it. It is printed only when the output is
@@ -143,7 +214,7 @@
   has its own always-on tracer provider with a relocated OpenTelemetry SDK (1.4 MB jar). The parent comes from the
   stock instrumentation's trace header, so interceptor order doesn't matter. A hand registration on top of the
   global one emits each span once. A Java driver for the conformance kit passes it in CI alone, beside the
-  OpenTelemetry Java agent 2.34.0 (also sampled to 0) and beside dd-java-agent 1.69.1. Not yet built: the Lambda wrapper, the SDK version matrix, a strict parent check for the agent variants, and
+  OpenTelemetry Java agent 2.34.0 (also sampled to 0) and beside dd-java-agent 1.69.1. Stages 3 to 5 (below) add tenants and body capture, the Lambda wrapper and the version matrix. Not yet on
   Maven Central.
 
 - **`trailbeam doctor` reads the token the services send** (QV-343). With no `--token-file` or `TRAILBEAM_TOKEN`,
@@ -197,13 +268,13 @@
   something, but not ingest) answers `403` when the browser says the request came from another site's page
   (`Sec-Fetch-Site: cross-site` or `same-site`, or an `Origin` that isn't the server). curl and scripts,
   which send neither header, are not affected. (QV-225)
-- **Passwords and sessions for users and roles, not switched on yet.** scrypt password hashing (N=2^15,
+- **Passwords and sessions for users and roles** (with `--accounts`). scrypt password hashing (N=2^15,
   r=8, p=3, at most 2 hashes at once per process), sessions in the store with a 20-second cache per process,
   a lock per account after 10 failed sign-ins in a row and a limit per client address. Signing in (above)
   uses them. (QV-225)
 - **Tables for people and tokens (users and roles, phase 1).** The store gains `users`, `sessions`,
   `ingest_tokens`, `personal_tokens` and `setup_codes`: SQLite schema 15, Postgres schema 8. They are created
-  empty and nothing uses them yet, so the server behaves exactly as before. Emails are unique ignoring case.
+  empty, and only a server with `--accounts` uses them. Emails are unique ignoring case.
   Retention and `--vacuum` leave the tables alone. With `--db :memory:`, people and tokens are lost on every
   restart, like the spans. **A database upgraded to this version can't be opened by 0.4.0 or earlier (0.3.0
   included) again**: back it up before upgrading. (QV-225)

@@ -33,7 +33,7 @@ Metrics and tracing tools show queues in aggregate, or the spans your code emitt
 answers a narrower question: where did this one message go?
 
 > [!NOTE]
-> The latest release, 0.4.0, is on PyPI and npm (`trailbeam`) and on ghcr.io
+> The latest release, 0.5.0, is on PyPI and npm (`trailbeam`) and on ghcr.io
 > (`ghcr.io/nick-lennox/trailbeam`). This README follows `main`, which can be ahead of the release:
 > see Unreleased in the [CHANGELOG](CHANGELOG.md).
 
@@ -1412,20 +1412,20 @@ With Postgres (`--store-url`), use Postgres' own backups: see [Backup and restor
 
 Take a backup ([SQLite](#backup-and-restore-sqlite), [Postgres](#backup-and-restore-postgres)), stop the
 old server, and start the new version on the same database file, Docker volume or Postgres database, with the
-same flags and token. The new version upgrades the schema by itself at start. CI runs this from 0.3.0 to
-the current version on every change, for SQLite (the PyPI package and the image) and Postgres, and checks that every
+same flags and token. The new version upgrades the schema by itself at start. CI runs this from 0.3.0 and from 0.4.0
+to the current version on every change, for SQLite (the PyPI package and the image) and Postgres, and checks that every
 message, list and tenant count reads the same as before
 ([`python/smoke/upgrade_check.py`](python/smoke/upgrade_check.py)).
 
-- **SQLite.** The new version moves the file to schema 16 (from 0.3.0's 12: a small table for the test span of
-  `trailbeam doctor`, corrected counts for FIFO sends SQS deduplicated, the empty tables of people and tokens,
+- **SQLite.** The new version moves the file to schema 16 (from 0.4.0's 13 or 0.3.0's 12: a small table for the
+  test span of `trailbeam doctor`, corrected counts for FIFO sends SQS deduplicated, the empty tables of people and tokens,
   and each span's `service.version`; only the summaries of FIFO messages sent more than once are rewritten).
   Once it has, **0.4.0 and 0.3.0 can't open it again**: they stop at start with `the database is at schema
   version 16, written by a newer Trailbeam ... Refusing to start, so nothing is lost`. To go back, restore the
   backup you took first.
 - **Postgres.** Stop every replica before you start the new version. It moves the database to schema 10 (from
-  0.3.0's 4, about 8 s per 1M spans, see the [changelog](CHANGELOG.md)). Once it has, 0.4.0 and 0.3.0 stop at
-  start with `the database is at Postgres schema version 10, written by a newer Trailbeam ... Refusing to
+  0.4.0's 6, which adds tables and a column; from 0.3.0's 4, about 8 s per 1M spans, see the
+  [changelog](CHANGELOG.md)). Once it has, 0.4.0 and 0.3.0 stop at start with `the database is at Postgres schema version 10, written by a newer Trailbeam ... Refusing to
   start, so nothing is lost`. To go back, restore the backup you took first.
 - **Accounts stay off** unless every replica runs with `--accounts` (`TRAILBEAM_ACCOUNTS=1`), a preview in this
   release, and then until you create the first admin. Upgrade every replica first: a replica still on 0.4.0
@@ -1434,8 +1434,10 @@ message, list and tenant count reads the same as before
   `/metrics`, and browsers signed in with it are signed out: give Prometheus and scripts a personal API token
   only if they read the API. With `--db :memory:`, people and tokens are lost at every restart.
 - **The token and the receipt-hash key** don't change. Signed-in browsers stay signed in. Services keep their
-  `TRAILBEAM_RECEIPT_HASH_KEY`: the hashing is the same in 0.3.0 and 0.4.0, so services on either package
-  version can send spans for the same messages.
+  `TRAILBEAM_RECEIPT_HASH_KEY`: the hashing is the same in 0.3.0, 0.4.0 and 0.5.0, so services on any of these
+  package versions can send spans for the same messages.
+- **The server first, then the packages in your services.** From 0.5.0 the packages record `PurgeQueue`, and a
+  0.4.0 server rejects that span (it stores the rest of the export), so a purge sent to it is not recorded.
 - **Moving to `trailbeam start`.** `trailbeam start --data-dir DIR` uses `DIR/trailbeam.sqlite`, and
   `npx trailbeam start` uses the Docker volume `trailbeam-data`, the same volume as the Quickstart's
   `docker run`. Before the first `start`, put the token your services send in `DIR/token`, or start with

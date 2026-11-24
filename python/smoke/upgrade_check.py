@@ -1,4 +1,4 @@
-"""Upgrade check: a store written by an older Trailbeam (0.3.0) keeps working under this one.
+"""Upgrade check: a store written by an older Trailbeam (0.3.0 or 0.4.0) keeps working under this one.
 
     # SQLite, both servers from pip installs (the old one in its own venv):
     python smoke/upgrade_check.py --store sqlite --old-cmd /tmp/old/bin/trailbeam --new-cmd trailbeam

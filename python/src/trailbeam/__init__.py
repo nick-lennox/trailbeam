@@ -1,6 +1,6 @@
 """Trailbeam: message-level timelines for Amazon SQS (Python package, pre-release)."""
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 
 def export_stats() -> dict:

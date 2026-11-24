@@ -354,14 +354,15 @@ jobs:
           docker image rm -f "$TB_NAME:ci" || true
 
   upgrade:
-    # A store written by the published 0.3.0 keeps working under this checkout, and 0.3.0 can't damage it after.
-    # python/smoke/upgrade_check.py says what is checked.
-    name: Upgrade from 0.3.0 (${{ matrix.store }})
+    # A store written by a published release (0.3.0, 0.4.0) keeps working under this checkout, and that release
+    # can't damage it after. python/smoke/upgrade_check.py says what is checked.
+    name: Upgrade from ${{ matrix.from }} (${{ matrix.store }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         store: [sqlite, sqlite-image, postgres]
+        from: ["0.3.0", "0.4.0"]
     services:
       postgres:
         image: postgres:16
@@ -380,12 +381,12 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e '.[test,postgres]'
-      - name: 0.3.0 from PyPI, in a venv of its own
+      - name: ${{ matrix.from }} from PyPI, in a venv of its own
         if: matrix.store != 'sqlite-image'
         run: |
           python -m venv "$RUNNER_TEMP/old"
-          "$RUNNER_TEMP/old/bin/pip" install -q 'trailbeam[server,postgres]==0.3.0'
-      - name: SQLite, trailbeam start on the data directory 0.3.0 used
+          "$RUNNER_TEMP/old/bin/pip" install -q "trailbeam[server,postgres]==${{ matrix.from }}"
+      - name: SQLite, trailbeam start on the data directory ${{ matrix.from }} used
         if: matrix.store == 'sqlite'
         run: python smoke/upgrade_check.py --store sqlite --old-cmd "$RUNNER_TEMP/old/bin/trailbeam" --new-cmd trailbeam
       - name: Postgres
@@ -393,13 +394,13 @@ jobs:
         run: >-
           python smoke/upgrade_check.py --store postgres --old-cmd "$RUNNER_TEMP/old/bin/trailbeam" --new-cmd trailbeam
           --pg-url "postgresql://postgres:postgres@localhost:${{ job.services.postgres.ports['5432'] }}/postgres"
-      - name: SQLite, the published 0.3.0 image, then this checkout's image, on one volume
+      - name: SQLite, the published ${{ matrix.from }} image, then this checkout's image, on one volume
         if: matrix.store == 'sqlite-image'
         run: |
-          echo "TB_IMAGE=tbci-${{ github.run_id }}-${{ github.run_attempt }}-upgrade:ci" >> "$GITHUB_ENV"
-          docker build -t "tbci-${{ github.run_id }}-${{ github.run_attempt }}-upgrade:ci" ..
-          python smoke/upgrade_check.py --store sqlite --old-image ghcr.io/nick-lennox/trailbeam:0.3.0 \
-            --new-image "tbci-${{ github.run_id }}-${{ github.run_attempt }}-upgrade:ci"
+          echo "TB_IMAGE=tbci-${{ github.run_id }}-${{ github.run_attempt }}-upgrade-${{ matrix.from }}:ci" >> "$GITHUB_ENV"
+          docker build -t "tbci-${{ github.run_id }}-${{ github.run_attempt }}-upgrade-${{ matrix.from }}:ci" ..
+          python smoke/upgrade_check.py --store sqlite --old-image "ghcr.io/nick-lennox/trailbeam:${{ matrix.from }}" \
+            --new-image "tbci-${{ github.run_id }}-${{ github.run_attempt }}-upgrade-${{ matrix.from }}:ci"
       - name: Remove this job's image
         if: always() && matrix.store == 'sqlite-image'
         run: docker image rm -f "$TB_IMAGE" || true

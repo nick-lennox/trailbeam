@@ -4,5 +4,5 @@ const assert = require('node:assert');
 const sdk = require('../src/index.js');
 
 test('version is set', () => {
-  assert.strictEqual(sdk.version, '0.4.0');
+  assert.strictEqual(sdk.version, '0.5.0');
 });
