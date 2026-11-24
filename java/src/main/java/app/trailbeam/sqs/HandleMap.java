@@ -1,4 +1,4 @@
-package dev.trailbeam.sqs;
+package app.trailbeam.sqs;
 
 import java.util.Iterator;
 import java.util.LinkedHashMap;

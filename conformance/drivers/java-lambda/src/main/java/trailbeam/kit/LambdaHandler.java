@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
 
 /**
  * The conformance kit's Lambda function (Java). It knows nothing of Trailbeam: the function's handler is
- * {@code dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper}, which loads this class from {@code TRAILBEAM_LAMBDA_HANDLER}.
+ * {@code app.trailbeam.sqs.TrailbeamSqsLambdaWrapper}, which loads this class from {@code TRAILBEAM_LAMBDA_HANDLER}.
  *
  * <p>What it does with a batch is set by each record's body, {@code {"case": ...}} (SCENARIO-LAMBDA.md): it throws if
  * any record is {@code throw}, returns an invalid batchItemFailures if any is {@code invalid}, and otherwise lists
