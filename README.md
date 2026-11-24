@@ -532,6 +532,14 @@ ingest.
 
 ### Accounts, ingest tokens and personal API tokens
 
+> **A preview, off by default.** Users and roles are in this release for trying out, but haven't had their
+> security review yet, so the server ignores them unless it runs with `--accounts` (or `TRAILBEAM_ACCOUNTS=1`).
+> Off, the server is guarded by `TRAILBEAM_TOKEN` alone, as in 0.4.0: `trailbeam start` prints no setup link,
+> `/setup` doesn't exist, `TRAILBEAM_ADMIN_EMAIL` stops the server at start, and `trailbeam users` and
+> `trailbeam tokens` refuse to run without `--accounts` (or the variable). A store that already holds an admin or
+> ingest tokens keeps them, and the server warns at start that it ignores them. Everything below assumes the
+> switch is on, on every replica.
+
 The server can also hold people (an email, a password and a role, `admin` or `member`) and named tokens, in its
 own store (SQLite or Postgres). Nothing changes until the first admin exists. After that:
 
@@ -584,7 +592,7 @@ each start replaces it. It is printed only when the output is a terminal, never 
 The server logs `this server has no admin account yet` instead. Either run the command in the container:
 
 ```sh norun="needs a running container; test_cli.py runs these commands against SQLite and Postgres"
-docker exec -it trailbeam trailbeam users create --email ada@example.com --role admin
+docker exec -it trailbeam trailbeam users create --accounts --email ada@example.com --role admin
 # asks for the password twice; or --password-file /run/secrets/admin-password
 ```
 
@@ -644,10 +652,11 @@ believed if their address is in the range. [`deploy/replicas`](deploy/replicas/c
 
 If your team already signs in to internal tools through a proxy, Trailbeam can believe the email header it adds,
 instead of asking for its own password. It is off unless you turn it on, and the header is believed only from the
-proxy: from its addresses (`--trusted-proxy`), with a shared secret the proxy sends, or both.
+proxy: from its addresses (`--trusted-proxy`), with a shared secret the proxy sends, or both. It signs people in,
+so it needs users and roles switched on (`--accounts`); without them the server refuses to start.
 
 ```sh norun="starts a server that keeps running; python/tests/server/test_proxy_auth.py tests every setting"
-trailbeam --proxy-auth-header X-Forwarded-Email --trusted-proxy 10.0.0.5 \
+trailbeam --accounts --proxy-auth-header X-Forwarded-Email --trusted-proxy 10.0.0.5 \
   --proxy-auth-name-header X-Forwarded-Preferred-Username --proxy-auth-sign-out-url /oauth2/sign_out
 ```
 
@@ -713,6 +722,7 @@ services:
   trailbeam:
     build: .                                            # this repository's Dockerfile
     environment:
+      TRAILBEAM_ACCOUNTS: "1"                           # users and roles: proxy sign-in needs them
       TRAILBEAM_PROXY_AUTH_HEADER: X-Forwarded-Email
       TRAILBEAM_PROXY_AUTH_NAME_HEADER: X-Forwarded-Preferred-Username
       TRAILBEAM_PROXY_AUTH_SIGN_OUT_URL: /oauth2/sign_out
@@ -1516,7 +1526,8 @@ message, list and tenant count reads the same as before
   0.3.0's 4, about 8 s per 1M spans, see the [changelog](CHANGELOG.md)). Once it has, 0.4.0 and 0.3.0 stop at
   start with `the database is at Postgres schema version 10, written by a newer Trailbeam ... Refusing to
   start, so nothing is lost`. To go back, restore the backup you took first.
-- **Accounts stay off until you create the first admin.** Upgrade every replica first: a replica still on 0.4.0
+- **Accounts stay off** unless every replica runs with `--accounts` (`TRAILBEAM_ACCOUNTS=1`), a preview in this
+  release, and then until you create the first admin. Upgrade every replica first: a replica still on 0.4.0
   or 0.3.0 keeps letting `TRAILBEAM_TOKEN` into the web screen and the API after the others have switched.
   `trailbeam users create` reminds you on Postgres. Once an admin exists, `TRAILBEAM_TOKEN` opens only ingest and
   `/metrics`, and browsers signed in with it are signed out: give Prometheus and scripts a personal API token

@@ -338,7 +338,8 @@ def _people(path):
         s.close()
 
 
-def test_link_and_unlink_and_create_for_the_proxy(sqlite_target, tmp_path, capsys):
+def test_link_and_unlink_and_create_for_the_proxy(sqlite_target, tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("TRAILBEAM_ACCOUNTS", "1")  # the users commands refuse to run without it (QV-349)
     db = ["--db", sqlite_target]
     pw = tmp_path / "pw"
     pw.write_text(PW + "\n")
@@ -362,3 +363,16 @@ def test_link_and_unlink_and_create_for_the_proxy(sqlite_target, tmp_path, capsy
     assert "can't sign in at all now" in capsys.readouterr().err
     assert _people(sqlite_target)["bo@example.com"]["proxy_linked_at_ms"] is None
     assert cli.main(["users", "unlink-proxy", *db, "nobody@example.com"]) == 2
+
+
+def test_the_server_refuses_proxy_sign_in_with_users_and_roles_off(tmp_path):
+    """Proxy sign-in creates and signs in people, so with users and roles off (QV-349) the server won't start."""
+    import os
+    import subprocess
+    import sys
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("TRAILBEAM_", "OTEL_"))}
+    env.update(TRAILBEAM_PROXY_AUTH_HEADER="X-Forwarded-Email", TRAILBEAM_TRUSTED_PROXY="127.0.0.1")
+    r = subprocess.run([sys.executable, "-m", "trailbeam.server", "--db", str(tmp_path / "t.sqlite"), "--port", "0"],
+                       env=env, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 2
+    assert "--proxy-auth-header (TRAILBEAM_PROXY_AUTH_HEADER) is set, but users and roles are off" in r.stderr

@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import migrations, passwords
+from .access import SWITCHED_OFF, switch_on
 from .accounts import ROLES, AccountError, Accounts
 from .first_admin import read_password_file, FirstAdminError, default_name
 from .retention import parse_duration
@@ -48,6 +49,14 @@ def main(argv) -> int:
     a = p.parse_args(argv)
     if not getattr(a, "run", None):
         p.parse_args([a.group, "--help"])
+    try:
+        if not (getattr(a, "accounts", False) or switch_on(os.environ)):
+            sys.stderr.write(f"trailbeam {a.group}: {SWITCHED_OFF}, and pass --accounts here too. Without it, "
+                             "the people and tokens this makes are ignored by the server\n")
+            return 2
+    except ValueError as e:
+        sys.stderr.write(f"trailbeam {a.group}: {e}\n")
+        return 2
     try:
         with open_accounts(a) as (acc, where):
             return a.run(a, acc, where) or 0
@@ -71,6 +80,9 @@ def build_parser() -> argparse.ArgumentParser:
                              "one trailbeam start keeps (~/.trailbeam/trailbeam.sqlite)")
     common.add_argument("--store-url", default=os.environ.get("TRAILBEAM_STORE_URL", "").strip() or None,
                         help="the server's Postgres, postgres://... (env TRAILBEAM_STORE_URL), instead of --db")
+    common.add_argument("--accounts", action="store_true",
+                        help="users and roles are a preview, off unless the server runs with --accounts or "
+                             "TRAILBEAM_ACCOUNTS=1; this says you know (env TRAILBEAM_ACCOUNTS=1)")
     p = argparse.ArgumentParser(prog="trailbeam", add_help=False)
     groups = p.add_subparsers(dest="group", required=True)
 
