@@ -113,6 +113,7 @@ The wrapped function has a `trailbeam_tracer_provider` attribute.
 | `TRAILBEAM_OTLP_TRACES_ENDPOINT` | `http://localhost:4318/v1/traces` |
 | `OTEL_SERVICE_NAME` | `service.name` = `unknown_service` |
 | `OTEL_RESOURCE_ATTRIBUTES` | `service.instance.id`, which becomes `messaging.client.id`. Default: a random UUID v4 per tracer provider. |
+| `OTEL_RESOURCE_ATTRIBUTES=service.version=1.4.2` | No version. With it, Trailbeam shows each consumer's version on the timeline and on the lists, which can be filtered by `version`, so you can see whether a deploy changed things. |
 | `TRAILBEAM_MAX_QUEUE_SIZE` | `16384` spans waiting for export, per tracer provider ([Dropped spans](#dropped-spans)). The other `OTEL_BSP_*` variables apply as usual. |
 | `TRAILBEAM_SHUTDOWN_TIMEOUT_MS` | `2000`: the longest that shutdown (`uninstall()`, or interpreter exit) waits for queued spans to be exported ([When the server is down, or the process ends](#when-the-server-is-down-or-the-process-ends)). |
 

@@ -55,6 +55,7 @@ Environment variables, as for the Python and Node.js packages:
 | `TRAILBEAM_OTLP_TRACES_ENDPOINT` | `http://localhost:4318/v1/traces` (OTLP over HTTP, protobuf) |
 | `TRAILBEAM_RECEIPT_HASH_KEY` | the published default key, with one warning. Use the same key on every service that uses the same queues (contract section 7). |
 | `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | `unknown_service`, and a random `service.instance.id` |
+| `OTEL_RESOURCE_ATTRIBUTES=service.version=1.4.2` | no version. With it, Trailbeam shows each consumer's version on the timeline and on the lists, which can be filtered by `version`, so you can see whether a deploy changed things. |
 | `TRAILBEAM_MAX_QUEUE_SIZE` | 16384 spans waiting for export |
 
 ### Tenants and message bodies
@@ -82,10 +83,62 @@ The Python and Node.js packages refuse a bad redact key, an unknown pattern or a
 are installed. This jar has no install step, and it never throws into your SQS calls, so it logs one warning
 instead and exports no body at all: a listed queue's spans say `redaction_failed` until the setting is fixed.
 
-The Lambda handler wrapper (and with it `TRAILBEAM_CAPTURE_ERROR_QUEUES`) comes in a later stage of QV-319.
+For the Lambda wrapper, `TRAILBEAM_CAPTURE_ERROR_QUEUES` (comma-separated queue names, or `*`; none by default)
+turns on the thrown error's message on each `trailbeam outcome`, after the text rules, cut to 1,024 characters
+(contract section 15.5).
 
 Spans are exported in the background and flushed when the JVM shuts down. A program that has to be sure they
 have left before it continues can call `dev.trailbeam.sqs.Trailbeam.flush(timeout, unit)`.
+
+## AWS Lambda
+
+A function invoked by an SQS event source mapping doesn't call `ReceiveMessage` or `DeleteMessage` itself:
+Lambda does. The interceptor can't see those calls, so the jar also has a handler wrapper. For each record it
+emits one `trailbeam receive` and exports it before your handler runs, so a timeout or an out-of-memory kill
+can't lose it. After your handler returns or throws, it emits one `trailbeam outcome` per record: `success`,
+`failed_reported` (the record is in `batchItemFailures`), `failed_invalid_response` (the list names a record
+that isn't in the batch, so Lambda fails the whole batch) or `failed_exception`, with the exception's class
+name. What your handler returns, and what it throws, reach Lambda unchanged. A function that also makes SQS
+calls of its own gets their spans from the interceptor as usual.
+
+The function needs `com.amazonaws:aws-lambda-java-core` and `com.amazonaws:aws-lambda-java-events` 3.10.0 or
+later (for `SQSBatchResponse`), which an SQS function has already. It doesn't need the AWS SDK.
+
+**No code change.** Set the function's handler to the wrapper, and name your handler in an environment variable,
+the way the OpenTelemetry Java Lambda wrappers work:
+
+| Setting | Value |
+|---|---|
+| Handler | `dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest` |
+| `TRAILBEAM_LAMBDA_HANDLER` | your handler as Lambda would name it: `com.example.OrdersHandler` (a `RequestHandler<SQSEvent, SQSBatchResponse>`, or `RequestHandler<SQSEvent, Void>`), or `com.example.OrdersHandler::handle` for a public method taking `(SQSEvent, Context)` or `(SQSEvent)` |
+| `TRAILBEAM_LAMBDA_REPORT_BATCH_ITEM_FAILURES` | `true` by default. Set it to `false` if the event source mapping doesn't have `ReportBatchItemFailures` turned on: Lambda then ignores `batchItemFailures`, and so does Trailbeam. |
+
+Your handler may return an `SQSBatchResponse`, a `Map` of the same shape, or nothing. If
+`TRAILBEAM_LAMBDA_HANDLER` is missing or names a class that can't be loaded, the function fails at init with a
+message that says so.
+
+**Or extend the base class:**
+
+```java
+public class OrdersHandler extends TrailbeamSqsHandler {
+  @Override
+  protected SQSBatchResponse handleSqsEvent(SQSEvent event, Context context) {
+    ...
+    return new SQSBatchResponse(failures); // or null when every record succeeded
+  }
+}
+```
+
+Override `reportBatchItemFailures()` to return `false` for a mapping without `ReportBatchItemFailures`.
+
+The spans' `messaging.client.id` is the log stream name (`AWS_LAMBDA_LOG_STREAM_NAME`), which names one
+execution environment. Their parent is the invocation's X-Ray trace header, when the runtime sets one; otherwise
+they are root spans. Each flush waits at most 2 seconds and never fails the invocation.
+
+**SnapStart.** One snapshot becomes many execution environments, so after a restore the jar starts a new
+call-order scope and a new `service.instance.id`, and before the snapshot it flushes. It does this through the
+`org.crac` API that SnapStart runs, when `io.github.crac:org-crac` is on the classpath (AWS's SnapStart guide
+tells you to add it). Without it, call `dev.trailbeam.sqs.Trailbeam.afterRestore()` from your own restore hook.
 
 ## Registering it by hand
 
