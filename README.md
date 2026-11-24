@@ -56,6 +56,12 @@ answers a narrower question: where did this one message go?
   code. When its body is an EventBridge event or an S3 event notification, the timeline starts with an
   inferred step, "Arrived via an EventBridge rule: …" or "S3 ObjectCreated:Put in …", from the event's
   routing fields only. The rest of the body isn't read.
+- **EventBridge PutEvents.** When the sender runs a Trailbeam package, that inferred step becomes the
+  recorded one: "Put on EventBridge bus …", the process that called `PutEvents`, the other SQS messages
+  the event reached, and the EventBridge delivery time. Trailbeam joins them by the event's `id`. From
+  the body it reads only the event's `id`, `source`, `detail-type`, account, region and `time`. It never
+  reads `detail`. From the sender's call it records the bus, `Source`, `DetailType`, the returned event
+  ID or error code, and the size of `Detail`, but not `Detail` itself.
 - **Recorded and inferred steps are kept apart.** Trailbeam orders two events only when an observed
   fact proves the order, and marks every step it inferred, such as a visibility timeout that expired.
 - **Deletes joined to their receives.** A delete carries a receipt handle, not a message ID. Trailbeam

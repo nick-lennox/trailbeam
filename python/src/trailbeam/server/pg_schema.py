@@ -215,6 +215,29 @@ CREATE TABLE IF NOT EXISTS sns_receives (
 CREATE INDEX IF NOT EXISTS sns_receives_time ON sns_receives (time_ns);
 """
 
+# Version 17 (QV-489): EventBridge PutEvents (contract section 25). ``eventbridge_events``: one row per entry of a
+# PutEvents call, accepted or failed, with the event ID a receive joins it by (``message_id``, NULL for a failed
+# entry) and the bus's name in ``queue``. Not partitioned, like ``sns_publishes``. The receives an entry reached are
+# rows of ``sns_receives`` with the key ``b:<event ID>``, so retention and the lookup are the SNS ones.
+EVENTBRIDGE = """
+CREATE TABLE IF NOT EXISTS eventbridge_events (
+    id BIGSERIAL PRIMARY KEY,
+    trace_id TEXT NOT NULL, span_id TEXT NOT NULL,
+    start_ns BIGINT, time_ns BIGINT NOT NULL,
+    service_name TEXT, source TEXT, operation TEXT,
+    queue TEXT NOT NULL,                  -- the event bus's name
+    message_id TEXT COLLATE "C",          -- the event ID; NULL for a failed entry
+    batch_entry_id TEXT,
+    client_id TEXT, pid BIGINT, thread_name TEXT,
+    order_scope TEXT, order_issued BIGINT, order_returned BIGINT,
+    attributes TEXT NOT NULL,
+    result TEXT NOT NULL, error_code TEXT,
+    UNIQUE (trace_id, span_id, time_ns)
+);
+CREATE INDEX IF NOT EXISTS eventbridge_events_message ON eventbridge_events (message_id) WHERE message_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS eventbridge_events_time ON eventbridge_events (time_ns);
+"""
+
 SEALING = """
 CREATE TABLE IF NOT EXISTS mid_places_late (       -- lookup rows written to a place once it was sealed
     mid TEXT COLLATE "C" NOT NULL,
@@ -413,7 +436,7 @@ CREATE TABLE IF NOT EXISTS hash_places (
     bucket BIGINT NOT NULL,
     PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
 ) PARTITION BY RANGE (rclass, bucket);
-""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + QUEUE_CREATE + SNS + account_tables.PG_OIDC + STEP_CREATE + """
+""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + QUEUE_CREATE + SNS + account_tables.PG_OIDC + STEP_CREATE + EVENTBRIDGE + """
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
@@ -798,8 +821,12 @@ MIGRATIONS: tuple = (
     ) + tuple(statements(STEP_CREATE)), per_place=(_steps_place,), after=(
         "ALTER TABLE spans DROP CONSTRAINT IF EXISTS spans_rclass_bucket_trace_id_span_id_key",
     )),
+    # Version 17 (QV-489): EventBridge PutEvents entries (EVENTBRIDGE above). A new table, empty: no database before
+    # it holds a put_event span (a Trailbeam before 3.6 rejects them). Receives already stored keep no ``b:`` key, so
+    # an entry recorded after the upgrade reaches only the messages received after it.
+    Migration(17, "EventBridge PutEvents entries (QV-489)", tuple(statements(EVENTBRIDGE))),
 )
-LATEST = 16
+LATEST = 17
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 

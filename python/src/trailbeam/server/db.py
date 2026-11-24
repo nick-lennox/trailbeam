@@ -31,7 +31,7 @@ import threading
 import time
 from typing import Callable, Iterable, Iterator, Optional
 
-from . import body_table, migrations, purge, queues, rollup, sns, summary_table
+from . import body_table, eventbridge, migrations, purge, queues, rollup, sns, summary_table
 from .events import HOUR_NS, KINDS as STEP_KINDS, hour_split
 from .otlp import AMQP_KINDS, RECORD_FIELDS
 from .store import (MAX_CANCELS, SETTLE_KINDS, SETTLE_KINDS_SQL, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store, StoreFull,
@@ -353,7 +353,7 @@ class SqliteStore(Store):
         for r in records:
             own, kind = r.get("message_id"), r["kind"]
             mid, mid_source, receive_row = own, "span" if own else None, None
-            if kind == sns.KIND:  # an SNS message ID: the publish belongs to no message (store.py, Publishes)
+            if kind in (sns.KIND, eventbridge.KIND):  # an SNS message or event ID: no message (store.py, Publishes)
                 mid = mid_source = None
             join_s = 0.0
             if kind in SETTLE_KINDS:  # joined first, so the row is written once, joined
@@ -718,6 +718,28 @@ class SqliteStore(Store):
         rows = [r for r in out.values() if r["mid"] is not None]
         return sorted(rows, key=lambda r: (r["time_ns"], r["row"]))[:sns.MAX_REACHED]
 
+    # EventBridge PutEvents (contract section 25), by the partial indexes of migrations.EB_INDEXES.
+    def put_events(self, event_ids) -> list[sqlite3.Row]:
+        if not event_ids:
+            return []
+        cols = ", ".join(eventbridge.COLUMNS)
+        rows = self.query(f"SELECT {cols} FROM spans INDEXED BY spans_put_event_msg WHERE kind = 'put_event' "
+                          f"AND message_id IN (SELECT value FROM json_each(?)) ORDER BY time_ns, row LIMIT ?",
+                          (json.dumps(sorted(event_ids)), 4 * eventbridge.MAX_ENTRIES))
+        return eventbridge.joined(event_ids, rows)
+
+    def eventbridge_receivers(self, event_ids) -> list[dict]:
+        if not event_ids:
+            return []
+        out: dict = {}
+        for r in self.query(f"SELECT row, mid, queue, time_ns, attributes FROM spans INDEXED BY spans_receive_eb "
+                            f"WHERE kind = 'receive' AND {migrations.EB_EVENT_ID} IS NOT NULL "
+                            f"AND {migrations.EB_EVENT_ID} IN (SELECT value FROM json_each(?))",
+                            (json.dumps(sorted(event_ids)),)):
+            if r["mid"] is not None and eventbridge.receive_event_id(r) in event_ids:
+                out[r["row"]] = {"row": r["row"], "mid": r["mid"], "queue": r["queue"], "time_ns": r["time_ns"]}
+        return sorted(out.values(), key=lambda r: (r["time_ns"], r["row"]))[:eventbridge.MAX_REACHED]
+
     def sent_messages(self, message_ids) -> set:
         mids = sorted(set(message_ids))
         if not mids:
@@ -952,7 +974,7 @@ _INSERT_SQL = f"INSERT OR IGNORE INTO spans ({', '.join(_INSERT_COLUMNS)}) VALUE
 
 AUTO_VACUUM_INCREMENTAL = 2  # PRAGMA auto_vacuum
 # every kind a row can have: SQS's and SNS's, and those only RabbitMQ has (otlp.AMQP_KINDS)
-SPAN_KINDS = ("send", "receive", "delete", "change_visibility", "outcome", "purge", "publish") + AMQP_KINDS
+SPAN_KINDS = ("send", "receive", "delete", "change_visibility", "outcome", "purge", "publish", "put_event") + AMQP_KINDS
 # Rows that belong to no message, by design (purge, publish, cancel, a RabbitMQ span with no message ID) or until
 # joined (a settle span): retention takes each by its own time and queue. Any kind can be one.
 LOOSE_KINDS = SPAN_KINDS

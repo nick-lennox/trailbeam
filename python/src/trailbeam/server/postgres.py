@@ -148,7 +148,7 @@ import psycopg_pool
 from psycopg import errors, sql
 from psycopg.rows import dict_row
 
-from . import body_table, pg_schema, purge, queues, rollup, sns, summary
+from . import body_table, eventbridge, pg_schema, purge, queues, rollup, sns, summary
 from .events import HOUR_NS, KINDS as STEP_KINDS, hour_split
 from .lookup_filter import LookupFilter, hash_key, mid_key
 from .db import gate_body
@@ -943,7 +943,8 @@ class PostgresStore(Store):
         of its receives (``sns_receives``)."""
         purges = [x for x in prepared if x[0]["kind"] == "purge"]
         publishes = [x for x in prepared if x[0]["kind"] == sns.KIND]
-        if not purges and not publishes:
+        entries = [x for x in prepared if x[0]["kind"] == eventbridge.KIND]
+        if not purges and not publishes and not entries:
             inserted, dupes = self._insert_spans(conn, prepared, more_locks)
         else:
             inserted = dupes = 0
@@ -952,7 +953,10 @@ class PostgresStore(Store):
             if publishes:
                 i, d = self._insert_publishes(conn, publishes)
                 inserted, dupes = inserted + i, dupes + d
-            rest = [x for x in prepared if x[0]["kind"] not in ("purge", sns.KIND)]
+            if entries:
+                i, d = self._insert_put_events(conn, entries)
+                inserted, dupes = inserted + i, dupes + d
+            rest = [x for x in prepared if x[0]["kind"] not in ("purge", sns.KIND, eventbridge.KIND)]
             if rest:
                 i, d = self._insert_spans(conn, rest, more_locks)
                 inserted, dupes = inserted + i, dupes + d
@@ -973,6 +977,18 @@ class PostgresStore(Store):
                            "ON CONFLICT DO NOTHING RETURNING id", [cols[c] for c in _PUBLISH_INSERT]).fetchall()
         return len(got), len(publishes) - len(got)
 
+    def _insert_put_events(self, conn, entries) -> tuple[int, int]:
+        """EventBridge PutEvents entries (contract section 25.1). The same span again is a duplicate."""
+        cols = {c: [] for c in _PUT_EVENT_INSERT}
+        for r, _own, attrs, *_ in entries:
+            for c in _PUT_EVENT_INSERT:
+                cols[c].append(attrs if c == "attributes" else r.get(c))
+        names = ", ".join(_PUT_EVENT_INSERT)
+        types = ", ".join(f"%s::{'bigint' if c in _PURGE_INT else 'text'}[]" for c in _PUT_EVENT_INSERT)
+        got = conn.execute(f"INSERT INTO eventbridge_events ({names}) SELECT {names} FROM unnest({types}) AS u({names}) "
+                           "ON CONFLICT DO NOTHING RETURNING id", [cols[c] for c in _PUT_EVENT_INSERT]).fetchall()
+        return len(got), len(entries) - len(got)
+
     def _insert_sns_receives(self, conn, prepared) -> None:
         """The SNS keys of the export's receives (contract section 21.3), for Store.sns_receivers. An exporter's
         retry writes the same rows again: the newest time is kept."""
@@ -981,7 +997,8 @@ class PostgresStore(Store):
             if r["kind"] != "receive" or not own:
                 continue
             env, pid = sns.receive_keys({"attributes": attrs})
-            for key in ([_env_key(env)] if env else []) + ([_PID + pid] if pid else []):
+            eid = eventbridge.receive_event_id({"attributes": attrs})  # 3.6: the EventBridge event ID (section 25.2)
+            for key in ([_env_key(env)] if env else []) + ([_PID + pid] if pid else []) + ([_EB + eid] if eid else []):
                 k = (key, own)
                 if k not in rows or rows[k][1] < r["time_ns"]:
                     rows[k] = (r["queue"], r["time_ns"])
@@ -1457,14 +1474,14 @@ class PostgresStore(Store):
     def _expire_sns(self, cutoffs: Cutoffs) -> int:
         """Delete the SNS publishes and receive keys whose own time expired on their topic's or queue's cutoff, with
         the store's granularity (a time t expires once (t // G + 1) * G <= cutoff, that is t < (cutoff // G) * G).
-        One statement per queue with its own cutoff, one for the rest. Returns the publishes deleted (spans)."""
+        One statement per queue with its own cutoff, one for the rest. Returns the publishes and PutEvents entries deleted (spans)."""
         if cutoffs.keeps_everything():
             return 0
         g = self.retention_granularity_ns
         own = sorted(cutoffs.queues)
         n = 0
         with self.ingest.connection() as w:
-            for table in ("sns_publishes", "sns_receives"):
+            for table in ("sns_publishes", "sns_receives", "eventbridge_events"):
                 done = 0
                 for q in own:
                     cut = cutoffs.queues[q]
@@ -1474,8 +1491,8 @@ class PostgresStore(Store):
                 if cutoffs.default is not None:
                     done += w.execute(f"DELETE FROM {table} WHERE time_ns < %s AND NOT (queue = ANY(%s))",
                                       ((cutoffs.default // g) * g, own)).rowcount
-                if table == "sns_publishes":
-                    n = done
+                if table != "sns_receives":
+                    n += done
         return n
 
     def _place_step(self, cutoffs: Cutoffs, resume: Optional[str], limit: int) -> PurgeStep:
@@ -2013,6 +2030,27 @@ class PostgresStore(Store):
                 out[r["mid"]] = {"row": i, "mid": r["mid"], "queue": r["queue"], "time_ns": r["time_ns"], "by": by}
         return sorted(out.values(), key=lambda r: (r["time_ns"], r["row"]))[:sns.MAX_REACHED]
 
+    def put_events(self, event_ids) -> list[dict]:
+        if not event_ids:
+            return []
+        cols = ", ".join(c for c in eventbridge.COLUMNS if c != "row")
+        with self._reading() as c:
+            rows = c.execute(
+                f"""SELECT id AS "row", {cols} FROM eventbridge_events
+                    WHERE message_id = ANY(%s::text[]) AND result = 'ok' ORDER BY time_ns, id LIMIT %s""",
+                (sorted(event_ids), eventbridge.MAX_ENTRIES)).fetchall()
+        return eventbridge.joined(event_ids, rows)
+
+    def eventbridge_receivers(self, event_ids) -> list[dict]:
+        if not event_ids:
+            return []
+        with self._reading() as c:
+            rows = c.execute(
+                """SELECT key, mid, queue, time_ns FROM sns_receives WHERE key = ANY(%s::text[])
+                   ORDER BY time_ns, key, mid LIMIT %s""",
+                ([_EB + e for e in sorted(event_ids)], eventbridge.MAX_REACHED)).fetchall()
+        return [{"row": i, "mid": r["mid"], "queue": r["queue"], "time_ns": r["time_ns"]} for i, r in enumerate(rows)]
+
     def sent_messages(self, message_ids) -> set:
         mids = sorted(set(message_ids))
         if not mids:
@@ -2268,10 +2306,13 @@ class PostgresStore(Store):
         with self._reading() as c:
             purges = c.execute("SELECT COUNT(*) AS n FROM purges").fetchone()["n"]
             publishes = c.execute("SELECT COUNT(*) AS n FROM sns_publishes").fetchone()["n"]
+            entries = c.execute("SELECT COUNT(*) AS n FROM eventbridge_events").fetchone()["n"]
         if purges:
             kinds["purge"] = purges
         if publishes:
             kinds[sns.KIND] = publishes
+        if entries:
+            kinds[eventbridge.KIND] = entries
         return {"spans": kinds, "messages": messages, "unjoined_settles": unjoined}
 
 def _apply_rollup(conn, deltas: "rollup.Deltas") -> None:
@@ -2397,7 +2438,9 @@ _PURGE_INSERT = [c for c in purge.COLUMNS if c != "row"]
 _PURGE_INT = {"start_ns", "time_ns", "pid", "order_issued", "order_returned"}
 # The columns of an SNS publish row written (sns.COLUMNS but its id, with its two keys), and the sns_receives keys.
 _PUBLISH_INSERT = [c for c in sns.COLUMNS if c != "row"] + ["topic_arn", "publish_id"]
-_ENV, _PID = "e:", "p:"
+_ENV, _PID, _EB = "e:", "p:", "b:"
+# The columns of an EventBridge PutEvents entry row written (eventbridge.COLUMNS but its id).
+_PUT_EVENT_INSERT = [c for c in eventbridge.COLUMNS if c != "row"]
 
 
 def _env_key(env: tuple) -> str:

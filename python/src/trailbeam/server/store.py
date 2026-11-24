@@ -43,6 +43,12 @@ its own time against its queue's cutoff, like an unjoined settle span; what it m
 message. Its ``message_id`` is the SNS message ID, its ``queue`` the topic name, and it never has a ``mid``. A Store
 keeps it, finds it by its keys (``publishes``), finds the receives that carry those keys (``sns_receivers``), and
 drops it by its own time against its topic name's cutoff, like a purge; what a join means is sns.py.
+
+**PutEvents entries** (contract section 25, revision 3.6). A ``put_event`` record (one entry of an EventBridge
+``PutEvents``, accepted or failed) is kept the same way: ``message_id`` the event ID (None for a failed entry),
+``queue`` the event bus's name, no ``mid``. A Store finds accepted ones by event ID (``put_events``), finds the
+receives whose body names those IDs (``eventbridge_receivers``), and drops them by their own time against the bus
+name's cutoff; what a join means is eventbridge.py.
 """
 from __future__ import annotations
 
@@ -282,6 +288,18 @@ class Store(abc.ABC):
         ``queue``, ``time_ns``, ``row`` and ``by`` (sns.BY_ENVELOPE when its envelope key is one of ``keys``, else
         sns.BY_PUBLISH_ID), by (time_ns, row), at most sns.MAX_REACHED. ``row`` identifies the receive within this
         answer. By default, none."""
+        return []
+
+    def put_events(self, event_ids) -> list[Row]:
+        """The accepted put_event records (contract section 25) whose event ID is one of ``event_ids``. Every column
+        of eventbridge.COLUMNS, by (time_ns, row), at most eventbridge.MAX_ENTRIES; ``row`` is unique among them.
+        Not abstract, so a store written before revision 3.6 still loads: by default, none."""
+        return []
+
+    def eventbridge_receivers(self, event_ids) -> list[Row]:
+        """The receives whose ``trailbeam.eventbridge.event_id`` is one of ``event_ids``: one mapping per receive with
+        ``mid``, ``queue``, ``time_ns`` and ``row`` (unique within this answer), by (time_ns, row), at most
+        eventbridge.MAX_REACHED. By default, none."""
         return []
 
     def sent_messages(self, message_ids) -> set:

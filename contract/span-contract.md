@@ -1350,7 +1350,7 @@ key (`trailbeam.eventbridge.event_id`) and its time (`trailbeam.eventbridge.time
 
 - A receive **joins** a `put_event` when its `trailbeam.eventbridge.event_id` equals the span's `messaging.message.id`
   and the span's `trailbeam.result` is `ok`. Every SQS message whose receives join one entry shows it as an
-  **observed** step, "Put on event bus *name*", with its `source` and `detail-type` and the SQS messages it reached,
+  **observed** step, "Put on EventBridge bus *name*", with its `source` and `detail-type` and the SQS messages it reached,
   by queue. A message that also has a `trailbeam send` (a process re-sent the body) is still joined: the event did
   come from that entry.
 - A joined entry replaces section 23.3's inferred "Arrived via an EventBridge rule" step on that message.
@@ -1361,7 +1361,7 @@ key (`trailbeam.eventbridge.event_id`) and its time (`trailbeam.eventbridge.time
   value is shown as measured.
 - **Order** is section 9a's: the entry is ordered before a receive only by `clock` or `process_order`, as an SNS
   publish (21.5).
-- A failed entry reaches no queue and joins nothing. It is stored, counted in the steps of its bus, and dropped by
+- A failed entry reaches no queue and joins nothing. It is stored, and dropped by
   retention like an accepted one.
 
 In the API (`GET /api/messages/{message_id}`, [`openapi.yaml`](openapi.yaml)) the entry is a `put_event` step

@@ -22,6 +22,7 @@ import json
 from datetime import datetime, timezone
 from typing import Optional
 
+from . import eventbridge as eb_mod
 from . import order as order_mod
 from . import origin as origin_mod
 from . import purge as purge_mod
@@ -136,12 +137,14 @@ def source_queue_of(mid: Optional[str], sends: list, receives: list, fallback: s
 
 
 def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S,
-          max_receive_counts: Optional[dict] = None, purges=(), publishes=(), cancels=()) -> dict:
+          max_receive_counts: Optional[dict] = None, purges=(), publishes=(), cancels=(), put_events=()) -> dict:
     """``rows``: every stored row of one message (Store.message_rows), any order. ``max_receive_counts``:
     queue name -> the maxReceiveCount of its redrive policy, as configured (spans don't carry it). ``purges``:
     purge rows (Store.purges) that include those of the message's current queue (contract section 18).
     ``publishes``: the SNS publishes this message's receives join (contract section 21.5), as queries.message gives
     them: each ``{"publish": row, "joined_by": [...], "reached": [...], "reached_truncated": bool}``.
+    ``put_events``: the EventBridge PutEvents entries they join (contract section 25.3), each ``{"entry": row,
+    "joined_by": "event_id", "reached": [...], "reached_truncated": bool}``.
 
     A RabbitMQ message (contract/span-contract-amqp.md, rabbitmq.py): ``max_receive_counts`` gives each queue's
     x-delivery-limit, and ``cancels`` the stored consumer cancels (Store.consumer_cancels) of its queues, which show
@@ -325,6 +328,15 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
         observed.extend(_publish_event(prow, x, delivery) for prow, x in zip(prows, publishes))
         order = order_mod.Order(steps)
         idx = {r["row"]: i for i, r in enumerate(steps)}
+    elif put_events:
+        # EventBridge PutEvents (contract section 25.3): a joined entry is observed, placed like an SNS publish, and
+        # replaces section 23.3's inferred arrival.
+        erows = [eb_mod.as_row(x["entry"]) for x in put_events]
+        steps = steps + erows
+        eb_delivery, eb_time = eb_mod.delivery_ms(receives), eb_mod.event_time_ms(receives)
+        observed.extend(_put_event_event(erow, x, eb_delivery, eb_time) for erow, x in zip(erows, put_events))
+        order = order_mod.Order(steps)
+        idx = {r["row"]: i for i, r in enumerate(steps)}
     elif (arrived := sns_mod.arrived_from(receives)) is not None:
         r, arn = arrived
         infer(None, r, 1, _arrived_event(r, arn, by_row[r["row"]], delivery))
@@ -415,6 +427,33 @@ def _publish_event(prow, joined: dict, delivery: Optional[int]) -> dict:
         ev["batch_entry_id"] = prow["batch_entry_id"]
     if delivery is not None and sns_mod.BY_ENVELOPE in by:
         ev["sns_delivery_ms"] = delivery
+    return ev
+
+
+PUT_EVENTS_SOURCE = "eventbridge_put_events"  # a recorded PutEvents entry this message's receives join (section 25.3)
+
+
+def _put_event_event(erow, joined: dict, delivery: Optional[int], event_time: Optional[int]) -> dict:
+    """A recorded EventBridge PutEvents entry this message's receives join, as a step of its timeline."""
+    a = sns_mod.attributes(erow)
+    bus = erow["queue"]
+    given = a.get(eb_mod.TIME_GIVEN) is True
+    ev = {"type": "put_event", "inferred": False, "source": PUT_EVENTS_SOURCE, **_time(erow["start_ns"], erow["time_ns"]),
+          "group": None, "queue": bus, "consumer": consumer(erow), "span": _span(erow),
+          "process_order": _ticks(erow), "event_bus": bus, "event_id": erow["message_id"],
+          "joined_by": joined["joined_by"], "reached": joined["reached"],
+          "reached_truncated": joined["reached_truncated"], "event_time_given": given,
+          "reason": f"Put on EventBridge bus {bus} by PutEvents. This message is joined to the entry by the event ID in "
+                    f"the body of its receive."}
+    for name, key in ((eb_mod.SOURCE, "eventbridge_source"), (eb_mod.DETAIL_TYPE, "detail_type"),
+                      (eb_mod.EVENT_BUS, "event_bus_given"), (eb_mod.ENTRY_INDEX, "entry_index")):
+        if a.get(name) is not None and not isinstance(a.get(name), bool):
+            ev[key] = a[name]
+    if event_time is not None:
+        ev["event_time"] = iso(event_time * 1_000_000)
+        ev["event_time_ms"] = event_time
+    if delivery is not None:  # SQS's SentTimestamp minus the event's time: AWS clocks unless the sender gave a Time
+        ev["eventbridge_delivery_ms"] = delivery
     return ev
 
 
