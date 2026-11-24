@@ -2,7 +2,8 @@
 
 The quick cases of bench/faults.py run here, each for a few seconds of steady ingest: SIGKILL mid-write and a
 restart (both SQLite durabilities, and Postgres), every export sent twice (a client retry), and spans far out of
-order from skewed clocks; on Postgres also two replicas with one killed. Each compares what was acknowledged
+order from skewed clocks; on Postgres also two replicas with one killed, and statements cancelled as a
+statement timeout cancels them. Each compares what was acknowledged
 with what is stored, and what the API shows with a clean server given the same spans. The Postgres cases run
 when TRAILBEAM_TEST_POSTGRES_URL is set. The slow ones (Postgres stopped for a minute, the disk filled for real,
 Postgres restarted during a retention pass) need Docker: ``python bench/faults.py``, README "Fault tests".
@@ -30,8 +31,8 @@ PG = os.environ.get("TRAILBEAM_TEST_POSTGRES_URL")
 QUICK = ["--phase-s", "2", "--kills", "2", "--sample", "60", "--workers", "3"]
 
 
-def run_case(tmp_path, case, backend):
-    rc = faults.main(["--case", case, "--backend", backend, *QUICK, "--out", str(tmp_path)])
+def run_case(tmp_path, case, backend, *extra):
+    rc = faults.main(["--case", case, "--backend", backend, *QUICK, *extra, "--out", str(tmp_path)])
     [r] = json.loads((tmp_path / "faults.json").read_text())
     assert r.get("ok") and rc == 0, json.dumps(r, indent=1, default=str)
     assert r["spans_acked"] > 0 and r["lost"] == 0 and r["doubled"] == 0
@@ -47,6 +48,13 @@ def test_sqlite_server_under_fault(tmp_path, case):
 @pytest.mark.parametrize("case", ["kill9", "duplicate", "disorder", "replicas"])
 def test_postgres_server_under_fault(tmp_path, case):
     run_case(tmp_path, case, "postgres")
+
+
+@pytest.mark.skipif(not PG, reason="TRAILBEAM_TEST_POSTGRES_URL is not set")
+def test_postgres_statement_timeouts_are_retried_and_stored(tmp_path):
+    """QV-300: an export whose statement is cancelled (statement_timeout) is a 503, retried and stored once."""
+    r = run_case(tmp_path, "statement-timeout", "postgres", "--outage-s", "3")
+    assert r["attempts_retried"] > 0 and "0 exports answered" not in r["notes"][0]
 
 
 # ---- a full disk -------------------------------------------------------------------------------------------
@@ -103,3 +111,29 @@ def test_disk_full_is_recognised_by_code_and_by_message():
     e2 = sqlite3.OperationalError("database is locked")
     e2.sqlite_errorcode = 5
     assert not _disk_full(e2) and not _disk_full(ValueError("database or disk is full"))
+
+
+# ---- a store statement timeout (QV-300) -------------------------------------------------------------------
+
+def test_a_store_timeout_is_503_store_timeout_not_500(db, server, monkeypatch, caplog):
+    """Any store's StoreTimeout (Postgres: a statement past statement_timeout) is a retryable 503, logged at ERROR
+    with the export's size. test_postgres.py has it from a real statement timeout."""
+    import logging
+
+    from trailbeam.server.store import StoreTimeout
+
+    real = db.insert
+
+    def slow(*a, **kw):
+        raise StoreTimeout("a Postgres statement was cancelled (statement timeout): canceling statement")
+    monkeypatch.setattr(db, "insert", slow)
+    big = export(0, 4)
+    with caplog.at_level(logging.ERROR, logger="trailbeam.server"):
+        status, headers, _ = post(server, big)
+    assert status == 503 and headers["Retry-After"] == "3"
+    assert f"export of 12 span(s), {len(big)} bytes not stored" in caplog.text
+    monkeypatch.setattr(db, "insert", real)
+    assert post(server, big)[0] == 200  # the exporter's retry
+    assert db.counts()["messages"] == 4
+    with urllib.request.urlopen(server + "/metrics") as r:
+        assert 'trailbeam_ingest_rejected_requests_total{reason="store_timeout"} 1' in r.read().decode()
