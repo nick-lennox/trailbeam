@@ -75,6 +75,7 @@ security:
   - session: []
   - personalToken: []
   - signInSession: []
+  - proxySignIn: []
 paths:
   /api/me:
     get:
@@ -94,11 +95,15 @@ paths:
               examples:
                 open:
                   summary: A server without a token or an admin
-                  value: {"auth": "off", "via": "none", "user": null}
+                  value: {"auth": "off", "via": "none", "user": null, "sign_out": false}
                 person:
                   summary: With a personal API token, once an admin exists
-                  value: {"auth": "accounts", "via": "personal_token", "user": {"id": 2, "email": "ana@example.com", "name": "Ana", "role": "member"}}
+                  value: {"auth": "accounts", "via": "personal_token", "user": {"id": 2, "email": "ana@example.com", "name": "Ana", "role": "member"}, "sign_out": false}
+                proxy:
+                  summary: Signed in by a proxy in front of the server (`--proxy-auth-header`)
+                  value: {"auth": "accounts", "via": "proxy", "user": {"id": 3, "email": "bo@example.com", "name": "bo", "role": "member"}, "sign_out": true}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
   /api/messages:
     get:
@@ -188,6 +193,7 @@ paths:
                 next_cursor: MTc5NDg1MjMzNzUyODAwMDAwMDptLWJpbGwtMQ
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
   /api/messages/{message_id}:
     get:
@@ -376,6 +382,7 @@ paths:
                 notices: []
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
         '404': {$ref: '#/components/responses/NotFound'}
   /api/messages/{message_id}/body:
@@ -443,6 +450,7 @@ paths:
                     send_status: 'off'
                     receive_status: 'off'
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
         '404': {$ref: '#/components/responses/NotFound'}
   /api/duplicates:
@@ -503,6 +511,7 @@ paths:
                 next_cursor: MTc5NDg1MjMzNzUyODAwMDAwMDptLWJpbGwtMQ
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
   /api/stuck:
     get:
@@ -557,6 +566,7 @@ paths:
                 next_cursor: MTc5NDg1MjMzNjkxNDAwMDAwMDptLXBheS0y
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
   /api/causes:
     get:
@@ -664,6 +674,7 @@ paths:
                   cause: 7fc2a3d79616
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
   /api/tenants:
     get:
@@ -721,6 +732,7 @@ paths:
                   dead_lettered: 0
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
   /api/queues/{queue}/series:
     get:
@@ -819,6 +831,7 @@ paths:
                 - {service: orders-worker, version: 1.4.3, first_ms: 1794853140000}
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
         '501': {$ref: '#/components/responses/NotImplemented'}
   /api/flows:
@@ -882,6 +895,7 @@ paths:
                   dlq: {name: orders-dlq, received: 3}
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
         '501': {$ref: '#/components/responses/NotImplemented'}
   /api/tenants/search:
@@ -924,6 +938,7 @@ paths:
                 to_ms: 1794855600000
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
   /api/stats:
     get:
@@ -951,6 +966,7 @@ paths:
                   messages: 10
                   unjoined_settles: 0
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
   /api/health:
     get:
@@ -1049,6 +1065,7 @@ paths:
                   received_ns: 1795026196467000000
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '500': {$ref: '#/components/responses/InternalError'}
   /api/ready:
@@ -1281,6 +1298,18 @@ components:
       in: cookie
       name: trailbeam_sid
       description: The cookie that signing in sets, with an email and password or with single sign-on (OpenID Connect, `/login/oidc`). Over HTTPS it is named `__Host-trailbeam_sid`. It works on the API and the web screen once an admin exists, never on ingest.
+    proxySignIn:
+      type: apiKey
+      in: header
+      name: X-Forwarded-Email
+      description: |
+        The email a proxy in front of the server signed in (oauth2-proxy, Pomerium, Cloudflare Access...). Off
+        unless the server runs with `--proxy-auth-header`, which names the header (`X-Forwarded-Email` is
+        oauth2-proxy's). Believed only from the proxy: from a `--trusted-proxy` address and/or with the shared
+        secret of `--proxy-auth-secret-file` in `X-Trailbeam-Proxy-Secret`; from anyone else it is ignored. A
+        first-time email becomes a member. An email that has a local account the proxy may not sign in to
+        (`trailbeam users link-proxy`), or a disabled one, is answered 403. Works on the API and the web screen
+        once an admin exists, never on ingest. Added in 0.5.
     ingestKey:
       type: apiKey
       in: header
@@ -1363,6 +1392,15 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}
           example: {"error": "this server needs Authorization: Bearer <TRAILBEAM_TOKEN>"}
+    Forbidden:
+      description: |
+        The request names a person who may not have this. With `--proxy-auth-header`: the proxy signed in an email
+        whose local account isn't linked to the proxy (`trailbeam users link-proxy`), a disabled person, more than
+        one email, or something that isn't one. Added in 0.5.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {"error": "this account is disabled: ask an admin"}
     InternalError:
       description: The server failed to answer. On a Postgres store, this is the answer while the database is unreachable.
       content:
@@ -1389,8 +1427,16 @@ components:
         auth: {type: string, enum: [accounts, token, 'off'], description: As `config.auth` in `/api/health`.}
         via:
           type: string
-          enum: [none, shared_token, shared_cookie, session, personal_token]
-          description: What let the request in. `none` means the server needs no credential.
+          enum: [none, shared_token, shared_cookie, session, personal_token, proxy]
+          description: |
+            What let the request in. `none` means the server needs no credential. `proxy` (added in 0.5): the
+            email header of a proxy in front of the server (oauth2-proxy, Pomerium, Cloudflare Access...), when
+            the server runs with `--proxy-auth-header` and the request came from that proxy.
+        sign_out:
+          type: boolean
+          description: |
+            Whether `GET /logout` signs this request out: true for a sign-in cookie, and for `proxy` when the
+            server has `--proxy-auth-sign-out-url` (the proxy's own sign-out). Added in 0.5.
         user:
           oneOf:
             - type: 'null'
@@ -1402,7 +1448,7 @@ components:
                 email: {type: string}
                 name: {type: string}
                 role: {type: string, enum: [admin, member]}
-          description: The person, for a session or a personal API token. Otherwise null.
+          description: The person, for a session, a personal API token or a proxy's sign-in. Otherwise null.
     Error:
       type: object
       additionalProperties: false
@@ -2333,6 +2379,11 @@ components:
             store_bodies: {type: array, description: 'The queues whose bodies the server stores. `*` is every queue.', items: {type: string}}
             retention:
               oneOf: [{$ref: '#/components/schemas/Retention'}, {type: 'null'}]
+            proxy_auth:
+              type: boolean
+              description: |
+                Whether the server believes a proxy's email header (`--proxy-auth-header`): people signed in by
+                that proxy need no Trailbeam password. Added in 0.5.
             trace_link:
               type: [string, 'null']
               description: |

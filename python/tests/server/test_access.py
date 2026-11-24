@@ -395,7 +395,7 @@ def test_without_users_or_tokens_nothing_changes(serve):
     assert call(url, "/api/messages")[0] == 200 and call(url, "/")[0] == 200 and call(url, "/metrics")[0] == 200
     h = json.loads(call(url, "/api/health")[2])
     assert h["config"]["auth"] == "off" and h["config"]["ingest_auth"] == "open"
-    assert json.loads(call(url, "/api/me")[2]) == {"auth": "off", "via": "none", "user": None}
+    assert json.loads(call(url, "/api/me")[2]) == {"auth": "off", "via": "none", "user": None, "sign_out": False}
     assert call(url, "/login")[0] == 404
 
 
@@ -463,7 +463,7 @@ def test_people_sign_in_and_out_and_personal_tokens_carry_their_role(serve):
     assert call(url, "/tenants", headers={"Cookie": cookie})[0] == 200
     me = json.loads(call(url, "/api/me", headers={"Cookie": cookie})[2])
     assert me == {"auth": "accounts", "via": "session",
-                  "user": {"id": ana, "email": "ana@example.com", "name": "Ana", "role": "member"}}
+                  "user": {"id": ana, "email": "ana@example.com", "name": "Ana", "role": "member"}, "sign_out": True}
     full = json.loads(call(url, "/api/health", headers={"Cookie": cookie})[2])
     assert full["config"]["auth"] == "accounts"
     # a session never sends spans

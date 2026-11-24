@@ -26,7 +26,7 @@ MAX_NAME = 200
 _EMAIL = re.compile(r"[^@\s]+@[^@\s]+")
 
 USER_COLUMNS = ("id", "email", "name", "role", "password_hash", "created_at_ms", "updated_at_ms",
-                "disabled_at_ms", "failed_count", "locked_until_ms", "last_sign_in_ms")
+                "disabled_at_ms", "failed_count", "locked_until_ms", "last_sign_in_ms", "proxy_linked_at_ms")
 _USER_SELECT = "SELECT " + ", ".join(USER_COLUMNS) + " FROM users"
 
 
@@ -140,14 +140,17 @@ class Accounts:
 
     # ---- people -----------------------------------------------------------------------------------
 
-    def create_user(self, email: str, name: str, role: str, password_hash: Optional[str], now_ms: int) -> int:
-        """A new person; their ID. Raises AccountError (EmailTaken: the email, ignoring case, has an account)."""
+    def create_user(self, email: str, name: str, role: str, password_hash: Optional[str], now_ms: int, *,
+                    proxy: bool = False) -> int:
+        """A new person; their ID. ``proxy``: they may sign in through the proxy (proxy_auth.py). Raises
+        AccountError (EmailTaken: the email, ignoring case, has an account)."""
         email, name, role = check_email(email), check_name(name), check_role(role)
         try:
             with self._write() as tx:
                 return tx.insert_id(
-                    "INSERT INTO users (email, name, role, password_hash, created_at_ms, updated_at_ms) "
-                    "VALUES (?, ?, ?, ?, ?, ?)", (email, name, role, password_hash, now_ms, now_ms))
+                    "INSERT INTO users (email, name, role, password_hash, created_at_ms, updated_at_ms, "
+                    "proxy_linked_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (email, name, role, password_hash, now_ms, now_ms, now_ms if proxy else None))
         except self._unique:
             raise EmailTaken(f"{email} already has an account") from None
 
@@ -195,6 +198,13 @@ class Accounts:
             tx.run("DELETE FROM sessions WHERE user_id = ?", (user_id,))
         return True
 
+    def set_proxy_linked(self, user_id: int, linked: bool, now_ms: int) -> bool:
+        """Let (or stop) a person sign in through the proxy (proxy_auth.py). Their sessions stay: a session was
+        started with a password, which this doesn't change. False: no such person."""
+        with self._write() as tx:
+            return bool(tx.run("UPDATE users SET proxy_linked_at_ms = ?, updated_at_ms = ? WHERE id = ?",
+                               (now_ms if linked else None, now_ms, user_id)))
+
     def set_disabled(self, user_id: int, disabled: bool, now_ms: int) -> bool:
         """Stop (or let again) a person signing in; disabling ends their sessions. Raises LastAdmin for the last
         admin who can sign in."""
@@ -215,8 +225,8 @@ class Accounts:
             _keep_an_admin(tx, user_id)
             return bool(tx.run("DELETE FROM users WHERE id = ?", (user_id,)))
 
-    def create_first_admin(self, email: str, name: str, password_hash: str, now_ms: int, *,
-                           setup_code_sha256: Optional[str] = None) -> int:
+    def create_first_admin(self, email: str, name: str, password_hash: Optional[str], now_ms: int, *,
+                           setup_code_sha256: Optional[str] = None, proxy: bool = False) -> int:
         """The first admin: their ID. One transaction, under ADMIN_LOCK on Postgres, so of two at once (two replicas
         reading TRAILBEAM_ADMIN_EMAIL, or a setup link opened twice) one wins. With ``setup_code_sha256``, the
         setup code is used up in the same transaction. Raises AdminExists, BadSetupCode, EmailTaken, AccountError."""
@@ -230,8 +240,9 @@ class Accounts:
                         "AND used_at_ms IS NULL AND expires_at_ms > ?", (now_ms, setup_code_sha256, SETUP, now_ms)):
                     raise BadSetupCode("this setup link has been used or is out of date")
                 return tx.insert_id(
-                    "INSERT INTO users (email, name, role, password_hash, created_at_ms, updated_at_ms) "
-                    "VALUES (?, ?, 'admin', ?, ?, ?)", (email, name, password_hash, now_ms, now_ms))
+                    "INSERT INTO users (email, name, role, password_hash, created_at_ms, updated_at_ms, "
+                    "proxy_linked_at_ms) VALUES (?, ?, 'admin', ?, ?, ?, ?)",
+                    (email, name, password_hash, now_ms, now_ms, now_ms if proxy else None))
         except self._unique:
             raise EmailTaken(f"{email} already has an account") from None
 

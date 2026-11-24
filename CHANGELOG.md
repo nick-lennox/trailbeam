@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **A page per queue** (QV-364): `/queue?name=<queue>`, and a **Queues** list at `/queues` (a new item in the
+  header). The page asks whether work is arriving faster than it is finished: sends vs handled (the band between
+  them is the backlog building), receives vs handled with dead-letter moves (seen, and inferred from
+  maxReceiveCount), p95 time in queue and p95 time in handler, on one time axis with a shared crosshair. Click or
+  drag across minutes to get links to the messages behind them. Deploys show as markers, and "By version" splits
+  handled and the p95s per `service.version`. A health verdict from your services' spans, labelled as such; the
+  senders and consumers; the queue's stuck messages and dead-letter moves; and a plain list of what Trailbeam
+  can't see without AWS (depth, in flight, the oldest message's age, the DLQ's depth), with a link to the SQS
+  console. The time range, the selected minutes and "By version" are in the URL. The view is
+  `QueuePage` in `@trailbeam/ui`, which the hosted app uses too.
 - **The Stuck page groups its messages by cause, and lists the dead-letter queues** (QV-367, step 2). `/stuck`
   now reads `/api/causes`. It shows one row per cause, with its count, first and last seen, a 24-hour trend,
   the dead-letter split, and the newest error text. Below that are the stuck messages, each with its cause
@@ -338,22 +348,17 @@
   quorum queues' headers, the dead-letter source and reason from `x-death`, and message identity. It comes with
   vectors and fixtures. Nothing emits or reads these spans yet: the server (QV-306) and the Python package
   (QV-309) follow. SQS and SNS spans are unchanged.
-- **Single sign-on with OpenID Connect** (QV-228, users and roles phase 3b, free and open source). "Sign in with
-  Okta / Microsoft Entra / Google Workspace / Keycloak": the authorization code flow with PKCE, turned on with
-  `--oidc-issuer`, `--oidc-client-id`, an optional `--oidc-client-secret-file` and the new `--public-url` (the
-  redirect URI is `<public URL>/login/oidc/callback`), with users and roles switched on (`--accounts`). It needs the new extra: `pip install
-  "trailbeam[server,sso]"` (PyJWT and `cryptography`); a plain server install still pulls in no crypto library.
-  `--oidc-admin-groups` and `--oidc-member-groups` turn the provider's groups into roles at every sign-in, with
-  `--oidc-default-role` for everyone else and `--oidc-allowed-domains` to limit who may sign in. An account is
-  only made from an email the provider verified, unless `--oidc-allow-unverified-email` is on (needed for Entra,
-  which sends no `email_verified`). An email that already has a local account is refused unless
-  `--oidc-link-email` is on, and linking never joins an account another provider account already signs in to. A
-  single sign-on session lasts 12 hours (`--oidc-session-hours`), not 30 days, because the provider is asked only
-  at sign-in. Google sends no groups, and Entra
-  leaves them out for people in more than 200 groups: the README says what to do for each. Sign-ins in progress
-  are kept in the store, so every replica can finish them: **SQLite schema 18, Postgres schema 12** add the
-  `oidc_logins` and `oidc_identities` tables. CI runs the flow against Keycloak 26. SAML and SCIM are not
-  included.
+- **Sign-in through a proxy** (QV-227, users and roles phase 3a). With `--proxy-auth-header X-Forwarded-Email`
+  (`TRAILBEAM_PROXY_AUTH_HEADER`), people signed in by oauth2-proxy, Pomerium, Cloudflare Access or similar need no
+  Trailbeam password. Off by default; the header is believed only from `--trusted-proxy` addresses and/or with a
+  shared secret in `X-Trailbeam-Proxy-Secret` (`--proxy-auth-secret-file`), and the server refuses to start with
+  neither. A first-time email becomes a member, never an admin. An email that has a local account is refused until
+  an admin runs `trailbeam users link-proxy`, so the proxy can't be used to take over an account; `unlink-proxy`
+  undoes it, and `users create --proxy` makes an account for the proxy with no password. `--proxy-auth-sign-out-url`
+  gives those people a Sign out that ends the proxy's session. `/api/me` says `via: proxy` and gains `sign_out`,
+  `/api/health` gains `config.proxy_auth`, and the API's endpoints can answer 403. The README has an oauth2-proxy
+  setup. Schema: SQLite 18, Postgres 12 (`users.proxy_linked_at_ms`, NULL for everyone already stored). Checking
+  proxies' signed tokens (Cloudflare, Pomerium, Google IAP, AWS ALB) comes later, with the `sso` extra.
 
 ## 0.4.0: set up in one command
 

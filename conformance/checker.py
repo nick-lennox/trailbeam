@@ -937,9 +937,13 @@ def check_lambda_span(e: Expected, s: Span, header: dict, problems: list) -> Non
         if e.op == "outcome" and s.end + CLOCK_SLACK_NS < started:
             err(f"times: the outcome is at {s.end}, before the handler started at {started}", "2")
     # Flushed before the handler ran (contract 4.2): the Collector had the span before the handler started.
+    # The two times come from two processes (the Collector's clock, the handler's estimate of the wall clock),
+    # so a tie within CLOCK_SLACK_NS is clock noise, not order: the Collector stamps the span before it answers
+    # the export, so a wrapper that waited for the flush is always first in fact. A wrapper that didn't flush
+    # shows up a batch delay (seconds) or the handler's run time late, far outside the slack.
     if e.op == "receive" and started:
         got = s.get("kit.collector.received_unix_nano")
-        if isinstance(got, int) and got > started:
+        if isinstance(got, int) and got > started + CLOCK_SLACK_NS:
             err(f"not flushed before the handler ran: the Collector received this receive span "
                 f"{(got - started) / 1e6:.1f} ms after the handler started (a timeout or out-of-memory kill would lose it)",
                 "4.2")
