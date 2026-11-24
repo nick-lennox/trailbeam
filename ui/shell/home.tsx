@@ -13,7 +13,8 @@ import { MessagesList } from "./lists.tsx";
 
 const POLL_MS = 2000;
 const BACKOFF_MS = 10_000;
-const FILTERS = ["queue", "tenant", "body", "cursor"];
+// a range or a pinned window is a filter too: a shared link shows its list, not the first-run screen
+const FILTERS = ["queue", "tenant", "body", "cursor", "range", "from_ms", "to_ms"];
 
 function savedRuntime(): Runtime {
   try { return localStorage.getItem(RUNTIME_KEY) === "node" ? "node" : "python"; } catch { return "python"; }
