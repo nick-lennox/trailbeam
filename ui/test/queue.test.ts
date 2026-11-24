@@ -194,6 +194,18 @@ test("hosted, AWS read: settings from SQS, the Now row's AWS figures, the CloudW
   assert.doesNotMatch(html, /What Trailbeam can’t see here/);
 });
 
+test("afterCloudWatch: the host's section sits between the CloudWatch band and the tables; unset, nothing is drawn", () => {
+  const d: QueuePageData = { ...selfHosted(), configured: null, health: null, noHealth: "No verdict without AWS", aws: { status: "no_account", detail: null, readAt: null, settings: null, series: null, errors: [] } };
+  const slot = createElement("section", { "data-slot": "now" }, "In orders now");
+  const html = render({ data: d, afterCloudWatch: slot });
+  const band = html.indexOf("Connect an AWS account →");
+  const at = html.indexOf('<section data-slot="now">In orders now</section>');
+  const tables = html.indexOf("<table");
+  assert.ok(band >= 0 && at > band && tables > at, `band ${band}, slot ${at}, tables ${tables}`);
+  assert.equal(render({ data: d, afterCloudWatch: undefined }), render({ data: d }));
+  assert.doesNotMatch(render({ data: d }), /data-slot/);
+});
+
 test("states: loading draws the frames, a failed query says so, an idle range offers longer ones, an unknown queue says what we can't know", () => {
   const loading = render({});
   assert.match(loading, /aria-busy="true"/);
