@@ -221,11 +221,12 @@ def run_variant(driver: dict, variant: dict, bench: Bench, workdir: Path) -> che
     want = checker.expected_count(header, calls, key, bool(variant.get("capture")))
     spans = wait_for_spans(bench.spans_file, run, want)
     settings = {"run": run, "key": key, "variant": variant["name"], "parent": variant.get("parent", "any"),
-                "capture": bool(variant.get("capture"))}
+                "capture": bool(variant.get("capture")), "receive_roots": bool(variant.get("receive_roots"))}
     # What `kit.py check --settings` needs to check this run again. The key is a throwaway of this bench.
     (workdir / f"{run}.run.json").write_text(json.dumps(settings, indent=2))
     return checker.check(header, calls, spans, run=run, key=key, variant=variant["name"],
-                         parent=settings["parent"], capture=settings["capture"])
+                         parent=settings["parent"], capture=settings["capture"],
+                         receive_roots=settings["receive_roots"])
 
 
 def wait_for_spans(path: Path, run: str, want: int, timeout: float = 20.0) -> list:
@@ -283,7 +284,7 @@ def cmd_run(args) -> int:
 def cmd_check(args) -> int:
     if args.settings:
         saved = json.loads(Path(args.settings).read_text())
-        for k in ("run", "key", "variant", "parent", "capture"):
+        for k in ("run", "key", "variant", "parent", "capture", "receive_roots"):
             if getattr(args, k) in (None, "", False):
                 setattr(args, k, saved.get(k))
     if not args.run or not args.key:
@@ -291,7 +292,8 @@ def cmd_check(args) -> int:
     header, calls = checker.read_truth(Path(args.truth).read_text().splitlines())
     spans = checker.read_spans(Path(args.spans).read_text().splitlines())
     report = checker.check(header, calls, spans, run=args.run, key=args.key, variant=args.variant or "",
-                           parent=args.parent or "any", capture=bool(args.capture))
+                           parent=args.parent or "any", capture=bool(args.capture),
+                           receive_roots=bool(args.receive_roots))
     print(json.dumps(report.as_json(), indent=2) if args.json else checker.render(report))
     return 0 if report.ok else 1
 
@@ -307,12 +309,14 @@ def main(argv=None) -> int:
     c = sub.add_parser("check", help="check an existing spans file against a ground-truth file")
     c.add_argument("--truth", required=True)
     c.add_argument("--spans", required=True, help="the Collector's file export (OTLP JSON lines)")
-    c.add_argument("--settings", help="a <run>.run.json that `kit.py run` wrote: run, key, variant, parent, capture")
+    c.add_argument("--settings", help="a <run>.run.json that `kit.py run` wrote: run, key, variant, parent, capture, receive_roots")
     c.add_argument("--run", help="the run's service.name")
     c.add_argument("--key", help="the TRAILBEAM_RECEIPT_HASH_KEY the driver ran with")
     c.add_argument("--variant", default="")
     c.add_argument("--parent", choices=PARENT_MODES)
     c.add_argument("--capture", action="store_true", help="the run had body capture on for every queue")
+    c.add_argument("--receive-roots", action="store_true",
+                   help="ReceiveMessage spans may have no parent (a poll loop under a Java agent)")
     c.add_argument("--json", action="store_true")
     c.set_defaults(fn=cmd_check)
     args = p.parse_args(argv)
