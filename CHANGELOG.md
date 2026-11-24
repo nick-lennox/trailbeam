@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Span contract 4.0: broker-neutral kinds and RabbitMQ spans** (QV-305, contract only). Kinds are
+  `<family>.<operation>`, and `contract/span-contract-amqp.md` defines the `amqp.*` spans of a RabbitMQ client
+  (publish with confirms, return, deliver, ack, nack, reject, cancel, channel closed), the receive count from
+  quorum queues' headers, the dead-letter source and reason from `x-death`, and message identity. It comes with
+  vectors and fixtures. Nothing emits or reads these spans yet: the server (QV-306) and the Python package
+  (QV-309) follow. SQS and SNS spans are unchanged.
 - **A compatibility matrix, run every night** (QV-335). Python 3.10 to 3.14, each with the oldest
   (boto3 / botocore 1.34.0, OpenTelemetry 1.28 / 0.49b0) and the newest dependencies, Node.js 20, 22 and 24, each
   with the oldest (3.572.0) and the newest `@aws-sdk/client-sqs`, and Postgres 14 to 18
