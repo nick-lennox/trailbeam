@@ -50,6 +50,13 @@ before this version (0.3.0 and earlier) refuses the database from then on.
 **Purges** (version 9, QV-245). ``purges``: the PurgeQueue calls (contract section 18), not partitioned: they
 belong to no message, and every list page reads them by queue.
 
+**Queue events** (version 11, QV-363). ``queue_events``: what each message adds to each queue's page (queues.py),
+in the message's place like its tenant events, keyed by (queue key, time) so one queue's range is an index range
+of each partition; ``messages.qevents_json`` lists a message's. ``queue_rollup``: those events added up per hour,
+queue key, kind, service, Lambda flag and peer, for the flows, one row per writing connection as ``tenant_rollup``.
+``place_queue_keys``: the queue keys each place has events of (not partitioned, so the list of queues is read
+without touching every place).
+
 **Message-ID indexes** (version 3, QV-118). ``message_queues``, ``message_tenants`` and ``tenant_events`` are
 indexed by ``mid``, so rewriting a message's summary deletes its old list rows by index instead of scanning its
 place's partition.
@@ -65,8 +72,50 @@ from .migrations import SchemaError, SchemaTooNew
 
 # Partitioned tables: one partition of each per place.
 PARTITIONED = ("spans", "messages", "message_queues", "message_tenants", "tenant_events", "bodies", "tenant_rollup",
-               "mid_places", "hash_places")
+               "mid_places", "hash_places", "queue_events", "queue_rollup")
 LOOKUPS = ("mid_places", "hash_places")  # partitioned since version 5
+
+# Version 11 (QV-363): the queue page's events and their hourly rollup (queues.py, postgres.py "Queue events").
+QUEUE_CREATE = """
+CREATE TABLE IF NOT EXISTS queue_events (
+    rclass BIGINT NOT NULL,
+    bucket BIGINT NOT NULL,
+    queue_key TEXT COLLATE "C" NOT NULL, -- account/region/name, else the URL, else the name (queues.key)
+    at_ms BIGINT NOT NULL,
+    mid TEXT COLLATE "C" NOT NULL,
+    seq BIGINT NOT NULL,                 -- its place in the message's qevents_json
+    kind TEXT NOT NULL,                  -- queues.KINDS
+    service TEXT,                        -- the span's service.name
+    lambda BIGINT NOT NULL,              -- the span came from a Lambda function
+    value BIGINT,                        -- receive count, time in queue, time in handler or body size (queues.py)
+    peer TEXT COLLATE "C",               -- dlq_receive: the source queue's key
+    version TEXT,                        -- the span's service.version (QV-362)
+    PRIMARY KEY (rclass, bucket, queue_key, at_ms, mid, seq)
+) PARTITION BY RANGE (rclass, bucket);
+CREATE INDEX IF NOT EXISTS queue_events_mid ON queue_events (mid, seq);
+CREATE TABLE IF NOT EXISTS queue_rollup (
+    rclass BIGINT NOT NULL,
+    bucket BIGINT NOT NULL,
+    hour BIGINT NOT NULL,                -- at_ms // 3,600,000
+    queue_key TEXT COLLATE "C" NOT NULL,
+    kind TEXT NOT NULL,
+    service TEXT NOT NULL,               -- '' for none
+    lambda BIGINT NOT NULL,
+    peer TEXT COLLATE "C" NOT NULL,      -- '' for none
+    writer BIGINT NOT NULL,              -- pg_backend_pid() of the connection that owns the row (as tenant_rollup)
+    n BIGINT NOT NULL,                   -- the events; a writer's row can be below 0 (it took out another's)
+    vn BIGINT NOT NULL,                  -- of them with a value
+    vsum BIGINT NOT NULL,                -- the sum of those values
+    UNIQUE (rclass, bucket, hour, queue_key, kind, service, lambda, peer, writer)
+) PARTITION BY RANGE (rclass, bucket);
+CREATE INDEX IF NOT EXISTS queue_rollup_dlq ON queue_rollup (queue_key, peer) WHERE kind = 'dlq_receive';
+CREATE TABLE IF NOT EXISTS place_queue_keys (
+    rclass BIGINT NOT NULL,
+    bucket BIGINT NOT NULL,
+    queue_key TEXT COLLATE "C" NOT NULL, -- a queue key with queue events in the place
+    PRIMARY KEY (rclass, bucket, queue_key)
+);
+"""
 
 # Version 5's other tables (QV-127): the late lookup rows and the filter of the sealed places.
 # Version 6 (QV-148): the test spans of trailbeam doctor (contract section 17), an ID and when a replica stored it.
@@ -215,6 +264,8 @@ CREATE TABLE IF NOT EXISTS messages (
     tenants_json TEXT NOT NULL,
     events_json TEXT NOT NULL,
     strays_json TEXT NOT NULL DEFAULT '[]',  -- JSON [[rclass, bucket], ...]: other places with rows of it
+    qevents_json TEXT NOT NULL DEFAULT '[]', -- JSON [[at_ms, kind, queue_key, service, lambda, value, peer,
+                                         -- version], ...]: its queue_events rows, seq = index (version 11)
     UNIQUE (rclass, bucket, mid)
 ) PARTITION BY RANGE (rclass, bucket);
 CREATE INDEX IF NOT EXISTS messages_mid ON messages (mid);
@@ -291,7 +342,8 @@ CREATE TABLE IF NOT EXISTS hash_places (
     bucket BIGINT NOT NULL,
     PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
 ) PARTITION BY RANGE (rclass, bucket);
-""" + SEALING + PROBES + account_tables.PG_CREATE + PURGES + """CREATE TABLE IF NOT EXISTS schema_version (
+""" + SEALING + PROBES + account_tables.PG_CREATE + PURGES + QUEUE_CREATE + """
+CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
     name TEXT NOT NULL,
@@ -496,6 +548,74 @@ def _dedup_place_rows(conn, rclass, bucket, rollup, timeline, _apply_rollup, jso
     _apply_rollup(conn, deltas)
 
 
+def _queue_place(conn, rclass: int, bucket: int) -> None:
+    """Version 11, one place: its queue_events and queue_rollup partitions (as _rollup_place makes its rollup's),
+    then every message placed here: its queue events from its spans (here and in its strays), as an export's
+    refresh works them out, in qevents_json, queue_events and the rollup (writer 0), and its keys in
+    place_queue_keys. Safe to run again: the place's rows are built from nothing each time."""
+    from . import timeline  # noqa: PLC0415  (not needed to open a current schema)
+    from .queues import events as queue_events, rollup_sums  # noqa: PLC0415
+    from psycopg.rows import dict_row  # noqa: PLC0415
+    import json  # noqa: PLC0415
+
+    attached = conn.execute(
+        """SELECT NOT i.inhdetachpending FROM pg_inherits i
+           JOIN pg_class ch ON ch.oid = i.inhrelid JOIN pg_class pa ON pa.oid = i.inhparent
+           WHERE ch.relname = %s AND pa.relname = 'messages'
+             AND ch.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())""",
+        (partition_name("messages", rclass, bucket),)).fetchone()
+    if not attached or not attached[0]:
+        return  # being dropped by retention: the next pass removes it
+    for table, name, create, attach in place_ddl(rclass, bucket, ("queue_events", "queue_rollup")):
+        conn.execute(create)
+        if not conn.execute("SELECT 1 FROM pg_inherits WHERE inhrelid = to_regclass(%s)", (name,)).fetchone():
+            conn.execute(attach)
+    place = (rclass, bucket)
+    for t in ("queue_events", "queue_rollup", "place_queue_keys"):
+        conn.execute(f"DELETE FROM {t} WHERE rclass = %s AND bucket = %s", place)
+    was = conn.row_factory
+    conn.row_factory = dict_row  # queues.events reads span rows by name
+    try:
+        msgs = conn.execute("SELECT mid, strays_json FROM messages WHERE rclass = %s AND bucket = %s ORDER BY mid",
+                            place).fetchall()
+        rollup: list = []
+        keys: set = set()
+        for k in range(0, len(msgs), 500):
+            batch = msgs[k:k + 500]
+            spans: dict = {}
+            wheres = {place} | {tuple(p) for m in batch for p in json.loads(m["strays_json"] or "[]")}
+            for pc, pb in sorted(wheres):
+                for r in conn.execute('SELECT * FROM spans WHERE rclass = %s AND bucket = %s AND mid = ANY(%s)',
+                                      (pc, pb, [m["mid"] for m in batch])).fetchall():
+                    spans.setdefault(r["mid"], []).append(r)
+            put, events_of = [], []
+            for m in batch:
+                rows = sorted(spans.get(m["mid"], []), key=lambda r: (r["time_ns"], r["row"]))
+                ev = queue_events(rows, timeline.deduplicated_sends(rows)) if rows else []
+                if not ev:
+                    continue
+                events_of.append((json.dumps(ev), rclass, bucket, m["mid"]))
+                put += [(rclass, bucket, e[2], e[0], m["mid"], i, e[1], e[3], e[4], e[5], e[6], e[7])
+                        for i, e in enumerate(ev)]
+                rollup += ev
+                keys.update(e[2] for e in ev)
+            cur = conn.cursor()
+            cur.executemany("UPDATE messages SET qevents_json = %s WHERE rclass = %s AND bucket = %s AND mid = %s",
+                            events_of)
+            cur.executemany("""INSERT INTO queue_events (rclass, bucket, queue_key, at_ms, mid, seq, kind, service,
+                               lambda, value, peer, version)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""", put)
+        conn.cursor().executemany(
+            """INSERT INTO queue_rollup (rclass, bucket, hour, queue_key, kind, service, lambda, peer, writer, n, vn,
+               vsum) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s)""",
+            [place + k + tuple(c) for k, c in rollup_sums(rollup).items()])
+        conn.cursor().executemany(
+            "INSERT INTO place_queue_keys (rclass, bucket, queue_key) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+            [place + (k,) for k in sorted(keys)])
+    finally:
+        conn.row_factory = was
+
+
 # Version 1 is the first Postgres schema. Later versions go here, one at a time.
 MIGRATIONS: tuple = (
     Migration(2, "lookup tables: the places of a message ID and of a receipt hash (QV-113)", (
@@ -547,8 +667,13 @@ MIGRATIONS: tuple = (
     # Version 10 (QV-362): the resource's service.version on each span, NULL on rows stored before it. Adding a
     # nullable column with no default to the partitioned parent adds it to every place without rewriting it.
     Migration(10, "spans.service_version (QV-362)", ("ALTER TABLE spans ADD COLUMN IF NOT EXISTS service_version TEXT",)),
+    # Version 11 (QV-363): a column with a constant default is added without rewriting a partition; then each
+    # place gets its two new partitions and its messages' queue events, worked out from their spans.
+    Migration(11, "queue events and their hourly rollup (QV-363)", (
+        "ALTER TABLE messages ADD COLUMN IF NOT EXISTS qevents_json TEXT NOT NULL DEFAULT '[]'",
+    ) + tuple(statements(QUEUE_CREATE)), per_place=(_queue_place,)),
 )
-LATEST = 10
+LATEST = 11
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 
