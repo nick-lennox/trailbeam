@@ -177,7 +177,8 @@ jobs:
   java:
     # java/: the AWS SDK for Java v2 package (QV-319). Unit tests (contract vectors, a real SDK client over a
     # canned HTTP layer), then the conformance kit on the installed jar: alone, beside the OpenTelemetry Java
-    # agent (also with its sampler at 0) and beside dd-java-agent; and the Lambda wrapper in the java:21 Lambda
+    # agent (also with its sampler at 0) and beside dd-java-agent, each agent variant with the strict parent check
+    # (receives may be roots: a poll loop has no stock span); and the Lambda wrapper in the java:21 Lambda
     # base image, whose Dockerfile builds the jar from java/ itself.
     name: Java package (unit tests and conformance kit)
     runs-on: ubuntu-latest
@@ -220,6 +221,57 @@ jobs:
             ${{ runner.temp }}/kit/*.driver.log
             ${{ runner.temp }}/kit/*.setup.log
             ${{ runner.temp }}/kit/*.function.log
+
+  java-matrix:
+    # The same jar (built for Java 11, compiled against the newest SDK, SDK scope provided) on the JDKs and SDKs
+    # users bring. Each cell runs the jar's unit tests on its JDK, then the kit's Java driver on its SDK, in every
+    # variant. The SDKs: 2.17.295, the oldest supported; 2.20.162, the last on SQS's query protocol (JSON came in
+    # 2.21); 2.24.13, the last with only ReceiveMessage attributeNames; 2.25.0, the first with
+    # messageSystemAttributeNames. The java job above covers JDK 21 on the newest SDK.
+    name: Java matrix (JDK ${{ matrix.jdk }}, SDK ${{ matrix.sdk }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {jdk: "11", sdk: "2.17.295"}
+          - {jdk: "11", sdk: "2.20.162"}
+          - {jdk: "17", sdk: "2.24.13"}
+          - {jdk: "17", sdk: "2.25.0"}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.jdk }}
+          cache: maven
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install boto3
+      - name: Unit tests on JDK ${{ matrix.jdk }}, install to the local repository
+        run: mvn -B -ntp -f java/pom.xml install
+      - name: Build the conformance driver on SDK ${{ matrix.sdk }}
+        run: mvn -B -ntp -f conformance/drivers/java/pom.xml package -Daws.sdk.version=${{ matrix.sdk }}
+      - name: Fetch the agents the jar must work beside
+        run: |
+          mkdir -p "$RUNNER_TEMP/agents"
+          curl -sSfL -o "$RUNNER_TEMP/agents/otel.jar" https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v2.34.0/opentelemetry-javaagent.jar
+          curl -sSfL -o "$RUNNER_TEMP/agents/dd.jar" https://repo1.maven.org/maven2/com/datadoghq/dd-java-agent/1.69.1/dd-java-agent-1.69.1.jar
+      - name: Java driver on the bench (every variant)
+        env:
+          OTEL_JAVA_AGENT_JAR: ${{ runner.temp }}/agents/otel.jar
+          DD_JAVA_AGENT_JAR: ${{ runner.temp }}/agents/dd.jar
+        run: python conformance/kit.py run conformance/drivers/java/driver.json --workdir "$RUNNER_TEMP/kit"
+      - name: Keep the report and driver logs (not the ground truth, which holds the bench's raw receipt handles)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-kit-java-${{ matrix.jdk }}-${{ matrix.sdk }}
+          path: |
+            ${{ runner.temp }}/kit/report.json
+            ${{ runner.temp }}/kit/bench.log
+            ${{ runner.temp }}/kit/*.driver.log
 
   ui:
     name: Shared UI (@trailbeam/ui)

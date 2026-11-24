@@ -245,6 +245,35 @@ def test_parent_not_exported(run):
     assert "spans have a parent that was not exported" in broken(run, m)
 
 
+def _orphan(op):
+    def m(spans, calls):
+        for s in ours(spans, op=op):
+            s.parent_span_id = ""
+    return m
+
+
+def test_receive_roots_allows_root_receives_only(run):
+    # A poll loop under a Java agent: the receives are roots, everything else is still a child of a stock span.
+    settings, header, calls, spans = copy.deepcopy(run)
+    _orphan("ReceiveMessage")(spans, calls)
+    assert "spans have no parent" in checker.render(run_check(settings, header, calls, spans))
+    report = run_check(settings, header, calls, spans, receive_roots=True)
+    assert report.ok, checker.render(report)
+
+
+def test_receive_roots_still_checks_other_operations(run):
+    text = broken(run, _orphan("DeleteMessage"), receive_roots=True)
+    assert "4 of 20 Trailbeam spans have no parent" in text
+    assert "receives may be roots in this variant; this is another operation" in text
+
+
+def test_receive_roots_still_checks_a_receive_parent_that_was_not_exported(run):
+    def m(spans, calls):  # drop the stock spans the receives are children of
+        stock_parents = {s.parent_span_id for s in ours(spans, op="ReceiveMessage")}
+        spans[:] = [s for s in spans if s.scope == "trailbeam" or s.span_id not in stock_parents]
+    assert "spans have a parent that was not exported" in broken(run, m, receive_roots=True)
+
+
 def test_sampled_run_that_did_not_sample(run):
     text = broken(run, lambda spans, calls: None, parent="unexported")
     assert "the application's sampler was set to 0, yet" in text
