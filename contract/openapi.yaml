@@ -20,7 +20,10 @@ info:
     One port serves the ingest endpoint (`POST /v1/traces`), the API (`GET /api/...`) and the web UI.
     The default port is `4318`.
 
-    Every API endpoint is a `GET` that returns `application/json`. The API never changes stored data.
+    Every API endpoint returns `application/json`. The message, problem, tenant and server endpoints are
+    `GET`s that never change stored data. The people and token endpoints (tags People and Tokens, added
+    in 0.5) also take `POST`, `PATCH` and `DELETE`. Those must send their body as `application/json`,
+    and a browser page of another site can't call them (`Sec-Fetch-Site` and `Origin` are checked).
 
     A query parameter the endpoint does not list is ignored. When a parameter is repeated, the last value
     is used.
@@ -40,11 +43,13 @@ info:
     Ingest is separate: see `POST /v1/traces`. `/api/ready` and the short form of `/api/health` never
     need a credential.
 
-    **People and tokens** are not managed through this API yet. The first admin is made with
-    `trailbeam users create --role admin`, with `TRAILBEAM_ADMIN_EMAIL` and `TRAILBEAM_ADMIN_PASSWORD_FILE`,
-    or with the one-time link `trailbeam start` prints (`/setup#code=...`). After that, `trailbeam users`
-    and `trailbeam tokens` manage people, ingest tokens and personal API tokens. `/setup`, `/login` and
-    `/logout` are web pages, not part of this API.
+    **People and tokens.** The first admin is made with `trailbeam users create --role admin`, with
+    `TRAILBEAM_ADMIN_EMAIL` and `TRAILBEAM_ADMIN_PASSWORD_FILE`, or with the one-time link
+    `trailbeam start` prints (`/setup#code=...`). After that, admins manage people and ingest tokens with
+    `/api/users` and `/api/tokens/ingest` (the web screen's People and Tokens pages) or with
+    `trailbeam users` and `trailbeam tokens`. Anyone signed in manages their own personal API tokens
+    with `/api/me/tokens`. Two roles: `admin` and `member`. `/setup`, `/set-password` (where an invite or
+    reset link leads), `/login` and `/logout` are web pages, not part of this API.
 servers:
   - url: http://127.0.0.1:4318
     description: A Trailbeam server started with its defaults.
@@ -57,6 +62,10 @@ tags:
     description: Per-tenant counts and tenant name search.
   - name: Server
     description: Liveness, readiness and counts for the server itself.
+  - name: People
+    description: Who can sign in, and their role. Admins only.
+  - name: Tokens
+    description: Ingest tokens (admins only) and your own personal API tokens.
   - name: Ingest
     description: Where the packages and the OpenTelemetry Collector send spans. Not part of the API.
 security:
@@ -90,6 +99,342 @@ paths:
                   value: {"auth": "accounts", "via": "personal_token", "user": {"id": 2, "email": "ana@example.com", "name": "Ana", "role": "member"}}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '500': {$ref: '#/components/responses/InternalError'}
+  /api/users:
+    get:
+      operationId: list-users
+      tags: [People]
+      summary: List the people who can sign in
+      description: |
+        Every person with an account, admins and members, oldest first. Needs an admin. Added in 0.5.
+      responses:
+        '200':
+          description: The people.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [users]
+                properties:
+                  users: {type: array, items: {$ref: '#/components/schemas/User'}}
+              example: {"users": [{"id": 1, "email": "ada@example.com", "name": "Ada", "role": "admin", "status": "active", "created_at_ms": 1795400000000, "last_sign_in_ms": 1795480000000, "you": true}, {"id": 2, "email": "ben@example.com", "name": "Ben", "role": "member", "status": "invited", "created_at_ms": 1795410000000, "last_sign_in_ms": null, "you": false}]}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    post:
+      operationId: add-user
+      tags: [People]
+      summary: Add a person and get their invite link
+      description: |
+        Adds a person with no password yet, and returns their one-time invite link. Give the link to them
+        privately: whoever opens it chooses the password. It lasts 7 days. `name` defaults to the part of
+        the email before `@`, and `role` to `member`. Needs an admin. Added in 0.5.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: {type: string, maxLength: 254}
+                name: {type: string, maxLength: 200}
+                role: {type: string, enum: [admin, member], default: member}
+            example: {"email": "ben@example.com", "name": "Ben", "role": "member"}
+      responses:
+        '201':
+          description: The person, and their invite link.
+          headers: {Cache-Control: {$ref: '#/components/headers/NoStore'}}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/UserWithLink'}
+              example: {"user": {"id": 2, "email": "ben@example.com", "name": "Ben", "role": "member", "status": "invited", "created_at_ms": 1795410000000, "last_sign_in_ms": null, "you": false}, "link": {"kind": "invite", "url": "http://127.0.0.1:4318/set-password#code=8bV1q0Jm0h6rWw2y7mM5c3xQKk0p0b2N7Hn8yZtq1sE", "expires_at_ms": 1796014800000}}
+        '400': {$ref: '#/components/responses/BadBody'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+  /api/users/{user_id}:
+    patch:
+      operationId: change-user
+      x-example-request: /api/users/2
+      tags: [People]
+      summary: Change a person's role, or disable them
+      description: |
+        Changes `role`, `disabled`, or both. A new role or disabling ends the person's sessions, so they
+        sign in again; other replicas see it within 20 seconds. The last admin who can sign in can't be
+        made a member or disabled: that is a `409` with `reason` `last_admin`. Needs an admin. Added in 0.5.
+      parameters: [{$ref: '#/components/parameters/user_id'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role: {type: string, enum: [admin, member]}
+                disabled: {type: boolean}
+            example: {"role": "admin"}
+      responses:
+        '200':
+          description: The person, changed.
+          headers: {Cache-Control: {$ref: '#/components/headers/NoStore'}}
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user]
+                properties:
+                  user: {$ref: '#/components/schemas/User'}
+        '400': {$ref: '#/components/responses/BadBody'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NoSuchThing'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+    delete:
+      operationId: remove-user
+      x-example-request: /api/users/2
+      tags: [People]
+      summary: Remove a person
+      description: |
+        Removes the person with their sessions, personal API tokens and links. The last admin who can sign
+        in can't be removed (`409`, `reason` `last_admin`). Needs an admin. Added in 0.5.
+      parameters: [{$ref: '#/components/parameters/user_id'}]
+      responses:
+        '200':
+          description: Removed.
+          headers: {Cache-Control: {$ref: '#/components/headers/NoStore'}}
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [removed]
+                properties:
+                  removed:
+                    type: object
+                    additionalProperties: false
+                    required: [id, email]
+                    properties: {id: {type: integer}, email: {type: string}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NoSuchThing'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+  /api/users/{user_id}/link:
+    post:
+      operationId: make-user-link
+      x-example-request: /api/users/2/link
+      tags: [People]
+      summary: Make a new invite or password reset link
+      description: |
+        A new one-time link for the person: an invite (`kind` `invite`, 7 days) if they have no password
+        yet, else a password reset (`kind` `reset`, 24 hours). It replaces their earlier link. Opening it
+        and choosing a password ends their other sessions. A disabled person gets a `409`. Send `{}` as the
+        body. Needs an admin. Added in 0.5.
+      parameters: [{$ref: '#/components/parameters/user_id'}]
+      requestBody:
+        content:
+          application/json:
+            schema: {type: object}
+            example: {}
+      responses:
+        '201':
+          description: The person, and the link.
+          headers: {Cache-Control: {$ref: '#/components/headers/NoStore'}}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/UserWithLink'}
+        '400': {$ref: '#/components/responses/BadBody'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NoSuchThing'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+  /api/tokens/ingest:
+    get:
+      operationId: list-ingest-tokens
+      tags: [Tokens]
+      summary: List the ingest tokens
+      description: |
+        Every ingest token, revoked ones included, and whether the legacy shared token (`TRAILBEAM_TOKEN`)
+        is set. Never a token itself: only its first 8 characters. `ingest` says whether sending spans
+        needs a token now. Needs an admin. Added in 0.5.
+      responses:
+        '200':
+          description: The ingest tokens.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [tokens, shared_token, ingest]
+                properties:
+                  tokens: {type: array, items: {$ref: '#/components/schemas/IngestToken'}}
+                  shared_token:
+                    type: object
+                    additionalProperties: false
+                    required: [set, label, works_for]
+                    properties:
+                      set: {type: boolean, description: '`TRAILBEAM_TOKEN` (or `--token-file`) is set on this replica.'}
+                      label: {type: string, const: legacy shared token (from TRAILBEAM_TOKEN)}
+                      works_for: {type: array, items: {type: string, enum: [ingest, metrics]}}
+                  ingest: {type: string, enum: [token, open]}
+              example: {"tokens": [{"id": 1, "name": "orders-worker", "prefix": "tbi_x7Kp", "status": "active", "created_at_ms": 1795400000000, "created_by": "ada@example.com", "last_used_ms": 1795480000000, "revoked_at_ms": null}], "shared_token": {"set": true, "label": "legacy shared token (from TRAILBEAM_TOKEN)", "works_for": ["ingest", "metrics"]}, "ingest": "token"}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    post:
+      operationId: create-ingest-token
+      tags: [Tokens]
+      summary: Create an ingest token
+      description: |
+        A new ingest token for a service. `secret` is the token, shown only in this answer. It can only send
+        spans. On a server without `TRAILBEAM_TOKEN` and with no ingest token yet, ingest is open, and the
+        first token closes it: that needs `"close_open_ingest": true`, else the answer is a `409` with
+        `reason` `closes_open_ingest`. Needs an admin. Added in 0.5.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string, maxLength: 200}
+                close_open_ingest: {type: boolean, default: false}
+            example: {"name": "orders-worker"}
+      responses:
+        '201':
+          description: The token.
+          headers: {Cache-Control: {$ref: '#/components/headers/NoStore'}}
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [token, secret]
+                properties:
+                  token: {$ref: '#/components/schemas/IngestToken'}
+                  secret: {type: string, pattern: '^tbi_[A-Za-z0-9]{40}$'}
+        '400': {$ref: '#/components/responses/BadBody'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+  /api/tokens/ingest/{token_id}:
+    delete:
+      operationId: revoke-ingest-token
+      x-example-request: /api/tokens/ingest/1
+      tags: [Tokens]
+      summary: Revoke an ingest token
+      description: |
+        This replica refuses it at once, the others within 30 seconds. It stays in the list as `revoked`.
+        Needs an admin. Added in 0.5.
+      parameters: [{$ref: '#/components/parameters/token_id'}]
+      responses:
+        '200': {$ref: '#/components/responses/Revoked'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NoSuchThing'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+  /api/me/tokens:
+    get:
+      operationId: list-my-tokens
+      tags: [Tokens]
+      summary: List your personal API tokens
+      description: |
+        Your own personal API tokens, revoked and expired ones included. Needs a person (a sign-in or a
+        personal API token): otherwise `403`. Added in 0.5.
+      responses:
+        '200':
+          description: Your tokens.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [tokens]
+                properties:
+                  tokens: {type: array, items: {$ref: '#/components/schemas/PersonalToken'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    post:
+      operationId: create-my-token
+      tags: [Tokens]
+      summary: Create a personal API token
+      description: |
+        A new personal API token that acts as you, with your role. `secret` is the token, shown only in this
+        answer. `expires_in_days` from 1 to 3650; leave it out or send null for a token that works until it
+        is revoked. Needs a person. Added in 0.5.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string, maxLength: 200}
+                expires_in_days: {type: ['integer', 'null'], minimum: 1, maximum: 3650}
+            example: {"name": "laptop scripts", "expires_in_days": 90}
+      responses:
+        '201':
+          description: The token.
+          headers: {Cache-Control: {$ref: '#/components/headers/NoStore'}}
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [token, secret]
+                properties:
+                  token: {$ref: '#/components/schemas/PersonalToken'}
+                  secret: {type: string, pattern: '^tbp_[A-Za-z0-9]{40}$'}
+        '400': {$ref: '#/components/responses/BadBody'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+  /api/me/tokens/{token_id}:
+    delete:
+      operationId: revoke-my-token
+      x-example-request: /api/me/tokens/1
+      tags: [Tokens]
+      summary: Revoke one of your personal API tokens
+      description: |
+        This replica refuses it at once, the others within 20 seconds. Only your own tokens: another
+        person's is a `404`. Needs a person. Added in 0.5.
+      parameters: [{$ref: '#/components/parameters/token_id'}]
+      responses:
+        '200': {$ref: '#/components/responses/Revoked'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NoSuchThing'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
   /api/messages:
     get:
       operationId: list-messages
@@ -976,6 +1321,9 @@ paths:
               example: {"code": 14, "message": "Trailbeam can't reach its store (the database is down or unreachable). Nothing in this export was stored. Retry after 1 s."}
 components:
   headers:
+    NoStore:
+      description: Answers that change something, and may hold a new token or link, are never cached.
+      schema: {type: string, const: no-store}
     IngestRetryAfter:
       description: Whole seconds to wait before sending the export again, from 1 to 3.
       required: true
@@ -1013,6 +1361,20 @@ components:
       description: |
         An ingest token (`tbi_` and 40 letters and digits) sent as `Authorization: Bearer`. Ingest only.
   parameters:
+    user_id:
+      name: user_id
+      in: path
+      required: true
+      description: The person's ID, from `GET /api/users`.
+      schema: {type: integer, minimum: 1}
+      example: 2
+    token_id:
+      name: token_id
+      in: path
+      required: true
+      description: The token's ID, from the list.
+      schema: {type: integer, minimum: 1}
+      example: 1
     message_id:
       name: message_id
       in: path
@@ -1069,6 +1431,70 @@ components:
       description: The length of the time window in seconds, when `from_ms` is not given.
       schema: {type: integer, minimum: 1, maximum: 34560000, default: 86400}
   responses:
+    Forbidden:
+      description: |
+        Signed in, but not allowed: the route needs an admin, or a person (`/api/me/tokens` with the shared
+        token), or the server has no admin yet. Also a request that changes something sent by another
+        site's page (`reason` `csrf`).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {"error": "this needs an admin"}
+    BadBody:
+      description: The request body is not a JSON object, or a field in it is missing or has a value the route does not take. `error` says which.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {"error": "the email must look like name@example.com"}
+    Conflict:
+      description: |
+        The change can't be made now. `reason`: `last_admin` (it would leave no admin who can sign in),
+        `email_taken`, `disabled` (a link for a disabled person), or `closes_open_ingest` (see
+        `create-ingest-token`).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {"error": "the server must keep at least one admin who can sign in: make someone else an admin first", "reason": "last_admin"}
+    NoSuchThing:
+      description: No person or token has this ID (for a token, none that is still working).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {"error": "no person with ID 7"}
+    BodyTooLarge:
+      description: The request body is over 16 KiB, or was sent without a `Content-Length`.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    NotJson:
+      description: The request body was not sent as `Content-Type application/json`.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {"error": "send the request body as Content-Type: application/json"}
+    StoreUnreachable:
+      description: The store could not be reached. Nothing was changed; try again.
+      headers:
+        Retry-After:
+          schema: {type: string}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Revoked:
+      description: Revoked.
+      headers: {Cache-Control: {$ref: '#/components/headers/NoStore'}}
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [revoked]
+            properties:
+              revoked:
+                type: object
+                additionalProperties: false
+                required: [id]
+                properties: {id: {type: integer}}
     BadRequest:
       description: A parameter has a value the endpoint does not accept. `error` names the parameter.
       content:
@@ -1125,6 +1551,73 @@ components:
       required: [error]
       properties:
         error: {type: string, description: What was wrong with the request.}
+        reason:
+          type: string
+          enum: [last_admin, email_taken, disabled, closes_open_ingest, csrf]
+          description: On some `403` and `409` answers of the people and token routes, a word for the cause.
+    User:
+      type: object
+      additionalProperties: false
+      required: [id, email, name, role, status, created_at_ms, last_sign_in_ms, you]
+      properties:
+        id: {type: integer}
+        email: {type: string}
+        name: {type: string}
+        role: {type: string, enum: [admin, member]}
+        status:
+          type: string
+          enum: [active, invited, locked, disabled]
+          description: |
+            `invited`: no password yet (their invite link hasn't been used). `locked`: too many wrong
+            passwords, for a while. `disabled`: can't sign in.
+        created_at_ms: {type: integer}
+        last_sign_in_ms: {type: ['integer', 'null']}
+        you: {type: boolean, description: This is the person making the request.}
+    UserLink:
+      type: object
+      additionalProperties: false
+      required: [kind, url, expires_at_ms]
+      properties:
+        kind: {type: string, enum: [invite, reset]}
+        url:
+          type: string
+          description: |
+            `/set-password#code=...` on this server, as the request reached it. The code is after `#`, so
+            browsers never send it in a request. It works once, and is shown only in this answer.
+        expires_at_ms: {type: integer}
+    UserWithLink:
+      type: object
+      additionalProperties: false
+      required: [user, link]
+      properties:
+        user: {$ref: '#/components/schemas/User'}
+        link: {$ref: '#/components/schemas/UserLink'}
+    IngestToken:
+      type: object
+      additionalProperties: false
+      required: [id, name, prefix, status, created_at_ms, created_by, last_used_ms, revoked_at_ms]
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        prefix: {type: string, description: The token's first 8 characters.}
+        status: {type: string, enum: [active, revoked]}
+        created_at_ms: {type: integer}
+        created_by: {type: ['string', 'null'], description: The email of the person who created it, if they still have an account.}
+        last_used_ms: {type: ['integer', 'null'], description: Written about once a minute per replica.}
+        revoked_at_ms: {type: ['integer', 'null']}
+    PersonalToken:
+      type: object
+      additionalProperties: false
+      required: [id, name, prefix, status, created_at_ms, expires_at_ms, last_used_ms, revoked_at_ms]
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        prefix: {type: string, description: The token's first 8 characters.}
+        status: {type: string, enum: [active, expired, revoked]}
+        created_at_ms: {type: integer}
+        expires_at_ms: {type: ['integer', 'null']}
+        last_used_ms: {type: ['integer', 'null']}
+        revoked_at_ms: {type: ['integer', 'null']}
     Timestamp:
       type: string
       description: A UTC time with microseconds, such as `2026-11-16T18:05:36.910000Z`.

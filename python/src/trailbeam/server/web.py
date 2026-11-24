@@ -709,6 +709,36 @@ def setup_page(code: str = "", email: str = "", name: str = "", notice: Optional
     return st, {**headers, "Referrer-Policy": "no-referrer", "Cache-Control": "no-store"}, html
 
 
+PASSWORD_NOTICES = {
+    "bad_code": "This link has been used, is out of date (invite links last 7 days, reset links 24 hours), or "
+                "isn't the latest one made for you. Ask an admin for a new link.",
+    "mismatch": "The two passwords are not the same.",
+    "busy": "The server is busy. Try again in a moment.",
+    "slow_down": "Too many tries from here. Try again in {minutes}.",
+}
+
+
+def password_page(code: str = "", notice: Optional[str] = None, message: str = "", retry_after_s: Optional[int] = None,
+                  email: str = "", status: int = 200) -> Response:
+    """``/set-password``: choose a password, from an invite or reset link an admin made on the People page
+    (people_api.py). The code travels in the URL fragment, as on /setup."""
+    text = message or PASSWORD_NOTICES.get(notice or "", "")
+    body = ("<h1>Choose your password</h1><p>Choose the password you sign in to this Trailbeam with. If you "
+            "had one, it stops working, and so do your other sign-ins.</p>"
+            + (f'<p class="notice">{escape(text.format(minutes=_minutes(retry_after_s)))}</p>' if text else "")
+            + '<form method="post" action="/set-password">'
+            f'<p id="code-row"><label>Link code <input type="text" id="code" name="code" value="{escape(code)}" '
+            'autocomplete="off" required></label></p>'
+            + (f'<input type="hidden" name="email" value="{escape(email)}" autocomplete="username">' if email else "")
+            + '<p><label>Password <input type="password" name="password" autocomplete="new-password" minlength="10" '
+            'required autofocus></label> (at least 10 characters)</p>'
+            '<p><label>Password again <input type="password" name="password2" autocomplete="new-password" '
+            'minlength="10" required></label></p>'
+            "<p><button>Set password and sign in</button></p></form>" + _SETUP_SCRIPT)
+    st, headers, html = _page(status, "Choose your password", body)
+    return st, {**headers, "Referrer-Policy": "no-referrer", "Cache-Control": "no-store"}, html
+
+
 def forbidden_page(message: str) -> Response:
     return _page(403, "Not allowed", f'<h1>Not allowed</h1><p>{escape(message)}.</p>'
                  '<p><a href="/logout">Sign out</a></p>')

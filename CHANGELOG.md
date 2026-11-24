@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **People and tokens over the API** (QV-226, users and roles phase 2, part 1 of 3). Admins add people, change
+  their role, disable or remove them, and make one-time invite and password reset links with `/api/users`, and
+  create, list and revoke ingest tokens with `/api/tokens/ingest`. Anyone signed in manages their own personal API
+  tokens with `/api/me/tokens`. Links lead to the new `/set-password` page. Two roles only, admin and member, and
+  the last admin can't be demoted, disabled or removed. These are the routes the People and Tokens pages of the
+  web screen will use. All are in `contract/openapi.yaml`.
+- **Fixed: re-enabling a person could leave their personal API token refused for up to 20 seconds** on the
+  replica that had refused it while they were disabled.
+
 - **A compatibility matrix, run every night** (QV-335). Python 3.10 to 3.14, each with the oldest
   (boto3 / botocore 1.34.0, OpenTelemetry 1.28 / 0.49b0) and the newest dependencies, Node.js 20, 22 and 24, each
   with the oldest (3.572.0) and the newest `@aws-sdk/client-sqs`, and Postgres 14 to 18

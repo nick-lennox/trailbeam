@@ -18,8 +18,8 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceResponse
 
 from . import __version__
-from . import access as access_mod, auth as auth_mod, bodies, csrf, first_admin, metrics, passwords, queries, \
-    sessions as sessions_mod, trace_links, ui_files, web
+from . import access as access_mod, auth as auth_mod, bodies, csrf, first_admin, metrics, passwords, people_api, \
+    queries, sessions as sessions_mod, trace_links, ui_files, web
 from .accounts import AccountError, Accounts, AdminExists, BadSetupCode, check_email, check_name
 from .backpressure import GRPC_RESOURCE_EXHAUSTED, GRPC_UNAVAILABLE, IngestGate, Rejected, status_body
 from .sessions import Sessions
@@ -67,6 +67,7 @@ class App:
         self.sessions = Sessions(self.accounts) if self.accounts else None
         self.tokens = Tokens(self.accounts) if self.accounts else None
         self.signin = SignIn(self.accounts, self.sessions) if self.accounts else None
+        self.people = people_api.PeopleApi(self)  # /api/users, /api/tokens/ingest, /api/me/tokens
         # who may do what (access.py): the shared token until an admin exists, then people
         self.access = access_mod.Access(auth, self.accounts, self.sessions, self.tokens)
         try:  # read now, so the first export doesn't wait for it (on a :memory: store, behind the writer)
@@ -86,7 +87,8 @@ class App:
         self.stats = {"requests": 0, "inserted": 0, "duplicates": 0, "ignored": 0, "rejected": 0}
         self.routes: dict[str, Callable[[dict, list[str]], object]] = {
             "health": self.health, "stats": self.stats_counts, "messages": self.messages, "duplicates": self.duplicates,
-            "stuck": self.stuck, "tenants": self.tenants, "probes": self.probes, "me": self.me}
+            "stuck": self.stuck, "tenants": self.tenants, "probes": self.probes, "me": self.me,
+            "users": self._not_a_route, "tokens": self._not_a_route}
         self._init_metrics()
 
     # ---- /metrics -------------------------------------------------------------------------
@@ -284,6 +286,12 @@ class App:
 
     def api(self, path: str, query: dict, who: access_mod.Who = access_mod.NOBODY) -> object:
         parts = [unquote(p) for p in path.split("/") if p]
+        r = access_mod.api_route("GET", "/api/" + path.strip("/"))
+        if r is not None:  # people and tokens (people_api.py); the level was checked with the request
+            try:
+                return self.people.call(r[1], r[2], None, who, "", self.now() // 1_000_000)[1]
+            except people_api.ApiProblem as e:
+                raise ApiError(e.status, e.message) from None
         if not parts or parts[0] not in self.routes:
             raise ApiError(404, f"no such endpoint: /api/{'/'.join(parts)}")
         try:
@@ -292,6 +300,10 @@ class App:
             return self.routes[parts[0]](query, parts[1:])
         except queries.CursorError as e:
             raise ApiError(400, str(e)) from None
+
+    def _not_a_route(self, query: dict, rest: list[str]) -> dict:
+        """/api/users and /api/tokens paths that aren't one of access.API_ROUTES (matched in api)."""
+        raise ApiError(404, "no such endpoint")
 
     def health(self, query: dict, rest: list[str]) -> dict:
         """Cheap at any size: the ingest counters since start, the configuration, and one indexed read on a
@@ -591,13 +603,19 @@ def make_handler(app: App):
                 if why is not None:
                     log.warning("refused POST %s from %s: %s", path, self._client(), why)
                     self.close_connection = True  # the request body is not read
-                    self._send(403, "text/plain; charset=utf-8", f"forbidden: {why}".encode())
+                    self._csrf_refused(path, why)
                     return
             if path == "/login":
                 self._login()
                 return
             if path == first_admin.PATH:
                 self._setup_post()
+                return
+            if path == people_api.LINK_PATH:
+                self._set_password_post()
+                return
+            if path.startswith("/api/"):
+                self._api_write("POST", path)
                 return
             if path != "/v1/traces":
                 self._send(404, "text/plain", b"not found")
@@ -640,6 +658,86 @@ def make_handler(app: App):
                 log.info("the client went away before the %d answer to its export", status)
                 self.close_connection = True
 
+        def do_PATCH(self):
+            self._write_method("PATCH")
+
+        def do_DELETE(self):
+            self._write_method("DELETE")
+
+        def _write_method(self, method: str):
+            self._status = 500
+            path = urlsplit(self.path).path
+            why = csrf.check(self.headers, self._scheme(),
+                             app.proxies.host(self._peer(), self.headers.get("Host"), self.headers.get("X-Forwarded-Host")))
+            if why is not None:
+                log.warning("refused %s %s from %s: %s", method, path, self._client(), why)
+                self.close_connection = True
+                self._csrf_refused(path, why)
+                return
+            if not path.startswith("/api/"):
+                self.close_connection = True
+                self._send(404, "text/plain", b"not found")
+                return
+            self._api_write(method, path)
+
+        def _csrf_refused(self, path: str, why: str):
+            if path.startswith("/api/"):
+                self._json(403, {"error": f"forbidden: {why}", "reason": "csrf"})
+            else:
+                self._send(403, "text/plain; charset=utf-8", f"forbidden: {why}".encode())
+
+        def _api_write(self, method: str, path: str):
+            """POST, PATCH and DELETE on the people-and-tokens routes (people_api.py), after csrf.check. The route
+            and the person are checked before the body is read."""
+            r = access_mod.api_route(method, path)
+            if r is None:
+                self.close_connection = True
+                self._json(404, {"error": f"no such endpoint: {method} {path}"})
+                return
+            level, handler, rid = r
+            try:
+                d = app.access.check(self.headers, level)
+            except access_mod.AccessUnavailable as e:
+                log.warning("%s %s: %s", method, path, e)
+                self.close_connection = True
+                self._send(503, "application/json", json.dumps({"error": "the store is unreachable; try again"})
+                           .encode(), {"Retry-After": "1"})
+                return
+            if not d.ok:
+                self.close_connection = True
+                out = json.dumps({"error": d.message}).encode()
+                if d.status == 401:
+                    self._unauthorized("application/json", out)
+                else:
+                    self._send(d.status, "application/json", out)
+                return
+            n = self.headers.get("Content-Length") or ("" if self.headers.get("Transfer-Encoding") else "0")
+            if not n.isdigit() or int(n) > people_api.MAX_BODY:
+                self.close_connection = True
+                self._json(413, {"error": f"send a request body of at most {people_api.MAX_BODY} bytes, with a "
+                                          "Content-Length"})
+                return
+            raw = self.rfile.read(int(n))
+            host = app.proxies.host(self._peer(), self.headers.get("Host"), self.headers.get("X-Forwarded-Host"))
+            base = f"{self._scheme()}://{host or 'localhost'}"
+            try:
+                body = None if method == "DELETE" else people_api.parse_body(self.headers.get("Content-Type"), raw)
+                status, obj = app.people.call(handler, rid, body, d.who, base, time.time_ns() // 1_000_000)
+            except people_api.ApiProblem as e:
+                self._json(e.status, e.body())
+                return
+            except access_mod.AccessUnavailable as e:
+                log.warning("%s %s: %s", method, path, e)
+                self._send(503, "application/json", json.dumps({"error": "the store is unreachable; try again"})
+                           .encode(), {"Retry-After": "1"})
+                return
+            except Exception:  # noqa: BLE001
+                log.exception("%s %s failed", method, path)
+                self._json(500, {"error": "internal error"})
+                return
+            # a new token or link is in it: never kept by a browser or a proxy
+            self._send(status, "application/json", json.dumps(obj).encode(), {"Cache-Control": "no-store"})
+
         def do_GET(self):
             u = urlsplit(self.path)
             t0 = time.perf_counter()
@@ -663,6 +761,10 @@ def make_handler(app: App):
             path = u.path
             if path == first_admin.PATH:
                 self._setup_get()
+                return
+            if path == people_api.LINK_PATH:
+                self._send_page(web.password_page() if app.accounts is not None else
+                                (404, {"Content-Type": "text/plain"}, b"not found"))
                 return
             try:
                 if path in ("/login", "/logout"):
@@ -878,6 +980,74 @@ def make_handler(app: App):
                 cookie = {"Set-Cookie": sessions_mod.set_cookie(sid, secure, (expires - now) // 1000)}
             except Exception as e:  # noqa: BLE001 - the admin exists; they can sign in
                 log.warning("setup: the admin was created, but their session could not be started: %s", e)
+                cookie = {}
+            self._send(303, "text/plain", b"", {"Location": "/", "Referrer-Policy": "no-referrer", **cookie})
+
+        def _set_password_post(self):
+            """POST /set-password: an invite or reset code and a new password; right, the password is set, the
+            code used up and the person's other sessions ended in one transaction (accounts.use_user_code), and
+            they are signed in. The code is checked before the password is hashed, so a wrong one costs no hash."""
+            if app.accounts is None:
+                self.close_connection = True
+                self._send(404, "text/plain", b"not found")
+                return
+            n = self.headers.get("Content-Length") or ""
+            if not n.isdigit() or int(n) > 8192:
+                self.close_connection = True
+                self._send(413, "text/plain", b"form too large")
+                return
+            form = {k: v[-1] for k, v in parse_qs(self.rfile.read(int(n)).decode("utf-8", "replace")).items()}
+            code, pw, pw2 = form.get("code", "").strip(), form.get("password", ""), form.get("password2", "")
+            client = self._client()
+            limit = app.signin.address_limit
+            wait = limit.retry_after(client)
+            if wait is not None:
+                self._send_page(_with_retry(web.password_page(code, "slow_down", retry_after_s=wait, status=429), wait))
+                return
+            now = time.time_ns() // 1_000_000
+            try:
+                found = app.accounts.user_code(first_admin.code_hash(code), now) if first_admin.well_formed(code) \
+                    else None
+            except Exception as e:  # noqa: BLE001
+                log.warning("set-password: the store is unreachable: %s", e)
+                self._send(503, "text/plain", b"the store is unreachable; try again", {"Retry-After": "1"})
+                return
+            if found is None:
+                limit.failed(client)
+                log.warning("set-password: a wrong, used or replaced link code from %s", client)
+                self._send_page(web.password_page("", "bad_code", status=403))
+                return
+            email = found["email"]
+            try:
+                passwords.check(pw)
+                if pw != pw2:
+                    self._send_page(web.password_page(code, "mismatch", email=email, status=400))
+                    return
+                uid = app.accounts.use_user_code(first_admin.code_hash(code), app.signin.hasher.hash(pw), now)
+            except passwords.HashBusy:
+                self._send_page(_with_retry(web.password_page(code, "busy", email=email, status=503), 1))
+                return
+            except BadSetupCode:
+                limit.failed(client)
+                self._send_page(web.password_page("", "bad_code", status=403))
+                return
+            except passwords.PasswordError as e:
+                self._send_page(web.password_page(code, message=str(e)[:1].upper() + str(e)[1:] + ".", email=email,
+                                                  status=400))
+                return
+            except Exception:  # noqa: BLE001
+                log.exception("set-password failed")
+                self._send(500, "text/plain", b"internal error")
+                return
+            app.sessions.forget_user(uid)
+            log.info("user %d set a password from a%s link, from %s", uid,
+                     "n invite" if found["kind"] == "invite" else " reset", client)
+            secure = self._scheme() == "https"
+            try:
+                sid, expires = app.sessions.start(uid)
+                cookie = {"Set-Cookie": sessions_mod.set_cookie(sid, secure, (expires - now) // 1000)}
+            except Exception as e:  # noqa: BLE001 - the password is set; they can sign in
+                log.warning("set-password: the password was set, but the session could not be started: %s", e)
                 cookie = {}
             self._send(303, "text/plain", b"", {"Location": "/", "Referrer-Policy": "no-referrer", **cookie})
 

@@ -277,6 +277,14 @@ class Recorder:
                     with rec.outermost():
                         super().do_POST()
 
+                def do_PATCH(self):
+                    with rec.outermost():
+                        super().do_PATCH()
+
+                def do_DELETE(self):
+                    with rec.outermost():
+                        super().do_DELETE()
+
             Recording.__name__ = base.__name__
             return Recording
 

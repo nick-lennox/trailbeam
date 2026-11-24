@@ -172,7 +172,7 @@ def test_every_x_example_request_answers_200_on_the_fixture(fixture_server, reco
     asked = 0
     for op in contract().ops:
         req = op.op.get("x-example-request")
-        if req:
+        if req and not _people_op(op):  # those need an admin: test_people_api.py asks them
             status, _, body = request(fixture_server, op.method, req)
             assert status == 200, (req, body[:200])
             asked += 1
@@ -230,9 +230,18 @@ def _concrete(template):
     return re.sub(r"\{[^}]+\}", quote(MID, safe=""), template)
 
 
+PEOPLE_TAGS = {"People", "Tokens"}  # need an admin or a person: test_people_api.py, and _people_and_tokens below
+
+
+def _people_op(op) -> bool:
+    return bool(PEOPLE_TAGS & set(op.op.get("tags", [])))
+
+
 def test_every_route_in_the_file_is_served(fixture_server):
     """Each operation, with the fixture's message for a path parameter, answers 200."""
     for op in contract().ops:
+        if _people_op(op):
+            continue
         path = _concrete(op.template)
         if op.method == "GET":
             status, _, body = request(fixture_server, "GET", path)
@@ -251,7 +260,7 @@ def _server_paths(app):
     firsts = set(app.routes) | {
         m.split("/")[2] for m in re.findall(r'"(/api/[a-z_]+)', source)}
     roots = {f"/api/{k}" for k in firsts} | set(re.findall(r'"(/v1/[a-z_/]+)"', source))
-    extra = [MID, "body", "search", "x"]
+    extra = [MID, "body", "search", "x", "1", "ingest", "tokens", "link"]
     out = set(roots)
     for r in roots:
         for a in extra:
@@ -273,11 +282,12 @@ def test_every_literal_path_in_the_server_is_probed():
 
 
 def test_every_route_the_server_serves_is_in_the_file(app, fixture_server):
-    """A path the server answers with anything but 404, for GET or POST, is an operation in the file."""
+    """A path the server answers with anything but 404, for GET, POST, PATCH or DELETE, is an operation in the
+    file."""
     c = contract()
     served, missing = [], []
     for path in _server_paths(app):
-        for method in ("GET", "POST"):
+        for method in ("GET", "POST", "PATCH", "DELETE"):
             body = base64.b64decode(EXPORTS[0]["base64"]) if method == "POST" else None
             status, _, out = request(fixture_server, method, quote(path, safe="/"), body,
                                      {"Content-Type": EXPORTS[0]["contentType"]} if body else {})
@@ -610,11 +620,93 @@ def test_every_status_the_file_lists_is_answered_and_matches_it(db, record_api_r
         request(base, "POST", "/v1/traces", b"", {"Content-Type": "application/x-protobuf",
                                                   "Authorization": "Bearer wrong"})
 
+    _people_and_tokens(db)  # last: it creates an admin, which changes what the token above opens
+
     assert not record_api_responses.problems, "\n".join(record_api_responses.problems)
     answered = {(s.op.key, s.status) for s in record_api_responses.seen}
     never = [f"{op.key} {status}" for op in ops for status in op.op["responses"]
              if (op.key, int(status)) not in answered]
     assert not never, "the file lists these statuses, the server never gave them:\n" + "\n".join(never)
+
+
+def _people_and_tokens(db):
+    """Every status of the people and token routes (people_api.py), on a server with an admin, a member and
+    TRAILBEAM_TOKEN; the first ingest token's 409 on one without the token."""
+    from trailbeam.server import access as access_mod
+    from trailbeam.server.accounts import Accounts
+    from trailbeam.server.tokens import Tokens
+
+    acc = Accounts(db)
+    j = {"Content-Type": "application/json"}
+
+    def body(o):
+        return json.dumps(o).encode()
+
+    # the first ingest token closes open ingest: 409 without "close_open_ingest" (no TRAILBEAM_TOKEN here)
+    admin = acc.create_first_admin("ada@example.com", "Ada", "x", 1)
+    member = acc.create_user("ben@example.com", "Ben", "member", "x", 1)
+    target = acc.create_user("dee@example.com", "Dee", "member", "x", 1)  # the {id} of the loops (DELETE removes her)
+    t = Tokens(acc)
+    a = {"Authorization": "Bearer " + t.create_personal(admin, "a")[1]}
+    m = {"Authorization": "Bearer " + t.create_personal(member, "m")[1]}
+    if not acc.auth_state()[1]:
+        with serve(server.App(db, ui_dir=None)) as base:
+            assert request(base, "POST", "/api/tokens/ingest", body({"name": "w"}), {**j, **a})[0] == 409
+
+    app = server.App(db, ui_dir=None, auth=auth_mod.Auth(TOKEN))
+    with serve(app) as base:
+        def r(method, path, data=None, headers=None):
+            return request(base, method, path, data, headers)
+
+        people = [op for op in contract().ops if _people_op(op)]
+        for op in people:
+            path = re.sub(r"\{[^}]+\}", str(target), op.template)
+            r(op.method, path, b"{}", j)  # 401
+            r(op.method, path, b"{}", {**j, "Authorization": f"Bearer {TOKEN}"})  # 401: people only now
+            r(op.method, path, b"{}", {**j, **m})  # 403 on the admin routes
+            if op.method != "GET":
+                r(op.method, path, b"{}", {**j, **a, "Sec-Fetch-Site": "cross-site"})  # 403: csrf
+                r(op.method, path, None, {**a, "Content-Length": "99999"})  # 413
+                r(op.method, path, b"[1]", {**a, "Content-Type": "text/plain"})  # 415 (or ignored: DELETE)
+                r(op.method, path, b"[1]", {**j, **a})  # 400 (or ignored: DELETE)
+            r(op.method, re.sub(r"\{[^}]+\}", "999", op.template), b"{}", {**j, **a})  # 404 with an ID
+        # people
+        assert r("GET", "/api/users", None, a)[0] == 200
+        assert r("POST", "/api/users", body({"email": "nope"}), {**j, **a})[0] == 400
+        st, _, out = r("POST", "/api/users", body({"email": "cy@example.com"}), {**j, **a})
+        assert st == 201, out
+        cy = json.loads(out)["user"]["id"]
+        assert r("POST", "/api/users", body({"email": "CY@example.com"}), {**j, **a})[0] == 409
+        assert r("PATCH", f"/api/users/{admin}", body({"role": "member"}), {**j, **a})[0] == 409
+        assert r("DELETE", f"/api/users/{admin}", None, a)[0] == 409
+        assert r("POST", f"/api/users/{cy}/link", b"{}", {**j, **a})[0] == 201
+        assert r("PATCH", f"/api/users/{cy}", body({"disabled": True}), {**j, **a})[0] == 200
+        assert r("POST", f"/api/users/{cy}/link", b"{}", {**j, **a})[0] == 409
+        assert r("DELETE", f"/api/users/{cy}", None, a)[0] == 200
+        # ingest tokens
+        assert r("GET", "/api/tokens/ingest", None, a)[0] == 200
+        st, _, out = r("POST", "/api/tokens/ingest", body({"name": "orders"}), {**j, **a})
+        assert st == 201, out
+        assert r("DELETE", f"/api/tokens/ingest/{json.loads(out)['token']['id']}", None, a)[0] == 200
+        # your personal tokens
+        assert r("GET", "/api/me/tokens", None, m)[0] == 200
+        st, _, out = r("POST", "/api/me/tokens", body({"name": "ci", "expires_in_days": 30}), {**j, **m})
+        assert st == 201, out
+        assert r("DELETE", f"/api/me/tokens/{json.loads(out)['token']['id']}", None, m)[0] == 200
+        # 500: a handler fails; 503: the store can't say who this is
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(app.people, "call", _raise)
+            for op in people:
+                r(op.method, re.sub(r"\{[^}]+\}", str(target), op.template), b"{}", {**j, **a})
+
+        def unreachable(*a_, **kw):
+            raise access_mod.AccessUnavailable("a test's unreachable store")
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(app.access, "check", unreachable)
+            for op in people:
+                if op.method != "GET":
+                    r(op.method, re.sub(r"\{[^}]+\}", str(target), op.template), b"{}", {**j, **a})
 
 
 def _scenario_spans():

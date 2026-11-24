@@ -1,0 +1,285 @@
+"""The people-and-tokens API behind the web screen's People and Tokens pages (users and roles, phase 2; proposal on
+QV-149, section 7). The routes and their levels are ``access.API_ROUTES``; contract/openapi.yaml documents them.
+
+- **People** (admins): ``GET /api/users``, ``POST /api/users`` (a new person, with no password, and their one-time
+  invite link), ``PATCH /api/users/{id}`` (role, or disabled), ``DELETE /api/users/{id}``, and
+  ``POST /api/users/{id}/link``: a new one-time link, an invite for someone who has no password yet, else a
+  password reset. Two roles only, ``admin`` and ``member``. The last admin who can sign in can't be demoted,
+  disabled or removed (409): accounts.LastAdmin, checked in the same transaction as the change.
+- **Ingest tokens** (admins): list, create (the token shown once), revoke. The list says whether the legacy shared
+  token (``TRAILBEAM_TOKEN``) is set, never its value. The first ingest token of a server without
+  ``TRAILBEAM_TOKEN`` closes ingest that was open, so creating it needs ``"close_open_ingest": true``.
+- **Your personal API tokens** (``/api/me/tokens``, anyone signed in): list, create, revoke your own. They need a
+  person: the shared token, or a server with no admin yet, gets 403.
+
+**Invite and reset links** are ``/set-password#code=<code>``: ``CODE_BYTES`` random bytes, only the SHA-256 kept
+(``setup_codes``, kind ``invite`` or ``reset``, naming the person), in the URL fragment so request logs never see
+it. Invites last ``INVITE_MS`` (7 days), resets ``RESET_MS`` (24 hours). A new link replaces the person's earlier
+one. Using it sets the password, ends the person's sessions and uses the code up, in one transaction
+(accounts.use_user_code), and signs them in. Until it is used, a link is as good as that person's password: the
+admin who made it passes it on privately.
+
+**Requests that change something** go through csrf.check (server.py) and must send ``Content-Type:
+application/json`` when they have a body, which a form on another site can't send without a preflight this server
+never answers.
+"""
+from __future__ import annotations
+
+import json
+import logging
+from typing import Optional
+
+from . import first_admin
+from .accounts import INVITE, RESET, AccountError, EmailTaken, LastAdmin, check_role
+
+log = logging.getLogger("trailbeam.server")
+
+INVITE_MS = 7 * 86_400_000
+RESET_MS = 86_400_000
+LINK_PATH = "/set-password"
+MAX_BODY = 16 * 1024
+MAX_TOKEN_DAYS = 3650
+SHARED_TOKEN_LABEL = "legacy shared token (from TRAILBEAM_TOKEN)"
+CLOSES_INGEST = ("this is the first ingest token, and this server has no TRAILBEAM_TOKEN: ingest is open now, and "
+                 "within 5 seconds of creating it every service that sends spans without a token gets 401 and its "
+                 "spans are lost. Send \"close_open_ingest\": true to create it anyway")
+NEEDS_A_PERSON = ("personal API tokens belong to a person: sign in, or send your personal API token "
+                  "(this request was let in without one)")
+
+
+class ApiProblem(Exception):
+    def __init__(self, status: int, message: str, reason: Optional[str] = None):
+        super().__init__(message)
+        self.status = status
+        self.message = message
+        self.reason = reason
+
+    def body(self) -> dict:
+        return {"error": self.message, **({"reason": self.reason} if self.reason else {})}
+
+
+def parse_body(content_type: Optional[str], raw: bytes) -> dict:
+    """The JSON object a POST or PATCH sends. Raises ApiProblem (415, 400)."""
+    if (content_type or "").split(";")[0].strip().lower() != "application/json":
+        raise ApiProblem(415, "send the request body as Content-Type: application/json")
+    try:
+        body = json.loads(raw.decode("utf-8")) if raw.strip() else {}
+    except (UnicodeDecodeError, ValueError):
+        raise ApiProblem(400, "the request body is not JSON") from None
+    if not isinstance(body, dict):
+        raise ApiProblem(400, "the request body must be a JSON object")
+    return body
+
+
+def _str(body: dict, key: str, required: bool = True) -> Optional[str]:
+    v = body.get(key)
+    if v is None and not required:
+        return None
+    if not isinstance(v, str):
+        raise ApiProblem(400, f"{key} must be a string" if v is not None else f"{key} is required")
+    return v
+
+
+def _status(u: dict, now_ms: int) -> str:
+    if u["disabled_at_ms"] is not None:
+        return "disabled"
+    if not u["password_hash"]:
+        return "invited"
+    if (u["locked_until_ms"] or 0) > now_ms:
+        return "locked"
+    return "active"
+
+
+def user_view(u: dict, now_ms: int, me: Optional[int]) -> dict:
+    return {"id": int(u["id"]), "email": u["email"], "name": u["name"], "role": u["role"],
+            "status": _status(u, now_ms), "created_at_ms": u["created_at_ms"],
+            "last_sign_in_ms": u["last_sign_in_ms"], "you": me is not None and int(u["id"]) == me}
+
+
+def _token_status(t: dict, now_ms: int) -> str:
+    if t["revoked_at_ms"]:
+        return "revoked"
+    if (t.get("expires_at_ms") or now_ms + 1) <= now_ms:
+        return "expired"
+    return "active"
+
+
+def ingest_view(t: dict, now_ms: int, emails: dict) -> dict:
+    return {"id": int(t["id"]), "name": t["name"], "prefix": t["prefix"], "status": _token_status(t, now_ms),
+            "created_at_ms": t["created_at_ms"], "created_by": emails.get(t["created_by"]),
+            "last_used_ms": t["last_used_ms"], "revoked_at_ms": t["revoked_at_ms"]}
+
+
+def personal_view(t: dict, now_ms: int) -> dict:
+    return {"id": int(t["id"]), "name": t["name"], "prefix": t["prefix"], "status": _token_status(t, now_ms),
+            "created_at_ms": t["created_at_ms"], "expires_at_ms": t["expires_at_ms"],
+            "last_used_ms": t["last_used_ms"], "revoked_at_ms": t["revoked_at_ms"]}
+
+
+class PeopleApi:
+    """The handlers. ``app`` is server.App: its accounts, sessions, tokens, access and shared token."""
+
+    def __init__(self, app):
+        self.app = app
+
+    @property
+    def acc(self):
+        if self.app.accounts is None:
+            raise ApiProblem(404, "this store has no people or tokens (it is not SQLite or Postgres)")
+        return self.app.accounts
+
+    def call(self, handler: str, rid: Optional[int], body: Optional[dict], who, base_url: str,
+             now_ms: int) -> tuple[int, dict]:
+        """(status, JSON body). Raises ApiProblem."""
+        acc = self.acc
+        return getattr(self, handler)(acc, rid, body or {}, who, base_url, now_ms)
+
+    # ---- people ---------------------------------------------------------------------------------------
+
+    def _user(self, acc, rid: int) -> dict:
+        u = acc.user(rid)
+        if u is None:
+            raise ApiProblem(404, f"no person with ID {rid}")
+        return u
+
+    def _forget(self, uid: int) -> None:
+        """This replica stops using the person's cached sessions and tokens at once (others within 20 s)."""
+        if self.app.sessions is not None:
+            self.app.sessions.forget_user(uid)
+        if self.app.tokens is not None:
+            self.app.tokens.forget_user(uid)
+
+    def list_users(self, acc, rid, body, who, base_url, now_ms):
+        return 200, {"users": [user_view(u, now_ms, who.user_id) for u in acc.users()]}
+
+    def create_user(self, acc, rid, body, who, base_url, now_ms):
+        email = _str(body, "email")
+        name = _str(body, "name", required=False) or first_admin.default_name(email.strip())
+        role = _str(body, "role", required=False) or "member"
+        try:
+            check_role(role)
+            uid = acc.create_user(email, name, role, None, now_ms)
+        except EmailTaken as e:
+            raise ApiProblem(409, str(e), "email_taken") from None
+        except AccountError as e:
+            raise ApiProblem(400, str(e)) from None
+        self.app.access.state.changed()
+        link = self._link(acc, uid, INVITE, base_url, now_ms)
+        log.info("user %s added %s (user %d, %s) from the People page", who.user_id, email.strip(), uid, role)
+        return 201, {"user": user_view(self._user(acc, uid), now_ms, who.user_id), "link": link}
+
+    def change_user(self, acc, rid, body, who, base_url, now_ms):
+        u = self._user(acc, rid)
+        role, disabled = body.get("role"), body.get("disabled")
+        if role is None and disabled is None:
+            raise ApiProblem(400, "send role, disabled, or both")
+        if disabled is not None and not isinstance(disabled, bool):
+            raise ApiProblem(400, "disabled must be true or false")
+        try:
+            if role is not None and role != u["role"]:
+                if not isinstance(role, str):
+                    raise ApiProblem(400, "role must be a string")
+                acc.set_role(rid, role, now_ms)
+            if disabled is not None and disabled != (u["disabled_at_ms"] is not None):
+                acc.set_disabled(rid, disabled, now_ms)
+        except LastAdmin as e:
+            raise ApiProblem(409, str(e), "last_admin") from None
+        except AccountError as e:
+            raise ApiProblem(400, str(e)) from None
+        self._forget(rid)
+        self.app.access.state.changed()
+        log.info("user %s changed user %d: %s", who.user_id, rid,
+                 {k: v for k, v in (("role", role), ("disabled", disabled)) if v is not None})
+        return 200, {"user": user_view(self._user(acc, rid), now_ms, who.user_id)}
+
+    def remove_user(self, acc, rid, body, who, base_url, now_ms):
+        u = self._user(acc, rid)
+        try:
+            if not acc.remove_user(rid):
+                raise ApiProblem(404, f"no person with ID {rid}")
+        except LastAdmin as e:
+            raise ApiProblem(409, str(e), "last_admin") from None
+        self._forget(rid)
+        self.app.access.state.changed()
+        log.info("user %s removed %s (user %d)", who.user_id, u["email"], rid)
+        return 200, {"removed": {"id": rid, "email": u["email"]}}
+
+    def user_link(self, acc, rid, body, who, base_url, now_ms):
+        u = self._user(acc, rid)
+        if u["disabled_at_ms"] is not None:
+            raise ApiProblem(409, f"{u['email']} is disabled: enable them before making a link", "disabled")
+        kind = RESET if u["password_hash"] else INVITE
+        link = self._link(acc, rid, kind, base_url, now_ms)
+        log.info("user %s made a %s link for user %d", who.user_id, kind, rid)
+        return 201, {"user": user_view(u, now_ms, who.user_id), "link": link}
+
+    def _link(self, acc, uid: int, kind: str, base_url: str, now_ms: int) -> dict:
+        code = first_admin.new_code()
+        expires = now_ms + (INVITE_MS if kind == INVITE else RESET_MS)
+        if not acc.create_user_code(uid, kind, first_admin.code_hash(code), now_ms, expires):
+            raise ApiProblem(404, f"no person with ID {uid}")
+        return {"kind": kind, "url": f"{base_url.rstrip('/')}{LINK_PATH}#code={code}", "expires_at_ms": expires}
+
+    # ---- ingest tokens --------------------------------------------------------------------------------
+
+    def _shared(self) -> dict:
+        return {"set": self.app.auth is not None, "label": SHARED_TOKEN_LABEL, "works_for": ["ingest", "metrics"]}
+
+    def list_ingest_tokens(self, acc, rid, body, who, base_url, now_ms):
+        emails = {u["id"]: u["email"] for u in acc.users()}
+        return 200, {"tokens": [ingest_view(t, now_ms, emails) for t in acc.ingest_tokens()],
+                     "shared_token": self._shared(), "ingest": "token" if self.app.access.ingest_closed() else "open"}
+
+    def create_ingest_token(self, acc, rid, body, who, base_url, now_ms):
+        name = _str(body, "name")
+        if not self.app.access.ingest_closed() and body.get("close_open_ingest") is not True:
+            raise ApiProblem(409, CLOSES_INGEST, "closes_open_ingest")
+        try:
+            tid, token = self.app.tokens.create_ingest(name, created_by=who.user_id)
+        except AccountError as e:
+            raise ApiProblem(400, str(e)) from None
+        self.app.access.state.changed()
+        log.info("user %s created ingest token %d", who.user_id, tid)
+        row = next(t for t in acc.ingest_tokens() if int(t["id"]) == tid)
+        return 201, {"token": ingest_view(row, now_ms, {who.user_id: who.email}), "secret": token}
+
+    def revoke_ingest_token(self, acc, rid, body, who, base_url, now_ms):
+        if not self.app.tokens.revoke_ingest(rid):
+            raise ApiProblem(404, f"no ingest token {rid} that is still working")
+        log.info("user %s revoked ingest token %d", who.user_id, rid)
+        return 200, {"revoked": {"id": rid}}
+
+    # ---- your personal API tokens ---------------------------------------------------------------------
+
+    @staticmethod
+    def _me(who) -> int:
+        if who.user_id is None:
+            raise ApiProblem(403, NEEDS_A_PERSON)
+        return who.user_id
+
+    def list_my_tokens(self, acc, rid, body, who, base_url, now_ms):
+        uid = self._me(who)
+        return 200, {"tokens": [personal_view(t, now_ms) for t in acc.personal_tokens(uid)]}
+
+    def create_my_token(self, acc, rid, body, who, base_url, now_ms):
+        uid = self._me(who)
+        name = _str(body, "name")
+        days = body.get("expires_in_days")
+        if days is not None and (isinstance(days, bool) or not isinstance(days, int)
+                                 or not 1 <= days <= MAX_TOKEN_DAYS):
+            raise ApiProblem(400, f"expires_in_days must be a whole number of days from 1 to {MAX_TOKEN_DAYS}, "
+                                  "or null for a token that works until it is revoked")
+        try:
+            tid, token = self.app.tokens.create_personal(uid, name, now_ms + days * 86_400_000 if days else None)
+        except AccountError as e:
+            raise ApiProblem(400, str(e)) from None
+        log.info("user %d created personal API token %d", uid, tid)
+        row = next(t for t in acc.personal_tokens(uid) if int(t["id"]) == tid)
+        return 201, {"token": personal_view(row, now_ms), "secret": token}
+
+    def revoke_my_token(self, acc, rid, body, who, base_url, now_ms):
+        uid = self._me(who)
+        if not self.app.tokens.revoke_personal(rid, user_id=uid):
+            raise ApiProblem(404, f"no personal API token {rid} of yours that is still working")
+        log.info("user %d revoked personal API token %d", uid, rid)
+        return 200, {"revoked": {"id": rid}}
