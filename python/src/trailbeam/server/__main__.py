@@ -10,6 +10,7 @@ import signal
 import socket
 import sqlite3
 import sys
+import threading
 import time
 
 from .. import __version__
@@ -382,10 +383,11 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
                                         a.host, httpd.server_address[1], where)
     for level, message in access_log(httpd.app, token is not None, a.host):  # after "listening on": scripts read it first
         logging.getLogger("trailbeam.server").log(level, message)
-    # docker stop and systemd send SIGTERM; Python ignores it as PID 1 unless a handler is set. Stop the
-    # same way as on Ctrl-C, so the SQLite file is closed cleanly. From the handler on, everything is inside
-    # the try: a SIGTERM during the next lines still stops the purger and closes the store (QV-434).
-    signal.signal(signal.SIGTERM, _interrupt)
+    # docker stop and systemd send SIGTERM; Python ignores it as PID 1 unless a handler is set. Stop serving,
+    # then the finally closes the SQLite file cleanly. From the handler on, everything is inside the try: a
+    # SIGTERM during the next lines still stops the purger and closes the store (QV-434). The handler asks
+    # serve_forever to return instead of raising (QV-502): see stop_on_signal.
+    signal.signal(signal.SIGTERM, stop_on_signal(httpd))
     try:
         logging.getLogger("trailbeam.server").info("retention %s", retention.config())
         purger.start()
@@ -651,8 +653,16 @@ def body_warning(store_bodies, db_path: str, token: bool = False) -> str:
     return f"storing message bodies for {queues} (TRAILBEAM_STORE_BODIES or the config file) in {db_path}: {who}"
 
 
-def _interrupt(signum, frame):
-    raise KeyboardInterrupt
+def stop_on_signal(httpd):
+    """A signal handler that makes ``httpd.serve_forever()`` return, before or while it runs (QV-502).
+
+    It used to raise KeyboardInterrupt. Python runs a handler wherever the main thread is, and an exception
+    raised inside a garbage-collector callback (a WeakSet's, say) is printed as "Exception ignored" and dropped:
+    the server went on serving and docker stop had to kill it. A handler that raises nothing can't be lost.
+    shutdown() waits for serve_forever to return, so it runs on its own thread, not on the main one."""
+    def handler(signum, frame):
+        threading.Thread(target=httpd.shutdown, name="trailbeam-stop", daemon=True).start()
+    return handler
 
 
 if __name__ == "__main__":

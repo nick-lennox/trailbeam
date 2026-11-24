@@ -44,29 +44,31 @@ def test_metrics_after_ingest_and_pages(server, db):
             urllib.request.urlopen(server + path, timeout=5).read()
         except urllib.error.HTTPError:
             pass  # the body view of a server that keeps no bodies may 404; it is still timed
-    # A GET is counted after its answer is sent (do_GET's finally), so the scrape, on another server thread, can
-    # come before the last page's count: wait for it (it failed this way on a loaded CI runner, QV-389).
-    deadline = time.monotonic() + 5
+    # A GET is counted after its answer is sent (do_GET's finally), on that request's own server thread. The next
+    # request, on a new thread, can be answered and counted first, so /api/health being counted says nothing about
+    # "/" (QV-389 waited for /api/health only; "/" was still missing, QV-502). Wait for every count asserted below.
+    want = {'trailbeam_ingest_requests_total{code="200"}': 2,
+            'trailbeam_ingest_spans_total{result="inserted"}': 4,
+            'trailbeam_ingest_request_duration_seconds_count{outcome="accepted"}': 2,
+            'trailbeam_ingest_write_duration_seconds_count': 2,
+            'trailbeam_ingest_writer_wait_seconds_count': 2,
+            'trailbeam_join_duration_seconds_count{join="settle"}': 2,
+            'trailbeam_join_duration_seconds_count{join="receive"}': 2,
+            'trailbeam_ingest_queue_depth': 0,
+            'trailbeam_ingest_queue_capacity': 16,
+            'trailbeam_db_last_row': 4,
+            # page latency by route template: never the message ID
+            'trailbeam_http_request_duration_seconds_count{route="/api/messages/{id}"}': 1,
+            'trailbeam_http_request_duration_seconds_count{route="/api/messages"}': 1,
+            'trailbeam_http_request_duration_seconds_count{route="/"}': 1,
+            'trailbeam_http_requests_total{route="/api/health",code="200"}': 1}
+    deadline = time.monotonic() + 10
     while True:
         s = samples(scrape(server))
-        if 'trailbeam_http_requests_total{route="/api/health",code="200"}' in s or time.monotonic() > deadline:
+        if all(s.get(k) == v for k, v in want.items()) or time.monotonic() > deadline:
             break
         time.sleep(0.05)
-    assert s['trailbeam_ingest_requests_total{code="200"}'] == 2
-    assert s['trailbeam_ingest_spans_total{result="inserted"}'] == 4
-    assert s['trailbeam_ingest_request_duration_seconds_count{outcome="accepted"}'] == 2
-    assert s['trailbeam_ingest_write_duration_seconds_count'] == 2
-    assert s['trailbeam_ingest_writer_wait_seconds_count'] == 2
-    assert s['trailbeam_join_duration_seconds_count{join="settle"}'] == 2
-    assert s['trailbeam_join_duration_seconds_count{join="receive"}'] == 2
-    assert s['trailbeam_ingest_queue_depth'] == 0
-    assert s['trailbeam_ingest_queue_capacity'] == 16
-    assert s['trailbeam_db_last_row'] == 4
-    # page latency by route template: never the message ID
-    assert s['trailbeam_http_request_duration_seconds_count{route="/api/messages/{id}"}'] == 1
-    assert s['trailbeam_http_request_duration_seconds_count{route="/api/messages"}'] == 1
-    assert s['trailbeam_http_request_duration_seconds_count{route="/"}'] == 1
-    assert s['trailbeam_http_requests_total{route="/api/health",code="200"}'] == 1
+    assert {k: s.get(k) for k in want} == want
     assert not any("m1" in k for k in s)
     if db.path != ":memory:":
         assert s['trailbeam_db_file_bytes{file="main"}'] > 0
