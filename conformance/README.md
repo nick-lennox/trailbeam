@@ -149,8 +149,7 @@ environment is removed first; the variant's `env` comes last.
 ## Adding a language
 
 1. Write a driver that runs [SCENARIO.md](SCENARIO.md) and writes the ground truth. Start from the Python
-   or Node.js driver; for Java, the QV-312 spike's driver (`qv312-spike-evidence.tgz` on QV-312) has the
-   SDK v2 calls.
+   or Node.js driver; on the JVM, from [`drivers/java`](drivers/java) (AWS SDK for Java v2).
 2. Add a `driver.json` with its variants, including the agents the package must work beside.
 3. Run `python conformance/kit.py run path/to/driver.json` until it passes, then add it to the CI job.
 
