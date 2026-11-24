@@ -318,6 +318,13 @@ named in the page's range (default the last day) as you type. The same data is i
 [`contract/tenants.md`](contract/tenants.md). The hosted app counts them the same way and is tested
 against the same recorded spans.
 
+Every recorded step (send, receive, delete, visibility change, Lambda outcome) is listed by
+`GET /api/events`, newest first and paged by `cursor`. Filter it by `queue`, `service`, `kind` (a comma
+list) and `message_id`, over `since_s` or `from_ms`/`to_ms`. The first page also counts the steps per
+time bucket and kind, for a histogram. Steps Trailbeam infers (a visibility timeout, a move to a DLQ) are not
+in it. The parameters and answer are in [`contract/openapi.yaml`](contract/openapi.yaml), operation
+`list-events`.
+
 ## Troubleshooting: no data arriving
 
 Set it up and see nothing? Run `trailbeam doctor` (0.4.0 or later; 0.3.0 stops with
