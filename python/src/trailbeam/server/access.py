@@ -208,9 +208,10 @@ class Access:
         except Exception as e:  # noqa: BLE001
             raise AccessUnavailable(f"the store can't check the ingest token: {e}") from e
 
-    def _person(self, headers, cred: Optional[str], peer: Optional[str] = None) -> Optional[Who]:
+    def _person(self, headers, cred: Optional[str], secure: bool, peer: Optional[str] = None) -> Optional[Who]:
         """The person behind a personal token (when one is sent), else the email the proxy names (when it is on
-        and the request comes from it), else a session cookie. Raises ProxyRefused."""
+        and the request comes from it), else a session cookie (over HTTPS only the ``__Host-`` one, sessions.py).
+        Raises ProxyRefused."""
         try:
             if cred and cred.startswith(PERSONAL_PREFIX) and self.tokens is not None:
                 u = self.tokens.personal(cred)
@@ -220,7 +221,7 @@ class Access:
                 if p is not None:
                     return Who("proxy", p["role"], int(p["id"]), p["email"], p["name"])
             if self.sessions is not None:
-                u = self.sessions.lookup(sessions_mod.cookie_value(headers.get("Cookie")))
+                u = self.sessions.lookup(sessions_mod.cookie_value(headers.get("Cookie"), secure))
                 return None if u is None else Who("session", u.role, u.user_id, u.email, u.name)
         except proxy_auth.ProxyRefused:
             raise
@@ -241,10 +242,10 @@ class Access:
             raise AccessUnavailable(f"the store can't check the sign-in: {e}") from e
         return None if p is None else Who("proxy", p["role"], int(p["id"]), p["email"], p["name"])
 
-    def check(self, headers, level: str, peer: Optional[str] = None) -> Decision:
-        """May this request have a route of this level? ``peer``: the TCP peer's address, for sign-in through a
-        proxy (without it, the proxy's header is not looked at). Raises AccessUnavailable when the store can't
-        say."""
+    def check(self, headers, level: str, scheme: str = "http", peer: Optional[str] = None) -> Decision:
+        """May this request have a route of this level? ``scheme`` is the request's, as proxy.py says. ``peer``:
+        the TCP peer's address, for sign-in through a proxy (without it, the proxy's header is not looked at).
+        Raises AccessUnavailable when the store can't say."""
         if level == OPEN:
             return Decision(True)
         cred = credential(headers)
@@ -270,7 +271,7 @@ class Access:
         if level == METRICS and self._is_shared(cred):
             return Decision(True, Who("shared_token"))
         try:
-            who = self._person(headers, cred, peer)
+            who = self._person(headers, cred, scheme == "https", peer)
         except proxy_auth.ProxyRefused as e:
             return Decision(False, status=403, message=e.message)
         if who is None:
