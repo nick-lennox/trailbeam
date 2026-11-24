@@ -33,7 +33,7 @@ def message(db: Store, message_id: str, now_ns: int, lambda_timeout_s: int,
 
 
 def sns_publishes(db: Store, rows) -> list[dict]:
-    """The SNS publishes one message's receives join (contract section 20.5), each with how and the SQS messages it
+    """The SNS publishes one message's receives join (contract section 21.5), each with how and the SQS messages it
     reached, by queue: what timeline.build takes as ``publishes``. A receiver joined only by publish ID is left out
     when its message has a send, as the message itself would not join (sns.py)."""
     keys = sns.message_keys(rows)

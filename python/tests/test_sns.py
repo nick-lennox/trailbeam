@@ -1,4 +1,4 @@
-"""Revision 3.4 (contract section 20): SNS fan-out. The trailbeam publish span, the trailbeam.publish_id the
+"""Revision 3.4 (contract section 21): SNS fan-out. The trailbeam publish span, the trailbeam.publish_id the
 publish hooks add, and the SNS attributes on a receive. Shared vectors in contract/span-contract-vectors.json
 ("sns"); Node.js checks the same. The end-to-end tests run SNS to SQS delivery in moto, raw delivery off and on."""
 import copy
@@ -237,7 +237,7 @@ def test_fanout_joins_both_deliveries_to_the_publish(spans_with_sns, fanout):
     assert env["trailbeam.sns.message_id"] == r["MessageId"]
     assert env["trailbeam.sns.topic_arn"] == topic
     assert isinstance(env["trailbeam.sns.timestamp_ms"], int)
-    # SNS dwell (section 20.5): both clocks are AWS's; in moto it is a few milliseconds.
+    # SNS dwell (section 21.5): both clocks are AWS's; in moto it is a few milliseconds.
     assert 0 <= env["trailbeam.sent_timestamp_ms"] - env["trailbeam.sns.timestamp_ms"] < 60_000
     raw = receives[urls[True]]
     assert raw["trailbeam.sns.publish_id"] == publish_id
@@ -289,7 +289,7 @@ def test_publish_batch_in_moto(spans_with_sns, fanout):
 
 
 def test_the_stock_traceparent_and_ours_never_pass_ten_attributes(spans_with_sns, fanout):
-    """The stock botocore instrumentation adds traceparent before our request hook runs (section 20.2), so
+    """The stock botocore instrumentation adds traceparent before our request hook runs (section 21.2), so
     the hook counts it. Whatever the caller sends, raw delivery never gets more than 10 attributes."""
     sns, sqs, topic, urls = fanout
     spans = spans_with_sns()

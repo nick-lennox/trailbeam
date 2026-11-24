@@ -917,7 +917,7 @@ class PostgresStore(Store):
         return inserted, dupes
 
     def _insert_publishes(self, conn, publishes) -> tuple[int, int]:
-        """SNS publishes (contract section 20.1). The same span again (trace, span and end time) is a duplicate."""
+        """SNS publishes (contract section 21.1). The same span again (trace, span and end time) is a duplicate."""
         cols = {c: [] for c in _PUBLISH_INSERT}
         for r, _own, attrs, *_ in publishes:
             env, pid = sns.publish_keys({"attributes": attrs, "message_id": r.get("message_id")})
@@ -931,7 +931,7 @@ class PostgresStore(Store):
         return len(got), len(publishes) - len(got)
 
     def _insert_sns_receives(self, conn, prepared) -> None:
-        """The SNS keys of the export's receives (contract section 20.3), for Store.sns_receivers. An exporter's
+        """The SNS keys of the export's receives (contract section 21.3), for Store.sns_receivers. An exporter's
         retry writes the same rows again: the newest time is kept."""
         rows = {}
         for r, own, attrs, *_ in prepared:

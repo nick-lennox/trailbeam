@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS purges (
 CREATE INDEX IF NOT EXISTS purges_queue ON purges (queue, start_ns);
 """
 
-# Version 11 (QV-313): SNS fan-out (contract section 20). ``sns_publishes``: one row per SNS message a Publish or
+# Version 11 (QV-313): SNS fan-out (contract section 21). ``sns_publishes``: one row per SNS message a Publish or
 # PublishBatch sent, with the keys a receive joins it by (``topic_arn`` and ``message_id``, ``publish_id``).
 # ``sns_receives``: one row per (key, message) for each receive carrying a key, ``key`` being ``e:<topic ARN>
 # <SNS message ID>`` or ``p:<publish ID>``: the receives a publish reached, which the spans' places can't be searched

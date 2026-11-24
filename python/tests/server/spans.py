@@ -149,7 +149,7 @@ class Consumer:
 
     def publish(self, t, sns_id, topic="orders-topic", publish_id=None, skipped=None, batch_entry=None, start=None,
                 order=None, account="111122223333"):
-        """A trailbeam publish (contract section 20.1): one SNS message, to ``topic``."""
+        """A trailbeam publish (contract section 21.1): one SNS message, to ``topic``."""
         arn = f"arn:aws:sns:us-east-1:{account}:{topic}"
         a = {"trailbeam.schema_version": 3, "trailbeam.kind": "sns.publish", "trailbeam.source": self.source,
              "messaging.system.name": "aws.sns", "messaging.operation.type": "send",
@@ -166,7 +166,7 @@ class Consumer:
 
     def sns_receive(self, t, mid, handle, sns_id=None, topic="orders-topic", publish_id=None, sns_ts_ms=None,
                     account="111122223333", **kw):
-        """A receive of a message SNS delivered (contract section 20.3): with ``sns_id``, raw delivery off (the
+        """A receive of a message SNS delivered (contract section 21.3): with ``sns_id``, raw delivery off (the
         envelope's MessageId, TopicArn and Timestamp); with ``publish_id``, raw delivery on."""
         sp = self.receive(t, mid, handle, **kw)
         if sns_id:

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **SNS fan-out: messages that came through an SNS topic get their sender** (QV-313, contract revision 3.4). The Python and Node.js packages record SNS
+- **SNS fan-out: messages that came through an SNS topic get their sender** (QV-313, contract revision 3.4, section 21; the Java jar does not hook SNS yet). The Python and Node.js packages record SNS
   `Publish` and `PublishBatch` to a topic as a `trailbeam publish` span (`trailbeam.kind = sns.publish`) with the SNS
   message ID and `aws.sns.topic.arn`. Receives carry what joins them to it: the `trailbeam.publish_id` message
   attribute the publish hooks add (raw delivery on; skipped when the message already has 10 attributes, would pass
@@ -19,6 +19,13 @@
   the other messages it reached (links), and the "Arrived via SNS topic" step, with no time, before its receive.
   `TimelineView` takes an optional `messageHref` for those links; `@trailbeam/ui/fixtures/sns-timelines.json` is
   what the server returns after a fan-out (`@trailbeam/ui` 0.1.0-dev.4).
+- **Java package, stage 6: the contract's Java note** (QV-319, pre-release, not published). New section 20 of
+  the span contract says how the jar meets it: the parent read from the request's trace header, receives in a
+  polling loop as root spans beside an agent, where times and call-order ticks are taken, one counter per class
+  loader, the SnapStart reset, the fully qualified `trailbeam.error_type`, and why bad capture settings fail
+  closed instead of failing at install. It changes no rule and no attribute; the schema version stays 3. The
+  README and the kit's README now point to the Java package.
+
 - **Java package, stage 5: Spring Boot executable jars** (QV-319, pre-release, not published). The kit's Java
   driver is also built as a Spring Boot executable jar, with the SDK and Trailbeam nested under `BOOT-INF/lib`,
   and two new variants run it with `java -jar`: `spring-boot` (alone) and `spring-boot-otel-agent` (beside the

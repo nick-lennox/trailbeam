@@ -1,5 +1,5 @@
 """Trailbeam hooks for boto3 / botocore SQS clients (contract sections 4.1 to 4.3, and 18 for PurgeQueue),
-and for SNS Publish / PublishBatch (section 20).
+and for SNS Publish / PublishBatch (section 21).
 
 The hooks ride on ``opentelemetry-instrumentation-botocore``: each Trailbeam span is a child of the stock
 span for the same API call. Usage::
@@ -110,7 +110,7 @@ _MAX_PENDING = 10_000
 _now = time.time_ns  # wall clock for span start and end (contract section 2); replaced in tests
 _TRACKED_OPS = {
     "sqs": frozenset(_SETTLE_OPS) | {"SendMessage", "SendMessageBatch", "ReceiveMessage", "PurgeQueue"},
-    "sns": frozenset({"Publish", "PublishBatch"}),  # 3.4, section 20
+    "sns": frozenset({"Publish", "PublishBatch"}),  # 3.4, section 21
 }
 
 
@@ -247,7 +247,7 @@ class SqsHooks:
             log.debug("trailbeam SNS receive attributes failed", exc_info=True)
             return {}
 
-    # -- SNS (revision 3.4, section 20) ------------------------------------------------------
+    # -- SNS (revision 3.4, section 21) ------------------------------------------------------
 
     def _inject_publish_ids(self, operation: str, params: dict) -> Optional[list]:
         """Add trailbeam.publish_id to each message of a Publish to a topic. ``params`` is botocore's own
@@ -423,7 +423,7 @@ def install(
     ``tenant`` (``{"message_attribute": ..., "body_path": ...}``) and ``capture`` (``{"body_queues":
     [...], "error_queues": [...], "redact_keys": [...], "redact_patterns": [...], "max_body_bytes": n}``)
     are contract section 15; each replaces its TRAILBEAM_* environment variables. Body capture is off
-    unless a queue is listed in ``body_queues``. ``sns`` (``{"inject": bool}``) is section 20: SNS
+    unless a queue is listed in ``body_queues``. ``sns`` (``{"inject": bool}``) is section 21: SNS
     publishes get a ``trailbeam.publish_id`` message attribute unless ``inject`` is False. Receives on
     every queue read the SNS envelope's MessageId, TopicArn and Timestamp, and nothing else in the body.
     Calling ``install`` again replaces the previous installation.

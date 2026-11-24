@@ -189,7 +189,7 @@ call of its own. A self-hosted Trailbeam stores the body only if the queue is al
 
 ### SNS fan-out
 
-Contract section 20. `install` also hooks boto3 `sns` clients: each `publish` and `publish_batch` to a topic
+Contract section 21. `install` also hooks boto3 `sns` clients: each `publish` and `publish_batch` to a topic
 records a `trailbeam publish` span with the SNS message ID, and a receive of the message on a subscribed queue is
 joined to it. Two ways the join works:
 

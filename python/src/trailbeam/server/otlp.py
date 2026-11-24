@@ -67,7 +67,7 @@ _REQUIRED = {
     "change_visibility": ("queue", "receipt_hmac", "key_id", "result"),
     "outcome": ("queue", "message_id", "outcome"),
     "purge": ("queue", "result"),  # revision 3.3, section 18: no message ID, no receipt hash
-    "publish": ("queue", "message_id"),  # revision 3.4, section 20.1: the topic name and the SNS message ID
+    "publish": ("queue", "message_id"),  # revision 3.4, section 21.1: the topic name and the SNS message ID
 }
 
 
@@ -224,7 +224,7 @@ def to_record(resource: dict, trace_id: str, span_id: str, start_ns: int, end_ns
     if end_ns < start_ns:
         return None, "span ends before it starts"
     if kind in ("purge", "publish") and attrs.get("trailbeam.start_observed") is False:
-        return None, f"{kind} span without an observed start"  # always a client call (sections 18, 20.1)
+        return None, f"{kind} span without an observed start"  # always a client call (sections 18, 21.1)
     observed = attrs.get("trailbeam.start_observed") is not False
     rec = {"trace_id": trace_id, "span_id": span_id, "kind": kind, "time_ns": int(end_ns),
            "start_ns": int(start_ns) if observed else None,

@@ -1,5 +1,5 @@
 /*
-  Contract 3.4, section 20: what an SNS fan-out shows on the timeline, for timelines Trailbeam really returned
+  Contract 3.4, section 21: what an SNS fan-out shows on the timeline, for timelines Trailbeam really returned
   (fixtures/sns-timelines.json, from make-fixtures.py). Run: npm test
 */
 import { test } from "node:test";

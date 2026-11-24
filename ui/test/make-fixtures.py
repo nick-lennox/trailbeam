@@ -6,7 +6,7 @@ is tested on what Trailbeam really returns.
   (contract/fixtures/contract-3.2-spans.json), which the hosted app's tests read too
 - test/fixtures/purge-timelines.json: contract 3.3 PurgeQueue (section 18): a message sent before a purge (purged),
   one sent during it (possibly purged), and one received after it (not purged), from the server tests' span builder
-- test/fixtures/sns-timelines.json: contract 3.4 SNS fan-out (section 20): one publish that reached two queues, one
+- test/fixtures/sns-timelines.json: contract 3.4 SNS fan-out (section 21): one publish that reached two queues, one
   through the envelope (raw delivery off) and one through the publish ID (raw delivery on), and a message that
   arrived via SNS from a publisher with no Trailbeam package, from the same span builder
 
@@ -64,7 +64,7 @@ write("purge-timelines.json",
                   "application/x-protobuf")]))
 T0_MS = T0 // 10**6
 write("sns-timelines.json",
-      "GET /api/messages/{id} after an SNS fan-out (contract 3.4, section 20), made by Trailbeam itself "
+      "GET /api/messages/{id} after an SNS fan-out (contract 3.4, section 21), made by Trailbeam itself "
       "(ui/test/make-fixtures.py) from python/tests/server/spans.py: one Publish to orders-topic reached sns-orders "
       "(raw delivery off: joined by the envelope, with an SNS delivery time) and sns-billing (raw delivery on: joined "
       "by the publish ID, no delivery time); sns-arrived names the topic in its envelope, and no publish was recorded.",

@@ -601,7 +601,7 @@ class SqliteStore(Store):
                           f"WHERE kind = 'purge' AND queue IN ({', '.join('?' * len(queues))}) ORDER BY time_ns, row",
                           tuple(queues))
 
-    # SNS fan-out (contract section 20). Each lookup is by one of the partial indexes of migrations.SNS_INDEXES,
+    # SNS fan-out (contract section 21). Each lookup is by one of the partial indexes of migrations.SNS_INDEXES,
     # named with INDEXED BY so a plan that scanned spans fails instead of running.
     def publishes(self, keys) -> list[sqlite3.Row]:
         if not keys:

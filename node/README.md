@@ -219,7 +219,7 @@ A self-hosted Trailbeam stores the body only if the queue is also in its own `TR
 
 ### SNS fan-out
 
-Contract section 20. Pass an `SNSClient` to `instrument` too: each `Publish` and `PublishBatch` to a topic records
+Contract section 21. Pass an `SNSClient` to `instrument` too: each `Publish` and `PublishBatch` to a topic records
 a `trailbeam publish` span with the SNS message ID, and a receive of the message on a subscribed queue is joined to
 it. Two ways the join works:
 

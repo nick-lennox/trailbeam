@@ -1,5 +1,5 @@
 'use strict';
-// Revision 3.4 (contract section 20): SNS fan-out, against the shared vectors in
+// Revision 3.4 (contract section 21): SNS fan-out, against the shared vectors in
 // contract/span-contract-vectors.json ("sns"), with canned SNS and SQS responses. Python checks the same
 // vectors, and runs SNS to SQS delivery end to end in moto (python/tests/test_sns.py).
 const test = require('node:test');

@@ -655,7 +655,7 @@ def _scenario_spans():
         # purged and queue_purged (removal per_sqs_documentation, then possible): on a queue of their own
         p.send(T0, "purged", queue="scratch"), p.purge(T0 + 10 * SEC, queue="scratch", start=T0 + 9 * SEC),
         p.send(T0 + 30 * SEC, "maybe-purged", queue="scratch"),
-        # published (joined by envelope and by publish ID), arrived_via_sns (no publish recorded): contract 20.5
+        # published (joined by envelope and by publish ID), arrived_via_sns (no publish recorded): contract 21.5
         p.publish(T0 + SEC, "sns-1", publish_id="pid-1", start=T0),
         c.sns_receive(T0 + 3 * SEC, "via-sns", "rh-s1", sns_id="sns-1", sns_ts_ms=T0 // ms + 1000,
                       sent_ms=T0 // ms + 1040, start=T0 + 2 * SEC),

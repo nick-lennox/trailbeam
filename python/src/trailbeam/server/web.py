@@ -477,7 +477,7 @@ def _event(e: dict, by_id: Optional[dict] = None, bar: str = "", self_id: Option
     cls = ["event", "inferred" if inferred else "observed"] + (["failed"] if failed else [])
     head = []
     # observed, but with no time of its own: the DLQ move SQS reports (contract 9b), the SNS delivery an envelope
-    # reports (20.5)
+    # reports (21.5)
     reported = e.get("source") in (DLQ_SOURCE, SNS_ENVELOPE_SOURCE)
     if reported:
         cls.append("reported")
@@ -512,7 +512,7 @@ JOINED_BY = {"envelope_message_id": "the SNS envelope's MessageId (raw delivery 
 
 
 def _reached(e: dict, self_id: Optional[str]) -> str:
-    """The SQS messages an SNS publish reached, by queue (contract section 20.5), each a link but this one."""
+    """The SQS messages an SNS publish reached, by queue (contract section 21.5), each a link but this one."""
     parts = []
     for r in e.get("reached") or []:
         ids = []

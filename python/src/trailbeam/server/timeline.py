@@ -126,7 +126,7 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
     """``rows``: every stored row of one message (Store.message_rows), any order. ``max_receive_counts``:
     queue name -> the maxReceiveCount of its redrive policy, as configured (spans don't carry it). ``purges``:
     purge rows (Store.purges) that include those of the message's current queue (contract section 18).
-    ``publishes``: the SNS publishes this message's receives join (contract section 20.5), as queries.message gives
+    ``publishes``: the SNS publishes this message's receives join (contract section 21.5), as queries.message gives
     them: each ``{"publish": row, "joined_by": [...], "reached": [...], "reached_truncated": bool}``."""
     rows = sorted(rows, key=lambda r: (r["time_ns"], r["row"]))
     mid = rows[0]["mid"]
@@ -291,7 +291,7 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
         if verdict.status == purge_mod.PURGED:
             state = purge_mod.PURGED
 
-    # ---- SNS fan-out (contract section 20.5) --------------------------------------------------------
+    # ---- SNS fan-out (contract section 21.5) --------------------------------------------------------
     # A joined publish is an observed step, placed by the proven order (clock and process_order only: SNS's and
     # SQS's timestamps are never compared with a host clock). Without one, a receive whose envelope names a topic
     # shows that SNS delivered it, placed before that receive only.
@@ -363,7 +363,7 @@ def _purge_event(prow, status: str) -> dict:
             "process_order": _ticks(prow), "result": prow["result"], "removal": removal, "reason": reason}
 
 
-PUBLISH_SOURCE = "sns_publish"    # a recorded SNS publish this message's receives join (contract section 20.5)
+PUBLISH_SOURCE = "sns_publish"    # a recorded SNS publish this message's receives join (contract section 21.5)
 SNS_ENVELOPE_SOURCE = "sns_envelope"  # SNS delivered the message: its receive's envelope names the topic
 
 
@@ -447,7 +447,7 @@ def _arrange(rows: list, observed: list[dict], inferred: list, order: "order_mod
                 src = "inferred_from"
                 why_a = f"Inferred from {_label(events[a])}: it came after it." if a is not None else ""
                 why_b = f"Inferred from {_label(events[b])}: it came before it." if b is not None else ""
-            elif ev["source"] == SNS_ENVELOPE_SOURCE:  # arrived via SNS (contract section 20.5)
+            elif ev["source"] == SNS_ENVELOPE_SOURCE:  # arrived via SNS (contract section 21.5)
                 src = SNS_ENVELOPE_SOURCE
                 why_a = ""
                 why_b = (f"The SNS envelope of {_label(events[b])} names topic {ev['topic']}: SNS delivered the "

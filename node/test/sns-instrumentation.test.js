@@ -1,5 +1,5 @@
 'use strict';
-// Section 20.2 with @opentelemetry/instrumentation-aws-sdk and a W3C propagator: the stock instrumentation
+// Section 21.2 with @opentelemetry/instrumentation-aws-sdk and a W3C propagator: the stock instrumentation
 // adds traceparent to a Publish before the middleware stack runs, so the Trailbeam hook counts it and the
 // message never carries more than 10 attributes. Own file: the instrumentation patches the SDK globally.
 const test = require('node:test');

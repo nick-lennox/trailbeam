@@ -1,5 +1,5 @@
 """Message contents (contract section 15, revision 3.2): body size, tenant, FIFO fields, opt-in body
-capture with redaction, and Lambda error text. SNS fan-out (section 20, revision 3.4): the publish ID the
+capture with redaction, and Lambda error text. SNS fan-out (section 21, revision 3.4): the publish ID the
 publish hooks add, and the three SNS envelope fields a receive reads.
 
 Nothing here makes an SQS call. Everything is read from the parameters and responses of calls the
@@ -91,7 +91,7 @@ class Config:
     redact_keys: tuple = DEFAULT_REDACT_KEYS
     redact_patterns: tuple = DEFAULT_PATTERNS
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES
-    # 3.4 (section 20): add trailbeam.publish_id to Publish / PublishBatch. The SNS envelope's three
+    # 3.4 (section 21): add trailbeam.publish_id to Publish / PublishBatch. The SNS envelope's three
     # fields are read on every queue (board decision on QV-302), so they have no option.
     sns_inject: bool = True
     _key_value_re: Any = field(default=None, compare=False, repr=False)
@@ -129,7 +129,7 @@ def _flag_on(value: Optional[str]) -> bool:
 
 def resolve_config(tenant: Optional[Mapping] = None, capture: Optional[Mapping] = None,
                    sns: Optional[Mapping] = None) -> Config:
-    """Explicit options, else environment variables (sections 15.1 and 20.4). Each option group replaces
+    """Explicit options, else environment variables (sections 15.1 and 21.4). Each option group replaces
     its environment variables as a whole."""
     env = os.environ
     if sns is None:
@@ -494,10 +494,10 @@ def fifo_attrs(group_id: Any, sequence_number: Any) -> dict:
     return out
 
 
-# -- SNS fan-out (section 20, revision 3.4) ---------------------------------------------------------
+# -- SNS fan-out (section 21, revision 3.4) ---------------------------------------------------------
 
 PUBLISH_ID_ATTRIBUTE = "trailbeam.publish_id"
-SNS_MAX_ATTRIBUTES = 10  # with raw delivery on, SNS drops a message with more (section 20.2)
+SNS_MAX_ATTRIBUTES = 10  # with raw delivery on, SNS drops a message with more (section 21.2)
 SNS_MAX_MESSAGE_BYTES = 262_144  # the topics' default MaximumMessageSize
 SKIP_OFF = "off"
 SKIP_JSON_STRUCTURE = "json_structure"
@@ -541,7 +541,7 @@ def sns_entry_bytes(entry: Mapping) -> int:
 
 
 def sns_inject(config: Config, entries: list, new_id=lambda: str(uuid.uuid4())) -> tuple[list, list]:
-    """Section 20.2: add trailbeam.publish_id to the entries of one Publish (a list of one: the request) or
+    """Section 21.2: add trailbeam.publish_id to the entries of one Publish (a list of one: the request) or
     PublishBatch call. Returns (entries, results): each entry is the caller's own object if nothing was
     added, else a copy with a new MessageAttributes; each result is ("trailbeam.sns.publish_id", id) or
     ("trailbeam.sns.publish_id_skipped", reason). Never modifies the caller's objects."""
@@ -604,7 +604,7 @@ def sns_timestamp_ms(value: Any) -> Optional[int]:
 
 
 def sns_envelope(body: Any) -> Optional[dict]:
-    """The three fields of an SNS notification envelope (section 20.3), as receive attributes, or None if
+    """The three fields of an SNS notification envelope (section 21.3), as receive attributes, or None if
     the body is not one. Nothing else in the body is read or exported."""
     if not isinstance(body, str) or '"Notification"' not in body or body.lstrip(" \t\n\r")[:1] != "{":
         return None
@@ -622,7 +622,7 @@ def sns_envelope(body: Any) -> Optional[dict]:
 
 
 def sns_receive_attrs(config: Config, queue_name: str, body: Any, attributes: Any, lambda_record: bool = False) -> dict:
-    """Section 20.3 attributes of one received message: the publish ID from its message attribute (raw
+    """Section 21.3 attributes of one received message: the publish ID from its message attribute (raw
     delivery), and the three envelope fields if the body is an SNS envelope (raw delivery off). These are
     read on every queue, whether or not its body is captured; nothing else in the body is."""
     out: dict = {}
