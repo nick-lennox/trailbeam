@@ -1,4 +1,4 @@
-package dev.trailbeam.sqs;
+package app.trailbeam.sqs;
 
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
