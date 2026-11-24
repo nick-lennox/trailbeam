@@ -25,7 +25,8 @@ from typing import Optional
 from . import order as order_mod
 from . import purge as purge_mod
 from . import sns as sns_mod
-from .otlp import DEFAULT_KEY_ID
+from . import systems
+from .otlp import AMQP_KINDS, DEFAULT_KEY_ID
 
 DEFAULT_LAMBDA_TIMEOUT_S = 900  # the longest Lambda timeout; Trailbeam does not know the real one
 
@@ -121,6 +122,14 @@ def _inferred(type_: str, frm: Optional[int], to: Optional[int], reason: str, **
             "window": {"from": iso(frm), "to": iso(to)}, "reason": reason, **extra}
 
 
+def source_queue_of(mid: Optional[str], sends: list, receives: list, fallback: str) -> str:
+    """The queue a message was sent to: its first send's, else its first receive's. A RabbitMQ message is sent to
+    an exchange, not a queue (contract/span-contract-amqp.md A5): its first delivery's queue."""
+    if systems.system_of(mid) == systems.RABBITMQ:
+        return receives[0]["queue"] if receives else (sends[0]["queue"] if sends else fallback)
+    return sends[0]["queue"] if sends else (receives[0]["queue"] if receives else fallback)
+
+
 def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S,
           max_receive_counts: Optional[dict] = None, purges=(), publishes=()) -> dict:
     """``rows``: every stored row of one message (Store.message_rows), any order. ``max_receive_counts``:
@@ -130,11 +139,15 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
     them: each ``{"publish": row, "joined_by": [...], "reached": [...], "reached_truncated": bool}``."""
     rows = sorted(rows, key=lambda r: (r["time_ns"], r["row"]))
     mid = rows[0]["mid"]
+    fallback_queue = rows[0]["queue"]
+    # The kinds only RabbitMQ has (return, reject, channel_closed; otlp.AMQP_KINDS) are stored, and not shown here
+    # yet: their steps are QV-307's (contract/span-contract-amqp.md A10).
+    rows = [r for r in rows if r["kind"] not in AMQP_KINDS]
     receives = [r for r in rows if r["kind"] == "receive"]
     sends = [r for r in rows if r["kind"] == "send"]
     by_row = {r["row"]: i + 1 for i, r in enumerate(receives)}  # receive row -> delivery number
     latest = receives[-1] if receives else None
-    source_queue = sends[0]["queue"] if sends else (receives[0]["queue"] if receives else rows[0]["queue"])
+    source_queue = source_queue_of(mid, sends, receives, fallback_queue)
     outcomes = {(r["faas_invocation_id"]): r for r in rows if r["kind"] == "outcome"}
     # Proven order between the observed rows (row list index = position in ``rows``).
     order = order_mod.Order(rows)
@@ -206,14 +219,14 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
     for r in receives:
         q = r["queue"]
         p = prev_on_queue.get(q)
-        if p is None and q == source_queue and r["receive_count"] > 1:
+        if p is None and q == source_queue and (r["receive_count"] or 0) > 1:  # None: no count (RabbitMQ, A7)
             s0 = sends[0] if sends else None
             infer(s0, r, 2, _inferred(
                 "deliveries_not_observed", _start(s0) if s0 else None, r["time_ns"],
                 f"The first observed receive has receive count {r['receive_count']}, so "
                 f"{r['receive_count'] - 1} earlier receive(s) were not observed (a consumer without Trailbeam, "
                 f"or lost spans).", count=r["receive_count"] - 1, queue=q))
-        if p is not None and r["receive_count"] > p["receive_count"]:
+        if p is not None and None not in (r["receive_count"], p["receive_count"]) and r["receive_count"] > p["receive_count"]:
             gap = r["receive_count"] - p["receive_count"] - 1
             if gap > 0:
                 infer(p, r, 2, _inferred(
@@ -309,7 +322,7 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
     evs, n_groups, order_doc = _arrange(steps, observed, inferred, order, idx)
     dlqs = {b["queue"] for _, b, _ in moves}
     mrc = (max_receive_counts or {}).get(source_queue)
-    src_count = max((r["receive_count"] for r in receives if r["queue"] == source_queue), default=0)
+    src_count = max((r["receive_count"] or 0 for r in receives if r["queue"] == source_queue), default=0)
     if moves:
         dlq_move = "observed"
     elif mrc and src_count >= mrc and state not in ("deleted", "deleted_inferred", purge_mod.PURGED):

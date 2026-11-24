@@ -605,7 +605,7 @@ def test_version_2_fills_the_lookup_tables_place_by_place(pg_store):
         _as_version(c, 1)
     again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
     try:
-        assert again.migrated == [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+        assert again.migrated == [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
         with again.ingest.connection() as c:
             assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
             assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == list(range(1, pg_schema_latest() + 1))
@@ -755,7 +755,11 @@ def _as_version(c, version: int) -> None:
     doctor (QV-148); 7 takes deduplicated FIFO sends out of the tenant events (QV-246, no table change); 8 the
     tables of people and tokens (QV-225); 9 the purges (QV-245); 10 spans.service_version (QV-362); 11 the queue
     events and their rollup (QV-363); 12 users.proxy_linked_at_ms (QV-227); 13 the SNS publishes and receives
-    (QV-313); 14 the single sign-on tables (QV-228)."""
+    (QV-313); 14 the single sign-on tables (QV-228); 15 spans_loose in place of spans_unjoined (QV-306)."""
+    if version < 15:
+        c.execute("DROP INDEX spans_loose")
+        c.execute("""CREATE INDEX spans_unjoined ON spans (queue)
+                     WHERE receive_row IS NULL AND kind IN ('delete', 'change_visibility')""")
     if version < 13:
         c.execute("DROP TABLE sns_receives, sns_publishes")
     if version < 14:
@@ -891,7 +895,7 @@ def test_version_3_indexes_the_list_tables_place_by_place(pg_store):
     for attempt in range(2):
         again = PostgresStore(s.url, bucket_ns=SEC)
         try:
-            assert again.migrated == [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+            assert again.migrated == [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
             with again.ingest.connection() as c:
                 parts = _list_partitions(c)
                 assert len(parts["message_queues"]) == 11 + attempt  # 12 places less the dropped one, + "after-0"
@@ -1132,7 +1136,7 @@ def test_version_4_builds_the_rollup_place_by_place(pg_store):
         _as_version(c, 3)
     again = PostgresStore(s.url, bucket_ns=HOUR_MS * 10 ** 6)
     try:
-        assert again.migrated == [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+        assert again.migrated == [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
         assert [_rollup_page(again, a, b) for a, b in ranges] == want
         with again.ingest.connection() as c:
             assert c.execute("SELECT * FROM tenant_events ORDER BY rclass, bucket, at_ms, mid, seq").fetchall() == events
@@ -1167,7 +1171,7 @@ def test_version_7_takes_deduplicated_fifo_sends_out_of_the_tenant_events(pg_sto
         _as_version(c, 6)
     again = PostgresStore(s.url, bucket_ns=SEC)
     try:
-        assert again.migrated == [7, 8, 9, 10, 11, 12, 13, 14]
+        assert again.migrated == [7, 8, 9, 10, 11, 12, 13, 14, 15]
         assert queries.tenants(again, T0, 900, ms - 3_600_000, ms + 3_600_000) == want
         with again.ingest.connection() as c:
             assert [r["kind"] for r in c.execute("SELECT kind FROM tenant_events ORDER BY at_ms, kind")] == \
@@ -1414,7 +1418,7 @@ def test_version_5_partitions_the_lookup_tables_place_by_place(pg_store, tmp_pat
                          "AND relnamespace = current_schema()::regnamespace").fetchone()["relkind"] == "r"
     again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
     try:
-        assert again.migrated == [5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+        assert again.migrated == [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
         with again.ingest.connection() as c:
             assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
             assert c.execute("SELECT to_regclass('mid_places_v4') AS t").fetchone()["t"] is None
@@ -1644,7 +1648,7 @@ def test_version_11_builds_the_queue_events_place_by_place(pg_store):
         _as_version(c, 10)
     again = PostgresStore(s.url, bucket_ns=HOUR_MS * 10 ** 6)
     try:
-        assert again.migrated == [11, 12, 13, 14]
+        assert again.migrated == [11, 12, 13, 14, 15]
         assert _queue_page(again, ranges, now_ms) == want
         with again.ingest.connection() as c:
             assert c.execute(q).fetchall() == events
@@ -1653,5 +1657,35 @@ def test_version_11_builds_the_queue_events_place_by_place(pg_store):
         again.insert(tr._traffic(13, messages=50, hours=6))  # and it goes on taking spans
         rolled, ev = _queue_rollup_vs_events(again)
         assert rolled == ev
+    finally:
+        again.close()
+
+
+@needs_pg
+def test_version_15_indexes_the_spans_of_no_message_and_takes_rabbitmq_spans(pg_store):
+    """A version-14 database (no RabbitMQ) upgrades in place: its SQS messages keep their keys and summaries, the
+    unjoined settle index becomes the index of spans of no message, and RabbitMQ spans are stored (QV-306)."""
+    from trailbeam.server.postgres import PostgresStore
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "conformance"))
+    from test_amqp_conformance import FIXTURE, otlp_json
+
+    s = pg_store()
+    c = Consumer()
+    s.insert(records([c.send(T0, "m1"), c.receive(T0 + SEC, "m1", "rh-1"), c.delete(T0 + 2 * SEC, "rh-1"),
+                      c.delete(T0 + 3 * SEC, "rh-unknown")]))
+    want = s.summaries(["m1"])
+    with s.ingest.connection() as conn:
+        _as_version(conn, 14)
+    again = PostgresStore(s.url)
+    try:
+        assert again.migrated == [15]
+        with again.ingest.connection() as conn:
+            names = {r["indexname"] for r in conn.execute("SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() "
+                                                "AND tablename = 'spans'").fetchall()}
+        assert "spans_loose" in names and "spans_unjoined" not in names
+        assert again.summaries(["m1"]) == want and again.counts()["unjoined_settles"] == 1
+        d = decode(otlp_json(FIXTURE["spans"]), "application/json")
+        assert d.rejected == [] and again.insert(d.records) == (len(FIXTURE["spans"]), 0)
+        assert [r["kind"] for r in again.message_rows("~rabbitmq~m-happy")] == ["send", "receive", "delete"]
     finally:
         again.close()

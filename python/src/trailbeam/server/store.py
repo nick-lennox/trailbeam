@@ -18,8 +18,8 @@ sorted keys, bodies removed per ``store_bodies``), and these, which the Store se
 
 - ``row``: an integer ID, unique in the store, increasing in the order spans were stored. The timeline uses it
   to break ties between equal times, and settle spans point at their receive with it.
-- ``mid``: the message the row belongs to. Send, receive and outcome spans: their own message ID. Settle
-  spans (delete, change_visibility): the message ID of the receive with the same receipt-handle hash and key
+- ``mid``: the message the row belongs to: a message key (systems.py), which for an SQS message is its message
+  ID. Send, receive and outcome spans: their own message ID. Settle spans (SETTLE_KINDS): the message ID of the receive with the same receipt-handle hash and key
   ID, whichever of the two arrived first (``mid_source = 'receipt_hash'``, ``receive_row`` = that receive's
   ``row``); until that receive arrives, the settle span's own message ID if it has one (``mid_source =
   'span'``), else NULL. If several receives share a hash, the latest at or before the settle span, else the
@@ -27,6 +27,12 @@ sorted keys, bodies removed per ``store_bodies``), and these, which the Store se
 - ``body_dropped``: ``'not_opted_in'`` when the span carried a body for a queue not in ``store_bodies``.
 
 **Messages.** Only rows with a ``mid`` belong to a message. A message's time is its spans' ``time_ns``.
+
+**RabbitMQ** (contract/span-contract-amqp.md, otlp.py). Its spans are rows like SQS's, keyed by message key; the
+kinds only it has are ``return`` (a message of the row's ``mid``), ``reject`` and ``channel_closed`` (settle spans,
+joined to their delivery by channel and delivery tag), and ``cancel`` (belongs to no message). A RabbitMQ span
+without a message ID has no ``mid`` and joins nothing: retention takes it by its own time and queue, as it does an
+unjoined settle span.
 
 **Purges** (contract section 18, revision 3.3). A ``purge`` record (a ``PurgeQueue`` call) belongs to no message:
 SQS does not say which messages it deleted. A Store keeps it with its queue and times (``purges``) and drops it by
@@ -49,7 +55,10 @@ NO_PROBES = "this store does not keep probes"
 Row = Mapping[str, Any]
 Summary = Mapping[str, Any]  # summary.summarize, as stored
 
-SETTLE_KINDS = ("delete", "change_visibility")
+# Spans about one delivery that join its receive (db.py): SQS's by receipt hash; RabbitMQ's reject and
+# channel_closed (otlp.py) by channel and delivery tag, through the same columns.
+SETTLE_KINDS = ("delete", "change_visibility", "reject", "channel_closed")
+SETTLE_KINDS_SQL = "(" + ", ".join(f"'{k}'" for k in SETTLE_KINDS) + ")"  # kind IN SETTLE_KINDS_SQL
 
 # Tenants (contract/tenants.md): a span's tenant is its trailbeam.tenant attribute when that is a non-empty
 # string, cut to TENANT_MAX_CHARS, on send, receive and outcome spans only.

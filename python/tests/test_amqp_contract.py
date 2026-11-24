@@ -1,8 +1,9 @@
 """Checks the RabbitMQ part of the span contract (contract/span-contract-amqp.md, schema version 4).
 
-No package or server implements it yet (QV-306, QV-309), so this test holds a small reference reading of
-sections A4, A7, A8 and A12 and checks that the document, the vectors and the fixtures agree with it and with
-each other. The server and the packages must pass the same vectors when they land.
+This test holds a small reference reading of sections A4, A7, A8 and A12 and checks that the document, the
+vectors and the fixtures agree with it and with each other. The server passes the same ingest vectors
+(tests/server/test_amqp_ingest.py, QV-306) and stores the fixture (tests/conformance/test_amqp_conformance.py);
+the packages must pass the emit vectors when they land (QV-309, QV-310).
 """
 import importlib.util
 import json
