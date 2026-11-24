@@ -1711,13 +1711,26 @@ class PostgresStore(Store):
             return {self._hints[m] for m in mids if m in self._hints}
 
     def message_rows(self, message_id: str) -> list[dict]:
+        return self._rows_of([message_id])
+
+    MESSAGES_ROWS_BATCH = 500
+
+    def messages_rows(self, message_ids: list[str]) -> dict:
+        out: dict = {}
+        for i in range(0, len(message_ids), self.MESSAGES_ROWS_BATCH):
+            for r in self._rows_of(message_ids[i:i + self.MESSAGES_ROWS_BATCH]):
+                out.setdefault(r["mid"], []).append(r)
+        return out
+
+    def _rows_of(self, mids: list[str]) -> list[dict]:
+        """Every row of these messages, by (time_ns, row), each with its body back in ``attributes``."""
         def query(places):
-            spans, sp = _each(places, f"SELECT {_SPAN_SELECT} FROM spans s WHERE {{p}} AND s.mid = %s", [message_id], "s")
-            bodies, bp = _each(places, "SELECT mid, id, body FROM bodies WHERE {p} AND mid = %s", [message_id])
+            spans, sp = _each(places, f"SELECT {_SPAN_SELECT} FROM spans s WHERE {{p}} AND s.mid = ANY(%s)", [mids], "s")
+            bodies, bp = _each(places, "SELECT mid, id, body FROM bodies WHERE {p} AND mid = ANY(%s)", [mids])
             return (f"""SELECT s.*, b.body AS _body FROM ({spans}) s LEFT JOIN ({bodies}) b ON b.mid = s.mid AND b.id = s.body_id
                         ORDER BY s.time_ns, s."row" """, sp + bp)
         out = []
-        for r in self._by_message([message_id], query):
+        for r in self._by_message(mids, query):
             body = r.pop("_body")
             if body is not None:
                 attrs = json.loads(r["attributes"])

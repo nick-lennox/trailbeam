@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **The Stuck page groups its messages by cause, and lists the dead-letter queues** (QV-367, step 2). `/stuck`
+  now reads `/api/causes`. It shows one row per cause, with its count, first and last seen, a 24-hour trend,
+  the dead-letter split, and the newest error text. Below that are the stuck messages, each with its cause
+  (`?cause=` narrows them to one cause), and the dead-letter queues holding them, per queue. The time range now
+  picks causes seen in it, with a start and an end. The table lists the oldest `limit` (100 by default, up to
+  1,000) and has no Next page; `/api/stuck` still pages. The views are in `@trailbeam/ui` (`CauseList`,
+  `CauseMessagesTable`, `DeadLetterQueues` and the hosted app's words for a group), so the hosted Needs attention
+  page can draw the same ones. Redrive stays in the hosted app: it needs AWS's redrive permissions. The theme
+  adds two role tokens the hosted app already defines, `canvas` and `critical`.
+- **`GET /api/causes`: stuck messages grouped by why they didn't finish** (QV-367, step 1 of the open-source
+  Needs attention page). One group per cause (an exception class and its error text with numbers and IDs taken
+  out, a failed delete, no Lambda outcome, received and not deleted, never received), for its queue and
+  consumer, with counts by outcome, first and last seen, the times for a trend, tenants and service.versions.
+  Groups are listed worst outcome first. The response also groups the messages in a dead-letter queue by that
+  queue. The rules and the group shape are the hosted app's, and both are tested on one shared fixture
+  (`@trailbeam/ui/fixtures/causes-parity.json`), so a cause has the same `id` in both. The groups are worked out
+  when the endpoint is read, from up to 5,000 stuck messages, oldest first. Nothing new is stored.
 - **`trailbeam --version`** (QV-346). `trailbeam --version` (or `-V`, also after `start`) prints
   `trailbeam <version>` and exits 0; it used to fail with `unrecognized arguments`. `npx trailbeam --version` prints
   the same line (it printed the bare version before).
@@ -59,7 +76,7 @@
   `@trailbeam/ui`) show the "Published to topic" step with the publisher, how it joined, the SNS delivery time and
   the other messages it reached (links), and the "Arrived via SNS topic" step, with no time, before its receive.
   `TimelineView` takes an optional `messageHref` for those links; `@trailbeam/ui/fixtures/sns-timelines.json` is
-  what the server returns after a fan-out (`@trailbeam/ui` 0.1.0-dev.4).
+  what the server returns after a fan-out (`@trailbeam/ui` 0.1.0-dev.7).
 - **Java package, stage 6: the contract's Java note** (QV-319, pre-release, not published). New section 20 of
   the span contract says how the jar meets it: the parent read from the request's trace header, receives in a
   polling loop as root spans beside an agent, where times and call-order ticks are taken, one counter per class
