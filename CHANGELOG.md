@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Java package, stage 5: version matrix and strict parent checks** (QV-319, pre-release, not published). CI
+  runs the Java driver in every variant on JDK 11 and 17 and on AWS SDK 2.17.295, 2.20.162, 2.24.13 and 2.25.0,
+  beside the existing JDK 21 run on the newest SDK. The supported floor is SDK 2.17. The agent variants now check
+  parents: beside the OpenTelemetry Java agent every span but a receive is a child of the agent's exported span,
+  and with the agent's sampler at 0, or beside dd-java-agent, every span but a receive still has a parent. The kit
+  has a new variant option for this, `receive_roots` (`kit.py check --receive-roots`), because a receive in a poll
+  loop has no stock span under the Java agents. The Java driver asks for system attributes the way each SDK
+  does (`attributeNames` before 2.25).
 - **`npx trailbeam start` no longer leaves the server running when only `npx` is stopped** (QV-344). npm doesn't
   pass a signal sent to the `npx` process on, so the server kept port 4318. The launcher now stops the server
   when the process that started it goes away. The container is labelled `trailbeam.start=1`, and when the port
