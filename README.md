@@ -540,6 +540,62 @@ own store (SQLite or Postgres). Nothing changes until the first admin exists. Af
   set `--trusted-proxy` (below), or every request seems to come from the proxy.
 - A `--db :memory:` store loses its people and tokens when the server stops.
 
+### The first admin, and people and tokens from the command line
+
+**With `trailbeam start`**, while the store has no admin, the terminal shows a one-time link next to the address:
+
+```console norun="sample output of trailbeam start; the code is new on every start"
+Trailbeam is running: open http://127.0.0.1:4318/
+  Create your admin account (the link works once, for an hour; keep it to yourself):
+    http://127.0.0.1:4318/setup#code=3q2-7wEjUt0yKxGm1fB6c4V8nH0pZr5sLaD9oQeTiWk
+```
+
+Open it, and give an email, a name and a password (at least 10 characters). That account becomes the first admin
+and is signed in. Until the link is used, it is as good as an admin password, so it works once, for an hour, and
+each start replaces it. It is printed only when the output is a terminal, never in the log. The code sits after
+`#`, which browsers don't send to the server or a proxy, so it is not in their request logs either.
+
+**In Docker, Compose or Kubernetes** there is no link, because container logs are often readable by many people.
+The server logs `this server has no admin account yet` instead. Either run the command in the container:
+
+```sh norun="needs a running container; test_cli.py runs these commands against SQLite and Postgres"
+docker exec -it trailbeam trailbeam users create --email ada@example.com --role admin
+# asks for the password twice; or --password-file /run/secrets/admin-password
+```
+
+or give the server `TRAILBEAM_ADMIN_EMAIL` and `TRAILBEAM_ADMIN_PASSWORD_FILE` (a file holding the password,
+for example a Docker or Kubernetes secret), and optionally `TRAILBEAM_ADMIN_NAME`. They are read at start and only
+while the store has no admin, so changing them later changes nothing. Replicas started together create one admin.
+
+**People and tokens** are managed with `trailbeam users` and `trailbeam tokens`, on the server's own store, while
+it runs. They take the server's `--db` or `--store-url` (or `TRAILBEAM_DB` / `TRAILBEAM_STORE_URL`, which a
+container already has). Without either they use `trailbeam.sqlite` in the current directory, else the one
+`trailbeam start` keeps in `~/.trailbeam`.
+
+```sh norun="needs a store; test_cli.py runs these commands against SQLite and Postgres"
+trailbeam users create --email bob@example.com --name "Bob" --role member   # asks for the password
+trailbeam users list
+trailbeam users set-role bob@example.com admin       # or member
+trailbeam users reset-password bob@example.com      # an admin resets forgotten passwords: no email is sent
+trailbeam users disable bob@example.com              # enable, or remove --yes
+trailbeam tokens create --name "orders-api prod"     # an ingest token, for a service
+trailbeam tokens create --name ci --personal --user bob@example.com --expires 90d   # a personal API token
+trailbeam tokens list                                # --personal for personal API tokens
+trailbeam tokens revoke 3                            # --personal for a personal API token
+```
+
+- A new token is printed once, alone on stdout (`TOKEN=$(trailbeam tokens create --name orders-api)` works), and
+  the store keeps only its hash. Messages go to stderr.
+- Creating the first ingest token says first that it closes ingest on a server without `TRAILBEAM_TOKEN`, and
+  asks. Without a terminal, pass `--yes`.
+- The server always keeps an admin: the last admin who can sign in can't be made a member, disabled or removed.
+- Changing someone's role or password, or disabling or removing them, ends their sessions. Running servers see it
+  within 20 seconds, a revoked token within 30 seconds, and a new admin or a first ingest token within 5 seconds.
+- The commands never create or upgrade a store: they refuse a file that doesn't exist, a store at an older or
+  newer schema version (start the new server once first), and `--db :memory:`, which only the server can reach.
+- In the web screen, the header shows who is signed in, with **Sign out**. Managing people and tokens there
+  comes in a later release.
+
 ### Behind a proxy (`--trusted-proxy`)
 
 Behind a load balancer or TLS proxy, every request comes from the proxy's address. Tell Trailbeam which
@@ -1329,15 +1385,21 @@ the current version on every change, for SQLite (the PyPI package and the image)
 message, list and tenant count reads the same as before
 ([`python/smoke/upgrade_check.py`](python/smoke/upgrade_check.py)).
 
-- **SQLite.** The new version moves the file from schema 12 to 15 (a small table for the test span of
-  `trailbeam doctor`, corrected counts for FIFO sends SQS deduplicated, and the empty tables of people and
-  tokens; only the summaries of FIFO messages sent more than once are rewritten). Once it has, a 0.3.0 server
-  stops at start with `the database is at schema version 15, written by a newer Trailbeam ... Refusing to
+- **SQLite.** The new version moves the file to schema 16 (from 0.3.0's 12: a small table for the test span of
+  `trailbeam doctor`, corrected counts for FIFO sends SQS deduplicated, the empty tables of people and tokens,
+  and each span's `service.version`; only the summaries of FIFO messages sent more than once are rewritten).
+  Once it has, **0.4.0 and 0.3.0 can't open it again**: they stop at start with `the database is at schema
+  version 16, written by a newer Trailbeam ... Refusing to start, so nothing is lost`. To go back, restore the
+  backup you took first.
+- **Postgres.** Stop every replica before you start the new version. It moves the database to schema 10 (from
+  0.3.0's 4, about 8 s per 1M spans, see the [changelog](CHANGELOG.md)). Once it has, 0.4.0 and 0.3.0 stop at
+  start with `the database is at Postgres schema version 10, written by a newer Trailbeam ... Refusing to
   start, so nothing is lost`. To go back, restore the backup you took first.
-- **Postgres.** Stop every replica before you start the new version. It moves the database from schema 4 to 8
-  (about 8 s per 1M spans, see the [changelog](CHANGELOG.md)). Once it has, a 0.3.0 server stops at start
-  with `the database is at Postgres schema version 8, written by a newer Trailbeam ... Refusing to start, so
-  nothing is lost`. To go back, restore the backup you took first.
+- **Accounts stay off until you create the first admin.** Upgrade every replica first: a replica still on 0.4.0
+  or 0.3.0 keeps letting `TRAILBEAM_TOKEN` into the web screen and the API after the others have switched.
+  `trailbeam users create` reminds you on Postgres. Once an admin exists, `TRAILBEAM_TOKEN` opens only ingest and
+  `/metrics`, and browsers signed in with it are signed out: give Prometheus and scripts a personal API token
+  only if they read the API. With `--db :memory:`, people and tokens are lost at every restart.
 - **The token and the receipt-hash key** don't change. Signed-in browsers stay signed in. Services keep their
   `TRAILBEAM_RECEIPT_HASH_KEY`: the hashing is the same in 0.3.0 and 0.4.0, so services on either package
   version can send spans for the same messages.

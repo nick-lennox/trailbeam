@@ -13,7 +13,7 @@ import sys
 import time
 
 from .. import __version__
-from . import auth, config, trace_links
+from . import auth, config, first_admin, trace_links
 from .backpressure import DEFAULT_MAX_PENDING, DEFAULT_MAX_WAIT_S, IngestGate
 from .db import SqliteStore, parse_queue_list
 from .migrations import SchemaError
@@ -30,6 +30,9 @@ def main(argv=None) -> None:
     if argv[:1] == ["start"]:
         from .start import start
         return start(argv[1:])
+    if argv[:1] in (["users"], ["tokens"]):
+        from . import cli
+        sys.exit(cli.main(argv))
     if argv[:1] == ["doctor"]:
         from . import doctor
         sys.exit(doctor.main(argv[1:]))
@@ -42,7 +45,8 @@ def build_parser(prog: str = "trailbeam", description: str = "") -> argparse.Arg
         prog=prog, description=description or "Trailbeam: OTLP/HTTP ingest, JSON API and web screen on one port.",
         epilog="First time? trailbeam start creates an access token and a receipt-hash key, starts the server and "
                "prints the environment variables for your services (trailbeam start --help). "
-               "No data arriving? trailbeam doctor checks why (trailbeam doctor --help).")
+               "No data arriving? trailbeam doctor checks why (trailbeam doctor --help). People and tokens: "
+               "trailbeam users --help, trailbeam tokens --help.")
     p.add_argument("-V", "--version", action="version", version=f"trailbeam {__version__}",
                    help="print the version (trailbeam X.Y.Z) and exit")
     p.add_argument("--db", default=os.environ.get("TRAILBEAM_DB", "trailbeam.sqlite"),
@@ -144,7 +148,7 @@ def build_parser(prog: str = "trailbeam", description: str = "") -> argparse.Arg
 
 
 def serve(a: argparse.Namespace, on_listening=None) -> None:
-    """Run the server with the parsed flags until SIGTERM or Ctrl-C. ``on_listening(host, port, token)``,
+    """Run the server with the parsed flags until SIGTERM or Ctrl-C. ``on_listening(host, port, token, app)``,
     if given, is called once the port is bound, before the first request is served."""
     logging.basicConfig(level=a.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
     try:
@@ -212,6 +216,21 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
         db.close()
         sys.stderr.write(bind_error(e, a.host, a.port, getattr(a, "command", "trailbeam")) + "\n")
         sys.exit(2)
+    try:  # TRAILBEAM_ADMIN_EMAIL + TRAILBEAM_ADMIN_PASSWORD_FILE: the first admin, only while there is none
+        if first_admin.from_env(httpd.app.accounts, httpd.app.signin.hasher if httpd.app.signin else None,
+                                time.time_ns() // 1_000_000) is not None:
+            httpd.app.access.state.changed()
+    except first_admin.FirstAdminError as e:
+        httpd.server_close()
+        db.close()
+        logging.getLogger("trailbeam.server").error("%s", e)
+        sys.exit(2)
+    except Exception as e:  # noqa: BLE001 - the store failed; the server would not get far either
+        httpd.server_close()
+        db.close()
+        logging.getLogger("trailbeam.server").error("%s: could not create the first admin: %s",
+                                                    first_admin.EMAIL_ENV, e)
+        sys.exit(2)
     if httpd.app.proxies:
         logging.getLogger("trailbeam.server").info(
             "trusted proxies (X-Forwarded-For, -Proto and -Host believed from): %s",
@@ -228,7 +247,7 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
     purger.start()
     try:
         if on_listening:
-            on_listening(a.host, httpd.server_address[1], token)
+            on_listening(a.host, httpd.server_address[1], token, httpd.app)
         httpd.serve_forever()
     except KeyboardInterrupt:
         pass
@@ -438,6 +457,8 @@ def access_log(app, token: bool, host: str) -> list:
                                      "who can reach this port can send spans"))
     elif ingest == "token" and not token:
         out.append((logging.INFO, "ingest needs an ingest token (tbi_...): the store holds at least one"))
+    if mode != "accounts" and app.accounts is not None:
+        out.append((logging.INFO, first_admin.NO_ADMIN))
     return out
 
 

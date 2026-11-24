@@ -38,6 +38,25 @@ class EmailTaken(AccountError):
     pass
 
 
+class LastAdmin(AccountError):
+    """The change would leave no admin who can sign in: the server always keeps one (proposal section 2)."""
+
+
+class AdminExists(AccountError):
+    """The first admin was asked for (a setup link, TRAILBEAM_ADMIN_EMAIL), but an admin exists already."""
+
+
+class BadSetupCode(AccountError):
+    """The setup code is unknown, used, or out of date."""
+
+
+SETUP = "setup"  # setup_codes.kind of the first admin's link (trailbeam start)
+# pg_advisory_xact_lock key, taken by every write that can add or take away an admin, so two replicas (or a CLI and
+# a replica) can't both create "the first admin", or each take away one of the last two
+ADMIN_LOCK = 0x7472_6169_6c62_6d02
+_LAST_ADMIN = "the server must keep at least one admin who can sign in: make someone else an admin first"
+
+
 def check_email(email: str) -> str:
     e = (email or "").strip()
     if len(e) > MAX_EMAIL or not _EMAIL.fullmatch(e):
@@ -88,10 +107,14 @@ class Accounts:
             return [dict(r) for r in c.execute(q, args).fetchall()]
 
     @contextlib.contextmanager
-    def _write(self) -> Iterator["_Tx"]:
-        """One write transaction; commits when the block ends, rolls back if it raises."""
+    def _write(self, admins: bool = False) -> Iterator["_Tx"]:
+        """One write transaction; commits when the block ends, rolls back if it raises. ``admins``: it can add or
+        take away an admin, so on Postgres it first takes ADMIN_LOCK (SQLite's BEGIN IMMEDIATE already lets one
+        writer in at a time)."""
         if self.postgres:
             with self.store.ingest.connection() as c, c.transaction():
+                if admins:
+                    c.execute("SELECT pg_advisory_xact_lock(%s)", (ADMIN_LOCK,))
                 yield _Tx(c, True)
             return
         s = self.store
@@ -156,15 +179,20 @@ class Accounts:
         """A new role; ends the person's sessions, so every replica sees it once their session caches expire.
         False: no such person."""
         role = check_role(role)
-        with self._write() as tx:
+        with self._write(admins=True) as tx:
+            if role != "admin":
+                _keep_an_admin(tx, user_id)
             if not tx.run("UPDATE users SET role = ?, updated_at_ms = ? WHERE id = ?", (role, now_ms, user_id)):
                 return False
             tx.run("DELETE FROM sessions WHERE user_id = ?", (user_id,))
         return True
 
     def set_disabled(self, user_id: int, disabled: bool, now_ms: int) -> bool:
-        """Stop (or let again) a person signing in; disabling ends their sessions."""
-        with self._write() as tx:
+        """Stop (or let again) a person signing in; disabling ends their sessions. Raises LastAdmin for the last
+        admin who can sign in."""
+        with self._write(admins=disabled) as tx:
+            if disabled:
+                _keep_an_admin(tx, user_id)
             if not tx.run("UPDATE users SET disabled_at_ms = ?, updated_at_ms = ? WHERE id = ?",
                           (now_ms if disabled else None, now_ms, user_id)):
                 return False
@@ -173,9 +201,45 @@ class Accounts:
         return True
 
     def remove_user(self, user_id: int) -> bool:
-        """Remove a person; their sessions, personal tokens and codes go with them (ON DELETE CASCADE)."""
-        with self._write() as tx:
+        """Remove a person; their sessions, personal tokens and codes go with them (ON DELETE CASCADE). Raises
+        LastAdmin for the last admin who can sign in."""
+        with self._write(admins=True) as tx:
+            _keep_an_admin(tx, user_id)
             return bool(tx.run("DELETE FROM users WHERE id = ?", (user_id,)))
+
+    def create_first_admin(self, email: str, name: str, password_hash: str, now_ms: int, *,
+                           setup_code_sha256: Optional[str] = None) -> int:
+        """The first admin: their ID. One transaction, under ADMIN_LOCK on Postgres, so of two at once (two replicas
+        reading TRAILBEAM_ADMIN_EMAIL, or a setup link opened twice) one wins. With ``setup_code_sha256``, the
+        setup code is used up in the same transaction. Raises AdminExists, BadSetupCode, EmailTaken, AccountError."""
+        email, name = check_email(email), check_name(name)
+        try:
+            with self._write(admins=True) as tx:
+                if tx.one("SELECT id FROM users WHERE role = 'admin' LIMIT 1") is not None:
+                    raise AdminExists("this server has an admin already")
+                if setup_code_sha256 is not None and not tx.run(
+                        "UPDATE setup_codes SET used_at_ms = ? WHERE code_sha256 = ? AND kind = ? "
+                        "AND used_at_ms IS NULL AND expires_at_ms > ?", (now_ms, setup_code_sha256, SETUP, now_ms)):
+                    raise BadSetupCode("this setup link has been used or is out of date")
+                return tx.insert_id(
+                    "INSERT INTO users (email, name, role, password_hash, created_at_ms, updated_at_ms) "
+                    "VALUES (?, ?, 'admin', ?, ?, ?)", (email, name, password_hash, now_ms, now_ms))
+        except self._unique:
+            raise EmailTaken(f"{email} already has an account") from None
+
+    # ---- setup codes ------------------------------------------------------------------------------
+
+    def create_setup_code(self, code_sha256: str, now_ms: int, expires_at_ms: int) -> None:
+        """The first admin's setup code. It replaces every earlier one, so only the newest link works."""
+        with self._write() as tx:
+            tx.run("DELETE FROM setup_codes WHERE kind = ?", (SETUP,))
+            tx.run("INSERT INTO setup_codes (code_sha256, kind, created_at_ms, expires_at_ms) VALUES (?, ?, ?, ?)",
+                   (code_sha256, SETUP, now_ms, expires_at_ms))
+
+    def setup_code_ok(self, code_sha256: str, now_ms: int) -> bool:
+        """A setup code that can still be used (unused, in date). Read pool; create_first_admin checks again."""
+        return bool(self._read("SELECT 1 AS ok FROM setup_codes WHERE code_sha256 = ? AND kind = ? "
+                               "AND used_at_ms IS NULL AND expires_at_ms > ?", (code_sha256, SETUP, now_ms)))
 
     # ---- the per-account sign-in limit ------------------------------------------------------------
 
@@ -306,6 +370,16 @@ class Accounts:
     def touch_personal_token(self, token_id: int, now_ms: int) -> None:
         with self._write() as tx:
             tx.run("UPDATE personal_tokens SET last_used_ms = ? WHERE id = ?", (now_ms, token_id))
+
+
+def _keep_an_admin(tx: "_Tx", user_id: int) -> None:
+    """Raise LastAdmin if ``user_id`` is an admin who can sign in and nobody else is."""
+    me = tx.one("SELECT role, disabled_at_ms FROM users WHERE id = ?", (user_id,))
+    if me is None or me["role"] != "admin" or me["disabled_at_ms"] is not None:
+        return
+    if tx.one("SELECT id FROM users WHERE role = 'admin' AND disabled_at_ms IS NULL AND id <> ? LIMIT 1",
+              (user_id,)) is None:
+        raise LastAdmin(_LAST_ADMIN)
 
 
 class _Tx:

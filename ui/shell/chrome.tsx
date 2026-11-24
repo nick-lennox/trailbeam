@@ -23,6 +23,11 @@ export async function getJSON<T>(path: string, timeoutMs = 15_000): Promise<T> {
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
     const r = await fetch(path, { signal: ctl.signal, headers: { Accept: "application/json" } });
+    if (r.status === 401) {
+      // signed out (the session ended, or the person was removed): to the sign-in page, and back here after
+      location.assign(signInHref());
+      throw new ApiError(401, "Signed out: taking you to the sign-in page.");
+    }
     if (!r.ok) {
       let msg = (await r.text()).slice(0, 200);
       try { msg = (JSON.parse(msg) as { error?: string }).error ?? msg; } catch { /* not JSON */ }
@@ -38,6 +43,51 @@ export async function getJSON<T>(path: string, timeoutMs = 15_000): Promise<T> {
 }
 
 export const getHealth = (timeoutMs?: number) => getJSON<Health>("/api/health", timeoutMs);
+
+export const signInHref = () => `/login?next=${encodeURIComponent(location.pathname + location.search)}`;
+
+/** GET /api/me (contract/openapi.yaml, Me): how this page was let in, and as whom. */
+export type Me = {
+  auth: "off" | "token" | "accounts";
+  via: "none" | "shared_token" | "shared_cookie" | "session" | "personal_token";
+  user: { id: number; email: string; name: string; role: "admin" | "member" } | null;
+};
+
+let mePromise: Promise<Me | null> | null = null;
+/** Asked once per page; null when it can't be read (an older server without /api/me, or the store is down). */
+export const getMe = () => (mePromise ??= getJSON<Me>("/api/me", 10_000).catch(() => null));
+
+export function useMe(): Me | null {
+  const [me, setMe] = useState<Me | null>(null);
+  useEffect(() => {
+    let live = true;
+    getMe().then((m) => { if (live) setMe(m); });
+    return () => { live = false; };
+  }, []);
+  return me;
+}
+
+/** Who may read the bodies this server keeps, for the Body tab. */
+export function bodyAccess(me: Me | null): string {
+  if (me?.auth === "accounts") return "Only people with an account on this Trailbeam (admins and members) can read the bodies it keeps.";
+  if (me?.auth === "token") return "Anyone with this Trailbeam's access token can read the bodies it keeps.";
+  return "No logins: anyone who can reach this Trailbeam can read the bodies it keeps.";
+}
+
+/** The header's right end: who is signed in, and Sign out. Nothing on a server without a token or accounts. */
+export function Account({ me }: { me: Me | null }) {
+  if (!me || (me.via !== "session" && me.via !== "shared_cookie")) return null;
+  return (
+    <div className="flex items-center gap-3 text-sm text-sky-ink-2">
+      {me.user && (
+        <span title={`${me.user.email} (${me.user.role})`} className="max-w-48 truncate">
+          {me.user.name}{me.user.role === "admin" && <span className="ml-1 text-caption text-sky-ink-3">admin</span>}
+        </span>
+      )}
+      <a href="/logout" className="hover:text-sky-ink">Sign out</a>
+    </div>
+  );
+}
 
 const NAV = [["/", "Messages"], ["/duplicates", "Duplicates"], ["/stuck", "Stuck"], ["/tenants", "Tenants"]] as const;
 
@@ -63,6 +113,7 @@ function useTenantSeen(): boolean {
 
 export function Header({ id = "" }: { id?: string }) {
   const tenantSeen = useTenantSeen();
+  const me = useMe();
   return (
     <header className="flex flex-wrap items-center gap-4 border-b border-sky-line py-4">
       <a href="/" className="text-[1.25rem] text-sky-ink">Trailbeam</a>
@@ -80,6 +131,7 @@ export function Header({ id = "" }: { id?: string }) {
             className="w-full max-w-sm rounded-full border border-sky-line bg-sky-2 px-4 py-1.5 font-mono text-caption text-sky-ink placeholder:text-sky-ink-3" />
         </form>
       </div>
+      <Account me={me} />
     </header>
   );
 }

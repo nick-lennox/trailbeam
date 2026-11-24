@@ -5,6 +5,9 @@
   timeline either replica serves is exactly the one a single SQLite Trailbeam serves for the same spans.
 - One shared token works on both, and a browser session made on one works on the other (no sticky sessions).
 - /metrics is per replica: each counts the exports and spans it took itself, behind the same token.
+- The first admin, created with ``trailbeam users`` on the shared store while both run, switches both to accounts
+  within 5 seconds: the shared token then opens only ingest and /metrics, a session made on one replica works on
+  the other, and a personal API token and an ingest token made from the command line work on both.
 - A replica killed (SIGKILL) during ingest loses no acknowledged span: the exporter retries what was in flight
   and the load balancer sends it to the other replica.
 
@@ -118,6 +121,7 @@ def cluster():
         made.extend(rs)
         return [r.wait_ready() for r in rs]
     start.conninfo = conninfo
+    start.store_url = store_url
     yield start
     for r in made:
         r.stop()
@@ -311,3 +315,66 @@ def test_killing_a_replica_during_ingest_loses_no_acknowledged_span(cluster):
     assert len(want["/api/messages?limit=500"]["messages"]) == 400
     for path, expected in want.items():
         assert _stable(api(b.url, path)) == _stable(expected), path
+
+
+def cli(store_url, *argv, password=None, tmp=None):
+    env = {k: v for k, v in os.environ.items() if not k.startswith("TRAILBEAM_")}
+    args = list(argv)
+    if password is not None:
+        f = Path(tmp) / "pw"
+        f.write_text(password + "\n")
+        args += ["--password-file", str(f)]
+    r = subprocess.run([sys.executable, "-m", "trailbeam.server", *args, "--store-url", store_url], env=env,
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    return r.stdout.strip(), r.stderr
+
+
+def eventually(check, within_s, what):
+    end = time.monotonic() + within_s
+    while not check():
+        assert time.monotonic() < end, what
+        time.sleep(0.1)
+
+
+def test_the_first_admin_switches_every_replica_and_the_shared_token_keeps_ingest_and_metrics(cluster, tmp_path):
+    a, b = cluster(2)
+    for r in (a, b):
+        assert api(r.url, "/api/me")["auth"] == "token"
+    _, err = cli(cluster.store_url, "users", "create", "--email", "root@example.com", "--role", "admin",
+                 password="correct horse battery", tmp=tmp_path)
+    assert "Upgrade every replica to this version before creating the first admin" in err
+    t0 = time.monotonic()
+    for r in (a, b):  # within 5 s, both refuse the shared token on the API ...
+        eventually(lambda: call(r.url, "/api/messages", headers=AUTH)[0] == 401, 6, "the switch on " + r.url)
+    assert time.monotonic() - t0 < 6
+    body = ExportTraceServiceRequest(resource_spans=[]).SerializeToString()
+    for r in (a, b):  # ... and keep it for ingest and /metrics
+        assert call(r.url, "/v1/traces", body, {**PROTO, **AUTH})[0] == 200
+        assert call(r.url, "/metrics", headers=AUTH)[0] == 200
+        assert json.loads(call(r.url, "/api/health")[2]) .keys() == {"status", "version"}  # says no more to nobody
+    # a session made on one replica works on the other
+    form = "email=root%40example.com&password=correct+horse+battery&next=%2F".encode()
+    req = urllib.request.Request(a.url + "/login", data=form, headers={"Content-Type": "application/x-www-form-urlencoded"})
+
+    class Keep(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kw):
+            return None
+    try:
+        urllib.request.build_opener(Keep).open(req, timeout=30)
+        raise AssertionError("expected a 303")
+    except urllib.error.HTTPError as e:
+        assert e.code == 303
+        cookie = e.headers["Set-Cookie"].split(";")[0]
+    me = json.loads(call(b.url, "/api/me", headers={"Cookie": cookie})[2])
+    assert me["via"] == "session" and me["user"]["role"] == "admin"
+    # tokens made from the command line, used on both
+    personal, _ = cli(cluster.store_url, "tokens", "create", "--name", "scripts", "--personal", "--user",
+                      "root@example.com")
+    ingest, _ = cli(cluster.store_url, "tokens", "create", "--name", "orders-api", "--yes")
+    for r in (a, b):
+        assert call(r.url, "/api/messages", headers={"Authorization": f"Bearer {personal}"})[0] == 200
+        assert call(r.url, "/metrics", headers={"Authorization": f"Bearer {personal}"})[0] == 200
+        assert call(r.url, "/v1/traces", body, {**PROTO, "x-trailbeam-key": ingest})[0] == 200
+        assert call(r.url, "/api/messages", headers={"x-trailbeam-key": ingest})[0] == 401  # it can't read
+        assert call(r.url, "/v1/traces", body, {**PROTO, "Authorization": f"Bearer {personal}"})[0] == 401
