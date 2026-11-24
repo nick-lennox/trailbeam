@@ -1,0 +1,39 @@
+# Optional overlay for trailbeam-collector.yaml: also send every span, metric and log to New Relic over OTLP.
+#
+#   NEW_RELIC_LICENSE_KEY=... otelcol-contrib --config trailbeam-collector.yaml --config newrelic.yaml
+#
+# Trailbeam spans still go to the Trailbeam server, unsampled (trailbeam-collector.yaml). New Relic gets everything
+# the applications send, Trailbeam spans included, unsampled. The two exporters are independent: New Relic being
+# down or rejecting the key does not hold up the Trailbeam server's spans. Tested with otelcol-contrib 0.165.0
+# (tests/test_newrelic.py). Never put the license key in this file.
+processors:
+  # New Relic rejects requests over 1 MB. Trailbeam spans are about 1 KB each before gzip, so 1,000 spans per
+  # request stays under the limit.
+  batch/newrelic:
+    send_batch_size: 1000
+    send_batch_max_size: 1000
+
+exporters:
+  otlp_http/newrelic:
+    # New Relic's OTLP/HTTP base URL; the exporter appends /v1/traces, /v1/metrics and /v1/logs.
+    # EU accounts: https://otlp.eu01.nr-data.net. FedRAMP: https://gov-otlp.nr-data.net.
+    endpoint: "${env:NEW_RELIC_OTLP_ENDPOINT:-https://otlp.nr-data.net}"
+    compression: gzip
+    headers:
+      # The account's license key (an ingest key), not a user key.
+      api-key: "${env:NEW_RELIC_LICENSE_KEY}"
+
+service:
+  pipelines:
+    traces/newrelic:
+      receivers: [otlp]
+      processors: [batch/newrelic]
+      exporters: [otlp_http/newrelic]
+    metrics/newrelic:
+      receivers: [otlp]
+      processors: [batch/newrelic]
+      exporters: [otlp_http/newrelic]
+    logs/newrelic:
+      receivers: [otlp]
+      processors: [batch/newrelic]
+      exporters: [otlp_http/newrelic]
