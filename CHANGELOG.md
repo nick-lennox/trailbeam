@@ -6,6 +6,12 @@
   `--log-driver none`, so the output still shows in the terminal but is not kept by `docker logs` or sent to a log
   service the Docker daemon is set up with (gelf, fluentd, awslogs, ...). That output holds the first run's token
   and receipt key, and the first admin's one-time setup link, which works as an admin password for up to an hour.
+- **Java package, stage 6: the contract's Java note** (QV-319, pre-release, not published). New section 20 of
+  the span contract says how the jar meets it: the parent read from the request's trace header, receives in a
+  polling loop as root spans beside an agent, where times and call-order ticks are taken, one counter per class
+  loader, the SnapStart reset, the fully qualified `trailbeam.error_type`, and why bad capture settings fail
+  closed instead of failing at install. It changes no rule and no attribute; the schema version stays 3. The
+  README and the kit's README now point to the Java package.
 - **Java package, stage 5: Spring Boot executable jars** (QV-319, pre-release, not published). The kit's Java
   driver is also built as a Spring Boot executable jar, with the SDK and Trailbeam nested under `BOOT-INF/lib`,
   and two new variants run it with `java -jar`: `spring-boot` (alone) and `spring-boot-otel-agent` (beside the
