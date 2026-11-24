@@ -219,6 +219,29 @@ def test_a_local_account_is_not_taken_over_until_an_admin_links_it(serve):
     assert me(url, **{EMAIL: "root@example.com"})[0] == 403
 
 
+def test_an_admin_signed_in_through_the_proxy_manages_people_and_tokens(serve):
+    """The people and token routes (people_api.py) take the proxy's header on writes too, not only on reads."""
+    url, app = serve()
+    m = me(url, **{EMAIL: "eve@example.com"})[1]
+    app.accounts.set_role(m["user"]["id"], "admin", NOW)
+    j = {EMAIL: "eve@example.com", "Content-Type": "application/json"}
+    assert call(url, "/api/users", headers={EMAIL: "eve@example.com"})[0] == 200
+    status, _, body = call(url, "/api/users", method="POST", headers=j,
+                           data=json.dumps({"email": "fay@example.com", "name": "Fay", "role": "member"}).encode())
+    assert status == 201, body
+    fay = json.loads(body)["user"]["id"]
+    assert call(url, f"/api/users/{fay}", method="PATCH", headers=j, data=b'{"role": "admin"}')[0] == 200
+    assert call(url, "/api/me/tokens", method="POST", headers=j, data=b'{"name": "laptop"}')[0] == 201
+    # a member through the proxy is still refused the admin routes
+    me(url, **{EMAIL: "gus@example.com"})
+    g = {EMAIL: "gus@example.com", "Content-Type": "application/json"}
+    assert call(url, "/api/users", method="POST", headers=g,
+                data=b'{"email": "h@example.com", "name": "H", "role": "member"}')[0] == 403
+    # and the header from anyone but the proxy is ignored on writes as well (no session: 401)
+    url2, _ = serve(proxies=ELSEWHERE, admin=False)
+    assert call(url2, "/api/me/tokens", method="POST", headers=j, data=b'{"name": "x"}')[0] == 401
+
+
 def test_a_disabled_person_is_refused(serve):
     url, app = serve()
     status, m = me(url, **{EMAIL: "bo@example.com"})
