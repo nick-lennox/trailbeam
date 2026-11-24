@@ -697,6 +697,49 @@ def case_disorder(c: Case, backend: str) -> dict:
     return verdict(ledger, read(), srv.base, c.a.sample, recovered={})
 
 
+def rejected(base: str, reason: str) -> int:
+    """trailbeam_ingest_rejected_requests_total{reason=...} on the server's /metrics."""
+    _, body = get(base, "/metrics")
+    for line in body.decode().splitlines():
+        if line.startswith(f'trailbeam_ingest_rejected_requests_total{{reason="{reason}"}} '):
+            return int(float(line.split()[-1]))
+    return 0
+
+
+def case_statement_timeout(c: Case, backend: str) -> dict:
+    """Exports pile up behind a lock on ``spans`` and their statements are cancelled for ``--outage-s``, as
+    ``statement_timeout`` cancels them (QV-300: answered 500, so dropped, until then); then the lock goes."""
+    import psycopg
+    url = (c.pg or c.postgres()).create_db("faults_timeout")
+    srv, read = c.server(backend, name="timeout", store_url=url)
+    srv.start()
+    ledger = Ledger()
+    ing = Ingest(lambda: srv.base, ledger, steady(c.a), give_up_s=c.a.give_up_s).start()
+    time.sleep(c.a.phase_s)
+    cancelled = 0
+    # pg_cancel_backend raises the error a statement timeout does (57014 query_canceled), without waiting 60 s
+    with psycopg.connect(url, autocommit=True) as watcher, psycopg.connect(url) as locker:
+        locker.execute("LOCK TABLE spans IN SHARE MODE")  # inserts wait; reads don't
+        log(f"  spans locked; {len(ledger.acked)} spans acknowledged so far")
+        end = time.monotonic() + c.a.outage_s
+        while time.monotonic() < end:
+            time.sleep(0.5)
+            cancelled += sum(r[0] for r in watcher.execute(
+                """SELECT pg_cancel_backend(pid) FROM pg_stat_activity WHERE datname = current_database()
+                   AND wait_event_type = 'Lock' AND pid NOT IN (pg_backend_pid(), %s)""", (locker.info.backend_pid,)))
+        locker.rollback()
+    t0 = time.monotonic()
+    log(f"  lock released; {cancelled} statements cancelled")
+    recovered = {"lock released": wait_until(lambda: ledger.acked_since(t0) > 0, 60)}
+    time.sleep(c.a.phase_s)
+    ing.stop()
+    r = verdict(ledger, read(), srv.base, c.a.sample, recovered=recovered)
+    timeouts = rejected(srv.base, "store_timeout")
+    r["notes"] = [f"{cancelled} statements cancelled; {timeouts} exports answered 503 store_timeout"]
+    r["ok"] = r["ok"] and cancelled > 0 and timeouts > 0
+    return r
+
+
 def build_image() -> str:
     tag = f"{PREFIX}-trailbeam:faults"
     log(f"  building {tag} from this checkout")
@@ -791,6 +834,7 @@ CASES = {
     "disk-full": (("sqlite", "postgres"), case_disk_full),
     "retention-restart": (("sqlite", "postgres"), case_retention_restart),
     "replicas": (("postgres",), case_replicas),
+    "statement-timeout": (("postgres",), case_statement_timeout),
     "duplicate": (("sqlite", "postgres"), case_duplicate),
     "disorder": (("sqlite", "postgres"), case_disorder),
 }
