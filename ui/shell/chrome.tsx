@@ -126,7 +126,7 @@ export function Account({ me }: { me: Me | null }) {
   );
 }
 
-const NAV = [["/", "Messages"], ["/queues", "Queues"], ["/duplicates", "Duplicates"], ["/stuck", "Stuck"], ["/tenants", "Tenants"]] as const;
+const NAV = [["/", "Messages"], ["/queues", "Queues"], ["/events", "Events"], ["/duplicates", "Duplicates"], ["/stuck", "Stuck"], ["/tenants", "Tenants"]] as const;
 /** Only admins manage people (the page is admin-only on the server too). */
 const ADMIN_NAV = [["/people", "People"]] as const;
 

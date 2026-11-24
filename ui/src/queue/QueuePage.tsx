@@ -58,6 +58,8 @@ export type QueuePageProps = {
   split: boolean;
   onSplit: (on: boolean) => void;
   Link?: ComponentType<LinkProps>;
+  /** a host's own section, drawn right under the CloudWatch band (hosted: "In ‹queue› now"); nothing when unset */
+  afterCloudWatch?: ReactNode;
 };
 
 const SEND = "var(--color-flow-send)";
@@ -619,6 +621,7 @@ export function QueuePage(p: QueuePageProps) {
       </section>
       {d && <Spike d={d} p={p} />}
       {d && <CloudWatchBand d={d} p={p} hover={hover} setHover={setHover} />}
+      {p.afterCloudWatch}
       {d && <Tables d={d} p={p} />}
       {d && <Causes d={d} p={p} />}
     </div>
