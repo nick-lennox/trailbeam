@@ -23,6 +23,7 @@ written once per message, in ``bodies``, and the send and receive spans point at
 from __future__ import annotations
 
 import contextlib
+import functools
 import json
 import logging
 import os
@@ -31,7 +32,7 @@ import threading
 import time
 from typing import Callable, Iterable, Iterator, Optional
 
-from . import body_table, migrations, rollup, summary_table
+from . import accounts, body_table, migrations, rollup, summary_table
 from .otlp import RECORD_FIELDS
 from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store,
                     StuckCandidate, TenantActivity, WriterBusy)
@@ -183,6 +184,10 @@ class SqliteStore(Store):
         except sqlite3.Error as e:  # e.g. the file went away under a test; the next round tries again
             logging.getLogger(__name__).warning("checkpoint failed: %s", e)
             return (1, -1, -1)
+
+    @functools.cached_property
+    def accounts(self) -> accounts.Accounts:
+        return accounts.Accounts(accounts.SqliteSql(self))
 
     def close(self) -> None:
         self._stop.set()

@@ -119,6 +119,7 @@ table is reported as that, on ingest and on reads, not as an unreachable databas
 from __future__ import annotations
 
 import contextlib
+import functools
 import hashlib
 import json
 import logging
@@ -132,7 +133,7 @@ import psycopg_pool
 from psycopg import errors, sql
 from psycopg.rows import dict_row
 
-from . import body_table, pg_schema, rollup, summary
+from . import accounts, body_table, pg_schema, rollup, summary
 from .lookup_filter import LookupFilter, hash_key, mid_key
 from .db import gate_body
 from .otlp import RECORD_FIELDS
@@ -303,6 +304,10 @@ class PostgresStore(Store):
             log.warning("could not load the lookup filter: %s", e)
         self._watcher = threading.Thread(target=self._watch_loop, name="trailbeam-pg-abandoned", daemon=True)
         self._watcher.start()
+
+    @functools.cached_property
+    def accounts(self) -> accounts.Accounts:
+        return accounts.Accounts(accounts.PostgresSql(self))
 
     def close(self) -> None:
         self._stop.set()

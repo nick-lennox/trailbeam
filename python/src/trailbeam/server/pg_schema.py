@@ -41,6 +41,10 @@ place's rollup with it.
 **Probes** (version 6, QV-148). ``probes``: the test spans ``trailbeam doctor`` sends, kept apart from the spans
 so they never show as messages.
 
+**People and tokens** (version 7, QV-225). ``users``, ``sessions``, ``ingest_tokens``, ``personal_tokens`` and
+``setup_codes`` (accounts.py). Not partitioned and not spans: retention never drops them. Trailbeam 0.3.0 knows
+versions up to 4, so it refuses a database upgraded past that: there is no going back to 0.3.0.
+
 **Message-ID indexes** (version 3, QV-118). ``message_queues``, ``message_tenants`` and ``tenant_events`` are
 indexed by ``mid``, so rewriting a message's summary deletes its old list rows by index instead of scanning its
 place's partition.
@@ -51,6 +55,7 @@ import time
 from dataclasses import dataclass
 
 from .. import __version__
+from . import accounts
 from .migrations import SchemaError, SchemaTooNew
 
 # Partitioned tables: one partition of each per place.
@@ -261,7 +266,7 @@ CREATE TABLE IF NOT EXISTS hash_places (
     bucket BIGINT NOT NULL,
     PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
 ) PARTITION BY RANGE (rclass, bucket);
-""" + SEALING + PROBES + """CREATE TABLE IF NOT EXISTS schema_version (
+""" + SEALING + PROBES + accounts.PG_CREATE + """CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
     name TEXT NOT NULL,
@@ -461,8 +466,9 @@ MIGRATIONS: tuple = (
         "DROP TABLE IF EXISTS mid_places_v4, hash_places_v4",
     )),
     Migration(6, "probes: the test spans of trailbeam doctor (QV-148)", tuple(statements(PROBES))),
+    Migration(7, "users, sessions and tokens (QV-225)", tuple(statements(accounts.PG_CREATE))),
 )
-LATEST = 6
+LATEST = 7
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 

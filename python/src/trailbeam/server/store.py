@@ -267,6 +267,12 @@ class Store(abc.ABC):
         """When the probe was stored (``received_ns``), None if it is not."""
         return None
 
+    @property
+    def accounts(self):
+        """People, sessions and tokens (accounts.Accounts), kept in the store's own database. A store without
+        them raises NotImplementedError (the default): the server then runs with the shared token only."""
+        raise NotImplementedError("this store does not keep accounts")
+
     def ping(self, timeout_s: float = 2.0) -> None:
         """Raise StoreUnavailable unless the store answers within about ``timeout_s`` (the readiness check,
         ``/api/ready``). A local file is always there: by default, nothing to check."""
