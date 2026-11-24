@@ -122,7 +122,7 @@ export function Account({ me }: { me: Me | null }) {
   );
 }
 
-const NAV = [["/", "Messages"], ["/duplicates", "Duplicates"], ["/stuck", "Stuck"], ["/tenants", "Tenants"]] as const;
+const NAV = [["/", "Messages"], ["/queues", "Queues"], ["/duplicates", "Duplicates"], ["/stuck", "Stuck"], ["/tenants", "Tenants"]] as const;
 /** Only admins manage people (the page is admin-only on the server too). */
 const ADMIN_NAV = [["/people", "People"]] as const;
 /** Tokens belong to a person: anyone signed in has their own personal API tokens (admins manage ingest tokens there too). */
@@ -155,10 +155,14 @@ export function Header({ id = "" }: { id?: string }) {
     <header className="flex flex-wrap items-center gap-4 border-b border-sky-line py-4">
       <a href="/" className="text-[1.25rem] text-sky-ink">Trailbeam</a>
       <nav className="flex gap-4 text-sm text-sky-ink-2">
-        {[...NAV, ...(me?.user?.role === "admin" ? ADMIN_NAV : []), ...(me?.user ? PERSON_NAV : [])].map(([href, label]) => (
-          <a key={href} href={href} aria-current={location.pathname === href ? "page" : undefined}
-            className={location.pathname === href ? "text-sky-ink" : "hover:text-sky-ink"}>{label}</a>
-        ))}
+        {[...NAV, ...(me?.user?.role === "admin" ? ADMIN_NAV : []), ...(me?.user ? PERSON_NAV : [])].map(([href, label]) => {
+          // a queue's page is under Queues
+          const here = location.pathname === href || (href === "/queues" && location.pathname === "/queue");
+          return (
+            <a key={href} href={href} aria-current={here ? "page" : undefined}
+              className={here ? "text-sky-ink" : "hover:text-sky-ink"}>{label}</a>
+          );
+        })}
       </nav>
       <div className="ml-auto flex min-w-0 flex-1 basis-80 justify-end gap-2">
         {tenantSeen && <TenantSearch suggest={suggest} href={tenantHref} className="w-52 shrink-0" />}
