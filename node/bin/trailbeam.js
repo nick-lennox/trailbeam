@@ -17,6 +17,8 @@ const path = require('node:path');
 const VERSION = require('../package.json').version;
 const IMAGE = `ghcr.io/nick-lennox/trailbeam:${VERSION}`;
 const VOLUME = 'trailbeam-data';
+// On every container npx trailbeam start runs, so a leftover one can be found (QV-344).
+const LABEL = 'trailbeam.start';
 const INSTALL = 'install Docker Desktop (https://docs.docker.com/get-docker/), or Docker Engine on Linux';
 
 // The flags whose value is something on this machine, and the environment variable each defaults to, as in
@@ -118,7 +120,7 @@ function dockerArgs(argv, { env = process.env, image = (env.TRAILBEAM_IMAGE || '
   }
   const childEnv = { ...env };
   // --pull never: the image was pulled (if missing) and inspected first, so what runs is what was announced.
-  const args = ['run', '--rm', '--init', '--pull', 'never',
+  const args = ['run', '--rm', '--init', '--pull', 'never', '--label', `${LABEL}=1`,
     '-p', `${host.includes(':') ? `[${host}]` : host}:${port}:${port}`,
     // The container listens on every address inside it; Docker publishes the port on --host only.
     '-e', 'TRAILBEAM_HOST=0.0.0.0', '-e', `TRAILBEAM_PORT=${port}`,
@@ -239,6 +241,23 @@ function portProblem(host, port) {
   });
 }
 
+/** When `port` is busy: one more line naming the Docker container that publishes it, with the command that
+ * stops it, or '' when no container does (or Docker can't say). A container from an earlier npx trailbeam start
+ * (the label, or the image for ones from before the label, 0.4.0) is likely when npx itself was stopped
+ * without the server (QV-344). `run` is spawnSync, replaceable in tests. */
+function portOwner(port, { run = spawnSync, env = process.env } = {}) {
+  const r = run('docker', ['ps', '--filter', `publish=${port}`, '--format',
+    `{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Label "${LABEL}"}}`], { env, encoding: 'utf8', timeout: 30000 });
+  if (r.error || r.status !== 0) return '';
+  const rows = `${r.stdout || ''}`.split('\n').filter((l) => l.trim()).map((l) => l.split('\t'));
+  if (!rows.length) return '';
+  const [id, name, image, label] = rows[0];
+  const ours = label || /(^|\/)trailbeam[:@]/.test(image || '');
+  const what = ours ? `a Trailbeam server from an earlier npx trailbeam start is still running in it: container ${name} (${id})`
+    : `the Docker container ${name} (${id}, image ${image}) publishes it`;
+  return `\ntrailbeam: ${what}. Stop it with: docker stop ${name}`;
+}
+
 function main(argv = process.argv.slice(2)) {
   const [command, ...rest] = argv;
   if (command === '--version' || command === '-V') { console.log(VERSION); return 0; }
@@ -261,7 +280,7 @@ function main(argv = process.argv.slice(2)) {
   const problem = dockerProblem();
   if (problem) { console.error(problem); return 1; }
   portProblem(plan.host, plan.port).then((taken) => {
-    if (taken) { console.error(taken); process.exitCode = 2; return; }
+    if (taken) { console.error(taken + portOwner(plan.port, { env: plan.env })); process.exitCode = 2; return; }
     const info = imageInfo(plan.image, { env: plan.env });
     if (info.problem) { console.error(info.problem); process.exitCode = 1; return; }
     console.error(info.line);
@@ -273,14 +292,31 @@ function main(argv = process.argv.slice(2)) {
 function run(plan) {
   const child = spawn('docker', plan.args, { env: plan.env, stdio: 'inherit' });
   // Ctrl-C reaches docker too (same process group), and docker passes it to the server, which stops cleanly:
-  // wait for that instead of exiting first. A signal sent to this process only is passed on.
+  // wait for that instead of exiting first. A signal sent to this process only is passed on, and so is the
+  // parent going away (npx stopped alone: npm passes nothing on, QV-344).
   process.on('SIGINT', () => {});
   for (const sig of ['SIGTERM', 'SIGHUP']) process.on(sig, () => child.kill(sig));
+  watchParent(() => child.kill('SIGTERM'));
   child.on('error', (e) => { console.error(`trailbeam: can't run docker: ${e.message}`); process.exit(1); });
   child.on('exit', (code, signal) => process.exit(code === null ? (signal === 'SIGINT' ? 130 : 1) : code));
 }
 
-module.exports = { parseArgs, dockerArgs, checkDataDir, dockerProblem, portProblem, imageInfo, main, IMAGE, VOLUME, UsageError };
+/** Calls `stop` once when the process that started this one exits (this one is then given to another parent).
+ * A signal sent to npx alone is not passed on to us by npm, and the server would keep the port (QV-344). */
+function watchParent(stop, { ppid = () => process.ppid, every = 1000 } = {}) {
+  if (process.platform === 'win32') return null;
+  const parent = ppid();
+  const timer = setInterval(() => {
+    if (ppid() === parent) return;
+    clearInterval(timer);
+    stop();
+  }, every);
+  timer.unref();
+  return timer;
+}
+
+module.exports = { parseArgs, dockerArgs, checkDataDir, dockerProblem, portProblem, portOwner, imageInfo,
+  watchParent, main, IMAGE, VOLUME, LABEL, UsageError };
 
 if (require.main === module) {
   const code = main();
