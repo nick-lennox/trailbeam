@@ -12,7 +12,11 @@
   with capture on. A new CI job, ".NET package", runs the unit tests on .NET 8 and 10 and the kit. Still to come: the Lambda
   wrapper for `Amazon.Lambda.SQSEvents`, the Datadog tracer, a version matrix, and NuGet publishing, which waits for
   a board decision.
-
+- **Java package, stage 5: Spring Boot executable jars** (QV-319, pre-release, not published). The kit's Java
+  driver is also built as a Spring Boot executable jar, with the SDK and Trailbeam nested under `BOOT-INF/lib`,
+  and two new variants run it with `java -jar`: `spring-boot` (alone) and `spring-boot-otel-agent` (beside the
+  OpenTelemetry Java agent, with its parent check). The JDK picks the Spring Boot line, so CI covers both of its
+  launchers: 2.7.18 on JDK 11, 3.5.16 on JDK 17 and 4.2.0 on JDK 21 (`-Dspring.boot.version` overrides it).
 - **A compatibility matrix, run every night** (QV-335). Python 3.10 to 3.14, each with the oldest
   (boto3 / botocore 1.34.0, OpenTelemetry 1.28 / 0.49b0) and the newest dependencies, Node.js 20, 22 and 24, each
   with the oldest (3.572.0) and the newest `@aws-sdk/client-sqs`, and Postgres 14 to 18
