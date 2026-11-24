@@ -10,6 +10,12 @@
   queue. The rules and the group shape are the hosted app's, and both are tested on one shared fixture
   (`@trailbeam/ui/fixtures/causes-parity.json`), so a cause has the same `id` in both. The groups are worked out
   when the endpoint is read, from up to 5,000 stuck messages, oldest first. Nothing new is stored.
+- **Postgres, several replicas: a message could get a second summary** (QV-422). A delete or
+  ChangeMessageVisibility span carries no message ID, so its export finds its message by the receipt handle and
+  locks it only then. If another replica stored a newer span of that message in a new day (bucket) meanwhile,
+  the export missed the summary that had moved there and wrote a second one, without the newer span. Lists then
+  showed the message twice, and its page could miss the delete. The export now reads the places again once it
+  holds the message's lock.
 - **Java package, stage 6: the contract's Java note** (QV-319, pre-release, not published). New section 20 of
   the span contract says how the jar meets it: the parent read from the request's trace header, receives in a
   polling loop as root spans beside an agent, where times and call-order ticks are taken, one counter per class
