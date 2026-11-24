@@ -258,6 +258,7 @@ jobs:
         run: >-
           pytest -q tests/server/test_account_tables.py tests/server/test_accounts.py tests/server/test_access.py
           tests/server/test_first_admin.py tests/server/test_cli.py tests/server/test_proxy_auth.py
+          tests/server/test_people_api.py
       - name: Two replicas on one Postgres (the token, sessions and the switch to accounts on both)
         if: (success() || failure()) && matrix.part == 'server'
         run: pytest -q tests/server/test_replicas_e2e.py
