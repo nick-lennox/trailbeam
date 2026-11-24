@@ -38,6 +38,10 @@ yet.
 - **Users and roles, a preview** (off by default): email and password sign-in, admins and members, ingest tokens
   and personal API tokens, managed with `trailbeam users` and `trailbeam tokens`. Switch it on with `--accounts`
   (`TRAILBEAM_ACCOUNTS=1`) on every replica to try it. Without it, access works exactly as in 0.4.0.
+- **Fixes for the oldest and newest supported dependencies**, found by a new nightly compatibility matrix
+  (Python 3.10 to 3.14, Node.js 20 to 24, Postgres 14 to 18, each with the oldest and newest SDKs): retention on
+  Python 3.11 gives disk space back again, `receive_message` works with the oldest supported botocore, and the
+  application's own botocore hooks are kept. The README lists the supported versions.
 - **A conformance kit** in [`conformance/`](conformance) checks a language package against the span contract,
   Lambda wrappers included. A Java package (`java/`) is in the repository and passes it, but is not published
   yet.
@@ -60,6 +64,8 @@ same flags and token. It upgrades the database by itself at start. CI checks the
   so it can't damage it. Only the summaries of FIFO messages sent more than once are rewritten; the rest adds
   tables and a column.
 - **Postgres: stop every 0.4.0 replica first**, then start 0.5.0.
+- **The oldest supported dependencies:** OpenTelemetry 1.28 / 0.49b0 for the Python package (was 1.27 / 0.48b0)
+  and `@aws-sdk/client-sqs` 3.572.0 for the Node.js one. Older ones lose fields or fail to import (QV-335 below).
 - **Behind a TLS proxy, add `--trusted-proxy <the proxy's address>`.** `X-Forwarded-Proto: https` now counts only
   from a trusted proxy. Without it the login cookie loses its `Secure` flag (it keeps working).
 - **`/metrics` without a valid token** now answers a plain-text `401`, not the HTML sign-in page.
