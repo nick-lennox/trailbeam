@@ -237,3 +237,12 @@ def test_bind_error_messages():
         "trailbeam: --host nohost: Name or service not known.")
     assert bind_error(OSError(errno.ENOBUFS, "No buffer space"), "127.0.0.1", 4318) == (
         "trailbeam: can't listen on port 4318 on 127.0.0.1: No buffer space")
+
+
+@pytest.mark.parametrize("argv", [["--version"], ["-V"], ["start", "--version"]])
+def test_version(argv):
+    """QV-346: trailbeam --version prints the package version and exits 0, before touching any store."""
+    from trailbeam import __version__
+    r = subprocess.run([sys.executable, "-m", "trailbeam.server", *argv], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout == f"trailbeam {__version__}\n"
