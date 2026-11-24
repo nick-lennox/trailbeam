@@ -278,18 +278,25 @@ class Accounts:
         return self._read(q + " WHERE user_id = ? ORDER BY issuer, subject", (user_id,))
 
     def oidc_sign_in(self, issuer: str, subject: str, email: str, name: str, role: Optional[str], now_ms: int, *,
-                     role_from_provider: bool, link_email: bool, email_verified: bool) -> tuple[dict, str]:
+                     role_from_provider: bool, link_email: bool, email_verified: bool,
+                     allow_unverified_email: bool = False) -> tuple[dict, str]:
         """The person an identity provider's account signs in as: ``(user, how)``, ``how`` being ``known``, ``linked``
-        (an existing account with the same email, ``link_email`` on and the email verified) or ``created``. One
+        (an existing local account with the same email, ``link_email`` on and the email verified) or ``created``. One
         transaction under ADMIN_LOCK, since it can create, promote or demote an admin.
+
+        The email is the account's only tie to a person before its first sign-in, so it must be one the provider
+        verified: an account is created from an unverified email only with ``allow_unverified_email``, and never
+        linked from one. Linking is only to a local account (a password, or invited from the People page) that no
+        provider account signs in to yet: else a second provider account claiming the same email would share it.
 
         ``role``: the role the provider's groups give (oidc.Rules.role), None for none. With ``role_from_provider``
         (groups are mapped to roles), a known person's role is set to it at every sign-in, except that the last admin
         who can sign in stays one, and None refuses them. Without it, ``role`` is used only for a new person.
 
         Raises SsoRefused: ``disabled``, ``no_role``, ``no_admin_yet`` (a new person who isn't an admin, while the
-        server has none: their session would let them in nowhere), ``email_taken`` (a local account has the email,
-        and linking is off or the email isn't verified)."""
+        server has none: their session would let them in nowhere), ``email_unverified`` (a new account, from an email
+        the provider didn't verify), ``email_taken`` (an account has the email, and linking is off, the email isn't
+        verified, or a provider account already signs in to it)."""
         email, name = check_email(email), check_name(name)
         if role is not None:
             check_role(role)
@@ -300,11 +307,15 @@ class Accounts:
                 other = tx.one("SELECT id FROM users WHERE " + ("lower(email) = lower(?)" if self.postgres
                                                                 else "email = ?"), (email,))
                 if other is not None:
-                    if not (link_email and email_verified):
+                    if not (link_email and email_verified) or tx.one(
+                            "SELECT 1 FROM oidc_identities WHERE user_id = ? LIMIT 1", (other["id"],)) is not None:
                         raise SsoRefused("email_taken", f"{email} already has an account on this server, which "
                                          "single sign-on doesn't take over")
                     uid, how = int(other["id"]), "linked"
                 else:
+                    if not (email_verified or allow_unverified_email):
+                        raise SsoRefused("email_unverified", f"the identity provider hasn't verified {email}, and "
+                                         "--oidc-allow-unverified-email is off")
                     if role is None:
                         raise SsoRefused("no_role", "your groups at the identity provider give you no role here")
                     if role != "admin" and tx.one("SELECT id FROM users WHERE role = 'admin' LIMIT 1") is None:

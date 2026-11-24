@@ -658,7 +658,8 @@ Every flag also has an environment variable: `TRAILBEAM_PUBLIC_URL`, `TRAILBEAM_
 `TRAILBEAM_OIDC_CLIENT_ID`, `TRAILBEAM_OIDC_CLIENT_SECRET_FILE` (or the secret itself in
 `TRAILBEAM_OIDC_CLIENT_SECRET`), `TRAILBEAM_OIDC_SCOPES`, `TRAILBEAM_OIDC_GROUPS_CLAIM`,
 `TRAILBEAM_OIDC_ADMIN_GROUPS`, `TRAILBEAM_OIDC_MEMBER_GROUPS`, `TRAILBEAM_OIDC_DEFAULT_ROLE`,
-`TRAILBEAM_OIDC_ALLOWED_DOMAINS`, `TRAILBEAM_OIDC_LINK_EMAIL` and `TRAILBEAM_OIDC_LABEL`.
+`TRAILBEAM_OIDC_ALLOWED_DOMAINS`, `TRAILBEAM_OIDC_LINK_EMAIL`, `TRAILBEAM_OIDC_ALLOW_UNVERIFIED_EMAIL` and
+`TRAILBEAM_OIDC_LABEL`.
 
 **Who gets which role.**
 
@@ -679,9 +680,14 @@ Every flag also has an environment variable: `TRAILBEAM_PUBLIC_URL`, `TRAILBEAM_
   can sign in, and they become the first admin. Everyone else is told the server has no admin yet.
 - An account is the provider's issuer and subject (`iss` and `sub`), not the email, so a changed email is still the
   same person. People who sign in this way have no password here.
+- **An account is only made from an email the provider verified** (`email_verified`). Otherwise someone who sets
+  another person's address at the provider would hold an account under it, and an admin who promotes "that person"
+  on the People page would promote them. A provider that sends no `email_verified` (Microsoft Entra) needs
+  `--oidc-allow-unverified-email`: only turn it on if people can't choose their own email at your provider.
 - **An email that already has an account here is refused**, so a provider account can't take over a local one, an
   admin's included. To let the two be one, turn on `--oidc-link-email`: a provider account with a **verified**
-  email then signs in to the account with that email. Only do that if people can't choose their own email at your
+  email then signs in to the account with that email, if that account has a password or was invited from the People
+  page and no provider account signs in to it yet. Only do that if people can't choose their own email at your
   provider.
 - `/logout` ends the Trailbeam session, not the one at the provider.
 
@@ -696,8 +702,9 @@ Every flag also has an environment variable: `TRAILBEAM_PUBLIC_URL`, `TRAILBEAM_
   to your tenant. Groups come as object IDs (GUIDs), so list those. **Entra leaves the groups out for someone in
   more than 200 of them** and points to Microsoft Graph instead; Trailbeam refuses that sign-in with a message
   saying so. Set the application to send only "groups assigned to the application", or use app roles
-  (`--oidc-groups-claim roles`). Entra doesn't send `email_verified`, so `--oidc-allowed-domains` and
-  `--oidc-link-email` refuse its accounts: leave them off and rely on the tenant.
+  (`--oidc-groups-claim roles`). Entra doesn't send `email_verified`, so its accounts need
+  `--oidc-allow-unverified-email`, and `--oidc-allowed-domains` and `--oidc-link-email` refuse them: leave those
+  two off and rely on the tenant. Check that people in your tenant can't change their own email address.
 - **Google Workspace:** issuer `https://accounts.google.com`. **Google doesn't send groups** (they need its Admin
   SDK), so use `--oidc-allowed-domains <your domain>` with a default role, and make admins here with
   `trailbeam users set-role`. For Google, the allowed domain is checked against the Workspace domain claim (`hd`)

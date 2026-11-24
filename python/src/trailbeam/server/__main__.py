@@ -190,6 +190,13 @@ def build_parser(prog: str = "trailbeam", description: str = "") -> argparse.Arg
                      help="let a provider account with a verified email sign in to the existing account with that "
                           "email (env TRAILBEAM_OIDC_LINK_EMAIL=true). Off by default: a provider that lets people "
                           "choose their email would let them take over accounts")
+    sso.add_argument("--oidc-allow-unverified-email", action="store_true",
+                     default=os.environ.get("TRAILBEAM_OIDC_ALLOW_UNVERIFIED_EMAIL", "").strip().lower()
+                     in ("1", "true", "yes"),
+                     help="create accounts for provider accounts whose email the provider hasn't verified (env "
+                          "TRAILBEAM_OIDC_ALLOW_UNVERIFIED_EMAIL=true). Needed for Microsoft Entra, which sends no "
+                          "email_verified. Off by default: someone could set another person's email at the "
+                          "provider and get an account under it")
     sso.add_argument("--oidc-label", default=os.environ.get("TRAILBEAM_OIDC_LABEL") or None,
                      help='the sign-in button says "Sign in with <label>" (env TRAILBEAM_OIDC_LABEL, default '
                           "single sign-on), such as Okta")
@@ -212,7 +219,8 @@ def oidc_settings(a: argparse.Namespace):
                            client_secret=secret, scopes=a.oidc_scopes, groups_claim=a.oidc_groups_claim,
                            admin_groups=a.oidc_admin_groups, member_groups=a.oidc_member_groups,
                            default_role=a.oidc_default_role, allowed_domains=a.oidc_allowed_domains,
-                           link_email=a.oidc_link_email, label=a.oidc_label)
+                           link_email=a.oidc_link_email,
+                           allow_unverified_email=a.oidc_allow_unverified_email, label=a.oidc_label)
     oidc.require_pyjwt()
     return s
 

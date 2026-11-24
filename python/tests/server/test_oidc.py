@@ -501,6 +501,58 @@ def test_linking_by_email_when_turned_on_and_verified(tb):
     assert me["user"]["id"] == uid and me["user"]["role"] == "admin"
 
 
+def test_an_unverified_email_gets_no_account_by_default(tb):
+    # Someone sets another person's address at the provider, unverified: no account under it (QV-452)
+    _admin(tb)
+    b = tb.browser()
+    r = tb.sign_in(b, sub="mallory-sub", email="ceo@example.com", email_verified=False)
+    assert r.status == 403 and "verified your email" in r.text
+    assert "trailbeam_sid" not in b.cookies
+    assert tb.app.accounts.user_by_email("ceo@example.com") is None
+    # "false" as a string, and no claim at all (Entra), are unverified too
+    assert tb.sign_in(tb.browser(), sub="m2", email="ceo@example.com", email_verified="false").status == 403
+    assert tb.sign_in(tb.browser(), sub="m3", email="ceo@example.com", email_verified=None).status == 403
+    # the real owner, verified, gets the account
+    assert tb.sign_in(tb.browser(), sub="ceo-sub", email="ceo@example.com").status == 200
+
+
+def test_unverified_emails_when_allowed(tb):
+    _admin(tb)
+    tb.configure(allow_unverified_email=True)
+    b = tb.browser()
+    assert tb.sign_in(b, sub="entra-sub", email="e@example.com", email_verified=None).status == 200
+    assert _me(b)[1]["user"]["email"] == "e@example.com"
+    # still never linked to an existing account from an unverified email
+    tb.configure(allow_unverified_email=True, link_email=True)
+    r = tb.sign_in(tb.browser(), sub="other", email="root@example.com", email_verified=None)
+    assert r.status == 403 and "already has an account" in r.text
+
+
+def test_linking_never_joins_an_account_that_single_sign_on_already_signs_in_to(tb):
+    # Mallory's provider account has ceo@example.com (allowed unverified, or verified by a careless provider);
+    # the real CEO's provider account with the same verified email must not join it (QV-452)
+    _admin(tb)
+    tb.configure(link_email=True, allow_unverified_email=True)
+    m = tb.browser()
+    assert tb.sign_in(m, sub="mallory-sub", email="ceo@example.com", email_verified=False).status == 200
+    uid = _me(m)[1]["user"]["id"]
+    c = tb.browser()
+    r = tb.sign_in(c, sub="ceo-sub", email="ceo@example.com")
+    assert r.status == 403 and "already has an account" in r.text
+    assert "trailbeam_sid" not in c.cookies
+    assert [i["subject"] for i in tb.app.accounts.oidc_identities(uid)] == ["mallory-sub"]
+
+
+def test_linking_is_to_an_invited_account_without_a_password(tb):
+    _admin(tb)
+    uid = tb.app.accounts.create_user("bob@example.com", "Bob", "member", None, NOW_MS())
+    tb.configure(link_email=True)
+    b = tb.browser()
+    assert tb.sign_in(b, sub="bob-sub", email="bob@example.com").status == 200
+    assert _me(b)[1]["user"]["id"] == uid
+    assert tb.sign_in(tb.browser(), sub="bob-2", email="bob@example.com").status == 403
+
+
 def test_a_disabled_person_is_refused(tb):
     _admin(tb)
     tb.sign_in(tb.browser())
@@ -615,6 +667,11 @@ def test_flags_and_environment(tmp_path, monkeypatch):
     a = main_mod.build_parser().parse_args(["--oidc-client-secret-file", str(secret), "--oidc-label", "Okta"])
     s = main_mod.oidc_settings(a)
     assert (s.client_secret, s.admin_groups, s.link_email, s.label) == ("abc", ("a", "b"), True, "Okta")
+    assert s.allow_unverified_email is False
+    monkeypatch.setenv("TRAILBEAM_OIDC_ALLOW_UNVERIFIED_EMAIL", "true")
+    assert main_mod.oidc_settings(main_mod.build_parser().parse_args([])).allow_unverified_email is True
+    assert main_mod.oidc_settings(main_mod.build_parser().parse_args(
+        ["--oidc-allow-unverified-email"])).allow_unverified_email is True
     monkeypatch.setenv("TRAILBEAM_OIDC_CLIENT_SECRET", "from-env")
     assert main_mod.oidc_settings(main_mod.build_parser().parse_args([])).client_secret == "from-env"
 

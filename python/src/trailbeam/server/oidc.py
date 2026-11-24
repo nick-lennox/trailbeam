@@ -41,10 +41,12 @@ which a client or proxy can set to anything. Register that exact URI at the prov
   Microsoft Graph instead (a "groups overage"); they are refused with a message saying so. Configure Entra to send
   only the groups assigned to the application to avoid it.
 - An account is the provider's ``iss`` and ``sub`` (``oidc_identities``), not its email, which can change. The
-  first sign-in of an account makes a person with no password, so only single sign-on lets them in. An email
-  that already has an account here is refused, unless ``--oidc-link-email`` is on and the email is verified:
-  then the two are linked. That is off by default because a provider that lets people set their own email would
-  let them take over an account, admins included.
+  first sign-in of an account makes a person with no password, so only single sign-on lets them in, and only
+  from an email the provider verified (``email_verified``), unless ``--oidc-allow-unverified-email`` is on: else
+  someone who sets another person's address at the provider would hold an account under it, which an admin might
+  promote. An email that already has an account here is refused, unless ``--oidc-link-email`` is on, the email is
+  verified and no provider account signs in to that account yet: then the two are linked. That is off by default
+  because a provider that lets people set their own email would let them take over an account, admins included.
 - While the server has no admin, only someone the groups make an admin can sign in, and they become an admin.
 
 Signing out (``/logout``) ends the Trailbeam session only, not the one at the provider.
@@ -146,6 +148,7 @@ class Settings:
     default_role: Optional[str] = "member"  # None: refused
     allowed_domains: tuple = ()
     link_email: bool = False
+    allow_unverified_email: bool = False
     label: str = "single sign-on"
 
     @property
@@ -160,7 +163,8 @@ class Settings:
 def make_settings(*, issuer: Optional[str], client_id: Optional[str], public_url: Optional[str],
                   client_secret: Optional[str] = None, scopes=None, groups_claim: Optional[str] = None,
                   admin_groups=None, member_groups=None, default_role: Optional[str] = None,
-                  allowed_domains=None, link_email: bool = False, label: Optional[str] = None) -> Optional[Settings]:
+                  allowed_domains=None, link_email: bool = False, allow_unverified_email: bool = False,
+                  label: Optional[str] = None) -> Optional[Settings]:
     """The settings, checked; None when single sign-on is off (no issuer). Raises SettingsError."""
     if not (issuer or "").strip():
         others = [n for n, v in (("--oidc-client-id", client_id), ("--oidc-admin-groups", admin_groups),
@@ -200,6 +204,7 @@ def make_settings(*, issuer: Optional[str], client_id: Optional[str], public_url
     return Settings(issuer=issuer, client_id=client_id.strip(), public_url=public_url.rstrip("/"),
                     client_secret=secret, scopes=sc, groups_claim=claim, admin_groups=admins,
                     member_groups=members, default_role=role, allowed_domains=domains, link_email=bool(link_email),
+                    allow_unverified_email=bool(allow_unverified_email),
                     label=(label or "").strip() or "single sign-on")
 
 
@@ -537,10 +542,14 @@ class Oidc:
             user, how = self.accounts.oidc_sign_in(
                 person.issuer, person.subject, person.email, person.name, person.role, now,
                 role_from_provider=self.settings.maps_groups, link_email=self.settings.link_email,
-                email_verified=person.email_verified)
+                email_verified=person.email_verified,
+                allow_unverified_email=self.settings.allow_unverified_email)
         except SsoRefused as e:
             msg = {"email_taken": "This email already has an account on this server. Sign in with its password, "
                                   "or ask an admin.",
+                   "email_unverified": "Your identity provider hasn't verified your email address, so you can't "
+                                       "sign in here with it yet. Verify it at the provider, or ask your "
+                                       "administrator.",
                    "no_role": "Your groups at the identity provider give you no access to this server. Ask your "
                               "administrator.",
                    "no_admin_yet": "This server has no admin yet. Ask whoever runs it to create one first.",

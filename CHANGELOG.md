@@ -306,8 +306,10 @@
   redirect URI is `<public URL>/login/oidc/callback`), with users and roles switched on (`--accounts`). It needs the new extra: `pip install
   "trailbeam[server,sso]"` (PyJWT and `cryptography`); a plain server install still pulls in no crypto library.
   `--oidc-admin-groups` and `--oidc-member-groups` turn the provider's groups into roles at every sign-in, with
-  `--oidc-default-role` for everyone else and `--oidc-allowed-domains` to limit who may sign in. An email that
-  already has a local account is refused unless `--oidc-link-email` is on. Google sends no groups, and Entra
+  `--oidc-default-role` for everyone else and `--oidc-allowed-domains` to limit who may sign in. An account is
+  only made from an email the provider verified, unless `--oidc-allow-unverified-email` is on (needed for Entra,
+  which sends no `email_verified`). An email that already has a local account is refused unless
+  `--oidc-link-email` is on, and linking never joins an account another provider account already signs in to. Google sends no groups, and Entra
   leaves them out for people in more than 200 groups: the README says what to do for each. Sign-ins in progress
   are kept in the store, so every replica can finish them: **SQLite schema 18, Postgres schema 12** add the
   `oidc_logins` and `oidc_identities` tables. CI runs the flow against Keycloak 26. SAML and SCIM are not
