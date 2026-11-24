@@ -25,6 +25,7 @@ SPAN_CHANGE_VISIBILITY = "trailbeam change_visibility"
 SPAN_OUTCOME = "trailbeam outcome"
 SPAN_PURGE = "trailbeam purge"  # revision 3.3, section 18
 SPAN_PUBLISH = "trailbeam publish"  # revision 3.4, section 21: an SNS Publish
+SPAN_PUT_EVENT = "trailbeam put_event"  # revision 3.6, section 25: one entry of an EventBridge PutEvents
 
 # (trailbeam.kind, messaging.operation.type) per span name.
 KINDS = {
@@ -35,10 +36,11 @@ KINDS = {
     SPAN_OUTCOME: ("sqs.outcome", "process"),
     SPAN_PURGE: ("sqs.purge", "purge"),  # a custom operation type: semconv defines none for a purge
     SPAN_PUBLISH: ("sns.publish", "send"),
+    SPAN_PUT_EVENT: ("eventbridge.put_event", "send"),
 }
 
 # messaging.system.name per span name; aws.sqs for every span not listed.
-SYSTEMS = {SPAN_PUBLISH: "aws.sns"}
+SYSTEMS = {SPAN_PUBLISH: "aws.sns", SPAN_PUT_EVENT: "aws.eventbridge"}
 
 OUTCOME_SUCCESS = "success"
 OUTCOME_FAILED_REPORTED = "failed_reported"

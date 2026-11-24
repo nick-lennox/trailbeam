@@ -253,6 +253,26 @@ trailbeam.boto.install(
 `trailbeam.aws_lambda.wrap(sns=...)` takes the same options for its receives.
 
 
+### EventBridge PutEvents
+
+Contract section 25. `install()` also hooks boto3 `events` clients: each `PutEvents` call records one
+`trailbeam put_event` span per entry, in entry order, whether EventBridge accepted the entry, failed it
+(`FailedEntryCount`), or the whole call failed (throttled, for example). No option is needed, and the request is never
+changed.
+
+- **Recorded from your call**: the event bus (`EventBusName` as given, and its name; `default` when none), the entry's
+  index, whether it was accepted (`ok`) or `failed` with its error code (`ErrorCode`, or the call's error), the event ID
+  EventBridge returned, the entry's `Source` and `DetailType` (1 to 256 characters each), whether you set `Time`, and
+  the size of `Detail` in bytes.
+- **Never recorded**: `Detail` itself (the event's payload), `Resources`, `TraceHeader`, the value of `Time`, the error
+  message EventBridge returned, and `EndpointId`.
+
+Trailbeam joins the entry to the SQS messages its rules delivered, by the event's `id`, which every receive already
+records (next section). The message's timeline then starts with "Put on EventBridge bus *name*", observed, with the
+process that called `PutEvents`, the other SQS messages the event reached, and the EventBridge delivery time (SQS's
+`SentTimestamp` minus the event's `time`). If you set `Time` on the entry, that time is yours, not EventBridge's, and the
+timeline says so.
+
 ### EventBridge and S3 notifications
 
 Contract section 23. A message that an EventBridge rule or an S3 bucket notification sent has no send in your code. When
@@ -260,8 +280,9 @@ its body is an EventBridge event, or an S3 event notification (or S3's `s3:TestE
 the event says about where it came from, on every queue: the event's `id`, `source`, `detail-type`, account, region and
 time, or the S3 event name, bucket, region, time, notification configuration ID and `sequencer`. Nothing else in the body
 is read or exported. The S3 object key is recorded only on a queue whose body is captured (`capture={"body_queues": [...]}`), redacted like the
-body. Trailbeam shows these as an inferred first step, "Arrived via an EventBridge rule" or "S3 *event*". There is no
-option; `trailbeam.aws_lambda.wrap` reads the same.
+body. Trailbeam shows these as an inferred first step, "Arrived via an EventBridge rule" or "S3 *event*", unless a
+recorded `PutEvents` entry joins the message (previous section). There is no option; `trailbeam.aws_lambda.wrap` reads
+the same.
 
 ## Tests
 

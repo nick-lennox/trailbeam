@@ -805,3 +805,59 @@ def amqp_content_attrs(config: Config, name: str, body: Any, headers: Any, conte
     out["trailbeam.body.format"] = fmt
     out["trailbeam.body.redacted_count"] = count
     return out
+
+
+# -- EventBridge PutEvents (section 25, revision 3.6) -----------------------------------------------
+
+_EVENT_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
+DEFAULT_EVENT_BUS = "default"
+NO_EVENT_ID = "NoEventId"  # a result entry with neither a valid EventId nor an ErrorCode (25.1)
+
+
+def event_bus_name(bus: Any) -> str:
+    """Section 25.1: the bus's name, from an entry's EventBusName (a name or an ARN); ``default`` without one."""
+    if not isinstance(bus, str) or not bus:
+        return DEFAULT_EVENT_BUS
+    return bus.rsplit("/", 1)[-1] or DEFAULT_EVENT_BUS
+
+
+def put_event_attrs(request: Any, response: Any, call_error: Optional[str]) -> list[dict]:
+    """Section 25.1: the attributes of one trailbeam put_event per entry of a PutEvents request, in entry order.
+    ``response`` is the call's result (ignored when ``call_error`` is set: the call failed as a whole, and every entry
+    is failed with that code). Never reads Detail's content, Resources, TraceHeader, Time's value or ErrorMessage."""
+    entries = request.get("Entries") if isinstance(request, Mapping) else None
+    if not isinstance(entries, list):
+        return []
+    results = None
+    if call_error is None:
+        results = response.get("Entries") if isinstance(response, Mapping) else None
+        if not isinstance(results, list):
+            return []
+    out = []
+    for i, entry in enumerate(entries):
+        if not isinstance(entry, Mapping):
+            continue
+        if results is not None and (i >= len(results) or not isinstance(results[i], Mapping)):
+            continue
+        bus = entry.get("EventBusName")
+        a: dict = {"messaging.destination.name": event_bus_name(bus), "trailbeam.eventbridge.entry_index": i}
+        if call_error is not None:
+            a["trailbeam.result"], a["trailbeam.error_code"] = "failed", call_error
+        else:
+            r = results[i]
+            eid, code = r.get("EventId"), r.get("ErrorCode")
+            if isinstance(eid, str) and _EVENT_ID_RE.match(eid):
+                a["trailbeam.result"], a["messaging.message.id"] = "ok", eid
+            else:
+                a["trailbeam.result"] = "failed"
+                a["trailbeam.error_code"] = code if isinstance(code, str) and code else NO_EVENT_ID
+        if isinstance(bus, str) and bus:
+            a["trailbeam.eventbridge.event_bus"] = bus
+        _put_text(a, "trailbeam.eventbridge.source", entry.get("Source"))
+        _put_text(a, "trailbeam.eventbridge.detail_type", entry.get("DetailType"))
+        if entry.get("Time") is not None:
+            a["trailbeam.eventbridge.time_given"] = True
+        if isinstance(entry.get("Detail"), str):
+            a["messaging.message.body.size"] = _utf8_len(entry["Detail"])
+        out.append(a)
+    return out

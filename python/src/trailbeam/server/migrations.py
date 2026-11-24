@@ -117,6 +117,13 @@ CREATE INDEX IF NOT EXISTS spans_receive_sns ON spans ({SNS_MSG}) WHERE kind = '
 # Schema 22 (QV-306): RabbitMQ's settle kinds reject and channel_closed (otlp.py) join their delivery as delete and
 # change_visibility join their receive, so the unjoined settle spans' index covers them. The kinds are written out:
 # they are this migration's, not whatever store.SETTLE_KINDS says later. Not in SPANS_INDEXES, which migration 11 builds.
+# Schema 23 (QV-489, contract section 25): EventBridge PutEvents entries by event ID, and receives by the event ID their
+# body names (section 23.1). Partial, like SNS_INDEXES; the receive's event ID stays in ``attributes``.
+EB_EVENT_ID = """json_extract(attributes, '$."trailbeam.eventbridge.event_id"')"""
+EB_INDEXES = f"""
+CREATE INDEX IF NOT EXISTS spans_put_event_msg ON spans (message_id) WHERE kind = 'put_event';
+CREATE INDEX IF NOT EXISTS spans_receive_eb ON spans ({EB_EVENT_ID}) WHERE kind = 'receive' AND {EB_EVENT_ID} IS NOT NULL;
+"""
 UNJOINED_INDEX_22 = """
 DROP INDEX IF EXISTS spans_unjoined_hash;
 CREATE INDEX IF NOT EXISTS spans_unjoined_hash ON spans (receipt_hmac, key_id)
@@ -156,7 +163,7 @@ CREATE TABLE IF NOT EXISTS probes (id TEXT PRIMARY KEY, received_ns INTEGER NOT 
 """
 
 # The schema a new file gets: the result of every migration below.
-CREATE = SPANS_TABLE.format(name="spans", added=SPANS_ADDED) + SPANS_INDEXES + SNS_INDEXES + UNJOINED_INDEX_22 + """
+CREATE = SPANS_TABLE.format(name="spans", added=SPANS_ADDED) + SPANS_INDEXES + SNS_INDEXES + UNJOINED_INDEX_22 + EB_INDEXES + """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """ + """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -230,6 +237,9 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # spans' index is built again with its two new settle kinds (UNJOINED_INDEX_22), from one scan of spans. No file
 # before it holds a RabbitMQ span (a Trailbeam before 4.0 rejects them), and an SQS message's key is its message ID
 # as before (systems.py), so it changes no span data and no summary.
+# Schema 23 (QV-489) adds the EventBridge indexes (EB_INDEXES). put_event spans are rows of spans (kind 'put_event',
+# no mid); no file before it has any, so the first index starts empty. Receives since 3.5 carry the event ID, so
+# the second is built from one scan of spans. It changes no span data.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new", added=""))
                   + [f"INSERT INTO spans_new ({SPANS_COLUMNS}) SELECT {SPANS_COLUMNS} FROM spans ORDER BY row",
                      "DROP TABLE spans",
@@ -332,6 +342,7 @@ MIGRATIONS = (
     Migration(20, "SNS fan-out indexes", tuple(statements(SNS_INDEXES))),
     Migration(21, "OpenID Connect sign-ins and identities", tuple(statements(account_tables.SQLITE_OIDC))),
     Migration(22, "RabbitMQ settle kinds in the unjoined settle index", tuple(statements(UNJOINED_INDEX_22))),
+    Migration(23, "EventBridge PutEvents indexes", tuple(statements(EB_INDEXES))),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

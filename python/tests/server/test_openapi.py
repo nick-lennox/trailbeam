@@ -788,6 +788,11 @@ def _scenario_spans():
             "trailbeam.s3.configuration_id": "testConfigRule", "trailbeam.s3.sequencer": "0055AED6DCD90281E5",
             "trailbeam.s3.object_key": "red+flower.jpg", "trailbeam.s3.record_count": 2},
             sent_ms=T0 // ms + 900, start=T0 + 2 * SEC),
+        # put_event: a recorded PutEvents entry joined by the event ID (contract 25.3), and a failed one
+        p.put_event(T0 + SEC, "11710aed-b79e-4468-a20b-bb3c0c3b4860", bus="orders-bus", time_given=True, start=T0),
+        p.put_event(T0 + SEC, error="ThrottlingException", index=1, start=T0),
+        c.eb_receive(T0 + 3 * SEC, "via-put-events", "rh-e3", "11710aed-b79e-4468-a20b-bb3c0c3b4860",
+                     time_ms=T0 // ms, sent_ms=T0 // ms + 400, start=T0 + 2 * SEC),
     ]
 
 

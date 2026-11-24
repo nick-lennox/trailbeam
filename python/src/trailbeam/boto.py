@@ -1,5 +1,5 @@
 """Trailbeam hooks for boto3 / botocore SQS clients (contract sections 4.1 to 4.3, and 18 for PurgeQueue),
-and for SNS Publish / PublishBatch (section 21).
+for SNS Publish / PublishBatch (section 21), and for EventBridge PutEvents (section 25).
 
 The hooks ride on ``opentelemetry-instrumentation-botocore``: each Trailbeam span is a child of the stock
 span for the same API call. Usage::
@@ -28,6 +28,7 @@ from ._contract import (
     SPAN_CHANGE_VISIBILITY,
     SPAN_DELETE,
     SPAN_PUBLISH,
+    SPAN_PUT_EVENT,
     SPAN_PURGE,
     SPAN_RECEIVE,
     SPAN_SEND,
@@ -111,6 +112,7 @@ _now = time.time_ns  # wall clock for span start and end (contract section 2); r
 _TRACKED_OPS = {
     "sqs": frozenset(_SETTLE_OPS) | {"SendMessage", "SendMessageBatch", "ReceiveMessage", "PurgeQueue"},
     "sns": frozenset({"Publish", "PublishBatch"}),  # 3.4, section 21
+    "events": frozenset({"PutEvents"}),  # 3.6, section 25
 }
 
 
@@ -173,6 +175,8 @@ class SqsHooks:
                 self._on_receive(span, params, result, t)
             elif service == "sns":
                 self._on_publish(span, operation, params, result, injected, t)
+            elif service == "events":
+                self._on_put_events(span, params, result, sys.exc_info()[1], t)
             elif operation in ("SendMessage", "SendMessageBatch"):
                 self._on_send(span, operation, params, result, t)
             else:
@@ -304,6 +308,15 @@ class SqsHooks:
                 put(attrs, "messaging.message.body.size", _capture.body_size(request.get("Message")))
             attrs.update(_capture.fifo_attrs(request.get("MessageGroupId"), response.get("SequenceNumber")))
             self.emitter.emit(SPAN_PUBLISH, operation, topic, "", attrs,
+                              parent=span, start_ns=t[0], end_ns=t[1], order=t[2])
+
+    # -- EventBridge (revision 3.6, section 25) ---------------------------------------------
+
+    def _on_put_events(self, span, params: dict, result: Optional[dict], exc, t: tuple) -> None:
+        """One trailbeam put_event per request entry, accepted or failed. The request is never changed."""
+        error = _call_error(result, exc)
+        for attrs in _capture.put_event_attrs(params, result, _plain_code(error) if error else None):
+            self.emitter.emit(SPAN_PUT_EVENT, "PutEvents", attrs.pop("messaging.destination.name"), "", attrs,
                               parent=span, start_ns=t[0], end_ns=t[1], order=t[2])
 
     def _sent(self, queue_name: str, request: dict, response: dict) -> dict:

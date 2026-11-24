@@ -164,6 +164,35 @@ class Consumer:
             a["trailbeam.batch_entry_id"] = batch_entry
         return self._s("trailbeam publish", t, a, start=start, order=order)
 
+    def put_event(self, t, event_id=None, bus="default", index=0, error=None, source="com.example.orders",
+                  detail_type="OrderPlaced", time_given=False, start=None, order=None):
+        """A trailbeam put_event (contract section 25.1): one PutEvents entry, accepted (``event_id``) or failed."""
+        a = {"trailbeam.schema_version": 3, "trailbeam.kind": "eventbridge.put_event", "trailbeam.source": self.source,
+             "messaging.system.name": "aws.eventbridge", "messaging.operation.type": "send",
+             "messaging.operation.name": "PutEvents", "messaging.destination.name": bus,
+             "trailbeam.eventbridge.entry_index": index, "trailbeam.result": "failed" if error else "ok",
+             "trailbeam.eventbridge.source": source, "trailbeam.eventbridge.detail_type": detail_type,
+             "messaging.client.id": self.client_id, "process.pid": 4242, "thread.name": "worker-1"}
+        if error:
+            a["trailbeam.error_code"] = error
+        else:
+            a["messaging.message.id"] = event_id
+        if bus != "default":
+            a["trailbeam.eventbridge.event_bus"] = bus
+        if time_given:
+            a["trailbeam.eventbridge.time_given"] = True
+        return self._s("trailbeam put_event", t, a, start=start, order=order)
+
+    def eb_receive(self, t, mid, handle, event_id, time_ms=None, source="com.example.orders",
+                   detail_type="OrderPlaced", **kw):
+        """A receive whose body is an EventBridge event (contract section 23.1)."""
+        attrs = {"trailbeam.eventbridge.event_id": event_id, "trailbeam.eventbridge.source": source,
+                 "trailbeam.eventbridge.detail_type": detail_type, "trailbeam.eventbridge.account": "111122223333",
+                 "trailbeam.eventbridge.region": "us-east-1"}
+        if time_ms is not None:
+            attrs["trailbeam.eventbridge.time_ms"] = time_ms
+        return self.receive_with(t, mid, handle, attrs, **kw)
+
     def receive_with(self, t, mid, handle, attrs: dict, **kw):
         """A receive with extra attributes, such as the section 23 ones of an EventBridge or S3 body (3.5)."""
         sp = self.receive(t, mid, handle, **kw)

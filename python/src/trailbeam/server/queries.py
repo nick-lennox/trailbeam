@@ -15,7 +15,7 @@ import math
 from datetime import datetime, timedelta, timezone
 from typing import NamedTuple, Optional
 
-from . import bodies, rabbitmq, rollup, sns, summary, timeline
+from . import bodies, eventbridge, rabbitmq, rollup, sns, summary, timeline
 from .store import Store
 from .summary import message_tenant, span_tenant  # noqa: F401  (part of this module's interface)
 
@@ -33,7 +33,7 @@ def message(db: Store, message_id: str, now_ns: int, lambda_timeout_s: int,
         cancels = db.consumer_cancels({r["queue"] for r in rows if r["kind"] == "receive"}, min(times), max(times))
         return timeline.build(rows, now_ns, lambda_timeout_s, max_receive_counts, cancels=cancels)
     return timeline.build(rows, now_ns, lambda_timeout_s, max_receive_counts, db.purges({r["queue"] for r in rows}),
-                          sns_publishes(db, rows))
+                          sns_publishes(db, rows), put_events=put_events(db, rows))
 
 
 def sns_publishes(db: Store, rows) -> list[dict]:
@@ -60,6 +60,26 @@ def sns_publishes(db: Store, rows) -> list[dict]:
         out.append({"publish": p, "joined_by": how,
                     "reached": [{"queue": q, "message_ids": m} for q, m in sorted(by_queue.items())],
                     "reached_truncated": len(receivers) >= sns.MAX_REACHED})
+    return out
+
+
+def put_events(db: Store, rows) -> list[dict]:
+    """The EventBridge PutEvents entries one message's receives join (contract section 25.3), each with the SQS
+    messages it reached, by queue: what timeline.build takes as ``put_events``."""
+    ids = eventbridge.message_event_ids(rows)
+    if not ids:
+        return []
+    out = []
+    for p in db.put_events(ids):
+        receivers = db.eventbridge_receivers(frozenset([p["message_id"]]))
+        by_queue: dict[str, list[str]] = {}
+        for r in receivers:
+            q = by_queue.setdefault(r["queue"], [])
+            if r["mid"] not in q:
+                q.append(r["mid"])
+        out.append({"entry": p, "joined_by": eventbridge.BY_EVENT_ID,
+                    "reached": [{"queue": q, "message_ids": m} for q, m in sorted(by_queue.items())],
+                    "reached_truncated": len(receivers) >= eventbridge.MAX_REACHED})
     return out
 
 

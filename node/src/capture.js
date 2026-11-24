@@ -675,7 +675,65 @@ function originReceiveAttrs(config, queueName, body) {
   return eventbridgeEvent(doc) || s3Event(config, queueName, doc) || {};
 }
 
+// -- EventBridge PutEvents (section 25, revision 3.6) -----------------------------------------------
+
+const EVENT_ID_RE = /^[A-Za-z0-9-]{1,64}$/;
+const DEFAULT_EVENT_BUS = 'default';
+const NO_EVENT_ID = 'NoEventId'; // a result entry with neither a valid EventId nor an ErrorCode (25.1)
+
+/** Section 25.1: the bus's name, from an entry's EventBusName (a name or an ARN); `default` without one. */
+function eventBusName(bus) {
+  if (typeof bus !== 'string' || !bus) return DEFAULT_EVENT_BUS;
+  return bus.slice(bus.lastIndexOf('/') + 1) || DEFAULT_EVENT_BUS;
+}
+
+/**
+ * Section 25.1: the attributes of one trailbeam put_event per entry of a PutEvents request, in entry order.
+ * `output` is the call's response (ignored when `callError` is set: the call failed as a whole, and every entry
+ * is failed with that code). Never reads Detail's content, Resources, TraceHeader, Time's value, ErrorMessage
+ * or EndpointId.
+ */
+function putEventAttrs(input, output, callError) {
+  const entries = isObject(input) ? input.Entries : undefined;
+  if (!Array.isArray(entries)) return [];
+  let results;
+  if (callError === undefined) {
+    results = isObject(output) ? output.Entries : undefined;
+    if (!Array.isArray(results)) return [];
+  }
+  const out = [];
+  entries.forEach((entry, i) => {
+    if (!isObject(entry)) return;
+    if (results && (i >= results.length || !isObject(results[i]))) return; // no result entry: no span
+    const bus = entry.EventBusName;
+    const a = { 'messaging.destination.name': eventBusName(bus), 'trailbeam.eventbridge.entry_index': i };
+    if (callError !== undefined) {
+      a['trailbeam.result'] = 'failed';
+      a['trailbeam.error_code'] = callError;
+    } else {
+      const { EventId: eid, ErrorCode: code } = results[i];
+      if (typeof eid === 'string' && EVENT_ID_RE.test(eid)) {
+        a['trailbeam.result'] = 'ok';
+        a['messaging.message.id'] = eid;
+      } else {
+        a['trailbeam.result'] = 'failed';
+        a['trailbeam.error_code'] = typeof code === 'string' && code ? code : NO_EVENT_ID;
+      }
+    }
+    if (typeof bus === 'string' && bus) a['trailbeam.eventbridge.event_bus'] = bus;
+    putText(a, 'trailbeam.eventbridge.source', entry.Source);
+    putText(a, 'trailbeam.eventbridge.detail_type', entry.DetailType);
+    if (entry.Time !== undefined && entry.Time !== null) a['trailbeam.eventbridge.time_given'] = true;
+    if (typeof entry.Detail === 'string') a['messaging.message.body.size'] = utf8Bytes(entry.Detail);
+    out.push(a);
+  });
+  return out;
+}
+
 module.exports = {
+  eventBusName,
+  putEventAttrs,
+  NO_EVENT_ID,
   originReceiveAttrs,
   PUBLISH_ID_ATTRIBUTE,
   snsEntryBytes,

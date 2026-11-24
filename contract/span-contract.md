@@ -1,12 +1,12 @@
-# Trailbeam span contract, schema version 3 (revision 3.5)
+# Trailbeam span contract, schema version 3 (revision 3.6)
 
 This file defines the OpenTelemetry spans that the `trailbeam` Python package, the `trailbeam` Node.js
 package and the Java jar `trailbeam-aws-sdk-v2` emit, and that the Trailbeam reads. The packages and Trailbeam
 are built and tested against it; what is particular to Java is in section 20. A change to anything below is a
 contract change: bump `trailbeam.schema_version`, and update this file, every package and Trailbeam in the same
 change. A revision only adds (3.1, 3.5) an optional attribute that
-older stores ignore and that Trailbeam does not require, or (3.3, 3.4) an optional span; it keeps
-`trailbeam.schema_version = 3` (sections 14, 16, 19, 22 and 24). Section 17 (the test span of `trailbeam doctor`) is not emitted by the packages and changes nothing they
+older stores ignore and that Trailbeam does not require, or (3.3, 3.4, 3.6) an optional span; it keeps
+`trailbeam.schema_version = 3` (sections 14, 16, 19, 22, 24 and 26). Section 17 (the test span of `trailbeam doctor`) is not emitted by the packages and changes nothing they
 send.
 
 The keywords **must**, **must not**, **should** and **may** are used as in RFC 2119.
@@ -27,6 +27,7 @@ accepts `4` on them with the same meaning.
 | `trailbeam outcome` | `sqs.outcome` | `process` | Lambda wrapper | once per record, after the handler returns or throws |
 | `trailbeam purge` | `sqs.purge` | `purge` | client hooks | once per `PurgeQueue` call, after the response or error (3.3, section 18) |
 | `trailbeam publish` | `sns.publish` | `send` | client hooks (SNS clients) | once per message that SNS accepted in `Publish` / `PublishBatch` to a topic (3.4, section 21) |
+| `trailbeam put_event` | `eventbridge.put_event` | `send` | client hooks (EventBridge clients) | once per entry of a `PutEvents` call, accepted or failed (3.6, section 25) |
 
 "Client hooks" are the boto3 hooks (Python), the AWS SDK v3 hooks (Node.js) and the global
 `ExecutionInterceptor` for the AWS SDK for Java v2 (Java, section 20). "Lambda wrapper" is the handler wrapper
@@ -132,7 +133,7 @@ don't order anything before it either, because its start is not observed (`trail
 | `trailbeam.schema_version` | int | must | `3` |
 | `trailbeam.kind` | string | must | `sqs.send`, `sqs.receive`, `sqs.settle`, `sqs.outcome`, (3.3) `sqs.purge` or (3.4) `sns.publish` |
 | `trailbeam.source` | string | must | `client` (client hooks) or `lambda` (Lambda wrapper) |
-| `messaging.system.name` | string | must | `aws.sqs`; (3.4) `aws.sns` on `trailbeam publish` |
+| `messaging.system.name` | string | must | `aws.sqs`; (3.4) `aws.sns` on `trailbeam publish`; (3.6) `aws.eventbridge` on `trailbeam put_event` |
 | `messaging.operation.type` | string | must | from the table in section 1 |
 | `messaging.operation.name` | string | must | the SQS API action: `SendMessage`, `SendMessageBatch`, `ReceiveMessage`, `DeleteMessage`, `DeleteMessageBatch`, `ChangeMessageVisibility`, `ChangeMessageVisibilityBatch`, (3.3) `PurgeQueue`; (3.4) the SNS action `Publish` or `PublishBatch`; or `LambdaEvent` for spans from the Lambda wrapper |
 | `messaging.destination.name` | string | must | queue name, the last path segment of the queue URL, or the last `:` field of the event source ARN; (3.4) on `trailbeam publish`, the topic name, the last `:` field of the topic ARN |
@@ -1182,7 +1183,7 @@ An EventBridge rule with an SQS target, and an S3 bucket's event notification to
 team's code sends: EventBridge and S3 call `SendMessage` themselves. Before 3.5 the timeline of such a message started at
 its first receive. Revision 3.5 reads, from the body, what the event says about where it came from, and Trailbeam shows
 an **inferred** first step: "Arrived via an EventBridge rule" or "S3 object created" (the S3 event's name). Joining the
-message to the `PutEvents` or `PutObject` that caused it is not part of 3.5.
+message to the `PutEvents` or `PutObject` that caused it is not part of 3.5 (3.6 joins `PutEvents`: section 25).
 
 The attributes below are on `trailbeam receive` (client hooks and Lambda wrapper), read only when the body is not an SNS
 envelope (section 21.3: a receive with `trailbeam.sns.message_id` has none of them). They are read on every queue,
@@ -1296,3 +1297,107 @@ envelope, this is an exception to body capture being off by default, limited to 
 
 `trailbeam.schema_version` stays `3`: the attributes are optional, Trailbeam requires them for nothing, and a Trailbeam
 before 3.5 keeps them with the receive and ignores them.
+
+## 25. EventBridge PutEvents (revision 3.6)
+
+Section 23 gives a message that an EventBridge rule sent to SQS an inferred first step, read from its body. Revision 3.6
+records the sender: the `PutEvents` call that put the event on the bus. Trailbeam joins it to the receives through the
+event's ID: the `EventId` that `PutEvents` returns for an entry is the `id` of the event the rule's SQS target receives,
+which the receive already records as `trailbeam.eventbridge.event_id` (23.1). Nothing new is read from the body.
+
+One event can match several rules, and one rule can have several SQS targets. Each target queue gets its own SQS
+message, with its own SQS message ID, and all of them join the one `PutEvents` entry.
+
+The Python and Node.js packages implement this section. The Java jar (section 20) does not hook EventBridge clients.
+
+### 25.1 `trailbeam put_event`
+
+The client hooks of EventBridge clients (boto3 `events` clients in Python; `EventBridgeClient` passed to `instrument`
+in Node.js) emit one `trailbeam put_event` per entry of a `PutEvents` request, in entry order, after the response or
+error. An entry EventBridge accepted, one it failed (`FailedEntryCount`, an entry with an `ErrorCode`), and, when the
+whole call failed, every entry of the request each get a span. The request is never changed. The span has the
+attributes of section 3, with the call's interval and call-order ticks (sections 2 and 2a), and these:
+
+| Attribute | Type | Req. | Value |
+|---|---|---|---|
+| `messaging.system.name` | string | must | `aws.eventbridge`. The semantic conventions define no value for EventBridge [not checked against the registry for 3.6]; this one follows `aws.sns`. |
+| `messaging.destination.name` | string | must | the event bus's name: the entry's `EventBusName`, its last `/` field when it is an ARN; `default` when the entry has none |
+| `trailbeam.eventbridge.entry_index` | int | must | the entry's index in `Entries`, from 0. The response's entry with the same index is its result. |
+| `trailbeam.result` | string | must | `ok` when the result entry has an `EventId`, else `failed` |
+| `messaging.message.id` | string | when `ok` | the result entry's `EventId`, if it is 1 to 64 letters, digits or `-`. A result with neither a valid `EventId` nor an `ErrorCode` is `failed`, with the error code `NoEventId`. |
+| `trailbeam.error_code` | string | when `failed` | the result entry's `ErrorCode`; for a call that failed as a whole, the call's error code (section 18: no protocol namespace), or the exception's type name when there was no response |
+| `trailbeam.eventbridge.event_bus` | string | when the entry has one | `EventBusName`, verbatim: a name or an ARN |
+| `trailbeam.eventbridge.source` | string | when valid | the entry's `Source` |
+| `trailbeam.eventbridge.detail_type` | string | when valid | the entry's `DetailType` |
+| `trailbeam.eventbridge.time_given` | boolean | when the entry has a `Time` | `true`: the event's `time` is the sender's, not EventBridge's (25.3) |
+| `messaging.message.body.size` | int | when the entry has a `Detail` string | UTF-8 length of `Detail` in bytes |
+
+`Source` and `DetailType` follow section 23's text rule: recorded only if 1 to 256 characters (Unicode code points).
+**Never recorded:** the entry's `Detail` (the event's payload), `Resources`, `TraceHeader`, `Time`'s value, the
+result's `ErrorMessage` (it can quote the request), and the request's `EndpointId`. A request whose `Entries` is not a
+list, or an entry that is not an object, gets no span for it; an entry with no result entry (a response shorter than
+the request) gets none either.
+
+The span carries no `aws.sqs.queue.url`. Its parent is the stock instrumentation's span for the call. Test vectors:
+`eventbridge.put_events` in [`span-contract-vectors.json`](span-contract-vectors.json).
+
+### 25.2 On a receive
+
+Nothing changes: section 23.1's attributes, read on every queue under the QV-314 board decision (23.5), are the join's
+key (`trailbeam.eventbridge.event_id`) and its time (`trailbeam.eventbridge.time_ms`).
+
+### 25.3 How Trailbeam reads it
+
+- A receive **joins** a `put_event` when its `trailbeam.eventbridge.event_id` equals the span's `messaging.message.id`
+  and the span's `trailbeam.result` is `ok`. Every SQS message whose receives join one entry shows it as an
+  **observed** step, "Put on EventBridge bus *name*", with its `source` and `detail-type` and the SQS messages it reached,
+  by queue. A message that also has a `trailbeam send` (a process re-sent the body) is still joined: the event did
+  come from that entry.
+- A joined entry replaces section 23.3's inferred "Arrived via an EventBridge rule" step on that message.
+- **EventBridge delivery time**: `trailbeam.sent_timestamp_ms − trailbeam.eventbridge.time_ms` of the message's first
+  receive, shown on the step. Both are AWS clocks when the entry had no `Time`. With `trailbeam.eventbridge.time_given`
+  the event's time is the sender's own value, from the sender's clock or from anywhere, and Trailbeam says so beside
+  the value. EventBridge's `time` has whole seconds (23.3), so the value can be up to a second too long. A negative
+  value is shown as measured.
+- **Order** is section 9a's: the entry is ordered before a receive only by `clock` or `process_order`, as an SNS
+  publish (21.5).
+- A failed entry reaches no queue and joins nothing. It is stored, and dropped by
+  retention like an accepted one.
+
+In the API (`GET /api/messages/{message_id}`, [`openapi.yaml`](openapi.yaml)) the entry is a `put_event` step
+(`source: eventbridge_put_events`, `joined_by: event_id`, `reached`, `eventbridge_delivery_ms`). Like an SNS publish
+it is the bus's step, not the message's: it does not change the message's first seen, last seen, state or list
+pages. Each store keeps `put_event` spans apart from messages (SQLite: rows of `spans` with no message, schema 23;
+Postgres: `eventbridge_events`, and the receives' keys in `sns_receives` as `b:<event ID>`, schema 17), and retention
+drops one by its own time against the cutoff of the bus's name (`--retention-queues` takes it like a queue name).
+
+### 25.4 Verified and not verified
+
+Verified (2026-11-24):
+
+- `PutEvents`' request and result entries, that a result's index is its request entry's, at most 10 entries, the
+  `EventId` length (at most 64), that `EventBusName` is a name or an ARN, that an entry without `Time` gets the call's
+  time, and the entry error codes, from [PutEvents](https://docs.aws.amazon.com/eventbridge/latest/APIReference/API_PutEvents.html),
+  [PutEventsRequestEntry](https://docs.aws.amazon.com/eventbridge/latest/APIReference/API_PutEventsRequestEntry.html) and
+  [PutEventsResultEntry](https://docs.aws.amazon.com/eventbridge/latest/APIReference/API_PutEventsResultEntry.html).
+- In moto 5.2.6: a rule with an SQS target receives the event with `id` equal to the returned `EventId`, and an entry
+  without `DetailType` fails with `InvalidArgument` while the call succeeds.
+
+Not verified:
+
+- That on AWS the delivered event's `id` is the returned `EventId`. The API reference calls `EventId` "the ID of the
+  event" and does not say so in as many words; moto does it. Not run on AWS for 3.6.
+- moto's delivered event has no `account`, which section 23.1 requires, so in moto a receive records no
+  `trailbeam.eventbridge.*` and the join is tested with bodies in AWS's documented form.
+- Global endpoints (`EndpointId`): whether the event ID stays the same when the event is replicated to the secondary
+  Region.
+
+## 26. Changes in revision 3.6
+
+| 3.5 | 3.6 |
+|---|---|
+| a message from an EventBridge rule had an inferred first step and no sender | `trailbeam put_event`, kind `eventbridge.put_event`, one per `PutEvents` entry, accepted or failed (25.1) |
+| | Trailbeam joins receives to their entry by the event ID, shows it as an observed step with the EventBridge delivery time, and drops the inferred step for that message (25.3) |
+
+`trailbeam.schema_version` stays `3`: the span is optional and the receive is unchanged. A Trailbeam built before 3.6
+rejects `trailbeam put_event` as an unknown kind, in `partial_success`, and stores the rest of the export.

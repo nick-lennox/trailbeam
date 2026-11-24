@@ -2501,6 +2501,7 @@ components:
         - $ref: '#/components/schemas/LambdaOutcomeStep'
         - $ref: '#/components/schemas/QueuePurgedStep'
         - $ref: '#/components/schemas/PublishedStep'
+        - $ref: '#/components/schemas/PutEventStep'
         - $ref: '#/components/schemas/MovedToDeadLetterQueueStep'
         - $ref: '#/components/schemas/ArrivedViaSnsStep'
         - $ref: '#/components/schemas/ArrivedViaEventBridgeStep'
@@ -2526,6 +2527,7 @@ components:
           lambda_outcome: '#/components/schemas/LambdaOutcomeStep'
           queue_purged: '#/components/schemas/QueuePurgedStep'
           published: '#/components/schemas/PublishedStep'
+          put_event: '#/components/schemas/PutEventStep'
           moved_to_dead_letter_queue: '#/components/schemas/MovedToDeadLetterQueueStep'
           arrived_via_sns: '#/components/schemas/ArrivedViaSnsStep'
           arrived_via_eventbridge: '#/components/schemas/ArrivedViaEventBridgeStep'
@@ -2810,6 +2812,51 @@ components:
             AWS clocks (SQS's and SNS's), shown as measured. Only when joined through the envelope: raw delivery has
             no envelope timestamp.
         reason: {type: string, description: The step in words.}
+    PutEventStep:
+      allOf: [{$ref: '#/components/schemas/RecordedStep'}]
+      description: |
+        A recorded entry of an EventBridge `PutEvents` call (contract section 25, added in 3.6) that this message's
+        receives join by the event ID in the body: an EventBridge rule sent the event to the queue. One event can
+        reach several queues, each as a different SQS message, so the same step is on each of them, and `reached`
+        lists them. It replaces the inferred `arrived_via_eventbridge` step. Placed by the hosts' clocks and the call
+        order only. `queue` is the event bus's name, and `consumer` the process that called `PutEvents`.
+      unevaluatedProperties: false
+      required: [source, event_bus, event_id, joined_by, reached, reached_truncated, event_time_given, reason]
+      properties:
+        type: {const: put_event}
+        source: {type: string, const: eventbridge_put_events, description: 'A bus-level step: the span names no SQS message.'}
+        event_bus: {type: string, description: 'The event bus''s name (`default` when the entry named none).'}
+        event_bus_given: {type: string, description: 'The entry''s `EventBusName` as given: a name or an ARN.'}
+        event_id: {type: string, description: The event ID EventBridge returned for the entry; the event's `id`.}
+        entry_index: {type: integer, description: The entry's index in the call's `Entries`, from 0.}
+        eventbridge_source: {type: string, description: 'The entry''s `Source`, such as `com.example.orders`.'}
+        detail_type: {type: string, description: The entry's `DetailType`.}
+        joined_by: {type: string, const: event_id, description: 'The event''s `id` in the body of a receive.'}
+        reached:
+          type: array
+          description: The SQS messages whose receives join this entry, by queue (this message among them).
+          items:
+            type: object
+            additionalProperties: false
+            required: [queue, message_ids]
+            properties:
+              queue: {type: string}
+              message_ids: {type: array, items: {type: string}}
+        reached_truncated: {type: boolean, description: True when there were more receives than `reached` lists (100).}
+        event_time:
+          allOf: [{$ref: '#/components/schemas/Timestamp'}]
+          description: The event's `time` from this message's receive (whole seconds). Not used to place the step.
+        event_time_ms: {type: integer, description: '`event_time` in Unix milliseconds.'}
+        event_time_given:
+          type: boolean
+          description: True when the sender gave the entry a `Time`, so `event_time` is the sender's value, not EventBridge's.
+        eventbridge_delivery_ms:
+          type: integer
+          description: |
+            EventBridge delivery time: this message's first receive's `SentTimestamp` minus `event_time_ms`, in ms.
+            Both AWS clocks unless `event_time_given`; up to a second too long, as `time` has whole seconds. Shown
+            as measured.
+        reason: {type: string, description: The step in words.}
     ArrivedViaSnsStep:
       allOf: [{$ref: '#/components/schemas/PlacedStep'}]
       description: |
@@ -2835,8 +2882,8 @@ components:
       allOf: [{$ref: '#/components/schemas/PlacedStep'}]
       description: |
         Inferred (contract section 23.3, added in 3.5): a receive's body is an EventBridge event, so an EventBridge
-        rule most likely sent the message. Not shown when the message has a send or came through SNS. The event does
-        not name the rule. It has no time of its own and is placed before the receive whose body it is.
+        rule most likely sent the message. Not shown when the message has a send, came through SNS, or (3.6) a
+        recorded `PutEvents` entry joins it (`put_event`). The event does not name the rule. It has no time of its own and is placed before the receive whose body it is.
       unevaluatedProperties: false
       required: [source, queue, event_id, eventbridge_source, detail_type, reported_on_delivery]
       properties:
@@ -3336,6 +3383,7 @@ components:
                 outcome: {type: integer}
                 purge: {type: integer, description: '`PurgeQueue` calls (contract section 18). They belong to no message.'}
                 publish: {type: integer, description: 'SNS messages published to a topic (contract section 21, added in 3.4). They belong to no message.'}
+                put_event: {type: integer, description: 'EventBridge `PutEvents` entries, accepted or failed (contract section 25, added in 3.6). They belong to no message.'}
                 return: {type: integer, description: 'RabbitMQ `basic.return`s: unroutable publishes (contract/span-contract-amqp.md A4.2).'}
                 reject: {type: integer, description: 'RabbitMQ deliveries refused with requeue = false.'}
                 channel_closed: {type: integer, description: 'RabbitMQ deliveries whose channel closed before they were settled.'}
