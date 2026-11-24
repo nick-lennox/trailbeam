@@ -1,10 +1,11 @@
 /*
-  The list pages: Messages (`/`, as a list), Duplicates and Stuck, drawn with the shared MessagesTable. Each is a
-  plain GET form over its API, so the URL is the page's state and Next page is a link, as on the HTML pages.
+  The list pages: Messages (`/`, as a list) and Duplicates, drawn with the shared MessagesTable
+  (Stuck, grouped by cause, is stuck.tsx). Each is a plain GET form over its API, so the URL is the page's
+  state and Next page is a link, as on the HTML pages.
 */
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
-  DUPLICATE_REASONS, EmptyState, duplicateWhy, MessagesTable, duplicatesEmpty, fmtAge, fmtThreshold, messagesEmpty, parseBodyQuery, storeIsEmpty, stuckEmpty,
+  DUPLICATE_REASONS, EmptyState, duplicateWhy, MessagesTable, duplicatesEmpty, messagesEmpty, parseBodyQuery, storeIsEmpty,
   RANGE_PARAMS, RANGE_PRESETS, REFRESH_S, apiQuery, formQuery, pinnedQuery, rangeText, rangeWindow, readRange, refreshOn, toInputUtc,
   type Column, type EmptyStateProps, type MessageSummary, type TimeRange,
 } from "../src/index.ts";
@@ -17,15 +18,15 @@ type Page = {
   body_search?: { stores_bodies: boolean; from_ms: number; to_ms: number; scanned: number; searched_from_ms: number | null; complete: boolean };
 };
 
-type Field = { name: string; label: string; kind: "text" | "number" | [string, string][]; placeholder?: string; disabled?: boolean };
+export type Field = { name: string; label: string; kind: "text" | "number" | [string, string][]; placeholder?: string; disabled?: boolean };
 
 /** A list's time range: what the window is on (`what`, for the sentences) and whether its API takes to_ms. */
-type RangeOpt = { what: "last seen" | "first seen"; upper: boolean };
+export type RangeOpt = { what: "last seen" | "first seen" | "cause seen"; upper: boolean };
 
-const pick = (params: Record<string, string>, names: string[]) => Object.fromEntries(names.filter((n) => params[n]).map((n) => [n, params[n]]));
-const qs = (p: Record<string, string>) => new URLSearchParams(Object.entries(p).filter(([, v]) => v !== "")).toString();
+export const pick = (params: Record<string, string>, names: string[]) => Object.fromEntries(names.filter((n) => params[n]).map((n) => [n, params[n]]));
+export const qs = (p: Record<string, string>) => new URLSearchParams(Object.entries(p).filter(([, v]) => v !== "")).toString();
 const ms = (v: number | null) => (v === null ? "-" : new Date(v).toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC"));
-const withQuery = (path: string, p: Record<string, string>) => { const q = qs(p); return q ? `${path}?${q}` : path; };
+export const withQuery = (path: string, p: Record<string, string>) => { const q = qs(p); return q ? `${path}?${q}` : path; };
 const input = "rounded-full border border-sky-line bg-sky-2 px-3 py-1 font-mono text-caption text-sky-ink";
 
 /** The range control: presets, all time, or custom (two UTC times; Stuck takes only a start). */
@@ -36,7 +37,7 @@ function RangeFields({ range, opt }: { range: TimeRange; opt: RangeOpt }) {
   return (
     <>
       <label className="flex flex-col gap-1">
-        <span>{opt.what === "first seen" ? "First seen" : "Last seen"}</span>
+        <span>{opt.what[0].toUpperCase() + opt.what.slice(1)}</span>
         <select name="range" value={kind} onChange={(e) => setKind(e.target.value)} className={input}>
           <option value="">any time</option>
           {RANGE_PRESETS.map(([k, label]) => <option key={k} value={k}>{label.toLowerCase()}</option>)}
@@ -59,7 +60,8 @@ function RangeFields({ range, opt }: { range: TimeRange; opt: RangeOpt }) {
   );
 }
 
-function Filters({ action, values, fields, range, refresh }: { action: string; values: Record<string, string>; fields: Field[]; range?: { r: TimeRange; opt: RangeOpt }; refresh: boolean }) {
+/** The filters, a GET form; `hidden` goes with them unchanged (Stuck's picked cause). */
+export function Filters({ action, values, fields, range, refresh, hidden = {} }: { action: string; values: Record<string, string>; fields: Field[]; range?: { r: TimeRange; opt: RangeOpt }; refresh: boolean; hidden?: Record<string, string> }) {
   // the form's fields become the URL (formQuery: a custom range turns into from_ms/to_ms); refresh stays as it is
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -82,13 +84,14 @@ function Filters({ action, values, fields, range, refresh }: { action: string; v
         </label>
       ))}
       {range && <RangeFields range={range.r} opt={range.opt} />}
+      {Object.entries(hidden).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
       <button className="rounded-full border border-sky-line px-4 py-1 text-sky-ink hover:border-sky-ink">Apply</button>
     </form>
   );
 }
 
 /** Ask again every REFRESH_S seconds while on (and the tab is showing); on/off is kept in the URL as refresh=15. */
-function useRefresh(initial: boolean): [boolean, (on: boolean) => void, number] {
+export function useRefresh(initial: boolean): [boolean, (on: boolean) => void, number] {
   const [on, setOn] = useState(initial);
   const [tick, setTick] = useState(0);
   useEffect(() => {
@@ -139,7 +142,7 @@ type ListProps = {
   invalid?: ReactNode;
 };
 
-const clock = (t: number) => new Date(t).toISOString().slice(11, 19);
+export const clock = (t: number) => new Date(t).toISOString().slice(11, 19);
 
 export function MessageList({ action, api, params, fields, defaults = {}, extra, range, notes, empty, next, pin, foot, onPage, below, invalid }: ListProps) {
   const [state, setState] = useState<ListState>({ kind: "loading" });
@@ -298,32 +301,6 @@ export function DuplicatesPage() {
         fields={[{ name: "reason", label: "Reason", kind: reasons }, { name: "queue", label: "Queue", kind: "text" }, { name: "limit", label: "Limit", kind: "number" }]}
         extra={{ title: "Why", cell: duplicateWhy }}
         empty={(_, storeEmpty) => duplicatesEmpty(params, storeEmpty)} />
-    </Frame>
-  );
-}
-
-export function StuckPage() {
-  const params = Object.fromEntries(new URLSearchParams(location.search));
-  const [olderThan, setOlderThan] = useState<number | null>(null);
-  const asked = params.older_than_s !== undefined && /^\d+$/.test(params.older_than_s) ? Number(params.older_than_s) : undefined;
-  const threshold = olderThan ?? asked;
-  useEffect(() => { document.title = "Stuck messages · Trailbeam"; }, []);
-  return (
-    <Frame>
-      <h1 className="text-[1.75rem] text-sky-ink">Stuck messages</h1>
-      <p className="mt-1 max-w-[80ch] text-sky-ink-2">
-        Messages first seen more than {threshold === undefined ? "?" : fmtThreshold(threshold)} ago that no consumer has deleted yet, oldest first. Change the age with Older than, or the server default with <code className="font-mono text-caption">--stuck-after</code> (<code className="font-mono text-caption">TRAILBEAM_STUCK_AFTER_S</code>).
-      </p>
-      <MessageList action="/stuck" api="stuck" params={pick(params, ["older_than_s", "limit", "queue", "cursor", "refresh", "range", "from_ms"])}
-        range={{ what: "first seen", upper: false }}
-        defaults={olderThan !== null ? { older_than_s: String(olderThan) } : {}}
-        fields={[{ name: "older_than_s", label: "Older than (s)", kind: "number" }, { name: "queue", label: "Queue", kind: "text" }, { name: "limit", label: "Limit", kind: "number" }]}
-        extra={{ title: "Age", align: "right", brief: (m) => `${fmtAge(m.age_s)} old${m.age_across_clocks ? " (two clocks)" : ""}`, cell: (m) => (
-          <span className="font-mono text-caption tabular-nums">{fmtAge(m.age_s)}{m.age_across_clocks && <span className="text-sky-ink-3" title="this server's clock minus SQS's SentTimestamp: two clocks"> two clocks</span>}</span>
-        ) }}
-        foot={<>A message that a recorded PurgeQueue call removed is not listed here; one whose last step was during a purge (or within 60 s after it) is listed, marked possibly purged. A message can also leave SQS without a delete when its queue&rsquo;s retention period (<code className="font-mono text-caption">MessageRetentionPeriod</code>) ends; SQS reports nothing when that happens, so Trailbeam cannot see it and the message stays here until Trailbeam&rsquo;s own retention removes it. Age is this server&rsquo;s clock now minus the send&rsquo;s time on the sender&rsquo;s clock, so skew between the two clocks shows up in it. If Trailbeam never saw the send, it counts from SQS&rsquo;s <code className="font-mono text-caption">SentTimestamp</code>, and the age says so; with neither, from the first receive, on the consumer&rsquo;s clock.</>}
-        onPage={(p) => p.older_than_s !== undefined && setOlderThan(p.older_than_s)}
-        empty={(p, storeEmpty) => stuckEmpty(p.older_than_s ?? 0, storeEmpty)} />
     </Frame>
   );
 }
