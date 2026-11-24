@@ -253,6 +253,12 @@
 
   `deploy/helm/check.sh` now runs the documented port-forward, checks what each selector picks, and upgrades a
   release installed by the 0.4.0 chart.
+- **Span contract 4.0: broker-neutral kinds and RabbitMQ spans** (QV-305, contract only). Kinds are
+  `<family>.<operation>`, and `contract/span-contract-amqp.md` defines the `amqp.*` spans of a RabbitMQ client
+  (publish with confirms, return, deliver, ack, nack, reject, cancel, channel closed), the receive count from
+  quorum queues' headers, the dead-letter source and reason from `x-death`, and message identity. It comes with
+  vectors and fixtures. Nothing emits or reads these spans yet: the server (QV-306) and the Python package
+  (QV-309) follow. SQS and SNS spans are unchanged.
 
 ## 0.4.0: set up in one command
 
