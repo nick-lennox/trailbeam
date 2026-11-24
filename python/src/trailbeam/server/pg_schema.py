@@ -46,7 +46,8 @@ so they never show as messages.
 
 **People and tokens** (version 8, QV-225). ``users``, ``sessions``, ``ingest_tokens``, ``personal_tokens`` and
 ``setup_codes`` (account_tables.py). Not partitioned and not spans: retention never touches them. A Trailbeam
-before this version (0.3.0 and earlier) refuses the database from then on.
+before this version (0.3.0 and earlier) refuses the database from then on. Version 11 (QV-227) adds
+``users.proxy_linked_at_ms``: who may sign in through a proxy (proxy_auth.py).
 **Purges** (version 9, QV-245). ``purges``: the PurgeQueue calls (contract section 18), not partitioned: they
 belong to no message, and every list page reads them by queue.
 
@@ -342,7 +343,7 @@ CREATE TABLE IF NOT EXISTS hash_places (
     bucket BIGINT NOT NULL,
     PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
 ) PARTITION BY RANGE (rclass, bucket);
-""" + SEALING + PROBES + account_tables.PG_CREATE + PURGES + QUEUE_CREATE + """
+""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + QUEUE_CREATE + """
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
@@ -672,8 +673,10 @@ MIGRATIONS: tuple = (
     Migration(11, "queue events and their hourly rollup (QV-363)", (
         "ALTER TABLE messages ADD COLUMN IF NOT EXISTS qevents_json TEXT NOT NULL DEFAULT '[]'",
     ) + tuple(statements(QUEUE_CREATE)), per_place=(_queue_place,)),
+    # Version 12 (QV-227): who may sign in through a proxy (proxy_auth.py); NULL, nobody, for the people before it.
+    Migration(12, "users.proxy_linked_at_ms (QV-227)", (account_tables.PG_ADD_PROXY,)),
 )
-LATEST = 11
+LATEST = 12
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 
