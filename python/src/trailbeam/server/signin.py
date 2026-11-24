@@ -7,6 +7,15 @@ is answered ``LOCKED`` whatever the password, after the same password hash as an
 during the lock learn nothing. That answer does say the email has an account, but only after ``LOCK_AFTER``
 failures, which the per-address limit slows down.
 
+**Sign-ins that work, per account (approximate, per replica; QV-472).** More than ``ACCOUNT_SIGN_INS`` sign-ins
+that worked for one person in ``ACCOUNT_WINDOW_S`` and further sign-ins to that account are answered "slow down"
+(429 with Retry-After) without a password check, from any address, until the window has moved on. Without it,
+someone with a password could sign in correctly over and over: those don't count against the address limit, and
+they kept the hasher (passwords.MAX_CONCURRENT) full, so everyone else was answered BUSY (503). Like the address
+limit, a sign-in takes its place before its password check (so parallel ones can't overshoot) and gives it back
+if it didn't work. Kept in memory: the hasher it protects is per replica too. The "slow down" answer, with no
+hash, does say the email has an account, but only while its owner is signing in more than this.
+
 **Per client address (approximate, per replica).** ``AddressLimit``: more than ``ADDRESS_FAILURES`` failed
 sign-ins from one address in ``ADDRESS_WINDOW_S`` and that address is answered "slow down" (429 with
 Retry-After) without a password check, until the window has moved on. A sign-in takes its place in the count
@@ -33,6 +42,8 @@ LOCK_MS = 15 * 60_000
 ADDRESS_FAILURES = 20
 ADDRESS_WINDOW_S = 600.0
 ADDRESS_MAX = 50_000  # addresses remembered; the oldest are dropped first
+ACCOUNT_SIGN_INS = 10
+ACCOUNT_WINDOW_S = 60.0
 
 OK, WRONG, LOCKED, SLOW_DOWN, BUSY = "ok", "wrong", "locked", "slow_down", "busy"
 
@@ -50,7 +61,8 @@ class AddressLimit:
 
     An attempt reserves its place before its password check (``begin``) and settles it after (``end``), so
     attempts from one address running at the same time count against its allowance at once: however many it
-    sends in parallel, at most its remaining allowance get a password check. IPv6 addresses count by /64 (one
+    sends in parallel, at most its remaining allowance get a password check. SignIn also uses one to count the
+    sign-ins that worked per account, keyed ``user:<id>`` (``end`` then counts the attempt if it worked). IPv6 addresses count by /64 (one
     customer's network: anyone with one has billions of addresses in it); IPv4 addresses, and IPv4 written as
     IPv6, count by the exact address.
     """
@@ -142,13 +154,14 @@ class AddressLimit:
 
 class SignIn:
     def __init__(self, accounts, sessions, hasher: Optional[Hasher] = None, *,
-                 address_limit: Optional[AddressLimit] = None,
+                 address_limit: Optional[AddressLimit] = None, account_limit: Optional[AddressLimit] = None,
                  now_ms: Callable[[], int] = lambda: time.time_ns() // 1_000_000,
                  lock_after: int = LOCK_AFTER, lock_ms: int = LOCK_MS):
         self.accounts = accounts
         self.sessions = sessions
         self.hasher = hasher or Hasher()
         self.address_limit = address_limit or AddressLimit()
+        self.account_limit = account_limit or AddressLimit(ACCOUNT_SIGN_INS, ACCOUNT_WINDOW_S)
         self.now_ms = now_ms
         self.lock_after = lock_after
         self.lock_ms = lock_ms
@@ -160,7 +173,7 @@ class SignIn:
         failed = True  # an error after the password check counts too
         try:
             r = self._sign_in(email, password)
-            failed = r.outcome != OK
+            failed = r.outcome not in (OK, SLOW_DOWN)  # SLOW_DOWN here: the account limit, no password check
             return r
         except HashBusy:  # no password check: the place is given back
             failed = False
@@ -173,6 +186,19 @@ class SignIn:
         if user is None or user["disabled_at_ms"] is not None or not user["password_hash"]:
             self.hasher.verify_dummy(password if isinstance(password, str) else "")
             return Result(WRONG)
+        account = f"user:{user['id']}"
+        wait = self.account_limit.begin(account)
+        if wait is not None:
+            return Result(SLOW_DOWN, retry_after_s=wait)
+        worked = False
+        try:
+            r = self._check(user, password)
+            worked = r.outcome == OK
+            return r
+        finally:
+            self.account_limit.end(account, worked)
+
+    def _check(self, user: dict, password: str) -> Result:
         now = self.now_ms()
         right = self.hasher.verify(password, user["password_hash"])
         locked = user["locked_until_ms"]
