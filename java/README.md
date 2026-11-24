@@ -1,7 +1,8 @@
 # Trailbeam for the AWS SDK for Java v2
 
-**Pre-release, not published yet.** This module is being built in stages under QV-319. The Maven coordinates
-below are placeholders until the Maven Central namespace is chosen.
+**Pre-release, not published yet.** This module is being built under QV-319. The coordinates below are the ones
+it will be published under on Maven Central; until then, build it with `mvn install` (maintainers: see
+[RELEASING.md](RELEASING.md)).
 
 Add one dependency and every SQS call made through the AWS SDK for Java v2 emits the spans of the
 [Trailbeam span contract](../contract/span-contract.md); what is particular to Java is in its
@@ -9,7 +10,7 @@ Add one dependency and every SQS call made through the AWS SDK for Java v2 emits
 
 ```xml
 <dependency>
-  <groupId>dev.trailbeam</groupId>
+  <groupId>app.trailbeam</groupId>
   <artifactId>trailbeam-aws-sdk-v2</artifactId>
   <version>0.1.0-SNAPSHOT</version>
 </dependency>
@@ -22,7 +23,7 @@ async clients, and frameworks built on them. The first SQS call logs `Trailbeam 
 
 It works with no agent, beside the OpenTelemetry Java agent (also when the agent's sampler drops everything),
 and beside dd-java-agent. The [conformance kit](../conformance) checks all four in CI. The jar has its own
-always-on tracer provider with a relocated copy of the OpenTelemetry SDK (`dev.trailbeam.sqs.shaded.otel`), so it
+always-on tracer provider with a relocated copy of the OpenTelemetry SDK (`app.trailbeam.sqs.shaded.otel`), so it
 never conflicts with your application's OpenTelemetry version. It doesn't change or suppress the agent's spans.
 
 Requires Java 11 or later and AWS SDK for Java v2 2.17 or later. CI runs the kit on JDK 11, 17 and 21, and on SDK
@@ -92,7 +93,7 @@ turns on the thrown error's message on each `trailbeam outcome`, after the text 
 (contract section 15.5).
 
 Spans are exported in the background and flushed when the JVM shuts down. A program that has to be sure they
-have left before it continues can call `dev.trailbeam.sqs.Trailbeam.flush(timeout, unit)`.
+have left before it continues can call `app.trailbeam.sqs.Trailbeam.flush(timeout, unit)`.
 
 ## AWS Lambda
 
@@ -113,7 +114,7 @@ the way the OpenTelemetry Java Lambda wrappers work:
 
 | Setting | Value |
 |---|---|
-| Handler | `dev.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest` |
+| Handler | `app.trailbeam.sqs.TrailbeamSqsLambdaWrapper::handleRequest` |
 | `TRAILBEAM_LAMBDA_HANDLER` | your handler as Lambda would name it: `com.example.OrdersHandler` (a `RequestHandler<SQSEvent, SQSBatchResponse>`, or `RequestHandler<SQSEvent, Void>`), or `com.example.OrdersHandler::handle` for a public method taking `(SQSEvent, Context)` or `(SQSEvent)` |
 | `TRAILBEAM_LAMBDA_REPORT_BATCH_ITEM_FAILURES` | `true` by default. Set it to `false` if the event source mapping doesn't have `ReportBatchItemFailures` turned on: Lambda then ignores `batchItemFailures`, and so does Trailbeam. |
 
@@ -142,7 +143,7 @@ they are root spans. Each flush waits at most 2 seconds and never fails the invo
 **SnapStart.** One snapshot becomes many execution environments, so after a restore the jar starts a new
 call-order scope and a new `service.instance.id`, and before the snapshot it flushes. It does this through the
 `org.crac` API that SnapStart runs, when `io.github.crac:org-crac` is on the classpath (AWS's SnapStart guide
-tells you to add it). Without it, call `dev.trailbeam.sqs.Trailbeam.afterRestore()` from your own restore hook.
+tells you to add it). Without it, call `app.trailbeam.sqs.Trailbeam.afterRestore()` from your own restore hook.
 
 ## Registering it by hand
 
