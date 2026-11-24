@@ -130,3 +130,45 @@ def test_bucket_widths():
     for f, t in [(0, 10 ** 15), (123, 7 * day + 5), (59_999, 60_000)]:
         w = events.bucket_ms(f, t)
         assert t // w - f // w + 1 <= events.MAX_BUCKETS
+
+
+def _direct(db, from_ns, to_ns, bucket_ns, **kw):
+    """step_counts from the spans alone, as the store would count them with no rollup."""
+    where, p = db._step_where(kw.get("queue"), kw.get("service"), kw.get("kinds"))
+    return sorted(tuple(r) for r in db.query(
+        f"SELECT time_ns / ? AS b, kind, COUNT(*) FROM spans WHERE time_ns >= ? AND time_ns < ?{where} GROUP BY 1, 2",
+        (bucket_ns, from_ns, to_ns, *p)))
+
+
+def test_the_hourly_rollup_counts_what_the_spans_count(db, ingest):
+    from trailbeam.server.store import Cutoffs
+    hour = 3600 * SEC
+    w, p = Consumer("w"), Consumer("p")
+    for i in range(30):  # a message every 50 minutes, over a day: whole hours and partial ones
+        t = T0 + i * 50 * 60 * SEC
+        ingest(p.send(t, f"m{i}", queue="a" if i % 3 else "b"), service="checkout-api")
+        ingest(w.receive(t + SEC, f"m{i}", f"h{i}", queue="a" if i % 3 else "b"),
+               w.delete(t + 2 * SEC, f"h{i}", queue="a" if i % 3 else "b"))
+    ingest(p.send(T0, "m0", queue="b"), service="checkout-api")  # an exporter retry: stored once, counted once
+    ingest(w.delete(T0 + 5 * hour, "h-never"), w.purge(T0 + 6 * hour))
+    windows = [(T0 - 3 * 86_400 * SEC + 17, T0 + 4 * 86_400 * SEC), (T0 + 1, T0 + 20 * hour - 1), (T0, T0 + 24 * hour)]
+    filters = [{}, {"queue": "a"}, {"service": "checkout-api"}, {"kinds": ("delete",)}, {"queue": "b", "kinds": ("send",)}]
+
+    def check():
+        for a, b in windows:
+            width = events.bucket_ms(a // MS, b // MS - 1) * MS
+            for kw in filters:
+                got = sorted(db.step_counts(a, b, width, **kw))
+                assert got == _direct(db, a, b, width, **kw), (a, b, kw)
+    check()
+    assert events.hour_split(*windows[0], events.bucket_ms(windows[0][0] // MS, windows[0][1] // MS) * MS)
+    # retention deletes whole messages and unjoined settles: the rollup loses them too
+    cut, resume, deleted = Cutoffs(default=T0 + 12 * hour), None, 0
+    while True:
+        r = db.purge_step(cut, resume, limit=1000)
+        deleted += r.deleted
+        if not (resume := r.resume):
+            break
+    assert deleted > 0
+    check()
+    assert db.query("SELECT COUNT(*) FROM step_rollup WHERE n <= 0")[0][0] == 0

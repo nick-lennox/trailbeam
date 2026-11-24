@@ -35,6 +35,26 @@ NS_PER_MS = 1_000_000
 INT64_MAX = 2 ** 63 - 1
 
 
+# The hourly rollup of steps (step_rollup, db.py; QV-394): the steps per (hour, queue, service, kind), kept exact at
+# ingest and by retention. A histogram whose buckets are whole hours reads the hours wholly inside the window from it,
+# and only the partial hours at its two ends from the spans, so a 7-day histogram adds up about 168 hours of rollup
+# rows instead of counting every span. A service of '' in the rollup is a span with none (the API never asks for '').
+HOUR_NS = 3_600 * 10 ** 9
+
+
+def hour_split(from_ns: int, to_ns: int, bucket_ns: int) -> Optional[tuple]:
+    """For buckets of whole hours: ((from_ns, to_ns) ranges to count from the spans, (first hour, end hour) to read
+    from the rollup), so the two add up to the window. None when the buckets aren't whole hours, or no hour is wholly
+    inside the window: count it all from the spans."""
+    if bucket_ns % HOUR_NS:
+        return None
+    h0, h1 = -(-from_ns // HOUR_NS), to_ns // HOUR_NS  # whole hours [h0, h1)
+    if h0 >= h1:
+        return None
+    edges = [(a, b) for a, b in ((from_ns, h0 * HOUR_NS), (h1 * HOUR_NS, to_ns)) if a < b]
+    return edges, (h0, h1)
+
+
 class EventQueryError(ValueError):
     pass
 

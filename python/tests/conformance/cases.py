@@ -177,6 +177,10 @@ def _events(store, rows: dict, queues: list, first_ms: int, last_ms: int) -> dic
         "all": page(),
         "pages_of_3": pages,
         "first_half": events.page(store, first_ms, (first_ms + last_ms) // 2, 100),
+        # hourly buckets: whole hours from a rollup, if the store keeps one, and the partial ends from the spans
+        "week": events.page(store, first_ms - 3 * 86_400_000 + 1234, last_ms + 3 * 86_400_000, 5),
+        "week_by_kind": events.page(store, first_ms - 3 * 86_400_000, last_ms + 3 * 86_400_000, 5,
+                                    kinds=("receive", "outcome")),
         "by_queue": {q: page(queue=q) for q in queues + ["no-such-queue"]},
         "by_service": {s: page(service=s) for s in services},
         "by_kind": {k: page(kinds=(k,)) for k in events.KINDS},

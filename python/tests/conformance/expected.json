@@ -4798,6 +4798,2546 @@
     },
     "next_cursor": null,
     "to_ms": 1794852337716
+   },
+   "week": {
+    "events": [
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "delete",
+      "message_id": "m-legacy",
+      "outcome": null,
+      "queue": "orders",
+      "receive_count": null,
+      "result": "ok",
+      "service_name": "legacy-svc",
+      "service_version": null,
+      "span_id": "57dccf6cc3c7c18e",
+      "start_unix_nano": "1794852337715000000",
+      "time": "2026-11-16T18:05:37.716000Z",
+      "time_unix_nano": "1794852337716000000",
+      "trace_id": "bf3be8567ccb1400f14bfc650a51150f",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "receive",
+      "message_id": "m-legacy",
+      "outcome": null,
+      "queue": "orders",
+      "receive_count": 1,
+      "result": null,
+      "service_name": "legacy-svc",
+      "service_version": null,
+      "span_id": "052fd94108a28c43",
+      "start_unix_nano": "1794852337715000000",
+      "time": "2026-11-16T18:05:37.715000Z",
+      "time_unix_nano": "1794852337715000000",
+      "trace_id": "1bc5ee2c9e02b11ab286d06e535a7cff",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "send",
+      "message_id": "m-legacy",
+      "outcome": null,
+      "queue": "orders",
+      "receive_count": null,
+      "result": null,
+      "service_name": "legacy-svc",
+      "service_version": null,
+      "span_id": "bc27d4dabdb60135",
+      "start_unix_nano": "1794852337663000000",
+      "time": "2026-11-16T18:05:37.664000Z",
+      "time_unix_nano": "1794852337664000000",
+      "trace_id": "2eca365e41f0b1a58988d7cd2c742dc8",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": "TypeError",
+      "kind": "outcome",
+      "message_id": "m-bill-1",
+      "outcome": "failed_exception",
+      "queue": "billing",
+      "receive_count": null,
+      "result": null,
+      "service_name": "billing-fn",
+      "service_version": null,
+      "span_id": "b927ec6dbb2bd035",
+      "start_unix_nano": "1794852337528000000",
+      "time": "2026-11-16T18:05:37.528000Z",
+      "time_unix_nano": "1794852337528000000",
+      "trace_id": "b06e9564489bc2874a28db659b69db33",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "receive",
+      "message_id": "m-bill-1",
+      "outcome": null,
+      "queue": "billing",
+      "receive_count": 3,
+      "result": null,
+      "service_name": "billing-fn",
+      "service_version": null,
+      "span_id": "f9fe4f80ed77af7d",
+      "start_unix_nano": null,
+      "time": "2026-11-16T18:05:37.527000Z",
+      "time_unix_nano": "1794852337527000000",
+      "trace_id": "48871cb8418ff9c89725493c18c4239c",
+      "visibility_timeout": null
+     }
+    ],
+    "from_ms": 1794593138144,
+    "histogram": {
+     "bucket_ms": 3600000,
+     "buckets": [
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794592800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794596400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794600000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794603600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794607200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794610800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794614400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794618000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794621600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794625200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794628800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794632400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794636000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794639600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794643200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794646800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794650400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794654000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794657600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794661200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794664800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794668400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794672000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794675600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794679200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794682800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794686400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794690000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794693600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794697200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794700800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794704400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794708000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794711600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794715200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794718800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794722400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794726000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794729600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794733200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794736800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794740400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794744000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794747600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794751200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794754800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794758400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794762000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794765600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794769200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794772800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794776400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794780000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794783600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794787200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794790800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794794400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794798000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794801600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794805200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794808800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794812400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794816000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794819600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794823200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794826800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794830400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794834000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794837600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794841200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794844800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794848400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 7,
+       "outcome": 4,
+       "receive": 14,
+       "send": 7,
+       "start_ms": 1794852000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794855600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794859200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794862800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794866400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794870000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794873600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794877200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794880800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794884400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794888000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794891600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794895200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794898800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794902400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794906000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794909600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794913200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794916800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794920400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794924000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794927600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794931200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794934800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794938400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794942000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794945600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794949200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794952800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794956400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794960000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794963600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794967200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794970800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794974400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794978000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794981600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794985200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794988800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794992400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794996000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794999600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795003200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795006800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795010400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795014000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795017600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795021200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795024800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795028400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795032000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795035600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795039200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795042800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795046400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795050000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795053600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795057200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795060800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795064400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795068000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795071600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795075200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795078800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795082400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795086000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795089600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795093200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795096800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795100400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795104000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795107600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795111200000
+      }
+     ],
+     "total": 32,
+     "totals": {
+      "change_visibility": 0,
+      "delete": 7,
+      "outcome": 4,
+      "receive": 14,
+      "send": 7
+     }
+    },
+    "next_cursor": "MTc5NDg1MjMzNzUyNzAwMDAwMDo0ODg3MWNiODQxOGZmOWM4OTcyNTQ5M2MxOGM0MjM5YzpmOWZlNGY4MGVkNzdhZjdk",
+    "to_ms": 1795111537716
+   },
+   "week_by_kind": {
+    "events": [
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "receive",
+      "message_id": "m-legacy",
+      "outcome": null,
+      "queue": "orders",
+      "receive_count": 1,
+      "result": null,
+      "service_name": "legacy-svc",
+      "service_version": null,
+      "span_id": "052fd94108a28c43",
+      "start_unix_nano": "1794852337715000000",
+      "time": "2026-11-16T18:05:37.715000Z",
+      "time_unix_nano": "1794852337715000000",
+      "trace_id": "1bc5ee2c9e02b11ab286d06e535a7cff",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": "TypeError",
+      "kind": "outcome",
+      "message_id": "m-bill-1",
+      "outcome": "failed_exception",
+      "queue": "billing",
+      "receive_count": null,
+      "result": null,
+      "service_name": "billing-fn",
+      "service_version": null,
+      "span_id": "b927ec6dbb2bd035",
+      "start_unix_nano": "1794852337528000000",
+      "time": "2026-11-16T18:05:37.528000Z",
+      "time_unix_nano": "1794852337528000000",
+      "trace_id": "b06e9564489bc2874a28db659b69db33",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "receive",
+      "message_id": "m-bill-1",
+      "outcome": null,
+      "queue": "billing",
+      "receive_count": 3,
+      "result": null,
+      "service_name": "billing-fn",
+      "service_version": null,
+      "span_id": "f9fe4f80ed77af7d",
+      "start_unix_nano": null,
+      "time": "2026-11-16T18:05:37.527000Z",
+      "time_unix_nano": "1794852337527000000",
+      "trace_id": "48871cb8418ff9c89725493c18c4239c",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": "Error",
+      "kind": "outcome",
+      "message_id": "m-bill-1",
+      "outcome": "failed_exception",
+      "queue": "billing",
+      "receive_count": null,
+      "result": null,
+      "service_name": "billing-fn",
+      "service_version": null,
+      "span_id": "617e5872b1d0abc6",
+      "start_unix_nano": "1794852337495000000",
+      "time": "2026-11-16T18:05:37.495000Z",
+      "time_unix_nano": "1794852337495000000",
+      "trace_id": "f3929246e9651b5693ad7912aa10cfa1",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "receive",
+      "message_id": "m-bill-1",
+      "outcome": null,
+      "queue": "billing",
+      "receive_count": 2,
+      "result": null,
+      "service_name": "billing-fn",
+      "service_version": null,
+      "span_id": "d717dfd0b627148c",
+      "start_unix_nano": null,
+      "time": "2026-11-16T18:05:37.493000Z",
+      "time_unix_nano": "1794852337493000000",
+      "trace_id": "3b8b20b58d2f14016bb381ba33c5a5aa",
+      "visibility_timeout": null
+     }
+    ],
+    "from_ms": 1794593136910,
+    "histogram": {
+     "bucket_ms": 3600000,
+     "buckets": [
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794592800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794596400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794600000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794603600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794607200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794610800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794614400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794618000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794621600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794625200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794628800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794632400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794636000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794639600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794643200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794646800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794650400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794654000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794657600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794661200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794664800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794668400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794672000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794675600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794679200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794682800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794686400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794690000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794693600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794697200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794700800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794704400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794708000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794711600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794715200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794718800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794722400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794726000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794729600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794733200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794736800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794740400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794744000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794747600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794751200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794754800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794758400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794762000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794765600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794769200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794772800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794776400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794780000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794783600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794787200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794790800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794794400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794798000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794801600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794805200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794808800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794812400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794816000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794819600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794823200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794826800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794830400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794834000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794837600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794841200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794844800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794848400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 4,
+       "receive": 14,
+       "send": 0,
+       "start_ms": 1794852000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794855600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794859200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794862800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794866400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794870000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794873600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794877200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794880800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794884400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794888000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794891600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794895200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794898800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794902400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794906000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794909600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794913200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794916800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794920400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794924000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794927600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794931200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794934800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794938400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794942000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794945600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794949200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794952800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794956400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794960000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794963600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794967200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794970800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794974400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794978000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794981600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794985200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794988800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794992400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794996000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794999600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795003200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795006800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795010400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795014000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795017600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795021200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795024800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795028400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795032000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795035600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795039200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795042800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795046400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795050000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795053600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795057200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795060800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795064400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795068000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795071600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795075200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795078800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795082400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795086000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795089600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795093200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795096800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795100400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795104000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795107600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795111200000
+      }
+     ],
+     "total": 18,
+     "totals": {
+      "change_visibility": 0,
+      "delete": 0,
+      "outcome": 4,
+      "receive": 14,
+      "send": 0
+     }
+    },
+    "next_cursor": "MTc5NDg1MjMzNzQ5MzAwMDAwMDozYjhiMjBiNThkMmYxNDAxNmJiMzgxYmEzM2M1YTVhYTpkNzE3ZGZkMGI2MjcxNDhj",
+    "to_ms": 1795111537716
    }
   },
   "find_tenants": {
@@ -12563,6 +15103,2546 @@
     },
     "next_cursor": null,
     "to_ms": 1794852337716
+   },
+   "week": {
+    "events": [
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "delete",
+      "message_id": "m-legacy",
+      "outcome": null,
+      "queue": "orders",
+      "receive_count": null,
+      "result": "ok",
+      "service_name": "legacy-svc",
+      "service_version": null,
+      "span_id": "57dccf6cc3c7c18e",
+      "start_unix_nano": "1794852337715000000",
+      "time": "2026-11-16T18:05:37.716000Z",
+      "time_unix_nano": "1794852337716000000",
+      "trace_id": "bf3be8567ccb1400f14bfc650a51150f",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "receive",
+      "message_id": "m-legacy",
+      "outcome": null,
+      "queue": "orders",
+      "receive_count": 1,
+      "result": null,
+      "service_name": "legacy-svc",
+      "service_version": null,
+      "span_id": "052fd94108a28c43",
+      "start_unix_nano": "1794852337715000000",
+      "time": "2026-11-16T18:05:37.715000Z",
+      "time_unix_nano": "1794852337715000000",
+      "trace_id": "1bc5ee2c9e02b11ab286d06e535a7cff",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "send",
+      "message_id": "m-legacy",
+      "outcome": null,
+      "queue": "orders",
+      "receive_count": null,
+      "result": null,
+      "service_name": "legacy-svc",
+      "service_version": null,
+      "span_id": "bc27d4dabdb60135",
+      "start_unix_nano": "1794852337663000000",
+      "time": "2026-11-16T18:05:37.664000Z",
+      "time_unix_nano": "1794852337664000000",
+      "trace_id": "2eca365e41f0b1a58988d7cd2c742dc8",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": "TypeError",
+      "kind": "outcome",
+      "message_id": "m-bill-1",
+      "outcome": "failed_exception",
+      "queue": "billing",
+      "receive_count": null,
+      "result": null,
+      "service_name": "billing-fn",
+      "service_version": null,
+      "span_id": "b927ec6dbb2bd035",
+      "start_unix_nano": "1794852337528000000",
+      "time": "2026-11-16T18:05:37.528000Z",
+      "time_unix_nano": "1794852337528000000",
+      "trace_id": "b06e9564489bc2874a28db659b69db33",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "receive",
+      "message_id": "m-bill-1",
+      "outcome": null,
+      "queue": "billing",
+      "receive_count": 3,
+      "result": null,
+      "service_name": "billing-fn",
+      "service_version": null,
+      "span_id": "f9fe4f80ed77af7d",
+      "start_unix_nano": null,
+      "time": "2026-11-16T18:05:37.527000Z",
+      "time_unix_nano": "1794852337527000000",
+      "trace_id": "48871cb8418ff9c89725493c18c4239c",
+      "visibility_timeout": null
+     }
+    ],
+    "from_ms": 1794593138144,
+    "histogram": {
+     "bucket_ms": 3600000,
+     "buckets": [
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794592800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794596400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794600000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794603600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794607200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794610800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794614400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794618000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794621600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794625200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794628800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794632400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794636000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794639600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794643200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794646800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794650400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794654000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794657600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794661200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794664800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794668400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794672000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794675600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794679200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794682800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794686400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794690000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794693600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794697200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794700800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794704400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794708000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794711600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794715200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794718800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794722400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794726000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794729600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794733200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794736800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794740400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794744000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794747600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794751200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794754800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794758400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794762000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794765600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794769200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794772800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794776400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794780000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794783600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794787200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794790800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794794400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794798000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794801600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794805200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794808800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794812400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794816000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794819600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794823200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794826800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794830400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794834000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794837600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794841200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794844800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794848400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 7,
+       "outcome": 4,
+       "receive": 14,
+       "send": 7,
+       "start_ms": 1794852000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794855600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794859200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794862800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794866400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794870000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794873600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794877200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794880800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794884400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794888000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794891600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794895200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794898800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794902400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794906000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794909600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794913200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794916800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794920400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794924000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794927600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794931200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794934800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794938400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794942000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794945600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794949200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794952800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794956400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794960000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794963600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794967200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794970800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794974400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794978000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794981600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794985200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794988800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794992400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794996000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794999600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795003200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795006800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795010400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795014000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795017600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795021200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795024800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795028400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795032000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795035600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795039200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795042800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795046400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795050000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795053600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795057200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795060800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795064400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795068000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795071600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795075200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795078800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795082400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795086000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795089600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795093200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795096800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795100400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795104000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795107600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795111200000
+      }
+     ],
+     "total": 32,
+     "totals": {
+      "change_visibility": 0,
+      "delete": 7,
+      "outcome": 4,
+      "receive": 14,
+      "send": 7
+     }
+    },
+    "next_cursor": "MTc5NDg1MjMzNzUyNzAwMDAwMDo0ODg3MWNiODQxOGZmOWM4OTcyNTQ5M2MxOGM0MjM5YzpmOWZlNGY4MGVkNzdhZjdk",
+    "to_ms": 1795111537716
+   },
+   "week_by_kind": {
+    "events": [
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "receive",
+      "message_id": "m-legacy",
+      "outcome": null,
+      "queue": "orders",
+      "receive_count": 1,
+      "result": null,
+      "service_name": "legacy-svc",
+      "service_version": null,
+      "span_id": "052fd94108a28c43",
+      "start_unix_nano": "1794852337715000000",
+      "time": "2026-11-16T18:05:37.715000Z",
+      "time_unix_nano": "1794852337715000000",
+      "trace_id": "1bc5ee2c9e02b11ab286d06e535a7cff",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": "TypeError",
+      "kind": "outcome",
+      "message_id": "m-bill-1",
+      "outcome": "failed_exception",
+      "queue": "billing",
+      "receive_count": null,
+      "result": null,
+      "service_name": "billing-fn",
+      "service_version": null,
+      "span_id": "b927ec6dbb2bd035",
+      "start_unix_nano": "1794852337528000000",
+      "time": "2026-11-16T18:05:37.528000Z",
+      "time_unix_nano": "1794852337528000000",
+      "trace_id": "b06e9564489bc2874a28db659b69db33",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "receive",
+      "message_id": "m-bill-1",
+      "outcome": null,
+      "queue": "billing",
+      "receive_count": 3,
+      "result": null,
+      "service_name": "billing-fn",
+      "service_version": null,
+      "span_id": "f9fe4f80ed77af7d",
+      "start_unix_nano": null,
+      "time": "2026-11-16T18:05:37.527000Z",
+      "time_unix_nano": "1794852337527000000",
+      "trace_id": "48871cb8418ff9c89725493c18c4239c",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": "Error",
+      "kind": "outcome",
+      "message_id": "m-bill-1",
+      "outcome": "failed_exception",
+      "queue": "billing",
+      "receive_count": null,
+      "result": null,
+      "service_name": "billing-fn",
+      "service_version": null,
+      "span_id": "617e5872b1d0abc6",
+      "start_unix_nano": "1794852337495000000",
+      "time": "2026-11-16T18:05:37.495000Z",
+      "time_unix_nano": "1794852337495000000",
+      "trace_id": "f3929246e9651b5693ad7912aa10cfa1",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "receive",
+      "message_id": "m-bill-1",
+      "outcome": null,
+      "queue": "billing",
+      "receive_count": 2,
+      "result": null,
+      "service_name": "billing-fn",
+      "service_version": null,
+      "span_id": "d717dfd0b627148c",
+      "start_unix_nano": null,
+      "time": "2026-11-16T18:05:37.493000Z",
+      "time_unix_nano": "1794852337493000000",
+      "trace_id": "3b8b20b58d2f14016bb381ba33c5a5aa",
+      "visibility_timeout": null
+     }
+    ],
+    "from_ms": 1794593136910,
+    "histogram": {
+     "bucket_ms": 3600000,
+     "buckets": [
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794592800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794596400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794600000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794603600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794607200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794610800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794614400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794618000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794621600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794625200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794628800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794632400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794636000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794639600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794643200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794646800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794650400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794654000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794657600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794661200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794664800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794668400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794672000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794675600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794679200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794682800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794686400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794690000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794693600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794697200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794700800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794704400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794708000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794711600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794715200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794718800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794722400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794726000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794729600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794733200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794736800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794740400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794744000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794747600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794751200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794754800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794758400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794762000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794765600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794769200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794772800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794776400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794780000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794783600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794787200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794790800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794794400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794798000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794801600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794805200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794808800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794812400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794816000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794819600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794823200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794826800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794830400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794834000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794837600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794841200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794844800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794848400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 4,
+       "receive": 14,
+       "send": 0,
+       "start_ms": 1794852000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794855600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794859200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794862800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794866400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794870000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794873600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794877200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794880800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794884400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794888000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794891600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794895200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794898800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794902400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794906000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794909600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794913200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794916800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794920400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794924000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794927600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794931200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794934800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794938400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794942000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794945600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794949200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794952800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794956400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794960000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794963600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794967200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794970800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794974400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794978000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794981600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794985200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794988800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794992400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794996000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1794999600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795003200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795006800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795010400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795014000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795017600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795021200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795024800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795028400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795032000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795035600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795039200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795042800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795046400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795050000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795053600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795057200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795060800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795064400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795068000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795071600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795075200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795078800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795082400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795086000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795089600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795093200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795096800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795100400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795104000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795107600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1795111200000
+      }
+     ],
+     "total": 18,
+     "totals": {
+      "change_visibility": 0,
+      "delete": 0,
+      "outcome": 4,
+      "receive": 14,
+      "send": 0
+     }
+    },
+    "next_cursor": "MTc5NDg1MjMzNzQ5MzAwMDAwMDozYjhiMjBiNThkMmYxNDAxNmJiMzgxYmEzM2M1YTVhYTpkNzE3ZGZkMGI2MjcxNDhj",
+    "to_ms": 1795111537716
    }
   },
   "find_tenants": {
@@ -20462,6 +25542,2546 @@
     },
     "next_cursor": null,
     "to_ms": 1763080200000
+   },
+   "week": {
+    "events": [
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "delete",
+      "message_id": "m-d",
+      "outcome": null,
+      "queue": "orders-dlq",
+      "receive_count": null,
+      "result": "ok",
+      "service_name": "orders-worker",
+      "service_version": null,
+      "span_id": "0000000000000013",
+      "start_unix_nano": "1763080200000000000",
+      "time": "2025-11-14T00:30:00.000000Z",
+      "time_unix_nano": "1763080200000000000",
+      "trace_id": "000000000000000000000000000003fb",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "receive",
+      "message_id": "m-d",
+      "outcome": null,
+      "queue": "orders-dlq",
+      "receive_count": 4,
+      "result": null,
+      "service_name": "orders-worker",
+      "service_version": null,
+      "span_id": "0000000000000014",
+      "start_unix_nano": "1763080190000000000",
+      "time": "2025-11-14T00:29:50.000000Z",
+      "time_unix_nano": "1763080190000000000",
+      "trace_id": "000000000000000000000000000003fc",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "receive",
+      "message_id": "m-d",
+      "outcome": null,
+      "queue": "orders",
+      "receive_count": 3,
+      "result": null,
+      "service_name": "orders-worker",
+      "service_version": null,
+      "span_id": "0000000000000012",
+      "start_unix_nano": "1763080110000000000",
+      "time": "2025-11-14T00:28:30.000000Z",
+      "time_unix_nano": "1763080110000000000",
+      "trace_id": "000000000000000000000000000003fa",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "receive",
+      "message_id": "m-d",
+      "outcome": null,
+      "queue": "orders",
+      "receive_count": 2,
+      "result": null,
+      "service_name": "orders-worker",
+      "service_version": null,
+      "span_id": "0000000000000011",
+      "start_unix_nano": "1763080070000000000",
+      "time": "2025-11-14T00:27:50.000000Z",
+      "time_unix_nano": "1763080070000000000",
+      "trace_id": "000000000000000000000000000003f9",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": "ReceiptHandleIsInvalid",
+      "error_type": null,
+      "kind": "delete",
+      "message_id": "m-a",
+      "outcome": null,
+      "queue": "orders",
+      "receive_count": null,
+      "result": "failed",
+      "service_name": "orders-worker",
+      "service_version": null,
+      "span_id": "0000000000000017",
+      "start_unix_nano": "1763080052000000000",
+      "time": "2025-11-14T00:27:32.000000Z",
+      "time_unix_nano": "1763080052000000000",
+      "trace_id": "000000000000000000000000000003ff",
+      "visibility_timeout": null
+     }
+    ],
+    "from_ms": 1762820801234,
+    "histogram": {
+     "bucket_ms": 3600000,
+     "buckets": [
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762819200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762822800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762826400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762830000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762833600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762837200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762840800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762844400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762848000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762851600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762855200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762858800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762862400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762866000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762869600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762873200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762876800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762880400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762884000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762887600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762891200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762894800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762898400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762902000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762905600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762909200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762912800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762916400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762920000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762923600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762927200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762930800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762934400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762938000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762941600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762945200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762948800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762952400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762956000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762959600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762963200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762966800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762970400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762974000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762977600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762981200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762984800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762988400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762992000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762995600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762999200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763002800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763006400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763010000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763013600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763017200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763020800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763024400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763028000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763031600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763035200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763038800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763042400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763046000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763049600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763053200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763056800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763060400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763064000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763067600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763071200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763074800000
+      },
+      {
+       "change_visibility": 1,
+       "delete": 5,
+       "outcome": 3,
+       "receive": 9,
+       "send": 5,
+       "start_ms": 1763078400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763082000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763085600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763089200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763092800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763096400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763100000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763103600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763107200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763110800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763114400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763118000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763121600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763125200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763128800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763132400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763136000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763139600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763143200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763146800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763150400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763154000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763157600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763161200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763164800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763168400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763172000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763175600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763179200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763182800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763186400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763190000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763193600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763197200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763200800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763204400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763208000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763211600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763215200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763218800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763222400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763226000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763229600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763233200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763236800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763240400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763244000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763247600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763251200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763254800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763258400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763262000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763265600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763269200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763272800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763276400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763280000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763283600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763287200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763290800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763294400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763298000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763301600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763305200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763308800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763312400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763316000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763319600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763323200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763326800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763330400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763334000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763337600000
+      }
+     ],
+     "total": 23,
+     "totals": {
+      "change_visibility": 1,
+      "delete": 5,
+      "outcome": 3,
+      "receive": 9,
+      "send": 5
+     }
+    },
+    "next_cursor": "MTc2MzA4MDA1MjAwMDAwMDAwMDowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDNmZjowMDAwMDAwMDAwMDAwMDE3",
+    "to_ms": 1763339400000
+   },
+   "week_by_kind": {
+    "events": [
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "receive",
+      "message_id": "m-d",
+      "outcome": null,
+      "queue": "orders-dlq",
+      "receive_count": 4,
+      "result": null,
+      "service_name": "orders-worker",
+      "service_version": null,
+      "span_id": "0000000000000014",
+      "start_unix_nano": "1763080190000000000",
+      "time": "2025-11-14T00:29:50.000000Z",
+      "time_unix_nano": "1763080190000000000",
+      "trace_id": "000000000000000000000000000003fc",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "receive",
+      "message_id": "m-d",
+      "outcome": null,
+      "queue": "orders",
+      "receive_count": 3,
+      "result": null,
+      "service_name": "orders-worker",
+      "service_version": null,
+      "span_id": "0000000000000012",
+      "start_unix_nano": "1763080110000000000",
+      "time": "2025-11-14T00:28:30.000000Z",
+      "time_unix_nano": "1763080110000000000",
+      "trace_id": "000000000000000000000000000003fa",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "receive",
+      "message_id": "m-d",
+      "outcome": null,
+      "queue": "orders",
+      "receive_count": 2,
+      "result": null,
+      "service_name": "orders-worker",
+      "service_version": null,
+      "span_id": "0000000000000011",
+      "start_unix_nano": "1763080070000000000",
+      "time": "2025-11-14T00:27:50.000000Z",
+      "time_unix_nano": "1763080070000000000",
+      "trace_id": "000000000000000000000000000003f9",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "outcome",
+      "message_id": "m-b",
+      "outcome": "success",
+      "queue": "billing",
+      "receive_count": null,
+      "result": null,
+      "service_name": "billing-fn",
+      "service_version": "1.4.2",
+      "span_id": "000000000000000f",
+      "start_unix_nano": "1763080043000000000",
+      "time": "2025-11-14T00:27:23.000000Z",
+      "time_unix_nano": "1763080043000000000",
+      "trace_id": "000000000000000000000000000003f7",
+      "visibility_timeout": null
+     },
+     {
+      "error_code": null,
+      "error_type": null,
+      "kind": "receive",
+      "message_id": "m-b",
+      "outcome": null,
+      "queue": "billing",
+      "receive_count": 3,
+      "result": null,
+      "service_name": "billing-fn",
+      "service_version": "1.4.2",
+      "span_id": "000000000000000e",
+      "start_unix_nano": null,
+      "time": "2025-11-14T00:27:22.000000Z",
+      "time_unix_nano": "1763080042000000000",
+      "trace_id": "000000000000000000000000000003f6",
+      "visibility_timeout": null
+     }
+    ],
+    "from_ms": 1762820800000,
+    "histogram": {
+     "bucket_ms": 3600000,
+     "buckets": [
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762819200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762822800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762826400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762830000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762833600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762837200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762840800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762844400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762848000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762851600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762855200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762858800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762862400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762866000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762869600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762873200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762876800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762880400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762884000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762887600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762891200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762894800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762898400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762902000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762905600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762909200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762912800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762916400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762920000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762923600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762927200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762930800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762934400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762938000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762941600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762945200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762948800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762952400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762956000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762959600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762963200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762966800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762970400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762974000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762977600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762981200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762984800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762988400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762992000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762995600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1762999200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763002800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763006400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763010000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763013600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763017200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763020800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763024400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763028000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763031600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763035200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763038800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763042400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763046000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763049600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763053200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763056800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763060400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763064000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763067600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763071200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763074800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 3,
+       "receive": 9,
+       "send": 0,
+       "start_ms": 1763078400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763082000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763085600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763089200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763092800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763096400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763100000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763103600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763107200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763110800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763114400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763118000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763121600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763125200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763128800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763132400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763136000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763139600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763143200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763146800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763150400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763154000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763157600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763161200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763164800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763168400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763172000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763175600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763179200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763182800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763186400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763190000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763193600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763197200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763200800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763204400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763208000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763211600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763215200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763218800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763222400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763226000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763229600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763233200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763236800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763240400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763244000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763247600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763251200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763254800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763258400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763262000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763265600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763269200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763272800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763276400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763280000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763283600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763287200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763290800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763294400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763298000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763301600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763305200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763308800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763312400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763316000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763319600000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763323200000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763326800000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763330400000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763334000000
+      },
+      {
+       "change_visibility": 0,
+       "delete": 0,
+       "outcome": 0,
+       "receive": 0,
+       "send": 0,
+       "start_ms": 1763337600000
+      }
+     ],
+     "total": 12,
+     "totals": {
+      "change_visibility": 0,
+      "delete": 0,
+      "outcome": 3,
+      "receive": 9,
+      "send": 0
+     }
+    },
+    "next_cursor": "MTc2MzA4MDA0MjAwMDAwMDAwMDowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDNmNjowMDAwMDAwMDAwMDAwMDBl",
+    "to_ms": 1763339400000
    }
   },
   "find_tenants": {

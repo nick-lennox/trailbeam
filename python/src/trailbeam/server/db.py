@@ -32,6 +32,7 @@ import time
 from typing import Callable, Iterable, Iterator, Optional
 
 from . import body_table, migrations, purge, rollup, summary_table
+from .events import HOUR_NS, KINDS as STEP_KINDS, hour_split
 from .otlp import RECORD_FIELDS
 from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store, StoreFull,
                     StuckCandidate, TenantActivity, WriterBusy)
@@ -348,6 +349,7 @@ class SqliteStore(Store):
         inserted = dupes = 0
         c = self.conn
         on_join = self.on_join
+        steps: dict = {}  # step_rollup: (hour, queue, service, kind) -> spans this export adds
         for r in records:
             own, kind = r.get("message_id"), r["kind"]
             mid, mid_source, receive_row = own, "span" if own else None, None
@@ -369,6 +371,9 @@ class SqliteStore(Store):
                 dupes += 1
                 continue
             inserted += 1
+            if kind in STEP_KINDS:
+                k = (r["time_ns"] // HOUR_NS, r["queue"], r.get("service_name") or "", kind)
+                steps[k] = steps.get(k, 0) + 1
             moves.append((cur.lastrowid, None, mid))
             if kind == "receive":
                 j0 = time.perf_counter()
@@ -376,6 +381,8 @@ class SqliteStore(Store):
                 join_s = time.perf_counter() - j0
             if on_join is not None and (kind == "receive" or kind in SETTLE_KINDS):
                 on_join("receive" if kind == "receive" else "settle", join_s)
+        if steps:
+            c.executemany(_STEP_ADD_SQL, [k + (n,) for k, n in steps.items()])
         return inserted, dupes
 
     def _settle_receive(self, r: dict) -> Optional[sqlite3.Row]:
@@ -449,11 +456,13 @@ class SqliteStore(Store):
         c.execute("BEGIN IMMEDIATE")
         try:
             gone = [m for (m,) in c.execute(_EXPIRED_SQL.format(cut=qcut), (json.dumps(expired),) + cut_p)] if expired else []
-            # the spans first: their rows are in the summaries forget deletes
+            # the spans first: their rows are in the summaries forget deletes; step_rollup loses them first
+            _take_steps(c, f"row IN ({_ROWS_OF_SQL})", (json.dumps(gone),))
             n = c.execute(f"DELETE FROM spans WHERE row IN ({_ROWS_OF_SQL})", (json.dumps(gone),)).rowcount
             summary_table.forget(c, gone)
             body_table.forget(c, gone)
             # joined since the read: it belongs to a message now, which goes by the message's time
+            _take_steps(c, "row IN (SELECT value FROM json_each(?)) AND mid IS NULL", (json.dumps(unjoined),))
             n += c.execute("DELETE FROM spans WHERE row IN (SELECT value FROM json_each(?)) AND mid IS NULL",
                            (json.dumps(unjoined),)).rowcount
             c.execute("COMMIT")
@@ -575,8 +584,7 @@ class SqliteStore(Store):
 
     @staticmethod
     def _step_where(queue, service, kinds) -> tuple[str, list]:
-        from .events import KINDS
-        ks = kinds or KINDS
+        ks = kinds or STEP_KINDS
         where, p = f" AND kind IN ({', '.join('?' * len(ks))})", list(ks)
         if queue is not None:
             where, p = where + " AND queue = ?", p + [queue]
@@ -598,11 +606,26 @@ class SqliteStore(Store):
 
     def step_counts(self, from_ns: int, to_ns: int, bucket_ns: int, *, queue: Optional[str] = None,
                     service: Optional[str] = None, kinds: Optional[tuple] = None) -> list[tuple]:
+        """The whole hours from step_rollup when the buckets are whole hours (events.hour_split), the rest from the
+        spans. Each hour is in one bucket, so the two parts' (bucket, kind) pairs are added up."""
         where, p = self._step_where(queue, service, kinds)
-        return [tuple(r) for r in self.query(
-            f"SELECT time_ns / ? AS b, kind, COUNT(*) FROM spans INDEXED BY spans_kind_time "
-            f"WHERE time_ns >= ? AND time_ns < ?{where} GROUP BY kind, b",
-            (bucket_ns, from_ns, to_ns, *p))]
+        split = hour_split(from_ns, to_ns, bucket_ns)
+        ranges, hours = split if split else ([(from_ns, to_ns)], None)
+        out: dict = {}
+        with self.reader() as c:
+            for a, b in ranges:
+                for bk, kind, n in c.execute(
+                        f"SELECT time_ns / ? AS b, kind, COUNT(*) FROM spans INDEXED BY spans_kind_time "
+                        f"WHERE time_ns >= ? AND time_ns < ?{where} GROUP BY kind, b", (bucket_ns, a, b, *p)):
+                    out[(bk, kind)] = out.get((bk, kind), 0) + n
+            if hours:
+                rwhere = where.replace("service_name = ?", "service = ?")
+                for bk, kind, n in c.execute(
+                        f"SELECT hour / ? AS b, kind, SUM(n) FROM step_rollup "
+                        f"WHERE hour >= ? AND hour < ?{rwhere} GROUP BY kind, b",
+                        (bucket_ns // HOUR_NS, *hours, *p)):
+                    out[(bk, kind)] = out.get((bk, kind), 0) + n
+        return [(bk, kind, n) for (bk, kind), n in out.items() if n]
 
     def stuck_messages(self, cutoff_ns: int, limit: int, queue: Optional[str] = None, *,
                        from_ns: Optional[int] = None, after: Optional[tuple] = None,
@@ -843,6 +866,21 @@ _EXPIRED_SQL = """SELECT mid FROM messages WHERE mid IN (SELECT value FROM json_
 _ROWS_OF_SQL = """SELECT r.value FROM messages m, json_each(m.rows_json) r
                   WHERE m.mid IN (SELECT value FROM json_each(?))"""
 _KEPT = -(2 ** 63)  # the cutoff of a queue kept forever, in SQL: no span ends before it
+
+
+_STEP_ADD_SQL = """INSERT INTO step_rollup (hour, queue, service, kind, n) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (hour, queue, service, kind) DO UPDATE SET n = n + excluded.n"""
+
+
+def _take_steps(c: sqlite3.Connection, where: str, params: tuple) -> None:
+    """Take the spans ``where`` names out of step_rollup, before they are deleted; a row that comes to 0 goes."""
+    gone = c.execute(f"SELECT time_ns / {HOUR_NS}, queue, COALESCE(service_name, ''), kind, COUNT(*) FROM spans "
+                     f"WHERE {where} AND kind IN ({', '.join(repr(k) for k in STEP_KINDS)}) GROUP BY 1, 2, 3, 4",
+                     params).fetchall()
+    c.executemany("UPDATE step_rollup SET n = n - ? WHERE hour = ? AND queue = ? AND service = ? AND kind = ?",
+                  [(n, h, q, sv, k) for h, q, sv, k, n in gone])
+    c.executemany("DELETE FROM step_rollup WHERE hour = ? AND queue = ? AND service = ? AND kind = ? AND n <= 0",
+                  [(h, q, sv, k) for h, q, sv, k, _ in gone])
 
 
 def _cutoff_sql(cutoffs: Cutoffs, column: str = "queue") -> tuple[str, tuple]:
