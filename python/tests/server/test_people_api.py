@@ -14,11 +14,11 @@ from pathlib import Path
 
 import pytest
 
-from trailbeam.server import auth, people_api
+from trailbeam.server import access as access_mod, auth, people_api
 from trailbeam.server.accounts import Accounts, BadSetupCode
 from trailbeam.server.db import Database
 from trailbeam.server.passwords import Hasher
-from trailbeam.server.server import make_server
+from trailbeam.server.server import ApiError, make_server
 from trailbeam.server.tokens import Tokens
 
 from test_openapi import contract, request
@@ -141,6 +141,35 @@ def test_members_and_the_shared_token_get_no_admin_route(srv):
         assert srv(method, path, body)[0] == 401
     assert [u["email"] for u in srv.acc.users()] == ["ada@example.com", "ben@example.com"]
     assert srv.acc.user(srv.ben)["role"] == "member"
+
+
+ODD_ADMIN_PATHS = ["/api/users/", "/api//users", "/api/users//", "/api/tokens/ingest/",
+                   "/api//tokens/ingest", "/api/tokens//ingest", "/api/tokens/ingest//", "/api/users/%2F"]
+
+
+def test_an_admin_list_is_not_reached_by_another_spelling_of_its_path(srv):
+    """QV-451: the level was checked on the exact path and the handler matched a normalised one, so a member
+    read /api/users/ and /api/tokens/ingest/. Now one route decision serves both: any other spelling is no
+    route, for anyone."""
+    for path in ODD_ADMIN_PATHS:
+        st, _, out = srv("GET", path, headers=srv.member)
+        assert st in (403, 404), (path, st)
+        assert "ben@example.com" not in str(out), path
+        assert srv("GET", path, headers=srv.admin)[0] == 404, path
+    # Python's http.server makes a leading // one / before the path reaches us: that is /api/users itself
+    assert srv("GET", "//api/users", headers=srv.member)[0] == 403
+    assert srv("GET", "/api/users", headers=srv.admin)[0] == 200
+    assert srv("GET", "/api/tokens/ingest", headers=srv.admin)[0] == 200
+    assert srv("GET", "/api/me/tokens", headers=srv.member)[0] == 200
+    assert srv("GET", "/api/me/tokens/", headers=srv.member)[0] == 404
+
+
+def test_the_api_dispatches_on_the_route_it_is_given_and_never_normalises(srv):
+    app = srv.app
+    for path in ("users/", "/users", "users//", "tokens/ingest/", "/tokens/ingest"):
+        with pytest.raises(ApiError) as e:
+            app.api(path, {}, access_mod.Who("personal_token", "admin", srv.ada))
+        assert e.value.status == 404, path
 
 
 def test_before_an_admin_exists_no_admin_route_answers(store):

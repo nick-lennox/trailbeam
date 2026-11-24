@@ -32,6 +32,7 @@ from .otlp import PROBE_NOT_STORED, DecodeError, decode, valid_probe_id
 from .timeline import DEFAULT_LAMBDA_TIMEOUT_S
 
 log = logging.getLogger("trailbeam.server")
+_UNSET = object()  # App.api: no route given
 
 MAX_BODY = 32 * 1024 * 1024  # bytes, after decompression
 DEFAULT_WINDOW_S = 86_400  # the time window of the Tenants page and the searches, unless given
@@ -286,9 +287,14 @@ class App:
 
     # ---- JSON API -------------------------------------------------------------------------
 
-    def api(self, path: str, query: dict, who: access_mod.Who = access_mod.NOBODY) -> object:
+    def api(self, path: str, query: dict, who: access_mod.Who = access_mod.NOBODY,
+            route: object = _UNSET) -> object:
+        """GET ``/api/{path}``. ``route``: the people-and-tokens route the access check decided on
+        (access.api_route of the exact request path, or None); dispatched on as is, so the handler that runs
+        is the one whose level was checked. Not given (tests, in-process callers): matched on the exact path,
+        the same way. Never normalised here: /api/users/ or /api//users is no route (a 404), not /api/users."""
         parts = [unquote(p) for p in path.split("/") if p]
-        r = access_mod.api_route("GET", "/api/" + path.strip("/"))
+        r = access_mod.api_route("GET", "/api/" + path) if route is _UNSET else route
         if r is not None:  # people and tokens (people_api.py); the level was checked with the request
             try:
                 return self.people.call(r[1], r[2], None, who, "", self.now() // 1_000_000)[1]
@@ -820,6 +826,7 @@ def make_handler(app: App):
                 self._send_page(web.password_page() if app.accounts is not None else
                                 (404, {"Content-Type": "text/plain"}, b"not found"))
                 return
+            api_r = None
             try:
                 if path in ("/login", "/logout"):
                     mode = app.access.mode()
@@ -829,8 +836,11 @@ def make_handler(app: App):
                     d = access_mod.Decision(True)
                 else:
                     # /api/health is open, but says more only to whoever may read the API
+                    # One decision for the level and the handler: app.api dispatches on this same route.
+                    api_r = access_mod.api_route("GET", path)
+                    level = api_r[0] if api_r else access_mod.level_of("GET", path)
                     d = app.access.check(self.headers, access_mod.MEMBER if path == "/api/health"
-                                         else access_mod.level_of("GET", path), self._scheme())
+                                         else level, self._scheme())
             except access_mod.AccessUnavailable as e:
                 log.warning("GET %s: %s", path, e)
                 if path == "/api/health":  # liveness answers while the store is unreachable
@@ -868,7 +878,7 @@ def make_handler(app: App):
                 self._page(u.path, q)
                 return
             try:
-                self._json(200, app.api(u.path[len("/api/"):], q, d.who))
+                self._json(200, app.api(u.path[len("/api/"):], q, d.who, route=api_r))
             except ApiError as e:
                 self._json(e.status, {"error": e.message})
             except Exception:
