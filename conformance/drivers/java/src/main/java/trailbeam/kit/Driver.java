@@ -68,10 +68,27 @@ public final class Driver {
     return id;
   }
 
+  /**
+   * messageSystemAttributeNames came in SDK 2.25 and attributeNames was deprecated for it; an older SDK only has
+   * attributeNames. Reflection lets one driver build and run on every SDK of the version matrix, and each SDK
+   * takes the path its users take.
+   */
+  @SuppressWarnings("deprecation")
+  static void askSystemAttributes(ReceiveMessageRequest.Builder b, List<String> asked) {
+    try {
+      ReceiveMessageRequest.Builder.class.getMethod("messageSystemAttributeNamesWithStrings", java.util.Collection.class)
+          .invoke(b, asked);
+    } catch (NoSuchMethodException e) {
+      b.attributeNamesWithStrings(asked);
+    } catch (ReflectiveOperationException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
   static List<Message> receive(String q, List<String> asked) throws IOException {
     ReceiveMessageRequest.Builder b = ReceiveMessageRequest.builder().queueUrl(q).maxNumberOfMessages(10).waitTimeSeconds(1);
     if (!asked.isEmpty()) {
-      b.messageSystemAttributeNamesWithStrings(asked);
+      askSystemAttributes(b, asked);
     }
     List<Message> msgs = sqs.receiveMessage(b.build()).messages();
     ObjectNode r = row("ReceiveMessage", q);
