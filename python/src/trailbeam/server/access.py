@@ -121,6 +121,24 @@ class Decision(NamedTuple):
     message: str = ""
 
 
+SWITCH_ENV = "TRAILBEAM_ACCOUNTS"
+_ON, _OFF = ("1", "true", "yes", "on"), ("", "0", "false", "no", "off")
+SWITCHED_OFF = ("users and roles are off on this server (a preview in this release, not yet security-reviewed): "
+                "start it with --accounts or TRAILBEAM_ACCOUNTS=1 to use them")
+
+
+def switch_on(env) -> bool:
+    """``TRAILBEAM_ACCOUNTS``: users and roles are a preview, off unless this says 1 (or true, yes, on). Off, the
+    server runs as on a store without account tables: the shared token only, as in 0.4.0. ValueError on a value
+    that is neither on nor off, so a typo never leaves the server in the mode nobody asked for."""
+    v = (env.get(SWITCH_ENV) or "").strip().lower()
+    if v in _ON:
+        return True
+    if v in _OFF:
+        return False
+    raise ValueError(f"{SWITCH_ENV}={env.get(SWITCH_ENV)!r}: expected 1 (on) or 0 (off)")
+
+
 class State:
     """Whether an admin exists and whether an ingest token exists, from the store, at most ``ttl_s`` old.
 

@@ -12,13 +12,14 @@ import sqlite3
 import sys
 import time
 
-from . import auth, config, first_admin, trace_links
+from . import access, auth, config, first_admin, trace_links
+from .accounts import Accounts
 from .backpressure import DEFAULT_MAX_PENDING, DEFAULT_MAX_WAIT_S, IngestGate
 from .db import SqliteStore, parse_queue_list
 from .migrations import SchemaError
 from .proxy import TrustedProxies, parse_networks
 from .retention import DEFAULT as DEFAULT_RETENTION, Purger, Retention, parse_duration, parse_queue_retentions
-from .server import make_server
+from .server import has_account_tables, make_server
 
 
 def main(argv=None) -> None:
@@ -137,6 +138,11 @@ def build_parser(prog: str = "trailbeam", description: str = "") -> argparse.Arg
                         "The timeline then shows Open trace on each recorded step. Placeholders: "
                         + ", ".join("{" + n + "}" for n in trace_links.PLACEHOLDERS)
                         + " (env TRAILBEAM_TRACE_LINK, default none: no links)")
+    p.add_argument("--accounts", action="store_true", default=None,
+                   help="switch on users and roles, a preview in this release that has not had its security review "
+                        "yet: sign-in with email and password, personal and ingest tokens, the first admin's setup "
+                        "link (env TRAILBEAM_ACCOUNTS=1). Default: off, the server uses TRAILBEAM_TOKEN alone, and "
+                        "people and tokens in the store are ignored")
     p.add_argument("--log-level", default=os.environ.get("TRAILBEAM_LOG_LEVEL", "INFO"))
     return p
 
@@ -163,6 +169,15 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
             auth.check_token(os.environ["TRAILBEAM_TOKEN"]) if os.environ.get("TRAILBEAM_TOKEN", "").strip() else None)
     except auth.TokenError as e:
         logging.getLogger("trailbeam.server").error("TRAILBEAM_TOKEN: %s", e)
+        sys.exit(2)
+    try:
+        accounts_on = bool(a.accounts) or access.switch_on(os.environ)
+    except ValueError as e:
+        logging.getLogger("trailbeam.server").error("%s", e)
+        sys.exit(2)
+    if not accounts_on and os.environ.get(first_admin.EMAIL_ENV, "").strip():
+        logging.getLogger("trailbeam.server").error(
+            "%s is set, but %s", first_admin.EMAIL_ENV, access.SWITCHED_OFF)
         sys.exit(2)
     if a.store_bodies:
         where = redact_url(a.store_url) if a.store_url else a.db
@@ -205,7 +220,8 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
                             lambda_timeout_s=a.lambda_timeout, max_receive_counts=a.max_receive_count,
                             purger=purger, auth=auth.Auth(token) if token else None,
                             gate=IngestGate(a.ingest_max_pending, a.ingest_max_wait), trace_link=a.trace_link,
-                            trusted_proxies=TrustedProxies(trusted_proxies(a)))
+                            trusted_proxies=TrustedProxies(trusted_proxies(a)),
+                            **({} if accounts_on else {"accounts": None}))
     except OSError as e:
         db.close()
         sys.stderr.write(bind_error(e, a.host, a.port, getattr(a, "command", "trailbeam")) + "\n")
@@ -225,6 +241,12 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
         logging.getLogger("trailbeam.server").error("%s: could not create the first admin: %s",
                                                     first_admin.EMAIL_ENV, e)
         sys.exit(2)
+    if not accounts_on:
+        ignored = ignored_accounts(db)
+        if ignored:
+            logging.getLogger("trailbeam.server").warning(
+                "the store holds %s, ignored: %s. Until then TRAILBEAM_TOKEN alone guards this server",
+                ignored, access.SWITCHED_OFF)
     if httpd.app.proxies:
         logging.getLogger("trailbeam.server").info(
             "trusted proxies (X-Forwarded-For, -Proto and -Host believed from): %s",
@@ -428,6 +450,17 @@ def _positive_float(text: str) -> float:
     if not 0 < x <= 3600:
         raise argparse.ArgumentTypeError(f"expected seconds above 0 and at most 3600, got {text!r}")
     return x
+
+
+def ignored_accounts(db) -> str:
+    """With users and roles off: what in the store would have changed access with them on ('' for nothing)."""
+    try:
+        if not has_account_tables(db):
+            return ""
+        admin, ingest = Accounts(db).auth_state()
+    except Exception:  # noqa: BLE001 - only a warning; the server itself doesn't read these tables
+        return ""
+    return " and ".join(w for w, on in (("an admin account", admin), ("ingest tokens", ingest)) if on)
 
 
 def access_log(app, token: bool, host: str) -> list:
