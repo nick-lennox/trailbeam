@@ -103,7 +103,7 @@ and whichever threads made the calls. Calls in flight at the same time (`B.issue
 `A.issued < B.returned`) are not ordered. Trailbeam never compares ticks of different scopes
 (section 9a).
 
-**The scope is the whole process (Python) or the whole realm (Node.js), not one thread or async task.**
+**The scope is the whole process (Python), the whole realm (Node.js) or the class loader (Java, section 20.2), not one thread or async task.**
 One counter is shared by every thread of a Python process (behind a lock) and by every async task of a
 Node.js realm (which runs on one thread), so a call on one thread can be ordered before a call on another.
 That is sound, for the same reason it is sound within one thread. An edge needs A to have *returned*
@@ -941,8 +941,8 @@ the receive in a trace of its own. The conformance kit checks exactly this (its 
 
 ### 20.2 Time, call order and identity
 
-- Times are `Instant.now()` in nanoseconds since the epoch, the wall clock (section 2). The start is read and
-  `trailbeam.order.issued` ticked in `beforeExecution`, before the SDK marshals, signs and sends the request and
+- Times are `Instant.now()` in nanoseconds since the epoch, the wall clock (section 2). In `beforeExecution`,
+  `trailbeam.order.issued` is ticked, then the start is read, before the SDK marshals, signs and sends the request and
   before any retry. The end is read and `trailbeam.order.returned` ticked in `afterExecution` or
   `onExecutionFailure`.
 - The call-order counter (section 2a) is one per class loader that loads the jar: one per process for a normal
