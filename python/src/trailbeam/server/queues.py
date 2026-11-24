@@ -10,7 +10,7 @@ every store.
 ``(at_ms, kind, queue_key, service, lambda, value, peer, version)`` (``version``: the span's ``service.version``,
 QV-362, or None); ``summary.summarize`` keeps them as ``queue_events``
 and a store indexes them by (queue key, time), so a queue's range is one index range scan, and adds them up per
-hour in ``queue_rollup`` for the flows (below). The kinds:
+hour in ``queue_rollup`` for the flows (below), those of the kinds they count (``FLOW_KINDS``). The kinds:
 
 - ``send``: a send span, except those SQS deduplicated (timeline.deduplicated_sends), at its time; ``value`` its
   ``messaging.message.body.size``, when it has one.
@@ -67,6 +67,9 @@ DLQ_SEEN, AT_MAX, DLQ_RECEIVE = "dlq_seen", "at_max", "dlq_receive"
 KINDS = (SEND, RECEIVE, WAIT, NO_SEND, DELETE, DELETE_FAILED, LAMBDA_OK, FAILED, VISIBILITY, DLQ_SEEN, AT_MAX,
          DLQ_RECEIVE)
 HANDLER_KINDS = (DELETE, DELETE_FAILED, LAMBDA_OK, FAILED)  # p95 time in handler
+FLOW_KINDS = (SEND, RECEIVE, DELETE, DELETE_FAILED, VISIBILITY, DLQ_RECEIVE)  # what the flows count: queue_rollup's
+_FLOW_SQL = ", ".join(f"'{k}'" for k in FLOW_KINDS)
+FLOW_KINDS_SQL = f"kind IN ({_FLOW_SQL})"
 
 STEPS_S = (60, 300, 900, 1800, 3600, 10800, 21600)
 MAX_BUCKETS = 2000  # 400 days at 6 h is 1,600
@@ -419,10 +422,14 @@ def rollup_key(e) -> tuple:
 
 def rollup_sums(added: Iterable = (), removed: Iterable = ()) -> dict:
     """{rollup_key: [n, vn, vsum]}: what adding the events ``added`` and taking out ``removed`` changes in
-    queue_rollup, the keys that come to nothing left out. Exact: counts and sums subtract."""
+    queue_rollup, the keys that come to nothing left out. Exact: counts and sums subtract. Only the kinds the
+    flows count (FLOW_KINDS) are rolled up: at a few events per queue and hour, the others would add rows
+    nothing reads."""
     d: dict = {}
     for events, sign in ((added, 1), (removed, -1)):
         for e in events:
+            if e[1] not in FLOW_KINDS:
+                continue
             v = e[5]
             c = d.setdefault(rollup_key(e), [0, 0, 0])
             c[0] += sign

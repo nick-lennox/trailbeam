@@ -308,6 +308,36 @@ The answers matched (`--compare`). The page still reads raw events for the hour 
 half an hour of them. Forcing that path for the 2.06M events of the current hour took 261 ms on Postgres (p95) and
 314 ms for 626K events on SQLite (p50), against 2,070 ms and 646 ms when they were fetched into Python one by one.
 
+## Queue page: `queue_page.py`
+
+Seeds the traffic `tenants_page.py` seeds (50 queues, 50 tenants, 1 KB bodies on 5 queues, 7 days) and times
+`/api/flows` and `/api/queues/{queue}/series` in-process (`App.api`: the store reads and the answer, no HTTP) for
+the last hour, day and 7 days, ending at the newest span. The series is the busiest queue's at the page's
+default step, with and without `split=version`.
+
+```sh
+python python/bench/queue_page.py --db /tmp/q.sqlite --spans 1M --out sqlite.json
+python python/bench/queue_page.py --store-url $PG --schema qp --spans 1M --out pg.json
+```
+
+**QV-363**, on the WSL2 desktop (16 threads, 11 GB), idle, Postgres 16 in Docker with default settings, 1M spans
+(1.32M queue events over 100 queue keys), p95 over 20 runs. The target was under 300 ms for 24 h:
+
+| store | range | flows | series | series, by version |
+|---|---|---|---|---|
+| SQLite | last hour | 10 ms | 1 ms | 1 ms |
+| SQLite | last day | 40 ms | 6 ms | 5 ms |
+| SQLite | last 7 days | 190 ms | 32 ms | 35 ms |
+| Postgres | last hour | 72 ms | 3 ms | 2 ms |
+| Postgres | last day | 128 ms | 9 ms | 9 ms |
+| Postgres | last 7 days | 619 ms | 52 ms | 57 ms |
+
+At this density there are a few events per queue, hour and kind, so the hourly rollup hardly compresses them,
+and on Postgres each of the seed's 4 ingest connections has its own rows (572k rollup rows). That is most of
+the 7-day flows time on Postgres. Disk: the SQLite file is 2.25 GB against 1.91 GB on `main` for the same seed
+(+18%). On Postgres, the queue tables and their indexes were 1.35 GB of the schema's 3.73 GB right after
+seeding, before any vacuum.
+
 ## Fault tests: `faults.py`
 
 What is stored and shown when things break under steady ingest (QV-238). Each case starts a server, sends

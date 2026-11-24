@@ -187,7 +187,8 @@ def rollup_from_events(db) -> dict:
     """queue_rollup as it must be: queue_events added up per row."""
     return {tuple(r[:6]): tuple(r[6:]) for r in db.query(
         "SELECT at_ms / 3600000, queue_key, kind, COALESCE(service, ''), lambda, COALESCE(peer, ''), COUNT(*), "
-        "COUNT(value), COALESCE(SUM(value), 0) FROM queue_events GROUP BY 1, 2, 3, 4, 5, 6")}
+        f"COUNT(value), COALESCE(SUM(value), 0) FROM queue_events WHERE {queues.FLOW_KINDS_SQL} "
+        "GROUP BY 1, 2, 3, 4, 5, 6")}
 
 
 def rollup_rows(db) -> dict:
@@ -260,7 +261,8 @@ def test_flows_read_from_the_rollup_equal_the_events(db, ingest, now_off_s):
     keys, last, counts, links = db.queue_flows(lo, hi, MS + now_off_s * 1000)
     got = {(k, kind): n for k, kind, _s, _l, _p, n, _vn, _vs in counts}
     want = {(r[0], r[1]): r[2] for r in db.query(
-        "SELECT queue_key, kind, COUNT(*) FROM queue_events WHERE at_ms BETWEEN ? AND ? GROUP BY 1, 2", (lo, hi))}
+        f"SELECT queue_key, kind, COUNT(*) FROM queue_events WHERE at_ms BETWEEN ? AND ? AND {queues.FLOW_KINDS_SQL} "
+        "GROUP BY 1, 2", (lo, hi))}
     assert got == want and keys == [ORDERS_URL_KEY] and links == []
 
 

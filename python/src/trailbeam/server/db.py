@@ -31,7 +31,7 @@ import threading
 import time
 from typing import Callable, Iterable, Iterator, Optional
 
-from . import body_table, migrations, purge, rollup, summary_table
+from . import body_table, migrations, purge, queues, rollup, summary_table
 from .otlp import RECORD_FIELDS
 from .store import (SETTLE_KINDS, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store, StoreFull,
                     StuckCandidate, TenantActivity, WriterBusy)
@@ -658,7 +658,8 @@ class SqliteStore(Store):
             for lo, hi, sign in parts:
                 for k in keys:  # '' for none, as in queue_rollup, so the two add up row by row
                     add(c.execute(f"SELECT {ecols}, COUNT(*), COUNT(value), SUM(value) FROM queue_events "
-                                  f"WHERE queue_key = ? AND at_ms BETWEEN ? AND ? GROUP BY {ecols}", (k, lo, hi)), sign)
+                                  f"WHERE queue_key = ? AND at_ms BETWEEN ? AND ? AND {queues.FLOW_KINDS_SQL} "
+                                  f"GROUP BY {ecols}", (k, lo, hi)), sign)
             links = [tuple(r) for r in c.execute("SELECT DISTINCT queue_key, peer FROM queue_rollup "
                                                  "INDEXED BY queue_rollup_dlq WHERE kind = 'dlq_receive'")]
         counts = [(*k[:2], k[2] or None, k[3], k[4] or None, *v) for k, v in sums.items() if v[0]]

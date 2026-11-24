@@ -1467,7 +1467,9 @@ def test_service_version_is_kept_and_filters_the_lists(pg_store):
 # ---- QV-363: the queue page's events and their rollup -----------------------------------------------------
 
 def _queue_rollup_vs_events(s) -> tuple:
-    """(queue_rollup added up over its writers, the same added up from queue_events), per place and row key."""
+    """(queue_rollup added up over its writers, the same added up from queue_events of the kinds it rolls up), per
+    place and row key."""
+    from trailbeam.server import queues
     key = "rclass, bucket, {h}, queue_key, kind, {svc}, lambda, {peer}"
     with s.reads.connection() as c:
         rolled = {tuple(r.values())[:8]: tuple(r.values())[8:] for r in c.execute(
@@ -1477,7 +1479,8 @@ def _queue_rollup_vs_events(s) -> tuple:
         events = {tuple(r.values())[:8]: tuple(r.values())[8:] for r in c.execute(
             "SELECT " + key.format(h="at_ms / 3600000 AS hour", svc="COALESCE(service, %s) AS service",
                                    peer="COALESCE(peer, %s) AS peer") + ", "
-            "COUNT(*) AS n, COUNT(value) AS vn, COALESCE(SUM(value), 0) AS vs FROM queue_events GROUP BY 1, 2, 3, 4, 5, 6, 7, 8",
+            "COUNT(*) AS n, COUNT(value) AS vn, COALESCE(SUM(value), 0) AS vs FROM queue_events "
+            f"WHERE {queues.FLOW_KINDS_SQL} GROUP BY 1, 2, 3, 4, 5, 6, 7, 8",
             ("", "")).fetchall()}
     return ({k: tuple(int(x) for x in v) for k, v in rolled.items()},
             {k: tuple(int(x) for x in v) for k, v in events.items()})

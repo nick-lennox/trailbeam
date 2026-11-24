@@ -1883,7 +1883,7 @@ class PostgresStore(Store):
         for lo, hi, sign in parts:  # '' for none, as in queue_rollup, so the two add up row by row
             qs.append(f"SELECT {ecols}, COUNT(*) * {int(sign)} AS n, COUNT(value) * {int(sign)} AS vn, "
                       f"COALESCE(SUM(value), 0) * {int(sign)} AS vsum FROM queue_events "
-                      f"WHERE {{p}} AND at_ms BETWEEN %s AND %s GROUP BY 1, 2, 3, 4, 5")
+                      f"WHERE {{p}} AND at_ms BETWEEN %s AND %s AND {queues.FLOW_KINDS_SQL} GROUP BY 1, 2, 3, 4, 5")
             params += [lo, hi]
         first = min([from_ms] + [a for a, _, _ in parts] + ([hours[0] * rollup.HOUR_MS] if hours else []))
         sums: dict = {}
