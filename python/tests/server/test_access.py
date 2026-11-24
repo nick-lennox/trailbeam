@@ -522,6 +522,11 @@ def test_over_https_a_plain_session_cookie_is_not_a_session(serve):
     assert call(url, "/api/messages", headers={**https, "Cookie": f"trailbeam_sid={sid}"})[0] == 401
     assert call(url, "/api/messages", headers={**https, "Cookie": f"__Host-trailbeam_sid={sid}"})[0] == 200
     assert call(url, "/api/messages", headers={"Cookie": f"trailbeam_sid={sid}"})[0] == 200  # plain HTTP
+    # a junk cookie someone planted next to it (a space in its value) hides no session (QV-473)
+    for c in (f"__Host-trailbeam_sid={sid}; junk=a b", f"junk=x y; __Host-trailbeam_sid={sid}; other=1"):
+        assert call(url, "/api/messages", headers={**https, "Cookie": c})[0] == 200
+    assert call(url, "/api/messages", headers={**https, "Cookie": f"junk=a b; trailbeam_sid={sid}"})[0] == 401
+    assert call(url, "/api/messages", headers={"Cookie": f"trailbeam_sid={sid}; junk=a b"})[0] == 200
     # /logout over HTTPS doesn't end the session a plain cookie names...
     status, headers, _ = call(url, "/logout", headers={**https, "Cookie": f"trailbeam_sid={sid}"})
     assert status == 303 and headers["Set-Cookie"].startswith("__Host-trailbeam_sid=;")
