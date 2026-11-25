@@ -103,7 +103,10 @@ def check(attrs: dict) -> str:
 
 
 def receive_count(redelivered: bool, headers: dict):
-    """A7: (count, source), or (None, None)."""
+    """A7: (count, source), or (None, None). The counter headers count only on a redelivery or with a usable
+    x-death; on any other delivery the publisher set them."""
+    if not redelivered and not dead_letter(headers):
+        headers = {}
     for header in ("x-acquired-count", "x-delivery-count"):
         v = headers.get(header)
         if isinstance(v, int) and not isinstance(v, bool):

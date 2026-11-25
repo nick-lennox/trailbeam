@@ -123,9 +123,18 @@ function timestampMs(v) {
 
 const isTable = (v) => v !== null && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Uint8Array);
 
+/** A7: the headers whose `x-acquired-count` and `x-delivery-count` the broker set. RabbitMQ sets them only on a
+ * redelivery or carries them over to a dead-letter queue (with `x-death`); on any other delivery they came from
+ * the publisher, so they are ignored ({}). */
+function counterHeaders(redelivered, headers) {
+  const h = isTable(headers) ? headers : {};
+  if (redelivered || Object.keys(deadLetterAttrs(h['x-death'], h)).length) return h;
+  return {};
+}
+
 /** A7: [trailbeam.receive_count, trailbeam.receive_count.source], or [undefined, undefined] when the broker gave none. */
 function receiveCount(redelivered, headers) {
-  const h = isTable(headers) ? headers : {};
+  const h = counterHeaders(redelivered, headers);
   const acquired = amqpInt(h['x-acquired-count']);
   if (acquired !== undefined) return [acquired + 1, 'x-acquired-count'];
   const delivered = amqpInt(h['x-delivery-count']);
@@ -500,8 +509,9 @@ class AmqpHooks {
       a['trailbeam.receive_count'] = count;
       a['trailbeam.receive_count.source'] = source;
     }
-    a['trailbeam.amqp.acquired_count'] = amqpInt(h['x-acquired-count']);
-    a['trailbeam.amqp.delivery_count'] = amqpInt(h['x-delivery-count']);
+    const counters = counterHeaders(Boolean(f.redelivered), h);
+    a['trailbeam.amqp.acquired_count'] = amqpInt(counters['x-acquired-count']);
+    a['trailbeam.amqp.delivery_count'] = amqpInt(counters['x-delivery-count']);
     Object.assign(a, deadLetterAttrs(h['x-death'], h));
     a['trailbeam.amqp.timestamp_ms'] = timestampMs(p.timestamp);
     Object.assign(a, amqpContentAttrs(this.config, queue, m.content, h, p.contentEncoding));

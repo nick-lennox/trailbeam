@@ -334,6 +334,16 @@ does not. The package works it out from the delivery, in this order:
 
 A header counts only when its value is an integer (an AMQP integer type); any other value is treated as absent.
 
+**A publisher can set these headers too.** RabbitMQ passes publisher-set `x-acquired-count` and
+`x-delivery-count` through unchanged on the first delivery, on classic and quorum queues [verified: 4.4.1, a
+published `x-acquired-count: 41` arrived with `redelivered = false`]. The broker sets them itself only on a
+redelivery, or carries them over to a dead-letter queue, which adds `x-death`. So on a delivery with
+`redelivered = false` and no usable `x-death` (A8: a first entry with `queue` and `reason`) the package **must**
+ignore both headers: the count is `1`, source `first_delivery`, and `trailbeam.amqp.acquired_count` and
+`trailbeam.amqp.delivery_count` are omitted. Otherwise a forged count would show deliveries not observed and a
+return to the queue after an acked delivery, and a forged `x-delivery-count` would reach `x-delivery-limit`.
+A publisher that also forges `x-death` is not caught; it then reads as a dead-letter queue delivery.
+
 `x-acquired-count` and `x-delivery-count` are copied verbatim to their own attributes, because they mean
 different things on 4.3 and later: `x-delivery-count` counts only failed deliveries (reject, lost connection),
 and it is what `x-delivery-limit` is checked against. A `basic.nack` with `requeue = true` raises only

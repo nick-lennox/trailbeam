@@ -100,9 +100,19 @@ def _timestamp_ms(v: Any) -> Optional[int]:
     return n * 1000 if n is not None and n >= 0 else None
 
 
+def counter_headers(redelivered: bool, headers: Any) -> Mapping:
+    """A7: the headers whose ``x-acquired-count`` and ``x-delivery-count`` the broker set. RabbitMQ sets them only
+    on a redelivery or carries them over to a dead-letter queue (with ``x-death``); on any other delivery they
+    came from the publisher, so they are ignored ({})."""
+    h = headers if isinstance(headers, Mapping) else {}
+    if redelivered or dead_letter_attrs(h.get("x-death"), h):
+        return h
+    return {}
+
+
 def receive_count(redelivered: bool, headers: Any) -> tuple[Optional[int], Optional[str]]:
     """A7: (trailbeam.receive_count, trailbeam.receive_count.source), or (None, None) when the broker gave none."""
-    h = headers if isinstance(headers, Mapping) else {}
+    h = counter_headers(redelivered, headers)
     acquired = _amqp_int(h.get("x-acquired-count"))
     if acquired is not None:
         return acquired + 1, "x-acquired-count"
@@ -457,8 +467,9 @@ class AmqpHooks:
         count, source = receive_count(bool(redelivered), h)
         if count is not None:
             a["trailbeam.receive_count"], a["trailbeam.receive_count.source"] = count, source
-        a["trailbeam.amqp.acquired_count"] = _amqp_int(h.get("x-acquired-count"))
-        a["trailbeam.amqp.delivery_count"] = _amqp_int(h.get("x-delivery-count"))
+        counters = counter_headers(bool(redelivered), h)
+        a["trailbeam.amqp.acquired_count"] = _amqp_int(counters.get("x-acquired-count"))
+        a["trailbeam.amqp.delivery_count"] = _amqp_int(counters.get("x-delivery-count"))
         a.update(dead_letter_attrs(h.get("x-death"), h))
         a["trailbeam.amqp.timestamp_ms"] = _timestamp_ms(timestamp)
         a.update(_capture.amqp_content_attrs(self.capture, queue, body, h, content_encoding))
