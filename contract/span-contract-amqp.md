@@ -101,6 +101,14 @@ exchange, routing key, consumer tag or message ID is longer, since the protocol 
 but header values are long strings, bounded only by the frame size, and the publisher sets them. A longer value
 is **dropped**, not cut: a cut name would name another queue. Trailbeam applies the same limit on ingest (A12).
 
+**Strings that are not UTF-8.** AMQP strings are bytes; nothing makes the publisher send UTF-8. A string that
+is not valid UTF-8, or that holds U+FFFD (the replacement character), is **dropped** the same way. Some client
+libraries hand such a string over as bytes (pika), others decode it lossily, every bad byte becoming U+FFFD
+(amqplib), so `ff fe 41` and `fe ff 41` would both read as `\ufffd\ufffdA`. A package that cannot see the bytes
+can't tell a lossy decode from a real U+FFFD, so each package drops both: a lossy string would merge two
+messages (A6) or two queues under one key. The `emit` and `dead_letter` vectors write such a string as
+`{"bytes": "<hex>"}`: the bytes on the wire, which each package's tests decode as its library does.
+
 Trailbeam keeps the queues of different virtual hosts apart: a RabbitMQ queue is identified by
 (`trailbeam.amqp.vhost`, `messaging.destination.name`). Brokers are not told apart in 4.0: two brokers with a
 queue of the same name in the same virtual host name are merged, as two SQS queues of one name in different
@@ -310,7 +318,8 @@ deliveries: "routed to N queues" counts the queues where the message was deliver
 - **The same ID published twice** (a publisher retry) is one message with two `trailbeam publish` spans.
   Trailbeam shows it as published twice; how the timeline and the Duplicates page show it is the server's
   (QV-307, design choice P5).
-- **No `message_id`.** The span is still emitted, without `messaging.message.id`. Trailbeam counts it on its
+- **No `message_id`**, or one dropped by A3 (over 255 bytes, not UTF-8, or holding U+FFFD). The span is still
+  emitted, without `messaging.message.id`. Trailbeam counts it on its
   queue or exchange and gives it no timeline (design choice P2, option b). The packages **must not** invent an
   ID by default: the packages don't change messages, and a hash of the body would merge identical bodies.
 - **An ID set by a package** (P2, option a) is an opt-in package option, off by default, defined with the
@@ -379,7 +388,7 @@ recent dead-lettering [verified: [dead letter exchanges](https://www.rabbitmq.co
 | `trailbeam.dead_letter.first_reason` | string | may | the `x-first-death-reason` header |
 
 An `x-death` that is not an array of tables, or whose first entry has no `queue` or `reason`, is not copied
-(no `trailbeam.dead_letter.*` at all). A value over the 255-byte limit of A3 counts as absent: a `queue` or
+(no `trailbeam.dead_letter.*` at all). A value over the 255-byte limit of A3, or not UTF-8 (A3), counts as absent: a `queue` or
 `reason` over it means no `trailbeam.dead_letter.*` at all; an `exchange`, `x-first-death-queue` or
 `x-first-death-reason` over it is omitted alone. The SQS attribute `trailbeam.dead_letter_queue_source_arn` is not used
 for RabbitMQ.

@@ -1,5 +1,5 @@
 {
- "description": "Test vectors for contract/span-contract-amqp.md (schema version 4, RabbitMQ over AMQP 0-9-1). 'emit': each case is what the application called or the broker sent ('event', in a client-neutral form; 'recorded' lists the deliveries the package had recorded on the channel and not settled). A package must emit exactly the spans in 'spans', in that order: each named 'span_name', whose attributes include exactly 'attributes', carry every name in 'emit_present' (values depend on the process) and none in its 'absent'. Spans of one call share their interval and ticks. 'receive_count' and 'dead_letter' check sections A7 and A8 alone ('headers': the delivery's other headers, if any). 'ingest': whether a 4.0 Trailbeam accepts a span with these attributes, or the start of the reason it rejects it with (section A12); 'dropped' lists the attributes an accepted span loses (over 255 bytes, A3).",
+ "description": "Test vectors for contract/span-contract-amqp.md (schema version 4, RabbitMQ over AMQP 0-9-1). 'emit': each case is what the application called or the broker sent ('event', in a client-neutral form; 'recorded' lists the deliveries the package had recorded on the channel and not settled). A package must emit exactly the spans in 'spans', in that order: each named 'span_name', whose attributes include exactly 'attributes', carry every name in 'emit_present' (values depend on the process) and none in its 'absent'. Spans of one call share their interval and ticks. 'receive_count' and 'dead_letter' check sections A7 and A8 alone ('headers': the delivery's other headers, if any). A string written {\"bytes\": \"<hex>\"} is those bytes on the wire, not valid UTF-8: each package's tests decode it as its client library does (A3). 'ingest': whether a 4.0 Trailbeam accepts a span with these attributes, or the start of the reason it rejects it with (section A12); 'dropped' lists the attributes an accepted span loses (over 255 bytes, A3).",
  "context": {
   "vhost": "/",
   "server.address": "localhost",
@@ -673,6 +673,130 @@
       "trailbeam.dead_letter.exchange",
       "trailbeam.dead_letter.first_queue",
       "trailbeam.dead_letter.first_reason"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "strings that are not UTF-8 are dropped: the IDs ff fe 41 and fe ff 41 do not merge",
+   "event": {
+    "queue": "orders.dlq",
+    "consumer_tag": "ctag-8",
+    "delivery_tag": 1,
+    "redelivered": false,
+    "exchange": "dlx",
+    "routing_key": {
+     "bytes": "fffe2d726b"
+    },
+    "properties": {
+     "message_id": {
+      "bytes": "fffe41"
+     }
+    },
+    "headers": {
+     "x-death": [
+      {
+       "queue": "orders",
+       "reason": "rejected",
+       "count": 1,
+       "time": 1763980000,
+       "exchange": {
+        "bytes": "fffe2d78"
+       },
+       "routing-keys": [
+        {
+         "bytes": "fffe2d726b"
+        }
+       ]
+      }
+     ],
+     "x-first-death-queue": {
+      "bytes": "feff71"
+     },
+     "x-first-death-reason": "rejected"
+    },
+    "method": "basic.deliver"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam deliver",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.deliver",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "receive",
+      "messaging.operation.name": "basic.deliver",
+      "messaging.destination.name": "orders.dlq",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "trailbeam.start_observed": false,
+      "rabbitmq.message.delivery_tag": 1,
+      "trailbeam.amqp.exchange": "dlx",
+      "trailbeam.amqp.redelivered": false,
+      "trailbeam.amqp.consumer_tag": "ctag-8",
+      "trailbeam.receive_count": 1,
+      "trailbeam.receive_count.source": "first_delivery",
+      "trailbeam.dead_letter.source_queue": "orders",
+      "trailbeam.dead_letter.reason": "rejected",
+      "trailbeam.dead_letter.count": 1,
+      "trailbeam.dead_letter.time_ms": 1763980000000,
+      "trailbeam.dead_letter.first_reason": "rejected"
+     },
+     "absent": [
+      "messaging.message.id",
+      "trailbeam.amqp.message_id.source",
+      "rabbitmq.destination.routing_key",
+      "trailbeam.dead_letter.exchange",
+      "trailbeam.dead_letter.first_queue",
+      "trailbeam.order.issued"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "a message ID holding U+FFFD is dropped, as a lossy decode of fe ff 41 would read",
+   "event": {
+    "queue": "orders",
+    "consumer_tag": "ctag-9",
+    "delivery_tag": 1,
+    "redelivered": false,
+    "exchange": "",
+    "routing_key": "orders",
+    "properties": {
+     "message_id": "\ufffd\ufffdA"
+    },
+    "headers": {},
+    "method": "basic.deliver"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam deliver",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.deliver",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "receive",
+      "messaging.operation.name": "basic.deliver",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "trailbeam.start_observed": false,
+      "rabbitmq.message.delivery_tag": 1,
+      "trailbeam.amqp.exchange": "amq.default",
+      "trailbeam.amqp.redelivered": false,
+      "trailbeam.amqp.consumer_tag": "ctag-9",
+      "rabbitmq.destination.routing_key": "orders",
+      "trailbeam.receive_count": 1,
+      "trailbeam.receive_count.source": "first_delivery"
+     },
+     "absent": [
+      "messaging.message.id",
+      "trailbeam.amqp.message_id.source",
+      "trailbeam.order.issued"
      ]
     }
    ]
@@ -1560,6 +1684,69 @@
     }
    ],
    "attributes": {}
+  },
+  {
+   "name": "queue not UTF-8: not copied",
+   "x-death": [
+    {
+     "queue": {
+      "bytes": "fffe71"
+     },
+     "reason": "rejected",
+     "count": 1,
+     "time": 1763980000,
+     "exchange": "orders-x",
+     "routing-keys": [
+      "orders"
+     ]
+    }
+   ],
+   "attributes": {}
+  },
+  {
+   "name": "reason holding U+FFFD: not copied",
+   "x-death": [
+    {
+     "queue": "orders",
+     "reason": "rejected\ufffd",
+     "count": 1,
+     "time": 1763980000,
+     "exchange": "orders-x",
+     "routing-keys": [
+      "orders"
+     ]
+    }
+   ],
+   "attributes": {}
+  },
+  {
+   "name": "exchange and x-first-death-* not UTF-8 or holding U+FFFD are omitted alone",
+   "x-death": [
+    {
+     "queue": "orders",
+     "reason": "rejected",
+     "count": 1,
+     "time": 1763980000,
+     "exchange": {
+      "bytes": "fffe78"
+     },
+     "routing-keys": [
+      "orders"
+     ]
+    }
+   ],
+   "headers": {
+    "x-first-death-queue": {
+     "bytes": "feff71"
+    },
+    "x-first-death-reason": "rej\ufffdcted"
+   },
+   "attributes": {
+    "trailbeam.dead_letter.source_queue": "orders",
+    "trailbeam.dead_letter.reason": "rejected",
+    "trailbeam.dead_letter.count": 1,
+    "trailbeam.dead_letter.time_ms": 1763980000000
+   }
   },
   {
    "name": "exchange and x-first-death-* over 255 bytes are omitted alone",

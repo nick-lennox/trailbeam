@@ -24,6 +24,16 @@ const NOT_CHANNEL_SPANS = new Set(['trailbeam publish', 'trailbeam return']);
 // trailbeam.error_code is the class name of what the library raised: the vectors name pika's, amqplib raises its own
 const RAISED = { ChannelWrongStateError: 'IllegalOperationError' };
 
+// A vector's {"bytes": hex} as amqplib decodes it (A3): toString('utf8'), each bad byte becoming U+FFFD
+function wire(v) {
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    const keys = Object.keys(v);
+    if (keys.length === 1 && keys[0] === 'bytes') return Buffer.from(v.bytes, 'hex').toString('utf8');
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, wire(x)]));
+  }
+  return Array.isArray(v) ? v.map(wire) : v;
+}
+
 function props(properties = {}, headers) {
   const p = {};
   if (properties.message_id) p.messageId = properties.message_id;
@@ -45,6 +55,7 @@ async function record(ch, recorded) {
 }
 
 async function play(event, exporter) {
+  event = wire(event);
   const ctx = VECTORS.context;
   const conn = new fake.FakeConnection({ host: ctx['server.address'], port: ctx['server.port'] });
   const confirmMode = event.call === 'basic.publish' && event.confirm_mode;
@@ -179,7 +190,7 @@ test.describe('receive count vectors (A7)', () => {
 test.describe('dead-letter vectors (A8)', () => {
   for (const c of VECTORS.dead_letter) {
     test(c.name, () => {
-      assert.deepStrictEqual(amqplibHooks.deadLetterAttrs(c['x-death'], c.headers), c.attributes);
+      assert.deepStrictEqual(amqplibHooks.deadLetterAttrs(wire(c['x-death']), wire(c.headers)), c.attributes);
     });
   }
 });
