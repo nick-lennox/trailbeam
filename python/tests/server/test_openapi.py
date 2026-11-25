@@ -821,7 +821,18 @@ def test_every_step_type_notice_and_state_in_the_file_is_answered(db, record_api
         assert status == 200
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "conformance"))
         from test_amqp_conformance import FIXTURE, otlp_json  # RabbitMQ messages: their steps and notices
-        status, _, _ = request(base, "POST", "/v1/traces", otlp_json(FIXTURE["spans"]),
+        # x_death_not_a_move (QV-527): m-stuck delivered again on another queue with an x-death naming orders,
+        # whose delivery of it is still held
+        held = next(sp for sp in FIXTURE["spans"] if sp["scenario"] == "stuck"
+                    and sp["attributes"]["trailbeam.kind"] == "amqp.deliver")
+        forged = dict(held, start_time_unix_nano=held["start_time_unix_nano"] + SEC,
+                      end_time_unix_nano=held["end_time_unix_nano"] + SEC,
+                      attributes=dict(held["attributes"], **{
+                          "messaging.destination.name": "attacker-q", "rabbitmq.message.delivery_tag": 9001,
+                          "trailbeam.order.returned": held["attributes"]["trailbeam.order.returned"] + 1000,
+                          "trailbeam.dead_letter.source_queue": "orders", "trailbeam.dead_letter.reason": "rejected",
+                          "trailbeam.dead_letter.count": 1}))
+        status, _, _ = request(base, "POST", "/v1/traces", otlp_json(FIXTURE["spans"] + [forged]),
                                {"Content-Type": "application/json"})
         assert status == 200
         _, _, body = request(base, "GET", "/api/messages?limit=1000")

@@ -342,7 +342,8 @@ redelivery, or carries them over to a dead-letter queue, which adds `x-death`. S
 ignore both headers: the count is `1`, source `first_delivery`, and `trailbeam.amqp.acquired_count` and
 `trailbeam.amqp.delivery_count` are omitted. Otherwise a forged count would show deliveries not observed and a
 return to the queue after an acked delivery, and a forged `x-delivery-count` would reach `x-delivery-limit`.
-A publisher that also forges `x-death` is not caught; it then reads as a dead-letter queue delivery.
+A publisher that also forges `x-death` is not caught here; it then reads as a dead-letter queue delivery, and
+A8 limits what that forged move can do.
 
 `x-acquired-count` and `x-delivery-count` are copied verbatim to their own attributes, because they mean
 different things on 4.3 and later: `x-delivery-count` counts only failed deliveries (reject, lost connection),
@@ -380,6 +381,37 @@ an **observed** move, as `DeadLetterQueueSourceArn` does on SQS (`span-contract.
 delivery, like the SQS move. The same rules hold: no `x-death`, no move; Trailbeam **must not** infer a move
 from the message ID alone. A message dead-lettered because it expired (`expired`) or the queue was full
 (`maxlen`) may never have been delivered, so its first delivery is on the dead-letter queue.
+
+**`x-death` and `x-first-death-*` are publisher-controlled.** RabbitMQ 4.4 passes `x-death` and
+`x-first-death-*` headers that a publisher set on its own message through to the consumer unchanged, on classic
+and quorum queues [verified: RabbitMQ 4.4.1, the QV-526 review: a message published to one queue with `x-death`
+naming `payments` arrived as published, on both queue types; not checked: brokers before 4.3, and whether a
+policy or plugin strips them]. The broker adds its own entry only when it
+dead-letters the message, and nothing on the delivery tells the two apart. So anyone who can publish to a queue an
+instrumented consumer reads, and knows a message ID, can make a delivery report a move off any queue of that
+virtual host. (On SQS, `DeadLetterQueueSourceArn` is set by AWS and a sender cannot set it.) The packages copy the
+header as it is; Trailbeam **must** check the move against what it observed on the source queue:
+
+- A message can be dead-lettered only while it is **on** its queue, or when a consumer refuses it. A delivery
+  still **held** by a consumer (delivered, with no ack, no refusal, no requeue and no channel close after it) is
+  not in the queue: its TTL, the queue's length limit and `x-delivery-limit` don't apply to it. An **acked**
+  delivery is gone.
+- So Trailbeam takes a delivery's `x-death` as a move off queue Q only when the **latest delivery of the
+  message's copy on Q** (A6) was refused (`requeue = false`), requeued (`requeue = true`), or its channel closed,
+  or when no delivery on Q was observed. When that latest delivery is held or acked, there is **no move**: no
+  `moved_to_dead_letter_queue` step, the copy on Q is not closed ("moved") and stays on Stuck if it was there,
+  the reporting delivery's queue is not a dead-letter queue (`in_dead_letter_queue`), no `dlq_receive` or
+  `dlq_seen` queue event is counted, and the timeline gets the notice `x_death_not_a_move` naming Q.
+
+What this does not catch [estimate, not run]: a forged move off a queue whose latest delivery was refused (the
+copy already left its queue; the forgery only says it was dead-lettered rather than dropped) or requeued or
+closed (the copy would be closed while RabbitMQ still holds it), or off a queue with no observed delivery (a step
+on the timeline, but no copy to close). It also rules out one real move: a consumer that dies without its hook
+recording the channel close (a killed process) leaves its delivery looking held, so if RabbitMQ then returns the
+message and dead-letters it (`delivery_limit`, `expired`), the copy stays open, with the notice saying so. That
+error keeps a message on Stuck rather than hiding one. Checking that the reporting delivery came through the
+source queue's real dead-letter exchange would close more of this, but Trailbeam is not told the queues'
+`x-dead-letter-exchange` settings.
 
 ## A9. Order of steps
 
