@@ -309,3 +309,59 @@ def test_deduplicated_sends_takes_rows_without_a_message_id():
     sends = [{"kind": "send", "queue": "orders.fifo", "time_ns": 1, "row": 1},
              {"kind": "send", "queue": "orders.fifo", "time_ns": 2, "row": 2}]
     assert timeline.deduplicated_sends(sends) == {2}
+
+
+# ---- a queue is (virtual host, queue) (A3, A6; QV-528) -------------------------------------------------------
+
+def _in_vhost(vhost, shift_ns, settle=True):
+    """The happy scenario's spans in ``vhost``, ``shift_ns`` later, on their own channel; without the ack when not
+    ``settle``."""
+    out = []
+    for sp in FIXTURE["spans"]:
+        if sp["scenario"] != "happy" or (not settle and sp["attributes"]["trailbeam.kind"] == "amqp.ack"):
+            continue
+        a = dict(sp["attributes"], **{"trailbeam.amqp.vhost": vhost, "messaging.message.id": "order-1"})
+        if "trailbeam.amqp.channel.id" in a:
+            a["trailbeam.amqp.channel.id"] = f"{a['trailbeam.amqp.channel.id']}-{vhost}"
+        out.append(dict(sp, attributes=a, start_time_unix_nano=sp["start_time_unix_nano"] + shift_ns,
+                        end_time_unix_nano=sp["end_time_unix_nano"] + shift_ns))
+    return out
+
+
+def _vhost_store(spans):
+    from test_amqp_conformance import otlp_json
+    from trailbeam.server.otlp import decode
+    s = SqliteStore()
+    s.insert(decode(otlp_json(spans), "application/json").records)
+    return s
+
+
+def test_one_id_on_one_queue_name_in_two_vhosts_is_two_copies_not_a_duplicate():
+    """Queue orders of tenant-a and orders of tenant-b are two queues: order-1 published, delivered and acked once
+    in each is two copies, each acked once, not a message received and acked twice."""
+    s = _vhost_store(_in_vhost("tenant-a", 0) + _in_vhost("tenant-b", 10 ** 9))
+    t = tl(s, "order-1")
+    assert t["deliveries"] == 2 and t["state"] == "deleted"
+    assert [(c["vhost"], c["queue"], c["deliveries"], c["ended"]) for c in t["copies"]] == [
+        ("tenant-a", "orders", 1, "acked"), ("tenant-b", "orders", 1, "acked")]
+    assert [e["status"] for e in t["events"] if e["type"] == "acked"] == ["final", "final"]
+    assert "returned_to_queue" not in types(t)
+    assert one(t, "routed")["queues"] == ["orders"]  # tenant-a's exchange routes only in tenant-a
+    sm = summary.summarize(s.message_rows(t["message_id"]))
+    assert not sm["dup_received"] and not sm["dup_succeeded"] and not sm["stuck_open"]
+    assert s.duplicate_messages(10) == []
+    assert s.stuck_messages(NOW, 10) == []
+    html, _ = _page(s, "order-1")
+    assert "(vhost <code>tenant-a</code>)" in html and "(vhost <code>tenant-b</code>)" in html
+    s.close()
+
+
+def test_an_unacked_copy_in_one_vhost_is_stuck_though_the_other_vhost_acked_later():
+    s = _vhost_store(_in_vhost("tenant-b", 0, settle=False) + _in_vhost("tenant-a", 10 ** 9))
+    t = tl(s, "order-1")
+    assert t["state"] == "not_deleted"
+    assert {c["vhost"]: c["ended"] for c in t["copies"]} == {"tenant-a": "acked", "tenant-b": None}
+    sm = summary.summarize(s.message_rows(t["message_id"]))
+    assert sm["stuck_open"] and not sm["dup_received"] and not sm["dup_succeeded"]
+    assert [c.message_id for c in s.stuck_messages(NOW, 10)] == [t["message_id"]]
+    s.close()
