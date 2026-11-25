@@ -20,7 +20,7 @@ UPLOAD_OPS = frozenset({"PutObject", "CompleteMultipartUpload", "CopyObject"})
 
 # A bucket name as the request gives it: S3's rules, with the upper case and underscores of old us-east-1 buckets. An
 # access point or Object Lambda ARN (or anything else) is not a bucket's name, so the call gets no span (27.1).
-_BUCKET_RE = re.compile(r"^[A-Za-z0-9._-]{1,255}$")
+_BUCKET_RE = re.compile(r"^[A-Za-z0-9._-]{1,255}\Z")
 MAX_ETAG = 1024
 MAX_VERSION_ID = 1024
 

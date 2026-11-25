@@ -37,7 +37,7 @@ S3_POINTER_CLASS = "software.amazon.payloadoffloading.PayloadS3Pointer"
 # Message attributes in which the SQS Extended Client puts the offloaded payload's size, current name first
 # (section 15.2). The receive hooks ask for both.
 OFFLOADED_SIZE_ATTRIBUTES = ("ExtendedPayloadSize", "SQSLargePayloadSize")
-_SIZE_RE = re.compile(r"^[0-9]{1,15}$")
+_SIZE_RE = re.compile(r"^[0-9]{1,15}\Z")
 
 DEFAULT_REDACT_KEYS = (
     "password", "passwd", "secret", "token", "access_token", "refresh_token", "authorization",
@@ -53,7 +53,7 @@ PATTERNS = {
     "long_number": r"(?<![0-9])[0-9](?:[ -]?[0-9]){8,}(?![0-9])",
 }
 DEFAULT_PATTERNS = tuple(PATTERNS)
-_KEY_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+_KEY_RE = re.compile(r"^[A-Za-z0-9_.-]+\Z")
 _ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 
 ENV_TENANT_ATTRIBUTE = "TRAILBEAM_TENANT_ATTRIBUTE"
@@ -503,11 +503,11 @@ SKIP_OFF = "off"
 SKIP_JSON_STRUCTURE = "json_structure"
 SKIP_ATTRIBUTE_LIMIT = "attribute_limit"
 SKIP_SIZE_LIMIT = "size_limit"
-_PUBLISH_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
-_SNS_MESSAGE_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,100}$")
-_TOPIC_ARN_RE = re.compile(r"^arn:[a-z0-9-]+:sns:[a-z0-9-]+:[0-9]{12}:[A-Za-z0-9_-]{1,256}(?:[.]fifo)?$")
+_PUBLISH_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}\Z")
+_SNS_MESSAGE_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,100}\Z")
+_TOPIC_ARN_RE = re.compile(r"^arn:[a-z0-9-]+:sns:[a-z0-9-]+:[0-9]{12}:[A-Za-z0-9_-]{1,256}(?:[.]fifo)?\Z")
 _SNS_TIMESTAMP_RE = re.compile(
-    r"^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:[.]([0-9]{1,9}))?Z$")
+    r"^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:[.]([0-9]{1,9}))?Z\Z")
 
 
 def _utf8_len(value: Any) -> int:
@@ -679,10 +679,10 @@ def receive_body_attrs(config: Config, queue_name: str, body: Any, attributes: A
 
 # -- EventBridge and S3 notification origins (section 23, revision 3.5) -----------------------------
 
-_EB_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,100}$")
-_ACCOUNT_RE = re.compile(r"^[0-9]{12}$")
-_REGION_RE = re.compile(r"^[a-z0-9-]{1,32}$")
-_SEQUENCER_RE = re.compile(r"^[0-9A-Fa-f]{1,64}$")
+_EB_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,100}\Z")
+_ACCOUNT_RE = re.compile(r"^[0-9]{12}\Z")
+_REGION_RE = re.compile(r"^[a-z0-9-]{1,32}\Z")
+_SEQUENCER_RE = re.compile(r"^[0-9A-Fa-f]{1,64}\Z")
 MAX_ORIGIN_TEXT = 256  # longest source, detail-type, event name, bucket or configuration ID recorded
 MAX_S3_KEY_BYTES = 1024  # S3's own key limit; the URL-encoded form in the event can be longer
 S3_TEST_EVENT = "s3:TestEvent"
@@ -848,7 +848,7 @@ def amqp_content_attrs(config: Config, name: str, body: Any, headers: Any, conte
 
 # -- EventBridge PutEvents (section 25, revision 3.6) -----------------------------------------------
 
-_EVENT_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
+_EVENT_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}\Z")
 DEFAULT_EVENT_BUS = "default"
 NO_EVENT_ID = "NoEventId"  # a result entry with neither a valid EventId nor an ErrorCode (25.1)
 

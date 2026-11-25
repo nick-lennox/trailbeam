@@ -553,6 +553,10 @@
       [
         "",
         null
+      ],
+      [
+        "2021-02-16T21:41:19.978Z\n",
+        null
       ]
     ],
     "receive": [
@@ -701,6 +705,38 @@
           "trailbeam.publish_id": {
             "DataType": "Binary",
             "BinaryValue": "eA=="
+          }
+        },
+        "attributes": {}
+      },
+      {
+        "name": "MessageId with a trailing newline",
+        "body": "{\n  \"Type\": \"Notification\",\n  \"MessageId\": \"dc1e94d9-56c5-5e96-808d-cc7f68faa162\\n\",\n  \"TopicArn\": \"arn:aws:sns:us-east-2:111122223333:orders-topic\",\n  \"Subject\": \"TestSubject\",\n  \"Message\": \"{\\\"customer\\\":{\\\"email\\\":\\\"a@example.com\\\"}}\",\n  \"Timestamp\": \"2021-02-16T21:41:19.978Z\",\n  \"SignatureVersion\": \"1\",\n  \"Signature\": \"EXAMPLE==\",\n  \"SigningCertURL\": \"https://sns.us-east-2.amazonaws.com/SimpleNotificationService-x.pem\",\n  \"UnsubscribeURL\": \"https://sns.us-east-2.amazonaws.com/?Action=Unsubscribe\"\n}",
+        "message_attributes": null,
+        "attributes": {}
+      },
+      {
+        "name": "TopicArn with a trailing newline",
+        "body": "{\n  \"Type\": \"Notification\",\n  \"MessageId\": \"dc1e94d9-56c5-5e96-808d-cc7f68faa162\",\n  \"TopicArn\": \"arn:aws:sns:us-east-2:111122223333:orders-topic\\n\",\n  \"Subject\": \"TestSubject\",\n  \"Message\": \"{\\\"customer\\\":{\\\"email\\\":\\\"a@example.com\\\"}}\",\n  \"Timestamp\": \"2021-02-16T21:41:19.978Z\",\n  \"SignatureVersion\": \"1\",\n  \"Signature\": \"EXAMPLE==\",\n  \"SigningCertURL\": \"https://sns.us-east-2.amazonaws.com/SimpleNotificationService-x.pem\",\n  \"UnsubscribeURL\": \"https://sns.us-east-2.amazonaws.com/?Action=Unsubscribe\"\n}",
+        "message_attributes": null,
+        "attributes": {}
+      },
+      {
+        "name": "Timestamp with a trailing newline is left out",
+        "body": "{\n  \"Type\": \"Notification\",\n  \"MessageId\": \"dc1e94d9-56c5-5e96-808d-cc7f68faa162\",\n  \"TopicArn\": \"arn:aws:sns:us-east-2:111122223333:orders-topic\",\n  \"Subject\": \"TestSubject\",\n  \"Message\": \"{\\\"customer\\\":{\\\"email\\\":\\\"a@example.com\\\"}}\",\n  \"Timestamp\": \"2021-02-16T21:41:19.978Z\\n\",\n  \"SignatureVersion\": \"1\",\n  \"Signature\": \"EXAMPLE==\",\n  \"SigningCertURL\": \"https://sns.us-east-2.amazonaws.com/SimpleNotificationService-x.pem\",\n  \"UnsubscribeURL\": \"https://sns.us-east-2.amazonaws.com/?Action=Unsubscribe\"\n}",
+        "message_attributes": null,
+        "attributes": {
+          "trailbeam.sns.message_id": "dc1e94d9-56c5-5e96-808d-cc7f68faa162",
+          "trailbeam.sns.topic_arn": "arn:aws:sns:us-east-2:111122223333:orders-topic"
+        }
+      },
+      {
+        "name": "publish ID with a trailing newline is ignored",
+        "body": "x",
+        "message_attributes": {
+          "trailbeam.publish_id": {
+            "DataType": "String",
+            "StringValue": "6a7e8feb-b491-4cf7-a9f1-bf3703467718\n"
           }
         },
         "attributes": {}
@@ -1474,6 +1510,54 @@
         "body": "detail-type aws:s3",
         "body_captured": false,
         "attributes": {}
+      },
+      {
+        "name": "EventBridge: account with a trailing newline, not an event",
+        "body": "{\n  \"version\": \"0\",\n  \"id\": \"6a7e8feb-b491-4cf7-a9f1-bf3703467718\",\n  \"detail-type\": \"EC2 Instance State-change Notification\",\n  \"source\": \"aws.ec2\",\n  \"account\": \"111122223333\\n\",\n  \"time\": \"2017-12-22T18:43:48Z\",\n  \"region\": \"us-west-1\",\n  \"resources\": [\n    \"arn:aws:ec2:us-west-1:123456789012:instance/i-1234567890abcdef0\"\n  ],\n  \"detail\": {\n    \"instance-id\": \"i-1234567890abcdef0\",\n    \"state\": \"terminated\"\n  }\n}",
+        "body_captured": false,
+        "attributes": {}
+      },
+      {
+        "name": "EventBridge: id with a trailing newline, not an event",
+        "body": "{\n  \"version\": \"0\",\n  \"id\": \"6a7e8feb-b491-4cf7-a9f1-bf3703467718\\n\",\n  \"detail-type\": \"EC2 Instance State-change Notification\",\n  \"source\": \"aws.ec2\",\n  \"account\": \"111122223333\",\n  \"time\": \"2017-12-22T18:43:48Z\",\n  \"region\": \"us-west-1\",\n  \"resources\": [\n    \"arn:aws:ec2:us-west-1:123456789012:instance/i-1234567890abcdef0\"\n  ],\n  \"detail\": {\n    \"instance-id\": \"i-1234567890abcdef0\",\n    \"state\": \"terminated\"\n  }\n}",
+        "body_captured": false,
+        "attributes": {}
+      },
+      {
+        "name": "EventBridge: region with a trailing newline is left out",
+        "body": "{\n  \"version\": \"0\",\n  \"id\": \"6a7e8feb-b491-4cf7-a9f1-bf3703467718\",\n  \"detail-type\": \"EC2 Instance State-change Notification\",\n  \"source\": \"aws.ec2\",\n  \"account\": \"111122223333\",\n  \"time\": \"2017-12-22T18:43:48Z\",\n  \"region\": \"us-west-1\\n\",\n  \"resources\": [\n    \"arn:aws:ec2:us-west-1:123456789012:instance/i-1234567890abcdef0\"\n  ],\n  \"detail\": {\n    \"instance-id\": \"i-1234567890abcdef0\",\n    \"state\": \"terminated\"\n  }\n}",
+        "body_captured": false,
+        "attributes": {
+          "trailbeam.eventbridge.event_id": "6a7e8feb-b491-4cf7-a9f1-bf3703467718",
+          "trailbeam.eventbridge.source": "aws.ec2",
+          "trailbeam.eventbridge.detail_type": "EC2 Instance State-change Notification",
+          "trailbeam.eventbridge.account": "111122223333",
+          "trailbeam.eventbridge.time_ms": 1513968228000
+        }
+      },
+      {
+        "name": "S3: sequencer with a trailing newline is left out",
+        "body": "{\n  \"Records\": [\n    {\n      \"eventVersion\": \"2.6\",\n      \"eventSource\": \"aws:s3\",\n      \"awsRegion\": \"us-west-2\",\n      \"eventTime\": \"1970-01-01T00:00:00.000Z\",\n      \"eventName\": \"ObjectCreated:Put\",\n      \"userIdentity\": {\n        \"principalId\": \"AIDAJDPLRKLG7UEXAMPLE\"\n      },\n      \"requestParameters\": {\n        \"sourceIPAddress\": \"172.16.0.1\"\n      },\n      \"responseElements\": {\n        \"x-amz-request-id\": \"C3D13FE58DE4C810\",\n        \"x-amz-id-2\": \"FMyUVURIY8/IgAtTv8xRjskZQpcIZ9KG4V5Wp6S7S/JRWeUWerMUE5JgHvANOjpD\"\n      },\n      \"s3\": {\n        \"s3SchemaVersion\": \"1.0\",\n        \"configurationId\": \"testConfigRule\",\n        \"bucket\": {\n          \"name\": \"amzn-s3-demo-bucket\",\n          \"ownerIdentity\": {\n            \"principalId\": \"A3NL1KOZZKExample\"\n          },\n          \"arn\": \"arn:aws:s3:::amzn-s3-demo-bucket\"\n        },\n        \"object\": {\n          \"key\": \"HappyFace.jpg\",\n          \"size\": 1024,\n          \"eTag\": \"d41d8cd98f00b204e9800998ecf8427e\",\n          \"versionId\": \"096fKKXTRTtl3on89fVO.nfljtsv6qko\",\n          \"sequencer\": \"0055AED6DCD90281E5\\n\"\n        }\n      }\n    }\n  ]\n}",
+        "body_captured": false,
+        "attributes": {
+          "trailbeam.s3.event_name": "ObjectCreated:Put",
+          "trailbeam.s3.bucket": "amzn-s3-demo-bucket",
+          "trailbeam.s3.region": "us-west-2",
+          "trailbeam.s3.event_time_ms": 0,
+          "trailbeam.s3.configuration_id": "testConfigRule"
+        }
+      },
+      {
+        "name": "S3: awsRegion with a trailing newline is left out",
+        "body": "{\n  \"Records\": [\n    {\n      \"eventVersion\": \"2.6\",\n      \"eventSource\": \"aws:s3\",\n      \"awsRegion\": \"us-west-2\\n\",\n      \"eventTime\": \"1970-01-01T00:00:00.000Z\",\n      \"eventName\": \"ObjectCreated:Put\",\n      \"userIdentity\": {\n        \"principalId\": \"AIDAJDPLRKLG7UEXAMPLE\"\n      },\n      \"requestParameters\": {\n        \"sourceIPAddress\": \"172.16.0.1\"\n      },\n      \"responseElements\": {\n        \"x-amz-request-id\": \"C3D13FE58DE4C810\",\n        \"x-amz-id-2\": \"FMyUVURIY8/IgAtTv8xRjskZQpcIZ9KG4V5Wp6S7S/JRWeUWerMUE5JgHvANOjpD\"\n      },\n      \"s3\": {\n        \"s3SchemaVersion\": \"1.0\",\n        \"configurationId\": \"testConfigRule\",\n        \"bucket\": {\n          \"name\": \"amzn-s3-demo-bucket\",\n          \"ownerIdentity\": {\n            \"principalId\": \"A3NL1KOZZKExample\"\n          },\n          \"arn\": \"arn:aws:s3:::amzn-s3-demo-bucket\"\n        },\n        \"object\": {\n          \"key\": \"HappyFace.jpg\",\n          \"size\": 1024,\n          \"eTag\": \"d41d8cd98f00b204e9800998ecf8427e\",\n          \"versionId\": \"096fKKXTRTtl3on89fVO.nfljtsv6qko\",\n          \"sequencer\": \"0055AED6DCD90281E5\"\n        }\n      }\n    }\n  ]\n}",
+        "body_captured": false,
+        "attributes": {
+          "trailbeam.s3.event_name": "ObjectCreated:Put",
+          "trailbeam.s3.bucket": "amzn-s3-demo-bucket",
+          "trailbeam.s3.event_time_ms": 0,
+          "trailbeam.s3.configuration_id": "testConfigRule",
+          "trailbeam.s3.sequencer": "0055AED6DCD90281E5"
+        }
       }
     ]
   },
@@ -1770,6 +1854,43 @@
             "Entries": []
           },
           "spans": []
+        },
+        {
+          "name": "an EventId with a trailing newline is left out, and the entry is failed",
+          "request": {
+            "Entries": [
+              {
+                "Source": "a.b",
+                "DetailType": "T",
+                "Detail": "{}"
+              }
+            ]
+          },
+          "response": {
+            "FailedEntryCount": 0,
+            "Entries": [
+              {
+                "EventId": "11710aed-b79e-4468-a20b-bb3c0c3b4860\n"
+              }
+            ]
+          },
+          "spans": [
+            {
+              "trailbeam.schema_version": 3,
+              "trailbeam.kind": "eventbridge.put_event",
+              "trailbeam.source": "client",
+              "messaging.system.name": "aws.eventbridge",
+              "messaging.operation.type": "send",
+              "messaging.operation.name": "PutEvents",
+              "messaging.destination.name": "default",
+              "trailbeam.eventbridge.entry_index": 0,
+              "trailbeam.result": "failed",
+              "trailbeam.error_code": "NoEventId",
+              "trailbeam.eventbridge.source": "a.b",
+              "trailbeam.eventbridge.detail_type": "T",
+              "messaging.message.body.size": 2
+            }
+          ]
         }
       ]
     }
