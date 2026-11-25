@@ -143,11 +143,9 @@ class LambdaRecorder:
                                                     r.get("md5OfBody"), lambda_record=True))
             except Exception:  # pragma: no cover - defensive
                 attrs["trailbeam.body.capture_status"] = _capture.STATUS_REDACTION_FAILED
-            try:  # 3.4 (section 21.3): the SNS publish this record came from
-                attrs.update(_capture.sns_receive_attrs(self.capture, name, r.get("body"), r.get("messageAttributes"),
-                                                        lambda_record=True))
-                if "trailbeam.sns.message_id" not in attrs:  # 3.5 (section 23): EventBridge or S3 sent it
-                    attrs.update(_capture.origin_receive_attrs(self.capture, name, r.get("body")))
+            try:  # 3.4 (section 21.3) and 3.5 (section 23): SNS, else EventBridge or S3 sent it; one parse (QV-515)
+                attrs.update(_capture.receive_body_attrs(self.capture, name, r.get("body"), r.get("messageAttributes"),
+                                                         lambda_record=True))
             except Exception:  # pragma: no cover - defensive
                 pass
             self.emitter.emit(SPAN_RECEIVE, OPERATION, name, url, attrs, end_ns=t, start_observed=False,
