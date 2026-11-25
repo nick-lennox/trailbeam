@@ -67,6 +67,9 @@ MAX_DELIVERIES_PER_CHANNEL = 100_000  # only reached with no prefetch limit and 
 MAX_PUBLISHES_PER_CHANNEL = 100_000  # publishes waiting for a confirm
 MAX_CONSUMERS_PER_CHANNEL = 10_000
 MAX_PACKAGE_IDS = 10_000
+# A3: the longest string the package copies from the broker or a header, in UTF-8 bytes: an AMQP short string's
+# limit, so no real queue, exchange, routing key, consumer tag or message ID is longer. Longer values are dropped.
+MAX_TEXT_BYTES = 255
 
 _now = time.time_ns  # replaced in tests
 
@@ -82,12 +85,15 @@ def _amqp_int(v: Any) -> Optional[int]:
 
 
 def _text(v: Any) -> Optional[str]:
+    """A non-empty string of at most MAX_TEXT_BYTES bytes (A3); bytes of valid UTF-8 are read as one."""
     if isinstance(v, (bytes, bytearray)):
         try:
             v = bytes(v).decode("utf-8")
         except UnicodeDecodeError:
             return None
-    return v if isinstance(v, str) and v else None
+    if not isinstance(v, str) or not v or len(v) > MAX_TEXT_BYTES:  # a character is at least one byte
+        return None
+    return v if len(v.encode("utf-8", "surrogatepass")) <= MAX_TEXT_BYTES else None
 
 
 def _timestamp_ms(v: Any) -> Optional[int]:
@@ -142,7 +148,7 @@ def dead_letter_attrs(x_death: Any, headers: Any = None) -> dict:
     exchange = first.get("exchange")
     if isinstance(exchange, (bytes, bytearray)):
         exchange = _text(exchange) or None
-    if isinstance(exchange, str):
+    if isinstance(exchange, str) and (exchange == "" or _text(exchange) is not None):
         out["trailbeam.dead_letter.exchange"] = exchange_name(exchange)
     h = headers if isinstance(headers, Mapping) else {}
     for header, attr in (("x-first-death-queue", "trailbeam.dead_letter.first_queue"),

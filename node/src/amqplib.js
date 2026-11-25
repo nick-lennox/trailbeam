@@ -103,10 +103,15 @@ function decodeText(bytes) {
   }
 }
 
-/** A non-empty string; a Buffer of valid UTF-8 is read as one. */
+// A3: the longest string the package copies from the broker or a header, in UTF-8 bytes: an AMQP short string's
+// limit, so no real queue, exchange, routing key, consumer tag or message ID is longer. Longer values are dropped.
+const MAX_TEXT_BYTES = 255;
+
+/** A non-empty string of at most MAX_TEXT_BYTES bytes (A3); a Buffer of valid UTF-8 is read as one. */
 function text(v) {
-  if (v instanceof Uint8Array) v = decodeText(v);
-  return typeof v === 'string' && v ? v : undefined;
+  if (v instanceof Uint8Array) v = v.length > MAX_TEXT_BYTES ? undefined : decodeText(v);
+  if (typeof v !== 'string' || !v || v.length > MAX_TEXT_BYTES) return undefined; // a UTF-16 unit is >= 1 byte
+  return Buffer.byteLength(v, 'utf8') <= MAX_TEXT_BYTES ? v : undefined;
 }
 
 /** An AMQP timestamp (POSIX seconds) in milliseconds. amqplib gives a number, or `{'!': 'timestamp', value}`
@@ -157,7 +162,9 @@ function deadLetterAttrs(xDeath, headers) {
   if (t !== undefined) out['trailbeam.dead_letter.time_ms'] = t;
   let exchange = first.exchange;
   if (exchange instanceof Uint8Array) exchange = text(exchange);
-  if (typeof exchange === 'string') out['trailbeam.dead_letter.exchange'] = exchangeName(exchange);
+  if (typeof exchange === 'string' && (exchange === '' || text(exchange) !== undefined)) {
+    out['trailbeam.dead_letter.exchange'] = exchangeName(exchange);
+  }
   const h = isTable(headers) ? headers : {};
   for (const [header, attr] of [['x-first-death-queue', 'trailbeam.dead_letter.first_queue'],
     ['x-first-death-reason', 'trailbeam.dead_letter.first_reason']]) {
@@ -1036,4 +1043,5 @@ module.exports = {
   deadLetterAttrs,
   amqpContentAttrs,
   exchangeName,
+  MAX_TEXT_BYTES,
 };
