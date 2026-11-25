@@ -603,12 +603,29 @@ def sns_timestamp_ms(value: Any) -> Optional[int]:
     return calendar.timegm(dt.utctimetuple()) * 1000 + int(((m.group(7) or "") + "000")[:3])
 
 
-def sns_envelope(body: Any) -> Optional[dict]:
-    """The three fields of an SNS notification envelope (section 21.3), as receive attributes, or None if
-    the body is not one. Nothing else in the body is read or exported."""
-    if not isinstance(body, str) or '"Notification"' not in body or body.lstrip(" \t\n\r")[:1] != "{":
+# -- which bodies are read for an envelope (sections 21.3 and 23, QV-515) ----------------------------
+
+MAX_ENVELOPE_BYTES = 524288  # a longer body is not read for an SNS, EventBridge or S3 envelope
+MAX_ENVELOPE_CONTAINERS = 10000  # nor one with more JSON objects and arrays than this
+_SNS_MARKER = '"Notification"'
+_ORIGIN_MARKERS = ('"detail-type"', '"aws:s3"', "s3:TestEvent")
+# A JSON string, or an unterminated one up to the end: it always matches from a quote, so it never backtracks.
+_JSON_STRING_RE = re.compile(r'"[^"\\]*(?:\\[\s\S]?[^"\\]*)*(?:"|\Z)')
+
+
+def _envelope_doc(body: Any, markers: tuple) -> Any:
+    """The parsed body, if it may be an envelope with one of ``markers`` and is within the limits; else None."""
+    if not isinstance(body, str) or not any(m in body for m in markers) or body.lstrip(" \t\n\r")[:1] != "{":
         return None
-    doc = _parse(body)
+    if len(body) > MAX_ENVELOPE_BYTES or body_size(body) > MAX_ENVELOPE_BYTES:
+        return None
+    outside = _JSON_STRING_RE.sub("", body)
+    if outside.count("{") + outside.count("[") > MAX_ENVELOPE_CONTAINERS:
+        return None
+    return _parse(body)
+
+
+def _sns_fields(doc: Any) -> Optional[dict]:
     if not isinstance(doc, dict) or doc.get("Type") != "Notification":
         return None
     mid, arn = doc.get("MessageId"), doc.get("TopicArn")
@@ -621,19 +638,42 @@ def sns_envelope(body: Any) -> Optional[dict]:
     return out
 
 
-def sns_receive_attrs(config: Config, queue_name: str, body: Any, attributes: Any, lambda_record: bool = False) -> dict:
-    """Section 21.3 attributes of one received message: the publish ID from its message attribute (raw
-    delivery), and the three envelope fields if the body is an SNS envelope (raw delivery off). These are
-    read on every queue, whether or not its body is captured; nothing else in the body is."""
-    out: dict = {}
+def sns_envelope(body: Any) -> Optional[dict]:
+    """The three fields of an SNS notification envelope (section 21.3), as receive attributes, or None if
+    the body is not one. Nothing else in the body is read or exported."""
+    return _sns_fields(_envelope_doc(body, (_SNS_MARKER,)))
+
+
+def _publish_id_attrs(attributes: Any, lambda_record: bool) -> dict:
     if isinstance(attributes, Mapping):
         a = attributes.get(PUBLISH_ID_ATTRIBUTE)
         v = a.get("stringValue" if lambda_record else "StringValue") if isinstance(a, Mapping) else None
         if isinstance(v, str) and _PUBLISH_ID_RE.match(v):
-            out["trailbeam.sns.publish_id"] = v
-    env = sns_envelope(body)
-    if env:
-        out.update(env)
+            return {"trailbeam.sns.publish_id": v}
+    return {}
+
+
+def sns_receive_attrs(config: Config, queue_name: str, body: Any, attributes: Any, lambda_record: bool = False) -> dict:
+    """Section 21.3 attributes of one received message: the publish ID from its message attribute (raw
+    delivery), and the three envelope fields if the body is an SNS envelope (raw delivery off). These are
+    read on every queue, whether or not its body is captured; nothing else in the body is."""
+    out = _publish_id_attrs(attributes, lambda_record)
+    out.update(sns_envelope(body) or {})
+    return out
+
+
+def receive_body_attrs(config: Config, queue_name: str, body: Any, attributes: Any, lambda_record: bool = False) -> dict:
+    """Sections 21.3 and 23 together, as the receive hooks record them: the publish ID, then the SNS envelope's
+    fields or, when the body is not one, the EventBridge or S3 origin's. The body is parsed at most once."""
+    out = _publish_id_attrs(attributes, lambda_record)
+    doc = _envelope_doc(body, (_SNS_MARKER,) + _ORIGIN_MARKERS)
+    if doc is None:
+        return out
+    sns = _sns_fields(doc) if _SNS_MARKER in body else None
+    if sns:
+        out.update(sns)
+    elif any(m in body for m in _ORIGIN_MARKERS):
+        out.update(_origin_fields(config, queue_name, doc))
     return out
 
 
@@ -722,15 +762,14 @@ def s3_event(config: Config, queue_name: str, doc: Any) -> Optional[dict]:
     return out
 
 
+def _origin_fields(config: Config, queue_name: str, doc: Any) -> dict:
+    return eventbridge_event(doc) or s3_event(config, queue_name, doc) or {}
+
+
 def origin_receive_attrs(config: Config, queue_name: str, body: Any) -> dict:
     """Section 23 attributes of one received message: what an EventBridge event or an S3 notification body says
     about where the message came from. Read on every queue; nothing else in the body is read or exported."""
-    if not isinstance(body, str) or body.lstrip(" \t\n\r")[:1] != "{":
-        return {}
-    if '"detail-type"' not in body and '"aws:s3"' not in body and S3_TEST_EVENT not in body:
-        return {}
-    doc = _parse(body)
-    return eventbridge_event(doc) or s3_event(config, queue_name, doc) or {}
+    return _origin_fields(config, queue_name, _envelope_doc(body, _ORIGIN_MARKERS))
 
 
 # -- RabbitMQ (contract/span-contract-amqp.md A11, schema version 4) --------------------------------

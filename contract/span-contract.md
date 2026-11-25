@@ -1100,6 +1100,15 @@ other, for EventBridge and S3 bodies.) The body itself,
 and every other envelope field, is never exported. No option turns it on or off. (Board decision, QV-302,
 2026-11-23.) The publish ID is a message attribute, not the body, and is also read on every queue.
 
+**Which bodies are read** (here and in section 23). A body is read for an envelope only if it starts (after
+whitespace) with `{`, contains `"Notification"` (section 23's markers for its readings), is at most 524,288 UTF-8
+bytes, and has at most 10,000 JSON objects and arrays, nested ones included (counted as the `{` and `[` outside its
+strings). Any other body is not parsed at all, and its receive has none of these attributes. A real envelope fits both:
+SNS and EventBridge documented 256 KiB as their largest message and event [not checked for this change whether either
+has raised it], and an envelope's own fields are at depth 1 or 2. The limits keep a crafted body (SQS allows 1 MiB) from costing the consumer much time on a queue that never
+asked for its bodies to be read. A receive parses its body at most once for this section and section 23 together.
+(QV-515.)
+
 ### 21.4 Configuration
 
 | Option (Python / Node.js) | Environment variable | Default |
@@ -1194,8 +1203,8 @@ exported: not EventBridge's `detail` or `resources`, nor S3's `userIdentity`, `r
 address), `responseElements`, object size, `eTag` or `versionId`. Test vectors: `origin.receive` in
 [`span-contract-vectors.json`](span-contract-vectors.json).
 
-A body is read only if it starts (after whitespace) with `{`, contains `"detail-type"`, `"aws:s3"` or `s3:TestEvent`, and
-parses as JSON. Texts (`source`, `detail-type`, event name, bucket, configuration ID) are recorded only if they are 1 to
+A body is read only if it starts (after whitespace) with `{`, contains `"detail-type"`, `"aws:s3"` or `s3:TestEvent`, is
+within the size and object-and-array limits of section 21.3, and parses as JSON. The same parse serves section 21.3. Texts (`source`, `detail-type`, event name, bucket, configuration ID) are recorded only if they are 1 to
 256 characters (Unicode code points); a longer one is left out, or, for a field the match needs, makes the body not
 match. Times use the format and rules of the SNS `Timestamp` (section 21.3).
 

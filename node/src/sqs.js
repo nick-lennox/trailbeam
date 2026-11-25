@@ -143,10 +143,8 @@ class SqsHooks {
 
   snsReceived(queueName, body, attributes) {
     try {
-      const out = capture.snsReceiveAttrs(this.config, queueName, body, attributes);
-      // 3.5 (section 23): EventBridge or S3 sent it
-      if (!out['trailbeam.sns.message_id']) Object.assign(out, capture.originReceiveAttrs(this.config, queueName, body));
-      return out;
+      // 3.4 (section 21.3) and 3.5 (section 23): SNS, else EventBridge or S3 sent it; one parse (QV-515)
+      return capture.receiveBodyAttrs(this.config, queueName, body, attributes);
     } catch (e) {
       debug('SNS receive attributes', e); // must not lose the receive
       return {};

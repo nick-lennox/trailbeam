@@ -563,11 +563,38 @@ function snsTimestampMs(value) {
   return Date.UTC(y, mo - 1, d, h, mi, s, ms);
 }
 
-/** The three fields of an SNS notification envelope (section 21.3), as receive attributes, or undefined if
- * the body is not one. Nothing else in the body is read or exported. */
-function snsEnvelope(body) {
-  if (typeof body !== 'string' || !body.includes('"Notification"') || body.replace(/^[ \t\n\r]+/, '')[0] !== '{') return undefined;
-  const doc = parse(body);
+// -- which bodies are read for an envelope (sections 21.3 and 23, QV-515) ----------------------------
+
+const MAX_ENVELOPE_BYTES = 524288; // a longer body is not read for an SNS, EventBridge or S3 envelope
+const MAX_ENVELOPE_CONTAINERS = 10000; // nor one with more JSON objects and arrays than this
+const SNS_MARKER = '"Notification"';
+const ORIGIN_MARKERS = ['"detail-type"', '"aws:s3"', 's3:TestEvent'];
+
+/** How many `{` and `[` the body has outside its JSON strings (an unterminated string runs to the end), up to
+ * one more than the limit: for valid JSON, its number of objects and arrays. */
+function containerCount(body) {
+  let n = 0;
+  let inString = false;
+  for (let i = 0; i < body.length; i++) {
+    const c = body.charCodeAt(i);
+    if (inString) {
+      if (c === 0x5c) i++; // backslash: skip the escaped character
+      else if (c === 0x22) inString = false;
+    } else if (c === 0x22) inString = true;
+    else if ((c === 0x7b || c === 0x5b) && ++n > MAX_ENVELOPE_CONTAINERS) return n;
+  }
+  return n;
+}
+
+/** The parsed body, if it may be an envelope with one of `markers` and is within the limits; else undefined. */
+function envelopeDoc(body, markers) {
+  if (typeof body !== 'string' || !markers.some((m) => body.includes(m)) || body.replace(/^[ \t\n\r]+/, '')[0] !== '{') return undefined;
+  if (body.length > MAX_ENVELOPE_BYTES || utf8Bytes(body) > MAX_ENVELOPE_BYTES) return undefined;
+  if (containerCount(body) > MAX_ENVELOPE_CONTAINERS) return undefined;
+  return parse(body);
+}
+
+function snsFields(doc) {
   if (!isObject(doc) || doc.Type !== 'Notification') return undefined;
   const mid = doc.MessageId;
   const arn = doc.TopicArn;
@@ -578,17 +605,37 @@ function snsEnvelope(body) {
   return out;
 }
 
+/** The three fields of an SNS notification envelope (section 21.3), as receive attributes, or undefined if
+ * the body is not one. Nothing else in the body is read or exported. */
+function snsEnvelope(body) {
+  return snsFields(envelopeDoc(body, [SNS_MARKER]));
+}
+
+function publishIdAttrs(attributes, lambdaRecord) {
+  if (isObject(attributes)) {
+    const a = attributes[PUBLISH_ID_ATTRIBUTE];
+    const v = isObject(a) ? a[lambdaRecord ? 'stringValue' : 'StringValue'] : undefined;
+    if (typeof v === 'string' && PUBLISH_ID_RE.test(v)) return { 'trailbeam.sns.publish_id': v };
+  }
+  return {};
+}
+
 /** Section 21.3 attributes of one received message: the publish ID from its message attribute (raw
  * delivery), and the three envelope fields if the body is an SNS envelope (raw delivery off). These are
  * read on every queue, whether or not its body is captured; nothing else in the body is. */
 function snsReceiveAttrs(config, queueName, body, attributes, lambdaRecord = false) {
-  const out = {};
-  if (isObject(attributes)) {
-    const a = attributes[PUBLISH_ID_ATTRIBUTE];
-    const v = isObject(a) ? a[lambdaRecord ? 'stringValue' : 'StringValue'] : undefined;
-    if (typeof v === 'string' && PUBLISH_ID_RE.test(v)) out['trailbeam.sns.publish_id'] = v;
-  }
-  Object.assign(out, snsEnvelope(body) || {});
+  return Object.assign(publishIdAttrs(attributes, lambdaRecord), snsEnvelope(body) || {});
+}
+
+/** Sections 21.3 and 23 together, as the receive hooks record them: the publish ID, then the SNS envelope's
+ * fields or, when the body is not one, the EventBridge or S3 origin's. The body is parsed at most once. */
+function receiveBodyAttrs(config, queueName, body, attributes, lambdaRecord = false) {
+  const out = publishIdAttrs(attributes, lambdaRecord);
+  const doc = envelopeDoc(body, [SNS_MARKER, ...ORIGIN_MARKERS]);
+  if (doc === undefined) return out;
+  const sns = body.includes(SNS_MARKER) ? snsFields(doc) : undefined;
+  if (sns) Object.assign(out, sns);
+  else if (ORIGIN_MARKERS.some((m) => body.includes(m))) Object.assign(out, originFields(config, queueName, doc));
   return out;
 }
 
@@ -666,13 +713,14 @@ function s3Event(config, queueName, doc) {
   return out;
 }
 
+function originFields(config, queueName, doc) {
+  return eventbridgeEvent(doc) || s3Event(config, queueName, doc) || {};
+}
+
 /** Section 23 attributes of one received message: what an EventBridge event or an S3 notification body says
  * about where the message came from. Read on every queue; nothing else in the body is read or exported. */
 function originReceiveAttrs(config, queueName, body) {
-  if (typeof body !== 'string' || body.replace(/^[ \t\n\r]+/, '')[0] !== '{') return {};
-  if (!body.includes('"detail-type"') && !body.includes('"aws:s3"') && !body.includes(S3_TEST_EVENT)) return {};
-  const doc = parse(body);
-  return eventbridgeEvent(doc) || s3Event(config, queueName, doc) || {};
+  return originFields(config, queueName, envelopeDoc(body, ORIGIN_MARKERS));
 }
 
 // -- EventBridge PutEvents (section 25, revision 3.6) -----------------------------------------------
@@ -735,6 +783,9 @@ module.exports = {
   putEventAttrs,
   NO_EVENT_ID,
   originReceiveAttrs,
+  receiveBodyAttrs,
+  MAX_ENVELOPE_BYTES,
+  MAX_ENVELOPE_CONTAINERS,
   PUBLISH_ID_ATTRIBUTE,
   snsEntryBytes,
   snsInject,
