@@ -2,12 +2,6 @@
 
 ## Unreleased
 
-- **RabbitMQ: one message ID in two virtual hosts is two copies, not a duplicate** (QV-528). The server keyed a
-  copy by its queue's name alone, so `order-1` acked once on `orders` in vhost `tenant-a` and once on `orders` in
-  vhost `tenant-b` showed on Duplicates, and an unacked copy in one vhost could be hidden by an ack in the other
-  (not shown as Stuck). Copies, Duplicates, Stuck, the `x-delivery-count` check and the timeline's per-queue
-  rules now key a copy by (vhost, queue). The timeline's `copies` and the `requeue_loop` notice gain `vhost`, and
-  the message page names the vhost when a message's copies are in more than one.
 - **`npx trailbeam start` no longer leaves its output in Docker's log** (QV-409). It runs the container with
   `--log-driver none`, so the output still shows in the terminal but is not kept by `docker logs` or sent to a log
   service the Docker daemon is set up with (gelf, fluentd, awslogs, ...). That output holds the first run's token
