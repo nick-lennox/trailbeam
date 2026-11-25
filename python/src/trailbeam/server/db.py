@@ -31,7 +31,7 @@ import threading
 import time
 from typing import Callable, Iterable, Iterator, Optional
 
-from . import body_table, eventbridge, migrations, purge, queues, rollup, sns, summary_table
+from . import body_table, eventbridge, migrations, purge, queues, rollup, s3, sns, summary_table
 from .events import HOUR_NS, KINDS as STEP_KINDS, hour_split
 from .otlp import AMQP_KINDS, RECORD_FIELDS
 from .store import (MAX_CANCELS, SETTLE_KINDS, SETTLE_KINDS_SQL, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store, StoreFull,
@@ -353,7 +353,7 @@ class SqliteStore(Store):
         for r in records:
             own, kind = r.get("message_id"), r["kind"]
             mid, mid_source, receive_row = own, "span" if own else None, None
-            if kind in (sns.KIND, eventbridge.KIND):  # an SNS message or event ID: no message (store.py, Publishes)
+            if kind in (sns.KIND, eventbridge.KIND, s3.KIND):  # an SNS message ID, event ID or key: no message (store.py)
                 mid = mid_source = None
             join_s = 0.0
             if kind in SETTLE_KINDS:  # joined first, so the row is written once, joined
@@ -740,6 +740,26 @@ class SqliteStore(Store):
                 out[r["row"]] = {"row": r["row"], "mid": r["mid"], "queue": r["queue"], "time_ns": r["time_ns"]}
         return sorted(out.values(), key=lambda r: (r["time_ns"], r["row"]))[:eventbridge.MAX_REACHED]
 
+    # S3 uploads (contract section 27), by the partial indexes of migrations.S3_INDEXES.
+    def s3_uploads(self, bucket, object_key, from_ns, to_ns) -> list[sqlite3.Row]:
+        cols = ", ".join(s3.COLUMNS)
+        return self.query(f"SELECT {cols} FROM spans INDEXED BY spans_s3_upload WHERE kind = 's3_upload' "
+                          f"AND queue = ? AND message_id = ? AND time_ns >= ? AND time_ns <= ? AND result = 'ok' "
+                          f"ORDER BY time_ns, row LIMIT ?", (bucket, object_key, from_ns, to_ns, s3.MAX_UPLOADS))
+
+    def s3_receivers(self, bucket, object_key, from_ms, to_ms) -> list[dict]:
+        out = []
+        # By bucket and event time on the index; the key is URL-encoded in the attributes, so it is compared decoded.
+        for r in self.query(f"SELECT row, mid, queue, time_ns, attributes FROM spans INDEXED BY spans_receive_s3 "
+                            f"WHERE kind = 'receive' AND {migrations.S3_KEY} IS NOT NULL AND {migrations.S3_BUCKET} = ? "
+                            f"AND {migrations.S3_TIME} >= ? AND {migrations.S3_TIME} <= ? ORDER BY time_ns, row LIMIT ?",
+                            (bucket, from_ms, to_ms, 20 * s3.MAX_REACHED)):
+            n = s3.notification(r)
+            if r["mid"] is not None and n is not None and n.bucket == bucket and n.key == object_key:
+                out.append({"row": r["row"], "mid": r["mid"], "queue": r["queue"], "time_ns": r["time_ns"],
+                            "event_time_ms": n.event_time_ms, "operation": n.operation})
+        return out[:s3.MAX_REACHED]
+
     def sent_messages(self, message_ids) -> set:
         mids = sorted(set(message_ids))
         if not mids:
@@ -974,7 +994,8 @@ _INSERT_SQL = f"INSERT OR IGNORE INTO spans ({', '.join(_INSERT_COLUMNS)}) VALUE
 
 AUTO_VACUUM_INCREMENTAL = 2  # PRAGMA auto_vacuum
 # every kind a row can have: SQS's and SNS's, and those only RabbitMQ has (otlp.AMQP_KINDS)
-SPAN_KINDS = ("send", "receive", "delete", "change_visibility", "outcome", "purge", "publish", "put_event") + AMQP_KINDS
+SPAN_KINDS = ("send", "receive", "delete", "change_visibility", "outcome", "purge", "publish", "put_event",
+              "s3_upload") + AMQP_KINDS
 # Rows that belong to no message, by design (purge, publish, cancel, a RabbitMQ span with no message ID) or until
 # joined (a settle span): retention takes each by its own time and queue. Any kind can be one.
 LOOSE_KINDS = SPAN_KINDS

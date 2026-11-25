@@ -15,7 +15,7 @@ import math
 from datetime import datetime, timedelta, timezone
 from typing import NamedTuple, Optional
 
-from . import bodies, eventbridge, rabbitmq, rollup, sns, summary, timeline
+from . import bodies, eventbridge, rabbitmq, rollup, s3, sns, summary, timeline
 from .store import Store
 from .summary import message_tenant, span_tenant  # noqa: F401  (part of this module's interface)
 
@@ -33,7 +33,7 @@ def message(db: Store, message_id: str, now_ns: int, lambda_timeout_s: int,
         cancels = db.consumer_cancels({r["queue"] for r in rows if r["kind"] == "receive"}, min(times), max(times))
         return timeline.build(rows, now_ns, lambda_timeout_s, max_receive_counts, cancels=cancels)
     return timeline.build(rows, now_ns, lambda_timeout_s, max_receive_counts, db.purges({r["queue"] for r in rows}),
-                          sns_publishes(db, rows), put_events=put_events(db, rows))
+                          sns_publishes(db, rows), put_events=put_events(db, rows), s3_uploads=s3_uploads(db, rows))
 
 
 def sns_publishes(db: Store, rows) -> list[dict]:
@@ -80,6 +80,36 @@ def put_events(db: Store, rows) -> list[dict]:
         out.append({"entry": p, "joined_by": eventbridge.BY_EVENT_ID,
                     "reached": [{"queue": q, "message_ids": m} for q, m in sorted(by_queue.items())],
                     "reached_truncated": len(receivers) >= eventbridge.MAX_REACHED})
+    return out
+
+
+def s3_uploads(db: Store, rows) -> list[dict]:
+    """The S3 uploads one message's receives join (contract section 27.3), each with the SQS messages its notification
+    reached, by queue: what timeline.build takes as ``s3_uploads``."""
+    out, seen = [], set()
+    for n in s3.message_notifications(rows):
+        u = s3.match(n, db.s3_uploads(n.bucket, n.key, *s3.search_range_ns([n.event_time_ms])))
+        if u is None or u["row"] in seen:
+            continue
+        seen.add(u["row"])
+        lo, hi = s3.reach_range_ms(u)
+        receivers = db.s3_receivers(u["queue"], u["message_id"], lo, hi)
+        # A receive in the window reached this upload only if this is its one match (another upload of the key
+        # within a few seconds makes both ambiguous).
+        near = db.s3_uploads(u["queue"], u["message_id"], *s3.search_range_ns([lo, hi])) if receivers else []
+        by_queue: dict[str, list[str]] = {}
+        for r in receivers:
+            m = s3.match(s3.Notification(u["queue"], u["message_id"], r["event_time_ms"], r["operation"]), near)
+            if m is None or m["row"] != u["row"]:
+                continue
+            q = by_queue.setdefault(r["queue"], [])
+            if r["mid"] not in q:
+                q.append(r["mid"])
+        out.append({"upload": u, "joined_by": s3.BY,
+                    "reached": [{"queue": q, "message_ids": m} for q, m in sorted(by_queue.items())],
+                    "reached_truncated": len(receivers) >= s3.MAX_REACHED})
+        if len(out) >= s3.MAX_UPLOADS:
+            break
     return out
 
 

@@ -1,12 +1,12 @@
-# Trailbeam span contract, schema version 3 (revision 3.6)
+# Trailbeam span contract, schema version 3 (revision 3.7)
 
 This file defines the OpenTelemetry spans that the `trailbeam` Python package, the `trailbeam` Node.js
 package and the Java jar `trailbeam-aws-sdk-v2` emit, and that the Trailbeam reads. The packages and Trailbeam
 are built and tested against it; what is particular to Java is in section 20. A change to anything below is a
 contract change: bump `trailbeam.schema_version`, and update this file, every package and Trailbeam in the same
 change. A revision only adds (3.1, 3.5) an optional attribute that
-older stores ignore and that Trailbeam does not require, or (3.3, 3.4, 3.6) an optional span; it keeps
-`trailbeam.schema_version = 3` (sections 14, 16, 19, 22, 24 and 26). Section 17 (the test span of `trailbeam doctor`) is not emitted by the packages and changes nothing they
+older stores ignore and that Trailbeam does not require, or (3.3, 3.4, 3.6, 3.7) an optional span; it keeps
+`trailbeam.schema_version = 3` (sections 14, 16, 19, 22, 24, 26 and 28). Section 17 (the test span of `trailbeam doctor`) is not emitted by the packages and changes nothing they
 send.
 
 The keywords **must**, **must not**, **should** and **may** are used as in RFC 2119.
@@ -28,6 +28,7 @@ accepts `4` on them with the same meaning.
 | `trailbeam purge` | `sqs.purge` | `purge` | client hooks | once per `PurgeQueue` call, after the response or error (3.3, section 18) |
 | `trailbeam publish` | `sns.publish` | `send` | client hooks (SNS clients) | once per message that SNS accepted in `Publish` / `PublishBatch` to a topic (3.4, section 21) |
 | `trailbeam put_event` | `eventbridge.put_event` | `send` | client hooks (EventBridge clients) | once per entry of a `PutEvents` call, accepted or failed (3.6, section 25) |
+| `trailbeam s3_upload` | `s3.upload` | `send` | client hooks (S3 clients) | once per `PutObject`, `CompleteMultipartUpload` or `CopyObject` call, ok or failed (3.7, section 27) |
 
 "Client hooks" are the boto3 hooks (Python), the AWS SDK v3 hooks (Node.js) and the global
 `ExecutionInterceptor` for the AWS SDK for Java v2 (Java, section 20). "Lambda wrapper" is the handler wrapper
@@ -133,7 +134,7 @@ don't order anything before it either, because its start is not observed (`trail
 | `trailbeam.schema_version` | int | must | `3` |
 | `trailbeam.kind` | string | must | `sqs.send`, `sqs.receive`, `sqs.settle`, `sqs.outcome`, (3.3) `sqs.purge` or (3.4) `sns.publish` |
 | `trailbeam.source` | string | must | `client` (client hooks) or `lambda` (Lambda wrapper) |
-| `messaging.system.name` | string | must | `aws.sqs`; (3.4) `aws.sns` on `trailbeam publish`; (3.6) `aws.eventbridge` on `trailbeam put_event` |
+| `messaging.system.name` | string | must | `aws.sqs`; (3.4) `aws.sns` on `trailbeam publish`; (3.6) `aws.eventbridge` on `trailbeam put_event`; (3.7) `aws.s3` on `trailbeam s3_upload` |
 | `messaging.operation.type` | string | must | from the table in section 1 |
 | `messaging.operation.name` | string | must | the SQS API action: `SendMessage`, `SendMessageBatch`, `ReceiveMessage`, `DeleteMessage`, `DeleteMessageBatch`, `ChangeMessageVisibility`, `ChangeMessageVisibilityBatch`, (3.3) `PurgeQueue`; (3.4) the SNS action `Publish` or `PublishBatch`; or `LambdaEvent` for spans from the Lambda wrapper |
 | `messaging.destination.name` | string | must | queue name, the last path segment of the queue URL, or the last `:` field of the event source ARN; (3.4) on `trailbeam publish`, the topic name, the last `:` field of the topic ARN |
@@ -1183,7 +1184,8 @@ An EventBridge rule with an SQS target, and an S3 bucket's event notification to
 team's code sends: EventBridge and S3 call `SendMessage` themselves. Before 3.5 the timeline of such a message started at
 its first receive. Revision 3.5 reads, from the body, what the event says about where it came from, and Trailbeam shows
 an **inferred** first step: "Arrived via an EventBridge rule" or "S3 object created" (the S3 event's name). Joining the
-message to the `PutEvents` or `PutObject` that caused it is not part of 3.5 (3.6 joins `PutEvents`: section 25).
+message to the `PutEvents` or `PutObject` that caused it is not part of 3.5 (3.6 joins `PutEvents`: section 25; 3.7
+joins `PutObject`, `CompleteMultipartUpload` and `CopyObject`: section 27).
 
 The attributes below are on `trailbeam receive` (client hooks and Lambda wrapper), read only when the body is not an SNS
 envelope (section 21.3: a receive with `trailbeam.sns.message_id` has none of them). They are read on every queue,
@@ -1401,3 +1403,129 @@ Not verified:
 
 `trailbeam.schema_version` stays `3`: the span is optional and the receive is unchanged. A Trailbeam built before 3.6
 rejects `trailbeam put_event` as an unknown kind, in `partial_success`, and stores the rest of the export.
+
+## 27. S3 uploads (revision 3.7)
+
+Section 23 gives a message that an S3 bucket notification sent to SQS an inferred first step, read from its body.
+Revision 3.7 records the sender: the S3 call that created the object. Three calls raise an `ObjectCreated` event:
+`PutObject` (`ObjectCreated:Put`), `CompleteMultipartUpload` (`ObjectCreated:CompleteMultipartUpload`) and `CopyObject`
+(`ObjectCreated:Copy`). A browser form upload (`ObjectCreated:Post`) goes to S3 without the AWS SDK, so it has no
+sender here.
+
+S3's event names no request of the caller's: it has the bucket, the object key, `eventTime`, the object's `eTag`, its
+`versionId` and a `sequencer`, and section 23.2 reads, on every queue, only the bucket, the event name and time, the
+region, the configuration ID and the sequencer. None of those names one upload. So Trailbeam joins an upload to a
+receive by the bucket, the **object key** and the event time. The key is the team's own data, so it follows body capture
+on both sides (the board's QV-314 decision, 23.5): the receive records it only on a queue whose body is captured
+(23.2), and the upload records it only when body capture is on for the bucket (27.1). **Where either side does not
+capture, nothing is joined**, and the message keeps the inferred step of section 23.3. Nothing new is read from the
+body: `eTag` and `versionId` stay unread.
+
+One upload's notification can go to several queues (one notification configuration each). Each queue gets its own SQS
+message, with its own SQS message ID, and all of them join the one upload.
+
+The Python and Node.js packages implement this section. The Java jar (section 20) does not hook S3 clients.
+
+### 27.1 `trailbeam s3_upload`
+
+The client hooks of S3 clients (boto3 `s3` clients in Python; an `S3Client` passed to `instrument` in Node.js) emit one
+`trailbeam s3_upload` per `PutObject`, `CompleteMultipartUpload` or `CopyObject` call, after the response or error, ok or
+failed. Other S3 calls, and these operations on other services' clients, get none. The request is never changed. The
+span has the attributes of section 3, with the call's interval and call-order ticks (sections 2 and 2a), and these:
+
+| Attribute | Type | Req. | Value |
+|---|---|---|---|
+| `messaging.system.name` | string | must | `aws.s3`. The semantic conventions define no value for S3 [not checked against the registry for 3.7]; this one follows `aws.sns`. |
+| `messaging.operation.name` | string | must | `PutObject`, `CompleteMultipartUpload` or `CopyObject` |
+| `messaging.destination.name` | string | must | the request's `Bucket`, 1 to 255 of `A-Z`, `a-z`, `0-9`, `.`, `_`, `-` (old us-east-1 bucket names allow upper case and `_`). A `Bucket` that is not a name (an access point or Object Lambda ARN) gets no span: its notification names the bucket behind it, which the call does not say. |
+| `trailbeam.result` | string | must | `ok` when S3 answered with success, else `failed` |
+| `trailbeam.error_code` | string | when `failed` | the call's error code (section 18: no protocol namespace), or the exception's type name when there was no response |
+| `trailbeam.s3.etag` | string | when `ok` and valid | the response's `ETag` (`CopyObjectResult.ETag` for `CopyObject`), verbatim, quotes included |
+| `trailbeam.s3.version_id` | string | when `ok` and valid | the response's `VersionId`: present in a bucket with versioning on, `null` where it is suspended |
+| `trailbeam.s3.object_key` | string | only if body capture is on for the bucket | the request's `Key` as given (not URL-encoded), if 1 to 1,024 UTF-8 bytes (S3's limit), redacted by the body's rules (section 15.3) |
+
+"Valid" for the ETag and version ID is 1 to 1,024 characters (Unicode code points) with no control character
+(U+0000 to U+001F, U+007F to U+009F).
+
+**Body capture for a bucket** is the queue list of section 15.1 (`capture.body_queues` / `capture.bodyQueues`,
+`TRAILBEAM_CAPTURE_BODY_QUEUES`), which takes a bucket's name as it takes a queue's (as the RabbitMQ package takes an
+exchange's, span-contract-amqp.md): the key is recorded when the list has the bucket's name or `*`. No other option
+changes it.
+
+**Never recorded:** the object's contents (`Body`), its user metadata (`Metadata`, the `x-amz-meta-*` headers),
+`CopySource` (it names another object's key), `Tagging`, `ContentType` and the other object headers, checksums,
+encryption keys and their MD5s, `UploadId`, the parts list, and the response's `Location`, `Bucket` and `Key` (the
+`Location` holds the key). The span carries no `aws.sqs.queue.url` and no `messaging.message.id`. Its parent is the
+stock instrumentation's span for the call. Test vectors: `s3.uploads` in
+[`span-contract-vectors.json`](span-contract-vectors.json).
+
+### 27.2 On a receive
+
+Nothing changes. Section 23.2's attributes are read as before: the bucket, event name and `trailbeam.s3.event_time_ms`
+on every queue, and `trailbeam.s3.object_key` (URL-encoded, as S3 writes it) only on a queue whose body is captured.
+
+### 27.3 How Trailbeam reads it
+
+- A receive **joins** an `s3_upload` when all of these hold: the upload's `trailbeam.result` is `ok`; both have the
+  object key; the buckets are the same, and the keys are the same once the receive's is URL-decoded (`+` is a space,
+  `%XX` a UTF-8 byte); the receive's event name is the one the upload's operation raises; the receive's
+  `trailbeam.s3.event_time_ms` (when S3 finished the request, S3's clock) is within the upload's span widened by
+  2 seconds on each side for the distance between the host's clock and S3's [judgment; not measured]; and exactly one
+  recorded upload meets all of that. When two do (the same key written twice within a few seconds), the receive joins
+  neither: Trailbeam does not guess which write the event was.
+- Every SQS message whose receives join one upload shows it as an **observed** step, "Uploaded to S3 bucket *name* by
+  *operation*", with the key, the ETag and version ID, and the SQS messages it reached, by queue. A message that also
+  has a `trailbeam send` (a process re-sent the body) is still joined, as in 25.3.
+- A joined upload replaces section 23.3's inferred "S3 *event*" step on that message. A message that joins nothing,
+  including every message where the receive or the upload has no key (body capture off on either side), keeps that
+  inferred step.
+- **S3 delivery time** (dwell): `trailbeam.sent_timestamp_ms − trailbeam.s3.event_time_ms` of the message's first
+  receive with the notification, shown on the step. Both are AWS clocks. A negative value is shown as measured.
+- **Order** is section 9a's: the upload is ordered before a receive only by `clock` or `process_order`, as an SNS
+  publish (21.5).
+- A failed upload created no object and joins nothing. It is stored, and dropped by retention like an ok one.
+
+In the API (`GET /api/messages/{message_id}`, [`openapi.yaml`](openapi.yaml)) the upload is an `s3_upload` step
+(`source: s3_upload`, `joined_by: bucket_key_time`, `reached`, `s3_delivery_ms`). Like an SNS publish it is the bucket's
+step, not the message's: it does not change the message's first seen, last seen, state or list pages. Each store keeps
+`s3_upload` spans apart from messages (SQLite: rows of `spans` with no message, the key in `message_id`, schema 24;
+Postgres: `s3_uploads`, and the receives' notifications in `s3_receives`, schema 18), and retention drops one by its
+own time against the cutoff of the bucket's name (`--retention-queues` takes it like a queue name).
+
+### 27.4 Verified and not verified
+
+Verified (2026-11-24):
+
+- The `ObjectCreated` event names, that `eventTime` is when S3 finished processing the request, that the key in the
+  event is URL-encoded (`red flower.jpg` becomes `red+flower.jpg`), that a record has the bucket, key, `eTag`,
+  `versionId` and `sequencer`, and that notifications are delivered at least once, so the same upload can reach a
+  queue twice, from [Event message structure](https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-content-structure.html)
+  and [Event notification types](https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-how-to-event-types-and-destinations.html).
+- The response fields the hooks read (`ETag`, `CopyObjectResult.ETag`, `VersionId`), from boto3 and AWS SDK v3
+  responses in moto and the SDKs' models. The API reference pages of the three calls were not re-read for 3.7.
+- In moto 5.2.6: a bucket notification to SQS sends `ObjectCreated:Put` for `PutObject` and `ObjectCreated:Copy` for
+  `CopyObject`, with the key URL-encoded the way Python's `quote_plus` does (`/` as `%2F`); URL-decoding it gives the
+  request's `Key`. moto also sends an `ObjectCreated:Put` for a `CompleteMultipartUpload`, besides its
+  `ObjectCreated:CompleteMultipartUpload`; that one joins nothing, since its name is not the operation's.
+
+Not verified:
+
+- That on AWS the encoded key decodes to the request's `Key` for every character (AWS documents the encoding by example
+  only). A key that does not decode to it is not joined; nothing is joined wrongly.
+- How far S3's `eventTime` and a host's clock are apart on AWS. The 2-second allowance is a judgment; a host clock off
+  by more joins nothing.
+- The record's `responseElements.x-amz-request-id` is, by the event structure page, the request ID S3 returned to the
+  call, which would join an upload exactly and without the key. Section 23 does not read `responseElements`, and
+  reading it on every queue is outside the QV-314 decision, so 3.7 does not use it.
+- A key whose redaction (section 15.3) changes it differently in its two forms (an email address matches the pattern
+  in the request's key, not in the URL-encoded one, where `@` is `%40`) is not joined.
+
+## 28. Changes in revision 3.7
+
+| 3.6 | 3.7 |
+|---|---|
+| a message from an S3 notification had an inferred first step and no sender | `trailbeam s3_upload`, kind `s3.upload`, one per `PutObject`, `CompleteMultipartUpload` or `CopyObject` call, ok or failed (27.1) |
+| | Trailbeam joins receives to their upload by bucket, object key (body capture on both sides only) and event time, shows it as an observed step with the S3 delivery time, and drops the inferred step for that message (27.3) |
+
+`trailbeam.schema_version` stays `3`: the span is optional and the receive is unchanged. A Trailbeam built before 3.7
+rejects `trailbeam s3_upload` as an unknown kind, in `partial_success`, and stores the rest of the export.

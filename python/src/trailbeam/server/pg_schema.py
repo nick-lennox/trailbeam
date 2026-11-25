@@ -238,6 +238,41 @@ CREATE INDEX IF NOT EXISTS eventbridge_events_message ON eventbridge_events (mes
 CREATE INDEX IF NOT EXISTS eventbridge_events_time ON eventbridge_events (time_ns);
 """
 
+# Version 18 (QV-511): S3 uploads (contract section 27). ``s3_uploads``: one row per PutObject,
+# CompleteMultipartUpload or CopyObject call, ok or failed, with the bucket in ``queue`` and the object key in
+# ``message_id`` (NULL when the package did not record it, or for a failed call). ``s3_receives``: one row per message
+# and S3 notification its receives got with the object key (section 23.2: only on queues whose body is captured), the
+# key URL-decoded, for the reached list. Neither is partitioned, like ``sns_publishes``.
+S3 = """
+CREATE TABLE IF NOT EXISTS s3_uploads (
+    id BIGSERIAL PRIMARY KEY,
+    trace_id TEXT NOT NULL, span_id TEXT NOT NULL,
+    start_ns BIGINT, time_ns BIGINT NOT NULL,
+    service_name TEXT, source TEXT, operation TEXT,
+    queue TEXT COLLATE "C" NOT NULL,      -- the bucket
+    message_id TEXT COLLATE "C",          -- the object key; NULL when not recorded
+    batch_entry_id TEXT,
+    client_id TEXT, pid BIGINT, thread_name TEXT,
+    order_scope TEXT, order_issued BIGINT, order_returned BIGINT,
+    attributes TEXT NOT NULL,
+    result TEXT NOT NULL, error_code TEXT,
+    UNIQUE (trace_id, span_id, time_ns)
+);
+CREATE INDEX IF NOT EXISTS s3_uploads_key ON s3_uploads (queue, message_id, time_ns) WHERE message_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS s3_uploads_time ON s3_uploads (time_ns);
+CREATE TABLE IF NOT EXISTS s3_receives (
+    bucket TEXT COLLATE "C" NOT NULL,
+    object_key TEXT COLLATE "C" NOT NULL, -- URL-decoded
+    event_time_ms BIGINT NOT NULL,
+    operation TEXT NOT NULL,              -- the operation the event name says (s3.OPERATIONS)
+    mid TEXT COLLATE "C" NOT NULL,
+    queue TEXT NOT NULL,
+    time_ns BIGINT NOT NULL,              -- the newest receive of the message with the notification
+    PRIMARY KEY (bucket, object_key, event_time_ms, operation, mid)
+);
+CREATE INDEX IF NOT EXISTS s3_receives_time ON s3_receives (time_ns);
+"""
+
 SEALING = """
 CREATE TABLE IF NOT EXISTS mid_places_late (       -- lookup rows written to a place once it was sealed
     mid TEXT COLLATE "C" NOT NULL,
@@ -436,7 +471,7 @@ CREATE TABLE IF NOT EXISTS hash_places (
     bucket BIGINT NOT NULL,
     PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
 ) PARTITION BY RANGE (rclass, bucket);
-""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + QUEUE_CREATE + SNS + account_tables.PG_OIDC + STEP_CREATE + EVENTBRIDGE + """
+""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + QUEUE_CREATE + SNS + account_tables.PG_OIDC + STEP_CREATE + EVENTBRIDGE + S3 + """
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
@@ -825,8 +860,12 @@ MIGRATIONS: tuple = (
     # it holds a put_event span (a Trailbeam before 3.6 rejects them). Receives already stored keep no ``b:`` key, so
     # an entry recorded after the upgrade reaches only the messages received after it.
     Migration(17, "EventBridge PutEvents entries (QV-489)", tuple(statements(EVENTBRIDGE))),
+    # Version 18 (QV-511): S3 uploads and the receives of their notifications (S3 above). New tables, empty: no
+    # database before it holds an s3_upload span (a Trailbeam before 3.7 rejects them). Receives already stored get no
+    # s3_receives row, so an upload recorded after the upgrade reaches only the messages received after it.
+    Migration(18, "S3 uploads (QV-511)", tuple(statements(S3))),
 )
-LATEST = 17
+LATEST = 18
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 

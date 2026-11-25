@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from . import eventbridge as eb_mod
+from . import s3 as s3_mod
 from . import order as order_mod
 from . import origin as origin_mod
 from . import purge as purge_mod
@@ -137,14 +138,17 @@ def source_queue_of(mid: Optional[str], sends: list, receives: list, fallback: s
 
 
 def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S,
-          max_receive_counts: Optional[dict] = None, purges=(), publishes=(), cancels=(), put_events=()) -> dict:
+          max_receive_counts: Optional[dict] = None, purges=(), publishes=(), cancels=(), put_events=(),
+          s3_uploads=()) -> dict:
     """``rows``: every stored row of one message (Store.message_rows), any order. ``max_receive_counts``:
     queue name -> the maxReceiveCount of its redrive policy, as configured (spans don't carry it). ``purges``:
     purge rows (Store.purges) that include those of the message's current queue (contract section 18).
     ``publishes``: the SNS publishes this message's receives join (contract section 21.5), as queries.message gives
     them: each ``{"publish": row, "joined_by": [...], "reached": [...], "reached_truncated": bool}``.
     ``put_events``: the EventBridge PutEvents entries they join (contract section 25.3), each ``{"entry": row,
-    "joined_by": "event_id", "reached": [...], "reached_truncated": bool}``.
+    "joined_by": "event_id", "reached": [...], "reached_truncated": bool}``. ``s3_uploads``: the S3 uploads they
+    join (contract section 27.3), each ``{"upload": row, "joined_by": "bucket_key_time", "reached": [...],
+    "reached_truncated": bool}``.
 
     A RabbitMQ message (contract/span-contract-amqp.md, rabbitmq.py): ``max_receive_counts`` gives each queue's
     x-delivery-limit, and ``cancels`` the stored consumer cancels (Store.consumer_cancels) of its queues, which show
@@ -337,6 +341,15 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
         observed.extend(_put_event_event(erow, x, eb_delivery, eb_time) for erow, x in zip(erows, put_events))
         order = order_mod.Order(steps)
         idx = {r["row"]: i for i, r in enumerate(steps)}
+    elif s3_uploads:
+        # S3 uploads (contract section 27.3): a joined upload is observed, placed like an SNS publish, and replaces
+        # section 23.3's inferred "S3 object created" step.
+        urows = [s3_mod.as_row(x["upload"]) for x in s3_uploads]
+        steps = steps + urows
+        dwell = s3_mod.delivery_ms(receives)
+        observed.extend(_s3_upload_event(urow, x, receives, dwell) for urow, x in zip(urows, s3_uploads))
+        order = order_mod.Order(steps)
+        idx = {r["row"]: i for i, r in enumerate(steps)}
     elif (arrived := sns_mod.arrived_from(receives)) is not None:
         r, arn = arrived
         infer(None, r, 1, _arrived_event(r, arn, by_row[r["row"]], delivery))
@@ -454,6 +467,33 @@ def _put_event_event(erow, joined: dict, delivery: Optional[int], event_time: Op
         ev["event_time_ms"] = event_time
     if delivery is not None:  # SQS's SentTimestamp minus the event's time: AWS clocks unless the sender gave a Time
         ev["eventbridge_delivery_ms"] = delivery
+    return ev
+
+
+S3_UPLOAD_SOURCE = "s3_upload"  # a recorded S3 upload this message's receives join (section 27.3)
+
+
+def _s3_upload_event(urow, joined: dict, receives: list, dwell: Optional[int]) -> dict:
+    """A recorded S3 upload this message's receives join, as a step of its timeline."""
+    a = sns_mod.attributes(urow)
+    bucket, op = urow["queue"], urow["operation"]
+    ev = {"type": "s3_upload", "inferred": False, "source": S3_UPLOAD_SOURCE, **_time(urow["start_ns"], urow["time_ns"]),
+          "group": None, "queue": bucket, "consumer": consumer(urow), "span": _span(urow),
+          "process_order": _ticks(urow), "bucket": bucket, "operation": op, "object_key": urow["message_id"],
+          "s3_event_name": s3_mod.EVENT_NAMES[op], "joined_by": joined["joined_by"], "reached": joined["reached"],
+          "reached_truncated": joined["reached_truncated"],
+          "reason": f"Uploaded to S3 bucket {bucket} by {op}. This message is joined to the upload by the bucket, the "
+                    f"object key and the event time in the S3 notification its receive got."}
+    for name, key in ((s3_mod.ETAG, "etag"), (s3_mod.VERSION_ID, "version_id")):
+        if isinstance(a.get(name), str):
+            ev[key] = a[name]
+    times = [n.event_time_ms for r in receives if (n := s3_mod.notification(r)) is not None
+             and n.bucket == bucket and n.key == urow["message_id"]]
+    if times:
+        ev["event_time"] = iso(min(times) * 1_000_000)
+        ev["event_time_ms"] = min(times)
+    if dwell is not None:  # SQS's SentTimestamp minus the record's eventTime: both AWS clocks
+        ev["s3_delivery_ms"] = dwell
     return ev
 
 

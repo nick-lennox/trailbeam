@@ -273,6 +273,28 @@ process that called `PutEvents`, the other SQS messages the event reached, and t
 `SentTimestamp` minus the event's `time`). If you set `Time` on the entry, that time is yours, not EventBridge's, and the
 timeline says so.
 
+### S3 uploads
+
+Contract section 27. `install()` also hooks boto3 `s3` clients: each `PutObject`, `CompleteMultipartUpload` or
+`CopyObject` call records one `trailbeam s3_upload` span, ok or failed. The request is never changed.
+
+- **Recorded from your call**: the bucket, the operation, whether it succeeded (`ok`) or `failed` with its error code, the
+  returned `ETag` and `VersionId`, and, only when body capture is on for the bucket (its name or `*` in `capture={"body_queues": [...]}`), the object key,
+  redacted like a body.
+- **Never recorded**: the object's contents, its user metadata (`Metadata`), `CopySource`, tags, checksums, encryption
+  keys, and the response's `Location`.
+
+Trailbeam joins the upload to the SQS messages its bucket notification sent, by bucket, object key and event time. A
+receive records the key only on a queue whose body is captured (next section), so the join needs body capture on both
+sides: for the bucket in the uploading process, and for the queue in the receiving one. Where either is off, the
+message keeps its inferred "S3 *event*" step. Joined, the timeline starts with "Uploaded to S3 bucket *name*",
+observed, with the process that uploaded, the other SQS messages the notification reached, and the S3 delivery time
+(SQS's `SentTimestamp` minus the record's `eventTime`).
+
+```python
+trailbeam.boto.install(capture={"body_queues": ["photos", "photo-uploads"]})  # the bucket, and the queue
+```
+
 ### EventBridge and S3 notifications
 
 Contract section 23. A message that an EventBridge rule or an S3 bucket notification sent has no send in your code. When

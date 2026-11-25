@@ -193,6 +193,37 @@ class Consumer:
             attrs["trailbeam.eventbridge.time_ms"] = time_ms
         return self.receive_with(t, mid, handle, attrs, **kw)
 
+    def s3_upload(self, t, bucket="photos", key=None, operation="PutObject", error=None, etag='"9dd4e461268c8034f5c8564e155c67a6"',
+                  version_id=None, start=None, order=None):
+        """A trailbeam s3_upload (contract section 27.1): one upload call, ok or failed; ``key`` only when the
+        uploading process captures the bucket's bodies."""
+        a = {"trailbeam.schema_version": 3, "trailbeam.kind": "s3.upload", "trailbeam.source": self.source,
+             "messaging.system.name": "aws.s3", "messaging.operation.type": "send",
+             "messaging.operation.name": operation, "messaging.destination.name": bucket,
+             "trailbeam.result": "failed" if error else "ok",
+             "messaging.client.id": self.client_id, "process.pid": 4242, "thread.name": "worker-1"}
+        if error:
+            a["trailbeam.error_code"] = error
+        elif etag:
+            a["trailbeam.s3.etag"] = etag
+        if version_id and not error:
+            a["trailbeam.s3.version_id"] = version_id
+        if key is not None:
+            a["trailbeam.s3.object_key"] = key
+        return self._s("trailbeam s3_upload", t, a, start=start, order=order)
+
+    def s3_receive(self, t, mid, handle, bucket="photos", key=None, event_time_ms=None,
+                   event_name="ObjectCreated:Put", **kw):
+        """A receive whose body is an S3 event notification (contract section 23.2); ``key`` as S3 writes it
+        (URL-encoded), only on a queue whose body is captured."""
+        attrs = {"trailbeam.s3.event_name": event_name, "trailbeam.s3.bucket": bucket,
+                 "trailbeam.s3.region": "us-east-1"}
+        if event_time_ms is not None:
+            attrs["trailbeam.s3.event_time_ms"] = event_time_ms
+        if key is not None:
+            attrs["trailbeam.s3.object_key"] = key
+        return self.receive_with(t, mid, handle, attrs, **kw)
+
     def receive_with(self, t, mid, handle, attrs: dict, **kw):
         """A receive with extra attributes, such as the section 23 ones of an EventBridge or S3 body (3.5)."""
         sp = self.receive(t, mid, handle, **kw)

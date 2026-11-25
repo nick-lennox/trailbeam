@@ -2502,6 +2502,7 @@ components:
         - $ref: '#/components/schemas/QueuePurgedStep'
         - $ref: '#/components/schemas/PublishedStep'
         - $ref: '#/components/schemas/PutEventStep'
+        - $ref: '#/components/schemas/S3UploadStep'
         - $ref: '#/components/schemas/MovedToDeadLetterQueueStep'
         - $ref: '#/components/schemas/ArrivedViaSnsStep'
         - $ref: '#/components/schemas/ArrivedViaEventBridgeStep'
@@ -2528,6 +2529,7 @@ components:
           queue_purged: '#/components/schemas/QueuePurgedStep'
           published: '#/components/schemas/PublishedStep'
           put_event: '#/components/schemas/PutEventStep'
+          s3_upload: '#/components/schemas/S3UploadStep'
           moved_to_dead_letter_queue: '#/components/schemas/MovedToDeadLetterQueueStep'
           arrived_via_sns: '#/components/schemas/ArrivedViaSnsStep'
           arrived_via_eventbridge: '#/components/schemas/ArrivedViaEventBridgeStep'
@@ -2857,6 +2859,50 @@ components:
             Both AWS clocks unless `event_time_given`; up to a second too long, as `time` has whole seconds. Shown
             as measured.
         reason: {type: string, description: The step in words.}
+    S3UploadStep:
+      allOf: [{$ref: '#/components/schemas/RecordedStep'}]
+      description: |
+        A recorded S3 upload (`PutObject`, `CompleteMultipartUpload` or `CopyObject`; contract section 27, added in
+        3.7) that this message's receives join: the bucket's notification sent its `ObjectCreated` event to the queue.
+        Joined by the bucket, the object key and the event time, so only when both the uploading process and the
+        receiving queue capture bodies (the key is recorded only then), and only when exactly one recorded upload of
+        the key fits the event time. One upload's notification can reach several queues, each as a different SQS
+        message, so the same step is on each of them, and `reached` lists them. It replaces the inferred `s3_event`
+        step. Placed by the hosts' clocks and the call order only. `queue` is the bucket, and `consumer` the process
+        that uploaded.
+      unevaluatedProperties: false
+      required: [source, bucket, operation, s3_event_name, joined_by, reached, reached_truncated, reason]
+      properties:
+        type: {const: s3_upload}
+        source: {type: string, const: s3_upload, description: 'A bucket-level step: the span names no SQS message.'}
+        bucket: {type: string}
+        operation: {type: string, enum: [PutObject, CompleteMultipartUpload, CopyObject]}
+        object_key: {type: string, description: 'The object key as the upload gave it (not URL-encoded), redacted.'}
+        s3_event_name: {type: string, description: 'The event name the operation raises, such as `ObjectCreated:Put`.'}
+        etag: {type: string, description: 'The `ETag` S3 returned, as returned (with its quotes).'}
+        version_id: {type: string, description: 'The `VersionId` S3 returned (`null` in a bucket whose versioning is suspended).'}
+        joined_by: {type: string, const: bucket_key_time, description: 'The bucket, key and event time of the notification in a receive''s body.'}
+        reached:
+          type: array
+          description: The SQS messages whose receives join this upload, by queue (this message among them).
+          items:
+            type: object
+            additionalProperties: false
+            required: [queue, message_ids]
+            properties:
+              queue: {type: string}
+              message_ids: {type: array, items: {type: string}}
+        reached_truncated: {type: boolean, description: True when there were more receives than `reached` lists (100).}
+        event_time:
+          allOf: [{$ref: '#/components/schemas/Timestamp'}]
+          description: The record's `eventTime` from this message's receive, when S3 finished the request. Not used to place the step.
+        event_time_ms: {type: integer, description: '`event_time` in Unix milliseconds.'}
+        s3_delivery_ms:
+          type: integer
+          description: |
+            S3 delivery time (how long the notification waited before SQS had it): this message's first receive's
+            `SentTimestamp` minus `event_time_ms`, in ms. Both AWS clocks. Shown as measured.
+        reason: {type: string, description: The step in words.}
     ArrivedViaSnsStep:
       allOf: [{$ref: '#/components/schemas/PlacedStep'}]
       description: |
@@ -2906,8 +2952,9 @@ components:
       allOf: [{$ref: '#/components/schemas/PlacedStep'}]
       description: |
         Inferred (contract section 23.3, added in 3.5): a receive's body is an S3 event notification (or S3's test
-        message), so an S3 bucket notification most likely sent the message. Not shown when the message has a send or
-        came through SNS. It has no time of its own and is placed before the receive whose body it is.
+        message), so an S3 bucket notification most likely sent the message. Not shown when the message has a send,
+        came through SNS, or (3.7) a recorded upload joins it (`s3_upload`). It has no time of its own and is placed
+        before the receive whose body it is.
       unevaluatedProperties: false
       required: [source, queue, s3_event_name, bucket, test_event, reported_on_delivery]
       properties:
@@ -3384,6 +3431,7 @@ components:
                 purge: {type: integer, description: '`PurgeQueue` calls (contract section 18). They belong to no message.'}
                 publish: {type: integer, description: 'SNS messages published to a topic (contract section 21, added in 3.4). They belong to no message.'}
                 put_event: {type: integer, description: 'EventBridge `PutEvents` entries, accepted or failed (contract section 25, added in 3.6). They belong to no message.'}
+                s3_upload: {type: integer, description: 'S3 uploads, ok or failed (contract section 27, added in 3.7). They belong to no message.'}
                 return: {type: integer, description: 'RabbitMQ `basic.return`s: unroutable publishes (contract/span-contract-amqp.md A4.2).'}
                 reject: {type: integer, description: 'RabbitMQ deliveries refused with requeue = false.'}
                 channel_closed: {type: integer, description: 'RabbitMQ deliveries whose channel closed before they were settled.'}

@@ -793,6 +793,11 @@ def _scenario_spans():
         p.put_event(T0 + SEC, error="ThrottlingException", index=1, start=T0),
         c.eb_receive(T0 + 3 * SEC, "via-put-events", "rh-e3", "11710aed-b79e-4468-a20b-bb3c0c3b4860",
                      time_ms=T0 // ms, sent_ms=T0 // ms + 400, start=T0 + 2 * SEC),
+        # s3_upload: a recorded PutObject joined by bucket, key and event time (contract 27.3), and a failed one
+        p.s3_upload(T0 + SEC, bucket="photos", key="red flower.jpg", version_id="v1", start=T0),
+        p.s3_upload(T0 + SEC, bucket="photos", error="AccessDenied", start=T0),
+        c.s3_receive(T0 + 3 * SEC, "via-s3-upload", "rh-s3", bucket="photos", key="red+flower.jpg",
+                     event_time_ms=T0 // ms + 800, sent_ms=T0 // ms + 1000, start=T0 + 2 * SEC),
     ]
 
 
