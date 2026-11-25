@@ -519,6 +519,17 @@ def test_sns_fan_out_shows_the_publish_and_the_arrival(server):
     assert "sns-1" not in html and "orders-topic" not in html  # a publish is the topic's step, not a message
 
 
+def test_a_resent_sns_envelope_does_not_claim_sns_delivered_it(server):
+    """QV-514, contract section 21.5: a message with a recorded send whose body looks like an SNS envelope gets no
+    "Arrived via SNS" step, as EventBridge and S3 bodies get none (23.3): the send put it on the queue."""
+    p, c = Consumer("producer", service="orders-api"), Consumer("orders-worker")
+    post(server, [p.send(T0, "resent"),
+                  c.sns_receive(T0 + 2 * SEC, "resent", "rh-1", sns_id="abc", topic="t", start=T0 + SEC)])
+    _, _, html = get(server, page("resent"))
+    assert [t for t, _ in events(html)] == ["sent", "received"]
+    assert "Arrived via SNS" not in html and "SNS delivered" not in html
+
+
 def test_a_deduplicated_fifo_send_is_shown_as_such_with_its_reason(server):
     """QV-246: SQS returns the first send's MessageId to a FIFO send it deduplicates and enqueues nothing."""
     from trailbeam.server.timeline import DEDUPLICATED_REASON
