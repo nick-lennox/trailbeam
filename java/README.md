@@ -40,6 +40,12 @@ Requires Java 11 or later and AWS SDK for Java v2 2.17 or later. CI runs the kit
 | `ChangeMessageVisibility`, `ChangeMessageVisibilityBatch` | one `trailbeam change_visibility` per receipt handle |
 | `PurgeQueue` | one `trailbeam purge` |
 
+The jar hooks only SQS clients: SNS publishes, EventBridge `PutEvents` and S3 uploads are not recorded. Its
+receives read no SNS, EventBridge or S3 fields from the body, so the timeline of a message that came through one of
+them starts at its first receive, with no step for where it came from (contract sections 21, 23, 25 and 27; the
+Python and Node.js packages do). With body capture on, a captured SNS or EventBridge body is only labelled
+`trailbeam.body.envelope`.
+
 To read the receive count and the other system attributes, the interceptor adds their names to each
 `ReceiveMessage` request. It also asks for the tenant message attribute (if you configured one) and the SQS
 Extended Client's size attributes. It keeps every name you asked for, and leaves `All` (and `.*`) alone. That

@@ -40,6 +40,11 @@ at 0) and beside dd-trace-go v2.
 | `ChangeMessageVisibility`, `ChangeMessageVisibilityBatch` | one `trailbeam change_visibility` per receipt handle |
 | `PurgeQueue` | one `trailbeam purge` |
 
+The middleware hooks only SQS clients: SNS publishes, EventBridge `PutEvents` and S3 uploads are not recorded. It
+never reads a message body, so the timeline of a message that came through SNS, EventBridge or an S3 notification
+starts at its first receive, with no step for where it came from (contract sections 21, 23, 25 and 27; the Python
+and Node.js packages do).
+
 To read the receive count and the other system attributes, the middleware adds their names to each
 `ReceiveMessage` request's `MessageSystemAttributeNames`, or to the deprecated `AttributeNames` if that is the only
 list you use. It works on a copy of your input, keeps every name you asked for, and leaves `All` alone. That
