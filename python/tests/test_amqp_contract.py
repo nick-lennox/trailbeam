@@ -94,6 +94,9 @@ def check(attrs: dict) -> str:
             missing.append(name)
     if missing:
         return f"{kind} span without {', '.join(missing)}"
+    long = [name for name in REQUIRED[kind] if isinstance(attrs[name], str) and not fits(attrs[name])]
+    if long:
+        return f"{kind} span with {', '.join(long)} over 255 bytes"
     for name, allowed in ENUMS.items():
         if name in attrs and attrs[name] not in allowed:
             return f"{kind} span with {name} {attrs[name]!r}; not one of {', '.join(allowed)}"
@@ -116,23 +119,28 @@ def receive_count(redelivered: bool, headers: dict):
     return None, None
 
 
+def fits(v) -> bool:
+    """A3: a string the package copies, at most 255 bytes in UTF-8."""
+    return isinstance(v, str) and len(v.encode("utf-8")) <= 255
+
+
 def dead_letter(headers: dict) -> dict:
     """A8: the trailbeam.dead_letter.* attributes."""
     deaths = headers.get("x-death")
     if not isinstance(deaths, list) or not deaths or not isinstance(deaths[0], dict):
         return {}
     d = deaths[0]
-    if not d.get("queue") or not d.get("reason"):
+    if not d.get("queue") or not d.get("reason") or not fits(d["queue"]) or not fits(d["reason"]):
         return {}
     out = {"trailbeam.dead_letter.source_queue": d["queue"], "trailbeam.dead_letter.reason": d["reason"],
            "trailbeam.dead_letter.count": d.get("count")}
     if "time" in d:
         out["trailbeam.dead_letter.time_ms"] = d["time"] * 1000
-    if "exchange" in d:
+    if "exchange" in d and fits(d["exchange"]):
         out["trailbeam.dead_letter.exchange"] = d["exchange"] or "amq.default"
-    if headers.get("x-first-death-queue"):
+    if headers.get("x-first-death-queue") and fits(headers["x-first-death-queue"]):
         out["trailbeam.dead_letter.first_queue"] = headers["x-first-death-queue"]
-    if headers.get("x-first-death-reason"):
+    if headers.get("x-first-death-reason") and fits(headers["x-first-death-reason"]):
         out["trailbeam.dead_letter.first_reason"] = headers["x-first-death-reason"]
     return {k: v for k, v in out.items() if v is not None}
 
@@ -156,7 +164,7 @@ def test_receive_count_vectors():
 
 def test_dead_letter_vectors():
     for case in VECTORS["dead_letter"]:
-        assert dead_letter({"x-death": case["x-death"]}) == case["attributes"], case["name"]
+        assert dead_letter({**case.get("headers", {}), "x-death": case["x-death"]}) == case["attributes"], case["name"]
 
 
 def _process_attrs(kind: str) -> dict:

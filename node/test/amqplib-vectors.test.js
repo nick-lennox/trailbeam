@@ -179,7 +179,7 @@ test.describe('receive count vectors (A7)', () => {
 test.describe('dead-letter vectors (A8)', () => {
   for (const c of VECTORS.dead_letter) {
     test(c.name, () => {
-      assert.deepStrictEqual(amqplibHooks.deadLetterAttrs(c['x-death']), c.attributes);
+      assert.deepStrictEqual(amqplibHooks.deadLetterAttrs(c['x-death'], c.headers), c.attributes);
     });
   }
 });

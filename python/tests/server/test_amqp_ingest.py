@@ -25,6 +25,7 @@ def test_the_contract_ingest_vectors(case):
     rec, reason = record(case["attributes"])
     if case["accept"]:
         assert rec is not None and reason == "", reason
+        assert set(case["attributes"]) - set(rec["attributes"]) == set(case.get("dropped", ())), case["name"]
     else:
         assert rec is None and reason.startswith(case["reason_starts_with"]), reason
 

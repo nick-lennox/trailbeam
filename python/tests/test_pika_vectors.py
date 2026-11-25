@@ -178,4 +178,4 @@ def test_receive_count_vectors(case):
 
 @pytest.mark.parametrize("case", VECTORS["dead_letter"], ids=lambda c: c["name"])
 def test_dead_letter_vectors(case):
-    assert _amqp.dead_letter_attrs(case["x-death"]) == case["attributes"]
+    assert _amqp.dead_letter_attrs(case["x-death"], case.get("headers")) == case["attributes"]

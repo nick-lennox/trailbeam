@@ -134,6 +134,12 @@ AMQP_ENUMS = {
     "trailbeam.amqp.close.initiator": ("client", "broker", "network"),
     "trailbeam.receive_count.source": ("x-acquired-count", "x-delivery-count", "first_delivery"),
 }
+# A12: the longest string attribute an amqp span keeps, in UTF-8 bytes (an AMQP short string's limit, as the
+# packages' A3 cap). A longer required attribute rejects the span; any other is dropped. Exempt: the captured body
+# (its own limit, span-contract.md section 15.1) and the tenant (256 characters, section 15.2).
+AMQP_MAX_STRING_BYTES = 255
+AMQP_LONG_STRING_EXEMPT = frozenset({"trailbeam.body", "trailbeam.tenant"})
+MAX_TENANT_CHARS = 256
 # The record kinds only RabbitMQ spans have (the module docstring's table).
 AMQP_KINDS = ("return", "reject", "cancel", "channel_closed")
 # The fields an amqp span sets as an SQS span does; the rest are worked out (_amqp_record) or None.
@@ -356,6 +362,12 @@ def _amqp_int(v) -> Optional[int]:
     return None
 
 
+def _amqp_long(name: str, v) -> bool:
+    """A12: a string attribute over AMQP_MAX_STRING_BYTES that is not exempt."""
+    return (isinstance(v, str) and len(v) > AMQP_MAX_STRING_BYTES // 4 and name not in AMQP_LONG_STRING_EXEMPT
+            and len(v.encode("utf-8", "surrogatepass")) > AMQP_MAX_STRING_BYTES)
+
+
 def _amqp_has(name: str, v) -> bool:
     if name in AMQP_BOOLS:
         return isinstance(v, bool)
@@ -396,6 +408,13 @@ def _amqp_record(resource: dict, trace_id: str, span_id: str, start_ns: int, end
     missing = [a for a in AMQP_REQUIRED[kind] if not _amqp_has(a, attrs.get(a))]
     if missing:
         return None, f"{kind} span without {', '.join(missing)}"
+    long = [a for a in AMQP_REQUIRED[kind] if _amqp_long(a, attrs[a])]
+    if long:
+        return None, f"{kind} span with {', '.join(long)} over {AMQP_MAX_STRING_BYTES} bytes"
+    attrs = {k: v for k, v in attrs.items() if not _amqp_long(k, v)}
+    tenant = attrs.get("trailbeam.tenant")
+    if isinstance(tenant, str) and len(tenant) > MAX_TENANT_CHARS:
+        attrs["trailbeam.tenant"] = tenant[:MAX_TENANT_CHARS]  # tenants.md: cut to its first 256 characters
     for name, allowed in AMQP_ENUMS.items():
         if name in attrs and attrs[name] not in allowed:
             return None, f"{kind} span with {name} {attrs[name]!r}; not one of {', '.join(allowed)}"

@@ -94,6 +94,13 @@ dropped otherwise. The consumer can't tell which; the next delivery, on the dead
 Absent values are omitted, never sent as `""`, `0` or `-1` (`span-contract.md` section 3). `aws.sqs.queue.url`
 and the receipt-handle attributes are not set on RabbitMQ spans.
 
+**String lengths.** A string the package copies from the broker or from a message's headers (the queue,
+exchange, routing key, consumer tag, message ID, reply text, and the `x-death` and `x-first-death-*` values of
+A8) is copied only if it is at most **255 bytes** in UTF-8, the limit of an AMQP short string. No real queue,
+exchange, routing key, consumer tag or message ID is longer, since the protocol carries them as short strings,
+but header values are long strings, bounded only by the frame size, and the publisher sets them. A longer value
+is **dropped**, not cut: a cut name would name another queue. Trailbeam applies the same limit on ingest (A12).
+
 Trailbeam keeps the queues of different virtual hosts apart: a RabbitMQ queue is identified by
 (`trailbeam.amqp.vhost`, `messaging.destination.name`). Brokers are not told apart in 4.0: two brokers with a
 queue of the same name in the same virtual host name are merged, as two SQS queues of one name in different
@@ -372,7 +379,9 @@ recent dead-lettering [verified: [dead letter exchanges](https://www.rabbitmq.co
 | `trailbeam.dead_letter.first_reason` | string | may | the `x-first-death-reason` header |
 
 An `x-death` that is not an array of tables, or whose first entry has no `queue` or `reason`, is not copied
-(no `trailbeam.dead_letter.*` at all). The SQS attribute `trailbeam.dead_letter_queue_source_arn` is not used
+(no `trailbeam.dead_letter.*` at all). A value over the 255-byte limit of A3 counts as absent: a `queue` or
+`reason` over it means no `trailbeam.dead_letter.*` at all; an `exchange`, `x-first-death-queue` or
+`x-first-death-reason` over it is omitted alone. The SQS attribute `trailbeam.dead_letter_queue_source_arn` is not used
 for RabbitMQ.
 
 **The move.** A delivery whose `trailbeam.dead_letter.source_queue` names another queue than its own reports
@@ -492,9 +501,17 @@ RabbitMQ span, with the reason in `partial_success`, when any of these is true:
   | `amqp.cancel` | `messaging.destination.name`, `trailbeam.amqp.vhost`, `trailbeam.amqp.channel.id`, `trailbeam.amqp.consumer_tag`, `trailbeam.amqp.cancelled_by` |
   | `amqp.channel_closed` | `messaging.destination.name`, `trailbeam.amqp.vhost`, `trailbeam.amqp.channel.id`, `rabbitmq.message.delivery_tag`, `trailbeam.amqp.close.initiator` |
 
+- a required string attribute is over 255 bytes in UTF-8 (A3)
+  (`K span with A over 255 bytes`): a queue or exchange name that long would become a queue of its own;
 - a value is outside its list: `trailbeam.result` not `ok` or `failed`; `trailbeam.amqp.cancelled_by` not
   `client` or `broker`; `trailbeam.amqp.close.initiator` not `client`, `broker` or `network`;
   `trailbeam.receive_count.source` not one of the three in A7 (`K span with A 'X'; not one of ...`).
+
+Any other string attribute over 255 bytes is **dropped** from the span before it is read or stored, as if it had
+not been sent, except `trailbeam.body` (its own limit, `span-contract.md` section 15.1) and `trailbeam.tenant`,
+which is cut to its first 256 characters (`tenants.md`). So a span from another sender, or from an older package,
+can't grow the store with long header values: a 60,000-character `x-first-death-queue` on each of 300 deliveries
+made the store 78 times larger [verified: RabbitMQ 4.4.1, the QV-526 review].
 
 `messaging.message.id` is **not** required on any RabbitMQ span (A6), and neither is `trailbeam.receive_count`
 (A7). A `trailbeam.receive_count` without `trailbeam.receive_count.source` is read as having no count. The
