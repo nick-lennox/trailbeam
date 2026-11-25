@@ -107,10 +107,17 @@ function decodeText(bytes) {
 // limit, so no real queue, exchange, routing key, consumer tag or message ID is longer. Longer values are dropped.
 const MAX_TEXT_BYTES = 255;
 
-/** A non-empty string of at most MAX_TEXT_BYTES bytes (A3); a Buffer of valid UTF-8 is read as one. */
+// A3: a string holding U+FFFD is dropped. amqplib decodes every short and long string with toString('utf8'),
+// which turns each byte that is not valid UTF-8 into U+FFFD, so two different IDs (ff fe 41 and fe ff 41) would
+// read as one and merge two messages. The raw bytes are gone by then; pika hands them over undecoded and the
+// Python package drops them, so this package drops what amqplib could have decoded lossily.
+const REPLACEMENT_CHARACTER = '\ufffd';
+
+/** A non-empty string of at most MAX_TEXT_BYTES bytes without U+FFFD (A3); a Buffer of valid UTF-8 is read as one. */
 function text(v) {
   if (v instanceof Uint8Array) v = v.length > MAX_TEXT_BYTES ? undefined : decodeText(v);
   if (typeof v !== 'string' || !v || v.length > MAX_TEXT_BYTES) return undefined; // a UTF-16 unit is >= 1 byte
+  if (v.includes(REPLACEMENT_CHARACTER)) return undefined;
   return Buffer.byteLength(v, 'utf8') <= MAX_TEXT_BYTES ? v : undefined;
 }
 

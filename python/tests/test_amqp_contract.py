@@ -119,8 +119,20 @@ def receive_count(redelivered: bool, headers: dict):
     return None, None
 
 
+def wire_text(v):
+    """A vector's string as A3 reads it: {"bytes": hex} decoded if valid UTF-8, else None; None for a string
+    holding U+FFFD."""
+    if isinstance(v, dict) and set(v) == {"bytes"}:
+        try:
+            v = bytes.fromhex(v["bytes"]).decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+    return None if isinstance(v, str) and "\ufffd" in v else v
+
+
 def fits(v) -> bool:
-    """A3: a string the package copies, at most 255 bytes in UTF-8."""
+    """A3: a string the package copies, at most 255 bytes in UTF-8, valid UTF-8 and without U+FFFD."""
+    v = wire_text(v)
     return isinstance(v, str) and len(v.encode("utf-8")) <= 255
 
 
@@ -132,6 +144,8 @@ def dead_letter(headers: dict) -> dict:
     d = deaths[0]
     if not d.get("queue") or not d.get("reason") or not fits(d["queue"]) or not fits(d["reason"]):
         return {}
+    d = {k: wire_text(v) for k, v in d.items()}
+    headers = {k: wire_text(v) for k, v in headers.items()}
     out = {"trailbeam.dead_letter.source_queue": d["queue"], "trailbeam.dead_letter.reason": d["reason"],
            "trailbeam.dead_letter.count": d.get("count")}
     if "time" in d:
@@ -204,7 +218,7 @@ def test_emit_deliveries_follow_a7_and_a8():
         assert attrs.get("trailbeam.receive_count.source") == source, case["name"]
         got = {k: v for k, v in attrs.items() if k.startswith("trailbeam.dead_letter.")}
         assert got == dead_letter(event["headers"]), case["name"]
-        assert attrs.get("messaging.message.id") == event["properties"].get("message_id"), case["name"]
+        assert attrs.get("messaging.message.id") == wire_text(event["properties"].get("message_id")), case["name"]
         seen += 1
     assert seen >= 5
 

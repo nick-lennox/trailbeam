@@ -28,6 +28,21 @@ PRESENT_ON_CHANNEL_SPANS = VECTORS["emit_present_on_channel_spans"]
 NOT_CHANNEL_SPANS = {"trailbeam publish", "trailbeam return"}
 
 
+def _wire(v):
+    """A vector's {"bytes": hex} as pika decodes it (A3): a str if the bytes are valid UTF-8, else the bytes."""
+    if isinstance(v, dict) and set(v) == {"bytes"}:
+        raw = bytes.fromhex(v["bytes"])
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return raw
+    if isinstance(v, dict):
+        return {k: _wire(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_wire(x) for x in v]
+    return v
+
+
 @pytest.fixture
 def exporter():
     exp = InMemorySpanExporter()
@@ -61,6 +76,7 @@ def _consumer(ch, event):
 
 
 def _play(event, exporter):
+    event = _wire(event)
     conn, ch = _channel(event)
     _consumer(ch, event)
     _record(ch, event.get("recorded", []))
@@ -178,4 +194,4 @@ def test_receive_count_vectors(case):
 
 @pytest.mark.parametrize("case", VECTORS["dead_letter"], ids=lambda c: c["name"])
 def test_dead_letter_vectors(case):
-    assert _amqp.dead_letter_attrs(case["x-death"], case.get("headers")) == case["attributes"]
+    assert _amqp.dead_letter_attrs(_wire(case["x-death"]), _wire(case.get("headers"))) == case["attributes"]

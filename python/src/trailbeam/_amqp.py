@@ -84,14 +84,23 @@ def _amqp_int(v: Any) -> Optional[int]:
     return v if isinstance(v, int) and not isinstance(v, bool) else None
 
 
+# A3: a string holding U+FFFD is dropped. Some client libraries (amqplib) decode a string that is not valid UTF-8
+# lossily, each bad byte becoming U+FFFD, so two different IDs could read as one; pika hands such a string over as
+# bytes. Dropping both kinds keeps the packages alike and never merges two messages under one key.
+REPLACEMENT_CHARACTER = "\ufffd"
+
+
 def _text(v: Any) -> Optional[str]:
-    """A non-empty string of at most MAX_TEXT_BYTES bytes (A3); bytes of valid UTF-8 are read as one."""
+    """A non-empty string of at most MAX_TEXT_BYTES bytes without U+FFFD (A3); bytes of valid UTF-8 are read as
+    one."""
     if isinstance(v, (bytes, bytearray)):
         try:
             v = bytes(v).decode("utf-8")
         except UnicodeDecodeError:
             return None
     if not isinstance(v, str) or not v or len(v) > MAX_TEXT_BYTES:  # a character is at least one byte
+        return None
+    if REPLACEMENT_CHARACTER in v:
         return None
     return v if len(v.encode("utf-8", "surrogatepass")) <= MAX_TEXT_BYTES else None
 
