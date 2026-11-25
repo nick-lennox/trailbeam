@@ -37,6 +37,12 @@ OpenTelemetry 1.21. The version matrix is a later stage of QV-320.
 | `ChangeMessageVisibility`, `ChangeMessageVisibilityBatch` | one `trailbeam change_visibility` per receipt handle |
 | `PurgeQueue` | one `trailbeam purge` |
 
+The handler hooks only SQS clients: SNS publishes, EventBridge `PutEvents` and S3 uploads are not recorded. Its
+receives read no SNS, EventBridge or S3 fields from the body, so the timeline of a message that came through one of
+them starts at its first receive, with no step for where it came from (contract sections 21, 23, 25 and 27; the
+Python and Node.js packages do). With body capture on, a captured SNS or EventBridge body is only labelled
+`trailbeam.body.envelope`.
+
 To read the receive count and the other system attributes, the handler adds their names to each
 `ReceiveMessage` request before the SDK marshals it. It also asks for the tenant message attribute (if you
 configured one) and the SQS Extended Client's size attributes. It keeps every name you asked for, and leaves `All`

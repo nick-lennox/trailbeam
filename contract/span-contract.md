@@ -1010,8 +1010,10 @@ it to the receives, through one of two keys:
 One publish to a topic with several queue subscriptions reaches each queue as a different SQS message, with its own
 SQS message ID. All of them join the one publish.
 
-The Python and Node.js packages implement this section. The Java jar (section 20) emits revision 3.3 and does
-not hook SNS clients yet: a publish from Java is not recorded, and a receive in Java carries no SNS attributes.
+The Python and Node.js packages implement this section. The Java (section 20), .NET and Go add-ons do not: they hook
+no SNS client, so a publish from them is not recorded, and their receives read neither the `trailbeam.publish_id`
+attribute nor the envelope, so they carry no SNS attributes. With body capture on, the Java and .NET add-ons
+label a captured SNS or EventBridge body `trailbeam.body.envelope` (section 15); that is the only use they make of it.
 
 ### 21.1 `trailbeam publish`
 
@@ -1210,6 +1212,10 @@ within the size and object-and-array limits of section 21.3, and parses as JSON.
 256 characters (Unicode code points); a longer one is left out, or, for a field the match needs, makes the body not
 match. Times use the format and rules of the SNS `Timestamp` (section 21.3).
 
+The Python and Node.js packages implement this section. The Java, .NET and Go add-ons read nothing from the body for
+it, so their receives carry none of these attributes and get no inferred first step. With body capture on, the Java and .NET add-ons
+label a captured SNS or EventBridge body `trailbeam.body.envelope` (section 15); that is the only use they make of it.
+
 ### 23.1 EventBridge events
 
 The body is an EventBridge event if it is one JSON object with a `detail` member, an `id` of 1 to 100 letters, digits or
@@ -1321,7 +1327,8 @@ which the receive already records as `trailbeam.eventbridge.event_id` (23.1). No
 One event can match several rules, and one rule can have several SQS targets. Each target queue gets its own SQS
 message, with its own SQS message ID, and all of them join the one `PutEvents` entry.
 
-The Python and Node.js packages implement this section. The Java jar (section 20) does not hook EventBridge clients.
+The Python and Node.js packages implement this section. The Java (section 20), .NET and Go add-ons do not hook
+EventBridge clients, and their receives record no event ID (section 23).
 
 ### 25.1 `trailbeam put_event`
 
@@ -1435,7 +1442,8 @@ body: `eTag` and `versionId` stay unread.
 One upload's notification can go to several queues (one notification configuration each). Each queue gets its own SQS
 message, with its own SQS message ID, and all of them join the one upload.
 
-The Python and Node.js packages implement this section. The Java jar (section 20) does not hook S3 clients.
+The Python and Node.js packages implement this section. The Java (section 20), .NET and Go add-ons do not hook S3
+clients, and their receives record no S3 fields (section 23).
 
 ### 27.1 `trailbeam s3_upload`
 
