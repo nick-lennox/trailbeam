@@ -324,7 +324,8 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
     # ---- SNS fan-out (contract section 21.5) --------------------------------------------------------
     # A joined publish is an observed step, placed by the proven order (clock and process_order only: SNS's and
     # SQS's timestamps are never compared with a host clock). Without one, a receive whose envelope names a topic
-    # shows that SNS delivered it, placed before that receive only.
+    # shows that SNS delivered it, placed before that receive only, unless a send of the message was seen: then a
+    # process re-sent an envelope-shaped body, and SNS delivered nothing (QV-514).
     delivery = sns_mod.delivery_ms(receives)
     if publishes:
         prows = [sns_mod.as_row(x["publish"]) for x in publishes]
@@ -350,7 +351,7 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
         observed.extend(_s3_upload_event(urow, x, receives, dwell) for urow, x in zip(urows, s3_uploads))
         order = order_mod.Order(steps)
         idx = {r["row"]: i for i, r in enumerate(steps)}
-    elif (arrived := sns_mod.arrived_from(receives)) is not None:
+    elif not sends and (arrived := sns_mod.arrived_from(receives)) is not None:
         r, arn = arrived
         infer(None, r, 1, _arrived_event(r, arn, by_row[r["row"]], delivery))
     elif not sends and (came := origin_mod.arrived_from(receives)) is not None:

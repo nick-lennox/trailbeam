@@ -1126,7 +1126,9 @@ option (21.3).
   comes after its publish" is not a source.
 - **Arrived via SNS**: a receive with `trailbeam.sns.topic_arn` and no joined publish (the publisher runs no Trailbeam
   package) shows "Arrived via SNS topic *name*", observed from the envelope, before that receive and ordered only
-  through it, like the dead-letter move of section 9b.
+  through it, like the dead-letter move of section 9b. A message that also has a `trailbeam send` shows no such step:
+  the send put it on the queue, so the envelope is in a body a process re-sent, not proof that SNS delivered it (as
+  for section 23.3's inferred steps).
 - SNS can deliver one publish to a queue more than once [not checked for 3.4: standard topics are documented as
   at-least-once]. Each delivery is its own SQS message; each joins the publish.
 

@@ -14,7 +14,7 @@ A receive **joins** a publish (section 21.5) through one of two keys, read from 
 
 What a join shows is worked out when the message is read (queries.message): the timeline gets the joined
 publishes as observed steps, each with the SQS messages it reached; a message whose receives name a topic but join
-no publish gets "Arrived via SNS" (timeline.py).
+no publish, and has no send, gets "Arrived via SNS" (timeline.py).
 """
 from __future__ import annotations
 

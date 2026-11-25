@@ -2908,7 +2908,8 @@ components:
       description: |
         SNS delivered the message (contract section 21.5, added in 3.4): a receive's SNS envelope names the topic,
         and no recorded publish joins it (the publisher runs no Trailbeam package). Not inferred: the envelope says
-        so. It has no time of its own and is placed before the receive that carries the envelope.
+        so. It has no time of its own and is placed before the receive that carries the envelope. Not shown on a
+        message that has a recorded send: a process re-sent an envelope-shaped body there (QV-514).
       unevaluatedProperties: false
       required: [source, topic, topic_arn, sns_message_id, reported_on_delivery]
       properties:
