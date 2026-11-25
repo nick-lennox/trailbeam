@@ -36,7 +36,7 @@ from urllib.parse import quote
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
 
 from .sns import valid_topic_arn
-from . import eventbridge
+from . import eventbridge, s3
 from .systems import RABBITMQ, SQS, message_key
 
 SCOPE_NAME = "trailbeam"
@@ -96,6 +96,7 @@ _REQUIRED = {
     "purge": ("queue", "result"),  # revision 3.3, section 18: no message ID, no receipt hash
     "publish": ("queue", "message_id"),  # revision 3.4, section 21.1: the topic name and the SNS message ID
     "put_event": ("queue", "result"),  # revision 3.6, section 25.1: the bus name; the event ID when ok
+    "s3_upload": ("queue", "result"),  # revision 3.7, section 27.1: the bucket; the object key only when recorded
 }
 
 # ---- RabbitMQ (contract/span-contract-amqp.md) ----
@@ -266,6 +267,8 @@ def _event_kind(attrs: dict) -> Optional[str]:
         return "publish"
     if kind == "eventbridge.put_event" and attrs.get("messaging.operation.name") == "PutEvents":
         return "put_event"
+    if kind == "s3.upload" and attrs.get("messaging.operation.name") in s3.EVENT_NAMES:
+        return "s3_upload"
     if kind == "sqs.settle":
         op = attrs.get("messaging.operation.name")
         if op in DELETE_OPS:
@@ -295,7 +298,7 @@ def to_record(resource: dict, trace_id: str, span_id: str, start_ns: int, end_ns
     bad = _span_checks(trace_id, span_id, start_ns, end_ns)
     if bad:
         return None, bad
-    if kind in ("purge", "publish", "put_event") and attrs.get("trailbeam.start_observed") is False:
+    if kind in ("purge", "publish", "put_event", "s3_upload") and attrs.get("trailbeam.start_observed") is False:
         return None, f"{kind} span without an observed start"  # always a client call (sections 18, 21.1)
     observed = attrs.get("trailbeam.start_observed") is not False
     rec = {"trace_id": trace_id, "span_id": span_id, "kind": kind, "time_ns": int(end_ns),
@@ -310,7 +313,7 @@ def to_record(resource: dict, trace_id: str, span_id: str, start_ns: int, end_ns
     missing = [f for f in _REQUIRED[kind] if rec[f] is None]
     if missing:
         return None, f"{kind} span without {', '.join(missing)}"
-    if kind in ("delete", "change_visibility", "purge", "put_event") and rec["result"] not in ("ok", "failed"):
+    if kind in ("delete", "change_visibility", "purge", "put_event", "s3_upload") and rec["result"] not in ("ok", "failed"):
         return None, f"trailbeam.result {rec['result']!r} is not ok or failed"
     if kind == "publish" and not valid_topic_arn(attrs.get("aws.sns.topic.arn")):
         return None, "publish span without a valid aws.sns.topic.arn"
@@ -321,9 +324,14 @@ def to_record(resource: dict, trace_id: str, span_id: str, start_ns: int, end_ns
             return None, "put_event span with trailbeam.result ok and no valid event ID"
         if rec["result"] == "failed":
             rec["message_id"] = None  # a failed entry has no event
+    if kind == "s3_upload":
+        if not s3.valid_bucket(rec["queue"]):
+            return None, "s3_upload span without a valid bucket name"
+        key = attrs.get(s3.OBJECT_KEY)  # the join's key (section 27.3); a failed call created no object
+        rec["message_id"] = key if rec["result"] == "ok" and s3.valid_key(key) else None
     if kind == "outcome" and rec["outcome"] not in OUTCOMES:
         return None, f"unknown trailbeam.outcome {rec['outcome']!r}"
-    if kind not in ("publish", "put_event"):  # an SNS message or event ID names no message of a queue (store.py)
+    if kind not in ("publish", "put_event", "s3_upload"):  # an SNS message ID, event ID or object key names no message
         rec["message_id"] = message_key(SQS, rec["message_id"])
     rec["attributes"] = attrs
     return rec, ""

@@ -148,7 +148,7 @@ import psycopg_pool
 from psycopg import errors, sql
 from psycopg.rows import dict_row
 
-from . import body_table, eventbridge, pg_schema, purge, queues, rollup, sns, summary
+from . import body_table, eventbridge, pg_schema, purge, queues, rollup, s3, sns, summary
 from .events import HOUR_NS, KINDS as STEP_KINDS, hour_split
 from .lookup_filter import LookupFilter, hash_key, mid_key
 from .db import gate_body
@@ -944,7 +944,8 @@ class PostgresStore(Store):
         purges = [x for x in prepared if x[0]["kind"] == "purge"]
         publishes = [x for x in prepared if x[0]["kind"] == sns.KIND]
         entries = [x for x in prepared if x[0]["kind"] == eventbridge.KIND]
-        if not purges and not publishes and not entries:
+        uploads = [x for x in prepared if x[0]["kind"] == s3.KIND]
+        if not purges and not publishes and not entries and not uploads:
             inserted, dupes = self._insert_spans(conn, prepared, more_locks)
         else:
             inserted = dupes = 0
@@ -956,11 +957,15 @@ class PostgresStore(Store):
             if entries:
                 i, d = self._insert_put_events(conn, entries)
                 inserted, dupes = inserted + i, dupes + d
-            rest = [x for x in prepared if x[0]["kind"] not in ("purge", sns.KIND, eventbridge.KIND)]
+            if uploads:
+                i, d = self._insert_s3_uploads(conn, uploads)
+                inserted, dupes = inserted + i, dupes + d
+            rest = [x for x in prepared if x[0]["kind"] not in ("purge", sns.KIND, eventbridge.KIND, s3.KIND)]
             if rest:
                 i, d = self._insert_spans(conn, rest, more_locks)
                 inserted, dupes = inserted + i, dupes + d
         self._insert_sns_receives(conn, prepared)
+        self._insert_s3_receives(conn, prepared)
         return inserted, dupes
 
     def _insert_publishes(self, conn, publishes) -> tuple[int, int]:
@@ -988,6 +993,40 @@ class PostgresStore(Store):
         got = conn.execute(f"INSERT INTO eventbridge_events ({names}) SELECT {names} FROM unnest({types}) AS u({names}) "
                            "ON CONFLICT DO NOTHING RETURNING id", [cols[c] for c in _PUT_EVENT_INSERT]).fetchall()
         return len(got), len(entries) - len(got)
+
+    def _insert_s3_uploads(self, conn, uploads) -> tuple[int, int]:
+        """S3 uploads (contract section 27.1). The same span again is a duplicate."""
+        cols = {c: [] for c in _S3_UPLOAD_INSERT}
+        for r, _own, attrs, *_ in uploads:
+            for c in _S3_UPLOAD_INSERT:
+                cols[c].append(attrs if c == "attributes" else r.get(c))
+        names = ", ".join(_S3_UPLOAD_INSERT)
+        types = ", ".join(f"%s::{'bigint' if c in _PURGE_INT else 'text'}[]" for c in _S3_UPLOAD_INSERT)
+        got = conn.execute(f"INSERT INTO s3_uploads ({names}) SELECT {names} FROM unnest({types}) AS u({names}) "
+                           "ON CONFLICT DO NOTHING RETURNING id", [cols[c] for c in _S3_UPLOAD_INSERT]).fetchall()
+        return len(got), len(uploads) - len(got)
+
+    def _insert_s3_receives(self, conn, prepared) -> None:
+        """The S3 notifications of the export's receives (contract section 27.3), for Store.s3_receivers. An
+        exporter's retry writes the same rows again: the newest time is kept."""
+        rows = {}
+        for r, own, attrs, *_ in prepared:
+            if r["kind"] != "receive" or not own:
+                continue
+            n = s3.notification({"attributes": attrs})
+            if n is not None:
+                k = (n.bucket, n.key, n.event_time_ms, n.operation, own)
+                if k not in rows or rows[k][1] < r["time_ns"]:
+                    rows[k] = (r["queue"], r["time_ns"])
+        if not rows:
+            return
+        items = sorted(rows.items())  # one order for every writer: concurrent exports never deadlock on these rows
+        conn.execute("""INSERT INTO s3_receives (bucket, object_key, event_time_ms, operation, mid, queue, time_ns)
+                        SELECT * FROM unnest(%s::text[], %s::text[], %s::bigint[], %s::text[], %s::text[], %s::text[],
+                                             %s::bigint[])
+                        ON CONFLICT (bucket, object_key, event_time_ms, operation, mid)
+                        DO UPDATE SET time_ns = GREATEST(s3_receives.time_ns, EXCLUDED.time_ns)""",
+                     [[k[i] for k, _ in items] for i in range(5)] + [[q for _, (q, _) in items], [t for _, (_, t) in items]])
 
     def _insert_sns_receives(self, conn, prepared) -> None:
         """The SNS keys of the export's receives (contract section 21.3), for Store.sns_receivers. An exporter's
@@ -1481,7 +1520,7 @@ class PostgresStore(Store):
         own = sorted(cutoffs.queues)
         n = 0
         with self.ingest.connection() as w:
-            for table in ("sns_publishes", "sns_receives", "eventbridge_events"):
+            for table in ("sns_publishes", "sns_receives", "eventbridge_events", "s3_uploads", "s3_receives"):
                 done = 0
                 for q in own:
                     cut = cutoffs.queues[q]
@@ -1491,7 +1530,7 @@ class PostgresStore(Store):
                 if cutoffs.default is not None:
                     done += w.execute(f"DELETE FROM {table} WHERE time_ns < %s AND NOT (queue = ANY(%s))",
                                       ((cutoffs.default // g) * g, own)).rowcount
-                if table != "sns_receives":
+                if table not in ("sns_receives", "s3_receives"):  # those are keys, not spans
                     n += done
         return n
 
@@ -2051,6 +2090,24 @@ class PostgresStore(Store):
                 ([_EB + e for e in sorted(event_ids)], eventbridge.MAX_REACHED)).fetchall()
         return [{"row": i, "mid": r["mid"], "queue": r["queue"], "time_ns": r["time_ns"]} for i, r in enumerate(rows)]
 
+    def s3_uploads(self, bucket, object_key, from_ns, to_ns) -> list[dict]:
+        cols = ", ".join(c for c in s3.COLUMNS if c != "row")
+        with self._reading() as c:
+            return c.execute(
+                f"""SELECT id AS "row", {cols} FROM s3_uploads
+                    WHERE queue = %s AND message_id = %s AND time_ns >= %s AND time_ns <= %s AND result = 'ok'
+                    ORDER BY time_ns, id LIMIT %s""",
+                (bucket, object_key, from_ns, to_ns, s3.MAX_UPLOADS)).fetchall()
+
+    def s3_receivers(self, bucket, object_key, from_ms, to_ms) -> list[dict]:
+        with self._reading() as c:
+            rows = c.execute(
+                """SELECT mid, queue, time_ns, event_time_ms, operation FROM s3_receives
+                   WHERE bucket = %s AND object_key = %s AND event_time_ms >= %s AND event_time_ms <= %s
+                   ORDER BY time_ns, mid, event_time_ms, operation LIMIT %s""",
+                (bucket, object_key, from_ms, to_ms, s3.MAX_REACHED)).fetchall()
+        return [{"row": i, **r} for i, r in enumerate(rows)]
+
     def sent_messages(self, message_ids) -> set:
         mids = sorted(set(message_ids))
         if not mids:
@@ -2307,12 +2364,15 @@ class PostgresStore(Store):
             purges = c.execute("SELECT COUNT(*) AS n FROM purges").fetchone()["n"]
             publishes = c.execute("SELECT COUNT(*) AS n FROM sns_publishes").fetchone()["n"]
             entries = c.execute("SELECT COUNT(*) AS n FROM eventbridge_events").fetchone()["n"]
+            uploads = c.execute("SELECT COUNT(*) AS n FROM s3_uploads").fetchone()["n"]
         if purges:
             kinds["purge"] = purges
         if publishes:
             kinds[sns.KIND] = publishes
         if entries:
             kinds[eventbridge.KIND] = entries
+        if uploads:
+            kinds[s3.KIND] = uploads
         return {"spans": kinds, "messages": messages, "unjoined_settles": unjoined}
 
 def _apply_rollup(conn, deltas: "rollup.Deltas") -> None:
@@ -2441,6 +2501,8 @@ _PUBLISH_INSERT = [c for c in sns.COLUMNS if c != "row"] + ["topic_arn", "publis
 _ENV, _PID, _EB = "e:", "p:", "b:"
 # The columns of an EventBridge PutEvents entry row written (eventbridge.COLUMNS but its id).
 _PUT_EVENT_INSERT = [c for c in eventbridge.COLUMNS if c != "row"]
+# The columns of an S3 upload row written (s3.COLUMNS but its id).
+_S3_UPLOAD_INSERT = [c for c in s3.COLUMNS if c != "row"]
 
 
 def _env_key(env: tuple) -> str:

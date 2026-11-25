@@ -45,6 +45,7 @@
   },
   "devDependencies": {
     "@aws-sdk/client-eventbridge": "^3.1175.0",
+    "@aws-sdk/client-s3": "^3.1177.0",
     "@aws-sdk/client-sns": "^3.1175.0",
     "@aws-sdk/client-sqs": "^3.1169.0",
     "@opentelemetry/context-async-hooks": "^2.12.1",

@@ -47,7 +47,10 @@ export interface TenantOptions {
 export type RedactPattern = 'aws_access_key' | 'bearer' | 'email' | 'long_number';
 
 export interface CaptureOptions {
-  /** Queue names whose bodies are captured, or `*` for every queue. */
+  /**
+   * Queue names whose bodies are captured, or `*` for every queue. A bucket's name here (or `*`) also records the
+   * object key of that bucket's uploads (contract section 27), for joining them to their S3 notifications.
+   */
   bodyQueues?: string[];
   /** Queue names whose Lambda exception messages are recorded, or `*`. */
   errorQueues?: string[];
@@ -59,7 +62,7 @@ export interface CaptureOptions {
   maxBodyBytes?: number;
 }
 
-/** Anything with an AWS SDK v3 middleware stack, normally an `SQSClient`, an `SNSClient` or an `EventBridgeClient`. */
+/** Anything with an AWS SDK v3 middleware stack, normally an `SQSClient`, an `SNSClient`, an `EventBridgeClient` or an `S3Client`. */
 export interface SdkV3Client {
   middlewareStack: { add(middleware: unknown, options: unknown): void };
 }
@@ -69,7 +72,10 @@ export interface SdkV3Client {
  * Calling it again replaces the previous installation.
  */
 export declare function install(options?: InstallOptions): BasicTracerProvider;
-/** Add the Trailbeam hooks to an SQSClient, SNSClient or EventBridgeClient. Installs with defaults first if needed. Returns the client. */
+/**
+ * Add the Trailbeam hooks to an SQSClient, SNSClient, EventBridgeClient or S3Client (PutObject,
+ * CompleteMultipartUpload and CopyObject; contract section 27). Installs with defaults first if needed. Returns the client.
+ */
 export declare function instrument<C extends SdkV3Client>(client: C): C;
 /** Turn the client hooks off, then flush and shut down the Trailbeam tracer provider. */
 export declare function uninstall(): Promise<void>;

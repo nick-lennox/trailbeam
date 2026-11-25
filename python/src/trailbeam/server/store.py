@@ -49,6 +49,12 @@ drops it by its own time against its topic name's cutoff, like a purge; what a j
 ``queue`` the event bus's name, no ``mid``. A Store finds accepted ones by event ID (``put_events``), finds the
 receives whose body names those IDs (``eventbridge_receivers``), and drops them by their own time against the bus
 name's cutoff; what a join means is eventbridge.py.
+
+**S3 uploads** (contract section 27, revision 3.7). An ``s3_upload`` record (one ``PutObject``,
+``CompleteMultipartUpload`` or ``CopyObject`` call, ok or failed) is kept the same way: ``queue`` the bucket,
+``message_id`` the object key when the package recorded it (None for a failed call), no ``mid``. A Store finds them by
+bucket, key and time (``s3_uploads``), finds the receives whose S3 notification names that bucket and key
+(``s3_receivers``), and drops them by their own time against the bucket name's cutoff; what a join means is s3.py.
 """
 from __future__ import annotations
 
@@ -300,6 +306,20 @@ class Store(abc.ABC):
         """The receives whose ``trailbeam.eventbridge.event_id`` is one of ``event_ids``: one mapping per receive with
         ``mid``, ``queue``, ``time_ns`` and ``row`` (unique within this answer), by (time_ns, row), at most
         eventbridge.MAX_REACHED. By default, none."""
+        return []
+
+    def s3_uploads(self, bucket: str, object_key: str, from_ns: int, to_ns: int) -> list[Row]:
+        """The s3_upload records (contract section 27) of ``bucket`` with ``message_id`` = ``object_key`` and a
+        ``time_ns`` from ``from_ns`` to ``to_ns``, ok ones only. Every column of s3.COLUMNS, by (time_ns, row), at
+        most s3.MAX_UPLOADS; ``row`` is unique among them. Not abstract, so a store written before revision 3.7
+        still loads: by default, none."""
+        return []
+
+    def s3_receivers(self, bucket: str, object_key: str, from_ms: int, to_ms: int) -> list[Row]:
+        """The receives whose S3 notification (s3.notification) names ``bucket`` and ``object_key`` (URL-decoded),
+        with an event time from ``from_ms`` to ``to_ms``: one mapping per receive with ``mid``, ``queue``,
+        ``time_ns``, ``row`` (unique within this answer), ``event_time_ms`` and ``operation``, by (time_ns, row), at
+        most s3.MAX_REACHED. By default, none."""
         return []
 
     def sent_messages(self, message_ids) -> set:

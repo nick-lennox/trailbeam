@@ -73,6 +73,7 @@ EVENT_LABELS = {
     "arrived_via_sns": "Arrived via SNS topic",
     "arrived_via_eventbridge": "Arrived via an EventBridge rule",
     "put_event": "Put on EventBridge bus",
+    "s3_upload": "Uploaded to S3 bucket",
     "s3_event": "S3",
 }
 
@@ -615,6 +616,8 @@ def _event(e: dict, by_id: Optional[dict] = None, bar: str = "", self_id: Option
         label += f' <code>{escape(str(e["topic"]))}</code>'
     elif e["type"] == "put_event" and e.get("event_bus"):  # contract 25.3
         label += f' <code>{escape(str(e["event_bus"]))}</code>'
+    elif e["type"] == "s3_upload" and e.get("bucket"):  # contract 27.3
+        label += f' <code>{escape(str(e["bucket"]))}</code> by {escape(str(e.get("operation")))}'
     elif e["type"] == "s3_event":  # contract 23.3: "S3 ObjectCreated:Put", or the test message
         label = ("S3 test message" if e.get("test_event")
                  else f'S3 <code>{escape(str(e.get("s3_event_name")))}</code>')
@@ -643,9 +646,9 @@ def _event(e: dict, by_id: Optional[dict] = None, bar: str = "", self_id: Option
         out.append(f'<div class="reported-by"><strong>{escape(e["reported_by"])}</strong></div>')
     if details:
         out.append(f'<div class="detail">{" · ".join(details)}</div>')
-    if (inferred or reported or dedup or amqp or e["type"] in ("queue_purged", "published", "put_event")) and e.get("reason"):
+    if (inferred or reported or dedup or amqp or e["type"] in ("queue_purged", "published", "put_event", "s3_upload")) and e.get("reason"):
         out.append(f'<div class="reason">{escape(e["reason"])}</div>')
-    if e["type"] in ("published", "put_event"):
+    if e["type"] in ("published", "put_event", "s3_upload"):
         out.append(_reached(e, self_id))
     out.extend(_why(e, by_id or {}))
     out.append("</li>")
@@ -654,7 +657,8 @@ def _event(e: dict, by_id: Optional[dict] = None, bar: str = "", self_id: Option
 
 JOINED_BY = {"envelope_message_id": "the SNS envelope's MessageId (raw delivery off)",
              "publish_id": "the trailbeam.publish_id attribute (raw delivery on)",
-             "event_id": "the EventBridge event's id in the receive's body"}
+             "event_id": "the EventBridge event's id in the receive's body",
+             "bucket_key_time": "the bucket, object key and event time of the S3 notification in the receive's body"}
 
 
 def _reached(e: dict, self_id: Optional[str]) -> str:
@@ -715,6 +719,9 @@ def _details(e: dict) -> list[str]:
     add("event time", "event_time")
     add("delivery ms", "delivery_ms")
     add("EventBridge delivery ms", "eventbridge_delivery_ms")
+    add("S3 delivery ms", "s3_delivery_ms")
+    add("ETag", "etag", code)
+    add("version ID", "version_id", code)
     if e.get("event_time_given"):
         d.append("event time given by the sender (PutEvents Time), not EventBridge's clock")
     add("entry", "entry_index")

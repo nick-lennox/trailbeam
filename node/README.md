@@ -307,6 +307,27 @@ const events = trailbeam.instrument(new EventBridgeClient({}));
 ```
 
 
+### S3 uploads
+
+Contract section 27. Pass an `S3Client` to `instrument` too: each `PutObject`, `CompleteMultipartUpload` or
+`CopyObject` call records one `trailbeam s3_upload` span, ok or failed. The request is never changed.
+
+- **Recorded**: the bucket, the operation, whether it succeeded (`ok`) or `failed` with its error code, the
+  returned `ETag` and `VersionId`, and, only when body capture is on for the bucket (its name or `*` in `capture.bodyQueues`), the object key,
+  redacted like a body.
+- **Never recorded**: the object's contents, its user metadata (`Metadata`), `CopySource`, tags, checksums, encryption
+  keys, and the response's `Location`.
+
+Trailbeam joins the upload to the SQS messages its bucket notification sent, by bucket, object key and event time,
+so only where body capture is on for the bucket in the uploading process and for the queue in the receiving one.
+Otherwise the message keeps its inferred "S3 *event*" step.
+
+```js
+const { S3Client } = require('@aws-sdk/client-s3');
+trailbeam.install({ capture: { bodyQueues: ['photos', 'photo-uploads'] } }); // the bucket, and the queue
+const s3 = trailbeam.instrument(new S3Client({}));
+```
+
 ### EventBridge and S3 notifications
 
 Contract section 23. A message that an EventBridge rule or an S3 bucket notification sent has no send in your code. When
@@ -324,7 +345,7 @@ The Node.js package does not set `thread.name` (contract section 3).
 | Export | Effect |
 |---|---|
 | `install({ receiptHashKey, spanExporter, spanProcessor, tenant, capture, sns })` | Creates the client hooks for this realm and returns the Trailbeam `BasicTracerProvider`. A second call replaces the first and shuts down its provider. All options are optional. |
-| `instrument(client)` | Adds the middleware `trailbeamSqsMiddleware` to an AWS SDK v3 `SQSClient`, `SNSClient` or `EventBridgeClient` and returns the client. Calls `install()` first if needed. Throws `TypeError` if the argument has no middleware stack. |
+| `instrument(client)` | Adds the middleware `trailbeamSqsMiddleware` to an AWS SDK v3 `SQSClient`, `SNSClient`, `EventBridgeClient` or `S3Client` (and `trailbeamS3Middleware`, which acts only on an `S3Client`) and returns the client. Calls `install()` first if needed. Throws `TypeError` if the argument has no middleware stack. |
 | `uninstall()` | Turns the hooks off on every instrumented client, then flushes and shuts down the provider. Returns a promise. |
 | `forceFlush()` | Exports the client-hook spans that are waiting. Returns a promise. |
 | `wrapHandler(handler, { receiptHashKey, spanExporter, spanProcessor, flushTimeoutMs = 2000, reportBatchItemFailures = true })` | Returns an async Lambda handler with a `trailbeamTracerProvider` property. Throws `TypeError` if `handler` is not a function. |

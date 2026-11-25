@@ -1773,5 +1773,233 @@
         }
       ]
     }
+  },
+  "s3": {
+    "description": "Test vectors for contract/span-contract.md section 27 (revision 3.7): S3 uploads. 'uploads': whole spans of one PutObject, CompleteMultipartUpload or CopyObject call. Each case has the 'operation', the process's body capture queue list 'body_queues' (section 15.1; a bucket's name in it turns on its object key), the 'request', and the 'response' or, for a call that failed as a whole, the 'error' code (boto3: a ClientError with that code; Node.js: an error whose name is that code). Each package must emit exactly 'spans', named 'trailbeam s3_upload', each with exactly the listed attributes plus the 'present' ones and none of the 'absent' ones, and no attribute value containing 'secret'. The request must not change.",
+    "uploads": {
+      "present": [
+        "messaging.client.id",
+        "process.pid",
+        "trailbeam.order.scope",
+        "trailbeam.order.issued",
+        "trailbeam.order.returned"
+      ],
+      "absent": [
+        "aws.sqs.queue.url",
+        "trailbeam.receipt_handle.hmac",
+        "trailbeam.receipt_handle.key_id",
+        "trailbeam.start_observed",
+        "messaging.message.id",
+        "messaging.message.body.size",
+        "trailbeam.body"
+      ],
+      "cases": [
+        {
+          "name": "PutObject, body capture off: no object key",
+          "operation": "PutObject",
+          "body_queues": [],
+          "request": {
+            "Bucket": "photos",
+            "Key": "users/alice@example.com/avatar.png",
+            "Body": "secret-contents",
+            "Metadata": {
+              "owner": "secret-metadata"
+            },
+            "ContentType": "image/png"
+          },
+          "response": {
+            "ETag": "\"9dd4e461268c8034f5c8564e155c67a6\""
+          },
+          "spans": [
+            {
+              "trailbeam.schema_version": 3,
+              "trailbeam.kind": "s3.upload",
+              "trailbeam.source": "client",
+              "messaging.system.name": "aws.s3",
+              "messaging.operation.type": "send",
+              "messaging.operation.name": "PutObject",
+              "messaging.destination.name": "photos",
+              "trailbeam.result": "ok",
+              "trailbeam.s3.etag": "\"9dd4e461268c8034f5c8564e155c67a6\""
+            }
+          ]
+        },
+        {
+          "name": "PutObject to a versioned bucket, body capture on for the bucket: the key, redacted",
+          "operation": "PutObject",
+          "body_queues": [
+            "photos"
+          ],
+          "request": {
+            "Bucket": "photos",
+            "Key": "users/alice@example.com/red flower.png",
+            "Body": "secret-contents"
+          },
+          "response": {
+            "ETag": "\"9dd4e461268c8034f5c8564e155c67a6\"",
+            "VersionId": "3HL4kqtJlcpXroDTDmJ.rmSpXd3dIbrHY"
+          },
+          "spans": [
+            {
+              "trailbeam.schema_version": 3,
+              "trailbeam.kind": "s3.upload",
+              "trailbeam.source": "client",
+              "messaging.system.name": "aws.s3",
+              "messaging.operation.type": "send",
+              "messaging.operation.name": "PutObject",
+              "messaging.destination.name": "photos",
+              "trailbeam.result": "ok",
+              "trailbeam.s3.etag": "\"9dd4e461268c8034f5c8564e155c67a6\"",
+              "trailbeam.s3.version_id": "3HL4kqtJlcpXroDTDmJ.rmSpXd3dIbrHY",
+              "trailbeam.s3.object_key": "users/[REDACTED]/red flower.png"
+            }
+          ]
+        },
+        {
+          "name": "CompleteMultipartUpload, body capture on for every queue and bucket",
+          "operation": "CompleteMultipartUpload",
+          "body_queues": [
+            "*"
+          ],
+          "request": {
+            "Bucket": "videos",
+            "Key": "2026/11/talk.mp4",
+            "UploadId": "secret-upload-id",
+            "MultipartUpload": {
+              "Parts": [
+                {
+                  "ETag": "\"a\"",
+                  "PartNumber": 1
+                }
+              ]
+            }
+          },
+          "response": {
+            "Location": "https://videos.s3.amazonaws.com/2026/11/secret-location.mp4",
+            "Bucket": "videos",
+            "Key": "2026/11/talk.mp4",
+            "ETag": "\"9b9d3d3707f26b0895ad4008662e2dcb-1\"",
+            "VersionId": "null"
+          },
+          "spans": [
+            {
+              "trailbeam.schema_version": 3,
+              "trailbeam.kind": "s3.upload",
+              "trailbeam.source": "client",
+              "messaging.system.name": "aws.s3",
+              "messaging.operation.type": "send",
+              "messaging.operation.name": "CompleteMultipartUpload",
+              "messaging.destination.name": "videos",
+              "trailbeam.result": "ok",
+              "trailbeam.s3.etag": "\"9b9d3d3707f26b0895ad4008662e2dcb-1\"",
+              "trailbeam.s3.version_id": "null",
+              "trailbeam.s3.object_key": "2026/11/talk.mp4"
+            }
+          ]
+        },
+        {
+          "name": "CopyObject: the ETag is in CopyObjectResult; CopySource is never recorded",
+          "operation": "CopyObject",
+          "body_queues": [
+            "other-bucket"
+          ],
+          "request": {
+            "Bucket": "photos",
+            "Key": "copy.png",
+            "CopySource": "secret-bucket/secret-source-key.png",
+            "MetadataDirective": "REPLACE",
+            "Metadata": {
+              "a": "secret-metadata"
+            }
+          },
+          "response": {
+            "CopyObjectResult": {
+              "ETag": "\"9dd4e461268c8034f5c8564e155c67a6\"",
+              "LastModified": "2026-11-24T10:00:00Z"
+            },
+            "VersionId": "v2"
+          },
+          "spans": [
+            {
+              "trailbeam.schema_version": 3,
+              "trailbeam.kind": "s3.upload",
+              "trailbeam.source": "client",
+              "messaging.system.name": "aws.s3",
+              "messaging.operation.type": "send",
+              "messaging.operation.name": "CopyObject",
+              "messaging.destination.name": "photos",
+              "trailbeam.result": "ok",
+              "trailbeam.s3.etag": "\"9dd4e461268c8034f5c8564e155c67a6\"",
+              "trailbeam.s3.version_id": "v2"
+            }
+          ]
+        },
+        {
+          "name": "PutObject that failed as a whole",
+          "operation": "PutObject",
+          "body_queues": [],
+          "error": "NoSuchBucket",
+          "request": {
+            "Bucket": "missing-bucket",
+            "Key": "a.txt",
+            "Body": "secret-contents"
+          },
+          "spans": [
+            {
+              "trailbeam.schema_version": 3,
+              "trailbeam.kind": "s3.upload",
+              "trailbeam.source": "client",
+              "messaging.system.name": "aws.s3",
+              "messaging.operation.type": "send",
+              "messaging.operation.name": "PutObject",
+              "messaging.destination.name": "missing-bucket",
+              "trailbeam.result": "failed",
+              "trailbeam.error_code": "NoSuchBucket"
+            }
+          ]
+        },
+        {
+          "name": "PutObject to an access point ARN: no span",
+          "operation": "PutObject",
+          "body_queues": [
+            "*"
+          ],
+          "request": {
+            "Bucket": "arn:aws:s3:us-west-2:111122223333:accesspoint/photos-ap",
+            "Key": "a.txt",
+            "Body": "x"
+          },
+          "response": {
+            "ETag": "\"9dd4e461268c8034f5c8564e155c67a6\""
+          },
+          "spans": []
+        },
+        {
+          "name": "PutObject with an ETag that has a control character: no ETag",
+          "operation": "PutObject",
+          "body_queues": [],
+          "request": {
+            "Bucket": "photos",
+            "Key": "a.txt",
+            "Body": "x"
+          },
+          "response": {
+            "ETag": "\"abc\nd\""
+          },
+          "spans": [
+            {
+              "trailbeam.schema_version": 3,
+              "trailbeam.kind": "s3.upload",
+              "trailbeam.source": "client",
+              "messaging.system.name": "aws.s3",
+              "messaging.operation.type": "send",
+              "messaging.operation.name": "PutObject",
+              "messaging.destination.name": "photos",
+              "trailbeam.result": "ok"
+            }
+          ]
+        }
+      ]
+    }
   }
 }

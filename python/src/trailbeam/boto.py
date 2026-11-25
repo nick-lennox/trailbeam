@@ -1,5 +1,6 @@
 """Trailbeam hooks for boto3 / botocore SQS clients (contract sections 4.1 to 4.3, and 18 for PurgeQueue),
-for SNS Publish / PublishBatch (section 21), and for EventBridge PutEvents (section 25).
+for SNS Publish / PublishBatch (section 21), for EventBridge PutEvents (section 25), and for the S3 uploads that raise
+an ObjectCreated notification (section 27, _s3.py).
 
 The hooks ride on ``opentelemetry-instrumentation-botocore``: each Trailbeam span is a child of the stock
 span for the same API call. Usage::
@@ -31,13 +32,14 @@ from ._contract import (
     SPAN_PUT_EVENT,
     SPAN_PURGE,
     SPAN_RECEIVE,
+    SPAN_S3_UPLOAD,
     SPAN_SEND,
     int_or_none,
     put,
     queue_name_from_url,
     resolve_hasher,
 )
-from . import _capture, _order
+from . import _capture, _order, _s3
 from ._emitter import Emitter, make_provider
 from ._handles import HandleMap
 
@@ -113,6 +115,7 @@ _TRACKED_OPS = {
     "sqs": frozenset(_SETTLE_OPS) | {"SendMessage", "SendMessageBatch", "ReceiveMessage", "PurgeQueue"},
     "sns": frozenset({"Publish", "PublishBatch"}),  # 3.4, section 21
     "events": frozenset({"PutEvents"}),  # 3.6, section 25
+    _s3.SERVICE: _s3.UPLOAD_OPS,  # 3.7, section 27
 }
 
 
@@ -177,6 +180,8 @@ class SqsHooks:
                 self._on_publish(span, operation, params, result, injected, t)
             elif service == "events":
                 self._on_put_events(span, params, result, sys.exc_info()[1], t)
+            elif service == _s3.SERVICE:
+                self._on_s3_upload(span, operation, params, result, sys.exc_info()[1], t)
             elif operation in ("SendMessage", "SendMessageBatch"):
                 self._on_send(span, operation, params, result, t)
             else:
@@ -317,6 +322,16 @@ class SqsHooks:
         error = _call_error(result, exc)
         for attrs in _capture.put_event_attrs(params, result, _plain_code(error) if error else None):
             self.emitter.emit(SPAN_PUT_EVENT, "PutEvents", attrs.pop("messaging.destination.name"), "", attrs,
+                              parent=span, start_ns=t[0], end_ns=t[1], order=t[2])
+
+    # -- S3 uploads (revision 3.7, section 27) ------------------------------------------------
+
+    def _on_s3_upload(self, span, operation: str, params: dict, result: Optional[dict], exc, t: tuple) -> None:
+        """One trailbeam s3_upload per PutObject, CompleteMultipartUpload or CopyObject call, ok or failed."""
+        error = _call_error(result, exc)
+        attrs = _s3.upload_attrs(self.capture, operation, params, result, _plain_code(error) if error else None)
+        if attrs is not None:
+            self.emitter.emit(SPAN_S3_UPLOAD, operation, attrs.pop("messaging.destination.name"), "", attrs,
                               parent=span, start_ns=t[0], end_ns=t[1], order=t[2])
 
     def _sent(self, queue_name: str, request: dict, response: dict) -> dict:

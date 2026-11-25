@@ -124,6 +124,15 @@ EB_INDEXES = f"""
 CREATE INDEX IF NOT EXISTS spans_put_event_msg ON spans (message_id) WHERE kind = 'put_event';
 CREATE INDEX IF NOT EXISTS spans_receive_eb ON spans ({EB_EVENT_ID}) WHERE kind = 'receive' AND {EB_EVENT_ID} IS NOT NULL;
 """
+# Schema 24 (QV-511, contract section 27): S3 uploads by bucket, object key and time, and receives whose body is an S3
+# notification with the object key (section 23.2), by bucket and event time. Partial, like EB_INDEXES.
+S3_BUCKET = """json_extract(attributes, '$."trailbeam.s3.bucket"')"""
+S3_TIME = """json_extract(attributes, '$."trailbeam.s3.event_time_ms"')"""
+S3_KEY = """json_extract(attributes, '$."trailbeam.s3.object_key"')"""
+S3_INDEXES = f"""
+CREATE INDEX IF NOT EXISTS spans_s3_upload ON spans (queue, message_id, time_ns) WHERE kind = 's3_upload';
+CREATE INDEX IF NOT EXISTS spans_receive_s3 ON spans ({S3_BUCKET}, {S3_TIME}) WHERE kind = 'receive' AND {S3_KEY} IS NOT NULL;
+"""
 UNJOINED_INDEX_22 = """
 DROP INDEX IF EXISTS spans_unjoined_hash;
 CREATE INDEX IF NOT EXISTS spans_unjoined_hash ON spans (receipt_hmac, key_id)
@@ -163,7 +172,7 @@ CREATE TABLE IF NOT EXISTS probes (id TEXT PRIMARY KEY, received_ns INTEGER NOT 
 """
 
 # The schema a new file gets: the result of every migration below.
-CREATE = SPANS_TABLE.format(name="spans", added=SPANS_ADDED) + SPANS_INDEXES + SNS_INDEXES + UNJOINED_INDEX_22 + EB_INDEXES + """
+CREATE = SPANS_TABLE.format(name="spans", added=SPANS_ADDED) + SPANS_INDEXES + SNS_INDEXES + UNJOINED_INDEX_22 + EB_INDEXES + S3_INDEXES + """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """ + """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -240,6 +249,9 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # Schema 23 (QV-489) adds the EventBridge indexes (EB_INDEXES). put_event spans are rows of spans (kind 'put_event',
 # no mid); no file before it has any, so the first index starts empty. Receives since 3.5 carry the event ID, so
 # the second is built from one scan of spans. It changes no span data.
+# Schema 24 (QV-511) adds the S3 upload indexes (S3_INDEXES). s3_upload spans are rows of spans (kind 's3_upload', no
+# mid); no file before it has any, so the first index starts empty. Receives since 3.5 carry the S3 fields, the key
+# only on queues whose body is captured, so the second is built from one scan of spans. It changes no span data.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new", added=""))
                   + [f"INSERT INTO spans_new ({SPANS_COLUMNS}) SELECT {SPANS_COLUMNS} FROM spans ORDER BY row",
                      "DROP TABLE spans",
@@ -343,6 +355,7 @@ MIGRATIONS = (
     Migration(21, "OpenID Connect sign-ins and identities", tuple(statements(account_tables.SQLITE_OIDC))),
     Migration(22, "RabbitMQ settle kinds in the unjoined settle index", tuple(statements(UNJOINED_INDEX_22))),
     Migration(23, "EventBridge PutEvents indexes", tuple(statements(EB_INDEXES))),
+    Migration(24, "S3 upload indexes", tuple(statements(S3_INDEXES))),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

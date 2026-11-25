@@ -26,6 +26,7 @@ SPAN_OUTCOME = "trailbeam outcome"
 SPAN_PURGE = "trailbeam purge"  # revision 3.3, section 18
 SPAN_PUBLISH = "trailbeam publish"  # revision 3.4, section 21: an SNS Publish
 SPAN_PUT_EVENT = "trailbeam put_event"  # revision 3.6, section 25: one entry of an EventBridge PutEvents
+SPAN_S3_UPLOAD = "trailbeam s3_upload"  # revision 3.7, section 27: an S3 PutObject, CompleteMultipartUpload or CopyObject
 
 # (trailbeam.kind, messaging.operation.type) per span name.
 KINDS = {
@@ -37,10 +38,11 @@ KINDS = {
     SPAN_PURGE: ("sqs.purge", "purge"),  # a custom operation type: semconv defines none for a purge
     SPAN_PUBLISH: ("sns.publish", "send"),
     SPAN_PUT_EVENT: ("eventbridge.put_event", "send"),
+    SPAN_S3_UPLOAD: ("s3.upload", "send"),
 }
 
 # messaging.system.name per span name; aws.sqs for every span not listed.
-SYSTEMS = {SPAN_PUBLISH: "aws.sns", SPAN_PUT_EVENT: "aws.eventbridge"}
+SYSTEMS = {SPAN_PUBLISH: "aws.sns", SPAN_PUT_EVENT: "aws.eventbridge", SPAN_S3_UPLOAD: "aws.s3"}
 
 OUTCOME_SUCCESS = "success"
 OUTCOME_FAILED_REPORTED = "failed_reported"

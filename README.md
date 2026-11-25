@@ -62,6 +62,11 @@ answers a narrower question: where did this one message go?
   the body it reads only the event's `id`, `source`, `detail-type`, account, region and `time`. It never
   reads `detail`. From the sender's call it records the bus, `Source`, `DetailType`, the returned event
   ID or error code, and the size of `Detail`, but not `Detail` itself.
+- **S3 uploads.** When the uploader runs a Trailbeam package, the inferred S3 step becomes the recorded
+  `PutObject`, `CompleteMultipartUpload` or `CopyObject`: the bucket, the process, the ETag, the other SQS
+  messages the notification reached, and the S3 delivery time. Trailbeam joins them by bucket, object key
+  and event time. The key is recorded only where body capture is on, for the bucket and for the queue, so
+  without capture the step stays inferred. Object contents and user metadata are never read.
 - **Recorded and inferred steps are kept apart.** Trailbeam orders two events only when an observed
   fact proves the order, and marks every step it inferred, such as a visibility timeout that expired.
 - **Deletes joined to their receives.** A delete carries a receipt handle, not a message ID. Trailbeam
