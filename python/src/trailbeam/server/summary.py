@@ -98,14 +98,19 @@ def summarize(rows) -> dict:
 
     # observed moves to a dead-letter queue (timeline._dlq_moves): (source, DLQ) -> the receive reporting it
     reports: dict = {}
+    # RabbitMQ keys both queues as copies (rabbitmq.copy_of): (virtual host, queue)
     for r in receives:
-        frm = rabbitmq.dlq_source(r) if amqp else (r["dlq_source_arn"].rsplit(":", 1)[-1] if r["dlq_source_arn"] else None)
+        if amqp:
+            frm, here = rabbitmq.dlq_source_copy(r), rabbitmq.copy_of(r)
+        else:
+            frm, here = (r["dlq_source_arn"].rsplit(":", 1)[-1] if r["dlq_source_arn"] else None), r["queue"]
         if frm is not None:
-            if frm != r["queue"]:
+            if frm != here:
                 key = (r["receive_count"] or 0, r["time_ns"], r["row"])
-                if (frm, r["queue"]) not in reports or key < reports[(frm, r["queue"])][0]:
-                    reports[(frm, r["queue"])] = (key, r)
+                if (frm, here) not in reports or key < reports[(frm, here)][0]:
+                    reports[(frm, here)] = (key, r)
     dlqs = {q for _, q in reports}
+    in_dlq = (rabbitmq.copy_of(latest) if latest is not None else None) in dlqs if amqp else current_queue in dlqs
 
     final_delete = latest is not None and any(
         r["kind"] == "delete" and r["result"] == "ok" and r["receive_row"] == latest["row"] for r in rows)
@@ -140,15 +145,16 @@ def summarize(rows) -> dict:
     if systems.system_of(rows[0]["mid"]) == systems.RABBITMQ:
         # One copy per queue (contract/span-contract-amqp.md A6): a fanout publish to two queues is one message
         # with two copies, not a duplicate. Duplicates and Stuck are per copy: received more than once on one
-        # queue, acked more than once on one queue, or a copy whose latest delivery has no accepted ack.
+        # queue, acked more than once on one queue, or a copy whose latest delivery has no accepted ack. A queue
+        # is (virtual host, queue) (A3): one ID used in two virtual hosts is two copies too.
         copies: dict = {}
         for r in receives:
-            copies.setdefault(r["queue"], []).append(r)
+            copies.setdefault(rabbitmq.copy_of(r), []).append(r)
         ok_by_queue: dict = {}
         by_row = {r["row"]: r for r in receives}
         for d in ok_deliveries:
             if d in by_row:
-                ok_by_queue.setdefault(by_row[d]["queue"], set()).add(d)
+                ok_by_queue.setdefault(rabbitmq.copy_of(by_row[d]), set()).add(d)
         dup_received = any(len(c) > 1 for c in copies.values())
         dup_succeeded = any(len(c) > 1 for c in ok_by_queue.values())
         # Done and stuck per copy (rabbitmq.done): every copy acked or moved to a dead-letter queue is the
@@ -184,9 +190,10 @@ def summarize(rows) -> dict:
         "last_ns": rows[-1]["time_ns"],
         "source_queue": source_queue,
         "current_queue": current_queue,
-        "in_dlq": current_queue in dlqs,
+        "in_dlq": in_dlq,
         "moved": bool(reports),
-        "source_receive_count": (rabbitmq.failed_returns(rows, source_queue) if amqp else
+        "source_receive_count": (rabbitmq.failed_returns(rows, rabbitmq.copy_of(receives[0]) if receives else None)
+                                 if amqp else
                                  max((r["receive_count"] or 0 for r in receives if r["queue"] == source_queue), default=0)),
         "deliveries": len(receives),
         "successes": timeline.successful_deliveries(rows),

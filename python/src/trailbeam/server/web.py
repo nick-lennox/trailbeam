@@ -321,8 +321,12 @@ def _message(api, q: dict) -> Response:
         parts.append(_dd("Publish observed", "yes" if t.get("send_observed") else "no"))
         parts.append(_dd("Deliveries", f'{t["deliveries"]} ({t["successful_deliveries"]} acked)'))
         if t.get("copies"):
+            # a queue is (virtual host, queue): name the vhost when the copies are in more than one
+            vhosts = len({c.get("vhost") for c in t["copies"]}) > 1
             parts.append(_dd("Copies", "; ".join(
-                f'<code>{escape(str(c["queue"]))}</code>: {int(c["deliveries"])} '
+                f'<code>{escape(str(c["queue"]))}</code>'
+                + (f' (vhost <code>{escape(str(c.get("vhost")))}</code>)' if vhosts else "")
+                + f': {int(c["deliveries"])} '
                 f'deliver{"y" if c["deliveries"] == 1 else "ies"}, {escape(str(c.get("ended") or "not settled"))}'
                 for c in t["copies"])))
     else:

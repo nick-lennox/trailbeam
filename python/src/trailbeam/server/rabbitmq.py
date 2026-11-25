@@ -6,7 +6,9 @@ initiator and reply. ``facts`` turns a stored row into a dict with them, once pe
 
 The rules that differ from SQS:
 
-- **A copy per queue** (A6). A fanout publish to two queues is one message with two copies. A copy is done when its
+- **A copy per queue** (A6). A fanout publish to two queues is one message with two copies. A copy is keyed by
+  (virtual host, queue), ``copy_of``: queue ``orders`` of vhost ``tenant-a`` and ``orders`` of ``tenant-b`` are two
+  queues (A3), so one message ID used in both is two copies, not a duplicate. A copy is done when its
   latest delivery was acked (``basic.ack`` accepted), refused (``requeue = false``) or the message was observed
   moving off its queue to a dead-letter queue (``x-death``).
 - **Redeliveries** (A10). No visibility timeout exists: a later delivery on the same queue with a higher receive
@@ -31,6 +33,7 @@ DELIVERY_COUNT = "trailbeam.amqp.delivery_count"
 ACQUIRED_COUNT = "trailbeam.amqp.acquired_count"
 CHANNEL = "trailbeam.amqp.channel.id"
 CONSUMER_TAG = "trailbeam.amqp.consumer_tag"
+VHOST = "trailbeam.amqp.vhost"
 FIRST_DELIVERY = "first_delivery"
 
 # The source of an observed move to a dead-letter queue on RabbitMQ (A8), in the API and on the screen.
@@ -92,6 +95,14 @@ def facts(r) -> dict:
     return d
 
 
+def copy_of(r, queue: Optional[str] = None) -> tuple:
+    """The key of the copy a ``facts`` row is about (A3, A6): (virtual host, queue). ``queue``: another queue of
+    the row's virtual host instead, such as the queue an x-death header names (RabbitMQ dead-letters within a
+    virtual host)."""
+    v = r["amqp"].get(VHOST)
+    return (v if isinstance(v, str) else None, r["queue"] if queue is None else queue)
+
+
 def _int(v) -> Optional[int]:
     if isinstance(v, bool):
         return None
@@ -124,6 +135,12 @@ def dlq_source(r) -> Optional[str]:
     """The queue a delivery reports the message was dead-lettered from, when that is another queue (A8)."""
     d = dead_letter(r) if r["kind"] == "receive" else None
     return d["source_queue"] if d is not None and d["source_queue"] != r["queue"] else None
+
+
+def dlq_source_copy(r) -> Optional[tuple]:
+    """``dlq_source`` as a copy key (``copy_of``): the source queue in the delivery's virtual host."""
+    frm = dlq_source(r)
+    return copy_of(r, frm) if frm is not None else None
 
 
 def same_count_source(a, b) -> bool:
@@ -203,11 +220,11 @@ def cause_of(rows, p, cancels=()) -> tuple[str, Optional[dict], str]:
                                 "shows why: no requeue, no closed channel and no cancelled consumer was observed.")
 
 
-def failed_returns(rows, source_queue: str) -> int:
-    """The x-delivery-count the copy on ``source_queue`` has reached (A7): its latest delivery's header (0 when
+def failed_returns(rows, source: tuple) -> int:
+    """The x-delivery-count the copy ``source`` (``copy_of``) has reached (A7): its latest delivery's header (0 when
     absent), plus 1 if that delivery was then returned by a failure (a reject with requeue, or its channel
     closing). ``basic.nack`` with requeue does not count (RabbitMQ 4.3 and later)."""
-    on = [r for r in rows if r["kind"] == "receive" and r["queue"] == source_queue]
+    on = [r for r in rows if r["kind"] == "receive" and copy_of(r) == source]
     if not on:
         return 0
     last = on[-1]
@@ -225,11 +242,12 @@ def delivery_limit_reached(count: int, limit: Optional[int]) -> bool:
 
 
 def copies(rows, moved_from: set) -> dict:
-    """queue -> (latest delivery, how the copy ended: "acked", "rejected", "moved" or None while open)."""
+    """copy (``copy_of``) -> (latest delivery, how the copy ended: "acked", "rejected", "moved" or None while open).
+    ``moved_from``: the copies observed moving to a dead-letter queue."""
     latest: dict = {}
     for r in rows:
         if r["kind"] == "receive":
-            latest[r["queue"]] = r
+            latest[copy_of(r)] = r
     out = {}
     for q, last in latest.items():
         ended = None

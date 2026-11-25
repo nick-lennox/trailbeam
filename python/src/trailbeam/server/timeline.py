@@ -723,30 +723,33 @@ def _queue_of_arn(arn: str) -> str:
     return arn.rsplit(":", 1)[-1]
 
 
-def _dlq_moves(receives: list, sends: list, proven, source_of=None) -> list[tuple]:
+def _dlq_moves(receives: list, sends: list, proven, source_of=None, key=None) -> list[tuple]:
     """(earlier anchor or None, the reporting receive, source queue name) per observed move (section 9b).
 
     One move per (source queue, dead-letter queue) pair, reported by its earliest dead-letter receive
     that carries DeadLetterQueueSourceArn. The earlier anchor is the last receive on the source queue
     (one no other receive there is proven to follow, and not proven to come after the report), or the
     send on it if no receive there was observed. ``source_of``: receive -> the queue it reports the message was
-    moved from, or None (default: SQS's DeadLetterQueueSourceArn; RabbitMQ: rabbitmq.dlq_source, from x-death)."""
+    moved from, or None (default: SQS's DeadLetterQueueSourceArn; RabbitMQ: rabbitmq.dlq_source_copy, from x-death).
+    ``key``: row -> the key of its queue, in the terms ``source_of`` gives (default: the queue name; RabbitMQ:
+    rabbitmq.copy_of, (virtual host, queue)). The source queue returned is in those terms."""
+    key = key or (lambda r: r["queue"])
     out = []
     pairs: dict[tuple[str, str], list] = {}
     for r in receives:
         frm = source_of(r) if source_of is not None else (
             _queue_of_arn(r["dlq_source_arn"]) if r["dlq_source_arn"] else None)
-        if frm is not None and frm != r["queue"]:
-            pairs.setdefault((frm, r["queue"]), []).append(r)
+        if frm is not None and frm != key(r):
+            pairs.setdefault((frm, key(r)), []).append(r)
     for (frm, _), reports in pairs.items():
         first = [x for x in reports if not any(proven(y, x) for y in reports if y is not x)]
         b = min(first, key=lambda x: (x["receive_count"] or 0, x["time_ns"], x["row"]))
-        on_src = [x for x in receives if x["queue"] == frm and not proven(b, x)]
+        on_src = [x for x in receives if key(x) == frm and not proven(b, x)]
         last = [x for x in on_src if not any(proven(x, y) for y in on_src if y is not x)]
         if last:
             a = max(last, key=lambda x: (x["receive_count"] or 0, x["time_ns"], x["row"]))
         else:
-            a = next((x for x in sends if x["queue"] == frm and not proven(b, x)), None)
+            a = next((x for x in sends if key(x) == frm and not proven(b, x)), None)
         out.append((a, b, frm))
     return out
 
@@ -922,8 +925,9 @@ def _amqp_event(r, base: dict, by_row: dict, n_publish: int, latest_on: dict, se
     elif k == "reject":
         ev["requeue"] = False
         # seen again: delivered again on its queue, or on a dead-letter queue that reports the move off it
-        seen_again = any((x["queue"] == r["queue"] and x["time_ns"] > r["time_ns"]) or amqp_mod.dlq_source(x) == r["queue"]
-                         for x in seen if x["row"] != r["receive_row"])
+        here = amqp_mod.copy_of(r)
+        seen_again = any((amqp_mod.copy_of(x) == here and x["time_ns"] > r["time_ns"])
+                         or amqp_mod.dlq_source_copy(x) == here for x in seen if x["row"] != r["receive_row"])
         ev["reason"] = (f"Refused by the consumer with {ev['operation']} (requeue = false). RabbitMQ dead-letters the "
                         f"message if its queue has a dead-letter exchange, and drops it otherwise"
                         + ("." if seen_again else "; it has not been seen since."))
@@ -970,6 +974,9 @@ def _build_amqp(rows: list, now_ns: int, delivery_limits: Optional[dict], cancel
     by_row = {r["row"]: i + 1 for i, r in enumerate(receives)}
     latest = receives[-1] if receives else None
     source_queue = source_queue_of(mid, sends, receives, rows[0]["queue"])
+    # a copy is (virtual host, queue), amqp_mod.copy_of (A3, A6): queues of one name in two vhosts are two copies
+    copy_of = amqp_mod.copy_of
+    source_copy = copy_of(receives[0]) if receives else None
     order = order_mod.Order(rows)
     idx = {r["row"]: i for i, r in enumerate(rows)}
 
@@ -983,12 +990,12 @@ def _build_amqp(rows: list, now_ns: int, delivery_limits: Optional[dict], cancel
                          before["row"] if before is not None else None, rank, ev))
 
     # ---- deliveries of one copy: returns to the queue and their causes (A10) -------------------------------
-    prev_on_queue: dict[str, dict] = {}
+    prev_on_queue: dict[tuple, dict] = {}
     for r in receives:
         q = r["queue"]
-        p = prev_on_queue.get(q)
+        p = prev_on_queue.get(copy_of(r))
         dl = amqp_mod.dead_letter(r)
-        if p is None and q == source_queue and (r["receive_count"] or 0) > 1 and dl is None:
+        if p is None and copy_of(r) == source_copy and (r["receive_count"] or 0) > 1 and dl is None:
             s0 = sends[0] if sends else None
             infer(s0, r, 2, _inferred(
                 "deliveries_not_observed", _start(s0) if s0 else None, r["time_ns"],
@@ -1014,12 +1021,12 @@ def _build_amqp(rows: list, now_ns: int, delivery_limits: Optional[dict], cancel
                 cause_observed=cause != amqp_mod.NOT_OBSERVED, after_delivery=by_row[p["row"]],
                 before_delivery=by_row[r["row"]]))
         # otherwise a second first delivery: a second message published under the same ID, not a return
-        prev_on_queue[q] = r
+        prev_on_queue[copy_of(r)] = r
 
     # ---- observed steps ------------------------------------------------------------------------------
     latest_on = {}
     for r in receives:
-        latest_on[r["queue"]] = r
+        latest_on[copy_of(r)] = r
     observed: list[dict] = []
     n_publish = 0
     for r in rows:
@@ -1032,15 +1039,19 @@ def _build_amqp(rows: list, now_ns: int, delivery_limits: Optional[dict], cancel
         observed.append(_amqp_event(r, base, by_row, n_publish, latest_on, receives))
 
     # ---- routed to N queues (A5): from the queues it was delivered on, a lower bound --------------------
-    moves = _dlq_moves(receives, sends, proven, source_of=amqp_mod.dlq_source)
-    dlqs = {b["queue"] for _, b, _ in moves}
-    routed = []
+    moves = _dlq_moves(receives, sends, proven, source_of=amqp_mod.dlq_source_copy, key=copy_of)
+    dlqs = {copy_of(b) for _, b, _ in moves}
+    # the queues of the first publish's virtual host: an exchange routes only within its own
+    vhost0 = copy_of(sends[0])[0] if sends else None
+    routed_copies = []
     for r in receives:
-        if r["queue"] not in dlqs and r["queue"] not in routed:
-            routed.append(r["queue"])
+        c = copy_of(r)
+        if c[0] == vhost0 and c not in dlqs and c not in routed_copies:
+            routed_copies.append(c)
+    routed = [q for _, q in routed_copies]
     if sends and routed:
         s0 = sends[0]
-        first = next(r for r in receives if r["queue"] == routed[0])
+        first = next(r for r in receives if copy_of(r) == routed_copies[0])
         n = len(routed)
         infer(s0, first if n == 1 else None, 1, _inferred(
             "routed", _start(s0), first["time_ns"],
@@ -1050,7 +1061,7 @@ def _build_amqp(rows: list, now_ns: int, delivery_limits: Optional[dict], cancel
             exchange=s0["queue"], queues=routed, count=n, lower_bound=True))
 
     # ---- the move to a dead-letter queue, as x-death reports it (A8) -------------------------------------
-    for a, b, frm in moves:
+    for a, b, (_, frm) in moves:
         dl = amqp_mod.dead_letter(b)
         what = amqp_mod.DEAD_LETTER_REASONS.get(dl["reason"], f"reason {dl['reason']}")
         when = ""
@@ -1075,11 +1086,12 @@ def _build_amqp(rows: list, now_ns: int, delivery_limits: Optional[dict], cancel
     final, _left = amqp_mod.done(rows, moved_from)
     state = "deleted" if final else "not_deleted"
     current_queue = latest["queue"] if latest else source_queue
+    in_dlq = latest is not None and copy_of(latest) in dlqs
 
     evs, n_groups, order_doc = _arrange(rows, observed, inferred, order, idx)
     groups = _groups(evs, n_groups)
     limit = (delivery_limits or {}).get(source_queue)
-    failed = amqp_mod.failed_returns(rows, source_queue)
+    failed = amqp_mod.failed_returns(rows, source_copy)
     if moves:
         dlq_move = "observed"
     elif amqp_mod.delivery_limit_reached(failed, limit) and state != "deleted":
@@ -1101,14 +1113,14 @@ def _build_amqp(rows: list, now_ns: int, delivery_limits: Optional[dict], cancel
         "state": state,
         "source_queue": source_queue,
         "current_queue": current_queue,
-        "in_dead_letter_queue": current_queue in dlqs,
+        "in_dead_letter_queue": in_dlq,
         "dead_letter_queue_move": dlq_move,
         "send_observed": bool(sends),
         "publishes": len(sends),
         "deliveries": len(receives),
         "successful_deliveries": successful_deliveries(rows),
-        "copies": [{"queue": q, "deliveries": sum(1 for r in receives if r["queue"] == q), "ended": e}
-                   for q, (_, e) in amqp_mod.copies(rows, moved_from).items()],
+        "copies": [{"queue": q, "vhost": v, "deliveries": sum(1 for r in receives if copy_of(r) == (v, q)),
+                    "ended": e} for (v, q), (_, e) in amqp_mod.copies(rows, moved_from).items()],
         "first_seen": iso(first_ns),
         "first_seen_clock": first_clock,
         "last_seen": iso(rows[-1]["time_ns"]),
@@ -1132,13 +1144,14 @@ def _amqp_notices(rows, sends, order) -> list[dict]:
                     f"Published {len(sends)} times with the same message_id. RabbitMQ does not deduplicate: each "
                     f"publish is its own message in the queue, so the work can be done once per publish. This is "
                     f"most often a publisher retry after a lost confirm."})
-    by_queue: dict = {}
+    by_queue: dict = {}  # per copy: (virtual host, queue)
     for r in rows:
         if r["kind"] == "change_visibility" and r["result"] == "ok" and _op(r) == "basic.nack":
-            by_queue[r["queue"]] = by_queue.get(r["queue"], 0) + 1
-    for q, n in sorted(by_queue.items()):
+            c = amqp_mod.copy_of(r)
+            by_queue[c] = by_queue.get(c, 0) + 1
+    for (v, q), n in sorted(by_queue.items(), key=lambda kv: (str(kv[0][0]), kv[0][1])):
         if n >= amqp_mod.REQUEUE_LOOP_MIN:
-            out.append({"code": "requeue_loop", "queue": q, "requeues": n, "message":
+            out.append({"code": "requeue_loop", "queue": q, "vhost": v, "requeues": n, "message":
                         f"Requeued {n} times on {q} with basic.nack (requeue = true). On a quorum queue since "
                         f"RabbitMQ 4.3, basic.nack does not count toward x-delivery-limit, so the queue never "
                         f"dead-letters the message for it, and a consumer that keeps failing receives it again and "

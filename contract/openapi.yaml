@@ -2423,15 +2423,17 @@ components:
           type: array
           description: |
             RabbitMQ only: one copy of the message per queue it was delivered on (a fanout publish to two queues is
-            two copies, not a duplicate). `ended`: `acked` (the latest delivery there was acked), `moved` (a
+            two copies, not a duplicate). A queue is its virtual host and name: `orders` in vhost `tenant-a` and
+            `orders` in vhost `tenant-b` are two copies. `ended`: `acked` (the latest delivery there was acked), `moved` (a
             dead-letter queue reported the move off it), `rejected` (refused with requeue = false, not seen since)
             or null while the copy is still open.
           items:
             type: object
             additionalProperties: false
-            required: [queue, deliveries, ended]
+            required: [queue, vhost, deliveries, ended]
             properties:
               queue: {type: string}
+              vhost: {type: [string, 'null'], description: The queue's virtual host (`trailbeam.amqp.vhost`).}
               deliveries: {type: integer}
               ended: {type: [string, 'null'], enum: [acked, moved, rejected, null]}
         state: {$ref: '#/components/schemas/State'}
@@ -3219,6 +3221,7 @@ components:
           enum: [order_conflict, default_key, key_mismatch, unmatched_handle, send_not_observed, dlq_move_not_seen, published_twice, requeue_loop]
         message: {type: string, description: The notice in words.}
         queue: {type: string, description: '`requeue_loop`: the queue.'}
+        vhost: {type: [string, 'null'], description: '`requeue_loop`: the queue''s virtual host.'}
         requeues: {type: integer, description: '`requeue_loop`: how many times.'}
     StoredBody:
       type: object
