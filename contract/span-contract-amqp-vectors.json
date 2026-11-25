@@ -388,6 +388,57 @@
    ]
   },
   {
+   "name": "forged counter headers on a first delivery are ignored",
+   "event": {
+    "queue": "orders",
+    "consumer_tag": "ctag-1",
+    "delivery_tag": 1,
+    "redelivered": false,
+    "exchange": "",
+    "routing_key": "orders",
+    "properties": {
+     "message_id": "m-1"
+    },
+    "headers": {
+     "x-acquired-count": 41,
+     "x-delivery-count": 41
+    },
+    "method": "basic.deliver"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam deliver",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.deliver",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "receive",
+      "messaging.operation.name": "basic.deliver",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "trailbeam.start_observed": false,
+      "rabbitmq.message.delivery_tag": 1,
+      "trailbeam.amqp.exchange": "amq.default",
+      "trailbeam.amqp.redelivered": false,
+      "trailbeam.amqp.consumer_tag": "ctag-1",
+      "rabbitmq.destination.routing_key": "orders",
+      "messaging.message.id": "m-1",
+      "trailbeam.receive_count": 1,
+      "trailbeam.receive_count.source": "first_delivery"
+     },
+     "absent": [
+      "trailbeam.amqp.acquired_count",
+      "trailbeam.amqp.delivery_count",
+      "trailbeam.dead_letter.source_queue",
+      "trailbeam.order.issued"
+     ]
+    }
+   ]
+  },
+  {
    "name": "redelivery after a nack and a reject (quorum, RabbitMQ 4.3+)",
    "event": {
     "queue": "orders",
@@ -1247,10 +1298,55 @@
    "redelivered": false,
    "headers": {
     "x-acquired-count": 3,
-    "x-delivery-count": 3
+    "x-delivery-count": 3,
+    "x-death": [
+     {
+      "queue": "orders",
+      "reason": "rejected",
+      "count": 1,
+      "time": 1763980000,
+      "exchange": "",
+      "routing-keys": [
+       "orders"
+      ]
+     }
+    ]
    },
    "receive_count": 4,
    "source": "x-acquired-count"
+  },
+  {
+   "name": "forged x-acquired-count on a first delivery (set by the publisher)",
+   "redelivered": false,
+   "headers": {
+    "x-acquired-count": 41
+   },
+   "receive_count": 1,
+   "source": "first_delivery"
+  },
+  {
+   "name": "forged x-delivery-count on a first delivery (set by the publisher)",
+   "redelivered": false,
+   "headers": {
+    "x-delivery-count": 7
+   },
+   "receive_count": 1,
+   "source": "first_delivery"
+  },
+  {
+   "name": "forged counts with an unusable x-death (no reason)",
+   "redelivered": false,
+   "headers": {
+    "x-acquired-count": 3,
+    "x-delivery-count": 3,
+    "x-death": [
+     {
+      "queue": "orders"
+     }
+    ]
+   },
+   "receive_count": 1,
+   "source": "first_delivery"
   }
  ],
  "dead_letter": [

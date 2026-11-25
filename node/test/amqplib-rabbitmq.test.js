@@ -208,6 +208,34 @@ test.describe('amqplib hooks on RabbitMQ', { skip }, () => {
     assertTimeline(spansOf(exporter), 'm-happy', ['sent', 'routed', 'received', 'acked']);
   });
 
+  test('publisher-set counter headers are ignored on a first delivery (QV-529)', async () => {
+    // RabbitMQ passes these headers through when the publisher sets them; only a redelivery or x-death makes
+    // them the broker's.
+    const q = names('forged');
+    const conn = await connect();
+    const ch = await conn.createConfirmChannel();
+    await quorum(ch, q);
+    let last;
+    for (const headers of [undefined, { 'x-acquired-count': 41, 'x-delivery-count': 41 }]) {
+      await publish(ch, q, 'ord-9', { headers });
+      const { consumerTag, got } = await take(ch, q);
+      ch.ack(got[0]);
+      await ch.cancel(consumerTag);
+      last = got[0];
+    }
+    await conn.close();
+    assert.strictEqual(last.properties.headers['x-acquired-count'], 41); // the broker kept it
+    assert.strictEqual(last.fields.redelivered, false);
+    const delivers = spansOf(exporter, 'trailbeam deliver').map(a);
+    assert.strictEqual(delivers.length, 2);
+    for (const d of delivers) {
+      assert.strictEqual(d['trailbeam.receive_count'], 1);
+      assert.strictEqual(d['trailbeam.receive_count.source'], 'first_delivery');
+      assert.ok(!('trailbeam.amqp.acquired_count' in d) && !('trailbeam.amqp.delivery_count' in d));
+    }
+    assertTimeline(spansOf(exporter), 'ord-9', ['sent', 'routed', 'received', 'acked', 'sent', 'received', 'acked']);
+  });
+
   test('nack with requeue, then ack: the count comes from x-acquired-count', async () => {
     const q = names('requeue');
     const conn = await connect();

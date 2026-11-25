@@ -217,6 +217,29 @@ def test_nack_requeue_then_ack_counts_from_x_acquired_count(exporter, names):
     assert types(t) == ["sent", "routed", "received", "requeued", "returned_to_queue", "received", "acked"], types(t)
 
 
+def test_publisher_set_counter_headers_are_ignored_on_a_first_delivery(exporter, names):
+    # QV-529: RabbitMQ passes these headers through when the publisher sets them; only a redelivery or x-death
+    # makes them the broker's.
+    q = names("forged")
+    conn = connect()
+    ch = conn.channel()
+    quorum(ch, q)
+    ch.confirm_delivery()
+    for headers in (None, {"x-acquired-count": 41, "x-delivery-count": 41}):
+        ch.basic_publish("", q, b"{}", properties=pika.BasicProperties(message_id="ord-9", delivery_mode=2,
+                                                                         headers=headers))
+        tag, got = take(conn, ch, q)
+        ch.basic_ack(got[0][0].delivery_tag)
+        ch.basic_cancel(tag)
+    assert got[0][1].headers["x-acquired-count"] == 41 and got[0][0].redelivered is False  # the broker kept it
+    conn.close()
+    for d in map(a, spans_of(exporter, "trailbeam deliver")):
+        assert d["trailbeam.receive_count"] == 1 and d["trailbeam.receive_count.source"] == "first_delivery"
+        assert "trailbeam.amqp.acquired_count" not in d and "trailbeam.amqp.delivery_count" not in d
+    t = timeline(spans_of(exporter), "ord-9")
+    assert "deliveries_not_observed" not in types(t) and "returned_to_queue" not in types(t), types(t)
+
+
 def test_reject_to_a_dead_letter_queue_reports_x_death(exporter, names):
     q, dlq, dlx = names("orders"), names("orders-dlq"), names("dlx")
     conn = connect()
