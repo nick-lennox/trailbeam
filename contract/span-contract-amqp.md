@@ -350,6 +350,16 @@ does not. The package works it out from the delivery, in this order:
 
 A header counts only when its value is an integer (an AMQP integer type); any other value is treated as absent.
 
+**Integer range.** Every integer the package reads from the broker or a header (these counts, the delivery tag,
+reply codes, `x-death`'s `count`, and the timestamps of A4.4 and A8) counts only from `0` to `2^53 - 1`
+(9007199254740991), the largest integer a JavaScript number holds exactly; any other value is treated as
+absent. So are the values derived from one: a count whose `+ 1` and a timestamp (POSIX seconds) whose
+`× 1000` would pass `2^53 - 1` are absent, so `x-acquired-count` and `x-delivery-count` count up to
+`2^53 - 2` and a timestamp up to `9007199254740` seconds. The Python and Node packages then read the same
+values (amqplib decodes a 64-bit integer to a number, exact only to `2^53 - 1`), and no exported integer can
+overflow OTLP's signed 64-bit integer [verified: QV-532; before this, Python exported `2^63` and the OTLP
+encoder logged an error per span and dropped the attribute].
+
 **A publisher can set these headers too.** RabbitMQ passes publisher-set `x-acquired-count` and
 `x-delivery-count` through unchanged on the first delivery, on classic and quorum queues [verified: 4.4.1, a
 published `x-acquired-count: 41` arrived with `redelivered = false`]. The broker sets them itself only on a

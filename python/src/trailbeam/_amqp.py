@@ -79,9 +79,15 @@ def exchange_name(exchange: Any) -> str:
     return exchange if isinstance(exchange, str) and exchange else DEFAULT_EXCHANGE
 
 
+# A7: the largest integer the package reads from the broker or a header, and the largest it exports: 2^53 - 1,
+# the largest integer a JavaScript number holds exactly, so the Python and Node packages read the same values and
+# nothing exported overflows OTLP's int64. A count + 1 or a timestamp * 1000 above it is treated as absent too.
+MAX_INT = 2**53 - 1
+
+
 def _amqp_int(v: Any) -> Optional[int]:
-    """An AMQP integer header value: an int that is not a bool (A7: anything else is absent)."""
-    return v if isinstance(v, int) and not isinstance(v, bool) else None
+    """An AMQP integer value: an int, not a bool, from 0 to MAX_INT (A7: anything else is absent)."""
+    return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= MAX_INT else None
 
 
 # A3: a string holding U+FFFD is dropped. Some client libraries (amqplib) decode a string that is not valid UTF-8
@@ -110,9 +116,9 @@ def _timestamp_ms(v: Any) -> Optional[int]:
     if isinstance(v, datetime):
         if v.tzinfo is None:
             v = v.replace(tzinfo=timezone.utc)
-        return calendar.timegm(v.utctimetuple()) * 1000
+        v = calendar.timegm(v.utctimetuple())
     n = _amqp_int(v)
-    return n * 1000 if n is not None and n >= 0 else None
+    return n * 1000 if n is not None and n * 1000 <= MAX_INT else None
 
 
 def counter_headers(redelivered: bool, headers: Any) -> Mapping:
@@ -128,12 +134,10 @@ def counter_headers(redelivered: bool, headers: Any) -> Mapping:
 def receive_count(redelivered: bool, headers: Any) -> tuple[Optional[int], Optional[str]]:
     """A7: (trailbeam.receive_count, trailbeam.receive_count.source), or (None, None) when the broker gave none."""
     h = counter_headers(redelivered, headers)
-    acquired = _amqp_int(h.get("x-acquired-count"))
-    if acquired is not None:
-        return acquired + 1, "x-acquired-count"
-    delivered = _amqp_int(h.get("x-delivery-count"))
-    if delivered is not None:
-        return delivered + 1, "x-delivery-count"
+    for header in ("x-acquired-count", "x-delivery-count"):
+        n = _amqp_int(h.get(header))
+        if n is not None and n < MAX_INT:
+            return n + 1, header
     if not redelivered:
         return 1, "first_delivery"
     return None, None
