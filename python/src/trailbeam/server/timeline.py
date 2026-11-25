@@ -1040,6 +1040,15 @@ def _build_amqp(rows: list, now_ns: int, delivery_limits: Optional[dict], cancel
 
     # ---- routed to N queues (A5): from the queues it was delivered on, a lower bound --------------------
     moves = _dlq_moves(receives, sends, proven, source_of=amqp_mod.dlq_source_copy, key=copy_of)
+    # an x-death naming a queue whose latest delivery is held or acked is not a move: x-death is publisher-set (A8)
+    forged, kept = [], []
+    for m in moves:
+        held = amqp_mod.move_ruled_out(rows, m[2])
+        if held is None:
+            kept.append(m)
+        else:
+            forged.append(amqp_mod.forged_move_notice(rows, m[1], held))
+    moves = kept
     dlqs = {copy_of(b) for _, b, _ in moves}
     # the queues of the first publish's virtual host: an exchange routes only within its own
     vhost0 = copy_of(sends[0])[0] if sends else None
@@ -1099,7 +1108,7 @@ def _build_amqp(rows: list, now_ns: int, delivery_limits: Optional[dict], cancel
     else:
         dlq_move = None
     first_ns, first_clock = first_seen_ns(rows)
-    notices = _amqp_notices(rows, sends, order)
+    notices = _amqp_notices(rows, sends, order) + forged
     if dlq_move == "not_seen_on_dlq_yet":
         notices.append({"code": "dlq_move_not_seen", "message":
                         f"x-delivery-limit passed; not seen on a dead-letter queue yet. The copy on {source_queue} "

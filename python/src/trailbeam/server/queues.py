@@ -244,7 +244,9 @@ def events(rows, deduplicated: Iterable[int] = ()) -> list:
         """The key of the queue a receive reports the message was moved from, when that is another queue."""
         if amqp:
             q = rabbitmq.dlq_source(r)
-            return amqp_key(q, r) if q else None
+            if q is None or rabbitmq.move_ruled_out(rows, rabbitmq.dlq_source_copy(r)) is not None:
+                return None  # an x-death that can't be the broker's is not a move (A8)
+            return amqp_key(q, r)
         src = parse_arn(r["dlq_source_arn"]) if r["dlq_source_arn"] else None
         return place_key(src) if src is not None and src.name != r["queue"] else None
     receives = [r for r in rows if r["kind"] == "receive"]

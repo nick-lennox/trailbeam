@@ -109,6 +109,8 @@ def summarize(rows) -> dict:
                 key = (r["receive_count"] or 0, r["time_ns"], r["row"])
                 if (frm, here) not in reports or key < reports[(frm, here)][0]:
                     reports[(frm, here)] = (key, r)
+    if amqp:  # an x-death naming a queue whose latest delivery is held or acked is not a move (A8)
+        reports = {k: v for k, v in reports.items() if rabbitmq.move_ruled_out(rows, k[0]) is None}
     dlqs = {q for _, q in reports}
     in_dlq = (rabbitmq.copy_of(latest) if latest is not None else None) in dlqs if amqp else current_queue in dlqs
 

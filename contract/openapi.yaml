@@ -3217,11 +3217,13 @@ components:
             reached `maxReceiveCount` (RabbitMQ: `x-delivery-count` passed `x-delivery-limit`) and no receive on a
             dead-letter queue has reported a move. RabbitMQ only: `published_twice`: more than one publish with
             this `message_id`; `requeue_loop`: requeued with `basic.nack` at least 3 times on one queue, which on
-            RabbitMQ 4.3 and later never reaches `x-delivery-limit`.
-          enum: [order_conflict, default_key, key_mismatch, unmatched_handle, send_not_observed, dlq_move_not_seen, published_twice, requeue_loop]
+            RabbitMQ 4.3 and later never reaches `x-delivery-limit`; `x_death_not_a_move`: a delivery's `x-death`
+            names a queue whose latest delivery is still held by its consumer or was acked, so it is not shown as
+            a move (`x-death` is publisher-controlled; span-contract-amqp.md A8).
+          enum: [order_conflict, default_key, key_mismatch, unmatched_handle, send_not_observed, dlq_move_not_seen, published_twice, requeue_loop, x_death_not_a_move]
         message: {type: string, description: The notice in words.}
-        queue: {type: string, description: '`requeue_loop`: the queue.'}
-        vhost: {type: [string, 'null'], description: '`requeue_loop`: the queue''s virtual host.'}
+        queue: {type: string, description: '`requeue_loop`: the queue. `x_death_not_a_move`: the queue x-death names.'}
+        vhost: {type: [string, 'null'], description: '`requeue_loop`, `x_death_not_a_move`: the queue''s virtual host.'}
         requeues: {type: integer, description: '`requeue_loop`: how many times.'}
     StoredBody:
       type: object

@@ -365,3 +365,66 @@ def test_an_unacked_copy_in_one_vhost_is_stuck_though_the_other_vhost_acked_late
     assert sm["stuck_open"] and not sm["dup_received"] and not sm["dup_succeeded"]
     assert [c.message_id for c in s.stuck_messages(NOW, 10)] == [t["message_id"]]
     s.close()
+
+
+# ---- x-death is publisher-controlled: it can't close a copy still held, or acked (A8; QV-527) ----------------
+
+FORGED_X_DEATH = {"trailbeam.dead_letter.source_queue": "payments", "trailbeam.dead_letter.reason": "rejected",
+                  "trailbeam.dead_letter.count": 1, "trailbeam.dead_letter.exchange": "amq.default"}
+
+
+def _happy_on(queue, mid, shift_ns, settle=True, extra=None, channel=""):
+    """The happy scenario's spans for ``mid`` on ``queue``, ``shift_ns`` later; without the ack when not ``settle``;
+    ``extra``: attributes added to the delivery."""
+    out = []
+    for sp in FIXTURE["spans"]:
+        kind = sp["attributes"]["trailbeam.kind"]
+        if sp["scenario"] != "happy" or (not settle and kind == "amqp.ack"):
+            continue
+        a = dict(sp["attributes"], **{"messaging.message.id": mid})
+        a["rabbitmq.destination.routing_key"] = queue
+        if kind != "amqp.publish":
+            a["messaging.destination.name"] = queue
+            a["trailbeam.amqp.channel.id"] = a["trailbeam.amqp.channel.id"] + channel
+        for k in ("trailbeam.order.issued", "trailbeam.order.returned"):
+            if k in a:
+                a[k] += shift_ns // 10 ** 6
+        if kind == "amqp.deliver" and extra:
+            a.update(extra)
+        out.append(dict(sp, attributes=a, start_time_unix_nano=sp["start_time_unix_nano"] + shift_ns,
+                        end_time_unix_nano=sp["end_time_unix_nano"] + shift_ns))
+    return out
+
+
+def test_a_forged_x_death_does_not_hide_a_stuck_message():
+    """The QV-526 reproduction: pay-1 delivered on payments and never acked; then a message published to another
+    queue, attacker-q, under the same ID with x-death naming payments, delivered and acked. The held delivery on
+    payments was not in the queue to be dead-lettered, so this is no move: pay-1 stays on Stuck."""
+    s = _vhost_store(_happy_on("payments", "pay-1", 0, settle=False)
+                     + _happy_on("attacker-q", "pay-1", 10 ** 9, extra=FORGED_X_DEATH, channel="-attacker"))
+    t = tl(s, "pay-1")
+    assert "moved_to_dead_letter_queue" not in types(t)
+    assert t["state"] == "not_deleted" and t["dead_letter_queue_move"] is None and t["in_dead_letter_queue"] is False
+    assert {c["queue"]: c["ended"] for c in t["copies"]} == {"payments": None, "attacker-q": "acked"}
+    n = [x for x in t["notices"] if x["code"] == "x_death_not_a_move"]
+    assert len(n) == 1 and n[0]["queue"] == "payments" and n[0]["vhost"] == "/"
+    assert "still held by its consumer" in n[0]["message"] and "publisher can set x-death" in n[0]["message"]
+    sm = summary.summarize(s.message_rows(t["message_id"]))
+    assert sm["stuck_open"] and not sm["final_delete"] and not sm["in_dlq"]
+    it = summary.item(sm, NOW, LT, {})
+    for k in ("state", "in_dead_letter_queue", "dead_letter_queue_move"):
+        assert it[k] == t[k], k
+    assert [c.message_id for c in s.stuck_messages(NOW + 2 * 10 ** 9, 10)] == [t["message_id"]]
+    from trailbeam.server import queues
+    assert not [e for e in queues.events(s.message_rows(t["message_id"])) if e[1] in ("dlq_receive", "dlq_seen")]
+    s.close()
+
+
+def test_an_x_death_naming_a_queue_whose_delivery_was_acked_is_not_a_move():
+    s = _vhost_store(_happy_on("payments", "pay-2", 0)
+                     + _happy_on("attacker-q", "pay-2", 10 ** 9, extra=FORGED_X_DEATH, channel="-attacker"))
+    t = tl(s, "pay-2")
+    assert "moved_to_dead_letter_queue" not in types(t) and t["dead_letter_queue_move"] is None
+    assert t["state"] == "deleted"  # both copies acked
+    assert "was acked" in [x for x in t["notices"] if x["code"] == "x_death_not_a_move"][0]["message"]
+    s.close()

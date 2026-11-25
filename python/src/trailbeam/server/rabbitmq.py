@@ -10,7 +10,8 @@ The rules that differ from SQS:
   (virtual host, queue), ``copy_of``: queue ``orders`` of vhost ``tenant-a`` and ``orders`` of ``tenant-b`` are two
   queues (A3), so one message ID used in both is two copies, not a duplicate. A copy is done when its
   latest delivery was acked (``basic.ack`` accepted), refused (``requeue = false``) or the message was observed
-  moving off its queue to a dead-letter queue (``x-death``).
+  moving off its queue to a dead-letter queue (``x-death``). ``x-death`` is publisher-controlled, so it is a move
+  only when the copy's latest delivery could have been dead-lettered (``move_ruled_out``, A8).
 - **Redeliveries** (A10). No visibility timeout exists: a later delivery on the same queue with a higher receive
   count (or, with no count, ``redelivered = true``) is a return to the queue, whose cause is what the spans of the
   earlier delivery show (``cause_of``).
@@ -239,6 +240,44 @@ def failed_returns(rows, source: tuple) -> int:
 def delivery_limit_reached(count: int, limit: Optional[int]) -> bool:
     """The queue dead-letters (or drops) a message whose x-delivery-count goes above x-delivery-limit."""
     return bool(limit) and count > limit
+
+
+def move_ruled_out(rows, source: tuple) -> Optional[dict]:
+    """The latest delivery of the copy ``source`` (``copy_of``) when it rules out a move off that queue (A8), else
+    None. RabbitMQ dead-letters only a message that is on its queue or that a consumer refuses: one held by a
+    consumer (delivered and not yet acked, refused, requeued or closed) is not in the queue, so its TTL, the
+    queue's length limit and x-delivery-limit don't apply to it, and an acked one is gone. So a move is possible
+    when the copy's latest delivery was refused (``requeue = false``), requeued, or its channel closed, or when no
+    delivery on that queue was observed (a message that expired or overflowed before any delivery). An ``x-death``
+    naming a queue whose latest delivery is held or acked is not the broker's: the header is publisher-controlled
+    (A8), so it is not a move."""
+    on = [r for r in rows if r["kind"] == "receive" and copy_of(r) == source]
+    if not on:
+        return None
+    last = on[-1]
+    settles = settles_of(rows, last)
+    if any(x["kind"] == "delete" and x["result"] == "ok" for x in settles):
+        return last
+    if any(x["kind"] == "channel_closed" or (x["kind"] in ("reject", "change_visibility") and x["result"] == "ok")
+           for x in settles):
+        return None
+    return last
+
+
+def forged_move_notice(rows, report, held) -> dict:
+    """The notice for an ``x-death`` on ``report`` that names a queue whose latest delivery ``held`` rules out the
+    move (``move_ruled_out``)."""
+    frm = dlq_source(report)
+    acked = any(x["kind"] == "delete" and x["result"] == "ok" for x in settles_of(rows, held))
+    state = ("was acked, so the message was already gone from it" if acked else
+             "is still held by its consumer (no ack, refusal, requeue or channel close seen), so the message was "
+             "not on that queue to be dead-lettered")
+    return {"code": "x_death_not_a_move", "queue": frm, "vhost": copy_of(held)[0], "message":
+            f"Not shown as a move to a dead-letter queue: a delivery on {report['queue']} carries an x-death header "
+            f"naming {frm}, but the latest delivery on {frm} {state}. A publisher can set x-death itself, so the "
+            f"header is not taken as RabbitMQ's report. If the consumer on {frm} stopped without a channel close "
+            f"being recorded (a crash), RabbitMQ may have returned and then dead-lettered the message; Trailbeam "
+            f"can't tell that from a forged header, so the copy on {frm} stays open."}
 
 
 def copies(rows, moved_from: set) -> dict:
