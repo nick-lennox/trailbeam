@@ -105,14 +105,23 @@ def check(attrs: dict) -> str:
     return ""
 
 
+MAX_INT = 2**53 - 1  # A7: integers count from 0 to 2^53 - 1, and so must a count + 1 and a timestamp * 1000
+
+
+def amqp_int(v, scale=1, add=0):
+    """A7: v when it is an int (not a bool) and both it and v * scale + add are from 0 to MAX_INT, else None."""
+    ok = isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= MAX_INT and v * scale + add <= MAX_INT
+    return v if ok else None
+
+
 def receive_count(redelivered: bool, headers: dict):
     """A7: (count, source), or (None, None). The counter headers count only on a redelivery or with a usable
     x-death; on any other delivery the publisher set them."""
     if not redelivered and not dead_letter(headers):
         headers = {}
     for header in ("x-acquired-count", "x-delivery-count"):
-        v = headers.get(header)
-        if isinstance(v, int) and not isinstance(v, bool):
+        v = amqp_int(headers.get(header), add=1)
+        if v is not None:
             return v + 1, header
     if not redelivered:
         return 1, "first_delivery"
@@ -147,8 +156,8 @@ def dead_letter(headers: dict) -> dict:
     d = {k: wire_text(v) for k, v in d.items()}
     headers = {k: wire_text(v) for k, v in headers.items()}
     out = {"trailbeam.dead_letter.source_queue": d["queue"], "trailbeam.dead_letter.reason": d["reason"],
-           "trailbeam.dead_letter.count": d.get("count")}
-    if "time" in d:
+           "trailbeam.dead_letter.count": amqp_int(d.get("count"))}
+    if amqp_int(d.get("time"), scale=1000) is not None:
         out["trailbeam.dead_letter.time_ms"] = d["time"] * 1000
     if "exchange" in d and fits(d["exchange"]):
         out["trailbeam.dead_letter.exchange"] = d["exchange"] or "amq.default"

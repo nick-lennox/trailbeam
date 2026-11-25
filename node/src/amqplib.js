@@ -88,9 +88,15 @@ function exchangeName(exchange) {
   return typeof exchange === 'string' && exchange ? exchange : DEFAULT_EXCHANGE;
 }
 
-/** An AMQP integer value (A7: anything else is absent). amqplib decodes table integers to numbers. */
+// A7: the largest integer the package reads from the broker or a header, and the largest it exports: 2^53 - 1, so
+// the Python and Node packages read the same values (amqplib decodes a 64-bit integer to a number, which is exact
+// only up to here) and nothing exported overflows OTLP's int64. A count + 1 or a timestamp * 1000 above it is
+// treated as absent too.
+const MAX_INT = Number.MAX_SAFE_INTEGER;
+
+/** An AMQP integer value from 0 to MAX_INT (A7: anything else is absent). amqplib decodes integers to numbers. */
 function amqpInt(v) {
-  return typeof v === 'number' && Number.isSafeInteger(v) ? v : undefined;
+  return typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : undefined;
 }
 
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -126,11 +132,11 @@ function text(v) {
 function timestampMs(v) {
   if (v instanceof Date) {
     const t = v.getTime();
-    return Number.isFinite(t) ? Math.floor(t / 1000) * 1000 : undefined;
+    v = Number.isFinite(t) ? Math.floor(t / 1000) : undefined;
   }
   if (v && typeof v === 'object' && v['!'] === 'timestamp') v = v.value;
   const n = amqpInt(v);
-  return n !== undefined && n >= 0 ? n * 1000 : undefined;
+  return n !== undefined && n * 1000 <= MAX_INT ? n * 1000 : undefined;
 }
 
 const isTable = (v) => v !== null && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Uint8Array);
@@ -147,10 +153,10 @@ function counterHeaders(redelivered, headers) {
 /** A7: [trailbeam.receive_count, trailbeam.receive_count.source], or [undefined, undefined] when the broker gave none. */
 function receiveCount(redelivered, headers) {
   const h = counterHeaders(redelivered, headers);
-  const acquired = amqpInt(h['x-acquired-count']);
-  if (acquired !== undefined) return [acquired + 1, 'x-acquired-count'];
-  const delivered = amqpInt(h['x-delivery-count']);
-  if (delivered !== undefined) return [delivered + 1, 'x-delivery-count'];
+  for (const header of ['x-acquired-count', 'x-delivery-count']) {
+    const n = amqpInt(h[header]);
+    if (n !== undefined && n < MAX_INT) return [n + 1, header];
+  }
   if (!redelivered) return [1, 'first_delivery'];
   return [undefined, undefined];
 }

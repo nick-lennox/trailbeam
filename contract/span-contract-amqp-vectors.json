@@ -1444,6 +1444,96 @@
      ]
     }
    ]
+  },
+  {
+   "name": "pull delivery with the largest timestamp, 9007199254740 s",
+   "event": {
+    "queue": "orders",
+    "delivery_tag": 4,
+    "redelivered": false,
+    "exchange": "",
+    "routing_key": "orders",
+    "properties": {
+     "message_id": "m-8",
+     "timestamp": 9007199254740
+    },
+    "headers": {},
+    "method": "basic.get"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam deliver",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.deliver",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "receive",
+      "messaging.operation.name": "basic.get",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "rabbitmq.message.delivery_tag": 4,
+      "trailbeam.amqp.exchange": "amq.default",
+      "trailbeam.amqp.redelivered": false,
+      "rabbitmq.destination.routing_key": "orders",
+      "messaging.message.id": "m-8",
+      "trailbeam.receive_count": 1,
+      "trailbeam.receive_count.source": "first_delivery",
+      "trailbeam.amqp.timestamp_ms": 9007199254740000
+     },
+     "absent": [
+      "trailbeam.start_observed",
+      "trailbeam.amqp.consumer_tag"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "pull delivery with a timestamp of 2^63 s: timestamp_ms is omitted",
+   "event": {
+    "queue": "orders",
+    "delivery_tag": 4,
+    "redelivered": false,
+    "exchange": "",
+    "routing_key": "orders",
+    "properties": {
+     "message_id": "m-8",
+     "timestamp": 9223372036854775808
+    },
+    "headers": {},
+    "method": "basic.get"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam deliver",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.deliver",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "receive",
+      "messaging.operation.name": "basic.get",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "rabbitmq.message.delivery_tag": 4,
+      "trailbeam.amqp.exchange": "amq.default",
+      "trailbeam.amqp.redelivered": false,
+      "rabbitmq.destination.routing_key": "orders",
+      "messaging.message.id": "m-8",
+      "trailbeam.receive_count": 1,
+      "trailbeam.receive_count.source": "first_delivery"
+     },
+     "absent": [
+      "trailbeam.start_observed",
+      "trailbeam.amqp.consumer_tag",
+      "trailbeam.amqp.timestamp_ms"
+     ]
+    }
+   ]
   }
  ],
  "receive_count": [
@@ -1538,6 +1628,82 @@
     "x-death": [
      {
       "queue": "orders"
+     }
+    ]
+   },
+   "receive_count": 1,
+   "source": "first_delivery"
+  },
+  {
+   "name": "x-acquired-count of 2^53 - 2 is the largest counted",
+   "redelivered": true,
+   "headers": {
+    "x-acquired-count": 9007199254740990
+   },
+   "receive_count": 9007199254740991,
+   "source": "x-acquired-count"
+  },
+  {
+   "name": "x-acquired-count of 2^53 - 1 is absent (its + 1 is out of range); x-delivery-count counts",
+   "redelivered": true,
+   "headers": {
+    "x-acquired-count": 9007199254740991,
+    "x-delivery-count": 2
+   },
+   "receive_count": 3,
+   "source": "x-delivery-count"
+  },
+  {
+   "name": "x-acquired-count of 2^53 + 1 is absent",
+   "redelivered": true,
+   "headers": {
+    "x-acquired-count": 9007199254740993
+   },
+   "receive_count": null,
+   "source": null
+  },
+  {
+   "name": "x-acquired-count of 2^63 - 1 is absent",
+   "redelivered": true,
+   "headers": {
+    "x-acquired-count": 9223372036854775807
+   },
+   "receive_count": null,
+   "source": null
+  },
+  {
+   "name": "x-delivery-count of 2^63 - 1 is absent",
+   "redelivered": true,
+   "headers": {
+    "x-delivery-count": 9223372036854775807
+   },
+   "receive_count": null,
+   "source": null
+  },
+  {
+   "name": "negative x-acquired-count is absent",
+   "redelivered": true,
+   "headers": {
+    "x-acquired-count": -1
+   },
+   "receive_count": null,
+   "source": null
+  },
+  {
+   "name": "out-of-range x-acquired-count carried to a dead-letter queue: the first delivery there",
+   "redelivered": false,
+   "headers": {
+    "x-acquired-count": 9223372036854775807,
+    "x-death": [
+     {
+      "queue": "orders",
+      "reason": "rejected",
+      "count": 1,
+      "time": 1763980000,
+      "exchange": "",
+      "routing-keys": [
+       "orders"
+      ]
      }
     ]
    },
@@ -1787,6 +1953,88 @@
     "trailbeam.dead_letter.count": 1,
     "trailbeam.dead_letter.first_queue": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
     "trailbeam.dead_letter.first_reason": "rejected"
+   }
+  },
+  {
+   "name": "count of 2^53 - 1 and time of 9007199254740 s are the largest copied",
+   "x-death": [
+    {
+     "queue": "orders",
+     "reason": "rejected",
+     "count": 9007199254740991,
+     "time": 9007199254740,
+     "exchange": "",
+     "routing-keys": [
+      "orders"
+     ]
+    }
+   ],
+   "attributes": {
+    "trailbeam.dead_letter.source_queue": "orders",
+    "trailbeam.dead_letter.reason": "rejected",
+    "trailbeam.dead_letter.count": 9007199254740991,
+    "trailbeam.dead_letter.time_ms": 9007199254740000,
+    "trailbeam.dead_letter.exchange": "amq.default"
+   }
+  },
+  {
+   "name": "count of 2^62 and time of 9007199254741 s are omitted alone",
+   "x-death": [
+    {
+     "queue": "orders",
+     "reason": "rejected",
+     "count": 4611686018427387904,
+     "time": 9007199254741,
+     "exchange": "",
+     "routing-keys": [
+      "orders"
+     ]
+    }
+   ],
+   "attributes": {
+    "trailbeam.dead_letter.source_queue": "orders",
+    "trailbeam.dead_letter.reason": "rejected",
+    "trailbeam.dead_letter.exchange": "amq.default"
+   }
+  },
+  {
+   "name": "count of 2^63 - 1 and time of 2^63 are omitted alone",
+   "x-death": [
+    {
+     "queue": "orders",
+     "reason": "rejected",
+     "count": 9223372036854775807,
+     "time": 9223372036854775808,
+     "exchange": "",
+     "routing-keys": [
+      "orders"
+     ]
+    }
+   ],
+   "attributes": {
+    "trailbeam.dead_letter.source_queue": "orders",
+    "trailbeam.dead_letter.reason": "rejected",
+    "trailbeam.dead_letter.exchange": "amq.default"
+   }
+  },
+  {
+   "name": "negative count and time are omitted alone",
+   "x-death": [
+    {
+     "queue": "orders",
+     "reason": "rejected",
+     "count": -1,
+     "time": -1,
+     "exchange": "",
+     "routing-keys": [
+      "orders"
+     ]
+    }
+   ],
+   "attributes": {
+    "trailbeam.dead_letter.source_queue": "orders",
+    "trailbeam.dead_letter.reason": "rejected",
+    "trailbeam.dead_letter.exchange": "amq.default"
    }
   }
  ],
