@@ -933,12 +933,19 @@ namespace Trailbeam.Sqs
             }
         }
 
+        /// <summary>
+        /// A non-empty string of at most 256 code points with no lone surrogate (QV-549): a lone surrogate, which a
+        /// JSON escape such as <c>\ud800</c> can carry, cannot be exported as UTF-8 (the exporter would write U+FFFD),
+        /// so the tenant counts as not found.
+        /// </summary>
+        internal static bool ValidTenant(string? v) =>
+            !string.IsNullOrEmpty(v) && CodePoints(v!) <= MaxTenantChars && !HasLoneSurrogate(v!);
+
         /// <summary>(tenant, source) from the configured message attribute, else the configured body path; else null.</summary>
         internal static (string Tenant, string Source)? Tenant(Config config, IDictionary<string, string>? attributes, string? body)
         {
             if (config.TenantAttribute != null && attributes != null
-                && attributes.TryGetValue(config.TenantAttribute, out string? v) && !string.IsNullOrEmpty(v)
-                && CodePoints(v!) <= MaxTenantChars)
+                && attributes.TryGetValue(config.TenantAttribute, out string? v) && ValidTenant(v))
             {
                 return (v!, "message_attribute");
             }
@@ -950,7 +957,7 @@ namespace Trailbeam.Sqs
                     doc = doc is Dictionary<string, object> m && m.TryGetValue(part, out object? next) ? next : null;
                 }
                 string? t = doc is string s ? s : doc is Num num ? NumberText(num.Text) : null;
-                if (!string.IsNullOrEmpty(t) && CodePoints(t!) <= MaxTenantChars)
+                if (ValidTenant(t))
                 {
                     return (t!, "body_path");
                 }

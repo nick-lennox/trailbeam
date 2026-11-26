@@ -404,13 +404,25 @@ def _md5_matches(body: str, md5: Any) -> bool:
     return hashlib.md5(body.encode("utf-8", "surrogatepass")).hexdigest() == md5.lower()
 
 
+def _valid_tenant(v: Any) -> bool:
+    """A non-empty string of at most 256 code points with no lone surrogate (QV-549): a lone surrogate, which a
+    JSON escape such as ``\\ud800`` can carry, cannot be exported as UTF-8, so the tenant counts as not found."""
+    if not isinstance(v, str) or not v or len(v) > MAX_TENANT_CHARS:
+        return False
+    try:
+        v.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def tenant_from(config: Config, attributes: Any, body: Any, lambda_record: bool = False) -> Optional[tuple[str, str]]:
     """(tenant, source) from the configured message attribute, else the configured body path."""
     if config.tenant_attribute and isinstance(attributes, Mapping):
         a = attributes.get(config.tenant_attribute)
         if isinstance(a, Mapping):
             v = a.get("stringValue" if lambda_record else "StringValue")
-            if isinstance(v, str) and v and len(v) <= MAX_TENANT_CHARS:
+            if _valid_tenant(v):
                 return v, "message_attribute"
     if config.tenant_body_path and isinstance(body, str):
         doc = _parse(body)
@@ -420,7 +432,7 @@ def tenant_from(config: Config, attributes: Any, body: Any, lambda_record: bool 
             return None
         if isinstance(doc, (int, float)):
             doc = json.dumps(doc)
-        if isinstance(doc, str) and doc and len(doc) <= MAX_TENANT_CHARS:
+        if _valid_tenant(doc):
             return doc, "body_path"
     return None
 

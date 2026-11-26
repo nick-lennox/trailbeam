@@ -42,6 +42,17 @@ def test_tenant_vectors(v):
     assert (None if got is None else {"tenant": got[0], "source": got[1]}) == v["expected"]
 
 
+def test_lone_surrogate_tenant_exports_neither_attribute():
+    """QV-549: tenant.source came without tenant, and the OTLP encoder logged ERROR on the surrogate."""
+    config = _capture.resolve_config({"body_path": "t", "message_attribute": "tenant"}, {})
+    attrs = {"tenant": {"DataType": "String", "StringValue": "\ud800x"}}
+    got = _capture.content_attrs(config, "orders", '{"t": "\\ud800x"}', attrs, None)
+    assert "trailbeam.tenant" not in got and "trailbeam.tenant.source" not in got
+    for v in got.values():  # everything left exports as UTF-8
+        if isinstance(v, str):
+            v.encode("utf-8")
+
+
 @pytest.mark.parametrize("v", VECTORS["offloaded_size"], ids=lambda v: v["name"])
 def test_offloaded_size_vectors(v):
     got = _capture.content_attrs(_capture.Config(), "orders", v["body"], v["message_attributes"], None,
