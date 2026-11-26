@@ -2,13 +2,6 @@
 
 ## Unreleased
 
-- **Java and .NET: a huge number at the tenant body path no longer stalls `ReceiveMessage`** (QV-548). With
-  `TRAILBEAM_TENANT_BODY_PATH` set, an integer of hundreds of thousands of digits there was converted with
-  `BigInteger` before the 256-character tenant limit was checked, a cost that grows with the square of its length:
-  a 1 MiB body took about 11 s in Java and 16 s in .NET, on the application's thread, so a sender could push a
-  batch past its visibility timeout. An integer longer than 256 characters is now dropped before it is converted
-  (it was never exported anyway); 1 MiB takes under 50 ms. On .NET Framework an out-of-range number (`1E400`) no
-  longer throws and loses every receive span after it in the response: it is `"Infinity"`, as in Python and Java.
 - **`npx trailbeam start` no longer leaves its output in Docker's log** (QV-409). It runs the container with
   `--log-driver none`, so the output still shows in the terminal but is not kept by `docker logs` or sent to a log
   service the Docker daemon is set up with (gelf, fluentd, awslogs, ...). That output holds the first run's token
