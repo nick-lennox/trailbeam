@@ -291,6 +291,31 @@ namespace Trailbeam.Sqs.Tests
             Assert.Contains("tenant", stub.Requests[1].Body.GetProperty("MessageAttributeNames").EnumerateArray().Select(x => x.GetString()));
         }
 
+        /// <summary>
+        /// QV-548: an out-of-range number at the tenant path (which .NET Framework's double.Parse refuses) must
+        /// not lose the receive spans of the other messages in the same response.
+        /// </summary>
+        [Fact]
+        public async Task OutOfRangeNumberAtTenantPathKeepsTheBatch()
+        {
+            Install(new Dictionary<string, string> { ["TRAILBEAM_TENANT_BODY_PATH"] = "t" });
+            string Msg(string id, string body) => "{\"MessageId\":\"" + id + "\",\"ReceiptHandle\":\"rh-" + id
+                + "\",\"MD5OfBody\":\"" + CaptureTest.Md5(body) + "\",\"Body\":" + JsonSerializer.Serialize(body) + "}";
+            var stub = new StubSqs(r => r.Operation == "ReceiveMessage"
+                ? StubSqs.Res.Ok("{\"Messages\":[" + Msg("m1", "{\"t\":1E400}") + "," + Msg("m2", "{\"t\":\"acme\"}") + "]}")
+                : Answer(r));
+            using (var sqs = stub.Client())
+            {
+                var got = await sqs.ReceiveMessageAsync(new ReceiveMessageRequest { QueueUrl = Q, MaxNumberOfMessages = 10 });
+                Assert.Equal(2, got.Messages.Count);
+            }
+            Assert.Equal(new[] { "trailbeam receive", "trailbeam receive" }, _spans.Select(s => s.DisplayName));
+            Assert.Equal("Infinity", Tag(_spans[0], "trailbeam.tenant"));
+            Assert.Equal("body_path", Tag(_spans[0], "trailbeam.tenant.source"));
+            Assert.Equal("m2", Tag(_spans[1], "messaging.message.id"));
+            Assert.Equal("acme", Tag(_spans[1], "trailbeam.tenant"));
+        }
+
         private sealed class EndpointConnectionError : Exception
         {
             internal EndpointConnectionError()

@@ -174,6 +174,33 @@ class CaptureTest {
     assertEquals("12345678901234567890", Capture.numberText("12345678901234567890"));
     assertEquals("0", Capture.numberText("-0"));
     assertEquals("1.5", Capture.numberText("1.5"));
+    assertEquals("Infinity", Capture.numberText("1E400"));
+    assertEquals("-Infinity", Capture.numberText("-1E400"));
+    assertEquals("9".repeat(256), Capture.numberText("9".repeat(256)));
+    assertNull(Capture.numberText("9".repeat(257)), "longer than a tenant may be");
+  }
+
+  /** QV-548: a huge integer at the tenant path must not cost BigInteger's quadratic conversion. */
+  @Test
+  void hugeNumberAtTenantPathIsCheap() {
+    Capture.Config c = new Capture.Config(null, "t", new HashSet<>(), new HashSet<>(), List.of(), null, null);
+    String digits = "1".repeat(1_048_000);
+    String body = "{\"t\":" + digits + "}"; // about 1 MiB, SQS's largest body
+    String decimal = "{\"t\":1." + "0".repeat(1_047_990) + "}";
+    Capture.contentAttrs(c, "q", "{\"t\":1}", null, null); // load and warm the code path once
+    long best = Long.MAX_VALUE;
+    for (int i = 0; i < 3; i++) {
+      long t0 = System.nanoTime();
+      Map<String, Object> attrs = Capture.contentAttrs(c, "q", body, null, null);
+      best = Math.min(best, System.nanoTime() - t0);
+      assertFalse(attrs.containsKey("trailbeam.tenant"), "more than 256 characters: no tenant, as before");
+      assertEquals((long) body.length(), attrs.get("messaging.message.body.size"));
+    }
+    assertTrue(best < 50_000_000L, "content attributes took " + best / 1_000_000 + " ms");
+    // A long decimal still prints as the double it is, and as quickly.
+    long t0 = System.nanoTime();
+    assertEquals("1.0", Capture.contentAttrs(c, "q", decimal, null, null).get("trailbeam.tenant"));
+    assertTrue(System.nanoTime() - t0 < 200_000_000L);
   }
 
   @Test

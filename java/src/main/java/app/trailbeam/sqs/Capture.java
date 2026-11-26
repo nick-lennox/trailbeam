@@ -829,10 +829,16 @@ final class Capture {
 
   /**
    * A number as Java prints it (section 15.2): an integer exactly ({@code 42} is {@code "42"}, at any size),
-   * anything else as {@link Double#toString(double)}.
+   * anything else as {@link Double#toString(double)}. Null for an integer longer than a tenant may be.
    */
   static String numberText(String literal) {
     if (literal.indexOf('.') < 0 && literal.indexOf('e') < 0 && literal.indexOf('E') < 0) {
+      // JSON integers have no leading zeros, so the printed form is the literal (or "0" for "-0"): one
+      // longer than the tenant limit is dropped anyway. Checking first keeps BigInteger's conversion,
+      // which grows with the square of the length, off a body of up to 1 MiB of digits.
+      if (literal.length() > MAX_TENANT_CHARS) {
+        return null;
+      }
       return new BigInteger(literal).toString();
     }
     return Double.toString(Double.parseDouble(literal));
