@@ -157,8 +157,13 @@ function redactText(text, config) {
   return [text, count];
 }
 
+/** Whether `s` has a UTF-16 surrogate without its partner: such a string cannot be exported as UTF-8. */
+function hasLoneSurrogate(s) {
+  return /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s);
+}
+
 function encodeString(s) {
-  if (/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s)) {
+  if (hasLoneSurrogate(s)) {
     throw new RedactionError('lone surrogate'); // cannot be exported as UTF-8: fail closed
   }
   return JSON.stringify(s);
@@ -390,18 +395,26 @@ function withinCodePoints(s, limit) {
   return true;
 }
 
+/**
+ * A non-empty string of at most 256 code points with no lone surrogate (QV-549): a lone surrogate, which a JSON
+ * escape such as `\ud800` can carry, cannot be exported as UTF-8, so the tenant counts as not found.
+ */
+function validTenant(v) {
+  return typeof v === 'string' && v !== '' && withinCodePoints(v, MAX_TENANT_CHARS) && !hasLoneSurrogate(v);
+}
+
 /** `{tenant, source}` from the configured message attribute, else the configured body path. */
 function tenantFrom(config, attributes, body, lambdaRecord = false) {
   if (config.tenantAttribute && isObject(attributes)) {
     const a = attributes[config.tenantAttribute];
     const v = isObject(a) ? a[lambdaRecord ? 'stringValue' : 'StringValue'] : undefined;
-    if (typeof v === 'string' && v && withinCodePoints(v, MAX_TENANT_CHARS)) return { tenant: v, source: 'message_attribute' };
+    if (validTenant(v)) return { tenant: v, source: 'message_attribute' };
   }
   if (config.tenantBodyPath && typeof body === 'string') {
     let doc = parse(body);
     for (const part of config.tenantBodyPath.split('.')) doc = isObject(doc) ? doc[part] : undefined;
     if (typeof doc === 'number' && Number.isFinite(doc)) doc = JSON.stringify(doc);
-    if (typeof doc === 'string' && doc && withinCodePoints(doc, MAX_TENANT_CHARS)) return { tenant: doc, source: 'body_path' };
+    if (validTenant(doc)) return { tenant: doc, source: 'body_path' };
   }
   return undefined;
 }

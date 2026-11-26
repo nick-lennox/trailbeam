@@ -801,11 +801,20 @@ final class Capture {
     }
   }
 
+  /**
+   * A non-empty string of at most 256 code points with no lone surrogate (QV-549): a lone surrogate, which a JSON
+   * escape of half a surrogate pair can carry, cannot be exported as UTF-8 (the exporter would write {@code ?}), so
+   * the tenant counts as not found.
+   */
+  static boolean validTenant(String v) {
+    return v != null && !v.isEmpty() && codePoints(v) <= MAX_TENANT_CHARS && !hasLoneSurrogate(v);
+  }
+
   /** (tenant, source) from the configured message attribute, else the configured body path; else null. */
   static String[] tenant(Config config, Map<String, String> attributes, String body) {
     if (config.tenantAttribute != null && attributes != null) {
       String v = attributes.get(config.tenantAttribute);
-      if (v != null && !v.isEmpty() && codePoints(v) <= MAX_TENANT_CHARS) {
+      if (validTenant(v)) {
         return new String[] {v, "message_attribute"};
       }
     }
@@ -820,7 +829,7 @@ final class Capture {
       } else if (doc instanceof Num) {
         v = numberText(((Num) doc).text);
       }
-      if (v != null && !v.isEmpty() && codePoints(v) <= MAX_TENANT_CHARS) {
+      if (validTenant(v)) {
         return new String[] {v, "body_path"};
       }
     }

@@ -654,6 +654,9 @@ A failed batch entry produces no `trailbeam send` (section 4.1), so it has no bo
 **Tenant.** The message attribute is tried first, then the body path. The body path is a dotted path of
 object keys (`customer.id`) into a JSON body; the value must be a string or a number, and a number is
 written as the language prints it, so `42` becomes `"42"` (use string IDs if they can exceed 2^53).
+A value that is empty, longer than 256 characters (code points) or holds a lone UTF-16 surrogate (which a JSON
+escape such as `\ud800` can carry, and which cannot be exported as UTF-8) is not found: the attribute falls
+through to the body path, and neither `trailbeam.tenant` nor `trailbeam.tenant.source` is set (QV-549).
 Reading the tenant from the body parses the body in the process. That does not export the body; only
 capture does. For a receive, the hooks add the tenant attribute name to `MessageAttributeNames` unless
 the caller already asked for it, `All` or `.*`, and do the same for `ExtendedPayloadSize` and

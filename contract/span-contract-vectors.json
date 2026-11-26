@@ -321,6 +321,88 @@
           "tenant": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
           "source": "body_path"
         }
+      },
+      {
+        "name": "body path with a lone high surrogate escape dropped (QV-549)",
+        "tenant": {
+          "body_path": "t"
+        },
+        "body": "{\"t\": \"\\ud800x\"}",
+        "message_attributes": {},
+        "lambda_record": false,
+        "expected": null
+      },
+      {
+        "name": "body path with a lone low surrogate escape dropped",
+        "tenant": {
+          "body_path": "t"
+        },
+        "body": "{\"t\": \"x\\udc00\"}",
+        "message_attributes": {},
+        "lambda_record": false,
+        "expected": null
+      },
+      {
+        "name": "body path with an escaped surrogate pair kept",
+        "tenant": {
+          "body_path": "t"
+        },
+        "body": "{\"t\": \"\\ud83d\\ude00\"}",
+        "message_attributes": {},
+        "lambda_record": false,
+        "expected": {
+          "tenant": "😀",
+          "source": "body_path"
+        }
+      },
+      {
+        "name": "message attribute with a lone surrogate dropped",
+        "tenant": {
+          "message_attribute": "tenant"
+        },
+        "body": "{}",
+        "message_attributes": {
+          "tenant": {
+            "DataType": "String",
+            "StringValue": "\ud800x"
+          }
+        },
+        "lambda_record": false,
+        "expected": null
+      },
+      {
+        "name": "message attribute with a lone surrogate dropped (Lambda record)",
+        "tenant": {
+          "message_attribute": "tenant"
+        },
+        "body": "{}",
+        "message_attributes": {
+          "tenant": {
+            "dataType": "String",
+            "stringValue": "x\udc00"
+          }
+        },
+        "lambda_record": true,
+        "expected": null
+      },
+      {
+        "name": "message attribute with a lone surrogate falls back to the body path",
+        "tenant": {
+          "message_attribute": "tenant",
+          "body_path": "t"
+        },
+        "body": "{\"t\": \"from-body\"}",
+        "message_attributes": {
+          "tenant": {
+            "DataType": "String",
+            "StringValue": "\ud800x"
+          }
+        },
+        "lambda_record": false,
+        "expected": {
+          "tenant": "from-body",
+          "source": "body_path"
+        }
       }
     ],
     "error_message": [
