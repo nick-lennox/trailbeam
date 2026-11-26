@@ -377,18 +377,31 @@ function md5Matches(body, md5) {
   return crypto.createHash('md5').update(body, 'utf8').digest('hex') === md5.toLowerCase();
 }
 
+/**
+ * Whether `s` has at most `limit` Unicode code points (contract section 15.2 counts characters as code points, as
+ * Python, Java and .NET do). `s.length` counts UTF-16 units, so a character outside the BMP, such as an emoji,
+ * would count as 2 (QV-551).
+ */
+function withinCodePoints(s, limit) {
+  if (s.length <= limit) return true; // code points <= UTF-16 units
+  if (s.length > 2 * limit) return false; // every code point is at most 2 units
+  let n = 0;
+  for (const _ of s) if (++n > limit) return false;
+  return true;
+}
+
 /** `{tenant, source}` from the configured message attribute, else the configured body path. */
 function tenantFrom(config, attributes, body, lambdaRecord = false) {
   if (config.tenantAttribute && isObject(attributes)) {
     const a = attributes[config.tenantAttribute];
     const v = isObject(a) ? a[lambdaRecord ? 'stringValue' : 'StringValue'] : undefined;
-    if (typeof v === 'string' && v && v.length <= MAX_TENANT_CHARS) return { tenant: v, source: 'message_attribute' };
+    if (typeof v === 'string' && v && withinCodePoints(v, MAX_TENANT_CHARS)) return { tenant: v, source: 'message_attribute' };
   }
   if (config.tenantBodyPath && typeof body === 'string') {
     let doc = parse(body);
     for (const part of config.tenantBodyPath.split('.')) doc = isObject(doc) ? doc[part] : undefined;
     if (typeof doc === 'number' && Number.isFinite(doc)) doc = JSON.stringify(doc);
-    if (typeof doc === 'string' && doc && doc.length <= MAX_TENANT_CHARS) return { tenant: doc, source: 'body_path' };
+    if (typeof doc === 'string' && doc && withinCodePoints(doc, MAX_TENANT_CHARS)) return { tenant: doc, source: 'body_path' };
   }
   return undefined;
 }
