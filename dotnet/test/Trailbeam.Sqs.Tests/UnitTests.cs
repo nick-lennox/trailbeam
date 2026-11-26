@@ -264,4 +264,44 @@ namespace Trailbeam.Sqs.Tests
             Assert.NotNull(TraceHeaders.Parent(headers));
         }
     }
+
+    /// <summary>QV-550: an unusable TRAILBEAM_OTLP_TRACES_ENDPOINT warns once and does not break the runtime (section 20.4).</summary>
+    public class EndpointTest
+    {
+        [Fact]
+        public void UnusableEndpointWarnsOnceAndTheRuntimeIsBuilt()
+        {
+            var stderr = new System.IO.StringWriter();
+            var old = Console.Error;
+            Console.SetError(stderr);
+            try
+            {
+                foreach (var bad in new[] { "not a url", "localhost:4318" })
+                {
+                    Assert.Null(TrailbeamRuntime.Exporter(bad));
+                    var env = new Dictionary<string, string> { ["TRAILBEAM_OTLP_TRACES_ENDPOINT"] = bad };
+                    // Built without throwing, so Get() returns it and later SQS calls do not build it again.
+                    var t = TrailbeamRuntime.Install(k => env.TryGetValue(k, out var v) ? v : null, null);
+                    Assert.Same(t, TrailbeamRuntime.Get());
+                    Assert.Equal(bad, t.Endpoint);
+                }
+            }
+            finally
+            {
+                Console.SetError(old);
+                TrailbeamRuntime.Install(k => null, new OpenTelemetry.SimpleActivityExportProcessor(
+                    new OpenTelemetry.Exporter.InMemoryExporter<System.Diagnostics.Activity>(new List<System.Diagnostics.Activity>())));
+            }
+            var warnings = stderr.ToString().Split('\n').Where(l => l.Contains("TRAILBEAM_OTLP_TRACES_ENDPOINT")).ToList();
+            Assert.Single(warnings);
+            Assert.Contains("\"not a url\"", warnings[0]);
+        }
+
+        [Fact]
+        public void UsableEndpoint()
+        {
+            Assert.NotNull(TrailbeamRuntime.Exporter("http://localhost:4318/v1/traces"));
+            Assert.NotNull(TrailbeamRuntime.Exporter("https://collector.example/v1/traces"));
+        }
+    }
 }
