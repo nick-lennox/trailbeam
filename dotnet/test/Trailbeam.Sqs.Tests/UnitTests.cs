@@ -204,6 +204,34 @@ namespace Trailbeam.Sqs.Tests
             Assert.Equal("12345678901234567890", Capture.NumberText("12345678901234567890"));
             Assert.Equal("0", Capture.NumberText("-0"));
             Assert.Equal("1.5", Capture.NumberText("1.5"));
+            // Out of range: .NET Framework's double.Parse throws here; the result is Python's and Java's.
+            Assert.Equal("Infinity", Capture.NumberText("1E400"));
+            Assert.Equal("-Infinity", Capture.NumberText("-1E400"));
+            Assert.Equal(new string('9', 256), Capture.NumberText(new string('9', 256)));
+            Assert.Null(Capture.NumberText(new string('9', 257))); // longer than a tenant may be
+        }
+
+        /// <summary>QV-548: a huge integer at the tenant path must not cost BigInteger's quadratic conversion.</summary>
+        [Fact]
+        public void HugeNumberAtTenantPathIsCheap()
+        {
+            var c = new Capture.Config(null, "t", Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), null, null);
+            string body = "{\"t\":" + new string('1', 1_048_000) + "}"; // about 1 MiB, SQS's largest body
+            Capture.ContentAttrs(c, "q", "{\"t\":1}", null, null); // load and JIT the code path once
+            long best = long.MaxValue;
+            for (int i = 0; i < 3; i++)
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var attrs = Capture.ContentAttrs(c, "q", body, null, null);
+                best = Math.Min(best, sw.ElapsedMilliseconds);
+                Assert.Null(Get(attrs, "trailbeam.tenant")); // more than 256 characters: no tenant, as before
+                Assert.Equal((long)body.Length, Get(attrs, "messaging.message.body.size"));
+            }
+            Assert.True(best < 50, "content attributes took " + best + " ms");
+            // A long decimal still prints as the double it is, and quickly.
+            var sw2 = System.Diagnostics.Stopwatch.StartNew();
+            Assert.Equal("1", Get(Capture.ContentAttrs(c, "q", "{\"t\":1." + new string('0', 1_047_990) + "}", null, null), "trailbeam.tenant"));
+            Assert.True(sw2.ElapsedMilliseconds < 200, "long decimal took " + sw2.ElapsedMilliseconds + " ms");
         }
 
         [Fact]

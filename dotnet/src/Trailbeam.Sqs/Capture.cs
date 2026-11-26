@@ -960,15 +960,29 @@ namespace Trailbeam.Sqs
 
         /// <summary>
         /// A number as .NET prints it (section 15.2): an integer exactly (<c>42</c> is <c>"42"</c>, at any size),
-        /// anything else as the shortest round-trip form of the double.
+        /// anything else as the shortest round-trip form of the double, out of range as <c>"Infinity"</c> or
+        /// <c>"-Infinity"</c> (as Python and Java print it). Null for an integer longer than a tenant may be.
         /// </summary>
-        internal static string NumberText(string literal)
+        internal static string? NumberText(string literal)
         {
             if (literal.IndexOf('.') < 0 && literal.IndexOf('e') < 0 && literal.IndexOf('E') < 0)
             {
+                // JSON integers have no leading zeros, so the printed form is the literal (or "0" for "-0"):
+                // one longer than the tenant limit is dropped anyway. Checking first keeps BigInteger's
+                // conversion, which grows with the square of the length, off a body of up to 1 MiB of digits.
+                if (literal.Length > MaxTenantChars)
+                {
+                    return null;
+                }
                 return BigInteger.Parse(literal, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture);
             }
-            return double.Parse(literal, NumberStyles.Float, CultureInfo.InvariantCulture).ToString("R", CultureInfo.InvariantCulture);
+            // .NET Framework refuses an out-of-range double (OverflowException from double.Parse; false from
+            // TryParse) where .NET Core 3.0 and later return infinity. Both end up here.
+            if (!double.TryParse(literal, NumberStyles.Float, CultureInfo.InvariantCulture, out double d) || double.IsInfinity(d))
+            {
+                return literal[0] == '-' ? "-Infinity" : "Infinity";
+            }
+            return d.ToString("R", CultureInfo.InvariantCulture);
         }
 
         internal static int CodePoints(string s)
