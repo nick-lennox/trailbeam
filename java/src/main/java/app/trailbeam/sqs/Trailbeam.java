@@ -13,6 +13,7 @@ import io.opentelemetry.exporter.otlp.http.trace.OtlpHttpSpanExporter;
 import io.opentelemetry.sdk.common.CompletableResultCode;
 import io.opentelemetry.sdk.resources.Resource;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
+import io.opentelemetry.sdk.trace.SdkTracerProviderBuilder;
 import io.opentelemetry.sdk.trace.SpanProcessor;
 import io.opentelemetry.sdk.trace.export.BatchSpanProcessor;
 import io.opentelemetry.sdk.trace.samplers.Sampler;
@@ -78,21 +79,43 @@ public final class Trailbeam {
     this.clientId = resource.getAttribute(AttributeKey.stringKey("service.instance.id"));
     this.endpoint = nonEmpty(env.apply("TRAILBEAM_OTLP_TRACES_ENDPOINT"), DEFAULT_ENDPOINT);
     if (processor == null) {
-      processor = BatchSpanProcessor.builder(OtlpHttpSpanExporter.builder().setEndpoint(endpoint).build())
-          .setMaxQueueSize(positiveInt(env.apply("TRAILBEAM_MAX_QUEUE_SIZE"), DEFAULT_MAX_QUEUE_SIZE))
-          .build();
+      OtlpHttpSpanExporter exporter = exporter(endpoint);
+      if (exporter != null) {
+        processor = BatchSpanProcessor.builder(exporter)
+            .setMaxQueueSize(positiveInt(env.apply("TRAILBEAM_MAX_QUEUE_SIZE"), DEFAULT_MAX_QUEUE_SIZE))
+            .build();
+      }
     }
-    this.provider = SdkTracerProvider.builder()
+    // Without a processor (an unusable endpoint) the provider still works: the SQS calls go on, no span is
+    // exported, and the runtime is built once instead of failing again on every call.
+    SdkTracerProviderBuilder builder = SdkTracerProvider.builder()
         .setSampler(Sampler.alwaysOn())
-        .setResource(resource)
-        .addSpanProcessor(processor)
-        .build();
+        .setResource(resource);
+    if (processor != null) {
+      builder.addSpanProcessor(processor);
+    }
+    this.provider = builder.build();
     this.tracer = provider.get(SCOPE_NAME, VERSION);
     this.hasher = hasher(env.apply("TRAILBEAM_RECEIPT_HASH_KEY"));
     this.capture = Capture.Config.fromEnv(env);
     if (capture.invalid != null) {
       warnOnce("capture", "trailbeam: " + capture.invalid + " (TRAILBEAM_REDACT_KEYS, TRAILBEAM_REDACT_PATTERNS or "
           + "TRAILBEAM_CAPTURE_MAX_BYTES); no body or error text is exported until it is fixed");
+    }
+  }
+
+  /**
+   * The OTLP exporter for {@code endpoint}, or null (and one warning) when it is not an http or https URL. The
+   * OTel builder throws for such a value ({@code "not a url"}, or {@code "localhost:4318"} without a scheme);
+   * that must not reach the SQS call (section 20.4).
+   */
+  static OtlpHttpSpanExporter exporter(String endpoint) {
+    try {
+      return OtlpHttpSpanExporter.builder().setEndpoint(endpoint).build();
+    } catch (RuntimeException e) {
+      warnOnce("endpoint", "trailbeam: TRAILBEAM_OTLP_TRACES_ENDPOINT=\"" + endpoint + "\" is not a usable http or "
+          + "https URL (" + e.getMessage() + "); no spans are exported until it is fixed");
+      return null;
     }
   }
 
@@ -118,7 +141,7 @@ public final class Trailbeam {
     }
   }
 
-  /** Tests: replace the runtime with one that sends its spans to {@code processor}. */
+  /** Tests: replace the runtime with one that sends its spans to {@code processor} (null: the OTLP exporter). */
   static Trailbeam install(Function<String, String> env, SpanProcessor processor) {
     synchronized (LOCK) {
       Trailbeam old = instance;

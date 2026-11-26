@@ -57,24 +57,24 @@ namespace Trailbeam.Sqs
             Endpoint = NonEmpty(env("TRAILBEAM_OTLP_TRACES_ENDPOINT"), DefaultEndpoint);
             if (processor == null)
             {
-                // Options made here, not read from OTEL_EXPORTER_OTLP_*: the application's headers (a vendor's API key)
-                // and endpoint are for its own exporter, not for Trailbeam's.
-                var options = new OtlpExporterOptions
+                var exporter = Exporter(Endpoint);
+                if (exporter != null)
                 {
-                    Endpoint = new Uri(Endpoint),
-                    Protocol = OtlpExportProtocol.HttpProtobuf,
-                    Headers = string.Empty,
-                    TimeoutMilliseconds = 10000,
-                };
-                processor = new BatchActivityExportProcessor(new OtlpTraceExporter(options),
-                    maxQueueSize: PositiveInt(env("TRAILBEAM_MAX_QUEUE_SIZE"), DefaultMaxQueueSize));
+                    processor = new BatchActivityExportProcessor(exporter,
+                        maxQueueSize: PositiveInt(env("TRAILBEAM_MAX_QUEUE_SIZE"), DefaultMaxQueueSize));
+                }
             }
-            _provider = Sdk.CreateTracerProviderBuilder()
+            // Without a processor (an unusable endpoint) the provider still works: the SQS calls go on, no span is
+            // exported, and the runtime is built once instead of failing again on every call.
+            var builder = Sdk.CreateTracerProviderBuilder()
                 .AddSource(ScopeName)
                 .SetSampler(new AlwaysOnSampler())
-                .SetResourceBuilder(ResourceBuilder.CreateEmpty().AddTelemetrySdk().AddAttributes(resource))
-                .AddProcessor(processor)
-                .Build()!;
+                .SetResourceBuilder(ResourceBuilder.CreateEmpty().AddTelemetrySdk().AddAttributes(resource));
+            if (processor != null)
+            {
+                builder.AddProcessor(processor);
+            }
+            _provider = builder.Build()!;
             Hasher = MakeHasher(env("TRAILBEAM_RECEIPT_HASH_KEY"));
             Capture = Sqs.Capture.Config.FromEnv(env);
             if (Capture.Invalid != null)
@@ -90,6 +90,50 @@ namespace Trailbeam.Sqs
                 _pid = p.Id;
             }
 #endif
+        }
+
+        /// <summary>
+        /// The OTLP exporter for <paramref name="endpoint"/>, or null (and one warning) when it is not an absolute http or
+        /// https URL: <c>new Uri</c> throws for <c>"not a url"</c>, and reads <c>"localhost:4318"</c> as the scheme
+        /// <c>localhost</c>. Neither may reach the SQS call (contract section 20.4).
+        /// </summary>
+        internal static OtlpTraceExporter? Exporter(string endpoint)
+        {
+            string? problem = null;
+            if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
+            {
+                problem = "not an absolute URL";
+            }
+            else if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+            {
+                problem = "the scheme must be http or https";
+            }
+            else if (string.IsNullOrEmpty(uri.Host))
+            {
+                problem = "no host";
+            }
+            if (problem == null)
+            {
+                try
+                {
+                    // Options made here, not read from OTEL_EXPORTER_OTLP_*: the application's headers (a vendor's API
+                    // key) and endpoint are for its own exporter, not for Trailbeam's.
+                    return new OtlpTraceExporter(new OtlpExporterOptions
+                    {
+                        Endpoint = uri!,
+                        Protocol = OtlpExportProtocol.HttpProtobuf,
+                        Headers = string.Empty,
+                        TimeoutMilliseconds = 10000,
+                    });
+                }
+                catch (Exception e)
+                {
+                    problem = e.Message;
+                }
+            }
+            WarnOnce("endpoint", "trailbeam: TRAILBEAM_OTLP_TRACES_ENDPOINT=\"" + endpoint + "\" is not a usable http or https URL ("
+                + problem + "); no spans are exported until it is fixed");
+            return null;
         }
 
         internal string ClientId { get; }
@@ -125,8 +169,8 @@ namespace Trailbeam.Sqs
             }
         }
 
-        /// <summary>Tests: replace the runtime with one that sends its spans to <paramref name="processor"/>.</summary>
-        internal static TrailbeamRuntime Install(Func<string, string?> env, BaseProcessor<Activity> processor)
+        /// <summary>Tests: replace the runtime with one that sends its spans to <paramref name="processor"/> (null: the OTLP exporter).</summary>
+        internal static TrailbeamRuntime Install(Func<string, string?> env, BaseProcessor<Activity>? processor)
         {
             lock (Lock)
             {
