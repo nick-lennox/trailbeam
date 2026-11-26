@@ -19,7 +19,6 @@
 import type {
   AfterEntry, AwsEvent, BlindSpot, Group, Notice, PublishedEvent, PutEventStep, Timeline, TimelineEvent,
 } from "./types.ts";
-import { createContext, useContext } from "react";
 import { ErrorCauses } from "./ErrorCauses.tsx";
 import { errorCauses } from "../errors.ts";
 
@@ -404,12 +403,13 @@ function Detail({ e }: { e: TimelineEvent }) {
   );
 }
 
-/** Where another message's timeline is, for the messages a publish reached. Without one they are not links. */
-const MessageHref = createContext<((id: string) => string) | undefined>(undefined);
+/** Where another message's timeline is, for the messages a publish reached. Without one they are not links. A prop, not a
+    context: a context made when the module loads breaks a server-side import of the package (React's server build can't make one),
+    and the hosted app's route handlers import it (test/server-import.test.ts). */
+type Href = ((id: string) => string) | undefined;
 
 /** The SQS messages an SNS publish or a PutEvents entry reached, by queue: "Reached orders: m-1 (this message) · billing: m-2". */
-export function Reached({ e, self }: { e: PublishedEvent | PutEventStep; self: string }) {
-  const href = useContext(MessageHref);
+export function Reached({ e, self, href }: { e: PublishedEvent | PutEventStep; self: string; href?: Href }) {
   return (
     <p className="mt-1.5 max-w-[40rem] text-[13px] leading-[1.5] text-sky-ink-2" data-reached>
       <span className="mr-1.5 text-sky-ink">Reached</span>
@@ -439,7 +439,7 @@ function reasonOf(e: TimelineEvent): string | null {
   return null;
 }
 
-function Step({ e, byId, self, open = false, compact = false, last = false }: { e: TimelineEvent; byId: ById; self: string; open?: boolean; compact?: boolean; last?: boolean }) {
+function Step({ e, byId, self, href, open = false, compact = false, last = false }: { e: TimelineEvent; byId: ById; self: string; href?: Href; open?: boolean; compact?: boolean; last?: boolean }) {
   const f = facts(e);
   const reason = reasonOf(e);
   const spots: BlindSpot[] = e.type === "aws_step" ? e.blind_spots : e.type === "moved_to_dead_letter_queue" ? ["dlq_not_verified_on_real_sqs"] : [];
@@ -468,7 +468,7 @@ function Step({ e, byId, self, open = false, compact = false, last = false }: { 
         </div>
         {f.length > 0 && <p className="mt-1 font-mono text-caption text-sky-ink-3">{f.join(" · ")}</p>}
         {reason && <p className="mt-1.5 max-w-[38rem] text-[15px] leading-[1.5] text-sky-ink-2">{reason}</p>}
-        {(e.type === "published" || e.type === "put_event") && <Reached e={e} self={self} />}
+        {(e.type === "published" || e.type === "put_event") && <Reached e={e} self={self} href={href} />}
         {spots.length > 0 && <ul className="mt-2.5 grid max-w-[40rem] gap-2">{spots.map((s) => <BlindSpotNote key={s} spot={s} />)}</ul>}
         <details className="group mt-2" open={open}>
           <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full text-[13px] text-sky-ink-3 hover:text-sky-ink [&::-webkit-details-marker]:hidden">
@@ -498,7 +498,7 @@ function markOf(e: TimelineEvent): Mark | null {
   return null;
 }
 
-function ConcurrentBox({ g, members, byId, self }: { g: Group; members: TimelineEvent[]; byId: ById; self: string }) {
+function ConcurrentBox({ g, members, byId, self, href }: { g: Group; members: TimelineEvent[]; byId: ById; self: string; href?: Href }) {
   const marks = members.map((m) => [m, markOf(m)] as const);
   // The scale covers what was observed. Inferred windows are clipped to it and say so.
   const pts = marks.flatMap(([, k]) => (!k || k.kind === "window" ? [] : [k.to, ...(k.from !== undefined ? [k.from] : [])]));
@@ -583,7 +583,7 @@ function ConcurrentBox({ g, members, byId, self }: { g: Group; members: Timeline
         )}
 
         <ul className="border-t border-sky-line px-3 pt-4 md:px-4">
-          {members.map((m) => <Step key={m.id} e={m} byId={byId} self={self} compact />)}
+          {members.map((m) => <Step key={m.id} e={m} byId={byId} self={self} href={href} compact />)}
         </ul>
       </section>
     </li>
@@ -639,8 +639,8 @@ export function TimelineView({ t, answer, openSteps = [], messageHref }: { t: Ti
       const links = linksInto(members, earlier);
       if (links.length) items.push(<OrderLink key={`o${e.id}`} entries={links} />);
     }
-    if (g?.concurrent) items.push(<ConcurrentBox key={`g${g.group}`} g={g} members={members} byId={byId} self={t.message_id} />);
-    else for (const m of members) items.push(<Step key={m.id} e={m} byId={byId} self={t.message_id} open={openSteps.includes(m.id)} last={m.id === lastId} />);
+    if (g?.concurrent) items.push(<ConcurrentBox key={`g${g.group}`} g={g} members={members} byId={byId} self={t.message_id} href={messageHref} />);
+    else for (const m of members) items.push(<Step key={m.id} e={m} byId={byId} self={t.message_id} href={messageHref} open={openSteps.includes(m.id)} last={m.id === lastId} />);
     if (g) drawn.add(g.group);
     for (const m of members) earlier.add(m.id);
   }
@@ -649,7 +649,6 @@ export function TimelineView({ t, answer, openSteps = [], messageHref }: { t: Ti
   const purged = purgeNote(t);
 
   return (
-    <MessageHref.Provider value={messageHref}>
     <article className="font-serif text-sky-ink">
       <header className="border-b border-sky-line px-4 pt-5 pb-5 md:px-8 md:pt-7">
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-micro text-sky-ink-3">
@@ -687,6 +686,5 @@ export function TimelineView({ t, answer, openSteps = [], messageHref }: { t: Ti
       </ol>
       <ErrorCauses causes={errorCauses(t)} />
     </article>
-    </MessageHref.Provider>
   );
 }
