@@ -49,6 +49,17 @@ def replicas():
         drop_schema(url)
 
 
+def assert_replica_snapshot(stores, store, name, skip=()):
+    """assert_snapshot on one replica; when it fails, the message also says whether the stored state or the
+    replica's reads were wrong (pg_helpers.replica_report, QV-552)."""
+    from pg_helpers import replica_report
+
+    try:
+        assert_snapshot(store, name, skip=skip)
+    except AssertionError as e:
+        raise AssertionError(f"{e}\n{replica_report(stores, store)}") from e
+
+
 def scatter(stores, exports, seed):
     """Send every export to a random replica, in a random order, THREADS at a time."""
     rng = random.Random(seed)
@@ -68,7 +79,7 @@ def test_one_span_per_export_to_random_replicas_in_random_order(replicas, name, 
     spans = [[r] for records in cases.exports(name) for r in records]
     scatter(stores, spans, seed)
     for s in stores:  # every replica gives the same answers
-        assert_snapshot(s, name, skip=("body_view", "body_search"))
+        assert_replica_snapshot(stores, s, name, skip=("body_view", "body_search"))
 
 
 @pytest.mark.parametrize("seed", range(3))
@@ -76,7 +87,7 @@ def test_one_span_per_export_to_random_replicas_in_random_order(replicas, name, 
 def test_whole_exports_to_random_replicas_in_random_order(replicas, name, seed):
     stores = replicas(cases.store_bodies(name))
     scatter(stores, cases.exports(name), seed)
-    assert_snapshot(random.Random(seed).choice(stores), name)
+    assert_replica_snapshot(stores, random.Random(seed).choice(stores), name)
 
 
 def test_retries_on_another_replica_change_nothing(replicas):
@@ -85,7 +96,7 @@ def test_retries_on_another_replica_change_nothing(replicas):
     stores = replicas(cases.store_bodies(name))
     exports = cases.exports(name)
     scatter(stores, exports + exports + exports, seed=11)
-    assert_snapshot(stores[0], name)
+    assert_replica_snapshot(stores, stores[0], name)
 
 
 def test_tenants_match_the_shared_expected_outputs_across_replicas(replicas):
@@ -167,6 +178,29 @@ def test_a_joined_settle_sees_the_place_its_message_moved_to_while_it_waited(rep
         assert {c: got[c] for c in ("last_ns", "deliveries", "final_delete")} == \
                {"last_ns": want["last_ns"], "deliveries": want["deliveries"], "final_delete": int(want["final_delete"])}
         assert got["deliveries"] == 3
+
+
+def test_a_summary_row_without_its_lookup_row_is_counted_but_not_listed(replicas):
+    """QV-552: what the nightly showed (counts right, m-pay missing from the lists and rows) is what a summary row
+    without its mid_places row gives: counts walk the summary rows, lists and rows find a message through its
+    lookup rows. The report of a failed replica test names it, so the next sighting says whether the stored state
+    was like this or the reads were wrong."""
+    import psycopg
+    from pg_helpers import replica_report
+
+    a, b = replicas(n=2)
+    w = cases.Consumer()
+    for i, m in enumerate(("m1", "m2")):
+        a.insert(_records([w.send(cases.T0 + i * cases.SEC, m)]))
+    assert "stored state: consistent" in replica_report([a, b])
+    with psycopg.connect(a.url, autocommit=True) as c:
+        c.execute("DELETE FROM mid_places WHERE mid = 'm2'")
+    assert b.counts()["messages"] == 2
+    assert b.recent_messages(10) == ["m2", "m1"]  # the page walk lists it ...
+    assert [s["mid"] for s in b.summaries(["m2", "m1"])] == ["m1"] and b.message_rows("m2") == []  # ... no more
+    report = replica_report([a, b], b)
+    assert "m2@0/" in report and "summary row without its mid_places row" in report
+    assert "replica 1 (failed): counts 2" in report and "no rows for ['m2']" in report
 
 
 # ---- retention: one replica at a time ---------------------------------------------------------------------
