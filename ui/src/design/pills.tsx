@@ -54,9 +54,9 @@ export function HealthPill({ health, label }: { health: "good" | "warning" | "cr
 */
 export const SOURCE: Record<StepSource, { label: string; title: string }> = {
   otel: { label: "OTel", title: "Recorded by OpenTelemetry instrumentation in your service" },
-  package: { label: "Trailbeam pkg", title: "Recorded by the Trailbeam package (receive count, tenant, receipt handle, processing outcome)" },
+  package: { label: "Trailbeam package", title: "Recorded by the Trailbeam package (receive count, tenant, receipt handle, processing outcome)" },
   cloudtrail: { label: "CloudTrail", title: "Recorded by AWS CloudTrail data events, which cover code we don't instrument" },
-  function_logs: { label: "function logs", title: "Recorded by Lambda in the function's own log (a REPORT line), matched to the message by the invocation's request ID" },
+  function_logs: { label: "Function logs", title: "Recorded by Lambda in the function's own log (a REPORT line), matched to the message by the invocation's request ID" },
   inferred: { label: "inferred", title: "Not recorded by any source. Trailbeam deduced it from your queue configuration and earlier steps" },
 };
 
@@ -65,7 +65,7 @@ export function SourceTag({ source, night = false }: { source: StepSource; night
   const dashed = source === "inferred";
   const cls = night ? "border-night-line text-night-ink-3" : "border-line bg-surface text-ink-3";
   return (
-    <Tooltip content={s.title} tabIndex={0} className={`inline-flex items-center whitespace-nowrap rounded-md border px-1.5 py-px font-mono text-micro ${dashed ? "border-dashed italic" : ""} ${cls}`}>
+    <Tooltip content={s.title} tabIndex={0} className={`inline-flex items-center whitespace-nowrap rounded-md border px-1.5 py-px text-micro ${dashed ? "border-dashed italic" : ""} ${cls}`}>
       {s.label}
     </Tooltip>
   );
@@ -103,8 +103,8 @@ export const purgeClock = (iso: string) => `${iso.slice(11, 23)} UTC`;
 export function purgeText(m: { purge?: PurgeOf | null }): string {
   const p = m.purge;
   if (!p) return "";
-  const at = `PurgeQueue at ${purgeClock(p.start)}`;
-  return p.status === "purged" ? `observed: ${at}` : `possibly purged (${at})`;
+  const at = purgeClock(p.start);
+  return p.status === "purged" ? `Purged by a PurgeQueue call at ${at}` : `Possibly purged: a PurgeQueue call ran at ${at}`;
 }
 
 export { POSSIBLY_PURGED_TITLE };
@@ -115,7 +115,7 @@ export function StatePill({ m }: { m: StateOf }) {
   const look = `inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${cls}`;
   const inner = <><Icon size={12} strokeWidth={2.25} aria-hidden />{label}</>;
   const pill = m.purge?.status === "purged"
-    ? <Tooltip content={`Purged (${purge})`} tabIndex={0} className={look}>{inner}</Tooltip>
+    ? <Tooltip content={purge} tabIndex={0} className={look}>{inner}</Tooltip>
     : <span className={look}>{inner}</span>;
   if (m.purge?.status !== "possibly_purged") return pill;
   return (
