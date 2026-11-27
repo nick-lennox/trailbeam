@@ -318,8 +318,8 @@ class Store(abc.ABC):
     def s3_receivers(self, bucket: str, object_key: str, from_ms: int, to_ms: int) -> list[Row]:
         """The receives whose S3 notification (s3.notification) names ``bucket`` and ``object_key`` (URL-decoded),
         with an event time from ``from_ms`` to ``to_ms``: one mapping per receive with ``mid``, ``queue``,
-        ``time_ns``, ``row`` (unique within this answer), ``event_time_ms`` and ``operation``, by (time_ns, row), at
-        most s3.MAX_REACHED. By default, none."""
+        ``time_ns``, ``row`` (unique within this answer), ``event_time_ms``, ``operation``, ``etag`` and ``version_id``
+        (the event's, or None), by (time_ns, row), at most s3.MAX_REACHED. By default, none."""
         return []
 
     def sent_messages(self, message_ids) -> set:
