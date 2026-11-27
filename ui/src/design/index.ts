@@ -25,6 +25,7 @@ export {
   TenantRanges, TenantsCard, TenantsFoot, TenantsPage, TenantsTable,
   type TenantRange, type TenantsPageProps, type TenantsTableProps,
 } from "../tenants/TenantsPage.tsx";
+export { QueuePage, type QueuePageProps } from "../queue/QueuePage.tsx";
 export {
   Caution, Field, FormError, INPUT, OneTimeBox, Problem, SELECT, SelectField, SettingsSection, StateMark, type StateTone,
 } from "./Settings.tsx";

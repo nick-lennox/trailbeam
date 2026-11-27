@@ -18,10 +18,12 @@ Safety:
 - a target is checked again before each send (check_target), not only when the channel is saved: http or https only,
   no credentials before the host, a webhook on a public host, a Slack URL on hooks.slack.com. ``allow_local`` lets a
   webhook or Slack URL be plain http on a private or local address (an internal endpoint, or the tests).
-- the address a webhook's host resolves to is checked too, after connecting and before anything is sent, so a public
-  name that points at a private address is refused unless ``allow_local``.
+- the addresses a webhook's host resolves to are checked too, before connecting (QV-672): if any is private the send
+  is refused with one message and nothing is connected to, unless ``allow_local``. The connection then goes to a
+  checked address (the host name stays for the Host header and TLS), so DNS can't change the answer in between.
 - redirects are never followed: a 3xx answer is a failure, so a webhook can't be bounced to another host.
-- every send has a deadline (``timeout_s``, 10 s as in the hosted app): the whole HTTP exchange, and each SMTP step.
+- every send has a deadline (``timeout_s``, 10 s as in the hosted app): the whole HTTP exchange, the DNS lookup
+  included, and each SMTP step.
 - secrets stay out of logs and of the outcome's detail: the webhook secret, the Slack URL and a webhook's path and
   query (where the form says to put credentials), and the SMTP password. Logs name a channel by its ID and
   shown_target().
@@ -350,17 +352,78 @@ class Delivery:
         return self.ssl_context or ssl.create_default_context()
 
 
+PRIVATE_HOST = "The webhook's host is a private or local address."
+TIMED_OUT = "The endpoint did not answer in time."
+
+
+def _resolve(host: str, port: int, deadline: float, allow_local: bool) -> list:
+    """The addresses to connect to, as getaddrinfo gives them, each checked before any connection is opened: when any
+    address the name has is private, nothing is connected to (unless ``allow_local``), so the answer is the same
+    whatever is or isn't listening there. The lookup counts against the deadline: it runs in a thread (getaddrinfo
+    can't be interrupted), and a lookup still going at the deadline is a timeout."""
+    try:
+        ipaddress.ip_address(host)
+        literal = True
+    except ValueError:
+        literal = False
+    if literal:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM, flags=socket.AI_NUMERICHOST)
+    else:
+        box: dict = {}
+
+        def look():
+            try:
+                box["infos"] = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+            except BaseException as e:  # noqa: BLE001 - handed to the caller's thread
+                box["error"] = e
+
+        t = threading.Thread(target=look, name="alert-dns", daemon=True)
+        t.start()
+        t.join(max(0.0, deadline - time.monotonic()))
+        if t.is_alive():
+            raise DeliveryError(TIMED_OUT)
+        if "error" in box:
+            e = box["error"]
+            if isinstance(e, socket.gaierror):
+                raise DeliveryError("The endpoint could not be reached: its host name was not found.") from None
+            raise e
+        infos = box["infos"]
+    if not infos:
+        raise DeliveryError("The endpoint could not be reached: its host name was not found.")
+    if not allow_local and any(_private_ip(ipaddress.ip_address(str(i[4][0]).split("%")[0])) for i in infos):
+        raise DeliveryError(PRIVATE_HOST)
+    return infos
+
+
 class _Guarded:
-    """http.client connections that refuse a private peer (unless allowed) and can be cut off at the deadline."""
+    """http.client connections to addresses checked before connecting (see _resolve), cut off at the deadline. The
+    connection keeps the URL's host name for the Host header and for TLS (SNI and the certificate check)."""
     allow_local = False
     aborted = False
+    deadline = 0.0
 
     def _tcp(self):
-        """Connects, and checks the address connected to before anything (not even TLS) is sent."""
-        http.client.HTTPConnection.connect(self)  # type: ignore[arg-type]
-        peer = ipaddress.ip_address(self.sock.getpeername()[0].split("%")[0])  # type: ignore[attr-defined]
-        if not self.allow_local and _private_ip(peer):
-            raise DeliveryError("The webhook's host is a private or local address.")
+        """Connects to the first checked address that answers, never to an address that wasn't checked."""
+        infos = _resolve(self.host, self.port, self.deadline, self.allow_local)  # type: ignore[attr-defined]
+        err: Optional[OSError] = None
+        for family, kind, proto, _, addr in infos:
+            left = self.deadline - time.monotonic()
+            if left <= 0 or self.aborted:
+                raise DeliveryError(TIMED_OUT)
+            s = socket.socket(family, kind, proto)
+            try:
+                s.settimeout(min(self.timeout, left))  # type: ignore[attr-defined]
+                s.connect(addr)
+            except OSError as e:
+                s.close()
+                err = e
+                continue
+            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self.sock = s
+            if self.aborted:  # the deadline passed while connecting
+                raise DeliveryError(TIMED_OUT)
+            return
+        raise err if err is not None else DeliveryError("The endpoint could not be reached.")
 
     def abort(self):
         self.aborted = True
@@ -390,6 +453,7 @@ def _post(url: str, body: str, headers: dict, d: Delivery) -> None:
     else:
         conn = _Http(u.hostname, u.port, timeout=d.timeout_s)
     conn.allow_local = d.allow_local
+    conn.deadline = time.monotonic() + d.timeout_s
     timer = threading.Timer(d.timeout_s, conn.abort)
     timer.daemon = True
     timer.start()
@@ -401,12 +465,12 @@ def _post(url: str, body: str, headers: dict, d: Delivery) -> None:
     except DeliveryError:
         raise
     except (socket.timeout, TimeoutError):
-        raise DeliveryError("The endpoint did not answer in time.") from None
+        raise DeliveryError(TIMED_OUT) from None
     except ssl.SSLError as e:
         raise DeliveryError(f"The endpoint's TLS failed: {e.reason or type(e).__name__}.") from None
     except (http.client.HTTPException, OSError) as e:
         if conn.aborted:
-            raise DeliveryError("The endpoint did not answer in time.") from None
+            raise DeliveryError(TIMED_OUT) from None
         if isinstance(e, http.client.HTTPException):
             raise DeliveryError("The endpoint's answer was not HTTP.") from None
         raise DeliveryError(f"The endpoint could not be reached: {e.strerror or type(e).__name__}.") from None

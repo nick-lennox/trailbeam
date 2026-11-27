@@ -27,6 +27,7 @@ export type ChartMark = { i: number; kind: "seen" | "inferred"; n: number };
 /** A horizontal rule at a value, e.g. the visibility timeout. */
 export type ChartRule = { value: number; label: string };
 /** A vertical hairline at a time, e.g. a deploy. */
+/** `title` is the hover note: the hover box shows it for the step the marker is in. */
 export type ChartMarker = { t: number; label: string; title: string };
 export type LegendItem = { label: string; color: string; shape?: "square" | "diamond" | "diamond-dashed" | "rule" | "marker" };
 
@@ -87,15 +88,15 @@ export function Key({ item }: { item: LegendItem }) {
 
 export function Legend({ items }: { items: LegendItem[] }) {
   return (
-    <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-caption text-ink-2" aria-label="Legend">
+    <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2" aria-label="Legend">
       {items.map((it) => <li key={it.label} className="inline-flex items-center gap-1.5"><Key item={it} />{it.label}</li>)}
     </ul>
   );
 }
 
-/** A source tag: recorded (solid border) or inferred (dashed). */
+/** A source tag: recorded (solid border) or inferred (dashed, italic), as the design system's SourceTag draws them. */
 export const Tag = ({ children, inferred = false }: { children: ReactNode; inferred?: boolean }) => (
-  <span className={`inline-block rounded-full border px-1.5 font-mono text-micro text-ink-3 ${inferred ? "border-dashed border-ink-3" : "border-line"}`}>{children}</span>
+  <span className={`inline-flex items-center whitespace-nowrap rounded-md border px-1.5 py-px text-[11px] leading-[1.4] text-ink-3 ${inferred ? "border-dashed border-ink-3 italic" : "border-line"}`}>{children}</span>
 );
 
 /** A rule more than this many times the data's highest value stays off the scale (named at the top instead). */
@@ -218,8 +219,8 @@ export function Chart(p: ChartProps) {
   const hv = p.hover !== null && p.hover >= 0 && p.hover < n ? p.hover : null;
 
   return (
-    <figure className="min-w-0 rounded-[12px] border border-line bg-surface/40 p-4">
-      <figcaption className="text-[15px] text-ink">{p.title}</figcaption>
+    <figure className="min-w-0 rounded-card border border-line bg-surface p-4 shadow-card">
+      <figcaption className="font-serif text-[13px] font-semibold text-ink">{p.title}</figcaption>
       <div className="relative mt-2">
         <div tabIndex={0} role="img" aria-label={label} onKeyDown={onKey} className="rounded-[6px] outline-offset-2">
           <svg ref={ref} viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full touch-none select-none" aria-hidden
@@ -246,7 +247,6 @@ export function Chart(p: ChartProps) {
             ))}
             {(p.markers ?? []).map((m) => (
               <g key={`${m.t}-${m.label}`}>
-                <title>{m.title}</title>
                 <line x1={xt(m.t)} x2={xt(m.t)} y1={pad.t - 4} y2={pad.t + ph} strokeWidth="1" style={{ stroke: "var(--color-ink-3)" }} />
                 {/* the label reads away from the right edge, so a late deploy's name isn't cut off */}
                 <text x={xt(m.t) + (xt(m.t) > W * 0.6 ? -3 : 3)} y={pad.t - 6} textAnchor={xt(m.t) > W * 0.6 ? "end" : "start"} fontSize="9.5" className="font-mono" style={{ fill: "var(--color-ink-3)" }}>{m.label}</text>
@@ -285,11 +285,11 @@ export function Chart(p: ChartProps) {
             {hv !== null && shown.map((l) => (l.values[hv] !== null ? <circle key={l.key} cx={x(hv)} cy={y(l.values[hv]!)} r="3" style={{ fill: l.color }} /> : null))}
           </svg>
         </div>
-        {above.length > 0 && <p className="mt-1 text-right font-mono text-micro text-ink-3">{above.map((r) => `${r.label}: above this scale ↑`).join(" · ")}</p>}
+        {above.length > 0 && <p className="mt-1 text-right text-xs text-ink-3">{above.map((r) => `${r.label[0].toUpperCase()}${r.label.slice(1)} is above this scale.`).join(" ")}</p>}
         {hv !== null && (
-          <div role="presentation" className="pointer-events-none absolute top-0 z-10 min-w-44 whitespace-nowrap rounded-[8px] border border-line bg-surface px-3 py-2 text-caption text-ink-2 shadow-sm"
+          <div role="presentation" className="pointer-events-none absolute top-0 z-10 min-w-44 whitespace-nowrap rounded-control border border-line bg-surface px-3 py-2 text-xs text-ink-2 shadow-card"
             style={{ left: `${(x(hv) / W) * 100}%`, transform: x(hv) > W * 0.6 ? "translateX(calc(-100% - 10px))" : "translateX(10px)" }}>
-            <p className="font-mono text-ink">{utc(p.times[hv], { date: multiDay })}–{utc(p.times[hv] + stepMs)} UTC</p>
+            <p className="text-ink"><span className="font-mono tabular-nums">{utc(p.times[hv], { date: multiDay })}</span> to <span className="font-mono tabular-nums">{utc(p.times[hv] + stepMs)}</span> UTC</p>
             {p.inProgress && hv === last && <p className="text-ink-3">Minute in progress</p>}
             {shown.map((l) => (
               <p key={l.key} className="flex items-center gap-1.5">
@@ -298,12 +298,14 @@ export function Chart(p: ChartProps) {
               </p>
             ))}
             {p.tip?.(hv).map((t) => <p key={t} className="text-ink-3">{t}</p>)}
+            {/* a deploy in this step: what the marker's line stands for */}
+            {(p.markers ?? []).filter((m) => m.t >= p.times[hv] && m.t < p.times[hv] + stepMs).flatMap((m) => m.title.split("\n")).map((t) => <p key={t} className="text-ink-3">New version: {t}</p>)}
           </div>
         )}
       </div>
       <Legend items={p.legend} />
       {p.caption !== undefined || p.source ? (
-        <p className="mt-2 text-caption leading-[1.5] text-ink-3">{p.caption} <Tag>{p.source}</Tag></p>
+        <p className="mt-2 text-xs leading-relaxed text-ink-3">{p.caption} <Tag>{p.source}</Tag></p>
       ) : null}
     </figure>
   );
@@ -312,8 +314,8 @@ export function Chart(p: ChartProps) {
 /** A chart's frame with no data yet: the axes' baseline, no spinner (§11, Loading). */
 export function ChartSkeleton({ title }: { title: string }) {
   return (
-    <figure className="min-w-0 rounded-[12px] border border-line bg-surface/40 p-4" aria-busy="true">
-      <figcaption className="text-[15px] text-ink">{title}</figcaption>
+    <figure className="min-w-0 rounded-card border border-line bg-surface p-4 shadow-card" aria-busy="true">
+      <figcaption className="font-serif text-[13px] font-semibold text-ink">{title}</figcaption>
       <svg viewBox={`0 0 ${W} ${H}`} className="mt-2 block h-auto w-full" aria-hidden>
         <line x1={44} x2={W - 12} y1={H - 22} y2={H - 22} strokeWidth="1" style={{ stroke: "var(--color-line)" }} />
       </svg>

@@ -18,6 +18,10 @@
       "types": "./dist/model/index.d.ts",
       "default": "./dist/model/index.js"
     },
+    "./explorer": {
+      "types": "./dist/explorer/index.d.ts",
+      "default": "./dist/explorer/index.js"
+    },
     "./theme.css": "./src/theme.css",
     "./fixtures/*": "./dist/fixtures/*",
     "./design.css": "./src/design/design.css",

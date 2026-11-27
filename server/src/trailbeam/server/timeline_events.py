@@ -15,6 +15,7 @@ test_timeline_events.py and ui/test/timeline-events.test.ts check that). A chang
                         invocation
     processing_error    a Lambda invocation whose outcome span says it failed, or (inferred) one that never reported
                         an outcome within the Lambda timeout
+    visibility_change   an observed ChangeMessageVisibility: the consumer set the message's visibility timeout
     visibility_expired  inferred: a later receive of the same message proves the timeout ran out
     dead_letter         the move SQS reported on a receive from the dead-letter queue
 
@@ -45,7 +46,7 @@ MAX_BODY_CHARS = 4_000_000  # as the hosted app's loadEvents
 TENANT_MAX_CHARS = 256
 _PAGE = 1000  # spans read per step when finding the window's messages
 
-EVENT_KINDS = ("send", "receive", "delete", "processing_error", "visibility_expired", "dead_letter", "filtered")
+EVENT_KINDS = ("send", "receive", "delete", "visibility_change", "processing_error", "visibility_expired", "dead_letter", "filtered")
 
 CALL_LAMBDA_RECEIVE = "ReceiveMessage (Lambda trigger)"
 CALL_LAMBDA_DELETE = "DeleteMessageBatch (Lambda trigger)"
@@ -300,6 +301,19 @@ def events_of_timeline(t: dict, *, urls: Optional[dict] = None, places: Optional
             else:
                 detail = ""
             push(e, "delete", end, service=svc(e), consumer=svc(e), receiveCount=count(r), durationMs=took,
+                 detail=detail, status="error" if failed else "ok", call=call)
+        elif typ == "visibility_changed":
+            r = receive_of(e.get("delivery"))
+            failed = e.get("result") != "ok"
+            call = "ChangeMessageVisibilityBatch" if e.get("batch_entry_id") else "ChangeMessageVisibility"
+            secs = e.get("visibility_timeout_s")
+            if failed:
+                detail = f"{call} failed{': ' + e['error_code'] if e.get('error_code') else ''}"
+            elif _num(secs):
+                detail = f"Visibility timeout set to {int(secs) if float(secs).is_integer() else secs} s"
+            else:
+                detail = ""
+            push(e, "visibility_change", end, service=svc(e), consumer=svc(e), receiveCount=count(r),
                  detail=detail, status="error" if failed else "ok", call=call)
         elif typ == "lambda_outcome":
             if e.get("outcome") == "success":

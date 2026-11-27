@@ -11,18 +11,19 @@
                         a successful invocation
     processing_error    a Lambda invocation whose outcome span says it failed, or (inferred) one
                         that never reported an outcome within the Lambda timeout
+    visibility_change   an observed ChangeMessageVisibility: the consumer set the message's visibility timeout
     visibility_expired  inferred: a later receive of the same message proves the timeout ran out
     dead_letter         the move SQS reported on a receive from the dead-letter queue
     filtered            CloudTrail: Lambda's trigger deleted the message without running the function, as its
                         event filter didn't match (an aws_step on the timeline, which only the hosted app adds)
 
-  Visibility changes and steps the engine infers about unobserved receives are not events here.
+  Steps the engine infers about unobserved receives are not events here.
   Processing time is from the wrapper's receive to its outcome for Lambda (the outcome span is zero-length), and from
   the end of the receive to the start of its delete for other consumers (time spent between the two calls, an approximation).
   Pure: no server, no sample data.
 */
 
-export type EventKind = "send" | "receive" | "delete" | "processing_error" | "visibility_expired" | "dead_letter" | "filtered";
+export type EventKind = "send" | "receive" | "delete" | "visibility_change" | "processing_error" | "visibility_expired" | "dead_letter" | "filtered";
 /** where an event is known from */
 export type EventSource = "otel" | "package" | "cloudtrail" | "function_logs" | "inferred";
 
@@ -63,6 +64,7 @@ export const EVENT_NAME: Record<EventKind, string> = {
   send: "Send",
   receive: "Receive",
   delete: "Delete",
+  visibility_change: "Visibility change",
   processing_error: "Processing failed",
   visibility_expired: "Visibility timeout expired",
   dead_letter: "Moved to dead-letter queue",
@@ -84,6 +86,7 @@ export const EVENT_COLOR: Record<EventKind, string> = {
   send: "var(--color-series-2)",
   receive: "var(--color-series-1)",
   delete: "var(--color-good)",
+  visibility_change: "var(--color-ink-3)",
   processing_error: "var(--color-critical)",
   visibility_expired: "var(--color-warning-text)",
   dead_letter: "var(--color-critical)",
@@ -279,6 +282,15 @@ export function eventsOfTimeline(t: Doc, o: TimelineEventsOptions = {}): Ev[] {
         const detail = failed ? `${call} failed${e.error_code ? `: ${e.error_code}` : ""}`
           : e.status === "stale_handle" ? "Deleted with the receipt handle of an earlier receive" : e.status === "unmatched_handle" ? "No observed receive returned this receipt handle" : "";
         push(e, "delete", end, { service: svc(e), consumer: svc(e), receiveCount: r ? Number(r.receive_count) : undefined, durationMs: took, detail, status: failed ? "error" : "ok", call });
+        break;
+      }
+      case "visibility_changed": {
+        const r = receiveOf(e.delivery);
+        const failed = e.result !== "ok";
+        const call = e.batch_entry_id ? "ChangeMessageVisibilityBatch" : "ChangeMessageVisibility";
+        const secs = e.visibility_timeout_s;
+        const detail = failed ? `${call} failed${e.error_code ? `: ${e.error_code}` : ""}` : typeof secs === "number" ? `Visibility timeout set to ${secs} s` : "";
+        push(e, "visibility_change", end, { service: svc(e), consumer: svc(e), receiveCount: r ? Number(r.receive_count) : undefined, detail, status: failed ? "error" : "ok", call });
         break;
       }
       case "lambda_outcome": {

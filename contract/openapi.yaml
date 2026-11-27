@@ -2432,7 +2432,7 @@ components:
         ms: {type: integer, description: When it happened, in Unix milliseconds.}
         event:
           type: string
-          enum: [send, receive, delete, processing_error, visibility_expired, dead_letter, filtered]
+          enum: [send, receive, delete, visibility_change, processing_error, visibility_expired, dead_letter, filtered]
           description: '`filtered` (a Lambda event filter dropped the message) comes only from the hosted app''s AWS records.'
         status: {type: string, enum: [ok, error]}
         queue: {type: string, description: The queue's name. For a move to the dead-letter queue, the queue it left.}
