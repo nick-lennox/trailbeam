@@ -13,7 +13,11 @@ pip install trailbeam
 
 To install from a clone instead: `pip install ./trailbeam/python`.
 
-To work on the package itself, run `pip install -e 'python[test]'` from the repository root.
+Trailbeam itself (the server, `pip install "trailbeam[server]"`) is another distribution, `trailbeam-server`, in
+[`server/`](../server/); `trailbeam` holds no server code.
+
+To work on the package itself, run `pip install -e ./server -e './python[test]'` from the repository root: the
+tests cover both, and installing both from the clone keeps pip from fetching a published `trailbeam` instead.
 
 Dependencies: `opentelemetry-api`, `opentelemetry-sdk` and `opentelemetry-exporter-otlp-proto-http`
 1.28 or later, `opentelemetry-instrumentation-botocore` 0.49b0 or later, and `botocore` 1.34 or
@@ -352,4 +356,4 @@ queues of its own and deletes them.
 
 The Postgres store's tests, and the storage conformance suite on Postgres, run when
 `TRAILBEAM_TEST_POSTGRES_URL` names a database the tests may create schemas in, for example
-`postgresql://postgres:postgres@localhost:5432/postgres` (`pip install -e ".[test,postgres]"`).
+`postgresql://postgres:postgres@localhost:5432/postgres` (`pip install -e ../server -e ".[test,postgres]"`).

@@ -157,7 +157,7 @@ A message is `in_order` when it is complete and none of its pairs is violated.
 **Edges are checked, not trusted** (`edges_verified`, QV-34). The pair checks above would pass a Trailbeam that
 put every send before every receive and labelled it `sqs_timestamps`: it agrees with what caused what. So
 the checker recomputes every source of every edge from the facts Trailbeam reports for the two events
-(the same rules as [`order.py`](../python/src/trailbeam/server/order.py), written again in the checker):
+(the same rules as [`order.py`](../server/src/trailbeam/server/order.py), written again in the checker):
 
 - `clock`: `from.end < to.start`;
 - `process_order`: the same call-order scope and `from.returned < to.issued` (the events' `process_order`);

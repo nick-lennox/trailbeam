@@ -1688,11 +1688,16 @@ With Postgres (`--store-url`), use Postgres' own backups: see [Backup and restor
 
 Take a backup ([SQLite](#backup-and-restore-sqlite), [Postgres](#backup-and-restore-postgres)), stop the
 old server, and start the new version on the same database file, Docker volume or Postgres database, with the
-same flags and token. The new version upgrades the schema by itself at start. CI runs this from 0.3.0 to
+same flags and token. The new version upgrades the schema by itself at start. CI runs this from 0.4.0 (and 0.3.0) to
 the current version on every change, for SQLite (the PyPI package and the image) and Postgres, and checks that every
 message, list and tenant count reads the same as before
 ([`python/smoke/upgrade_check.py`](python/smoke/upgrade_check.py)).
 
+- **pip installs.** From 0.5.0 the server is its own distribution, `trailbeam-server`, and `trailbeam` is the client
+  library only. Upgrade with the same command as before, `pip install -U "trailbeam[server]"` (with the extras you
+  use, such as `postgres`): the `server` extra pulls in `trailbeam-server` at the same version, and the `trailbeam`
+  command, `python -m trailbeam.server` and `import trailbeam.server` work as before. `pip install -U trailbeam`
+  without the extra removes the server.
 - **SQLite.** The new version moves the file to schema 16 (from 0.3.0's 12: a small table for the test span of
   `trailbeam doctor`, corrected counts for FIFO sends SQS deduplicated, the empty tables of people and tokens,
   and each span's `service.version`; only the summaries of FIFO messages sent more than once are rewritten).
@@ -1944,9 +1949,9 @@ contract, the specification the packages and Trailbeam both follow, is
 Run each line from the repository root:
 
 ```sh norun="the repository's tests: CI runs them in its python, node and ui jobs"
-(cd python && pip install -e '.[test]' && pytest)   # the Python package and Trailbeam itself
+(cd python && pip install -e ../server -e '.[test]' && pytest)   # the Python package and Trailbeam itself (server/)
 (cd node && npm ci && npm test)
-(cd ui && npm ci && npm test && npm run build)   # the shared UI, built into the Python package
+(cd ui && npm ci && npm test && npm run build)   # the shared UI, built into the server package
 pytest demo/check/tests
 ```
 

@@ -405,5 +405,5 @@ docker run -d --name rabbitmq -p 5672:5672 -e RABBITMQ_DEFAULT_USER=trailbeam -e
 TRAILBEAM_TEST_AMQP_URL='amqp://trailbeam:trailbeam@127.0.0.1:5672/%2F' npm test
 ```
 
-With `TRAILBEAM_TEST_SERVER_PYTHON` set to a Python that has the trailbeam package (`pip install -e ../python`),
+With `TRAILBEAM_TEST_SERVER_PYTHON` set to a Python that has the trailbeam package (`pip install -e ../python -e ../server`),
 those tests also pass every span through the server's ingest and check each message's timeline.

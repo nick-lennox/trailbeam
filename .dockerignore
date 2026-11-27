@@ -11,3 +11,6 @@
 .env.*
 **/.venv
 **/venv
+# setuptools build folders (pip wheel ./python, ./server)
+python/build
+server/build

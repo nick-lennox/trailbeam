@@ -249,7 +249,7 @@ The prototype value `success_deleted_by_lambda` is renamed `success`, because th
 
 ### 4.5 What Trailbeam requires
 
-Trailbeam ([`otlp.py`](../python/src/trailbeam/server/otlp.py)) reads a span only if its instrumentation scope
+Trailbeam ([`otlp.py`](../server/src/trailbeam/server/otlp.py)) reads a span only if its instrumentation scope
 is `trailbeam`. It counts spans of other scopes as ignored. A span of kind `trailbeam.probe` (the test span of
 `trailbeam doctor`) is checked only as section 17 says; no other rule of this section applies to it. It
 rejects any other Trailbeam span, and reports the reason in the OTLP `partial_success` field, when any of these is

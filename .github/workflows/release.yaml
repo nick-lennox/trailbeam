@@ -1,9 +1,14 @@
 name: Release
 
-# Push a tag vX.Y.Z (matching python/pyproject.toml, trailbeam.__version__, node/package.json, the Helm chart's
+# Push a tag vX.Y.Z (matching python/pyproject.toml, trailbeam.__version__, server/pyproject.toml,
+# trailbeam.server.__version__, the pins between the two Python distributions, node/package.json, the Helm chart's
 # version and appVersion in deploy/helm/trailbeam/Chart.yaml and a "## X.Y.Z" heading in CHANGELOG.md) to publish
 # that version:
-#   - PyPI: trailbeam (wheel with the built UI, and sdist), by trusted publishing (no token stored)
+#   - PyPI, by trusted publishing (no token stored), two distributions (QV-567): first trailbeam-server (Trailbeam
+#     itself, wheel with the built UI, and sdist), then trailbeam (the client library, wheel and sdist), whose
+#     server extra pulls in trailbeam-server at the same version. In that order, a failed server upload stops the
+#     release before anything is published, and until trailbeam X.Y.Z is up, pip install "trailbeam[server]"
+#     still gets the previous release whole
 #   - npm: trailbeam (the Node.js package), with provenance, using the NPM_TOKEN secret
 #   - GitHub Container Registry: ghcr.io/nick-lennox/trailbeam:X.Y.Z and :latest (SQLite only), and
 #     :X.Y.Z-postgres and :latest-postgres (with the Postgres driver; the Helm chart's default image).
@@ -31,6 +36,12 @@ jobs:
           v="${GITHUB_REF_NAME#v}"
           grep -qx "version = \"$v\"" python/pyproject.toml || { echo "python/pyproject.toml is not $v"; exit 1; }
           grep -qx "__version__ = \"$v\"" python/src/trailbeam/__init__.py || { echo "trailbeam.__version__ is not $v"; exit 1; }
+          grep -qx "version = \"$v\"" server/pyproject.toml || { echo "server/pyproject.toml is not $v"; exit 1; }
+          grep -qx "__version__ = \"$v\"" server/src/trailbeam/server/__init__.py || { echo "trailbeam.server.__version__ is not $v"; exit 1; }
+          for pin in "trailbeam-server==$v" "trailbeam-server[postgres]==$v" "trailbeam-server[sso]==$v"; do
+            grep -qxF "    \"$pin\"," python/pyproject.toml || { echo "python/pyproject.toml's extras don't pin $pin"; exit 1; }
+          done
+          grep -qxF "    \"trailbeam==$v\"," server/pyproject.toml || { echo "server/pyproject.toml doesn't depend on trailbeam==$v"; exit 1; }
           test "$(node -p 'require("./node/package.json").version')" = "$v" || { echo "node/package.json is not $v"; exit 1; }
           grep -qx "version: $v" deploy/helm/trailbeam/Chart.yaml || { echo "Chart.yaml version is not $v"; exit 1; }
           grep -qx "appVersion: \"$v\"" deploy/helm/trailbeam/Chart.yaml || { echo "Chart.yaml appVersion is not $v"; exit 1; }
@@ -53,21 +64,27 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - name: Build the web screen into the Python package
+      - name: Build the web screen into the server package
         working-directory: ui
         run: npm ci --no-audit --no-fund && npm run build
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - name: Build the wheel and sdist
-        working-directory: python
+      - name: Build the wheels and sdists of trailbeam and trailbeam-server
         run: |
           pip install build
-          python -m build -o ../dist .
-          python -c "import zipfile,glob,sys; n=zipfile.ZipFile(glob.glob('../dist/*.whl')[0]).namelist(); sys.exit(0 if 'trailbeam/server/ui/index.html' in n else 'the wheel has no web screen')"
+          python -m build -o dist/trailbeam python
+          python -m build -o dist/trailbeam-server server
+      # The library's wheel has no server or UI file, the server's has the UI, the pins match, and
+      # pip install trailbeam / "trailbeam[server]" from these wheels install what they should.
+      - name: Check both wheels and their installs
+        run: |
+          mkdir "$RUNNER_TEMP/wheels" && cp dist/*/*.whl "$RUNNER_TEMP/wheels/"
+          python python/smoke/split_check.py --ui --wheels "$RUNNER_TEMP/wheels"
       - uses: actions/upload-artifact@v4
         with: { name: python-dist, path: dist/ }
 
-  pypi:
+  pypi-server:
+    # trailbeam-server first: trusted publishing on PyPI is set up for each project name, this one too
     needs: [python, ci]
     runs-on: ubuntu-latest
     environment: pypi
@@ -77,6 +94,19 @@ jobs:
       - uses: actions/download-artifact@v4
         with: { name: python-dist, path: dist/ }
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with: { packages-dir: dist/trailbeam-server/ }
+
+  pypi:
+    needs: [python, ci, pypi-server]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: python-dist, path: dist/ }
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with: { packages-dir: dist/trailbeam/ }
 
   npm:
     needs: [check, ci]

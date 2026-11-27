@@ -1,6 +1,6 @@
 /*
   The shape of one message's timeline, as Trailbeam returns it from
-  GET /api/messages/{message_id} (trailbeam: python/src/trailbeam/server/timeline.py, https://docs.trailbeam.app/reference/api).
+  GET /api/messages/{message_id} (trailbeam: server/src/trailbeam/server/timeline.py, https://docs.trailbeam.app/reference/api).
 
   Everything below the "PROPOSED" line is not in Trailbeam yet. It is the paid app's
   AWS-side view (slice 1, screen 3), drawn here so the design can be reviewed. Those

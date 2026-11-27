@@ -12,11 +12,13 @@ request with the `hold` label; the board merges it, tags and publishes. The Java
 2. **Write the release section:** rename `## Unreleased` to `## X.Y.Z: <one-line summary>`, add a short summary,
    *What's new* and *Upgrading from <last release>*, keep every entry under *All changes*, and fix entries that
    later changes made stale. Leave an empty `## Unreleased` above it.
-3. **Bump the version** in the Python and npm packages, the example lockfiles and the Helm chart, and the tests
-   that check it.
+3. **Bump the version** in the Python packages (`python/` and `server/`, with the pins between them: the
+   `trailbeam-server==` extras in `python/pyproject.toml` and `trailbeam==` in `server/pyproject.toml`), the npm
+   package, the example lockfiles and the Helm chart, and the tests that check it.
 4. **Update the README** release note and upgrade notes, and the CI upgrade job so it also upgrades from the last
    release.
-5. **Dry-run the release workflow locally:** the tag check, the release notes, the wheel and sdist,
+5. **Dry-run the release workflow locally:** the tag check, the release notes, both wheels and sdists
+   (`python python/smoke/split_check.py --ui --wheels <dir>`),
    `npm publish --dry-run`, both images, and `npx trailbeam start` on the local image.
 6. **Run the upgrade test** from the last published release (SQLite, the Docker image on one volume, Postgres).
 7. **List the held docs pull requests** (in `nick-lennox/trailbeam-app`) that should merge at release.
@@ -27,8 +29,9 @@ after merging `main` in, then move the new entries into the release section.
 ## Release (the board)
 
 1. Check the release pull request's CI is green, remove `hold` and merge it.
-2. Tag the merge commit: `git tag vX.Y.Z <merge-sha> && git push origin vX.Y.Z`. `release.yaml` publishes PyPI,
-   npm, the ghcr.io images and the GitHub release notes.
+2. Tag the merge commit: `git tag vX.Y.Z <merge-sha> && git push origin vX.Y.Z`. `release.yaml` publishes PyPI
+   (`trailbeam-server`, then `trailbeam`), npm, the ghcr.io images and the GitHub release notes. Each PyPI project
+   needs a trusted publisher for this repository's `release.yaml` and the `pypi` environment.
 3. Check it: `pip install "trailbeam[server]==X.Y.Z" && trailbeam start` and `npx trailbeam@X.Y.Z start`.
 4. Merge the held docs pull requests and resync the docs site's copies of the span contract and OpenAPI file from
    the release commit.

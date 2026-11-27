@@ -1,6 +1,6 @@
 """Make test/fixtures/causes-parity.json: timelines, and what the cause classifier and grouping make of them.
 
-Self-hosted Trailbeam (python/src/trailbeam/server/causes.py) and the hosted app (lib/app/causes.ts) must group
+Self-hosted Trailbeam (server/src/trailbeam/server/causes.py) and the hosted app (lib/app/causes.ts) must group
 unfinished messages the same way, so the shared Needs attention view reads either (QV-367). Both test themselves
 on this file: python/tests/server/test_causes.py, and the app through @trailbeam/ui/fixtures/causes-parity.json.
 Each case is one message's timeline (the shape GET /api/messages/{id} returns, cut to what the classifier reads),
@@ -8,7 +8,7 @@ with its queue URL, tenant, FIFO group and the queues' visibility timeouts where
 causes.cause_of for each case, then causes.group over all of them (and over a time range, as in_range does).
 Every rule has a case, including the ones only the app's AWS records can trigger (aws_step events).
 
-    pip install -e "python[server]"   # from the repository root
+    pip install -e ./python -e ./server   # from the repository root
     python ui/test/make-causes-fixture.py
 """
 import json

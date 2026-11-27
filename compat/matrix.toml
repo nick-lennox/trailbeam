@@ -8,12 +8,12 @@
 # but doesn't go red for it, and the README table says it isn't supported.
 
 [python]
-# Each version runs the Python package's tests (the client hooks and the SQLite server) with the oldest
+# Each version runs the Python tests (the client library, trailbeam, and the SQLite server, trailbeam-server) with the oldest
 # and with the newest dependencies below. SQLite is the one built into that Python (the job log prints its version).
 versions = ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
 [python.deps.oldest]
-# The lower bounds in python/pyproject.toml, pinned. boto3 1.34.0 is the release that goes with botocore 1.34.0.
+# The lower bounds in python/pyproject.toml and server/pyproject.toml, pinned. boto3 1.34.0 is the release that goes with botocore 1.34.0.
 label = "boto3 / botocore 1.34.0, OpenTelemetry 1.28 / 0.49b0"
 pins = [
     "boto3==1.34.0",
