@@ -332,6 +332,8 @@ observed, with the process that uploaded, the other SQS messages the notificatio
 On a captured queue the receive also records the record's `eTag` and `versionId`, so a write of the same key by a
 process without Trailbeam (the console, `aws s3 cp`) a moment later is not taken for your upload. The one case it
 can't tell apart: a bucket without versioning, and a write of the same bytes (the same ETag).
+Nor can a receive show that S3 sent the notification: anyone who may `SendMessage` to the queue can post one by hand,
+and with the bucket, key, time and ETag right it joins your upload (contract section 27.3).
 
 ```python
 trailbeam.boto.install(capture={"body_queues": ["photos", "photo-uploads"]})  # the bucket, and the queue

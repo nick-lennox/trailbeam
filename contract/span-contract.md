@@ -1509,14 +1509,25 @@ and version ID it keeps as it does an upload's.
   `trailbeam.s3.event_time_ms` (when S3 finished the request, S3's clock) is within the upload's span widened by
   2 seconds on each side for the distance between the host's clock and S3's [judgment; not measured]; the receive's
   `trailbeam.s3.etag` is the upload's with its quotes taken off, and its `trailbeam.s3.version_id` is the upload's,
-  each compared only when both have it; and exactly one recorded upload meets all of that. When two do (the same key
+  each compared only when both have it; the receive has a `trailbeam.s3.etag` when the upload has one (S3 writes
+  `eTag` in every `ObjectCreated` record, so a record without it is not S3's, QV-565); and exactly one recorded upload
+  meets all of that. When two do (the same key
   written twice within a few seconds, with the same ETag and no version ID), the receive joins neither: Trailbeam does
   not guess which write the event was.
 - **A write Trailbeam did not see** (the console, `aws s3 cp`, a Lambda or service without a Trailbeam package) of the
   same key within the window is told apart by its version ID in a bucket with versioning on, and otherwise by its
   ETag. It is joined to the recorded upload, wrongly, only when the bucket has no versioning and the write's bytes
-  are the recorded upload's (the same ETag), or when the receive was recorded by a package that does not read the ETag
-  and version ID. Its message then shows the recorded upload as its sender.
+  are the recorded upload's (the same ETag). Its message then shows the recorded upload as its sender.
+- **A notification made by hand.** Nothing in a receive shows that S3 sent it: anyone allowed to `SendMessage` to the
+  queue can post a body that parses as an `ObjectCreated` record. One without an `eTag` joins nothing. One that has
+  the bucket, the key, an event time within the upload's window and the upload's ETag joins the upload as if S3 had
+  sent it: its message shows the upload as its sender, and the upload lists it among the messages it reached, on the
+  genuine messages' timelines too. Unlike the SNS and EventBridge joins (21, 25), whose IDs are random, these fields
+  can be found: the key and the time are often in the team's own logs, and the ETag is in S3's own notification on
+  every queue it reached, in `HeadObject`, and, for a single-part upload without SSE-KMS or SSE-C, the MD5 of the
+  object's bytes. In a versioned bucket the forger needs the version ID too, unless they leave it out: a record with
+  no `versionId` is still compared on the ETag alone (27.4). Trailbeam shows what the queue received; it is not a
+  check on who may write to it (the queue's policy is).
 - Every SQS message whose receives join one upload shows it as an **observed** step, "Uploaded to S3 bucket *name* by
   *operation*", with the key, the ETag and version ID, and the SQS messages it reached, by queue. A message that also
   has a `trailbeam send` (a process re-sent the body) is still joined, as in 25.3.
@@ -1566,6 +1577,12 @@ Not verified:
   in the request's key, not in the URL-encoded one, where `@` is `%40`) is not joined. Different keys that redact to
   the same text (`[REDACTED]` replaces a long number in each) share one join key; their ETags tell them apart unless
   the objects' bytes are the same.
+- That S3 writes `eTag` in every `ObjectCreated` record on AWS. The event structure page lists it in the record;
+  moto 5.2.6 writes it for all three operations. If AWS left it out of some record, that record would join nothing
+  (QV-565): nothing is joined wrongly.
+- What SQS's `SenderId` is for a message S3 sent. It would tell S3's notification from one made by hand (SQS sets
+  it from the caller; a sender can't choose it), but no receive records it (section 23), and AWS documents no value
+  for S3. Not used in 3.7.
 - That on AWS the record's `eTag` is the call's `ETag` without its quotes for all three operations, and that
   `versionId` is the response's `VersionId`. Checked in moto 5.2.6 for the ETag only (2026-11-27): the event's `eTag`
   is the response's without quotes for `PutObject`, `CopyObject` and `CompleteMultipartUpload` (`"…-1"`). moto puts no
@@ -1580,6 +1597,7 @@ Not verified:
 | a message from an S3 notification had an inferred first step and no sender | `trailbeam s3_upload`, kind `s3.upload`, one per `PutObject`, `CompleteMultipartUpload` or `CopyObject` call, ok or failed (27.1) |
 | | Trailbeam joins receives to their upload by bucket, object key (body capture on both sides only) and event time, shows it as an observed step with the S3 delivery time, and drops the inferred step for that message (27.3) |
 | a receive of an S3 notification read the key only | on a queue whose body is captured it reads the record's `eTag` and `versionId` too (23.2), and the join requires them to be the upload's where both have them, so another process's write of the key is not joined (27.3, QV-562) |
+| | a receive without an `eTag` does not join an upload that has one, so a notification made by hand without it is not joined; one with the upload's ETag still is, and 27.3 says so (QV-565) |
 
 `trailbeam.schema_version` stays `3`: the span is optional and the receive is unchanged. A Trailbeam built before 3.7
 rejects `trailbeam s3_upload` as an unknown kind, in `partial_success`, and stores the rest of the export.
