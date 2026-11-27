@@ -6,12 +6,15 @@ import { TenantSearch, type Health } from "../src/index.ts";
 export const tenantHref = (t: string) => `/?tenant=${encodeURIComponent(t)}`;
 export const messageHref = (id: string) => `/message?id=${encodeURIComponent(id)}`;
 
-/** Suggestions from the tenants named in the Tenants page's range: the one shown, else its default (a day). */
-const suggest = (text: string) => {
-  const since = location.pathname === "/tenants" ? new URLSearchParams(location.search).get("since_s") : null;
+/** Tenant names that start with `text`, from the Tenants page's range when it is the page shown, else the server's default (a day). */
+export function suggestTenants(text: string, signal?: AbortSignal, search = location.search, path = location.pathname): Promise<string[]> {
+  const since = path === "/tenants" ? new URLSearchParams(search).get("since_s") : null;
   const range = since ? `&since_s=${encodeURIComponent(since)}` : "";
-  return fetch(`/api/tenants/search?q=${encodeURIComponent(text)}${range}`).then((r) => (r.ok ? r.json() : { tenants: [] })).then((d: { tenants: string[] }) => d.tenants);
-};
+  return fetch(`/api/tenants/search?q=${encodeURIComponent(text)}${range}`, { signal, headers: { Accept: "application/json" } })
+    .then((r) => (r.ok ? r.json() : { tenants: [] })).then((d: { tenants?: string[] }) => d.tenants ?? []);
+}
+
+const suggest = (text: string) => suggestTenants(text);
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public reason?: string) { super(message); }
@@ -137,7 +140,7 @@ const PERSON_NAV = [["/tokens", "Tokens"]] as const;
 const SEEN_KEY = "trailbeam.tenantSeen";
 const remembered = () => { try { return sessionStorage.getItem(SEEN_KEY) === "1"; } catch { return false; } };
 const remember = () => { try { sessionStorage.setItem(SEEN_KEY, "1"); } catch { /* storage off: ask again next page */ } };
-function useTenantSeen(): boolean {
+export function useTenantSeen(): boolean {
   const [seen, setSeen] = useState(remembered);
   useEffect(() => {
     if (seen) return;

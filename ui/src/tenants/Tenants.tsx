@@ -1,16 +1,13 @@
 /*
-  The Tenants table and the tenant search box, shared by self-hosted Trailbeam and the hosted app. They take
-  the API's data as props (types.ts) and know nothing about where they run: links come from href(), and the
-  page around them (range picker, footnote wording, where "set the tenant field" points) is the host's.
-  They are colored with role tokens (theme.css), not the sky, so they take the host page's theme.
+  The Tenants page's words and the tenant search box, shared by self-hosted Trailbeam and the hosted app: the number
+  formats, the footnote, the empty state's text and the settings it shows. The page itself (the table, the range
+  control and the page chrome) is TenantsPage.tsx, a client module reached through @trailbeam/ui/design, because it
+  draws with the design system's Nav, Card and Tooltip; this module stays importable from a server component.
 */
-import { useEffect, useId, useState, type ComponentType, type ReactNode } from "react";
+import { useEffect, useId, useState } from "react";
 import type { TenantRow } from "./types.ts";
 
-type LinkProps = { href: string; className?: string; children: ReactNode };
-const A = ({ href, className, children }: LinkProps) => <a href={href} className={className}>{children}</a>;
-
-const fmtNum = (n: number) => n.toLocaleString("en-US");
+export const fmtNum = (n: number) => n.toLocaleString("en-US");
 /** A p95 in ms, as the table shows it. */
 export function fmtWait(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)} ms`;
@@ -20,54 +17,11 @@ export function fmtWait(ms: number): string {
 /** A share as a whole percentage; "<1%" for a tenant that sent something but rounds to 0. */
 export const fmtShare = (r: Pick<TenantRow, "share" | "sent">) => (r.share < 0.01 && r.sent > 0 ? "<1%" : `${Math.round(r.share * 100)}%`);
 
-export type TenantsTableProps = {
-  rows: TenantRow[];
-  /** where a tenant's name links to: its messages */
-  href: (tenant: string) => string;
-  /** a link component, e.g. next/link; plain <a> by default */
-  Link?: ComponentType<LinkProps>;
-  /** a p95 above this is highlighted (ms, default 1000) */
-  slowMs?: number;
-};
+/** The p95 cell's hover note: how many first deliveries it is over. */
+export const p95Note = (n: number) => (n ? `Over ${fmtNum(n)} first ${n === 1 ? "delivery" : "deliveries"}.` : "No first delivery observed.");
 
-/** One row per tenant, in the API's order. */
-export function TenantsTable({ rows, href, Link = A, slowMs = 1000 }: TenantsTableProps) {
-  const max = Math.max(1, ...rows.map((t) => t.sent));
-  return (
-    <table className="w-full text-[15px]">
-      <thead>
-        <tr className="border-b border-line text-left font-mono text-caption text-ink-3">
-          <th className="px-5 py-2 font-medium">Tenant</th>
-          <th className="px-3 py-2 font-medium">Messages sent</th>
-          <th className="px-3 py-2 text-right font-medium">Share</th>
-          <th className="px-3 py-2 text-right font-medium">p95 in queue</th>
-          <th className="px-5 py-2 text-right font-medium">Dead-lettered</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((t) => (
-          <tr key={t.tenant} className="border-b border-line/60 last:border-0">
-            <td className="px-5 py-3 text-ink"><Link href={href(t.tenant)} className="hover:text-brand">{t.tenant}</Link></td>
-            <td className="px-3 py-3">
-              <div className="flex items-center gap-3">
-                <div className="h-1.5 w-40 rounded-full bg-line/70 md:w-56" aria-hidden>
-                  <div className="h-full rounded-full bg-series-1" style={{ width: `${(t.sent / max) * 100}%` }} />
-                </div>
-                <span className="font-mono text-caption tabular-nums text-ink-2">{fmtNum(t.sent)}</span>
-              </div>
-            </td>
-            <td className="px-3 py-3 text-right font-mono text-caption tabular-nums text-ink-2">{fmtShare(t)}</td>
-            <td className={`px-3 py-3 text-right font-mono text-caption tabular-nums ${t.p95_in_queue_ms !== null && t.p95_in_queue_ms > slowMs ? "text-warning-text" : "text-ink-2"}`}
-              title={t.first_deliveries ? `over ${fmtNum(t.first_deliveries)} first ${t.first_deliveries === 1 ? "delivery" : "deliveries"}` : "No first delivery observed"}>
-              {t.p95_in_queue_ms === null ? <span className="text-ink-3">-</span> : fmtWait(t.p95_in_queue_ms)}
-            </td>
-            <td className={`px-5 py-3 text-right font-mono text-caption tabular-nums ${t.dead_lettered ? "text-critical-text" : "text-ink-3"}`}>{fmtNum(t.dead_lettered)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
+export const TENANTS_TITLE = "Tenants";
+export const TENANTS_SUBTITLE = "Which of your customers are sending the traffic, and who is waiting longest.";
 
 /** The sentence under the table: what the numbers are over. Hosts add where the tenant field is set. */
 export function tenantsFootnote(s: { total_sent: number; untagged_sent: number; /** ignored: always false (QV-247) */ capped?: boolean }, range: string): string {

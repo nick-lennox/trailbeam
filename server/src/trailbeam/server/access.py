@@ -5,8 +5,8 @@ is ``MEMBER``, so a page or file added later is never open by mistake):
 
 - ``OPEN``: ``/api/ready``, ``/api/health`` (which says only ``status`` and ``version`` to a request that isn't let
   in at ``MEMBER``), the sign-in page and its form, the first admin's setup form (``/setup``, first_admin.py),
-  which needs its one-time code instead, single sign-on's two steps (``/login/oidc``, oidc.py), and signing in
-  with a passkey (``/login/passkey``, passkeys.py).
+  which needs its one-time code instead, single sign-on's two steps (``/login/oidc``, oidc.py), GitHub's
+  (``/login/github``, github.py), and signing in with a passkey (``/login/passkey``, passkeys.py).
 - ``INGEST``: ``POST /v1/traces``.
 - ``METRICS``: ``GET /metrics``.
 - ``MEMBER``: the API and the web screen, message bodies included (an admin or a member, proposal section 2).
@@ -63,6 +63,8 @@ ROUTES: dict[tuple[str, str], str] = {
     ("POST", "/setup"): OPEN,
     ("GET", "/login/oidc"): OPEN,           # single sign-on (oidc.py): to the identity provider
     ("GET", "/login/oidc/callback"): OPEN,  # and back; its state and the browser's cookie are the credential
+    ("GET", "/login/github"): OPEN,           # sign in with GitHub (github.py), the same way
+    ("GET", "/login/github/callback"): OPEN,
     ("POST", "/login/passkey/options"): OPEN,  # passkeys (passkeys.py): a challenge to sign
     ("POST", "/login/passkey"): OPEN,          # and the signed answer, which is the credential
     ("POST", "/v1/traces"): INGEST,
