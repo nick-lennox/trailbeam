@@ -17,7 +17,10 @@ Message bodies (contract section 15) are kept only for the queues named in ``sto
 (``TRAILBEAM_STORE_BODIES``), off by default. A package exports a body only for queues it was told to
 capture; this is the second gate, on the server, so turning capture on in a package does not by itself
 put bodies on disk. For any other queue the ``trailbeam.body*`` attributes that carry or describe the
-body are removed before the row is written, and ``body_dropped`` records why. A body that is kept is
+body are removed before the row is written, and ``body_dropped`` records why. The S3 object key is body-derived
+(contract 27.1, the board's QV-314 decision) and gated the same way (QV-564): ``trailbeam.s3.object_key`` is removed
+from a receive on a queue, and from an upload to a bucket, that is not in ``store_bodies``, and such an upload's
+``message_id`` (its key) is not stored; with the key missing on either side, the receive joins no upload. A body that is kept is
 written once per message, in ``bodies``, and the send and receive spans point at it (body_table.py).
 """
 from __future__ import annotations
@@ -42,6 +45,8 @@ from .store import (MAX_CANCELS, SETTLE_KINDS, SETTLE_KINDS_SQL, TENANT_MAX_CHAR
 BODY_ATTRIBUTES = ("trailbeam.body", "trailbeam.body.format", "trailbeam.body.redacted_count",
                    "trailbeam.body.envelope")
 BODY_DROPPED_NOT_OPTED_IN = "not_opted_in"  # spans.body_dropped: the queue is not in store_bodies
+# Kept on the same terms as the body (QV-564): the object key a receive's S3 notification or an upload names.
+GATED_ATTRIBUTES = BODY_ATTRIBUTES + (s3.OBJECT_KEY,)
 
 # The schema, its version and the upgrades from older files are in migrations.py.
 
@@ -81,12 +86,23 @@ def parse_queue_list(text: str) -> frozenset:
 
 
 def gate_body(attributes: dict, queue: Optional[str], store_bodies: frozenset) -> tuple[dict, Optional[str]]:
-    """The attributes to store, and the body_dropped value: None if nothing was dropped."""
+    """The attributes to store, and the body_dropped value: None if nothing was dropped. ``queue``: the queue, or an
+    upload's bucket."""
     if "*" in store_bodies or queue in store_bodies:
         return attributes, None
-    if not any(k in attributes for k in BODY_ATTRIBUTES):
+    if not any(k in attributes for k in GATED_ATTRIBUTES):
         return attributes, None
-    return {k: v for k, v in attributes.items() if k not in BODY_ATTRIBUTES}, BODY_DROPPED_NOT_OPTED_IN
+    return {k: v for k, v in attributes.items() if k not in GATED_ATTRIBUTES}, BODY_DROPPED_NOT_OPTED_IN
+
+
+def gate_record(r: dict, store_bodies: frozenset) -> tuple[dict, dict, Optional[str]]:
+    """gate_body for one record: the record to store, its attributes and its body_dropped value. An s3_upload to a
+    bucket not in ``store_bodies`` loses its ``message_id`` too, which otlp.to_record copied from the object key."""
+    attrs, dropped = gate_body(r.get("attributes", {}), r.get("queue"), store_bodies)
+    if (r["kind"] == s3.KIND and r.get("message_id") is not None
+            and not ("*" in store_bodies or r.get("queue") in store_bodies)):
+        r = dict(r, message_id=None)
+    return r, attrs, dropped
 
 
 
@@ -351,6 +367,7 @@ class SqliteStore(Store):
         on_join = self.on_join
         steps: dict = {}  # step_rollup: (hour, queue, service, kind) -> spans this export adds
         for r in records:
+            r, attrs, dropped = gate_record(r, self.store_bodies)
             own, kind = r.get("message_id"), r["kind"]
             mid, mid_source, receive_row = own, "span" if own else None, None
             if kind in (sns.KIND, eventbridge.KIND, s3.KIND):  # an SNS message ID, event ID or key: no message (store.py)
@@ -362,7 +379,6 @@ class SqliteStore(Store):
                 join_s = time.perf_counter() - j0
                 if rec is not None:
                     mid, mid_source, receive_row = rec["message_id"], "receipt_hash", rec["row"]
-            attrs, dropped = gate_body(r.get("attributes", {}), r.get("queue"), self.store_bodies)
             attrs, body = body_table.split(kind, own, attrs)
             # an exporter's retry carries the same body: put finds the row the first copy wrote
             values = [r.get(f) for f in RECORD_FIELDS] + [

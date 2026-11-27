@@ -1474,6 +1474,11 @@ span has the attributes of section 3, with the call's interval and call-order ti
 exchange's, span-contract-amqp.md): the key is recorded when the list has the bucket's name or `*`. No other option
 changes it.
 
+**The server's gate.** As for a body (15), the server stores the key only for a bucket its `TRAILBEAM_STORE_BODIES`
+names (or `*`): for any other bucket it removes `trailbeam.s3.object_key` before writing the span, and the stored upload
+has no key. The same holds for a receive's `trailbeam.s3.object_key` (27.2), by the receive's queue. So a join (27.3)
+needs the server's opt-in for the bucket and for the queue, as well as the packages'.
+
 **Never recorded:** the object's contents (`Body`), its user metadata (`Metadata`, the `x-amz-meta-*` headers),
 `CopySource` (it names another object's key), `Tagging`, `ContentType` and the other object headers, checksums,
 encryption keys and their MD5s, `UploadId`, the parts list, and the response's `Location`, `Bucket` and `Key` (the
@@ -1485,6 +1490,7 @@ stock instrumentation's span for the call. Test vectors: `s3.uploads` in
 
 Nothing changes. Section 23.2's attributes are read as before: the bucket, event name and `trailbeam.s3.event_time_ms`
 on every queue, and `trailbeam.s3.object_key` (URL-encoded, as S3 writes it) only on a queue whose body is captured.
+The server keeps it only for a queue in its `TRAILBEAM_STORE_BODIES` (27.1).
 
 ### 27.3 How Trailbeam reads it
 
@@ -1499,8 +1505,8 @@ on every queue, and `trailbeam.s3.object_key` (URL-encoded, as S3 writes it) onl
   *operation*", with the key, the ETag and version ID, and the SQS messages it reached, by queue. A message that also
   has a `trailbeam send` (a process re-sent the body) is still joined, as in 25.3.
 - A joined upload replaces section 23.3's inferred "S3 *event*" step on that message. A message that joins nothing,
-  including every message where the receive or the upload has no key (body capture off on either side), keeps that
-  inferred step.
+  including every message where the receive or the upload has no key (body capture off on either side, in the package
+  or on the server), keeps that inferred step.
 - **S3 delivery time** (dwell): `trailbeam.sent_timestamp_ms − trailbeam.s3.event_time_ms` of the message's first
   receive with the notification, shown on the step. Both are AWS clocks. A negative value is shown as measured.
 - **Order** is section 9a's: the upload is ordered before a receive only by `clock` or `process_order`, as an SNS

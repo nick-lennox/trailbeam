@@ -28,6 +28,18 @@ C = Consumer()                                       # queue orders
 B = Consumer("thumbs-worker", queue="thumbs")        # queue thumbs: a second notification configuration
 
 
+# The server stores an object key only for a bucket, and a queue, in its store_bodies (QV-564): the join needs both.
+OPTED = frozenset({"photos", "videos", "orders", "thumbs"})
+
+
+@pytest.fixture
+def new_store(new_store):
+    """conftest's new_store, opted in on the server for this file's buckets and queues unless told otherwise."""
+    def make(store_bodies=OPTED, name="a"):
+        return new_store(store_bodies, name)
+    return make
+
+
 def put(s, *spans):
     d = decode(to_proto(list(spans)).SerializeToString(), "application/x-protobuf")
     assert d.rejected == []
@@ -101,6 +113,35 @@ def test_what_does_not_join(new_store, why, up, rec):
     s = new_store()
     put(s, upload(**up), received(C, "sqs-a", **rec))
     assert types(queries.message(s, "sqs-a", NOW, LT)) == ["s3_event", "received"], why
+
+
+@pytest.mark.parametrize("why,store_bodies", [
+    ("no opt-in on the server", frozenset()),
+    ("the queue only: the upload's key is not stored", {"orders"}),
+    ("the bucket only: the receive's key is not stored", {"photos"}),
+])
+def test_the_server_gate_keeps_the_object_key_out(new_store, why, store_bodies):
+    # The packages capture both sides; the server's TRAILBEAM_STORE_BODIES is the second gate (QV-564).
+    s = new_store(store_bodies)
+    put(s, upload(), received(C, "sqs-a"))
+    t = queries.message(s, "sqs-a", NOW, LT)
+    assert types(t) == ["s3_event", "received"], why
+    assert s.counts()["spans"] == {"s3_upload": 1, "receive": 1}
+    if "photos" not in store_bodies:
+        assert s.s3_uploads("photos", KEY, 0, FOREVER) == [], why
+    if "orders" not in store_bodies:
+        assert t["events"][0].get("object_key") is None, why
+        assert s.s3_receivers("photos", KEY, 0, FOREVER) == [], why
+    if hasattr(s, "conn"):  # SQLite: the key is in no column or attribute of either row
+        for row in s.conn.execute("SELECT queue, message_id, attributes FROM spans"):
+            if row[0] not in store_bodies:
+                assert row[1] != KEY and KEY not in row[2] and ENCODED not in row[2], (why, tuple(row))
+
+
+def test_every_queue_opted_in_joins(new_store):
+    s = new_store({"*"})
+    put(s, upload(), received(C, "sqs-a"))
+    assert types(queries.message(s, "sqs-a", NOW, LT)) == ["s3_upload", "received"]
 
 
 def test_the_skew_allowance_joins_just_inside_it(new_store):

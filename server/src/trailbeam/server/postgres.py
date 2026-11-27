@@ -151,7 +151,7 @@ from psycopg.rows import dict_row
 from . import body_table, eventbridge, pg_schema, purge, queues, rollup, s3, sns, summary
 from .events import HOUR_NS, KINDS as STEP_KINDS, hour_split
 from .lookup_filter import LookupFilter, hash_key, mid_key
-from .db import gate_body
+from .db import gate_record
 from .otlp import RECORD_FIELDS
 from .store import (SETTLE_KINDS, SETTLE_KINDS_SQL, TENANT_MAX_CHARS, Cutoffs, ExportAbandoned, PurgeStep, Store,
                     StoreFull, StoreTimeout, StoreUnavailable, StuckCandidate, TenantActivity, WriterBusy)
@@ -871,8 +871,8 @@ class PostgresStore(Store):
             return 0, 0
         prepared = []
         for r in records:
+            r, attrs, dropped = gate_record(r, self.store_bodies)
             own = r.get("message_id")
-            attrs, dropped = gate_body(r.get("attributes", {}), r.get("queue"), self.store_bodies)
             attrs, body = body_table.split(r["kind"], own, attrs)
             prepared.append((r, own, body_table.attributes_json(attrs), dropped, body))
         delay = 0.01
