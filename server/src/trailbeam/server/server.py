@@ -19,7 +19,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTrace
 
 from . import __version__
 from . import queues as queues_mod
-from . import access as access_mod, auth as auth_mod, causes as causes_mod, proxy_auth as proxy_auth_mod, bodies, csrf, first_admin, \
+from . import alerts_api, access as access_mod, auth as auth_mod, causes as causes_mod, proxy_auth as proxy_auth_mod, bodies, csrf, first_admin, \
     metrics, oidc as oidc_mod, passwords, people_api, queries, \
     sessions as sessions_mod, trace_links, ui_files, web
 from .accounts import AccountError, Accounts, AdminExists, BadSetupCode, check_email, check_name
@@ -59,7 +59,7 @@ class App:
                  auth: Optional[auth_mod.Auth] = None, gate: Optional[IngestGate] = None,
                  trusted_proxies: Optional[TrustedProxies] = None, trace_link: Optional[str] = None,
                  accounts="auto", proxy_auth: Optional[proxy_auth_mod.ProxyAuthConfig] = None,
-                 oidc: Optional[oidc_mod.Settings] = None, oidc_provider=None):
+                 oidc: Optional[oidc_mod.Settings] = None, oidc_provider=None, alerts="auto"):
         self.db = db
         # --trusted-proxy (proxy.py): whose X-Forwarded-For/-Proto/-Host is believed; empty: nobody's
         self.proxies = trusted_proxies or TrustedProxies()
@@ -109,6 +109,8 @@ class App:
             "stuck": self.stuck, "causes": self.causes, "events": self.events, "tenants": self.tenants, "probes": self.probes,
             "me": self.me, "users": self._not_a_route, "tokens": self._not_a_route,
             "queues": self.queues, "flows": self.flows}
+        # /api/alerts (alerts_api.py): rules, channels and alert state; None (404) while the alert check is off
+        self.alerts: alerts_api.AlertsApi | None = alerts_api.for_app(self) if alerts == "auto" else alerts
         self._init_metrics()
 
     # ---- /metrics -------------------------------------------------------------------------
@@ -311,6 +313,11 @@ class App:
         is the one whose level was checked. Not given (tests, in-process callers): matched on the exact path,
         the same way. Never normalised here: /api/users/ or /api//users is no route (a 404), not /api/users."""
         parts = [unquote(p) for p in path.split("/") if p]
+        if self.alerts is not None and alerts_api.is_alerts_path("/api/" + path):
+            try:
+                return self.alerts.call("GET", "/api/" + path, None, who)[1]
+            except alerts_api.ApiProblem as e:
+                raise ApiError(e.status, e.message) from None
         r = access_mod.api_route("GET", "/api/" + path) if route is _UNSET else route
         if r is not None:  # people and tokens (people_api.py); the level was checked with the request
             try:
@@ -812,11 +819,13 @@ def make_handler(app: App):
             """POST, PATCH and DELETE on the people-and-tokens routes (people_api.py), after csrf.check. The route
             and the person are checked before the body is read."""
             r = access_mod.api_route(method, path)
-            if r is None:
+            alerts = app.alerts if r is None and alerts_api.is_alerts_path(path) else None
+            if r is None and alerts is None:
                 self.close_connection = True
                 self._json(404, {"error": f"no such endpoint: {method} {path}"})
                 return
-            level, handler, rid = r
+            # /api/alerts (alerts_api.py): let in at MEMBER; changing a channel needs an admin, checked by the handler
+            level, handler, rid = r if r is not None else (access_mod.MEMBER, "", None)
             try:
                 d = app.access.check(self.headers, level, self._scheme(), peer=self._peer())
             except access_mod.AccessUnavailable as e:
@@ -844,9 +853,15 @@ def make_handler(app: App):
             base = f"{self._scheme()}://{host or 'localhost'}"
             try:
                 body = None if method == "DELETE" else people_api.parse_body(self.headers.get("Content-Type"), raw)
-                status, obj = app.people.call(handler, rid, body, d.who, base, time.time_ns() // 1_000_000)
+                if alerts is not None:
+                    status, obj = alerts.call(method, path, body, d.who, base)
+                else:
+                    status, obj = app.people.call(handler, rid, body, d.who, base, time.time_ns() // 1_000_000)
             except people_api.ApiProblem as e:
                 self._json(e.status, e.body())
+                return
+            except alerts_api.ApiProblem as e:
+                self._json(e.status, {"error": e.message})
                 return
             except access_mod.AccessUnavailable as e:
                 log.warning("%s %s: %s", method, path, e)
