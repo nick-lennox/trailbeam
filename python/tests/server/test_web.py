@@ -542,11 +542,12 @@ def test_a_deduplicated_fifo_send_is_shown_as_such_with_its_reason(server):
     assert f'<div class="reason">{DEDUPLICATED_REASON}</div>' in html
 
 
-def test_eventbridge_and_s3_origins_are_inferred_first_steps(server):
+def test_eventbridge_and_s3_origins_are_inferred_first_steps(db, server):
     """Contract section 23.3: a receive whose body is an EventBridge event or an S3 notification gets an inferred
     first step, with no time, naming the event's source and detail-type, or the S3 event, bucket and key."""
     c = Consumer("orders-worker")
     t0_ms = T0 // 10**6
+    db.store_bodies = frozenset({"orders"})  # the object key is stored only on an opted-in queue (QV-564)
     post(server, [
         c.receive_with(T0 + 3 * SEC, "via-eb", "rh-1", {
             "trailbeam.eventbridge.event_id": "6a7e8feb-b491-4cf7-a9f1-bf3703467718",

@@ -77,8 +77,11 @@ answers a narrower question: where did this one message go?
 - **S3 uploads.** When the uploader runs a Trailbeam package, the inferred S3 step becomes the recorded
   `PutObject`, `CompleteMultipartUpload` or `CopyObject`: the bucket, the process, the ETag, the other SQS
   messages the notification reached, and the S3 delivery time. Trailbeam joins them by bucket, object key
-  and event time. The key is recorded only where body capture is on, for the bucket and for the queue, so
-  without capture the step stays inferred. Object contents and user metadata are never read.
+  and event time, and checks the ETag and version ID, so another process's write of the key isn't taken
+  for yours (except the same bytes in a bucket without versioning). The key is recorded only where body
+  capture is on, for the bucket and for the queue, and
+  stored only for those the server's `TRAILBEAM_STORE_BODIES` names too, so without both the step stays
+  inferred. Object contents and user metadata are never read.
 - **Recorded and inferred steps are kept apart.** Trailbeam orders two events only when an observed
   fact proves the order, and marks every step it inferred, such as a visibility timeout that expired.
 - **Deletes joined to their receives.** A delete carries a receipt handle, not a message ID. Trailbeam
@@ -359,8 +362,9 @@ in it. The parameters and answer are in [`contract/openapi.yaml`](contract/opena
 ## Troubleshooting: no data arriving
 
 Set it up and see nothing? Run `trailbeam doctor` (0.4.0 or later; 0.3.0 stops with
-`unrecognized arguments: doctor`). It comes with the Python package (installing `trailbeam`
-is enough, the server extra is not needed) and checks, one line each:
+`unrecognized arguments: doctor`). It comes with the server, so on a service's host run
+`pip install "trailbeam[server]"` first: the `trailbeam` package alone has no `trailbeam` command. It checks,
+one line each:
 
 1. **Server reachable**: `GET /api/health` answers, and it is Trailbeam;
 2. **Ingest port accepts connections**: the address your services send to (4318 by default) is open and is
@@ -998,6 +1002,9 @@ A package exports a body only for the queues in its own capture list, redacted
 ([span contract 15](contract/span-contract.md#15-message-contents-revision-32)).
 `TRAILBEAM_STORE_BODIES` is the second gate: for any queue not in it (`*` means every queue), Trailbeam
 removes the body attributes before writing the span, and records that it did. The default is no queue.
+The gate covers the S3 object key too, which comes from the body: a receive's key is stored only for a queue
+in the list, and an upload's only for a bucket in it, so joining an S3 upload needs both names
+([S3 uploads](contract/span-contract.md#27-s3-uploads-revision-37)).
 
 Each body is written to disk once per message, even though the send span and every receive span carry
 it; the spans point at that one copy. (A receive that carried a different text keeps its own.) With 1 KB

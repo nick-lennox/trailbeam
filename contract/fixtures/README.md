@@ -37,3 +37,52 @@ a reject to it, fan-out, a publisher retry, an unroutable publish, a classic que
 contract, not recorded, because no package emits them yet; re-record them from the Python package (QV-309)
 and keep the scenarios. Checked by `python/tests/test_amqp_contract.py`, which also fails if the file is not
 what the script writes.
+
+## `alerts-parity.json`
+
+The alert rule cases both engines must agree on (QV-627): a dashboard rule's tone against its warn and crit limits,
+the changes between two checks (fired, changed, resolved, a rule gone), a cause rule at one check (the quiet period
+and its 5-minute slack, every check, mutes, a merge of error texts) and one quiet rule walked through a day of
+checks. It is written by `make-alerts-parity.py` from the open-source engine (`server/src/trailbeam/server/alerts.py`);
+don't edit it by hand. Checked by `python/tests/server/test_alerts.py`, which also fails if the file is not what the
+script writes, and by the hosted app's `test/alerts-parity.test.ts` against its `lib/alerts/evaluate.ts`.
+`@trailbeam/ui` ships it as `@trailbeam/ui/fixtures/alerts-parity.json`, so there is one file and no copy.
+
+## `alerts-run.json`
+
+The scheduled alert check's decisions both products must agree on (QV-639): which workspaces one check looks at and in
+which order (oldest checked first), the time budget, lease skipping (another check holds it, or checked it fine within
+the gap), workspaces with no alert channel, checking one workspace alone, dashboard rules that fire or stay firing,
+"Alert me" rules that fire, are muted or snoozed, wake up still firing (one "still firing" change) or quiet, and a
+failing workspace that doesn't stop the others. A case is one check: the stored rules, states, checks and leases, what
+each workspace's reads return and how long they take, and the result, the changes sent and the store after. It is
+written by `make-alerts-run.py` from the open-source check (`server/src/trailbeam/server/alerts_run.py`); don't edit
+it by hand. Checked by `python/tests/server/test_alerts_run.py`, which also fails if the file is not what the script
+writes. It is not yet run against the hosted app's `lib/alerts/run.ts` nor shipped in `@trailbeam/ui`.
+
+## `measures-parity.json`
+
+The dashboard widget measure cases both engines must agree on (QV-632): every measure as a series (all of it, by queue,
+over other ranges, with no AWS figures), group-by fields, filters in the Event explorer's query language (fields,
+wildcards, numbers and ranges, body paths, attributes, bare text, bad terms), a queue's figure, missing figures and
+history and why, queue health, filters with dashboard variables, number formatting, the 95th percentile, histogram
+buckets, what a widget with a rule alerts with, and checking a widget and a dashboard definition. The inputs are
+datasets in the hosted app's EventData shape (a workspace's own events and each queue's AWS figures), so the app passes
+them in unchanged. It is written by `make-measures-parity.py` from the open-source engine
+(`server/src/trailbeam/server/measures.py`); don't edit it by hand. Checked by `python/tests/server/test_measures.py`,
+which also fails if the file is not what the script writes, and by the hosted app's `test/measures-parity.test.ts`
+against its `lib/dashboards/measures.ts`. `@trailbeam/ui` ships it as `@trailbeam/ui/fixtures/measures-parity.json`.
+
+## `alerts-delivery.json`
+
+What an alert sends, which both products must agree on (QV-636): for a webhook, Slack and email channel, the request
+(URL, headers with the HMAC signature, body) or the emails a check's changes make, from dashboard rules and "Alert me"
+cause rules (quiet and every check, resolved, after a snooze, regressed, back from ignored, triage, a capped read, an
+inferred or long label, escaping); which channels want which change; and how a channel's target is checked (http or
+https, private and local hosts, Slack's own URLs, email lists) and shown without its secret part. Links in it are the
+hosted app's, `<origin>/app/<slug>/...`; self-hosted Trailbeam makes the same under its own URL. It is written by
+`make-alerts-delivery.py` from the open-source code (`server/src/trailbeam/server/alert_messages.py` and
+`alert_delivery.py`); don't edit it by hand. Checked by `python/tests/server/test_alert_delivery.py`, which also sends
+every case for real to a local HTTP server and a fake SMTP server and fails if the file is not what the script writes,
+and by the hosted app's `test/alerts-delivery.test.ts` against its `lib/alerts/deliver.ts` and `channels.ts`.
+`@trailbeam/ui` ships it as `@trailbeam/ui/fixtures/alerts-delivery.json`.

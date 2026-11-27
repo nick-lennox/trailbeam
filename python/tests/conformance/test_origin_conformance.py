@@ -58,7 +58,7 @@ def test_eventbridge_rule(new_store):
 
 
 def test_s3_object_created_with_key(new_store):
-    s = new_store()
+    s = new_store(store_bodies={"orders"})  # the key is stored only on an opted-in queue (QV-564)
     put(s, receive(T0 + 2 * SEC, "sqs-a", "rh-a", S3_KEY, sent_ms=1040))
     ev = queries.message(s, "sqs-a", NOW, LT)["events"][0]
     assert (ev["type"], ev["inferred"], ev["source"]) == ("s3_event", True, "s3_event")

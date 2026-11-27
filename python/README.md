@@ -317,12 +317,23 @@ Contract section 27. `install()` also hooks boto3 `s3` clients: each `PutObject`
 - **Never recorded**: the object's contents, its user metadata (`Metadata`), `CopySource`, tags, checksums, encryption
   keys, and the response's `Location`.
 
+`*` in `body_queues` covers every bucket, so upgrading to 0.5.0 with `*` in the list (or with a queue named like a
+bucket) starts exporting the object key of every upload; `install()` has no option to leave S3 clients out. The server
+stores a key only for a bucket that `TRAILBEAM_STORE_BODIES` names, or for every bucket when it is `*`. Object keys
+often hold user IDs or file names: to keep them out, list queues by name instead of `*`, here and on the server.
+
 Trailbeam joins the upload to the SQS messages its bucket notification sent, by bucket, object key and event time. A
 receive records the key only on a queue whose body is captured (next section), so the join needs body capture on both
 sides: for the bucket in the uploading process, and for the queue in the receiving one. Where either is off, the
 message keeps its inferred "S3 *event*" step. Joined, the timeline starts with "Uploaded to S3 bucket *name*",
 observed, with the process that uploaded, the other SQS messages the notification reached, and the S3 delivery time
 (SQS's `SentTimestamp` minus the record's `eventTime`).
+
+On a captured queue the receive also records the record's `eTag` and `versionId`, so a write of the same key by a
+process without Trailbeam (the console, `aws s3 cp`) a moment later is not taken for your upload. The one case it
+can't tell apart: a bucket without versioning, and a write of the same bytes (the same ETag).
+Nor can a receive show that S3 sent the notification: anyone who may `SendMessage` to the queue can post one by hand,
+and with the bucket, key, time and ETag right it joins your upload (contract section 27.3).
 
 ```python
 trailbeam.boto.install(capture={"body_queues": ["photos", "photo-uploads"]})  # the bucket, and the queue

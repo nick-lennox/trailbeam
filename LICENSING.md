@@ -82,6 +82,10 @@ This section is a plain-language summary. The licence texts in each `LICENSE` fi
 
   `docker-compose.yaml` and `.env.example` are marked Apache-2.0 this way, and a few library tests that import the
   server to check what it makes of the library's spans are marked AGPL-3.0-only.
+  So are the fixture generators in `contract/fixtures/` that import the server to write the expected results
+  (`make-body-views.py`, `make-alerts-*.py`, `make-measures-parity.py`): a new generator that imports
+  `trailbeam.server` needs the line `# SPDX-License-Identifier: AGPL-3.0-only (imports the server; LICENSING.md)`,
+  or the check below fails. The fixtures they write stay Apache-2.0.
 - **New files** go in the folder whose licence they should have. A new library file must not import the server
   (`trailbeam.server`) or the UI (`@trailbeam/ui`), or any AGPL file. Tests that need the server go in
   `python/tests/server/`, or start the server as a program (`python -m trailbeam.server`, the container image), which

@@ -15,12 +15,16 @@ it, or for a failed call) and every attribute in ``attributes``; its ``mid`` is 
 - the event name is the one the operation raises (``PutObject`` -> ``ObjectCreated:Put``, ...);
 - the event's ``eventTime`` (when S3 finished the request, S3's clock) is within the call's interval, widened by
   ``SKEW_MS`` on both sides for the distance between the host's clock and S3's;
+- the event's ``eTag`` and ``versionId``, which a receive records with the key (QV-562), are the
+  upload's ETag (quotes aside) and VersionId, each where both sides have it: another process's write of the same key
+  in the window (one the packages did not see) has another version ID, or another ETag unless its bytes are the same;
+  and where the upload has an ETag, the event has one (QV-565): an event without one is not S3's;
 - and exactly one recorded upload meets all of the above. Two (the same key written twice within a few seconds) join
   neither: the receive keeps its inferred "S3 object created" step rather than show the wrong sender.
 
 Without the key on both sides nothing is joined: the bucket and the event time alone can't tell this upload from
-another process's write to the same bucket, and the ETag and version ID are not among the fields a receive reads
-(section 23). Such a message keeps its inferred step (section 23.3).
+another process's write to the same bucket, and a receive reads the ETag and version ID only where it reads the key
+(section 23.2). Such a message keeps its inferred step (section 23.3).
 """
 from __future__ import annotations
 
@@ -74,6 +78,8 @@ class Notification(NamedTuple):
     key: str  # URL-decoded
     event_time_ms: int
     operation: str
+    etag: Optional[str] = None  # the event's eTag, as S3 writes it (no quotes)
+    version_id: Optional[str] = None
 
 
 def notification(r) -> Optional[Notification]:
@@ -89,7 +95,7 @@ def notification(r) -> Optional[Notification]:
         decoded = unquote_plus(key, errors="strict")
     except UnicodeDecodeError:
         return None
-    return Notification(o["bucket"], decoded, et, op) if valid_key(decoded) else None
+    return Notification(o["bucket"], decoded, et, op, o["etag"], o["version_id"]) if valid_key(decoded) else None
 
 
 def message_notifications(rows: Iterable) -> list[Notification]:
@@ -113,12 +119,32 @@ def _within(u: Mapping, event_time_ms: int) -> bool:
     return start // 1_000_000 - SKEW_MS <= event_time_ms <= u["time_ns"] // 1_000_000 + SKEW_MS
 
 
+def _unquoted(etag: str) -> str:
+    """An ETag without the double quotes the response has around it and the event does not."""
+    return etag[1:-1] if len(etag) >= 2 and etag[0] == etag[-1] == '"' else etag
+
+
+def _same_write(u: Mapping, n: Notification) -> bool:
+    """False when the upload's ETag or VersionId and the event's differ: another write of the key. False too when the
+    upload has an ETag and the event has none (QV-565): S3 writes ``eTag`` in every ObjectCreated record, and a
+    receive that records the key records it too (23.2), so an event without one is not S3's (a notification made by
+    hand and sent to the queue). A missing VersionId does not rule the upload out: an unversioned bucket's event has
+    none, and moto's has none even in a versioned bucket (27.4)."""
+    a = sns_mod.attributes(u)
+    if isinstance(a.get(ETAG), str) and not isinstance(n.etag, str):
+        return False
+    for theirs, ours, norm in ((n.etag, a.get(ETAG), _unquoted), (n.version_id, a.get(VERSION_ID), str)):
+        if isinstance(theirs, str) and isinstance(ours, str) and norm(theirs) != norm(ours):
+            return False
+    return True
+
+
 def candidates(n: Notification, uploads: Iterable[Mapping]) -> list[Mapping]:
     """The ok uploads that notification ``n`` could have come from, one per row."""
     seen, out = set(), []
     for u in uploads:
         if (u["row"] not in seen and u["result"] == "ok" and u["queue"] == n.bucket and u["message_id"] == n.key
-                and u["operation"] == n.operation and _within(u, n.event_time_ms)):
+                and u["operation"] == n.operation and _within(u, n.event_time_ms) and _same_write(u, n)):
             seen.add(u["row"])
             out.append(u)
     return out

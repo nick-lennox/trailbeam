@@ -99,7 +99,8 @@ def s3_uploads(db: Store, rows) -> list[dict]:
         near = db.s3_uploads(u["queue"], u["message_id"], *s3.search_range_ns([lo, hi])) if receivers else []
         by_queue: dict[str, list[str]] = {}
         for r in receivers:
-            m = s3.match(s3.Notification(u["queue"], u["message_id"], r["event_time_ms"], r["operation"]), near)
+            m = s3.match(s3.Notification(u["queue"], u["message_id"], r["event_time_ms"], r["operation"],
+                                         r.get("etag"), r.get("version_id")), near)
             if m is None or m["row"] != u["row"]:
                 continue
             q = by_queue.setdefault(r["queue"], [])

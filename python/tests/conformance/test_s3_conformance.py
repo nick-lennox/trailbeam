@@ -28,6 +28,18 @@ C = Consumer()                                       # queue orders
 B = Consumer("thumbs-worker", queue="thumbs")        # queue thumbs: a second notification configuration
 
 
+# The server stores an object key only for a bucket, and a queue, in its store_bodies (QV-564): the join needs both.
+OPTED = frozenset({"photos", "videos", "orders", "thumbs"})
+
+
+@pytest.fixture
+def new_store(new_store):
+    """conftest's new_store, opted in on the server for this file's buckets and queues unless told otherwise."""
+    def make(store_bodies=OPTED, name="a"):
+        return new_store(store_bodies, name)
+    return make
+
+
 def put(s, *spans):
     d = decode(to_proto(list(spans)).SerializeToString(), "application/x-protobuf")
     assert d.rejected == []
@@ -44,8 +56,13 @@ def upload(t=T0 + SEC, **kw):
     return U.s3_upload(t, start=T0, **kw)
 
 
+ETAG = "9dd4e461268c8034f5c8564e155c67a6"  # the upload's ETag as the event has it: no quotes
+
+
 def received(c, mid, t=T0 + 3 * SEC, et=T0_MS + 800, **kw):
+    """A receive of the upload's notification on a captured queue: the key and, as S3 writes it, the upload's eTag."""
     kw.setdefault("key", ENCODED)
+    kw.setdefault("etag", ETAG)
     return c.s3_receive(t, mid, f"rh-{mid}", event_time_ms=et, sent_ms=T0_MS + 1100, start=t - SEC, **kw)
 
 
@@ -103,6 +120,98 @@ def test_what_does_not_join(new_store, why, up, rec):
     assert types(queries.message(s, "sqs-a", NOW, LT)) == ["s3_event", "received"], why
 
 
+def test_another_process_s_write_of_the_key_is_not_joined(new_store):
+    # QV-562: a write of the same key the packages did not see (the console, a Lambda without Trailbeam), finished
+    # within the recorded call's window. Its event names another version, so it keeps its inferred step, and the
+    # upload's reached list has only the recorded write's message.
+    s = new_store()
+    put(s, upload(version_id="v1"), received(C, "sqs-a", etag=ETAG, version_id="v1"),
+        received(C, "sqs-other", t=T0 + 5 * SEC, et=T0_MS + 2_500, etag="0cc175b9c0f1b6a831c399e269772661",
+                 version_id="v2"))
+    other = queries.message(s, "sqs-other", NOW, LT)
+    assert types(other) == ["s3_event", "received"]
+    a = queries.message(s, "sqs-a", NOW, LT)["events"][0]
+    assert a["type"] == "s3_upload" and a["version_id"] == "v1"
+    assert a["reached"] == [{"queue": "orders", "message_ids": ["sqs-a"]}]
+
+
+@pytest.mark.parametrize("why,rec,joins", [
+    ("the same ETag and version ID", {"etag": ETAG, "version_id": "v1"}, True),
+    ("the ETag only (an unversioned bucket's event)", {"etag": ETAG}, True),
+    ("the version ID only", {"etag": None, "version_id": "v1"}, False),
+    ("neither", {"etag": None}, False),
+    ("another version ID", {"etag": ETAG, "version_id": "v2"}, False),
+    ("another ETag, no version ID", {"etag": "0cc175b9c0f1b6a831c399e269772661"}, False),
+    ("the ETag with its quotes is still the same", {"etag": f'"{ETAG}"', "version_id": "v1"}, True),
+])
+def test_the_event_s_etag_and_version_id(new_store, why, rec, joins):
+    s = new_store()
+    put(s, upload(version_id="v1"), received(C, "sqs-a", **rec))
+    t = queries.message(s, "sqs-a", NOW, LT)
+    assert types(t) == (["s3_upload", "received"] if joins else ["s3_event", "received"]), why
+
+
+def test_a_notification_made_by_hand_without_an_etag_is_not_joined(new_store):
+    # QV-565: anyone who may SendMessage to a captured queue, and knows the bucket, the key and about when it was
+    # written, can post an ObjectCreated record of their own. Without the eTag S3 writes in every such record, it
+    # joins nothing: its message keeps the inferred step, and the upload's reached list has only S3's message.
+    s = new_store()
+    put(s, upload(), received(C, "sqs-a"), received(B, "forged", t=T0 + 4 * SEC, etag=None))
+    assert types(queries.message(s, "forged", NOW, LT)) == ["s3_event", "received"]
+    a = queries.message(s, "sqs-a", NOW, LT)["events"][0]
+    assert a["type"] == "s3_upload" and a["reached"] == [{"queue": "orders", "message_ids": ["sqs-a"]}]
+
+
+def test_an_upload_without_an_etag_joins_an_event_without_one(new_store):
+    # The upload records no ETag when the response's is not valid (27.1); then nothing is compared.
+    s = new_store()
+    put(s, upload(etag=None), received(C, "sqs-a", etag=None))
+    assert types(queries.message(s, "sqs-a", NOW, LT)) == ["s3_upload", "received"]
+
+
+def test_two_keys_that_redact_alike_join_by_etag(new_store):
+    # Different objects whose keys redact to the same text (section 15.3) share a join key; their ETags tell them
+    # apart, so each event joins its own upload, and neither reaches the other's message.
+    s = new_store()
+    other = "0cc175b9c0f1b6a831c399e269772661"
+    put(s, upload(etag=f'"{ETAG}"'), U.s3_upload(T0 + 2 * SEC, start=T0 + SEC, key=KEY, etag=f'"{other}"'),
+        received(C, "sqs-a", etag=ETAG), received(C, "sqs-b", t=T0 + 4 * SEC, et=T0_MS + 1_800, etag=other))
+    a, b = (queries.message(s, m, NOW, LT)["events"][0] for m in ("sqs-a", "sqs-b"))
+    assert a["type"] == b["type"] == "s3_upload" and a["span"] != b["span"]
+    assert a["etag"] == f'"{ETAG}"' and b["etag"] == f'"{other}"'
+    assert a["reached"] == [{"queue": "orders", "message_ids": ["sqs-a"]}]
+    assert b["reached"] == [{"queue": "orders", "message_ids": ["sqs-b"]}]
+
+
+@pytest.mark.parametrize("why,store_bodies", [
+    ("no opt-in on the server", frozenset()),
+    ("the queue only: the upload's key is not stored", {"orders"}),
+    ("the bucket only: the receive's key is not stored", {"photos"}),
+])
+def test_the_server_gate_keeps_the_object_key_out(new_store, why, store_bodies):
+    # The packages capture both sides; the server's TRAILBEAM_STORE_BODIES is the second gate (QV-564).
+    s = new_store(store_bodies)
+    put(s, upload(), received(C, "sqs-a"))
+    t = queries.message(s, "sqs-a", NOW, LT)
+    assert types(t) == ["s3_event", "received"], why
+    assert s.counts()["spans"] == {"s3_upload": 1, "receive": 1}
+    if "photos" not in store_bodies:
+        assert s.s3_uploads("photos", KEY, 0, FOREVER) == [], why
+    if "orders" not in store_bodies:
+        assert t["events"][0].get("object_key") is None, why
+        assert s.s3_receivers("photos", KEY, 0, FOREVER) == [], why
+    if hasattr(s, "conn"):  # SQLite: the key is in no column or attribute of either row
+        for row in s.conn.execute("SELECT queue, message_id, attributes FROM spans"):
+            if row[0] not in store_bodies:
+                assert row[1] != KEY and KEY not in row[2] and ENCODED not in row[2], (why, tuple(row))
+
+
+def test_every_queue_opted_in_joins(new_store):
+    s = new_store({"*"})
+    put(s, upload(), received(C, "sqs-a"))
+    assert types(queries.message(s, "sqs-a", NOW, LT)) == ["s3_upload", "received"]
+
+
 def test_the_skew_allowance_joins_just_inside_it(new_store):
     s = new_store()
     put(s, upload(), received(C, "sqs-a", et=T0_MS + 1000 + 2000), received(B, "sqs-b", et=T0_MS - 2000))
@@ -121,7 +230,7 @@ def test_an_overwrite_later_joins_its_own_upload(new_store):
     s = new_store()
     later = U.s3_upload(T0 + 31 * SEC, key=KEY, etag='"second"', start=T0 + 30 * SEC)
     put(s, upload(), later, received(C, "sqs-a"),
-        received(C, "sqs-b", t=T0 + 33 * SEC, et=T0_MS + 30_800))
+        received(C, "sqs-b", t=T0 + 33 * SEC, et=T0_MS + 30_800, etag="second"))
     a, b = queries.message(s, "sqs-a", NOW, LT)["events"][0], queries.message(s, "sqs-b", NOW, LT)["events"][0]
     assert a["etag"] == '"9dd4e461268c8034f5c8564e155c67a6"' and b["etag"] == '"second"'
     assert a["reached"] == [{"queue": "orders", "message_ids": ["sqs-a"]}]
