@@ -160,7 +160,7 @@ export function metaSummary(metas: readonly Pick<SpanMeta, "kind" | "tenant" | "
 }
 
 /** A send that only CloudTrail saw (the hosted app's AWS records): the package didn't see it, so it names the producer. */
-export type TrailSendEvent = { queue: string; timeMs: number; call: string; producer: string; byService: boolean };
+export type TrailSendEvent = { queue: string; timeMs: number; call?: string; producer: string; byService: boolean };
 
 export type TimelineEventsOptions = {
   /** each queue's URL, by queue name, for the event's account and region */
@@ -286,7 +286,7 @@ export function eventsOfTimeline(t: Doc, o: TimelineEventsOptions = {}): Ev[] {
         const r = receiveOf(e.delivery);
         const took = handlerMs(r, start, end);
         push(e, "processing_error", end, { service: svc(e), consumer: svc(e), receiveCount: r ? Number(r.receive_count) : undefined, durationMs: took,
-          detail: handlerFailed(e.error_type as string | undefined, spanMeta.get(spanOf(e))?.errorMessage, e.outcome as string | undefined) });
+          detail: handlerFailed(e.error_type as string | undefined, spanMeta.get(spanOf(e))?.errorMessage ?? (e.error_message as string | undefined), e.outcome as string | undefined) });
         break;
       }
       case "deleted_by_lambda": {

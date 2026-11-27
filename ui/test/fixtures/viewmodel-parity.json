@@ -2803,7 +2803,8 @@
          "source": "clock",
          "why": "Receive 1 ended (2026-11-16T18:05:37.459000Z) before this started (2026-11-16T18:05:37.462000Z), on the hosts' clocks. Same process: receive 1 returned before this call was issued."
         }
-       ]
+       ],
+       "error_message": "card declined for [REDACTED]"
       },
       {
        "id": "e3",
@@ -2942,7 +2943,8 @@
          "source": "clock",
          "why": "Receive 2 ended (2026-11-16T18:05:37.493000Z) before this started (2026-11-16T18:05:37.495000Z), on the hosts' clocks. Same process: receive 2 returned before this call was issued."
         }
-       ]
+       ],
+       "error_message": "Stripe timed out after 10000 ms"
       },
       {
        "id": "e6",
@@ -3081,7 +3083,8 @@
          "source": "clock",
          "why": "Receive 3 ended (2026-11-16T18:05:37.527000Z) before this started (2026-11-16T18:05:37.528000Z), on the hosts' clocks. Same process: receive 3 returned before this call was issued."
         }
-       ]
+       ],
+       "error_message": "card declined for [REDACTED]"
       }
      ],
      "order": {
@@ -3314,7 +3317,8 @@
          "source": "clock",
          "why": "Receive 1 ended (2026-11-16T18:05:37.459000Z) before this started (2026-11-16T18:05:37.462000Z), on the hosts' clocks. Same process: receive 1 returned before this call was issued."
         }
-       ]
+       ],
+       "error_message": "card declined for [REDACTED]"
       }
      ],
      "order": {
@@ -5292,7 +5296,7 @@
      "arrivals": [
       {
        "mid": "m-pay-2",
-       "seq": 1795816476912016,
+       "seq": 1795816844613016,
        "ms": 1794852337425,
        "version": null
       }
@@ -5345,13 +5349,13 @@
      "arrivals": [
       {
        "mid": "m-bill-1",
-       "seq": 1795816476914028,
+       "seq": 1795816844616028,
        "ms": 1794852337528,
        "version": null
       },
       {
        "mid": "m-bill-2",
-       "seq": 1795816476914024,
+       "seq": 1795816844616024,
        "ms": 1794852337462,
        "version": null
       }
@@ -5437,7 +5441,7 @@
     "queue": "billing",
     "messageId": "m-bill-1",
     "producer": "",
-    "detail": "The handler threw: TypeError",
+    "detail": "The handler threw: TypeError: card declined for [REDACTED]",
     "source": "package",
     "hasPage": true,
     "live": true,
@@ -5502,7 +5506,7 @@
     "queue": "billing",
     "messageId": "m-bill-1",
     "producer": "",
-    "detail": "The handler threw: Error",
+    "detail": "The handler threw: Error: Stripe timed out after 10000 ms",
     "source": "package",
     "hasPage": true,
     "live": true,
@@ -5567,7 +5571,7 @@
     "queue": "billing",
     "messageId": "m-bill-1",
     "producer": "",
-    "detail": "The handler threw: TypeError",
+    "detail": "The handler threw: TypeError: card declined for [REDACTED]",
     "source": "package",
     "hasPage": true,
     "live": true,
@@ -5588,7 +5592,7 @@
     "queue": "billing",
     "messageId": "m-bill-2",
     "producer": "",
-    "detail": "The handler threw: TypeError",
+    "detail": "The handler threw: TypeError: card declined for [REDACTED]",
     "source": "package",
     "hasPage": true,
     "live": true,
