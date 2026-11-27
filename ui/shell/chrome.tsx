@@ -117,9 +117,9 @@ export function Account({ me }: { me: Me | null }) {
   return (
     <div className="flex items-center gap-3 text-sm text-sky-ink-2">
       {me.user && (
-        <span title={`${me.user.email} (${me.user.role})`} className="max-w-48 truncate">
+        <a href="/account" title={`${me.user.email} (${me.user.role})`} className="max-w-48 truncate hover:text-sky-ink">
           {me.user.name}{me.user.role === "admin" && <span className="ml-1 text-caption text-sky-ink-3">admin</span>}
-        </span>
+        </a>
       )}
       {signOut && <a href="/logout" className="hover:text-sky-ink">Sign out</a>}
     </div>

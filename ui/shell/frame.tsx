@@ -38,7 +38,9 @@ export function ShellAccount({ me }: { me: Me | null }) {
   return (
     <>
       {me.user && (
-        <Tooltip content={`${me.user.email}, ${me.user.role}`} className="min-w-0 truncate text-sm text-ink">{me.user.name}</Tooltip>
+        <Tooltip content={`${me.user.email}, ${me.user.role}`} className="min-w-0 truncate text-sm text-ink">
+          <a href="/account" className="hover:underline">{me.user.name}</a>
+        </Tooltip>
       )}
       {signOut ? <a href="/logout" className="ml-auto rounded-md px-1.5 text-sm text-ink-3 hover:bg-surface/70 hover:text-ink">Sign out</a> : <span className="ml-auto" />}
     </>

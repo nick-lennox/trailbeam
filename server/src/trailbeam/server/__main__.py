@@ -14,7 +14,7 @@ import threading
 import time
 
 from . import __version__
-from . import access, auth, config, first_admin, mail, oidc, proxy_auth as proxy_auth_mod, trace_links
+from . import access, auth, config, first_admin, mail, oidc, passkeys, proxy_auth as proxy_auth_mod, trace_links
 from .accounts import Accounts
 from .backpressure import DEFAULT_MAX_PENDING, DEFAULT_MAX_WAIT_S, IngestGate
 from .db import SqliteStore, parse_queue_list
@@ -176,7 +176,8 @@ def build_parser(prog: str = "trailbeam", description: str = "") -> argparse.Arg
     sso.add_argument("--public-url", default=os.environ.get("TRAILBEAM_PUBLIC_URL") or None,
                      help="the address people open Trailbeam at, such as https://trailbeam.example.com (env "
                           "TRAILBEAM_PUBLIC_URL). Needed for single sign-on: the request's Host can't be trusted. "
-                          "Invite and reset links, and the emails that send them, start with it too")
+                          "Invite and reset links, and the emails that send them, start with it too. With it set and "
+                          'pip install "trailbeam[server,passkeys]", people can sign in with passkeys')
     sso.add_argument("--oidc-issuer", default=os.environ.get("TRAILBEAM_OIDC_ISSUER") or None,
                      help="the identity provider's issuer URL, exactly as its ID tokens' iss, such as "
                           "https://id.example.com/realms/main (Keycloak), https://example.okta.com, "
@@ -294,6 +295,13 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
     except mail.SmtpSettingsError as e:
         logging.getLogger("trailbeam.server").error("%s", e)
         sys.exit(2)
+    if public_url and accounts_on:  # passkeys (passkeys.py): on with the public URL and the extra
+        if not passkeys.available():
+            logging.getLogger("trailbeam.server").info(
+                "passkeys are off: they need the webauthn library with the public URL; %s", passkeys.EXTRA)
+        elif passkeys.insecure(passkeys.settings(public_url)):
+            logging.getLogger("trailbeam.server").warning(
+                "passkeys are on, but browsers offer them only on https (or at localhost): %s is http", public_url)
     if sso is not None and not accounts_on:
         logging.getLogger("trailbeam.server").error(
             "single sign-on (--oidc-issuer, TRAILBEAM_OIDC_ISSUER) signs people in, but %s", access.SWITCHED_OFF)

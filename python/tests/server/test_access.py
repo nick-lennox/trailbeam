@@ -607,8 +607,10 @@ def test_every_route_has_a_level():
         ("GET", "/api/ready"): OPEN, ("GET", "/api/health"): OPEN, ("GET", "/login"): OPEN,
         ("POST", "/login"): OPEN, ("GET", "/logout"): OPEN, ("GET", "/setup"): OPEN, ("POST", "/setup"): OPEN,
         ("GET", "/login/oidc"): OPEN, ("GET", "/login/oidc/callback"): OPEN,
+        ("POST", "/login/passkey/options"): OPEN, ("POST", "/login/passkey"): OPEN,
         ("POST", "/v1/traces"): INGEST, ("GET", "/metrics"): METRICS,
-        ("GET", "/set-password"): OPEN, ("POST", "/set-password"): OPEN, ("GET", "/people"): ADMIN, ("GET", "/tokens"): MEMBER}
+        ("GET", "/set-password"): OPEN, ("POST", "/set-password"): OPEN, ("GET", "/people"): ADMIN, ("GET", "/tokens"): MEMBER,
+        ("GET", "/account"): MEMBER}
     for p in _api_paths() + PAGES:
         p = p.split("?")[0]
         assert access.level_of("GET", p) == ROUTES_EXPECTED.get(p, MEMBER), p
@@ -618,7 +620,9 @@ def test_every_route_has_a_level():
         ("DELETE", "/api/users/{id}"): ADMIN, ("POST", "/api/users/{id}/link"): ADMIN,
         ("GET", "/api/tokens/ingest"): ADMIN, ("POST", "/api/tokens/ingest"): ADMIN,
         ("DELETE", "/api/tokens/ingest/{id}"): ADMIN, ("GET", "/api/me/tokens"): MEMBER,
-        ("POST", "/api/me/tokens"): MEMBER, ("DELETE", "/api/me/tokens/{id}"): MEMBER}
+        ("POST", "/api/me/tokens"): MEMBER, ("DELETE", "/api/me/tokens/{id}"): MEMBER,
+        ("GET", "/api/me/passkeys"): MEMBER, ("POST", "/api/me/passkeys/options"): MEMBER,
+        ("POST", "/api/me/passkeys"): MEMBER, ("DELETE", "/api/me/passkeys/{id}"): MEMBER}
     assert access.level_of("PATCH", "/api/users/12") == ADMIN
     assert access.level_of("DELETE", "/api/users/12/x") == MEMBER  # no route: a 404, not an admin check
     assert access.api_route("DELETE", "/api/users/0") is None and access.api_route("GET", "/api/users/1") is None

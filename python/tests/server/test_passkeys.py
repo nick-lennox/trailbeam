@@ -1,0 +1,349 @@
+"""Passkeys (passkeys.py, QV-665): adding one on /api/me/passkeys, signing in with it on /login/passkey, and every
+answer that must be refused, against a software authenticator (webauthn_fake.py) whose signatures the server's
+webauthn library checks for real. SQLite here, and Postgres with TRAILBEAM_TEST_POSTGRES_URL."""
+from __future__ import annotations
+
+import json
+import time
+
+import pytest
+
+pytest.importorskip("webauthn")
+
+from test_openapi import request  # noqa: E402
+from test_people_api import PW, QUICK, Server, store  # noqa: E402,F401  (store: the fixture)
+from webauthn_fake import Authenticator, b64  # noqa: E402
+
+from trailbeam.server import passkeys as passkeys_mod, web  # noqa: E402
+
+PUBLIC = "https://trailbeam.example.com"
+J = {"Content-Type": "application/json"}
+
+
+@pytest.fixture
+def srv(store):  # noqa: F811
+    s = Server(store, None, public_url=PUBLIC)
+    yield s
+    s.close()
+
+
+def _post(srv, path, obj, headers=None):
+    status, hdrs, body = request(srv.url, "POST", path, json.dumps(obj).encode(), {**J, **(headers or {})})
+    return status, hdrs, json.loads(body) if body else None
+
+
+def add(srv, who, auth: Authenticator, name="Chrome on Mac", **kw):
+    st, _, out = srv("POST", "/api/me/passkeys/options", {}, who)
+    assert st == 200, out
+    return srv("POST", "/api/me/passkeys", {"name": name, "credential": auth.create(out["options"], **kw)}, who)
+
+
+def sign_in(srv, auth: Authenticator, next_path="/stuck", headers=None, **kw):
+    st, _, out = _post(srv, passkeys_mod.OPTIONS_PATH, {}, headers)
+    assert st == 200, out
+    answer = auth.get(out["options"], **kw)
+    return _post(srv, passkeys_mod.SIGN_IN_PATH, {"next": next_path, "credential": answer}, headers), answer
+
+
+def _cookie(hdrs):
+    return {"Cookie": hdrs["Set-Cookie"].split(";")[0]}
+
+
+# ---- the whole way round -------------------------------------------------------------------------------------
+
+def test_add_a_passkey_then_sign_in_with_it(srv):
+    a = Authenticator(PUBLIC, synced=True)
+    st, hdrs, out = add(srv, srv.admin, a)
+    assert st == 201, out
+    assert hdrs["Cache-Control"] == "no-store"
+    pk = out["passkey"]
+    assert pk["name"] == "Chrome on Mac" and pk["synced"] is True and pk["last_used_ms"] is None
+    st, _, listed = srv("GET", "/api/me/passkeys", None, srv.admin)
+    assert st == 200 and listed == {"passkeys": [pk], "on": True}
+
+    (st, hdrs, out), _ = sign_in(srv, a)
+    assert st == 200, out
+    assert out == {"next": "/stuck"} and hdrs["Cache-Control"] == "no-store"
+    assert hdrs["Set-Cookie"].startswith("trailbeam_sid=") and "HttpOnly" in hdrs["Set-Cookie"]
+    st, _, me = srv("GET", "/api/me", None, _cookie(hdrs))
+    assert st == 200 and me["via"] == "session" and me["user"]["email"] == "ada@example.com"
+    used = srv("GET", "/api/me/passkeys", None, srv.admin)[2]["passkeys"][0]
+    assert used["last_used_ms"] is not None
+    assert srv.acc.user(srv.ada)["last_sign_in_ms"] == used["last_used_ms"]
+
+
+def test_the_options_ask_for_a_discoverable_passkey_that_checks_the_person(srv):
+    st, _, out = srv("POST", "/api/me/passkeys/options", {}, srv.admin)
+    o = out["options"]
+    assert o["rp"] == {"id": "trailbeam.example.com", "name": "Trailbeam"}
+    assert o["user"]["name"] == "ada@example.com" and o["user"]["displayName"] == "Ada"
+    assert o["user"]["id"] == b64(str(srv.ada).encode())  # the person's ID, nothing that names them
+    assert o["authenticatorSelection"]["residentKey"] == "required"
+    assert o["authenticatorSelection"]["userVerification"] == "required"
+    assert o["excludeCredentials"] == []
+    a = Authenticator(PUBLIC)
+    assert add(srv, srv.admin, a)[0] == 201
+    again = srv("POST", "/api/me/passkeys/options", {}, srv.admin)[2]["options"]
+    assert [c["id"] for c in again["excludeCredentials"]] == [b64(a.cred_id)]  # no second one on that device
+    st, _, out = _post(srv, passkeys_mod.OPTIONS_PATH, {})
+    assert out["options"]["rpId"] == "trailbeam.example.com" and out["options"]["allowCredentials"] == []
+    assert out["options"]["userVerification"] == "required"
+
+
+def test_an_unsafe_next_goes_home(srv):
+    a = Authenticator(PUBLIC)
+    add(srv, srv.admin, a)
+    (st, _, out), _ = sign_in(srv, a, next_path="https://evil.example.com/")
+    assert st == 200 and out == {"next": "/"}
+
+
+def test_a_passkey_without_a_counter_signs_in_every_time(srv):
+    a = Authenticator(PUBLIC, counter=False)
+    add(srv, srv.admin, a)
+    for _ in range(3):
+        assert sign_in(srv, a)[0][0] == 200
+
+
+# ---- refused ---------------------------------------------------------------------------------------------------
+
+def test_an_answer_works_once(srv):
+    a = Authenticator(PUBLIC)
+    add(srv, srv.admin, a)
+    (st, _, _), answer = sign_in(srv, a)
+    assert st == 200
+    st, _, out = _post(srv, passkeys_mod.SIGN_IN_PATH, {"credential": answer})
+    assert st == 400 and "Try again" in out["error"]
+
+
+def test_another_origin_or_relying_party_is_refused(srv):
+    a = Authenticator(PUBLIC)
+    add(srv, srv.admin, a)
+    (st, _, out), _ = sign_in(srv, a, origin="https://trailbeam.example.com.evil.test")
+    assert st == 401 and out == {"error": passkeys_mod.REFUSED}
+    (st, _, out), _ = sign_in(srv, a, rp_id="evil.test")
+    assert st == 401
+    b = Authenticator("https://other.example.com")
+    st, _, out = add(srv, srv.member, b)
+    assert st == 400 and "wasn't saved" in out["error"]
+
+
+def test_no_user_verification_is_refused(srv):
+    a = Authenticator(PUBLIC)
+    st, _, out = add(srv, srv.admin, a, uv=False)
+    assert st == 400
+    assert add(srv, srv.admin, a)[0] == 201
+    (st, _, _), _ = sign_in(srv, a, uv=False)
+    assert st == 401
+
+
+def test_a_counter_that_goes_back_is_refused(srv):
+    a = Authenticator(PUBLIC)
+    add(srv, srv.admin, a)
+    assert sign_in(srv, a)[0][0] == 200  # 1
+    assert sign_in(srv, a)[0][0] == 200  # 2
+    (st, _, _), _ = sign_in(srv, a, count=1)  # a copy of the passkey, behind
+    assert st == 401
+
+
+def test_an_unknown_passkey_a_disabled_person_and_a_wrong_owner_are_refused(srv):
+    stranger = Authenticator(PUBLIC)
+    stranger.user_handle = str(srv.ada).encode()
+    (st, _, out), _ = sign_in(srv, stranger)
+    assert st == 401 and out == {"error": passkeys_mod.REFUSED}
+    b = Authenticator(PUBLIC)
+    assert add(srv, srv.member, b)[0] == 201
+    b.user_handle = str(srv.ada).encode()  # Ben's passkey, claiming to be Ada's
+    assert sign_in(srv, b)[0][0] == 401
+    b.user_handle = str(srv.ben).encode()
+    srv.acc.set_disabled(srv.ben, True, int(time.time() * 1000))
+    assert sign_in(srv, b)[0][0] == 401
+
+
+def test_a_challenge_is_for_one_purpose_and_one_person(srv):
+    a = Authenticator(PUBLIC)
+    st, _, out = srv("POST", "/api/me/passkeys/options", {}, srv.admin)
+    made = a.create(out["options"])
+    st, _, out = srv("POST", "/api/me/passkeys", {"name": "x", "credential": made}, srv.member)  # Ada's challenge
+    assert st == 400
+    # a sign-in challenge doesn't add a passkey
+    st, _, out = _post(srv, passkeys_mod.OPTIONS_PATH, {})
+    opts = srv("POST", "/api/me/passkeys/options", {}, srv.member)[2]["options"]
+    made = a.create({**opts, "challenge": out["options"]["challenge"]})
+    assert srv("POST", "/api/me/passkeys", {"name": "x", "credential": made}, srv.member)[0] == 400
+
+
+def test_a_challenge_runs_out(srv, monkeypatch):
+    a = Authenticator(PUBLIC)
+    add(srv, srv.admin, a)
+    st, _, out = _post(srv, passkeys_mod.OPTIONS_PATH, {})
+    later = time.time_ns() // 1_000_000 + passkeys_mod.CHALLENGE_TTL_MS + 1
+    monkeypatch.setattr(srv.app.passkeys, "now_ms", lambda: later)
+    st, _, out = _post(srv, passkeys_mod.SIGN_IN_PATH, {"credential": a.get(out["options"])})
+    assert st == 400
+
+
+def test_the_same_passkey_twice_and_too_many(srv, monkeypatch):
+    a = Authenticator(PUBLIC)
+    assert add(srv, srv.admin, a)[0] == 201
+    st, _, out = add(srv, srv.admin, a)
+    assert st == 409 and out["reason"] == "passkey_taken"
+    st, _, out = add(srv, srv.member, a)  # the credential is someone else's already
+    assert st == 409
+    monkeypatch.setattr(passkeys_mod, "MAX_PER_PERSON", 2)
+    assert add(srv, srv.admin, Authenticator(PUBLIC))[0] == 201
+    st, _, out = add(srv, srv.admin, Authenticator(PUBLIC))
+    assert st == 409 and "most" in out["error"]
+
+
+def test_bad_bodies(srv):
+    st, _, out = srv("POST", "/api/me/passkeys", {"name": "x"}, srv.admin)
+    assert st == 400 and "credential" in out["error"]
+    a = Authenticator(PUBLIC)
+    st, _, opts = srv("POST", "/api/me/passkeys/options", {}, srv.admin)
+    st, _, out = srv("POST", "/api/me/passkeys", {"name": " ", "credential": a.create(opts["options"])}, srv.admin)
+    assert st == 400 and "name" in out["error"]
+    st, _, out = srv("POST", "/api/me/passkeys", {"name": "x" * 101, "credential": {}}, srv.admin)
+    assert st == 400
+    st, _, out = srv("POST", "/api/me/passkeys", {"name": "x", "credential": {"response": {}}}, srv.admin)
+    assert st == 400
+    assert _post(srv, passkeys_mod.SIGN_IN_PATH, {"credential": "x"})[0] == 400
+    assert _post(srv, passkeys_mod.SIGN_IN_PATH, {"credential": {"id": "x"}})[0] == 400
+    st, _, _ = request(srv.url, "POST", passkeys_mod.SIGN_IN_PATH, b"{}", {"Content-Type": "text/plain"})
+    assert st == 415
+    st, _, _ = request(srv.url, "POST", passkeys_mod.SIGN_IN_PATH, None,
+                       {**J, "Content-Length": str(passkeys_mod.MAX_ANSWER + 1)})
+    assert st in (413, None)
+
+
+def test_another_sites_page_cant_sign_in(srv):
+    st, _, body = request(srv.url, "POST", passkeys_mod.OPTIONS_PATH, b"{}", {**J, "Sec-Fetch-Site": "cross-site"})
+    assert st == 403 and b"forbidden" in body
+
+
+# ---- the address limits ------------------------------------------------------------------------------------
+
+def test_failed_sign_ins_count_against_the_address(srv):
+    srv.app.signin.address_limit.max_failures = 3
+    stranger = Authenticator(PUBLIC)
+    for _ in range(3):
+        assert sign_in(srv, stranger)[0][0] == 401
+    st, _, out = _post(srv, passkeys_mod.OPTIONS_PATH, {})
+    st, hdrs, out = _post(srv, passkeys_mod.SIGN_IN_PATH, {"credential": stranger.get(out["options"])})
+    assert st == 429 and int(hdrs["Retry-After"]) >= 1 and "Too many" in out["error"]
+
+
+def test_starting_sign_ins_is_limited_per_address(srv):
+    srv.app.passkey_starts.max_failures = 2
+    assert _post(srv, passkeys_mod.OPTIONS_PATH, {})[0] == 200
+    assert _post(srv, passkeys_mod.OPTIONS_PATH, {})[0] == 200
+    st, hdrs, out = _post(srv, passkeys_mod.OPTIONS_PATH, {})
+    assert st == 429 and "Retry-After" in hdrs
+
+
+# ---- removing, and the list ------------------------------------------------------------------------------
+
+def test_remove_a_passkey(srv):
+    a = Authenticator(PUBLIC)
+    pid = add(srv, srv.admin, a)[2]["passkey"]["id"]
+    assert srv("DELETE", f"/api/me/passkeys/{pid}", None, srv.member)[0] == 404  # not Ben's
+    st, hdrs, out = srv("DELETE", f"/api/me/passkeys/{pid}", None, srv.admin)
+    assert st == 200 and out == {"removed": {"id": pid}}
+    assert srv("DELETE", f"/api/me/passkeys/{pid}", None, srv.admin)[0] == 404
+    assert srv("GET", "/api/me/passkeys", None, srv.admin)[2]["passkeys"] == []
+    assert sign_in(srv, a)[0][0] == 401
+
+
+def test_each_person_sees_only_their_own(srv):
+    add(srv, srv.admin, Authenticator(PUBLIC), name="Ada's phone")
+    add(srv, srv.member, Authenticator(PUBLIC), name="Ben's key")
+    assert [p["name"] for p in srv("GET", "/api/me/passkeys", None, srv.member)[2]["passkeys"]] == ["Ben's key"]
+
+
+def test_removing_the_person_removes_their_passkeys(srv):
+    a = Authenticator(PUBLIC)
+    add(srv, srv.member, a)
+    assert srv("DELETE", f"/api/users/{srv.ben}", None, srv.admin)[0] == 200
+    assert srv.acc.passkey_by_credential(b64(a.cred_id)) is None
+    assert sign_in(srv, a)[0][0] == 401
+
+
+def test_the_shared_token_has_no_passkeys(store):  # noqa: F811
+    s = Server(store, "shared-token-0123456789abcdef", public_url=PUBLIC)
+    try:
+        st, _, out = s("GET", "/api/me/passkeys", None, {"Authorization": "Bearer shared-token-0123456789abcdef"})
+        assert st == 401
+    finally:
+        s.close()
+
+
+# ---- on and off ----------------------------------------------------------------------------------------------
+
+def test_off_without_the_public_url(store):  # noqa: F811
+    s = Server(store, None)
+    try:
+        assert s.app.passkeys is None
+        assert s("GET", "/api/me/passkeys", None, s.admin)[2] == {"passkeys": [], "on": False}
+        st, _, out = s("POST", "/api/me/passkeys/options", {}, s.admin)
+        assert st == 409 and out["reason"] == "passkeys_off" and "TRAILBEAM_PUBLIC_URL" in out["error"]
+        assert s("POST", "/api/me/passkeys", {"name": "x", "credential": {}}, s.admin)[0] == 409
+        assert _post(s, passkeys_mod.OPTIONS_PATH, {})[0] == 404
+        assert _post(s, passkeys_mod.SIGN_IN_PATH, {})[0] == 404
+        st, _, body = request(s.url, "GET", "/login")
+        assert b"Sign in with a passkey" not in body
+        assert s("GET", "/api/health", None, s.admin)[2]["config"]["passkeys"] is False
+    finally:
+        s.close()
+
+
+def test_off_without_the_library(store, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(passkeys_mod, "available", lambda: False)
+    s = Server(store, None, public_url=PUBLIC)
+    try:
+        assert s.app.passkeys is None
+    finally:
+        s.close()
+
+
+def test_the_sign_in_page_has_the_passkey_button(srv):
+    st, _, body = request(srv.url, "GET", "/login?next=/stuck")
+    assert st == 200
+    assert b'id="passkey" data-next="/stuck"' in body and b"Sign in with a passkey" in body
+    assert b"/login/passkey/options" in body
+    assert b"Or sign in with your Trailbeam email and password." in body
+    assert srv("GET", "/api/health", None, srv.admin)[2]["config"]["passkeys"] is True
+    # a wrong password keeps the button
+    st, _, body = request(srv.url, "POST", "/login", b"email=ada%40example.com&password=nope",
+                          {"Content-Type": "application/x-www-form-urlencoded"})
+    assert st == 401 and b"Sign in with a passkey" in body
+
+
+def test_not_before_the_first_admin(store):  # noqa: F811
+    from test_people_api import make_server
+    import threading
+
+    httpd = make_server(store, "127.0.0.1", 0, ui_dir=None, public_url=PUBLIC)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{httpd.server_address[1]}"
+    try:
+        assert httpd.app.passkeys is not None
+        st, _, _ = request(url, "POST", passkeys_mod.OPTIONS_PATH, b"{}", J)
+        assert st == 404
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_settings_from_the_public_url():
+    s = passkeys_mod.settings("https://Trailbeam.Example.com")
+    assert s == passkeys_mod.Settings("trailbeam.example.com", "https://trailbeam.example.com")
+    assert passkeys_mod.settings("https://tb.example.com:8443/base").origin == "https://tb.example.com:8443"
+    assert passkeys_mod.settings("https://tb.example.com:443").origin == "https://tb.example.com"
+    assert passkeys_mod.settings("http://localhost:4318").origin == "http://localhost:4318"
+    assert not passkeys_mod.insecure(passkeys_mod.settings("http://localhost:4318"))
+    assert passkeys_mod.insecure(passkeys_mod.settings("http://tb.internal"))
+    assert not passkeys_mod.insecure(passkeys_mod.settings("https://tb.internal"))
+
+
+def test_the_page_without_the_build():
+    st, _, body = web.handle(lambda *a: {}, Exception, "/account", {})
+    assert st == 200 and b"/api/me/passkeys" in body

@@ -33,6 +33,11 @@ postgres = [
 sso = [
     "PyJWT[crypto]>=2.8",
 ]
+# Passkeys (WebAuthn): signing in with Face ID, Touch ID, Windows Hello or a security key, when --public-url is
+# set. webauthn checks what the browser's authenticator signs; imported only when passkeys are on.
+passkeys = [
+    "webauthn>=2.1,<4",
+]
 
 [project.scripts]
 trailbeam = "trailbeam.server.__main__:main"

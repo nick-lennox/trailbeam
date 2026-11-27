@@ -36,6 +36,10 @@ postgres = [
 sso = [
     "trailbeam-server[sso]==0.4.0",
 ]
+# Passkeys (WebAuthn) when --public-url is set: pip install "trailbeam[server,passkeys]".
+passkeys = [
+    "trailbeam-server[passkeys]==0.4.0",
+]
 test = [
     "opentelemetry-proto>=1.28",
     "tomli>=1.1; python_version < '3.11'",
@@ -49,6 +53,8 @@ test = [
     "openapi-spec-validator>=0.7",
     # single sign-on against an in-process identity provider (tests/server/test_oidc.py)
     "PyJWT[crypto]>=2.8",
+    # passkeys against a software authenticator (tests/server/test_passkeys.py)
+    "webauthn>=2.1,<4",
     # the RabbitMQ hooks (tests/test_pika_*.py; the broker tests need TRAILBEAM_TEST_AMQP_URL)
     "pika>=1.3",
 ]

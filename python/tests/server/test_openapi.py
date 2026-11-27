@@ -232,7 +232,7 @@ def _concrete(template):
     return re.sub(r"\{[^}]+\}", quote(MID, safe=""), template)
 
 
-PEOPLE_TAGS = {"People", "Tokens"}  # need an admin or a person: test_people_api.py, and _people_and_tokens below
+PEOPLE_TAGS = {"People", "Tokens", "Account"}  # need an admin or a person: test_people_api.py, and _people_and_tokens below
 
 
 def _people_op(op) -> bool:
@@ -262,7 +262,7 @@ def _server_paths(app):
     firsts = set(app.routes) | {
         m.split("/")[2] for m in re.findall(r'"(/api/[a-z_]+)', source)}
     roots = {f"/api/{k}" for k in firsts} | set(re.findall(r'"(/v1/[a-z_/]+)"', source))
-    extra = [MID, "body", "search", "series", "x", "1", "ingest", "tokens", "link"]
+    extra = [MID, "body", "search", "series", "x", "1", "ingest", "tokens", "link", "passkeys", "options"]
     out = set(roots)
     for r in roots:
         for a in extra:
@@ -716,6 +716,18 @@ def _people_and_tokens(db):
         st, _, out = r("POST", "/api/me/tokens", body({"name": "ci", "expires_in_days": 30}), {**j, **m})
         assert st == 201, out
         assert r("DELETE", f"/api/me/tokens/{json.loads(out)['token']['id']}", None, m)[0] == 200
+        # your passkeys (passkeys.py), on a server with them on: a software authenticator's
+        from webauthn_fake import Authenticator
+
+        with serve(server.App(db, ui_dir=None, public_url="https://trailbeam.example.com")) as on:
+            st, _, out = request(on, "POST", "/api/me/passkeys/options", b"{}", {**j, **m})
+            assert st == 200, out
+            made = Authenticator("https://trailbeam.example.com").create(json.loads(out)["options"])
+            st, _, out = request(on, "POST", "/api/me/passkeys", body({"name": "phone", "credential": made}),
+                                 {**j, **m})
+            assert st == 201, out
+            st, _, out = request(on, "DELETE", f"/api/me/passkeys/{json.loads(out)['passkey']['id']}", None, m)
+            assert st == 200, out
         # 500: a handler fails; 503: the store can't say who this is
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(app.people, "call", _raise)

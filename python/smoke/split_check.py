@@ -10,7 +10,7 @@ What it checks, each install in a new venv of its own, from wheels built from th
 1. The wheels. trailbeam's holds the library's modules only: nothing under ``trailbeam/server/``, no web screen file,
    no ``trailbeam`` command. trailbeam-server's holds ``trailbeam/server/`` (with ``ui/index.html`` when ``--ui``),
    no ``trailbeam/__init__.py`` (the library's), and the ``trailbeam`` command. Each pins the other at the same
-   version: trailbeam's server, postgres and sso extras, and trailbeam-server's dependency on trailbeam.
+   version: trailbeam's server, postgres, sso and passkeys extras, and trailbeam-server's dependency on trailbeam.
 2. ``pip install trailbeam``: the hooks import; ``import trailbeam.server`` doesn't, and there is no ``trailbeam``
    command.
 3. ``pip install "trailbeam[server]"``: trailbeam-server comes with it, at the same version, without a Postgres
@@ -156,7 +156,7 @@ def main() -> int:
         meta = lambda z: next(z.read(n).decode() for n in z.namelist() if n.endswith(".dist-info/METADATA"))
         lib_meta, srv_meta = meta(lib), meta(srv)
         for extra, req in (("server", "trailbeam-server"), ("postgres", "trailbeam-server[postgres]"),
-                           ("sso", "trailbeam-server[sso]")):
+                           ("sso", "trailbeam-server[sso]"), ("passkeys", "trailbeam-server[passkeys]")):
             check(f"Requires-Dist: {req}=={tv}; extra == \"{extra}\"" in lib_meta,
                   f"trailbeam[{extra}] pulls in {req} at the same version")
         check(f"Requires-Dist: trailbeam=={tv}\n" in srv_meta, "trailbeam-server depends on trailbeam at the same version")

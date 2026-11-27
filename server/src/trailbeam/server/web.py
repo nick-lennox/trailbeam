@@ -227,7 +227,7 @@ footer{color:#6b7385;font-size:.8em;padding:1rem 1.2rem}
 def handle(api: Callable[[str, dict], object], api_error: type, path: str, query: dict) -> Optional[Response]:
     """Render the page for ``path``; None if ``path`` is not a page. ``api`` is ``App.api``."""
     pages = {"/": _index, "/message": _message, "/duplicates": _duplicates, "/stuck": _stuck, "/tenants": _tenants,
-             "/people": _people, "/tokens": _tokens}
+             "/people": _people, "/tokens": _tokens, "/account": _account}
     page = pages.get(path)
     if page is None:
         return None
@@ -850,6 +850,14 @@ def _lookup_form(value: str) -> str:
             f'value="{escape(value)}" required autofocus> <button>Show timeline</button></form>')
 
 
+def _account(api, q: dict) -> Response:
+    """``/account`` without the shared UI's build: as ``/people``, it says how to manage passkeys without it."""
+    return _page(200, "Account", "<h1>Account</h1><p>The Account page is part of the web screen's build, which this "
+                 "install doesn't have (build it with <code>npm run build</code> in <code>ui/</code>). Without it, "
+                 "your passkeys are listed by the API at <code>/api/me/passkeys</code>, and can be removed there. "
+                 "Adding one needs the page: the browser makes it.</p>")
+
+
 def _page(status: int, title: str, body: str) -> Response:
     html = ("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
@@ -895,16 +903,51 @@ def _minutes(seconds: Optional[int]) -> str:
     return "1 minute" if m == 1 else f"{m} minutes"
 
 
+minutes = _minutes
+
+# Sign in with a passkey (passkeys.py): a challenge from /login/passkey/options, navigator.credentials.get, and the
+# signed answer to /login/passkey, which sets the session cookie and says where to go. The binary fields travel as
+# base64url. Without scripts or WebAuthn, the button stays hidden and the password form is there as before.
+_PASSKEY_SCRIPT = (
+    "<script>(function(){var b=document.getElementById('passkey'),m=document.getElementById('passkey-note');"
+    "if(!b||!window.PublicKeyCredential||!navigator.credentials)return;b.parentNode.hidden=false;"
+    "function u(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';var r=atob(s),a=new Uint8Array(r.length);"
+    "for(var i=0;i<r.length;i++)a[i]=r.charCodeAt(i);return a.buffer;}"
+    "function e(x){var a=new Uint8Array(x),s='';for(var i=0;i<a.length;i++)s+=String.fromCharCode(a[i]);"
+    "return btoa(s).replace(/[+]/g,'-').replace(/[/]/g,'_').replace(/=+$/,'');}"
+    "function post(p,d){return fetch(p,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},"
+    "body:JSON.stringify(d)}).then(function(r){return r.json().catch(function(){return {};}).then(function(j){"
+    "if(!r.ok)throw new Error(j.error||'');return j;});});}"
+    "b.addEventListener('click',function(){b.disabled=true;m.hidden=true;"
+    "post('/login/passkey/options',{}).then(function(j){var o=j.options;o.challenge=u(o.challenge);"
+    "(o.allowCredentials||[]).forEach(function(c){c.id=u(c.id);});return navigator.credentials.get({publicKey:o});})"
+    ".then(function(c){var r=c.response;return post('/login/passkey',{next:b.getAttribute('data-next'),credential:{"
+    "id:c.id,rawId:e(c.rawId),type:c.type,response:{clientDataJSON:e(r.clientDataJSON),"
+    "authenticatorData:e(r.authenticatorData),signature:e(r.signature),userHandle:r.userHandle?e(r.userHandle):null},"
+    "clientExtensionResults:c.getClientExtensionResults?c.getClientExtensionResults():{}}});})"
+    ".then(function(j){location.assign(j.next||'/');}).catch(function(x){"
+    "m.textContent=x&&x.name==='NotAllowedError'?'The passkey sign-in was canceled or ran out of time.':"
+    "(x&&x.message)||\"That passkey didn't work. Try another way to sign in.\";m.hidden=false;b.disabled=false;});});"
+    "})();</script>")
+
+
+def _passkey_button(next_path: str) -> str:
+    return (f'<p hidden><button type="button" id="passkey" data-next="{escape(next_path)}">Sign in with a passkey'
+            '</button></p><p class="notice" id="passkey-note" role="alert" hidden></p>' + _PASSKEY_SCRIPT)
+
+
 def sign_in_page(next_path: str, email: str = "", outcome: Optional[str] = None, retry_after_s: Optional[int] = None,
-                 status: int = 401, sso: Optional[str] = None, password: bool = True) -> Response:
+                 status: int = 401, sso: Optional[str] = None, password: bool = True, passkey: bool = False) -> Response:
     """The page a browser gets without a session once the server has an admin (access.py): email and password, and
-    single sign-on when it is on (``sso``: its label). ``password=False``: single sign-on only (no admin yet)."""
+    single sign-on when it is on (``sso``: its label). ``password=False``: single sign-on only (no admin yet).
+    ``passkey``: passkeys are on (passkeys.py), so it has Sign in with a passkey too."""
     notice = SIGN_IN_NOTICES.get(outcome or "")
-    head = "<h1>Sign in</h1>" + (f'<p class="notice">{escape(notice.format(minutes=_minutes(retry_after_s)))}</p>'
-                                 if notice else "") + _sso_button(next_path, sso)
+    head = ("<h1>Sign in</h1>" + (f'<p class="notice">{escape(notice.format(minutes=_minutes(retry_after_s)))}</p>'
+                                  if notice else "") + _sso_button(next_path, sso)
+            + (_passkey_button(next_path) if passkey and password else ""))
     if not password:
         return _page(status, "Sign in", head)
-    body = (head + ("<p>Or sign in with your Trailbeam email and password.</p>" if sso
+    body = (head + ("<p>Or sign in with your Trailbeam email and password.</p>" if sso or passkey
                     else "<p>Sign in with your Trailbeam account.</p>")
             + '<form method="post" action="/login">'
             f'<input type="email" name="email" placeholder="Email" value="{escape(email)}" autocomplete="username" '

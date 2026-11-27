@@ -26,6 +26,11 @@ sending fails, the person or link is still made, ``email.error`` says why, and `
 admin to pass on instead. ``"send_email": true`` without a mail server is 409. ``GET /api/users`` says whether
 the server sends email (``sends_email``), for the People page.
 
+**Your passkeys** (``/api/me/passkeys``, QV-665, passkeys.py; anyone signed in as a person): list, add (``POST
+.../options`` for the browser's ``navigator.credentials.create``, then ``POST`` with its answer and a name),
+remove. ``passkeys`` in the list says whether the server has them on; with them off, the other three are 409.
+Removing a passkey doesn't end sessions it started: sign out there, or reset the password, for that.
+
 **Requests that change something** go through csrf.check (server.py) and must send ``Content-Type:
 application/json`` when they have a body, which a form on another site can't send without a preflight this server
 never answers.
@@ -36,9 +41,9 @@ import json
 import logging
 from typing import Optional
 
-from . import first_admin
+from . import first_admin, passkeys as passkeys_mod
 from .mail import DeliveryError, invite_email, reset_email
-from .accounts import INVITE, RESET, AccountError, EmailTaken, LastAdmin, check_role
+from .accounts import INVITE, RESET, AccountError, EmailTaken, LastAdmin, PasskeyTaken, check_role
 
 log = logging.getLogger("trailbeam.server")
 
@@ -51,6 +56,8 @@ SHARED_TOKEN_LABEL = "legacy shared token (from TRAILBEAM_TOKEN)"
 CLOSES_INGEST = ("this is the first ingest token, and this server has no TRAILBEAM_TOKEN: ingest is open now, and "
                  "within 5 seconds of creating it every service that sends spans without a token gets 401 and its "
                  "spans are lost. Send \"close_open_ingest\": true to create it anyway")
+PASSKEYS_OFF = ("passkeys are off on this server: they need its public URL (TRAILBEAM_PUBLIC_URL) and "
+                'pip install "trailbeam[server,passkeys]"')
 NEEDS_A_PERSON = ("personal API tokens belong to a person: sign in, or send your personal API token "
                   "(this request was let in without one)")
 
@@ -337,3 +344,45 @@ class PeopleApi:
             raise ApiProblem(404, f"no personal API token {rid} of yours that is still working")
         log.info("user %d revoked personal API token %d", uid, rid)
         return 200, {"revoked": {"id": rid}}
+
+    # ---- your passkeys (passkeys.py) --------------------------------------------------------------------
+
+    def _passkeys(self):
+        if self.app.passkeys is None:
+            raise ApiProblem(409, PASSKEYS_OFF, "passkeys_off")
+        return self.app.passkeys
+
+    def list_my_passkeys(self, acc, rid, body, who, base_url, now_ms):
+        uid = self._me(who)
+        return 200, {"passkeys": [passkeys_mod.passkey_view(p) for p in acc.passkeys(uid)],
+                     "on": self.app.passkeys is not None}
+
+    def passkey_options(self, acc, rid, body, who, base_url, now_ms):
+        uid = self._me(who)
+        pk = self._passkeys()
+        return 200, {"options": pk.register_options(self._user(acc, uid))}
+
+    def add_my_passkey(self, acc, rid, body, who, base_url, now_ms):
+        uid = self._me(who)
+        pk = self._passkeys()
+        credential = body.get("credential")
+        if not isinstance(credential, dict):
+            raise ApiProblem(400, "credential is required: the browser's answer to navigator.credentials.create")
+        try:
+            view = pk.register(uid, _str(body, "name"), credential)
+        except passkeys_mod.PasskeyError as e:
+            log.warning("user %d: a passkey was not added: %s", uid, e.detail)
+            raise ApiProblem(e.status, e.message) from None
+        except PasskeyTaken as e:
+            raise ApiProblem(409, str(e), "passkey_taken") from None
+        except AccountError as e:
+            raise ApiProblem(400, str(e)) from None
+        log.info("user %d added passkey %d", uid, view["id"])
+        return 201, {"passkey": view}
+
+    def remove_my_passkey(self, acc, rid, body, who, base_url, now_ms):
+        uid = self._me(who)
+        if not acc.remove_passkey(rid, uid):
+            raise ApiProblem(404, f"no passkey {rid} of yours")
+        log.info("user %d removed passkey %d", uid, rid)
+        return 200, {"removed": {"id": rid}}

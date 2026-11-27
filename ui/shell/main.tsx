@@ -25,6 +25,7 @@ import { PeoplePage } from "./people.tsx";
 import { QueueShellPage } from "./queue.tsx";
 import { StuckPage } from "./stuck.tsx";
 import { TokensPage } from "./tokens.tsx";
+import { AccountPage } from "./account.tsx";
 import "./styles.css";
 
 type State = { kind: "loading" } | { kind: "missing" } | { kind: "error"; message: string } | { kind: "not-found"; empty: EmptyStateProps } | { kind: "ok"; t: Timeline };
@@ -184,7 +185,7 @@ function MessagePage() {
   );
 }
 
-const PAGES: Record<string, () => React.JSX.Element> = { "/": HomePage, "/duplicates": DuplicatesPage, "/stuck": StuckPage, "/tenants": TenantsPage, "/queue": QueueShellPage, "/queues": QueuesRedirect, "/overview": OverviewPage, "/events": EventsPage, "/people": PeoplePage, "/tokens": TokensPage };
+const PAGES: Record<string, () => React.JSX.Element> = { "/": HomePage, "/duplicates": DuplicatesPage, "/stuck": StuckPage, "/tenants": TenantsPage, "/queue": QueueShellPage, "/queues": QueuesRedirect, "/overview": OverviewPage, "/events": EventsPage, "/people": PeoplePage, "/tokens": TokensPage, "/account": AccountPage };
 /* The shell's Nav is the browser's history (HistoryNav): a view that moves with the Nav's push changes the page
    without a full load. The page is keyed on the Nav's version, so it reads location and its data again. */
 function App() {

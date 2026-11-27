@@ -20,7 +20,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTrace
 from . import __version__
 from . import queues as queues_mod
 from . import alerts_api, access as access_mod, auth as auth_mod, causes as causes_mod, proxy_auth as proxy_auth_mod, bodies, csrf, first_admin, \
-    metrics, oidc as oidc_mod, passwords, people_api, queries, \
+    metrics, oidc as oidc_mod, passkeys as passkeys_mod, passwords, people_api, queries, \
     sessions as sessions_mod, trace_links, ui_files, web
 from .accounts import AccountError, Accounts, AdminExists, BadSetupCode, check_email, check_name
 from .backpressure import GRPC_RESOURCE_EXHAUSTED, GRPC_UNAVAILABLE, IngestGate, Rejected, status_body
@@ -60,7 +60,7 @@ class App:
                  trusted_proxies: Optional[TrustedProxies] = None, trace_link: Optional[str] = None,
                  accounts="auto", proxy_auth: Optional[proxy_auth_mod.ProxyAuthConfig] = None,
                  oidc: Optional[oidc_mod.Settings] = None, oidc_provider=None, alerts="auto",
-                 public_url: Optional[str] = None, mailer=None):
+                 public_url: Optional[str] = None, mailer=None, passkeys="auto"):
         self.db = db
         # --public-url: where links in emails and invites point (else the request's address); None: not set
         self.public_url = public_url.rstrip("/") if public_url else None
@@ -94,6 +94,12 @@ class App:
         # sign-ins started per client address (each adds a row to oidc_logins until it runs out): approximate,
         # per replica, like the sign-in limit
         self.sso_starts = AddressLimit(max_failures=oidc_mod.STARTS_PER_ADDRESS, window_s=oidc_mod.STARTS_WINDOW_S)
+        # passkeys (passkeys.py): on with the public URL and the webauthn extra, on a store with accounts; None: off
+        self.passkeys = (passkeys_mod.Passkeys(passkeys_mod.settings(self.public_url), self.accounts, self.sessions)
+                         if passkeys == "auto" and self.public_url and self.accounts is not None
+                         and passkeys_mod.available() else (None if passkeys == "auto" else passkeys))
+        self.passkey_starts = AddressLimit(max_failures=passkeys_mod.STARTS_PER_ADDRESS,
+                                           window_s=passkeys_mod.STARTS_WINDOW_S)
         try:  # read now, so the first export doesn't wait for it (on a :memory: store, behind the writer)
             self.access.state.get()
         except access_mod.AccessUnavailable as e:
@@ -364,6 +370,7 @@ class App:
                            "max_receive_counts": self.max_receive_counts,
                            "store_bodies": sorted(self.db.store_bodies), "trace_link": self.trace_link,
                            "proxy_auth": self.proxy_signin is not None,
+                           "passkeys": self.passkeys is not None,
                            "retention": self.purger.status() if self.purger else None}}
 
     def _mode(self) -> str:
@@ -748,6 +755,9 @@ def make_handler(app: App):
             if path == people_api.LINK_PATH:
                 self._set_password_post()
                 return
+            if path in (passkeys_mod.OPTIONS_PATH, passkeys_mod.SIGN_IN_PATH):
+                self._passkey_post(path)
+                return
             if path.startswith("/api/"):
                 self._api_write("POST", path)
                 return
@@ -952,7 +962,8 @@ def make_handler(app: App):
                 elif d.status == 403:
                     self._send_page(web.forbidden_page(d.message))
                 elif app.access.mode() == "accounts":
-                    self._send_page(web.sign_in_page(auth_mod.safe_next(self.path), sso=app.sso_label))
+                    self._send_page(web.sign_in_page(auth_mod.safe_next(self.path), sso=app.sso_label,
+                                                     passkey=app.passkeys is not None))
                 else:
                     self._send_page(web.login_page(auth_mod.safe_next(self.path), sso=app.sso_label))
                 return
@@ -996,7 +1007,8 @@ def make_handler(app: App):
                 # the proxy signed them in already: on to the page they asked for
                 self._send(303, "text/plain", b"", {"Location": auth_mod.safe_next(q.get("next"))})
             elif mode == "accounts":
-                self._send_page(web.sign_in_page(auth_mod.safe_next(q.get("next")), status=200, sso=app.sso_label))
+                self._send_page(web.sign_in_page(auth_mod.safe_next(q.get("next")), status=200, sso=app.sso_label,
+                                                 passkey=app.passkeys is not None))
             else:
                 self._send_page(web.login_page(auth_mod.safe_next(q.get("next")), status=200, sso=app.sso_label))
 
@@ -1098,11 +1110,91 @@ def make_handler(app: App):
             log.warning("sign-in refused (%s) from %s", r.outcome, self._client())
             status = {"locked": 429, "slow_down": 429, "busy": 503}.get(r.outcome, 401)
             st, headers, body = web.sign_in_page(nxt, email if r.outcome != "slow_down" else "", r.outcome,
-                                                 r.retry_after_s, status=status)
+                                                 r.retry_after_s, status=status, sso=app.sso_label,
+                                                 passkey=app.passkeys is not None)
             headers = dict(headers)
             if r.retry_after_s:
                 headers["Retry-After"] = str(r.retry_after_s)
             self._send_page((st, headers, body))
+
+        def _passkey_post(self, path: str):
+            """POST /login/passkey/options (a challenge to sign) and /login/passkey (the signed answer; right, a
+            session cookie): passkeys.py. JSON both ways. 404 while passkeys are off or nobody can sign in yet."""
+            try:
+                mode = app.access.mode()
+            except access_mod.AccessUnavailable as e:
+                log.warning("passkey sign-in: %s", e)
+                self.close_connection = True
+                self._send(503, "application/json", b'{"error": "the store is unreachable; try again"}',
+                           {"Retry-After": "1"})
+                return
+            if app.passkeys is None or mode != "accounts":
+                self.close_connection = True
+                self._json(404, {"error": "passkeys are off on this server"})
+                return
+            n = self.headers.get("Content-Length") or ""
+            if not n.isdigit() or int(n) > passkeys_mod.MAX_ANSWER:
+                self.close_connection = True
+                self._json(413, {"error": f"send a request body of at most {passkeys_mod.MAX_ANSWER} bytes"})
+                return
+            try:
+                body = people_api.parse_body(self.headers.get("Content-Type"), self.rfile.read(int(n)))
+            except people_api.ApiProblem as e:
+                self._json(e.status, e.body())
+                return
+            client = self._client()
+            no_store = {"Cache-Control": "no-store"}
+            if path == passkeys_mod.OPTIONS_PATH:
+                wait = app.passkey_starts.retry_after(client)
+                if wait is not None:
+                    self._send(429, "application/json", json.dumps(
+                        {"error": "Too many sign-ins started from here. Try again in a minute."}).encode(),
+                        {"Retry-After": str(wait)})
+                    return
+                app.passkey_starts.failed(client)  # counts every start, as single sign-on's
+                try:
+                    opts = app.passkeys.sign_in_options()
+                except Exception as e:  # noqa: BLE001 - the store
+                    log.warning("passkey sign-in from %s: the store is unreachable: %s", client, e)
+                    self._send(503, "application/json", b'{"error": "the store is unreachable; try again"}',
+                               {"Retry-After": "1"})
+                    return
+                self._send(200, "application/json", json.dumps({"options": opts}).encode(), no_store)
+                return
+            credential = body.get("credential")
+            nxt = auth_mod.safe_next(body.get("next") if isinstance(body.get("next"), str) else None)
+            limit = app.signin.address_limit
+            wait = limit.begin(client)  # a wrong answer counts against the address, as a wrong password does
+            if wait is not None:
+                self._send(429, "application/json", json.dumps(
+                    {"error": f"Too many failed sign-ins from here. Try again in {web.minutes(wait)}."}).encode(),
+                    {"Retry-After": str(wait)})
+                return
+            failed = True
+            try:
+                if not isinstance(credential, dict):
+                    self._json(400, {"error": passkeys_mod.REFUSED})
+                    return
+                try:
+                    uid, sid, expires = app.passkeys.sign_in(credential)
+                except passkeys_mod.PasskeyError as e:
+                    log.warning("passkey sign-in refused from %s: %s", client, e.detail)
+                    self._json(e.status, {"error": e.message})
+                    return
+                except Exception:  # noqa: BLE001 - the store
+                    log.exception("passkey sign-in failed")
+                    failed = False
+                    self._send(503, "application/json", b'{"error": "the store is unreachable; try again"}',
+                               {"Retry-After": "1"})
+                    return
+                failed = False
+            finally:
+                limit.end(client, failed)
+            log.info("signed in with a passkey: user %s from %s", uid, client)
+            secure = self._scheme() == "https"
+            max_age = max(0, (expires - time.time_ns() // 1_000_000) // 1000)
+            self._send(200, "application/json", json.dumps({"next": nxt}).encode(),
+                       {**no_store, "Set-Cookie": sessions_mod.set_cookie(sid, secure, max_age)})
 
         def _setup_get(self):
             """GET /setup: the first admin's form while the store has none; the sign-in page after."""
