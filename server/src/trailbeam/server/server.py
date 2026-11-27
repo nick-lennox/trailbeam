@@ -59,8 +59,13 @@ class App:
                  auth: Optional[auth_mod.Auth] = None, gate: Optional[IngestGate] = None,
                  trusted_proxies: Optional[TrustedProxies] = None, trace_link: Optional[str] = None,
                  accounts="auto", proxy_auth: Optional[proxy_auth_mod.ProxyAuthConfig] = None,
-                 oidc: Optional[oidc_mod.Settings] = None, oidc_provider=None, alerts="auto"):
+                 oidc: Optional[oidc_mod.Settings] = None, oidc_provider=None, alerts="auto",
+                 public_url: Optional[str] = None, mailer=None):
         self.db = db
+        # --public-url: where links in emails and invites point (else the request's address); None: not set
+        self.public_url = public_url.rstrip("/") if public_url else None
+        # the operator's mail server (mail.py, TRAILBEAM_SMTP_HOST): invite and reset emails; None: links only
+        self.mailer = mailer
         # --trusted-proxy (proxy.py): whose X-Forwarded-For/-Proto/-Host is believed; empty: nobody's
         self.proxies = trusted_proxies or TrustedProxies()
         # --trace-link (trace_links.py): the URL template behind each step's "Open trace"; None: no links
@@ -850,7 +855,7 @@ def make_handler(app: App):
                 return
             raw = self.rfile.read(int(n))
             host = app.proxies.host(self._peer(), self.headers.get("Host"), self.headers.get("X-Forwarded-Host"))
-            base = f"{self._scheme()}://{host or 'localhost'}"
+            base = app.public_url or f"{self._scheme()}://{host or 'localhost'}"
             try:
                 body = None if method == "DELETE" else people_api.parse_body(self.headers.get("Content-Type"), raw)
                 if alerts is not None:

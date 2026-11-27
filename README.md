@@ -667,8 +667,9 @@ trailbeam tokens revoke 3                            # --personal for a personal
 **The People page** (`/people`, linked in the header for admins; members get "Not allowed") lists everyone who can
 sign in, with their role, status (active, invited, locked for now, or disabled) and last sign-in. From it an admin:
 
-- **adds a person**: an email, a name (the part before `@` if left out) and a role. The page then shows their
-  one-time invite link, once, to copy and send them privately;
+- **adds a person**: an email, a name (the part before `@` if left out) and a role. With a mail server set up
+  (below), the server emails them their one-time invite link. Without one, or if sending fails, the page shows the
+  link, once, to copy and send them privately;
 - **changes a role** between admin and member, or **disables** and **enables** someone;
 - makes a **new invite link** for someone who hasn't used theirs, or a **password reset link** for someone who has a
   password (for example when they are locked out after too many wrong passwords);
@@ -676,6 +677,26 @@ sign in, with their role, status (active, invited, locked for now, or disabled) 
 
 The controls that would leave no admin who can sign in (making the last one a member, disabling or removing them)
 are off, and the server refuses them anyway.
+
+**Invites by email.** Point the server at your mail server and the People page emails invite and password reset
+links instead of showing them. Without these settings nothing is sent, and the page shows each link as before.
+
+```sh norun="needs a mail server; test_invite_email.py sends through a test SMTP server"
+TRAILBEAM_SMTP_HOST=smtp.example.com
+TRAILBEAM_SMTP_FROM="Trailbeam <trailbeam@example.com>"
+TRAILBEAM_SMTP_PORT=587                        # default: 587, or 465 with ssl, 25 with none
+TRAILBEAM_SMTP_TLS=starttls                    # starttls, ssl, or none for a relay on a trusted network
+TRAILBEAM_SMTP_USER=trailbeam                  # if the mail server needs a sign-in (not with none)
+TRAILBEAM_SMTP_PASSWORD_FILE=/run/secrets/smtp-password   # or the password in TRAILBEAM_SMTP_PASSWORD
+TRAILBEAM_PUBLIC_URL=https://trailbeam.example.com        # where the links in the emails point
+```
+
+- Set `TRAILBEAM_PUBLIC_URL` too. Links in emails start with it, else with the address the admin's browser used,
+  which may not be one the person can open.
+- A setting that doesn't make sense (no `TRAILBEAM_SMTP_FROM`, a user without a password, a sign-in with `none`)
+  stops the server at start with the reason.
+- If the mail server refuses an email, the person is still added, and the page shows why along with the link to
+  pass on yourself.
 
 **The Tokens page** (`/tokens`, linked in the header for anyone signed in) has two parts:
 
@@ -708,8 +729,10 @@ curl -H "$ADMIN" -H 'Content-Type: application/json' -d '{"name": "orders-api pr
 - Adding a person gives no password: the answer holds a one-time **invite link**
   (`/set-password#code=...`, 7 days) for them to choose one. `POST /api/users/{id}/link` makes a new one, or for
   someone who has a password a **reset link** (24 hours). Choosing a password from a link ends the person's other
-  sessions. Each new link replaces the last, and the store keeps only its hash. Trailbeam sends no email:
-  pass the link on privately, because until it is used it opens that person's account.
+  sessions. Each new link replaces the last, and the store keeps only its hash. Without a mail server, Trailbeam
+  sends no email: pass the link on privately, because until it is used it opens that person's account. With one,
+  both routes email the link to the person (send `"send_email": false` not to), and the answer's `email` says
+  whether it was sent; once it was, the answer leaves out the link's `url`.
 - Two roles, `admin` and `member`. The last admin who can sign in can't be made a member, disabled or removed
   (`409`).
 - The first ingest token of a server without `TRAILBEAM_TOKEN` needs `"close_open_ingest": true`, because it
