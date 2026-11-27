@@ -521,12 +521,14 @@ jobs:
         run: mvn -B -ntp -f java/pom.xml install
       - name: Build the conformance driver on the installed jar
         run: mvn -B -ntp -f conformance/drivers/java/pom.xml package
+      # The agents come from a cache keyed on the script that pins them (QV-560): Maven Central's 429s outlasted
+      # a minute of retries, so a run downloads only when a version changes or the cache was evicted.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/agents
+          key: java-agents-${{ hashFiles('conformance/drivers/java/fetch-agents.sh') }}
       - name: Fetch the agents the jar must work beside
-        # curl retries 429 (Maven Central's rate limit, QV-544) and 5xx; MAVEN_ARGS above only covers Maven's own downloads
-        run: |
-          mkdir -p "$RUNNER_TEMP/agents"
-          curl -sSfL --retry 6 --retry-delay 10 -o "$RUNNER_TEMP/agents/otel.jar" https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v2.34.0/opentelemetry-javaagent.jar
-          curl -sSfL --retry 6 --retry-delay 10 -o "$RUNNER_TEMP/agents/dd.jar" https://repo1.maven.org/maven2/com/datadoghq/dd-java-agent/1.69.1/dd-java-agent-1.69.1.jar
+        run: conformance/drivers/java/fetch-agents.sh "$RUNNER_TEMP/agents"
       - name: Java package on the bench, interceptor and Lambda wrapper (every variant)
         env:
           OTEL_JAVA_AGENT_JAR: ${{ runner.temp }}/agents/otel.jar
@@ -598,12 +600,14 @@ jobs:
         run: mvn -B -ntp -f java/pom.xml install
       - name: Build the conformance driver on SDK ${{ matrix.sdk }}
         run: mvn -B -ntp -f conformance/drivers/java/pom.xml package -Daws.sdk.version=${{ matrix.sdk }}
+      # The agents come from a cache keyed on the script that pins them (QV-560): Maven Central's 429s outlasted
+      # a minute of retries, so a run downloads only when a version changes or the cache was evicted.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/agents
+          key: java-agents-${{ hashFiles('conformance/drivers/java/fetch-agents.sh') }}
       - name: Fetch the agents the jar must work beside
-        # curl retries 429 (Maven Central's rate limit, QV-544) and 5xx; MAVEN_ARGS above only covers Maven's own downloads
-        run: |
-          mkdir -p "$RUNNER_TEMP/agents"
-          curl -sSfL --retry 6 --retry-delay 10 -o "$RUNNER_TEMP/agents/otel.jar" https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v2.34.0/opentelemetry-javaagent.jar
-          curl -sSfL --retry 6 --retry-delay 10 -o "$RUNNER_TEMP/agents/dd.jar" https://repo1.maven.org/maven2/com/datadoghq/dd-java-agent/1.69.1/dd-java-agent-1.69.1.jar
+        run: conformance/drivers/java/fetch-agents.sh "$RUNNER_TEMP/agents"
       - name: Java driver on the bench (every variant)
         env:
           OTEL_JAVA_AGENT_JAR: ${{ runner.temp }}/agents/otel.jar
