@@ -14,7 +14,7 @@ import threading
 import time
 
 from . import __version__
-from . import access, auth, config, first_admin, mail, oidc, proxy_auth as proxy_auth_mod, trace_links
+from . import access, auth, config, first_admin, github, mail, oidc, proxy_auth as proxy_auth_mod, trace_links
 from .accounts import Accounts
 from .backpressure import DEFAULT_MAX_PENDING, DEFAULT_MAX_WAIT_S, IngestGate
 from .db import SqliteStore, parse_queue_list
@@ -225,6 +225,41 @@ def build_parser(prog: str = "trailbeam", description: str = "") -> argparse.Arg
     sso.add_argument("--oidc-label", default=os.environ.get("TRAILBEAM_OIDC_LABEL") or None,
                      help='the sign-in button says "Sign in with <label>" (env TRAILBEAM_OIDC_LABEL, default '
                           "single sign-on), such as Okta")
+    gh = p.add_argument_group(
+        "sign in with GitHub (OAuth)",
+        "off unless --github-client-id is set; needs --public-url. Create an OAuth app at GitHub with the callback "
+        "URL <public URL>/login/github/callback")
+    gh.add_argument("--github-client-id", default=os.environ.get("TRAILBEAM_GITHUB_CLIENT_ID") or None,
+                    help="the GitHub OAuth app's client ID (env TRAILBEAM_GITHUB_CLIENT_ID)")
+    gh.add_argument("--github-client-secret-file",
+                    default=os.environ.get("TRAILBEAM_GITHUB_CLIENT_SECRET_FILE") or None,
+                    help="a file holding the OAuth app's client secret (env TRAILBEAM_GITHUB_CLIENT_SECRET_FILE, or "
+                         "the secret itself in TRAILBEAM_GITHUB_CLIENT_SECRET). Required")
+    gh.add_argument("--github-url", default=os.environ.get("TRAILBEAM_GITHUB_URL") or None,
+                    help="a GitHub Enterprise Server's address, such as https://github.example.com (env "
+                         "TRAILBEAM_GITHUB_URL, default https://github.com)")
+    gh.add_argument("--github-allowed-orgs", default=os.environ.get("TRAILBEAM_GITHUB_ALLOWED_ORGS") or None,
+                    help="comma-separated organisations: only their members may sign in (env "
+                         "TRAILBEAM_GITHUB_ALLOWED_ORGS). Without it or --github-member-teams, the server starts only "
+                         "with --github-default-role member, which lets any GitHub account in")
+    gh.add_argument("--github-admin-teams", default=os.environ.get("TRAILBEAM_GITHUB_ADMIN_TEAMS") or None,
+                    help="comma-separated teams, as org/team-slug, whose members are admins (env "
+                         "TRAILBEAM_GITHUB_ADMIN_TEAMS). With teams set, a person's role is set again at every "
+                         "sign-in")
+    gh.add_argument("--github-member-teams", default=os.environ.get("TRAILBEAM_GITHUB_MEMBER_TEAMS") or None,
+                    help="comma-separated teams, as org/team-slug, whose members are members (env "
+                         "TRAILBEAM_GITHUB_MEMBER_TEAMS)")
+    gh.add_argument("--github-default-role", choices=("member", "none"),
+                    default=os.environ.get("TRAILBEAM_GITHUB_DEFAULT_ROLE") or None,
+                    help="the role of someone in no admin or member team: member, or none to refuse them (env "
+                         "TRAILBEAM_GITHUB_DEFAULT_ROLE; default member, or none when --github-member-teams is set)")
+    gh.add_argument("--github-link-email", action="store_true",
+                    default=os.environ.get("TRAILBEAM_GITHUB_LINK_EMAIL", "").strip().lower() in ("1", "true", "yes"),
+                    help="let a GitHub account sign in to an existing account here with the same verified email "
+                         "(env TRAILBEAM_GITHUB_LINK_EMAIL=true). Off by default")
+    gh.add_argument("--github-session-hours", default=os.environ.get("TRAILBEAM_GITHUB_SESSION_HOURS") or None,
+                    help="how long a session from GitHub sign-in lasts, in hours (env TRAILBEAM_GITHUB_SESSION_HOURS, "
+                         "default 12, at most 720)")
     p.add_argument("--log-level", default=os.environ.get("TRAILBEAM_LOG_LEVEL", "INFO"))
     return p
 
@@ -249,6 +284,26 @@ def oidc_settings(a: argparse.Namespace):
                            session_hours=a.oidc_session_hours)
     oidc.require_pyjwt()
     return s
+
+
+def github_settings(a: argparse.Namespace):
+    """GitHub sign-in's settings from the flags, checked, or None when it is off. Raises oidc.SettingsError."""
+    client_id = getattr(a, "github_client_id", None)
+    secret_file = getattr(a, "github_client_secret_file", None)
+    if not client_id:
+        secret = secret_file  # only so that make_settings says it is given without a client ID
+    elif secret_file:
+        secret = github.read_secret_file(secret_file)
+    else:
+        secret = os.environ.get("TRAILBEAM_GITHUB_CLIENT_SECRET") or None
+    return github.make_settings(client_id=client_id, client_secret=secret, public_url=getattr(a, "public_url", None),
+                                github_url=getattr(a, "github_url", None),
+                                allowed_orgs=getattr(a, "github_allowed_orgs", None),
+                                admin_teams=getattr(a, "github_admin_teams", None),
+                                member_teams=getattr(a, "github_member_teams", None),
+                                default_role=getattr(a, "github_default_role", None),
+                                link_email=getattr(a, "github_link_email", False),
+                                session_hours=getattr(a, "github_session_hours", None))
 
 
 def serve(a: argparse.Namespace, on_listening=None) -> None:
@@ -289,6 +344,11 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
         logging.getLogger("trailbeam.server").error("single sign-on: %s", e)
         sys.exit(2)
     try:
+        gh = github_settings(a)
+    except oidc.SettingsError as e:
+        logging.getLogger("trailbeam.server").error("GitHub sign-in: %s", e)
+        sys.exit(2)
+    try:
         public_url = mail.check_public_url(a.public_url) if getattr(a, "public_url", None) else None
         smtp = mail.smtp_from_env()
     except mail.SmtpSettingsError as e:
@@ -297,6 +357,11 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
     if sso is not None and not accounts_on:
         logging.getLogger("trailbeam.server").error(
             "single sign-on (--oidc-issuer, TRAILBEAM_OIDC_ISSUER) signs people in, but %s", access.SWITCHED_OFF)
+        sys.exit(2)
+    if gh is not None and not accounts_on:
+        logging.getLogger("trailbeam.server").error(
+            "GitHub sign-in (--github-client-id, TRAILBEAM_GITHUB_CLIENT_ID) signs people in, but %s",
+            access.SWITCHED_OFF)
         sys.exit(2)
     if not accounts_on and getattr(a, "proxy_auth_header", None):  # it signs people in: it needs users and roles
         logging.getLogger("trailbeam.server").error(
@@ -350,7 +415,7 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
                             purger=purger, auth=auth.Auth(token) if token else None,
                             gate=IngestGate(a.ingest_max_pending, a.ingest_max_wait), trace_link=a.trace_link,
                             trusted_proxies=TrustedProxies(trusted_proxies(a)), proxy_auth=proxy_auth, oidc=sso,
-                            public_url=public_url, mailer=mail.Mailer(smtp) if smtp else None,
+                            github=gh, public_url=public_url, mailer=mail.Mailer(smtp) if smtp else None,
                             **({} if accounts_on else {"accounts": None}))
     except OSError as e:
         db.close()
@@ -376,6 +441,10 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
             "single sign-on with %s (client %s): register the redirect URI %s at the identity provider. Its "
             "sessions last %g hours (--oidc-session-hours)", sso.issuer, sso.client_id, sso.redirect_uri,
             sso.session_hours)
+    if gh is not None:
+        logging.getLogger("trailbeam.server").info(
+            "GitHub sign-in with %s (OAuth app %s): its callback URL must be %s. Its sessions last %g hours "
+            "(--github-session-hours)", gh.github_url, gh.client_id, gh.redirect_uri, gh.session_hours)
     if smtp is not None:
         logging.getLogger("trailbeam.server").info(
             "email through %s:%d (%s) from %s: the People page emails invite and reset links%s", smtp.host, smtp.port,
