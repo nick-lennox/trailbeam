@@ -379,6 +379,9 @@ def run_alerts(deps: Deps) -> dict:
             out["changes"] += len(changes)
             if changes and deps.deliver:
                 deps.deliver(ws, changes)
+            if ruled and ruled.failed:
+                # the changes went out; the workspace is still noted as failed, with the first error
+                raise ruled.failed[0]
         except Exception as e:  # noqa: BLE001 - a workspace that fails is recorded and doesn't stop the others
             out["failed"].append({"ws": ws, "error": _error(e)})
             try:
@@ -432,6 +435,8 @@ class _CauseRules:
                                                  "regressedSeen": memory.get("regressedSeen")}}
             self.checks.append({"rule": rule, "memory": memory, "t": t, "c": c})
         self.observed = [x["c"]["observed"] for x in self.checks]
+        #: the memory writes that failed in settle(); run_alerts raises the first after the changes are sent
+        self.failed: list[Exception] = []
 
     def settle(self, changes: list[dict]) -> list[dict]:
         store, ws, at, R = self.deps.store, self.ws, self.at, alerts.RULE_DASHBOARD
@@ -474,5 +479,11 @@ class _CauseRules:
                     out.append({"kind": "fired", "from": None, "alert": {
                         **c["observed"], "tone": "critical", "since": at, "checkedAt": at,
                         "rule": {**c["observed"]["rule"], "regressed": regressed}}})
-            store.remember(ws, rid, c["memory"], c["seenAs"])
+            # record() has already won these changes: a memory that can't be written must not stop them being sent,
+            # or every alert of the workspace stops while the rule's cause exists (QV-658)
+            try:
+                store.remember(ws, rid, c["memory"], c["seenAs"])
+            except Exception as e:  # raised by run_alerts once the changes are sent
+                log.warning("alert check: could not keep what rule %s of workspace %s saw", rid, ws, exc_info=True)
+                self.failed.append(e)
         return out

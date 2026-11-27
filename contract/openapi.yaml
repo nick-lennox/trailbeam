@@ -136,10 +136,15 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [users]
+                required: [users, sends_email]
                 properties:
                   users: {type: array, items: {$ref: '#/components/schemas/User'}}
-              example: {"users": [{"id": 1, "email": "ada@example.com", "name": "Ada", "role": "admin", "status": "active", "created_at_ms": 1795400000000, "last_sign_in_ms": 1795480000000, "you": true, "single_sign_on": false}, {"id": 2, "email": "ben@example.com", "name": "Ben", "role": "member", "status": "invited", "created_at_ms": 1795410000000, "last_sign_in_ms": null, "you": false, "single_sign_on": true}]}
+                  sends_email:
+                    type: boolean
+                    description: |
+                      The server has a mail server set up (`TRAILBEAM_SMTP_HOST`), so adding a person and making
+                      a link email the link to them. Added in 0.5.
+              example: {"sends_email": false, "users": [{"id": 1, "email": "ada@example.com", "name": "Ada", "role": "admin", "status": "active", "created_at_ms": 1795400000000, "last_sign_in_ms": 1795480000000, "you": true, "single_sign_on": false}, {"id": 2, "email": "ben@example.com", "name": "Ben", "role": "member", "status": "invited", "created_at_ms": 1795410000000, "last_sign_in_ms": null, "you": false, "single_sign_on": true}]}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
@@ -148,9 +153,11 @@ paths:
       tags: [People]
       summary: Add a person and get their invite link
       description: |
-        Adds a person with no password yet, and returns their one-time invite link. Give the link to them
-        privately: whoever opens it chooses the password. It lasts 7 days. `name` defaults to the part of
-        the email before `@`, and `role` to `member`. Needs an admin. Added in 0.5.
+        Adds a person with no password yet, and makes their one-time invite link. It lasts 7 days. With a
+        mail server set up (`TRAILBEAM_SMTP_HOST`), the server emails the link to them, unless `send_email`
+        is `false`; once sent, the answer leaves out `link.url`. Otherwise, or when sending fails, the answer
+        has the link: give it to them privately, since whoever opens it chooses the password. `name` defaults
+        to the part of the email before `@`, and `role` to `member`. Needs an admin. Added in 0.5.
       requestBody:
         required: true
         content:
@@ -162,6 +169,7 @@ paths:
                 email: {type: string, maxLength: 254}
                 name: {type: string, maxLength: 200}
                 role: {type: string, enum: [admin, member], default: member}
+                send_email: {$ref: '#/components/schemas/SendEmail'}
             example: {"email": "ben@example.com", "name": "Ben", "role": "member"}
       responses:
         '201':
@@ -170,7 +178,7 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/UserWithLink'}
-              example: {"user": {"id": 2, "email": "ben@example.com", "name": "Ben", "role": "member", "status": "invited", "created_at_ms": 1795410000000, "last_sign_in_ms": null, "you": false, "single_sign_on": false}, "link": {"kind": "invite", "url": "http://127.0.0.1:4318/set-password#code=8bV1q0Jm0h6rWw2y7mM5c3xQKk0p0b2N7Hn8yZtq1sE", "expires_at_ms": 1796014800000}}
+              example: {"user": {"id": 2, "email": "ben@example.com", "name": "Ben", "role": "member", "status": "invited", "created_at_ms": 1795410000000, "last_sign_in_ms": null, "you": false, "single_sign_on": false}, "link": {"kind": "invite", "url": "http://127.0.0.1:4318/set-password#code=8bV1q0Jm0h6rWw2y7mM5c3xQKk0p0b2N7Hn8yZtq1sE", "expires_at_ms": 1796014800000}, "email": null}
         '400': {$ref: '#/components/responses/BadBody'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
@@ -262,13 +270,17 @@ paths:
       description: |
         A new one-time link for the person: an invite (`kind` `invite`, 7 days) if they have no password
         yet, else a password reset (`kind` `reset`, 24 hours). It replaces their earlier link. Opening it
-        and choosing a password ends their other sessions. A disabled person gets a `409`. Send `{}` as the
+        and choosing a password ends their other sessions. A disabled person gets a `409`. With a mail
+        server set up, the link is emailed to them as when adding a person (`send_email`). Send `{}` as the
         body. Needs an admin. Added in 0.5.
       parameters: [{$ref: '#/components/parameters/user_id'}]
       requestBody:
         content:
           application/json:
-            schema: {type: object}
+            schema:
+              type: object
+              properties:
+                send_email: {$ref: '#/components/schemas/SendEmail'}
             example: {}
       responses:
         '201':
@@ -2570,7 +2582,7 @@ components:
         error: {type: string, description: What was wrong with the request.}
         reason:
           type: string
-          enum: [last_admin, email_taken, disabled, closes_open_ingest, csrf]
+          enum: [last_admin, email_taken, disabled, closes_open_ingest, csrf, no_mail_server]
           description: On some `403` and `409` answers of the people and token routes, a word for the cause.
     User:
       type: object
@@ -2598,22 +2610,41 @@ components:
     UserLink:
       type: object
       additionalProperties: false
-      required: [kind, url, expires_at_ms]
+      required: [kind, expires_at_ms]
       properties:
         kind: {type: string, enum: [invite, reset]}
         url:
           type: string
           description: |
-            `/set-password#code=...` on this server, as the request reached it. The code is after `#`, so
-            browsers never send it in a request. It works once, and is shown only in this answer.
+            `/set-password#code=...` on this server, at `--public-url` if it is set, else as the request reached
+            it. The code is after `#`, so browsers never send it in a request. It works once, and is shown only
+            in this answer. Left out once the link was emailed to the person.
         expires_at_ms: {type: integer}
     UserWithLink:
       type: object
       additionalProperties: false
-      required: [user, link]
+      required: [user, link, email]
       properties:
         user: {$ref: '#/components/schemas/User'}
         link: {$ref: '#/components/schemas/UserLink'}
+        email:
+          description: The email with the link, or `null` when none was sent for.
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [sent, to, error]
+              properties:
+                sent: {type: boolean}
+                to: {type: string, description: The person's email address.}
+                error:
+                  type: ['string', 'null']
+                  description: Why the mail server didn't take it, when `sent` is false. `link.url` is there then.
+    SendEmail:
+      type: boolean
+      description: |
+        Email the link to the person. Default: `true` when the server has a mail server set up
+        (`TRAILBEAM_SMTP_HOST`), else `false`. `true` without one is a `409` (`no_mail_server`).
     IngestToken:
       type: object
       additionalProperties: false

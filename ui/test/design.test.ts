@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
-  AppThemeProvider, Button, HealthPill, NavProvider, OutcomePill, PageHeader, SourceTag, StatCard, StatePill, TopBar, Tooltip,
+  AppThemeProvider, Button, HealthPill, Logo, Mark, NavProvider, OutcomePill, PageHeader, SourceTag, StatCard, StatePill, TopBar, Tooltip,
   purgeText, stateLook, type LinkProps,
 } from "../src/design/index.ts";
 
@@ -56,15 +56,57 @@ test("the pills always carry an icon and a label", () => {
   assert.equal(stateLook({ state: "x", in_dead_letter_queue: true, deliveries: 2 }).label, "In the DLQ");
   assert.equal(stateLook({ state: "pending", in_dead_letter_queue: false, deliveries: 0 }).label, "Not received");
   assert.equal(stateLook({ state: "pending", in_dead_letter_queue: false, deliveries: 2 }).label, "Not deleted");
-  assert.equal(purgeText({ purge: { status: "possibly_purged", start: "2026-11-27T12:00:09.000Z" } }), "possibly purged (PurgeQueue at 12:00:09.000 UTC)");
+  assert.equal(purgeText({ purge: { status: "possibly_purged", start: "2026-11-27T12:00:09.000Z" } }), "Possibly purged: a PurgeQueue call ran at 12:00:09.000 UTC");
+  assert.equal(purgeText({ purge: { status: "purged", start: "2026-11-27T12:00:09.000Z" } }), "Purged by a PurgeQueue call at 12:00:09.000 UTC");
   assert.equal(purgeText({}), "");
+});
+
+test("the purge notes are whole sentences: the purged pill's note, and the words after a possibly purged pill", () => {
+  const start = "2026-11-27T12:00:09.000Z";
+  const possibly = html(h(StatePill, { m: { state: "pending", in_dead_letter_queue: false, deliveries: 1, purge: { status: "possibly_purged", start } } }));
+  assert.match(possibly, />Possibly purged: a PurgeQueue call ran at 12:00:09\.000 UTC</);
+  assert.doesNotMatch(possibly, /observed:|\(PurgeQueue/);
+});
+
+test("source tags are labels, not values: no mono, and the labels in full and in sentence case", () => {
+  for (const source of ["otel", "package", "cloudtrail", "function_logs", "inferred"] as const) {
+    assert.doesNotMatch(html(h(SourceTag, { source })), /font-mono/);
+  }
+  assert.match(html(h(SourceTag, { source: "package" })), />Trailbeam package</);
+  assert.match(html(h(SourceTag, { source: "function_logs" })), />Function logs</);
+  assert.match(html(h(SourceTag, { source: "inferred" })), /border-dashed/);
+});
+
+test("the default Logo follows the theme, so the night app shows it; sky stays for the landing page", () => {
+  const day = html(h(Logo, {}));
+  assert.match(day, /class="[^"]*text-ink[ "]/);
+  assert.match(day, /fill="var\(--color-accent\)"/);
+  assert.doesNotMatch(day, /text-sky[ "]/);
+  assert.match(html(h(Logo, { tone: "sky" })), /text-sky-ink/);
+  assert.match(html(h(Mark, {})), /text-ink[ "]/);
+});
+
+test("Button inverse is dark text on its light fill, whatever the theme", () => {
+  const out = html(h(Button, { variant: "inverse", children: "Go" }));
+  assert.match(out, /bg-night-ink text-night /);
+  assert.doesNotMatch(out, /text-ink[ "]/);
 });
 
 test("TopBar takes the host's search, and plain leaves it and the freshness mark out", () => {
   const search = h("input", { "data-search": "" });
-  assert.match(html(h(TopBar, { title: "Overview", search })), /data-search.*Updated/);
-  assert.doesNotMatch(html(h(TopBar, { title: "Overview", search, plain: true })), /data-search|Updated/);
-  assert.match(html(h(PageHeader, { title: "Queues", subtitle: "All of them" })), /<h1 class="text-title-sm text-ink">Queues<\/h1>/);
+  assert.match(html(h(TopBar, { title: "Overview", search, fresh: true })), /data-search.*Updated 4s ago/);
+  assert.doesNotMatch(html(h(TopBar, { title: "Overview", search, plain: true, fresh: true })), /data-search|Updated/);
+  assert.match(html(h(PageHeader, { title: "Queues", subtitle: "All of them" })), /<h1 class="font-serif text-title-sm text-ink">Queues<\/h1>/);
+  assert.match(html(h(TopBar, { title: "Overview" })), /<h1 class="[^"]*font-serif[^"]*">Overview<\/h1>/);
+});
+
+test("TopBar claims no freshness unless the caller passes it: the real time, or the sample pages' fixed one", () => {
+  assert.doesNotMatch(html(h(TopBar, { title: "Tenants" })), /Updated|data-fresh/);
+  assert.doesNotMatch(html(h(PageHeader, { title: "Tenants" })), /Updated/);
+  for (const fresh of [false, null, ""]) assert.doesNotMatch(html(h(TopBar, { title: "T", fresh })), /Updated/);
+  assert.match(html(h(TopBar, { title: "T", fresh: h("time", { dateTime: "PT12S" }, "12s ago") })), /Updated <time dateTime="PT12S">12s ago<\/time>/);
+  assert.match(html(h(PageHeader, { title: "T", fresh: "1m ago" })), /Updated 1m ago/);
+  assert.doesNotMatch(html(h(TopBar, { title: "T", fresh: "1m ago" })), /4s ago/);
 });
 
 test("the open-source shell imports the theme, with the font variables next/font sets in the hosted app", () => {

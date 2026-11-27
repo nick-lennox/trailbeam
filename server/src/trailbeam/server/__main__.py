@@ -14,7 +14,7 @@ import threading
 import time
 
 from . import __version__
-from . import access, auth, config, first_admin, oidc, proxy_auth as proxy_auth_mod, trace_links
+from . import access, auth, config, first_admin, mail, oidc, proxy_auth as proxy_auth_mod, trace_links
 from .accounts import Accounts
 from .backpressure import DEFAULT_MAX_PENDING, DEFAULT_MAX_WAIT_S, IngestGate
 from .db import SqliteStore, parse_queue_list
@@ -175,7 +175,8 @@ def build_parser(prog: str = "trailbeam", description: str = "") -> argparse.Arg
         "people back to <public URL>/login/oidc/callback: register that redirect URI there")
     sso.add_argument("--public-url", default=os.environ.get("TRAILBEAM_PUBLIC_URL") or None,
                      help="the address people open Trailbeam at, such as https://trailbeam.example.com (env "
-                          "TRAILBEAM_PUBLIC_URL). Needed for single sign-on: the request's Host can't be trusted")
+                          "TRAILBEAM_PUBLIC_URL). Needed for single sign-on: the request's Host can't be trusted. "
+                          "Invite and reset links, and the emails that send them, start with it too")
     sso.add_argument("--oidc-issuer", default=os.environ.get("TRAILBEAM_OIDC_ISSUER") or None,
                      help="the identity provider's issuer URL, exactly as its ID tokens' iss, such as "
                           "https://id.example.com/realms/main (Keycloak), https://example.okta.com, "
@@ -287,6 +288,12 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
     except oidc.SettingsError as e:
         logging.getLogger("trailbeam.server").error("single sign-on: %s", e)
         sys.exit(2)
+    try:
+        public_url = mail.check_public_url(a.public_url) if getattr(a, "public_url", None) else None
+        smtp = mail.smtp_from_env()
+    except mail.SmtpSettingsError as e:
+        logging.getLogger("trailbeam.server").error("%s", e)
+        sys.exit(2)
     if sso is not None and not accounts_on:
         logging.getLogger("trailbeam.server").error(
             "single sign-on (--oidc-issuer, TRAILBEAM_OIDC_ISSUER) signs people in, but %s", access.SWITCHED_OFF)
@@ -343,6 +350,7 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
                             purger=purger, auth=auth.Auth(token) if token else None,
                             gate=IngestGate(a.ingest_max_pending, a.ingest_max_wait), trace_link=a.trace_link,
                             trusted_proxies=TrustedProxies(trusted_proxies(a)), proxy_auth=proxy_auth, oidc=sso,
+                            public_url=public_url, mailer=mail.Mailer(smtp) if smtp else None,
                             **({} if accounts_on else {"accounts": None}))
     except OSError as e:
         db.close()
@@ -368,6 +376,12 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
             "single sign-on with %s (client %s): register the redirect URI %s at the identity provider. Its "
             "sessions last %g hours (--oidc-session-hours)", sso.issuer, sso.client_id, sso.redirect_uri,
             sso.session_hours)
+    if smtp is not None:
+        logging.getLogger("trailbeam.server").info(
+            "email through %s:%d (%s) from %s: the People page emails invite and reset links%s", smtp.host, smtp.port,
+            smtp.tls, smtp.sender, "" if public_url else
+            ". Set --public-url (TRAILBEAM_PUBLIC_URL) so their links don't start with the address the admin's "
+            "request came to")
     if not accounts_on:
         ignored = ignored_accounts(db)
         if ignored:

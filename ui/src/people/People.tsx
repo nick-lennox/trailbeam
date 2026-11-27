@@ -9,7 +9,7 @@
 */
 import { useId, useState, type FormEvent } from "react";
 import { useCopy } from "../copy.ts";
-import type { Person, PersonLink, PersonStatus, Role } from "./types.ts";
+import type { Person, PersonEmail, PersonLink, PersonStatus, Role } from "./types.ts";
 
 export const ROLES: readonly [Role, string][] = [["admin", "Admin"], ["member", "Member"]];
 
@@ -154,10 +154,12 @@ export function PeopleTable({ people, pending = null, onRole, onDisabled, onRemo
 export type AddPersonProps = {
   /** resolves when the person is added (the form clears), rejects with a message to show (the form keeps what was typed) */
   onAdd: (p: { email: string; name: string; role: Role }) => Promise<void>;
+  /** the server emails invites (GET /api/users sends_email), so the button says it sends one */
+  sendsEmail?: boolean;
 };
 
 /** Email, name (optional: the part before @ by default) and role. Adding someone answers with their invite link. */
-export function AddPerson({ onAdd }: AddPersonProps) {
+export function AddPerson({ onAdd, sendsEmail = false }: AddPersonProps) {
   const id = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -192,7 +194,7 @@ export function AddPerson({ onAdd }: AddPersonProps) {
       </label>
       <button type="submit" disabled={busy}
         className="rounded-full border border-ink bg-ink px-4 py-1 text-sm text-surface hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60">
-        {busy ? "Adding" : "Add and make invite link"}
+        {busy ? "Adding" : sendsEmail ? "Add and email invite" : "Add and make invite link"}
       </button>
       {error && <p className="w-full text-critical-text" role="alert">{error}</p>}
     </form>
@@ -202,14 +204,40 @@ export function AddPerson({ onAdd }: AddPersonProps) {
 export type OneTimeLinkProps = {
   person: Pick<Person, "name" | "email">;
   link: PersonLink;
+  /** the email that took it to them, if the server sent one */
+  email?: PersonEmail | null;
   onDismiss: () => void;
 };
 
-/** The link an add or "new link" answered with, to copy now: it is shown only once. */
-export function OneTimeLink({ person, link, onDismiss }: OneTimeLinkProps) {
-  const [copied, copy] = useCopy(link.url);
+/** The sentence for a link the server emailed: to whom, what it does and how long it lasts. */
+export function emailedSentence(p: Pick<Person, "name" | "email">, link: PersonLink, to: string): string {
+  const whose = p.name && p.name !== p.email ? `${p.name}'s` : "Their";
+  const what = `${whose} ${link.kind === "invite" ? "invite" : "password reset"} link`;
+  return `${what} was emailed to ${to}. It works once, until ${fmtWhen(link.expires_at_ms)}. Make a new link if it doesn't arrive.`;
+}
+
+/** Why the email with the link wasn't sent, and what to do instead. */
+export function unsentSentence(email: PersonEmail): string {
+  const why = (email.error ?? "").trim();
+  return `The email to ${email.to} wasn't sent${why ? `: ${why.replace(/\.$/, "")}` : ""}. Copy the link and send it to them yourself.`;
+}
+
+/** The link an add or "new link" answered with, to copy now: it is shown only once. Once emailed, only what happened. */
+export function OneTimeLink({ person, link, email, onDismiss }: OneTimeLinkProps) {
+  const [copied, copy] = useCopy(link.url ?? "");
+  if (link.url === undefined) {
+    return (
+      <div className="rounded-[16px] border border-brand/60 bg-surface px-5 py-4 text-[15px] leading-[1.5] text-ink-2" role="status">
+        <p className="max-w-[80ch]">{emailedSentence(person, link, email?.to ?? person.email)}</p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button type="button" className={btn} onClick={onDismiss}>Done</button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="rounded-[16px] border border-brand/60 bg-surface px-5 py-4 text-[15px] leading-[1.5] text-ink-2" role="status">
+      {email && !email.sent && <p className="mb-2 max-w-[80ch] text-critical-text">{unsentSentence(email)}</p>}
       <p className="max-w-[80ch]">{linkSentence(person, link)}</p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <input readOnly value={link.url} aria-label="One-time link" onFocus={(e) => e.currentTarget.select()} autoFocus={copied === "select"}

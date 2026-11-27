@@ -19,6 +19,13 @@ one. Using it sets the password, ends the person's sessions and uses the code up
 (accounts.use_user_code), and signs them in. Until it is used, a link is as good as that person's password: the
 admin who made it passes it on privately.
 
+**Invites by email** (QV-587): with a mail server set up (mail.py, TRAILBEAM_SMTP_HOST), ``POST /api/users`` and
+``POST /api/users/{id}/link`` also email the link to the person, unless the body says ``"send_email": false``.
+The answer's ``email`` says whether it was sent. Once it is, ``link`` has no ``url``: only the person gets it. When
+sending fails, the person or link is still made, ``email.error`` says why, and ``link.url`` is there for the
+admin to pass on instead. ``"send_email": true`` without a mail server is 409. ``GET /api/users`` says whether
+the server sends email (``sends_email``), for the People page.
+
 **Requests that change something** go through csrf.check (server.py) and must send ``Content-Type:
 application/json`` when they have a body, which a form on another site can't send without a preflight this server
 never answers.
@@ -30,6 +37,7 @@ import logging
 from typing import Optional
 
 from . import first_admin
+from .mail import DeliveryError, invite_email, reset_email
 from .accounts import INVITE, RESET, AccountError, EmailTaken, LastAdmin, check_role
 
 log = logging.getLogger("trailbeam.server")
@@ -157,12 +165,47 @@ class PeopleApi:
 
     def list_users(self, acc, rid, body, who, base_url, now_ms):
         sso = {int(i["user_id"]) for i in acc.oidc_identities()}
-        return 200, {"users": [user_view(u, now_ms, who.user_id, int(u["id"]) in sso) for u in acc.users()]}
+        return 200, {"users": [user_view(u, now_ms, who.user_id, int(u["id"]) in sso) for u in acc.users()],
+                     "sends_email": self.mailer is not None}
+
+    @property
+    def mailer(self):
+        return getattr(self.app, "mailer", None)
+
+    def _send_email(self, body: dict) -> bool:
+        """Whether to email the link: ``send_email`` if given, else whether a mail server is set up."""
+        v = body.get("send_email")
+        if v is None:
+            return self.mailer is not None
+        if not isinstance(v, bool):
+            raise ApiProblem(400, "send_email must be true or false")
+        if v and self.mailer is None:
+            raise ApiProblem(409, "this server has no mail server to send email with (TRAILBEAM_SMTP_HOST): "
+                                  "copy the link and pass it on instead", "no_mail_server")
+        return v
+
+    def _email_link(self, u: dict, link: dict, who, base_url: str) -> dict:
+        """Emails the link to the person. Their answer's ``email``; takes ``url`` out of ``link`` once sent."""
+        site = base_url.rstrip("/")
+        if link["kind"] == INVITE:
+            mail = invite_email(link["url"], site, who.name, who.email, INVITE_MS // 86_400_000)
+        else:
+            mail = reset_email(link["url"], site, RESET_MS // 3_600_000)
+        try:
+            self.mailer(u["email"], mail)
+        except DeliveryError as e:
+            log.warning("user %s: the %s email to user %d was not sent: %s", who.user_id, link["kind"],
+                        int(u["id"]), e)
+            return {"sent": False, "to": u["email"], "error": str(e)}
+        del link["url"]
+        log.info("user %s emailed a %s link to user %d", who.user_id, link["kind"], int(u["id"]))
+        return {"sent": True, "to": u["email"], "error": None}
 
     def create_user(self, acc, rid, body, who, base_url, now_ms):
         email = _str(body, "email")
         name = _str(body, "name", required=False) or first_admin.default_name(email.strip())
         role = _str(body, "role", required=False) or "member"
+        send = self._send_email(body)
         try:
             check_role(role)
             uid = acc.create_user(email, name, role, None, now_ms)
@@ -173,7 +216,9 @@ class PeopleApi:
         self.app.access.state.changed()
         link = self._link(acc, uid, INVITE, base_url, now_ms)
         log.info("user %s added %s (user %d, %s) from the People page", who.user_id, email.strip(), uid, role)
-        return 201, {"user": self._view(acc, self._user(acc, uid), now_ms, who), "link": link}
+        u = self._user(acc, uid)
+        sent = self._email_link(u, link, who, base_url) if send else None
+        return 201, {"user": self._view(acc, u, now_ms, who), "link": link, "email": sent}
 
     def change_user(self, acc, rid, body, who, base_url, now_ms):
         u = self._user(acc, rid)
@@ -215,10 +260,12 @@ class PeopleApi:
         u = self._user(acc, rid)
         if u["disabled_at_ms"] is not None:
             raise ApiProblem(409, f"{u['email']} is disabled: enable them before making a link", "disabled")
+        send = self._send_email(body)
         kind = RESET if u["password_hash"] else INVITE
         link = self._link(acc, rid, kind, base_url, now_ms)
         log.info("user %s made a %s link for user %d", who.user_id, kind, rid)
-        return 201, {"user": self._view(acc, u, now_ms, who), "link": link}
+        sent = self._email_link(u, link, who, base_url) if send else None
+        return 201, {"user": self._view(acc, u, now_ms, who), "link": link, "email": sent}
 
     def _link(self, acc, uid: int, kind: str, base_url: str, now_ms: int) -> dict:
         code = first_admin.new_code()
