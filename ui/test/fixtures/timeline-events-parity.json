@@ -2994,6 +2994,417 @@
   },
   {
    "timeline": {
+    "message_id": "m-vis",
+    "state": "deleted",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "send_observed": true,
+    "deliveries": 1,
+    "successful_deliveries": 1,
+    "first_seen": "2026-11-16T17:36:27.716000Z",
+    "first_seen_clock": "host",
+    "last_seen": "2026-11-16T17:36:31.716000Z",
+    "concurrent_groups": 0,
+    "groups": [
+     {
+      "group": 0,
+      "concurrent": false,
+      "label": null,
+      "observed_events": 1,
+      "inferred_events": 0,
+      "ordered_inside": 0,
+      "start": "2026-11-16T17:36:27.716000Z",
+      "end": "2026-11-16T17:36:27.716000Z"
+     },
+     {
+      "group": 1,
+      "concurrent": false,
+      "label": null,
+      "observed_events": 1,
+      "inferred_events": 0,
+      "ordered_inside": 0,
+      "start": "2026-11-16T17:36:28.716000Z",
+      "end": "2026-11-16T17:36:28.716000Z"
+     },
+     {
+      "group": 2,
+      "concurrent": false,
+      "label": null,
+      "observed_events": 1,
+      "inferred_events": 0,
+      "ordered_inside": 0,
+      "start": "2026-11-16T17:36:29.716000Z",
+      "end": "2026-11-16T17:36:29.716000Z"
+     },
+     {
+      "group": 3,
+      "concurrent": false,
+      "label": null,
+      "observed_events": 1,
+      "inferred_events": 0,
+      "ordered_inside": 0,
+      "start": "2026-11-16T17:36:30.716000Z",
+      "end": "2026-11-16T17:36:30.716000Z"
+     },
+     {
+      "group": 4,
+      "concurrent": false,
+      "label": null,
+      "observed_events": 1,
+      "inferred_events": 0,
+      "ordered_inside": 0,
+      "start": "2026-11-16T17:36:31.716000Z",
+      "end": "2026-11-16T17:36:31.716000Z"
+     }
+    ],
+    "events": [
+     {
+      "id": "e1",
+      "type": "sent",
+      "inferred": false,
+      "time": "2026-11-16T17:36:27.716000Z",
+      "time_unix_nano": "1794850587716000000",
+      "start": "2026-11-16T17:36:27.716000Z",
+      "start_unix_nano": "1794850587716000000",
+      "end": "2026-11-16T17:36:27.716000Z",
+      "end_unix_nano": "1794850587716000000",
+      "start_observed": true,
+      "group": 0,
+      "queue": "orders",
+      "consumer": {
+       "service_name": "checkout",
+       "client_id": "producer",
+       "source": "client",
+       "pid": 4242,
+       "thread_name": "worker-1"
+      },
+      "span": {
+       "trace_id": "0000000000000000000000000000000a",
+       "span_id": "000000000000f00a"
+      },
+      "process_order": null,
+      "after": []
+     },
+     {
+      "id": "e2",
+      "type": "received",
+      "inferred": false,
+      "time": "2026-11-16T17:36:28.716000Z",
+      "time_unix_nano": "1794850588716000000",
+      "start": "2026-11-16T17:36:28.716000Z",
+      "start_unix_nano": "1794850588716000000",
+      "end": "2026-11-16T17:36:28.716000Z",
+      "end_unix_nano": "1794850588716000000",
+      "start_observed": true,
+      "group": 1,
+      "queue": "orders",
+      "consumer": {
+       "service_name": "orders-worker",
+       "client_id": "worker-1",
+       "source": "client",
+       "pid": 4242,
+       "thread_name": "worker-1"
+      },
+      "span": {
+       "trace_id": "0000000000000000000000000000000b",
+       "span_id": "000000000000f00b"
+      },
+      "process_order": null,
+      "delivery": 1,
+      "receive_count": 1,
+      "after": [
+       {
+        "event": "e1",
+        "type": "sent",
+        "sources": [
+         "clock"
+        ],
+        "source": "clock",
+        "why": "The send ended (2026-11-16T17:36:27.716000Z) before this started (2026-11-16T17:36:28.716000Z), on the hosts' clocks."
+       }
+      ]
+     },
+     {
+      "id": "e3",
+      "type": "visibility_changed",
+      "inferred": false,
+      "time": "2026-11-16T17:36:29.716000Z",
+      "time_unix_nano": "1794850589716000000",
+      "start": "2026-11-16T17:36:29.716000Z",
+      "start_unix_nano": "1794850589716000000",
+      "end": "2026-11-16T17:36:29.716000Z",
+      "end_unix_nano": "1794850589716000000",
+      "start_observed": true,
+      "group": 2,
+      "queue": "orders",
+      "consumer": {
+       "service_name": "orders-worker",
+       "client_id": "worker-1",
+       "source": "client",
+       "pid": 4242,
+       "thread_name": "worker-1"
+      },
+      "span": {
+       "trace_id": "0000000000000000000000000000000c",
+       "span_id": "000000000000f00c"
+      },
+      "process_order": null,
+      "delivery": 1,
+      "result": "ok",
+      "visibility_timeout_s": 120,
+      "after": [
+       {
+        "event": "e2",
+        "type": "received",
+        "sources": [
+         "clock"
+        ],
+        "source": "clock",
+        "why": "Receive 1 ended (2026-11-16T17:36:28.716000Z) before this started (2026-11-16T17:36:29.716000Z), on the hosts' clocks."
+       }
+      ]
+     },
+     {
+      "id": "e4",
+      "type": "visibility_changed",
+      "inferred": false,
+      "time": "2026-11-16T17:36:30.716000Z",
+      "time_unix_nano": "1794850590716000000",
+      "start": "2026-11-16T17:36:30.716000Z",
+      "start_unix_nano": "1794850590716000000",
+      "end": "2026-11-16T17:36:30.716000Z",
+      "end_unix_nano": "1794850590716000000",
+      "start_observed": true,
+      "group": 3,
+      "queue": "orders",
+      "consumer": {
+       "service_name": "orders-worker",
+       "client_id": "worker-1",
+       "source": "client",
+       "pid": 4242,
+       "thread_name": "worker-1"
+      },
+      "span": {
+       "trace_id": "0000000000000000000000000000000d",
+       "span_id": "000000000000f00d"
+      },
+      "process_order": null,
+      "delivery": 1,
+      "result": "failed",
+      "error_code": "MessageNotInflight",
+      "visibility_timeout_s": 300,
+      "after": [
+       {
+        "event": "e3",
+        "type": "visibility_changed",
+        "sources": [
+         "clock"
+        ],
+        "source": "clock",
+        "why": "The visibility change of delivery 1 ended (2026-11-16T17:36:29.716000Z) before this started (2026-11-16T17:36:30.716000Z), on the hosts' clocks."
+       }
+      ]
+     },
+     {
+      "id": "e5",
+      "type": "deleted",
+      "inferred": false,
+      "time": "2026-11-16T17:36:31.716000Z",
+      "time_unix_nano": "1794850591716000000",
+      "start": "2026-11-16T17:36:31.716000Z",
+      "start_unix_nano": "1794850591716000000",
+      "end": "2026-11-16T17:36:31.716000Z",
+      "end_unix_nano": "1794850591716000000",
+      "start_observed": true,
+      "group": 4,
+      "queue": "orders",
+      "consumer": {
+       "service_name": "orders-worker",
+       "client_id": "worker-1",
+       "source": "client",
+       "pid": 4242,
+       "thread_name": "worker-1"
+      },
+      "span": {
+       "trace_id": "0000000000000000000000000000000e",
+       "span_id": "000000000000f00e"
+      },
+      "process_order": null,
+      "delivery": 1,
+      "result": "ok",
+      "status": "final",
+      "after": [
+       {
+        "event": "e4",
+        "type": "visibility_changed",
+        "sources": [
+         "clock"
+        ],
+        "source": "clock",
+        "why": "The visibility change of delivery 1 ended (2026-11-16T17:36:30.716000Z) before this started (2026-11-16T17:36:31.716000Z), on the hosts' clocks."
+       }
+      ]
+     }
+    ],
+    "order": {
+     "edges": [
+      {
+       "from": "e1",
+       "to": "e2",
+       "sources": [
+        "clock"
+       ]
+      },
+      {
+       "from": "e1",
+       "to": "e3",
+       "sources": [
+        "clock"
+       ]
+      },
+      {
+       "from": "e1",
+       "to": "e4",
+       "sources": [
+        "clock"
+       ]
+      },
+      {
+       "from": "e1",
+       "to": "e5",
+       "sources": [
+        "clock"
+       ]
+      },
+      {
+       "from": "e2",
+       "to": "e3",
+       "sources": [
+        "clock"
+       ]
+      },
+      {
+       "from": "e2",
+       "to": "e4",
+       "sources": [
+        "clock"
+       ]
+      },
+      {
+       "from": "e2",
+       "to": "e5",
+       "sources": [
+        "clock"
+       ]
+      },
+      {
+       "from": "e3",
+       "to": "e4",
+       "sources": [
+        "clock"
+       ]
+      },
+      {
+       "from": "e3",
+       "to": "e5",
+       "sources": [
+        "clock"
+       ]
+      },
+      {
+       "from": "e4",
+       "to": "e5",
+       "sources": [
+        "clock"
+       ]
+      }
+     ],
+     "edges_by_source": {
+      "clock": 10,
+      "process_order": 0,
+      "receive_count": 0,
+      "sqs_timestamps": 0
+     },
+     "conflicts": []
+    },
+    "notices": []
+   },
+   "urls": {
+    "orders": "http://localhost:9324/000000000000/orders"
+   },
+   "metas": [
+    {
+     "kind": "send",
+     "traceId": "0000000000000000000000000000000a",
+     "spanId": "000000000000f00a",
+     "tenant": null,
+     "tenantSource": null,
+     "bodySize": null,
+     "groupId": null,
+     "sequenceNumber": null,
+     "errorMessage": null,
+     "batchSize": null,
+     "batchIndex": null
+    },
+    {
+     "kind": "receive",
+     "traceId": "0000000000000000000000000000000b",
+     "spanId": "000000000000f00b",
+     "tenant": null,
+     "tenantSource": null,
+     "bodySize": null,
+     "groupId": null,
+     "sequenceNumber": null,
+     "errorMessage": null,
+     "batchSize": null,
+     "batchIndex": null
+    },
+    {
+     "kind": "change_visibility",
+     "traceId": "0000000000000000000000000000000c",
+     "spanId": "000000000000f00c",
+     "tenant": null,
+     "tenantSource": null,
+     "bodySize": null,
+     "groupId": null,
+     "sequenceNumber": null,
+     "errorMessage": null,
+     "batchSize": null,
+     "batchIndex": null
+    },
+    {
+     "kind": "change_visibility",
+     "traceId": "0000000000000000000000000000000d",
+     "spanId": "000000000000f00d",
+     "tenant": null,
+     "tenantSource": null,
+     "bodySize": null,
+     "groupId": null,
+     "sequenceNumber": null,
+     "errorMessage": null,
+     "batchSize": null,
+     "batchIndex": null
+    },
+    {
+     "kind": "delete",
+     "traceId": "0000000000000000000000000000000e",
+     "spanId": "000000000000f00e",
+     "tenant": null,
+     "tenantSource": null,
+     "bodySize": null,
+     "groupId": null,
+     "sequenceNumber": null,
+     "errorMessage": null,
+     "batchSize": null,
+     "batchIndex": null
+    }
+   ],
+   "body": null
+  },
+  {
+   "timeline": {
     "message_id": "m-fn-retry",
     "state": "deleted_inferred",
     "source_queue": "billing",
@@ -4812,6 +5223,108 @@
     "receiveCount": 1
    },
    {
+    "key": "m-vis:e5",
+    "ms": 1794850591716,
+    "event": "delete",
+    "status": "ok",
+    "queue": "orders",
+    "messageId": "m-vis",
+    "producer": "checkout",
+    "detail": "",
+    "source": "package",
+    "hasPage": true,
+    "live": true,
+    "attrs": {
+     "queue.account": "000000000000"
+    },
+    "service": "orders-worker",
+    "consumer": "orders-worker",
+    "receiveCount": 1,
+    "durationMs": 3000,
+    "call": "DeleteMessage"
+   },
+   {
+    "key": "m-vis:e4",
+    "ms": 1794850590716,
+    "event": "visibility_change",
+    "status": "error",
+    "queue": "orders",
+    "messageId": "m-vis",
+    "producer": "checkout",
+    "detail": "ChangeMessageVisibility failed: MessageNotInflight",
+    "source": "package",
+    "hasPage": true,
+    "live": true,
+    "attrs": {
+     "queue.account": "000000000000"
+    },
+    "service": "orders-worker",
+    "consumer": "orders-worker",
+    "receiveCount": 1,
+    "call": "ChangeMessageVisibility"
+   },
+   {
+    "key": "m-vis:e3",
+    "ms": 1794850589716,
+    "event": "visibility_change",
+    "status": "ok",
+    "queue": "orders",
+    "messageId": "m-vis",
+    "producer": "checkout",
+    "detail": "Visibility timeout set to 120 s",
+    "source": "package",
+    "hasPage": true,
+    "live": true,
+    "attrs": {
+     "queue.account": "000000000000"
+    },
+    "service": "orders-worker",
+    "consumer": "orders-worker",
+    "receiveCount": 1,
+    "call": "ChangeMessageVisibility"
+   },
+   {
+    "key": "m-vis:e2",
+    "ms": 1794850588716,
+    "event": "receive",
+    "status": "ok",
+    "queue": "orders",
+    "messageId": "m-vis",
+    "producer": "checkout",
+    "detail": "",
+    "source": "package",
+    "hasPage": true,
+    "live": true,
+    "attrs": {
+     "message.ApproximateReceiveCount": 1,
+     "queue.account": "000000000000"
+    },
+    "service": "orders-worker",
+    "consumer": "orders-worker",
+    "receiveCount": 1,
+    "waitMs": 1000,
+    "call": "ReceiveMessage"
+   },
+   {
+    "key": "m-vis:e1",
+    "ms": 1794850587716,
+    "event": "send",
+    "status": "ok",
+    "queue": "orders",
+    "messageId": "m-vis",
+    "producer": "checkout",
+    "detail": "",
+    "source": "package",
+    "hasPage": true,
+    "live": true,
+    "attrs": {
+     "queue.account": "000000000000"
+    },
+    "service": "checkout",
+    "consumer": "orders-worker",
+    "call": "SendMessage"
+   },
+   {
     "key": "m-fn-retry:e6",
     "ms": 1794850583716,
     "event": "delete",
@@ -5018,7 +5531,7 @@
     "call": "SendMessage"
    }
   ],
-  "messages": 13,
+  "messages": 14,
   "capped": false,
   "bodies_capped": false,
   "queues": [

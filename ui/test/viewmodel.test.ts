@@ -1,6 +1,6 @@
 /*
   QV-578 (One UI row 0d): the shared view-model functions (@trailbeam/ui/model) on fixtures/viewmodel-parity.json.
-  The same spans went through each backend's API; what eventsOfTimeline, overviewData and toCause make of either
+  The same spans went through each backend's API; what eventsOfTimeline, overviewData, toCause and issuesOf make of either
   answer must be the same, and must be `expected`. The hosted app runs the same check on its live engine
   (test/viewmodel-parity.test.ts there). Run: npm test
 */
@@ -17,11 +17,12 @@ const f = JSON.parse(readFileSync(new URL("./fixtures/viewmodel-parity.json", im
 };
 
 for (const backend of ["python", "hosted"] as const) {
-  test(`${backend}: the recorded answers give the expected events, Overview and cause rows`, () => {
+  test(`${backend}: the recorded answers give the expected events, Overview, cause rows and issues`, () => {
     const got = viewModels(f.answers[backend], f.nowMs, f.fromMs);
     assert.deepEqual(got.events, f.expected.events);
     assert.deepEqual(got.overview, f.expected.overview);
     assert.deepEqual(got.causes, f.expected.causes);
+    assert.deepEqual(got.issues, f.expected.issues);
   });
 }
 

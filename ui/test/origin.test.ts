@@ -21,16 +21,16 @@ test("an EventBridge event body gives an inferred first step with the source, de
   assert.deepEqual(t.events.map((e) => [e.type, e.inferred]), [["arrived_via_eventbridge", true], ["received", false], ["deleted", false]]);
   const html = text(render(t));
   assert.match(html, / Arrived via an EventBridge rule: OrderPlaced /);
-  assert.match(html, /inferred · EventBridge event body/);
-  assert.match(html, /EventBridge · com\.example\.orders/);
-  assert.match(html, /body of delivery 1 · delivery 1\.2 s|body of delivery 1 · delivery 1200 ms/);
+  assert.match(html, /inferred from the EventBridge event body/);
+  assert.match(html, /com\.example\.orders \(EventBridge\)/);
+  assert.match(html, /Body of delivery 1 Delivery took 1\.2 s/);
   assert.match(html, /6a7e8feb-b491-4cf7-a9f1-bf3703467718/);
 });
 
 test("an S3 notification names the event, bucket and key; the test message says what it is", () => {
   const up = text(render(byId("s3-upload")));
   assert.match(up, / S3 ObjectCreated:Put in uploads /);
-  assert.match(up, /inferred · S3 event body/);
+  assert.match(up, /inferred from the S3 event body/);
   assert.match(up, /red\+flower\.jpg/);
   assert.match(up, /0055AED6DCD90281E5/);
   const tst = text(render(byId("s3-test")));

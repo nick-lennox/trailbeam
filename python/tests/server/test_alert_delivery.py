@@ -267,14 +267,88 @@ def test_a_target_is_checked_again_before_sending(hook):
     assert hook.requests == []
 
 
-def test_a_public_name_resolving_to_a_private_address_is_refused(hook, monkeypatch):
-    """The check is on the address connected to, so DNS can't point a webhook inside."""
-    real = socket.create_connection
-    monkeypatch.setattr(socket, "create_connection", lambda addr, *a, **k: real(("127.0.0.1", hook.port), *a, **k))
-    ch = webhook("http://hooks.example.com/x")
-    with pytest.raises(d.DeliveryError, match="private or local address"):
-        d._post(ch["target"], "{}", {}, d.Delivery(base="x"))
-    assert hook.requests == []
+def fake_dns(monkeypatch, answers, delay=0.0):
+    """getaddrinfo for hooks.example.com gives ``answers`` (IPs) after ``delay`` s; other hosts resolve as usual."""
+    real, asked = socket.getaddrinfo, []
+
+    def look(host, port, *a, **k):
+        if host != "hooks.example.com":
+            return real(host, port, *a, **k)
+        asked.append(host)
+        time.sleep(delay)
+        return [(socket.AF_INET6 if ":" in ip else socket.AF_INET, socket.SOCK_STREAM, 6, "",
+                 (ip, port, 0, 0) if ":" in ip else (ip, port)) for ip in answers]
+
+    monkeypatch.setattr(socket, "getaddrinfo", look)
+    return asked
+
+
+def listener():
+    """A listening socket that tells whether anyone connected to it."""
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    s.listen(8)
+    s.setblocking(False)
+    return s
+
+
+def connected(s) -> bool:
+    try:
+        s.accept()[0].close()
+        return True
+    except BlockingIOError:
+        return False
+
+
+def test_a_public_name_resolving_to_a_private_address_is_refused_before_connecting(monkeypatch):
+    """QV-672: the addresses are checked before connecting, so an open port and a closed one give the same answer, and
+    nothing is connected to: a test send can't be used to scan the server's network."""
+    fake_dns(monkeypatch, ["127.0.0.1"])
+    open_ = listener()
+    closed = socket.socket()
+    closed.bind(("127.0.0.1", 0))
+    closed_port = closed.getsockname()[1]
+    closed.close()
+    try:
+        answers = []
+        for port in (open_.getsockname()[1], closed_port):
+            answers.append(str(fails(webhook(f"https://hooks.example.com:{port}/x"), d.Delivery(base="x"),
+                                     "The webhook's host is a private or local address.")))
+        assert answers[0] == answers[1]
+        time.sleep(0.05)
+        assert not connected(open_)
+    finally:
+        open_.close()
+
+
+@pytest.mark.parametrize("answers", [["93.184.216.34", "10.0.0.5"], ["2606:2800:220:1::1", "::1"],
+                                     ["93.184.216.34", "::ffff:169.254.169.254"]])
+def test_a_name_with_any_private_address_is_refused(monkeypatch, answers):
+    """Not only the first address: a name with a public and a private one could otherwise be steered inside."""
+    fake_dns(monkeypatch, answers)
+    fails(webhook("https://hooks.example.com/x"), d.Delivery(base="x"), "The webhook's host is a private or local address.")
+
+
+def test_the_send_goes_to_the_checked_address_with_the_name_kept(hook, monkeypatch):
+    """One lookup, and the connection is to the address it gave (so DNS can't answer differently between the check and
+    the connection), while the Host header still names the URL's host."""
+    asked = fake_dns(monkeypatch, ["127.0.0.1"])
+    d._post(f"http://hooks.example.com:{hook.port}/x", "{}", {}, local())
+    (got,) = hook.requests
+    assert got["headers"]["host"] == f"hooks.example.com:{hook.port}"
+    assert asked == ["hooks.example.com"]
+
+
+def test_a_slow_resolver_cannot_push_a_send_past_the_deadline(monkeypatch):
+    fake_dns(monkeypatch, ["93.184.216.34"], delay=2)
+    t = time.monotonic()
+    fails(webhook("https://hooks.example.com/x"), d.Delivery(base="x", timeout_s=0.3), "The endpoint did not answer in time.")
+    assert time.monotonic() - t < 1.0
+
+
+def test_a_name_that_does_not_resolve():
+    fails(webhook("https://nothing.invalid/x"), d.Delivery(base="x", timeout_s=5),
+          "The endpoint could not be reached: its host name was not found.")
 
 
 # ── TLS ──────────────────────────────────────────────────────────────────────────────────────────────────────────
