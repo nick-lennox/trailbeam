@@ -28,6 +28,7 @@ from .sessions import Sessions
 from .signin import AddressLimit, SignIn
 from .tokens import Tokens
 from . import events as events_mod
+from . import timeline_events
 from .store import ExportAbandoned, Store, StoreFull, StoreTimeout, StoreUnavailable, WriterBusy
 from .proxy import TrustedProxies
 from .otlp import PROBE_NOT_STORED, DecodeError, decode, valid_probe_id
@@ -108,7 +109,7 @@ class App:
             "health": self.health, "stats": self.stats_counts, "messages": self.messages, "duplicates": self.duplicates,
             "stuck": self.stuck, "causes": self.causes, "events": self.events, "tenants": self.tenants, "probes": self.probes,
             "me": self.me, "users": self._not_a_route, "tokens": self._not_a_route,
-            "queues": self.queues, "flows": self.flows}
+            "queues": self.queues, "flows": self.flows, "timeline-events": self.timeline_events}
         # /api/alerts (alerts_api.py): rules, channels and alert state; None (404) while the alert check is off
         self.alerts: alerts_api.AlertsApi | None = alerts_api.for_app(self) if alerts == "auto" else alerts
         self._init_metrics()
@@ -494,6 +495,15 @@ class App:
         return events_mod.page(self.db, from_ms, to_ms, _limit(q), queue=q.get("queue") or None,
                                service=q.get("service") or None, kinds=kinds,
                                message_id=q.get("message_id") or None, cursor=q.get("cursor"))
+
+    def timeline_events(self, q: dict, rest: list[str]) -> dict:
+        """``/api/timeline-events``: the Event explorer's events in [from_ms, to_ms], or the last ``since_s`` seconds
+        (default a day), made from each message's timeline, inferred ones included (timeline_events.py, QV-580)."""
+        if rest:
+            raise ApiError(404, "no such endpoint")
+        from_ms, to_ms = self._window(q)
+        return timeline_events.page(self.db, from_ms, to_ms, self.now(), self._lambda_timeout(q), self.max_receive_counts,
+                                    limit=_int(q, "limit", timeline_events.DEFAULT_MESSAGES, 1, timeline_events.MAX_MESSAGES))
 
     def causes(self, q: dict, rest: list[str]) -> dict:
         """``/api/causes``: the stuck messages grouped by why they didn't finish (causes.py, QV-367), the Needs

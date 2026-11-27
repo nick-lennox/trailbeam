@@ -23,9 +23,10 @@ MAX_LIMIT = 1000
 
 
 def message(db: Store, message_id: str, now_ns: int, lambda_timeout_s: int,
-            max_receive_counts: Optional[dict] = None) -> Optional[dict]:
-    """``max_receive_counts``: queue name -> maxReceiveCount, as configured (``--max-receive-count``)."""
-    rows = db.message_rows(message_id)
+            max_receive_counts: Optional[dict] = None, *, rows: Optional[list] = None) -> Optional[dict]:
+    """``max_receive_counts``: queue name -> maxReceiveCount, as configured (``--max-receive-count``). ``rows``: the
+    message's rows when already read (Store.message_rows)."""
+    rows = db.message_rows(message_id) if rows is None else rows
     if not rows:
         return None
     if rabbitmq.is_rabbitmq(rows):  # no purges and no SNS; the broker's consumer cancels of its queues (A10)
