@@ -48,6 +48,18 @@ don't edit it by hand. Checked by `python/tests/server/test_alerts.py`, which al
 script writes, and by the hosted app's `test/alerts-parity.test.ts` against its `lib/alerts/evaluate.ts`.
 `@trailbeam/ui` ships it as `@trailbeam/ui/fixtures/alerts-parity.json`, so there is one file and no copy.
 
+## `alerts-run.json`
+
+The scheduled alert check's decisions both products must agree on (QV-639): which workspaces one check looks at and in
+which order (oldest checked first), the time budget, lease skipping (another check holds it, or checked it fine within
+the gap), workspaces with no alert channel, checking one workspace alone, dashboard rules that fire or stay firing,
+"Alert me" rules that fire, are muted or snoozed, wake up still firing (one "still firing" change) or quiet, and a
+failing workspace that doesn't stop the others. A case is one check: the stored rules, states, checks and leases, what
+each workspace's reads return and how long they take, and the result, the changes sent and the store after. It is
+written by `make-alerts-run.py` from the open-source check (`server/src/trailbeam/server/alerts_run.py`); don't edit
+it by hand. Checked by `python/tests/server/test_alerts_run.py`, which also fails if the file is not what the script
+writes. It is not yet run against the hosted app's `lib/alerts/run.ts` nor shipped in `@trailbeam/ui`.
+
 ## `measures-parity.json`
 
 The dashboard widget measure cases both engines must agree on (QV-632): every measure as a series (all of it, by queue,
