@@ -10475,6 +10475,42 @@
     }
    }
   },
+  "failedQuiet": {
+   "live": true,
+   "now": 1764000000000,
+   "capped": false,
+   "queues": [
+    "legacy"
+   ],
+   "events": [],
+   "queueLive": {
+    "legacy": {
+     "status": "failed",
+     "detail": null,
+     "readAt": null,
+     "visibilityTimeoutS": 30,
+     "retentionS": 345600,
+     "delayS": 0,
+     "maxReceiveCount": 3,
+     "dlq": null,
+     "fifo": false,
+     "visible": null,
+     "inFlight": null,
+     "oldestS": null,
+     "dlqDepth": null,
+     "oldestAsOf": 1763999940000,
+     "dlqAsOf": null,
+     "oldestUnpublished": false,
+     "dlqUnpublished": false,
+     "windows": [],
+     "stuck": 0,
+     "nearDlq": {
+      "count": 0,
+      "inFlight": 0
+     }
+    }
+   }
+  },
   "okOnly": {
    "live": true,
    "now": 1764000000000,
@@ -16755,6 +16791,11 @@
   },
   {
    "measure": "messages_visible",
+   "data": "failedQuiet",
+   "expected": true
+  },
+  {
+   "measure": "messages_visible",
    "data": "okOnly",
    "expected": false
   },
@@ -16780,6 +16821,11 @@
   },
   {
    "measure": "messages_in_flight",
+   "data": "failedQuiet",
+   "expected": true
+  },
+  {
+   "measure": "messages_in_flight",
    "data": "okOnly",
    "expected": false
   },
@@ -16805,6 +16851,11 @@
   },
   {
    "measure": "oldest_age",
+   "data": "failedQuiet",
+   "expected": true
+  },
+  {
+   "measure": "oldest_age",
    "data": "okOnly",
    "expected": true
   },
@@ -16830,6 +16881,11 @@
   },
   {
    "measure": "time_to_drain",
+   "data": "failedQuiet",
+   "expected": true
+  },
+  {
+   "measure": "time_to_drain",
    "data": "okOnly",
    "expected": true
   },
@@ -16855,6 +16911,11 @@
   },
   {
    "measure": "sent",
+   "data": "failedQuiet",
+   "expected": false
+  },
+  {
+   "measure": "sent",
    "data": "okOnly",
    "expected": false
   },
@@ -16880,6 +16941,11 @@
   },
   {
    "measure": "received",
+   "data": "failedQuiet",
+   "expected": false
+  },
+  {
+   "measure": "received",
    "data": "okOnly",
    "expected": false
   },
@@ -16905,6 +16971,11 @@
   },
   {
    "measure": "deleted",
+   "data": "failedQuiet",
+   "expected": false
+  },
+  {
+   "measure": "deleted",
    "data": "okOnly",
    "expected": false
   },
@@ -16930,6 +17001,11 @@
   },
   {
    "measure": "processing_time",
+   "data": "failedQuiet",
+   "expected": false
+  },
+  {
+   "measure": "processing_time",
    "data": "okOnly",
    "expected": false
   },
@@ -16955,6 +17031,11 @@
   },
   {
    "measure": "time_in_queue",
+   "data": "failedQuiet",
+   "expected": false
+  },
+  {
+   "measure": "time_in_queue",
    "data": "okOnly",
    "expected": false
   },
@@ -16980,6 +17061,11 @@
   },
   {
    "measure": "dlq_depth",
+   "data": "failedQuiet",
+   "expected": true
+  },
+  {
+   "measure": "dlq_depth",
    "data": "okOnly",
    "expected": true
   },
@@ -17005,6 +17091,11 @@
   },
   {
    "measure": "stuck_in_flight",
+   "data": "failedQuiet",
+   "expected": true
+  },
+  {
+   "measure": "stuck_in_flight",
    "data": "okOnly",
    "expected": true
   },
@@ -17030,6 +17121,11 @@
   },
   {
    "measure": "processing_errors",
+   "data": "failedQuiet",
+   "expected": false
+  },
+  {
+   "measure": "processing_errors",
    "data": "okOnly",
    "expected": false
   },
@@ -17055,6 +17151,11 @@
   },
   {
    "measure": "dead_lettered",
+   "data": "failedQuiet",
+   "expected": false
+  },
+  {
+   "measure": "dead_lettered",
    "data": "okOnly",
    "expected": false
   },
@@ -17080,6 +17181,11 @@
   },
   {
    "measure": "retention_headroom",
+   "data": "failedQuiet",
+   "expected": true
+  },
+  {
+   "measure": "retention_headroom",
    "data": "okOnly",
    "expected": true
   },
@@ -17105,6 +17211,11 @@
   },
   {
    "measure": "visibility_headroom",
+   "data": "failedQuiet",
+   "expected": true
+  },
+  {
+   "measure": "visibility_headroom",
    "data": "okOnly",
    "expected": true
   },
@@ -17130,6 +17241,11 @@
   },
   {
    "measure": "near_dlq",
+   "data": "failedQuiet",
+   "expected": true
+  },
+  {
+   "measure": "near_dlq",
    "data": "okOnly",
    "expected": true
   },
@@ -17155,6 +17271,11 @@
   },
   {
    "measure": "events",
+   "data": "failedQuiet",
+   "expected": false
+  },
+  {
+   "measure": "events",
    "data": "okOnly",
    "expected": false
   },
@@ -17180,6 +17301,11 @@
   },
   {
    "measure": "body_size",
+   "data": "failedQuiet",
+   "expected": false
+  },
+  {
+   "measure": "body_size",
    "data": "okOnly",
    "expected": false
   },
@@ -17201,6 +17327,11 @@
   {
    "measure": "receive_count",
    "data": "failed",
+   "expected": false
+  },
+  {
+   "measure": "receive_count",
+   "data": "failedQuiet",
    "expected": false
   },
   {
@@ -19104,11 +19235,15 @@
   },
   {
    "data": "none",
-   "expected": "No data. No data. No connected AWS account names this queue. Connect its account in Connections to read its depth and settings."
+   "expected": "No data. No connected AWS account names this queue. Connect its account in Connections to read its depth and settings."
   },
   {
    "data": "failed",
    "expected": "No data. AccessDenied: the role can't call sqs:GetQueueAttributes on legacy."
+  },
+  {
+   "data": "failedQuiet",
+   "expected": "No data from CloudWatch for this queue yet."
   },
   {
    "data": "okOnly",
@@ -19116,7 +19251,7 @@
   },
   {
    "data": "empty",
-   "expected": "No data. No data. No connected AWS account names this queue. Connect its account in Connections to read its depth and settings."
+   "expected": "No data. No connected AWS account names this queue. Connect its account in Connections to read its depth and settings."
   }
  ],
  "queueTone": [

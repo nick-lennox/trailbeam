@@ -161,6 +161,8 @@ def datasets():
         "none": {**d, "events": d["events"][:30], "queueLive": {}},
         # these two are about the queue figures only, so they carry no events
         "failed": {**d, "events": [], "queues": ["legacy"], "queueLive": {"legacy": ql["legacy"]}},
+        # a failed read AWS gave no detail for
+        "failedQuiet": {**d, "events": [], "queues": ["legacy"], "queueLive": {"legacy": {**ql["legacy"], "detail": None}}},
         "okOnly": {**d, "events": [], "queues": ["email-dispatch"], "queueLive": {"email-dispatch": ql["email-dispatch"]}},
         "empty": {"live": True, "now": NOW, "capped": False, "queues": [], "events": [], "queueLive": {}},
     }
