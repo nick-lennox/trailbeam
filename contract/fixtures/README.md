@@ -48,6 +48,19 @@ don't edit it by hand. Checked by `python/tests/server/test_alerts.py`, which al
 script writes, and by the hosted app's `test/alerts-parity.test.ts` against its `lib/alerts/evaluate.ts`.
 `@trailbeam/ui` ships it as `@trailbeam/ui/fixtures/alerts-parity.json`, so there is one file and no copy.
 
+## `measures-parity.json`
+
+The dashboard widget measure cases both engines must agree on (QV-632): every measure as a series (all of it, by queue,
+over other ranges, with no AWS figures), group-by fields, filters in the Event explorer's query language (fields,
+wildcards, numbers and ranges, body paths, attributes, bare text, bad terms), a queue's figure, missing figures and
+history and why, queue health, filters with dashboard variables, number formatting, the 95th percentile, histogram
+buckets, what a widget with a rule alerts with, and checking a widget and a dashboard definition. The inputs are
+datasets in the hosted app's EventData shape (a workspace's own events and each queue's AWS figures), so the app passes
+them in unchanged. It is written by `make-measures-parity.py` from the open-source engine
+(`server/src/trailbeam/server/measures.py`); don't edit it by hand. Checked by `python/tests/server/test_measures.py`,
+which also fails if the file is not what the script writes, and by the hosted app's `test/measures-parity.test.ts`
+against its `lib/dashboards/measures.ts`. `@trailbeam/ui` ships it as `@trailbeam/ui/fixtures/measures-parity.json`.
+
 ## `alerts-delivery.json`
 
 What an alert sends, which both products must agree on (QV-636): for a webhook, Slack and email channel, the request

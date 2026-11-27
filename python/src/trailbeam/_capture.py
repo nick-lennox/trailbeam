@@ -698,6 +698,8 @@ _SEQUENCER_RE = re.compile(r"^[0-9A-Fa-f]{1,64}\Z")
 MAX_ORIGIN_TEXT = 256  # longest source, detail-type, event name, bucket or configuration ID recorded
 MAX_S3_KEY_BYTES = 1024  # S3's own key limit; the URL-encoded form in the event can be longer
 S3_TEST_EVENT = "s3:TestEvent"
+MAX_S3_ID = 1024  # longest eTag or versionId recorded (27.1's limit for the upload's)
+_S3_ID_CONTROL_RE = re.compile("[\u0000-\u001f\u007f-\u009f]")
 
 
 def _text(v: Any, limit: int = MAX_ORIGIN_TEXT) -> Optional[str]:
@@ -733,7 +735,8 @@ def eventbridge_event(doc: Any) -> Optional[dict]:
 
 def s3_event(config: Config, queue_name: str, doc: Any) -> Optional[dict]:
     """Section 23.2: an S3 event notification (its first record) or the s3:TestEvent message, as receive
-    attributes, or None. The object key only on a queue whose body is captured, redacted like the body."""
+    attributes, or None. The object key (redacted like the body), eTag and versionId only on a queue whose body is
+    captured."""
     if not isinstance(doc, dict):
         return None
     if doc.get("Event") == S3_TEST_EVENT and doc.get("Service") == "Amazon S3":
@@ -769,8 +772,14 @@ def s3_event(config: Config, queue_name: str, doc: Any) -> Optional[dict]:
         if isinstance(seq, str) and _SEQUENCER_RE.match(seq):
             out["trailbeam.s3.sequencer"] = seq
         key = obj.get("key")
-        if config.body_on(queue_name) and isinstance(key, str) and 0 < _utf8_len(key) <= 3 * MAX_S3_KEY_BYTES:
-            out["trailbeam.s3.object_key"] = redact_text(key, config)[0]
+        if config.body_on(queue_name):
+            if isinstance(key, str) and 0 < _utf8_len(key) <= 3 * MAX_S3_KEY_BYTES:
+                out["trailbeam.s3.object_key"] = redact_text(key, config)[0]
+            # Section 23.2 (QV-562): which write of the key this was, for the join of 27.3. Verbatim, not redacted.
+            for field_name, attr in (("eTag", "trailbeam.s3.etag"), ("versionId", "trailbeam.s3.version_id")):
+                v = obj.get(field_name)
+                if isinstance(v, str) and 0 < len(v) <= MAX_S3_ID and not _S3_ID_CONTROL_RE.search(v):
+                    out[attr] = v
     return out
 
 

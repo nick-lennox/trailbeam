@@ -674,6 +674,7 @@ const SEQUENCER_RE = /^[0-9A-Fa-f]{1,64}$/;
 const MAX_ORIGIN_TEXT = 256; // longest source, detail-type, event name, bucket or configuration ID recorded
 const MAX_S3_KEY_BYTES = 1024; // S3's own key limit; the URL-encoded form in the event can be longer
 const S3_TEST_EVENT = 's3:TestEvent';
+const MAX_S3_ID = 1024; // longest eTag or versionId recorded (27.1's limit for the upload's)
 
 // Code points, as Python's len(), so both packages cut at the same strings.
 const originText = (v, limit = MAX_ORIGIN_TEXT) => (typeof v === 'string' && v.length > 0 && [...v].length <= limit ? v : undefined);
@@ -704,7 +705,8 @@ function eventbridgeEvent(doc) {
 }
 
 /** Section 23.2: an S3 event notification (its first record) or the s3:TestEvent message, as receive
- * attributes, or undefined. The object key only on a queue whose body is captured, redacted like the body. */
+ * attributes, or undefined. The object key (redacted like the body), eTag and versionId only on a queue whose body
+ * is captured. */
 function s3Event(config, queueName, doc) {
   if (!isObject(doc)) return undefined;
   if (doc.Event === S3_TEST_EVENT && doc.Service === 'Amazon S3') {
@@ -732,8 +734,18 @@ function s3Event(config, queueName, doc) {
   if (isObject(obj)) {
     if (typeof obj.sequencer === 'string' && SEQUENCER_RE.test(obj.sequencer)) out['trailbeam.s3.sequencer'] = obj.sequencer;
     const key = obj.key;
-    if (config.bodyOn(queueName) && typeof key === 'string' && key.length > 0 && utf8Bytes(key) <= 3 * MAX_S3_KEY_BYTES) {
-      out['trailbeam.s3.object_key'] = redactText(key, config)[0];
+    if (config.bodyOn(queueName)) {
+      if (typeof key === 'string' && key.length > 0 && utf8Bytes(key) <= 3 * MAX_S3_KEY_BYTES) {
+        out['trailbeam.s3.object_key'] = redactText(key, config)[0];
+      }
+      // Section 23.2 (QV-562): which write of the key this was, for the join of 27.3. Verbatim, not redacted.
+      for (const [field, attr] of [['eTag', 'trailbeam.s3.etag'], ['versionId', 'trailbeam.s3.version_id']]) {
+        const v = obj[field];
+        // eslint-disable-next-line no-control-regex
+        if (typeof v === 'string' && v.length > 0 && [...v].length <= MAX_S3_ID && !/[\u0000-\u001f\u007f-\u009f]/.test(v)) {
+          out[attr] = v;
+        }
+      }
     }
   }
   return out;

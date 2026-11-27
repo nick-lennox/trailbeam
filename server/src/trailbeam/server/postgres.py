@@ -1017,16 +1017,19 @@ class PostgresStore(Store):
             if n is not None:
                 k = (n.bucket, n.key, n.event_time_ms, n.operation, own)
                 if k not in rows or rows[k][1] < r["time_ns"]:
-                    rows[k] = (r["queue"], r["time_ns"])
+                    rows[k] = (r["queue"], r["time_ns"], n.etag, n.version_id)
         if not rows:
             return
         items = sorted(rows.items())  # one order for every writer: concurrent exports never deadlock on these rows
-        conn.execute("""INSERT INTO s3_receives (bucket, object_key, event_time_ms, operation, mid, queue, time_ns)
+        conn.execute("""INSERT INTO s3_receives (bucket, object_key, event_time_ms, operation, mid, queue, time_ns, etag,
+                                                 version_id)
                         SELECT * FROM unnest(%s::text[], %s::text[], %s::bigint[], %s::text[], %s::text[], %s::text[],
-                                             %s::bigint[])
+                                             %s::bigint[], %s::text[], %s::text[])
                         ON CONFLICT (bucket, object_key, event_time_ms, operation, mid)
-                        DO UPDATE SET time_ns = GREATEST(s3_receives.time_ns, EXCLUDED.time_ns)""",
-                     [[k[i] for k, _ in items] for i in range(5)] + [[q for _, (q, _) in items], [t for _, (_, t) in items]])
+                        DO UPDATE SET time_ns = GREATEST(s3_receives.time_ns, EXCLUDED.time_ns),
+                                      etag = COALESCE(s3_receives.etag, EXCLUDED.etag),
+                                      version_id = COALESCE(s3_receives.version_id, EXCLUDED.version_id)""",
+                     [[k[i] for k, _ in items] for i in range(5)] + [[v[i] for _, v in items] for i in range(4)])
 
     def _insert_sns_receives(self, conn, prepared) -> None:
         """The SNS keys of the export's receives (contract section 21.3), for Store.sns_receivers. An exporter's
@@ -2102,7 +2105,7 @@ class PostgresStore(Store):
     def s3_receivers(self, bucket, object_key, from_ms, to_ms) -> list[dict]:
         with self._reading() as c:
             rows = c.execute(
-                """SELECT mid, queue, time_ns, event_time_ms, operation FROM s3_receives
+                """SELECT mid, queue, time_ns, event_time_ms, operation, etag, version_id FROM s3_receives
                    WHERE bucket = %s AND object_key = %s AND event_time_ms >= %s AND event_time_ms <= %s
                    ORDER BY time_ns, mid, event_time_ms, operation LIMIT %s""",
                 (bucket, object_key, from_ms, to_ms, s3.MAX_REACHED)).fetchall()

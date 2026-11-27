@@ -773,7 +773,8 @@ class SqliteStore(Store):
             n = s3.notification(r)
             if r["mid"] is not None and n is not None and n.bucket == bucket and n.key == object_key:
                 out.append({"row": r["row"], "mid": r["mid"], "queue": r["queue"], "time_ns": r["time_ns"],
-                            "event_time_ms": n.event_time_ms, "operation": n.operation})
+                            "event_time_ms": n.event_time_ms, "operation": n.operation, "etag": n.etag,
+                            "version_id": n.version_id})
         return out[:s3.MAX_REACHED]
 
     def sent_messages(self, message_ids) -> set:
