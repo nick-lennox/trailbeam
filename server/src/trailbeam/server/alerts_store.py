@@ -23,6 +23,13 @@ one upsert whose update only happens if the lease has ended and the workspace wa
 within the gap. On Postgres the upsert locks the row (a second one waits, then sees the first's lease), so of two
 processes exactly one takes it; on SQLite the writer runs one statement at a time.
 
+**NUL.** Postgres text columns refuse the NUL character (0x00), and a cause's label and key can hold one: they
+carry its first error text (causes.cause_label, causes.fingerprint), and a consumer that reads binary data can raise
+``ValueError: invalid literal for int(): '\x00\x01'``. So every string that goes in, as a value or in a WHERE, has
+NUL stored as U+FFFF (a noncharacter, which no text holds), and every string that comes out has it turned back: a
+label, a cause key or an error text round-trips as given, on SQLite and on Postgres alike, and a rule made on a
+cause whose key holds NUL is found by that key (QV-658).
+
 Times are milliseconds since the epoch. Nothing here holds spans: retention, ``--vacuum`` and the page queries
 never touch these tables, and a ``--db :memory:`` store loses them on every restart.
 """
@@ -129,6 +136,20 @@ _CHANNEL_SELECT = "SELECT " + ", ".join(c for _, c in _CHANNEL) + " FROM alert_c
 _STATE_SELECT = "SELECT " + ", ".join(c for _, c in _STATE) + " FROM alert_state"
 
 
+_NUL, _NUL_STORED = "\x00", "\uffff"
+
+
+def _in(args: tuple) -> tuple:
+    """The statement's arguments as stored: NUL in a string as U+FFFF, which Postgres takes."""
+    return tuple(a.replace(_NUL, _NUL_STORED) if isinstance(a, str) and _NUL in a else a for a in args)
+
+
+def _out(row) -> dict:
+    """A row as read, its strings as they were given."""
+    return {k: v.replace(_NUL_STORED, _NUL) if isinstance(v, str) and _NUL_STORED in v else v
+            for k, v in dict(row).items()}
+
+
 def _to_db(col: str, v: Any) -> Any:
     if col in _JSON:
         return None if v is None else json.dumps(list(v))
@@ -169,9 +190,9 @@ class AlertTables:
     def _read(self, q: str, args: tuple = ()) -> list[dict]:
         if self.postgres:
             with self.store.reads.connection() as c:
-                return [dict(r) for r in c.execute(q.replace("?", "%s"), args).fetchall()]
+                return [_out(r) for r in c.execute(q.replace("?", "%s"), _in(args)).fetchall()]
         with self.store.reader() as c:
-            return [dict(r) for r in c.execute(q, args).fetchall()]
+            return [_out(r) for r in c.execute(q, _in(args)).fetchall()]
 
     @contextlib.contextmanager
     def _write(self) -> Iterator[_Tx]:
@@ -354,8 +375,8 @@ class _Tx:
 
     def run(self, q: str, args: tuple = ()) -> int:
         """Rows changed."""
-        return self.c.execute(self._q(q), args).rowcount
+        return self.c.execute(self._q(q), _in(args)).rowcount
 
     def one(self, q: str, args: tuple = ()) -> dict | None:
-        r = self.c.execute(self._q(q), args).fetchone()
-        return None if r is None else dict(r)
+        r = self.c.execute(self._q(q), _in(args)).fetchone()
+        return None if r is None else _out(r)
