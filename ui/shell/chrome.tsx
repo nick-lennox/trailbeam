@@ -203,7 +203,8 @@ export const Json = ({ href }: { href: string }) => (
  * the window of the rows on screen. Without a clipboard (a plain-http host other than localhost), the link is
  * shown in a field, selected, to copy by hand.
  */
-export function CopyLink({ link, label = "Copy link" }: { link: () => string; label?: string }) {
+/** Copy a link to this page. `design`: drawn in the design system's look, for a page in the shared frame (frame.tsx). */
+export function CopyLink({ link, label = "Copy link", design = false }: { link: () => string; label?: string; design?: boolean }) {
   const [state, setState] = useState<{ kind: "idle" } | { kind: "copied" } | { kind: "select"; url: string }>({ kind: "idle" });
   useEffect(() => {
     if (state.kind !== "copied") return;
@@ -219,12 +220,14 @@ export function CopyLink({ link, label = "Copy link" }: { link: () => string; la
   return (
     <span className="inline-flex items-center gap-2">
       <button type="button" onClick={copy}
-        className="rounded-full border border-sky-line px-3 py-0.5 text-sm text-sky-ink-2 hover:border-sky-ink hover:text-sky-ink">
+        className={design ? "inline-flex h-10 items-center rounded-lg border border-line-strong bg-surface px-3 text-[13px] whitespace-nowrap text-ink-2 hover:text-ink"
+          : "rounded-full border border-sky-line px-3 py-0.5 text-sm text-sky-ink-2 hover:border-sky-ink hover:text-sky-ink"}>
         {state.kind === "copied" ? "Copied" : label}
       </button>
       {state.kind === "select" && (
         <input readOnly value={state.url} aria-label="Link to copy" autoFocus onFocus={(e) => e.currentTarget.select()}
-          className="w-72 rounded-full border border-sky-line bg-sky-2 px-3 py-0.5 font-mono text-caption text-sky-ink" />
+          className={design ? "h-10 w-72 rounded-lg border border-line-strong bg-canvas px-3 font-mono text-caption text-ink"
+            : "w-72 rounded-full border border-sky-line bg-sky-2 px-3 py-0.5 font-mono text-caption text-sky-ink"} />
       )}
       <span className="sr-only" aria-live="polite">{state.kind === "copied" ? "Link copied to the clipboard." : state.kind === "select" ? "Couldn't use the clipboard: the link is selected, press Ctrl+C or Cmd+C to copy." : ""}</span>
     </span>

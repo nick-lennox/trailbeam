@@ -64,11 +64,3 @@ export {
   type FlowService, type Note, type OverviewSummary,
 } from "./overview/derive.ts";
 export { overviewHref, overviewQuery, overviewWindow, pinnedOverview, readOverviewUrl, selfHostedHrefs, widerPresets, type OverviewUrl } from "./overview/selfhosted.ts";
-export { EventExplorer, type EventExplorerProps, type EventExport, type ExportOption } from "./events/EventExplorer.tsx";
-export { StepHistogram, niceMax, type HistogramProps } from "./events/Histogram.tsx";
-export {
-  EXPORT_HEADERS, EXPORT_MAX, EXPORT_PAGE, PAGE_LIMIT, barsOf, collectSteps, eventsQuery, exportRow, fmtStepTime, kindLabel, perLabel, pickedWindow,
-  serviceText, stepFailed, stepKey, stepMs, stepResult, toCsv, type Bar, type Window,
-} from "./events/model.ts";
-export { KIND_LABELS, QUERY_FIELDS, kindsOf, onlyKind, parseQuery, setField, type ParsedQuery, type QueryField, type Term } from "./events/query.ts";
-export { STEP_KINDS, type EventHistogram, type EventPage, type EventStep, type KindCounts, type StepKind } from "./events/types.ts";
