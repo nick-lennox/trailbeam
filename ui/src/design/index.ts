@@ -25,6 +25,7 @@ export {
   TenantRanges, TenantsCard, TenantsFoot, TenantsPage, TenantsTable,
   type TenantRange, type TenantsPageProps, type TenantsTableProps,
 } from "../tenants/TenantsPage.tsx";
+export { QueuePage, type QueuePageProps } from "../queue/QueuePage.tsx";
 export {
   HealthPill, OutcomePill, SourceTag, StatePill, SOURCE, POSSIBLY_PURGED_TITLE, purgeClock, purgeText, stateLook,
   type Outcome, type PurgeOf, type StateOf, type StepSource,
