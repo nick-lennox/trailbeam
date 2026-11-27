@@ -19,7 +19,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTrace
 
 from . import __version__
 from . import queues as queues_mod
-from . import alerts_api, access as access_mod, auth as auth_mod, causes as causes_mod, proxy_auth as proxy_auth_mod, bodies, csrf, first_admin, \
+from . import alerts_api, dashboards_api, access as access_mod, auth as auth_mod, causes as causes_mod, proxy_auth as proxy_auth_mod, bodies, csrf, first_admin, \
     metrics, oidc as oidc_mod, passwords, people_api, queries, \
     sessions as sessions_mod, trace_links, ui_files, web
 from .accounts import AccountError, Accounts, AdminExists, BadSetupCode, check_email, check_name
@@ -59,7 +59,8 @@ class App:
                  auth: Optional[auth_mod.Auth] = None, gate: Optional[IngestGate] = None,
                  trusted_proxies: Optional[TrustedProxies] = None, trace_link: Optional[str] = None,
                  accounts="auto", proxy_auth: Optional[proxy_auth_mod.ProxyAuthConfig] = None,
-                 oidc: Optional[oidc_mod.Settings] = None, oidc_provider=None, alerts="auto"):
+                 oidc: Optional[oidc_mod.Settings] = None, oidc_provider=None, alerts="auto",
+                 dashboards="auto"):
         self.db = db
         # --trusted-proxy (proxy.py): whose X-Forwarded-For/-Proto/-Host is believed; empty: nobody's
         self.proxies = trusted_proxies or TrustedProxies()
@@ -111,6 +112,10 @@ class App:
             "queues": self.queues, "flows": self.flows}
         # /api/alerts (alerts_api.py): rules, channels and alert state; None (404) while the alert check is off
         self.alerts: alerts_api.AlertsApi | None = alerts_api.for_app(self) if alerts == "auto" else alerts
+        # /api/dashboards (dashboards_api.py): dashboards, widgets and their measures; None (404) while
+        # TRAILBEAM_DASHBOARDS is off
+        self.dashboards: dashboards_api.DashboardsApi | None = \
+            dashboards_api.for_app(self) if dashboards == "auto" else dashboards
         self._init_metrics()
 
     # ---- /metrics -------------------------------------------------------------------------
@@ -313,9 +318,10 @@ class App:
         is the one whose level was checked. Not given (tests, in-process callers): matched on the exact path,
         the same way. Never normalised here: /api/users/ or /api//users is no route (a 404), not /api/users."""
         parts = [unquote(p) for p in path.split("/") if p]
-        if self.alerts is not None and alerts_api.is_alerts_path("/api/" + path):
-            try:
-                return self.alerts.call("GET", "/api/" + path, None, who)[1]
+        mounted = self.mounted("/api/" + path)
+        if mounted is not None:
+            try:  # the alerts API reads no query; the dashboards API's measures do
+                return mounted.call("GET", "/api/" + path, None if mounted is self.alerts else query, who)[1]
             except alerts_api.ApiProblem as e:
                 raise ApiError(e.status, e.message) from None
         r = access_mod.api_route("GET", "/api/" + path) if route is _UNSET else route
@@ -332,6 +338,15 @@ class App:
             return self.routes[parts[0]](query, parts[1:])
         except queries.CursorError as e:
             raise ApiError(400, str(e)) from None
+
+    def mounted(self, path: str):
+        """The JSON API mounted at this request path (alerts_api.py or dashboards_api.py), when it is on, or None.
+        Both answer ``call(method, path, body, who, base)`` and raise alerts_api.ApiProblem."""
+        if self.alerts is not None and alerts_api.is_alerts_path(path):
+            return self.alerts
+        if self.dashboards is not None and dashboards_api.is_dashboards_path(path):
+            return self.dashboards
+        return None
 
     def _not_a_route(self, query: dict, rest: list[str]) -> dict:
         """/api/users and /api/tokens paths that aren't one of access.API_ROUTES (matched in api)."""
@@ -819,12 +834,12 @@ def make_handler(app: App):
             """POST, PATCH and DELETE on the people-and-tokens routes (people_api.py), after csrf.check. The route
             and the person are checked before the body is read."""
             r = access_mod.api_route(method, path)
-            alerts = app.alerts if r is None and alerts_api.is_alerts_path(path) else None
-            if r is None and alerts is None:
+            mounted = app.mounted(path) if r is None else None
+            if r is None and mounted is None:
                 self.close_connection = True
                 self._json(404, {"error": f"no such endpoint: {method} {path}"})
                 return
-            # /api/alerts (alerts_api.py): let in at MEMBER; changing a channel needs an admin, checked by the handler
+            # /api/alerts and /api/dashboards: let in at MEMBER; what needs an admin is checked by the handler
             level, handler, rid = r if r is not None else (access_mod.MEMBER, "", None)
             try:
                 d = app.access.check(self.headers, level, self._scheme(), peer=self._peer())
@@ -853,8 +868,8 @@ def make_handler(app: App):
             base = f"{self._scheme()}://{host or 'localhost'}"
             try:
                 body = None if method == "DELETE" else people_api.parse_body(self.headers.get("Content-Type"), raw)
-                if alerts is not None:
-                    status, obj = alerts.call(method, path, body, d.who, base)
+                if mounted is not None:
+                    status, obj = mounted.call(method, path, body, d.who, base)
                 else:
                     status, obj = app.people.call(handler, rid, body, d.who, base, time.time_ns() // 1_000_000)
             except people_api.ApiProblem as e:
