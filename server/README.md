@@ -18,3 +18,6 @@ version, and installs into the same `trailbeam` package, so `import trailbeam.se
 
 Documentation: https://docs.trailbeam.app. Source: https://github.com/nick-lennox/trailbeam (`server/`, with the
 web screen in `ui/`).
+
+License: [AGPL-3.0-only](https://github.com/nick-lennox/trailbeam/blob/main/server/LICENSE) from 0.5.0 (0.4.0 and earlier: Apache-2.0). The client library, `trailbeam`, stays
+Apache-2.0. See [LICENSING.md](https://github.com/nick-lennox/trailbeam/blob/main/LICENSING.md).

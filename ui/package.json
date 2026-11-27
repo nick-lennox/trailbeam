@@ -2,7 +2,7 @@
   "name": "@trailbeam/ui",
   "version": "0.1.0-dev.13",
   "description": "Trailbeam's views (a message's timeline, and more to come), shared by self-hosted Trailbeam and the hosted app.",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
   "exports": {

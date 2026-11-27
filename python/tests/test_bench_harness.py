@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only (imports the server; LICENSING.md)
 """The benchmark harness (bench/harness.py): its seeding writes the rows the server's insert writes, and a
 small run completes and writes its result files."""
 import json

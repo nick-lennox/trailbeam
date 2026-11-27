@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only (imports the server; LICENSING.md)
 """The benchmark load generator (bench/loadgen.py): its spans are valid Trailbeam spans with the stories it
 claims, and it reports what it sent."""
 import sys

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]  # 77: license and license-files as PEP 639 has them
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,6 +8,7 @@ version = "0.4.0"
 description = "Message-level timelines for Amazon SQS and RabbitMQ: OpenTelemetry hooks for boto3, AWS Lambda and pika. The server extra adds Trailbeam itself (trailbeam-server)."
 readme = "README.md"
 license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = [
     "opentelemetry-api>=1.28",

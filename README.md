@@ -16,12 +16,24 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
+  <a href="LICENSING.md"><img src="https://img.shields.io/badge/libraries-Apache--2.0-blue" alt="Libraries: Apache-2.0"></a>
+  <a href="LICENSING.md"><img src="https://img.shields.io/badge/server%20and%20UI-AGPL--3.0-blue" alt="Server and UI: AGPL-3.0-only"></a>
   <a href="https://pypi.org/project/trailbeam/"><img src="https://img.shields.io/pypi/v/trailbeam" alt="PyPI version"></a>
   <a href="https://www.npmjs.com/package/trailbeam"><img src="https://img.shields.io/npm/v/trailbeam" alt="npm version"></a>
   <img src="https://img.shields.io/badge/python-3.10%2B-3776AB" alt="Python 3.10 or later">
   <img src="https://img.shields.io/badge/node.js-20%2B-5FA04E" alt="Node.js 20 or later">
 </p>
+
+## Licences
+
+Everything is open source. From 0.5.0, two licences ([LICENSING.md](LICENSING.md) has the details):
+
+| Part | Licence | Installing a library in your service | Running or modifying the server |
+| --- | --- | --- | --- |
+| Client libraries (Python, Node.js, Java, .NET, Go), the span contract, the conformance kit, examples, demo, Helm chart, Compose file | [Apache-2.0](python/LICENSE) | Nothing changes: Apache 2.0 as before, and no server code in them | Use, change and ship them freely |
+| The server (`trailbeam-server`, the container image) and the web UI (`@trailbeam/ui`) | [AGPL-3.0-only](server/LICENSE) | Doesn't apply: your service only sends spans to the server | Run it unchanged freely. If you modify it and let others use it over a network, offer them your version's source under the AGPL, or ask us for a commercial licence |
+
+Releases 0.3.0 and 0.4.0 stay Apache 2.0 throughout.
 
 ## What is Trailbeam?
 
@@ -1969,4 +1981,7 @@ part you changed. If your change alters a span, update
 
 ## License
 
-[Apache-2.0](LICENSE).
+The client libraries, the span contract, the conformance kit, the examples, the demo, the Helm chart and the
+Compose file are [Apache-2.0](python/LICENSE). The server and the web UI are [AGPL-3.0-only](LICENSE) from 0.5.0;
+0.3.0 and 0.4.0 are Apache-2.0. [LICENSING.md](LICENSING.md) says which folder is under which, and what that
+means for you.

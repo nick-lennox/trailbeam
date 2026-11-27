@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only (imports the server; LICENSING.md)
 """The CI perf regression check (bench/ci_check.py): its plan rule, and that it passes on the server's SQL and
 fails on a scanning join."""
 import sqlite3

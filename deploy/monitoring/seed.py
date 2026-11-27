@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only (imports the server; LICENSING.md)
 """Spans for deploy/monitoring/check.sh: one message stuck for 10 minutes, one moved to a dead-letter queue a
 minute ago, and one handled and deleted. Usage: python seed.py http://127.0.0.1:4318"""
 import sys

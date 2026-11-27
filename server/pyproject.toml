@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]  # 77: license and license-files as PEP 639 has them
 build-backend = "setuptools.build_meta"
 
 # Trailbeam itself: receives spans over OTLP/HTTP, keeps them in SQLite (or Postgres), serves the API and the web
@@ -10,7 +10,8 @@ name = "trailbeam-server"
 version = "0.4.0"
 description = "Trailbeam itself: per-message timelines for Amazon SQS and RabbitMQ from Trailbeam OpenTelemetry spans, with a JSON API and a web screen."
 readme = "README.md"
-license = "Apache-2.0"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = [
     # The server installs into the trailbeam package (trailbeam/server/). Depending on the library at the same

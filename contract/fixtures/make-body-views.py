@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only (imports the server; LICENSING.md)
 """Writes body-views.json: what contract/body-view.md gives for the recorded spans in contract-3.2-spans.json,
 from open-source Trailbeam's implementation (server/src/trailbeam/server/bodies.py).
 

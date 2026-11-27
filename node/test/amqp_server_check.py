@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only (imports the server; LICENSING.md)
 """What a Trailbeam server makes of the amqplib hooks' spans (test/amqplib-rabbitmq.test.js).
 
 Reads {"otlp": <an OTLP/JSON export request>, "message_ids": [...]} on stdin and prints
