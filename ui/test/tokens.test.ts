@@ -7,8 +7,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { CreateToken, OneTimeToken, TokensTable } from "../src/tokens/TokensViews.tsx";
 import {
-  CreateToken, OneTimeToken, TokensTable, DEFAULT_EXPIRY, EXPIRY, OPEN_INGEST_CONFIRM, revokeSentence, secretSentence, sharedSentence, shownPrefix,
+  DEFAULT_EXPIRY, EXPIRY, OPEN_INGEST_CONFIRM, revokeSentence, secretSentence, sharedSentence, shownPrefix,
 } from "../src/tokens/Tokens.tsx";
 import type { IngestToken, PersonalToken, SharedToken } from "../src/tokens/types.ts";
 
@@ -90,4 +91,14 @@ test("a new token is shown once, with how to use it", () => {
   for (const k of ["ingest", "personal"] as const) assert.match(secretSentence(k, "x"), /isn't shown again/);
   assert.match(revokeSentence("ingest", { name: "orders" }), /spans are lost/);
   assert.match(revokeSentence("personal", { name: "laptop" }), /20 seconds/);
+});
+
+test("the tokens views follow the design rules: no native title, sans labels, mono only for values", () => {
+  const html = renderToStaticMarkup(createElement(TokensTable, { kind: "personal", tokens: [personal(1, { last_used_ms: 1795400000000 })], onRevoke: noop }))
+    + renderToStaticMarkup(createElement(CreateToken, { kind: "personal", onCreate: async () => {} }));
+  assert.ok(!html.includes("title="), "hover notes are the app's Tooltip");
+  for (const th of html.matchAll(/<th[^>]*>/g)) assert.doesNotMatch(th[0], /font-mono/, th[0]);
+  for (const label of html.matchAll(/<label[^>]*>/g)) assert.doesNotMatch(label[0], /font-mono/, label[0]);
+  assert.match(row(html, 1), /font-mono[^"]*">tbp_cd1y…</, "the prefix is a value");
+  assert.match(row(html, 1), /<span class="text-sm text-ink-3">never<\/span>/, "never is a word, not a value");
 });

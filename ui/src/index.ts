@@ -11,14 +11,14 @@ export type * from "./timeline/types.ts";
 export { TenantSearch, TENANTS_TITLE, TENANTS_SUBTITLE, p95Note, tenantsFootnote, noTenantsText, P95_NOTE, fmtWait, fmtShare, TENANT_ENV, TENANT_IS, TENANTS_README } from "./tenants/Tenants.tsx";
 export type * from "./tenants/types.ts";
 export {
-  AddPerson, OneTimeLink, PeopleTable, LAST_ADMIN, ROLES, ROLE_TEXT, STATUS_HINT, STATUS_TEXT, emailedSentence, fmtWhen, isLastAdmin, linkButton, linkKind,
-  linkSentence, removeSentence, unsentSentence, removeSsoNote, signInAdmins, type AddPersonProps, type OneTimeLinkProps, type PeopleTableProps,
+  LAST_ADMIN, ROLES, ROLE_TEXT, STATUS_HINT, STATUS_TEXT, emailedSentence, fmtWhen, isLastAdmin, linkButton, linkKind,
+  linkSentence, removeSentence, unsentSentence, removeSsoNote, signInAdmins,
 } from "./people/People.tsx";
 export type * from "./people/types.ts";
 export {
-  CreateToken, OneTimeToken, TokensTable, DEFAULT_EXPIRY, EXPIRY, INGEST_TEXT, OPEN_INGEST, OPEN_INGEST_CONFIRM, PERSONAL_TEXT,
+  DEFAULT_EXPIRY, EXPIRY, INGEST_TEXT, OPEN_INGEST, OPEN_INGEST_CONFIRM, PERSONAL_TEXT,
   STATUS_TEXT as TOKEN_STATUS_TEXT, revokeSentence, secretSentence, sharedSentence, shownPrefix,
-  type CreateTokenProps, type NewTokenRequest, type OneTimeTokenProps, type TokenKind, type TokensTableProps,
+  type AnyToken, type NewTokenRequest, type TokenKind,
 } from "./tokens/Tokens.tsx";
 export type * from "./tokens/types.ts";
 export { useCopy, type CopyState } from "./copy.ts";
