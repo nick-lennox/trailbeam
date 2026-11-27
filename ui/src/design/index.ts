@@ -1,9 +1,14 @@
 /*
   @trailbeam/ui/design: the hosted app's design system, shared by the hosted app and the open-source shell.
-  The components here use the tokens in design.css (import "@trailbeam/ui/design.css"). Links go through the
-  host's link component (NavProvider); the theme is AppThemeProvider's, night by default.
+  The components here use the tokens in design.css (import "@trailbeam/ui/design.css"). Links, the page's path
+  and search parameters, and moving to another page go through the host's Nav (NavProvider); the theme is
+  AppThemeProvider's, night by default.
 */
-export { NavProvider, UiLink, useLink, type LinkComponent, type LinkProps } from "./nav.tsx";
+export {
+  HistoryNav, NavProvider, UiLink, isPlainClick, plainNav, useLink, useNav, usePath, useSearch,
+  type LinkComponent, type LinkProps, type Nav, type NavOptions,
+} from "./nav.tsx";
+export { Sidebar, type SidebarItem, type SidebarQueue } from "./Sidebar.tsx";
 export { AppThemeProvider, useAppTheme, type AppTheme } from "./theme.tsx";
 export { Tooltip } from "./Tooltip.tsx";
 export { Badge, type BadgeTone } from "./Badge.tsx";
