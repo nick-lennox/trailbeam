@@ -122,27 +122,27 @@ test("self-hosted: spans only, a verdict labelled as such, and what Trailbeam ca
   assert.match(html, /What Trailbeam can’t see here/);
   assert.match(html, /how many messages are waiting or in flight/);
   assert.doesNotMatch(html, /From CloudWatch/);
-  assert.match(html, /Sends vs handled/);
+  assert.match(html, /Sends and handled per minute/);
   assert.match(html, /p95 time in handler/);
   assert.match(html, /Not known/); // the visibility timeout: no AWS calls
   assert.match(html, /seen on a move/);
-  assert.match(html, />3 <span class="font-serif text-ink-3">set on this server/);
+  assert.match(html, />3<\/span><\/dd><dd class="mt-0.5 text-xs text-ink-3">set on this server/);
   assert.match(html, /orders-worker 1\.4\.3/); // the deploy marker
   assert.match(html, /By version/);
   assert.match(html, />4<\/span> stuck messages/);
-  assert.match(html, /Sends\/min<\/span><span class="font-mono tabular-nums text-\[1.05rem\] text-ink">117</); // the last 5 complete minutes: (115+…+119)/5
+  assert.match(html, /Sends per minute<\/dt><dd class="mt-1 text-\[17px\] text-ink font-mono tabular-nums"><span>117</); // the last 5 complete minutes: (115+…+119)/5
   assert.doesNotMatch(html, /messages in the queue|queue contents|0 messages waiting/i);
   // the fixture's queue is on an emulator ("elasticmq" is no AWS region): no console link
   assert.doesNotMatch(html, /Open in the SQS console/);
   // self-hosted counts only receives per consumer: the other columns are left out, not filled with dashes
-  assert.doesNotMatch(html, />p95 handler</);
+  assert.doesNotMatch(html, /<th scope="col"[^>]*>p95 in handler</);
 });
 
 test("the spike's links: only the ones this product can open, with their counts", () => {
   const d = selfHosted();
   const html = render({ data: d, sel: [NOW - 30 * MIN, NOW - 28 * MIN] });
-  assert.match(html, /Messages in <span class="font-mono">14:30–14:32<\/span>/);
-  assert.match(html, /Sent <span class="font-mono tabular-nums">181<\/span>/); // 90 + 91
+  assert.match(html, /Messages from <span class="font-mono tabular-nums font-normal">14:30 to 14:32<\/span> UTC/);
+  assert.match(html, /Sent<span class="font-mono tabular-nums text-caption text-ink-2">181<\/span>/); // 90 + 91
   assert.doesNotMatch(html, /Waited longest/); // no sort on this server's lists yet: dropped, not unsorted
 });
 
@@ -151,7 +151,7 @@ test("hosted, no AWS account: the CloudWatch block with its reason and a Connect
   const html = render({ data: d });
   assert.match(html, /Depth, in flight, the oldest message’s age and the DLQ’s depth come from CloudWatch/);
   assert.match(html, /No connected AWS account names this queue/);
-  assert.match(html, /Connect an AWS account →/);
+  assert.match(html, /Connect an AWS account</);
   assert.match(html, /No verdict without AWS/);
   assert.match(html, /Not read/);
   assert.doesNotMatch(html, /What Trailbeam can’t see here/);
@@ -176,20 +176,20 @@ test("hosted, AWS read: settings from SQS, the Now row's AWS figures, the CloudW
   };
   const html = render({ data: d });
   assert.match(html, /from SQS and CloudWatch/);
-  assert.match(html, /SQS · read 14:59:30/);
-  assert.match(html, /Visibility timeout<\/span> <span class="font-mono tabular-nums text-ink-2">30 s/);
+  assert.match(html, /Read from SQS at 14:59:30 UTC/);
+  assert.match(html, /Visibility timeout<\/dt><dd class="mt-1 text-\[17px\] text-ink font-mono tabular-nums"><span>30 s/);
   assert.match(html, /1,284/);
   assert.match(html, /6 min 12 s/);
   assert.match(html, /From CloudWatch, read with your role/);
   assert.match(html, /Visible and in flight/);
-  assert.match(html, /DLQ depth/);
-  assert.match(html, /visibility timeout 30 s/); // the rule on the p95 charts
+  assert.match(html, /Dead-letter queue depth/);
+  assert.match(html, /visibility timeout 30 s/i); // the rule on the p95 charts
   assert.match(html, /90% of retention/);
   // CloudWatch 60 × 120 = 7,200 sends against the spans' 5,370
   assert.match(html, /CloudWatch counted 7,200 sends; spans recorded 5,370\. 1,830 came from services without Trailbeam/);
-  assert.match(html, /trigger: .*batch 10.*max concurrency 5.*reports batch item failures.*1 filter/);
+  assert.match(html, /Trigger: .*batch size 10.*, .*max concurrency 5.*, .*reports batch item failures.*, .*1 filter/);
   assert.match(html, /No spans from this function in the range/);
-  assert.match(html, />p95 handler</);
+  assert.match(html, /<th scope="col"[^>]*>p95 in handler</);
   assert.match(html, /text-critical-text">Disabled/);
   assert.doesNotMatch(html, /What Trailbeam can’t see here/);
 });
@@ -198,7 +198,7 @@ test("afterCloudWatch: the host's section sits between the CloudWatch band and t
   const d: QueuePageData = { ...selfHosted(), configured: null, health: null, noHealth: "No verdict without AWS", aws: { status: "no_account", detail: null, readAt: null, settings: null, series: null, errors: [] } };
   const slot = createElement("section", { "data-slot": "now" }, "In orders now");
   const html = render({ data: d, afterCloudWatch: slot });
-  const band = html.indexOf("Connect an AWS account →");
+  const band = html.indexOf("Connect an AWS account<");
   const at = html.indexOf('<section data-slot="now">In orders now</section>');
   const tables = html.indexOf("<table");
   assert.ok(band >= 0 && at > band && tables > at, `band ${band}, slot ${at}, tables ${tables}`);
@@ -213,7 +213,7 @@ test("states: loading draws the frames, a failed query says so, an idle range of
   assert.match(render({ error: "Trailbeam answered 500: boom", onRetry: () => {} }), /Couldn’t load this queue’s spans: Trailbeam answered 500: boom.*Try again/);
   const idle = render({ data: { ...selfHosted(), series: [], health: null } });
   assert.match(idle, /No send or receive on/);
-  assert.match(idle, /Past 24 hours/);
+  assert.match(idle, /past 24 hours<\/a> or the <a[^>]*>past 7 days/);
   assert.match(idle, /No verdict: no span reported on this queue in the range/);
   const unknown = render({ unknown: true });
   assert.match(unknown, /No service has reported a call on/);
@@ -234,7 +234,7 @@ test("a chart's rule far above its data stays off the scale; y labels fit and ar
   const fmtS = (v: number) => (v >= 60 ? `${Math.floor(v / 60)} min ${Math.round(v % 60)} s` : `${v} s`);
   // a 4-day retention over ages of seconds: named at the top, the scale stays on the data
   const far = renderToStaticMarkup(createElement(Chart, { ...base, lines: line([2, 4]), fmt: fmtS, rules: [{ value: 345_600 * 0.9, label: "90% of retention" }] }));
-  assert.match(far, /90% of retention: above this scale/);
+  assert.match(far, /90% of retention is above this scale\./);
   assert.doesNotMatch(far, />[^<]* min[^<]*<\/text>/, "no axis label in minutes or days for data in seconds");
   // a visibility timeout near the data is drawn on the scale
   const near = renderToStaticMarkup(createElement(Chart, { ...base, lines: line([40, 50]), fmt: fmtS, rules: [{ value: 90, label: "visibility timeout" }] }));
@@ -246,4 +246,28 @@ test("a chart's rule far above its data stays off the scale; y labels fit and ar
   // all zeros: 0 and 1 once each, not "0, 1, 1"
   const zero = renderToStaticMarkup(createElement(Chart, { ...base, lines: line([0, 0]), fmt: (v: number) => String(Math.round(v)) }));
   assert.equal((zero.match(/>1<\/text>/g) ?? []).length, 1);
+});
+
+test("the page keeps the design system's rules in every state: no native title, no arrows, no tracked capitals, no dot fragments", () => {
+  const d = selfHosted();
+  const aws: QueuePageData = { ...d, configured: null, health: null, noHealth: "No verdict without AWS", aws: { status: "no_account", detail: null, readAt: null, settings: null, series: null, errors: [] } };
+  const pages = [
+    render({ data: d }), render({ data: d, split: true, sel: [NOW - 30 * MIN, NOW - 28 * MIN] }), render({ data: aws }),
+    render({}), render({ unknown: true }), render({ error: "boom", onRetry: () => {} }), render({ data: { ...d, series: [] } }),
+  ];
+  for (const html of pages) {
+    assert.doesNotMatch(html, / title="|<title>/, "hover notes are the Tooltip, never title");
+    assert.doesNotMatch(html, /[→↗↑×]/, "no arrows on links or notes");
+    assert.doesNotMatch(html, /uppercase|tracking-/, "no tracked or spaced capitals");
+    assert.doesNotMatch(html, / · |—/, "no a · b fragments, no em dashes");
+    assert.match(html, /font-serif text-title-sm/, "the heading is serif");
+  }
+  // the deploy marker's note is in the chart's hover box now, not an SVG title
+  assert.match(pages[0], /orders-worker 1\.4\.3/);
+});
+
+test("the top bar takes the host's search, and the footer goes under the parts", () => {
+  const html = render({ data: selfHosted(), search: createElement("form", { "data-search": "" }), footer: "Times are in UTC." });
+  assert.ok(html.indexOf("data-search") < html.indexOf("<h1"), "the search is in the top bar, above the heading");
+  assert.ok(html.indexOf("Times are in UTC.") > html.indexOf("Why messages here"), "the footer comes last");
 });

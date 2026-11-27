@@ -17,8 +17,9 @@ fixture, the stored state and, later, the API carry them unchanged. There are tw
   while ("quiet"), or at every check that finds new ones ("every"). check_cause_rule() works it out at one check.
 
 diff() compares what every rule is now with what was stored at the last check and says what changed. Only changes
-are delivered; a rule that stays critical is not sent again, except an "every" cause rule, which sends a "fired" change
-at each check that finds new messages, also while it is already firing (QV-659).
+are delivered; a rule that stays critical is not sent again, nor one whose figure is missing for a check or two,
+except an "every" cause rule, which sends a "fired" change at each check that finds new messages, also while it is
+already firing (QV-659).
 """
 from __future__ import annotations
 
@@ -30,6 +31,9 @@ Tone = str  # "good" | "warning" | "critical"
 RULE_DASHBOARD = "rule"
 #: checks don't start to the second: a quiet period counts as over this much early (ms)
 SLACK_MS = 5 * 60_000
+#: a rule that still exists keeps its state this long after the last check that had its figure (ms): a missed read
+#: is not a new incident, but a queue that is gone for good stops showing as firing
+GONE_AFTER_MS = 30 * 60_000
 #: muted with no end (ms)
 FOREVER = 8_640_000_000_000_000
 
@@ -74,15 +78,23 @@ def _fires_again(o: dict) -> bool:
             and (r.get("newCount") or 0) > 0)
 
 
-def diff(prev: Iterable[dict], now: Iterable[dict], at: int) -> dict:
+def diff(prev: Iterable[dict], now: Iterable[dict], at: int, present: Optional[Iterable[str]] = None) -> dict:
     """What the stored state becomes, and the changes to deliver: {"next", "changes", "gone"}.
 
-    ``prev`` is the stored state (each rule as last seen, with ``since``: when its tone began, and ``checkedAt``);
-    ``now`` is every rule that has a figure at this check. A rule seen for the first time only notifies if it is
-    already firing. A rule that disappears (widget, rule or dashboard deleted, or its figure is gone) is dropped
-    without a notification, and comes back in ``gone``. A change is {"kind": "fired" | "changed" | "resolved",
-    "from": the tone before or None, "alert": the new stored record}. An "every" cause rule that stays critical with
-    new messages at this check fires again, from "critical", its ``since`` kept."""
+    ``prev`` is the stored state (each rule as last seen, with ``since``: when its tone began, and ``checkedAt``: the
+    last check that had its figure); ``now`` is every rule that has a figure at this check; ``present`` the keys
+    (key_of) of the rules that still exist, with a figure or not (None: only those in ``now``). A rule seen for the
+    first time only notifies if it is already firing.
+
+    A rule that still exists but has no figure at this check (a missed read of the queue figures, a queue with no data
+    for a moment) keeps its stored state, unchanged, for up to GONE_AFTER_MS after the last check that had its figure:
+    when the figure comes back it is the same incident, not a new one. A rule that no longer exists (widget, rule or
+    dashboard deleted), or has had no figure for that long, is dropped and comes back in ``gone``; a dashboard rule
+    that was firing then sends a "resolved" change with ``noLongerChecked`` set on its alert (the stored record, at
+    this check), so a channel doesn't show it firing for good. An "Alert me" rule's state is dropped when the rule is
+    deleted, so its removal sends nothing. A change is {"kind": "fired" | "changed" | "resolved", "from": the tone
+    before or None, "alert": the new stored record}. An "every" cause rule that stays critical with new messages at
+    this check fires again, from "critical", its ``since`` kept."""
     before = {key_of(s): s for s in prev}
     nxt: list = []
     changes: list = []
@@ -102,7 +114,17 @@ def diff(prev: Iterable[dict], now: Iterable[dict], at: int) -> dict:
             continue
         kind = "resolved" if o["tone"] == "good" else "fired" if p["tone"] == "good" else "changed"
         changes.append({"kind": kind, "from": p["tone"], "alert": s})
-    return {"next": nxt, "changes": changes, "gone": list(before.values())}
+    there = set(present or ())
+    gone: list = []
+    for k, p in before.items():
+        if k in there and at - p["checkedAt"] < GONE_AFTER_MS:
+            nxt.append(p)
+            continue
+        gone.append(p)
+        if p["tone"] != "good" and p["dashboardId"] != RULE_DASHBOARD:
+            changes.append({"kind": "resolved", "from": p["tone"],
+                            "alert": {**p, "tone": "good", "checkedAt": at, "noLongerChecked": True}})
+    return {"next": nxt, "changes": changes, "gone": gone}
 
 
 # ── cause rules ───────────────────────────────────────────────────────────────────────────────────────────────────

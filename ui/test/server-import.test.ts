@@ -34,3 +34,22 @@ test("the main entry never imports the design entry's contexts", () => {
   const reached = [...seen].map((f) => f.slice(SRC.length)).filter((f) => f.startsWith("design/"));
   assert.deepEqual(reached, []);
 });
+
+test("the model entry is pure: no React, no Node.js module, no view", () => {
+  const seen = new Set<string>();
+  const walk = (file: string) => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    // value imports only: a type import is gone at run time
+    for (const m of readFileSync(file, "utf8").matchAll(/^import\s+(?!type\b)[^;]*?from\s+"([^"]+)"/gms)) {
+      const spec = m[1];
+      assert.ok(spec.startsWith("."), `${file.slice(SRC.length)} imports ${spec}`);
+      const next = join(file, "..", spec);
+      assert.ok(!next.endsWith(".tsx"), `${file.slice(SRC.length)} imports the view ${spec}`);
+      walk(next);
+    }
+  };
+  walk(join(SRC, "model/index.ts"));
+  for (const f of readdirSync(join(SRC, "model"))) walk(join(SRC, "model", f));
+  assert.ok(seen.size >= 8);
+});

@@ -475,6 +475,9 @@ def _email(d: Delivery, to: list, mail: dict) -> None:
         raise DeliveryError(f"The mail server could not be reached: {e.strerror or type(e).__name__}.") from None
 
 
+#: the SMTP sender, also for the server's own emails (mail.py: invites and password resets)
+send_email = _email
+
 def send_to(c: dict, ws: dict, changes: list, d: Delivery) -> None:
     """Sends changes to one channel. Raises DeliveryError with a plain reason when it fails."""
     t = check_target(c["kind"], c["target"], d.allow_local) if c["kind"] in CHANNEL_KINDS else {"ok": False, "error": "Unknown channel kind."}

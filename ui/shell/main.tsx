@@ -1,22 +1,22 @@
 /*
   Self-hosted Trailbeam's pages drawn with the shared views (../src): Messages at / (the first-run screen while
   no span is stored: home.tsx), Duplicates (lists.tsx), Stuck grouped by cause (stuck.tsx), the message page
-  at /message?id=<message ID> (the timeline, and with &tab=body the Body tab), the Tenants page at /tenants,
+  at /message?id=<message ID> (the timeline, and with &tab=body the Body tab), the Tenants page at /tenants
+  (tenants.tsx, in the shared frame),
   the Overview at /overview (overview.tsx; /queues redirects there), a queue's page at /queue?name=<queue>
-  (queue.tsx), the Event explorer at /events (events.tsx), for admins the People page at /people (people.tsx),
-  and for anyone signed in the Tokens page at /tokens (tokens.tsx). They read Trailbeam's own
+  (queue.tsx), the Event explorer at /events (events.tsx), for admins the People page at /people (people.tsx, in the
+  shared frame), and for anyone signed in the Tokens page at /tokens (tokens.tsx, in the shared frame). They read Trailbeam's own
   API on the same origin, and move between pages through the shared Nav on the browser's history. Without the
   build, or with scripts off, the server's HTML pages answer instead.
 */
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  BodyPanel, CodeWindow, EmptyState, NoticeText, TENANT_ENV, TENANT_IS, TENANTS_README, TenantsTable, TimelineView, answerFor, lookupEmpty,
-  noTenantsText, storeIsEmpty, tenantsEmpty, tenantsFootnote,
-  type EmptyStateProps, type MessageBody, type TenantStats, type Timeline,
+  BodyPanel, EmptyState, NoticeText, TimelineView, answerFor, lookupEmpty, storeIsEmpty,
+  type EmptyStateProps, type MessageBody, type Timeline,
 } from "../src/index.ts";
 import { HistoryNav, usePath } from "../src/design/index.ts";
-import { ApiError, CopyLink, Header, bodyAccess, getHealth, getJSON, messageHref, tenantHref, useMe } from "./chrome.tsx";
+import { ApiError, CopyLink, Header, bodyAccess, getHealth, getJSON, messageHref, useMe } from "./chrome.tsx";
 import { HomePage } from "./home.tsx";
 import { EventsPage } from "./events.tsx";
 import { DuplicatesPage } from "./lists.tsx";
@@ -24,6 +24,7 @@ import { OverviewPage, QueuesRedirect } from "./overview.tsx";
 import { PeoplePage } from "./people.tsx";
 import { QueueShellPage } from "./queue.tsx";
 import { StuckPage } from "./stuck.tsx";
+import { TenantsPage } from "./tenants.tsx";
 import { TokensPage } from "./tokens.tsx";
 import "./styles.css";
 
@@ -33,69 +34,6 @@ type BodyState = { kind: "loading" } | { kind: "error"; message: string } | { ki
 const HINTS = {
   not_opted_in: <>To keep this queue&rsquo;s bodies from now on, add it to <code className="font-mono text-caption">TRAILBEAM_STORE_BODIES</code> on the server.</>,
 };
-
-const RANGES = [["3600", "Last hour"], ["86400", "Last 24 hours"], ["604800", "Last 7 days"]] as const;
-type TenantsState = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ok"; s: TenantStats; storeEmpty: boolean };
-
-function TenantsPage() {
-  const asked = new URLSearchParams(location.search).get("since_s");
-  const range = RANGES.find((r) => r[0] === asked) ?? RANGES[1];
-  const [state, setState] = useState<TenantsState>({ kind: "loading" });
-  useEffect(() => {
-    document.title = "Tenants · Trailbeam";
-    getJSON<TenantStats>(`/api/tenants?since_s=${range[0]}`)
-      .then(async (s) => {
-        const storeEmpty = s.rows.length === 0 && s.total_sent === 0 ? await getHealth(5000).then(storeIsEmpty, () => false) : false;
-        setState({ kind: "ok", s, storeEmpty });
-      })
-      .catch((e: Error) => setState({ kind: "error", message: e.message }));
-  }, [range[0]]);
-  const [copied, setCopied] = useState("");
-  const readme = <a className="text-dawn hover:underline" href={TENANTS_README}>Tenants in the README</a>;
-  return (
-    <div className="mx-auto max-w-[1100px] px-4 pb-16 md:px-8">
-      <Header />
-      <main className="mt-6">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h1 className="text-[1.75rem] text-sky-ink">Tenants</h1>
-            <p className="mt-1 text-sky-ink-2">Which of your customers are sending the traffic, and who is waiting longest.</p>
-          </div>
-          <nav className="flex rounded-full border border-sky-line bg-sky-2 p-0.5 text-sm">
-            {RANGES.map(([k, label]) => (
-              <a key={k} href={`/tenants?since_s=${k}`} aria-current={k === range[0] ? "page" : undefined}
-                className={`rounded-full px-3 py-1 ${k === range[0] ? "bg-sky-line text-sky-ink" : "text-sky-ink-2 hover:text-sky-ink"}`}>{label}</a>
-            ))}
-          </nav>
-        </div>
-        <div className="mt-5">
-          {state.kind === "loading" && <p className="text-sky-ink-3">Loading tenants</p>}
-          {state.kind === "error" && <p className="text-sky-ink-2" role="alert">{state.message}</p>}
-          {state.kind === "ok" && state.storeEmpty && <EmptyState {...tenantsEmpty()} />}
-          {state.kind === "ok" && !state.storeEmpty && state.s.rows.length === 0 && (
-            <div className="rounded-[16px] border border-sky-line bg-sky-2/55 px-5 py-4 text-[15px] leading-[1.5] text-sky-ink-2">
-              <p className="text-sky-ink">No tenants yet</p>
-              <p className="mt-1 max-w-[72ch]">{noTenantsText(state.s.total_sent, range[1])}</p>
-              <CodeWindow caption="shell" code={TENANT_ENV} copyName="Copy the tenant settings" onCopied={setCopied} />
-              <p className="sr-only" aria-live="polite">{copied}</p>
-              <p className="mt-3">{readme}</p>
-            </div>
-          )}
-          {state.kind === "ok" && state.s.rows.length > 0 && (
-            <>
-              <div className="overflow-x-auto rounded-[16px] border border-sky-line bg-sky-2/55">
-                <TenantsTable rows={state.s.rows} href={tenantHref} />
-              </div>
-              <p className="mt-3 max-w-[80ch] text-sm text-sky-ink-3">
-                {tenantsFootnote(state.s, range[1])} {TENANT_IS} How to set one: {readme}. The same data as JSON: <a className="font-mono text-caption text-dawn hover:underline" href={`/api/tenants?since_s=${range[0]}`}>/api/tenants</a>
-              </p>
-            </>
-          )}
-        </div>
-      </main>
-    </div>
-  );
-}
 
 function MessagePage() {
   const params = new URLSearchParams(location.search);

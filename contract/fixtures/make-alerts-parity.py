@@ -66,8 +66,18 @@ DIFF = [
     ("warning to critical: changed", [stored("w1", "warning", T0 - H, T0 - MIN)], [obs("w1", "critical")], T0),
     ("critical to warning: changed", [stored("w1", "critical", T0 - H, T0 - MIN)], [obs("w1", "warning")], T0),
     ("critical to OK: resolved", [stored("w1", "critical", T0 - H, T0 - MIN)], [obs("w1", "good")], T0),
-    ("a rule gone: dropped without a message", [stored("w1", "critical", T0 - H, T0 - MIN), stored("w2", "good", T0 - H, T0 - MIN)],
+    ("a firing rule deleted: dropped, no longer checked", [stored("w1", "critical", T0 - H, T0 - MIN), stored("w2", "good", T0 - H, T0 - MIN)],
      [obs("w2", "good")], T0),
+    ("an OK rule deleted: dropped without a message", [stored("w1", "good", T0 - H, T0 - MIN)], [], T0, []),
+    ("a warning rule deleted: no longer checked", [stored("w1", "warning", T0 - H, T0 - MIN)], [], T0, []),
+    ("no figure for one check: kept as it was, nothing sent", [stored("w1", "critical", T0 - H, T0 - MIN)], [], T0, ["d1/w1"]),
+    ("the figure back, still critical: the same incident", [stored("w1", "critical", T0 - H, T0 - 10 * MIN)],
+     [obs("w1", "critical")], T0, ["d1/w1"]),
+    ("the figure back and OK: resolved", [stored("w1", "critical", T0 - H, T0 - 10 * MIN)], [obs("w1", "good")], T0, ["d1/w1"]),
+    ("no figure, 1 ms short of the limit: still kept", [stored("w1", "critical", T0 - H, T0 - alerts.GONE_AFTER_MS + 1)], [], T0, ["d1/w1"]),
+    ("no figure for the whole limit: dropped, no longer checked", [stored("w1", "critical", T0 - H, T0 - alerts.GONE_AFTER_MS)], [], T0,
+     ["d1/w1"]),
+    ("an Alert me rule gone: dropped without a message", [stored("r1", "critical", T0 - H, T0 - MIN, dashboard="rule")], [], T0, []),
     ("same widget ID on two dashboards", [stored("w1", "good", T0 - H, T0 - MIN, dashboard="d1")],
      [obs("w1", "critical", dashboard="d1"), obs("w1", "critical", dashboard="d2")], T0),
     ("the order of now is kept", [stored("b", "warning", T0 - H, T0 - MIN), stored("a", "good", T0 - H, T0 - MIN)],
@@ -214,11 +224,18 @@ def run_walk(w):
         rd = read([{**w["group"], "count": len(c["causeOf"])}], c["causeOf"])
         prev = next((s for s in state if s["widgetId"] == w["rule"]["id"]), None)
         got = alerts.check_cause_rule(w["rule"], memory, prev, rd, c["at"], prev_at)
-        d = alerts.diff(state, [got["observed"]], c["at"])
+        d = alerts.diff(state, [got["observed"]], c["at"], [alerts.key_of(got["observed"])])
         out.append({"at": c["at"], "tone": got["observed"]["tone"], "newCount": got["observed"]["rule"]["newCount"],
                     "changes": [x["kind"] for x in d["changes"]]})
         memory, state, prev_at = got["memory"], d["next"], c["at"]
     return out
+
+
+def diff_case(n, p, o, at, present=None):
+    """present: the keys of the rules that still exist (alerts.diff); left out, the rules in now."""
+    there = present if present is not None else [alerts.key_of(x) for x in o]
+    return {"name": n, "prev": p, "now": o, "at": at, "present": there,
+            "expected": alerts.diff(copy.deepcopy(p), copy.deepcopy(o), at, there)}
 
 
 def main():
@@ -226,8 +243,7 @@ def main():
         "about": "Alert rule cases both engines must agree on (QV-627). Written by make-alerts-parity.py; see that file.",
         "version": 1,
         "toneOf": [{"name": n, "value": v, "rule": r, "expected": alerts.tone_of(v, r)} for n, v, r in TONE],
-        "diff": [{"name": n, "prev": p, "now": o, "at": at, "expected": alerts.diff(copy.deepcopy(p), copy.deepcopy(o), at)}
-                 for n, p, o, at in DIFF],
+        "diff": [diff_case(*c) for c in DIFF],
         "causeRule": [{"name": n, "rule": r, "memory": m, "prev": p, "read": rd, "at": at, "prevCheckAt": pc,
                        "expected": alerts.check_cause_rule(r, m, p, rd, at, pc)} for n, r, m, p, rd, at, pc in CAUSE],
         "sameCause": [{"rule": r, "group": g, "expected": e} for r, g, e in SAME],

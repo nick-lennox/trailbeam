@@ -7,8 +7,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { AddPerson, OneTimeLink, PeopleTable } from "../src/people/PeopleViews.tsx";
 import {
-  AddPerson, OneTimeLink, PeopleTable, LAST_ADMIN, ROLES, fmtWhen, isLastAdmin, linkButton, linkKind, linkSentence, removeSentence, removeSsoNote, signInAdmins,
+  LAST_ADMIN, ROLES, emailedSentence, fmtWhen, isLastAdmin, linkButton, linkKind, linkSentence, removeSentence, removeSsoNote, signInAdmins, unsentSentence,
 } from "../src/people/People.tsx";
 import type { Person } from "../src/people/types.ts";
 
@@ -22,7 +23,7 @@ const table = (people: Person[], pending: number | null = null) =>
 const row = (html: string, id: number) => {
   const at = html.indexOf(`data-person="${id}"`);
   assert.ok(at >= 0, `row ${id}`);
-  const end = html.indexOf("</tr>", at);
+  const end = html.indexOf("</li>", at);
   return html.slice(at, end);
 };
 const disabledButton = (r: string, label: string) => new RegExp(`<button[^>]*disabled=""[^>]*>${label}</button>`).test(r);
@@ -44,7 +45,8 @@ test("the last admin who can sign in can't be demoted, disabled or removed", () 
   assert.ok(isLastAdmin([ada, ben], ada) && !isLastAdmin([ada, ben], ben));
   assert.match(a, /<select[^>]*disabled=""/, "role locked");
   assert.ok(disabledButton(a, "Disable") && disabledButton(a, "Remove"), a);
-  assert.ok(a.includes(`title="${LAST_ADMIN}"`));
+  assert.ok(a.includes(LAST_ADMIN), "the reason is in the row, not only on hover");
+  assert.ok(!html.includes("title="), "no native title");
   const b = row(html, 2);
   assert.doesNotMatch(b, /disabled=""/, "a member's controls are on");
 
@@ -66,7 +68,7 @@ test("each status gets its own controls and words", () => {
   assert.match(row(html, 3), />Locked for now</);
   assert.match(row(html, 3), />2026-11-24 06:02 UTC</);
   assert.match(row(html, 2), />never</);
-  assert.match(row(html, 1), />you</);
+  assert.match(row(html, 1), /> \(you\)</);
   assert.equal(linkButton(people[0]), "Password reset link");
   assert.ok(!/undefined|NaN/.test(html));
 });
@@ -91,6 +93,25 @@ test("one-time links say what they do, how long they last, and that they are sho
   assert.equal(fmtWhen(expires), "2026-12-01 06:00 UTC");
 });
 
+test("an emailed link is not shown, and an email that failed says why and shows the link to copy", () => {
+  const expires = Date.UTC(2026, 11, 1, 6, 0);
+  const ben = { name: "Ben", email: "ben@example.com" };
+  const link = { kind: "invite" as const, expires_at_ms: expires };
+  assert.equal(emailedSentence(ben, link, "ben@example.com"),
+    "Ben's invite link was emailed to ben@example.com. It works once, until 2026-12-01 06:00 UTC. Make a new link if it doesn't arrive.");
+  assert.match(emailedSentence({ name: "ben@example.com", email: "ben@example.com" }, { ...link, kind: "reset" }, "ben@example.com"),
+    /^Their password reset link was emailed to ben@example\.com\./);
+  const sent = renderToStaticMarkup(createElement(OneTimeLink, { person: ben, link, email: { sent: true, to: "ben@example.com", error: null }, onDismiss: noop }));
+  assert.ok(!sent.includes("<input") && !button(sent, "Copy link") && button(sent, "Done"));
+  const failed = { sent: false, to: "ben@example.com", error: "The mail server refused ben@example.com." };
+  assert.equal(unsentSentence(failed), "The email to ben@example.com wasn't sent: The mail server refused ben@example.com. Copy the link and send it to them yourself.");
+  const html = renderToStaticMarkup(createElement(OneTimeLink, { person: ben, link: { ...link, url: "http://x/set-password#code=abc" }, email: failed, onDismiss: noop }));
+  assert.ok(html.includes("wasn&#x27;t sent") && button(html, "Copy link"));
+  assert.match(html, /value="http:\/\/x\/set-password#code=abc"/);
+  const form = renderToStaticMarkup(createElement(AddPerson, { onAdd: async () => {}, sendsEmail: true }));
+  assert.ok(button(form, "Add and email invite"));
+});
+
 test("removing asks first, and says what stops working", () => {
   assert.equal(removeSentence({ name: "Ben", email: "ben@example.com", you: false }),
     "Remove Ben? Their sign-ins, personal API tokens and links stop working. This can't be undone.");
@@ -111,23 +132,23 @@ test("removing someone who signs in with single sign-on warns that it doesn't ke
     "they can sign in again, so don't say they can't");
   assert.match(removeSsoNote({ ...me, single_sign_on: true })!, /^You sign in with single sign-on, so removing your account doesn't keep you out/);
   // the confirmation shows the note, in a role token, only when there is one
-  const src = readFileSync(new URL("../src/people/People.tsx", import.meta.url), "utf8");
+  const src = readFileSync(new URL("../src/people/PeopleViews.tsx", import.meta.url), "utf8");
   assert.match(src, /\{removeSsoNote\(p\) && <span className="[^"]*text-warning-text"[^>]*>\{removeSsoNote\(p\)\}<\/span>\}/);
 });
 
-test("the people views use role tokens, which theme.css defines", () => {
+test("the people views use the design system's role tokens, which tokens.css defines", () => {
   const html = table([person(1, { role: "admin", you: true }), person(2, { status: "disabled" }), person(3, { status: "invited" })])
     + renderToStaticMarkup(createElement(AddPerson, { onAdd: async () => {} }))
     + renderToStaticMarkup(createElement(OneTimeLink, { person: person(2), link: { kind: "reset", url: "u", expires_at_ms: 0 }, onDismiss: noop }));
   const classes = new Set([...html.matchAll(/class="([^"]*)"/g)].flatMap((m) => m[1].split(/\s+/)));
-  const theme = readFileSync(new URL("../src/theme.css", import.meta.url), "utf8");
+  const theme = readFileSync(new URL("../src/design/tokens.css", import.meta.url), "utf8");
   let n = 0;
   for (const c of classes) {
     const m = /^(?:[a-z]+:)*(?:text|bg|border)-((?:ink|line|surface|brand|series|warning|critical|sky|dawn|wait|ember|lost)[a-z0-9-]*?)(?:\/\d+)?$/.exec(c);
     if (!m) continue;
     n++;
     assert.ok(!/^(sky|dawn|wait|ember|lost)/.test(m[1]), `${m[1]} is the night palette; use a role token`);
-    assert.match(theme, new RegExp(`--color-${m[1]}:`), `theme.css defines --color-${m[1]}`);
+    assert.match(theme, new RegExp(`--color-${m[1]}:`), `tokens.css defines --color-${m[1]}`);
   }
   assert.ok(n >= 8, `role tokens found: ${n}`);
 });
