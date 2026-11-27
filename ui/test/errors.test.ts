@@ -43,8 +43,8 @@ test("the error text is on each failed step, and the causes at the foot of the t
   assert.equal(steps.split("card declined for [REDACTED]").length - 1, 2, "both TypeError steps show their text");
   assert.equal(steps.split("Stripe timed out after 10000 ms").length - 1, 1);
   assert.match(foot, /3 failed outcomes in 2 causes/);
-  assert.match(foot, /TypeError 2×, deliveries 1, 3, .* UTC · e2, e8 card declined for \[REDACTED\]/);
-  assert.match(foot, / Error 1×, delivery 2, .* UTC · e5 Stripe timed out/);
+  assert.match(foot, /TypeError 2 times, deliveries 1, 3 ?, .* UTC ?, steps e2, e8 card declined for \[REDACTED\]/);
+  assert.match(foot, / Error Once, delivery 2 ?, .* UTC ?, step e5 Stripe timed out/);
 });
 
 test("every contract 3.2 timeline draws every step, with no undefined or NaN", () => {

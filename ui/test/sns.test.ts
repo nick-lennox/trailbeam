@@ -24,7 +24,7 @@ test("a publish joined through the envelope is a recorded step with the topic, t
   const html = text(render(t));
   assert.match(html, / Published to topic orders-topic /);
   assert.match(html, /orders-api/);
-  assert.match(html, /Publish · joined by envelope · SNS delivery 40 ms/);
+  assert.match(html, /Publish Joined by the envelope SNS delivery 40 ms/);
   assert.match(html, /SentTimestamp \(SQS\) − Timestamp \(SNS\), both AWS clocks/);
   assert.match(html, /arn:aws:sns:us-east-1:111122223333:orders-topic/);
   assert.match(html, /After e1 \(the publish\)/);
@@ -32,7 +32,7 @@ test("a publish joined through the envelope is a recorded step with the topic, t
 
 test("a publish lists the messages it reached, by queue, linking the others when the host gives links", () => {
   const html = render(byId("sns-orders"), href);
-  assert.match(text(html), /Reached billing: sns-billing · orders: sns-orders \(this message\)/);
+  assert.match(text(html), /Reached billing: sns-billing ?; orders: sns-orders \(this message\)/);
   assert.match(html, /href="\/message\?id=sns-billing"/);
   assert.doesNotMatch(html, /href="\/message\?id=sns-orders"/);
   assert.doesNotMatch(render(byId("sns-orders")), /href="\/message\?id=sns-billing"/);
@@ -40,10 +40,10 @@ test("a publish lists the messages it reached, by queue, linking the others when
 
 test("raw delivery joins by the publish ID and has no SNS delivery time", () => {
   const html = text(render(byId("sns-billing"), href));
-  assert.match(html, /Publish · joined by publish ID/);
+  assert.match(html, /Publish Joined by the publish ID/);
   assert.match(html, /trailbeam\.publish_id pub-1/);
   assert.doesNotMatch(html, /SNS delivery \d/);
-  assert.match(html, /Reached billing: sns-billing \(this message\) · orders: sns-orders/);
+  assert.match(html, /Reached billing: sns-billing \(this message\) ?; orders: sns-orders/);
 });
 
 test("a receive whose envelope names a topic with no recorded publish arrived via SNS, observed, with no time", () => {
@@ -53,7 +53,7 @@ test("a receive whose envelope names a topic with no recorded publish arrived vi
   assert.match(html, /Arrived via SNS topic audit-topic/);
   assert.match(html, /no time/);
   assert.match(html, /SNS envelope/);
-  assert.match(html, /reported on delivery 1 · SNS delivery 25 ms/);
+  assert.match(html, /Reported on delivery 1 SNS delivery 25 ms/);
   assert.match(html, /Before e2 \(pickup 1\)/);
   assert.match(html, /publisher runs no Trailbeam package/);
   assert.doesNotMatch(html, /inferred</);

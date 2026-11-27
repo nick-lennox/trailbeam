@@ -42,22 +42,22 @@ test("inferred steps are drawn in neutral Haze with dashes, never the failure re
   const inferred = { id: "e3", inferred: true, type: "visibility_timeout_expired", group: null, time: null,
     window: { from: "2026-01-01T00:00:01Z", to: "2026-01-01T00:00:31Z" }, reason: "", queue: "orders", after: [] } as unknown as TimelineEvent;
   const node = renderToStaticMarkup(createElement(Node, { e: inferred }));
-  assert.match(node, /stroke="var\(--color-sky-ink-3\)"/);
+  assert.match(node, /stroke="var\(--color-ink-3\)"/);
   assert.match(node, /stroke-dasharray/);
-  assert.doesNotMatch(node, /lost/);
+  assert.doesNotMatch(node, /critical/);
   const tag = renderToStaticMarkup(createElement(SourceTag, { kind: "inferred", children: "inferred" }));
-  assert.match(tag, /border-dashed border-sky-ink-3/);
-  assert.doesNotMatch(tag, /lost/);
+  assert.match(tag, /border-dashed border-ink-3/);
+  assert.doesNotMatch(tag, /critical/);
   for (const t of timelines.filter((x) => x.events.some((e) => e.inferred))) {
     const html = render(t);
-    assert.doesNotMatch(html, /border-dashed border-lost|text-lost[^"]*">\s*inferred/, `${t.message_id}: no red on inferred marks`);
+    assert.doesNotMatch(html, /border-dashed border-critical|text-critical[^"]*">\s*inferred/, `${t.message_id}: no red on inferred marks`);
   }
 });
 
 test("failures stay red: a failed delete, a dead-letter move, a failed handler (QV-211)", () => {
   const base = { group: 1, time: "2026-01-01T00:00:01Z", start: null, end: "2026-01-01T00:00:01Z", start_observed: false,
     queue: "orders", consumer: { service_name: "orders-worker" }, after: [] };
-  const red = (e: object) => renderToStaticMarkup(createElement(Node, { e: e as TimelineEvent })).includes("var(--color-lost)");
+  const red = (e: object) => renderToStaticMarkup(createElement(Node, { e: e as TimelineEvent })).includes("var(--color-critical)");
   assert.ok(red({ ...base, id: "e1", inferred: false, type: "deleted", delivery: 1, result: "failed", status: "failed" }), "failed delete");
   assert.ok(red({ ...base, id: "e2", inferred: false, type: "lambda_outcome", outcome: "failed_exception" }), "failed handler");
   assert.ok(red({ id: "e3", inferred: false, type: "moved_to_dead_letter_queue", group: null, time: null, window: { from: null, to: null },
@@ -145,12 +145,12 @@ test("no delete yet is not drawn as lost; being handled is marked inferred", () 
   const open = { ...two, state: "not_deleted" as const, in_dead_letter_queue: false, dead_letter_queue_move: null };
   assert.match(answerFor(open), /^Received 2 times by .+\. No delete seen yet\.$/);
   const html = render(open);
-  assert.ok(html.includes('<span class="text-ember">No delete seen</span>') && !html.includes("Not deleted"), "amber, not the red of a lost message");
+  assert.ok(html.includes('<span class="text-warning-text">No delete seen</span>') && !html.includes("Not deleted"), "amber, not the red of a lost message");
   const busy = { ...open, state: "processing" as const };
   assert.match(answerFor(busy), /^Probably being handled by .+ now \(inferred\): the Lambda invocation has no outcome yet and started less than the Lambda timeout ago\.$/);
-  assert.ok(render(busy).includes('<span class="text-ember">Being handled (inferred)</span>'));
+  assert.ok(render(busy).includes('<span class="text-warning-text">Being handled (inferred)</span>'));
   const dead = { ...open, in_dead_letter_queue: true };
-  assert.ok(render(dead).includes('<span class="text-lost">No delete seen, in the DLQ</span>'), "a message in the DLQ stays red");
+  assert.ok(render(dead).includes('<span class="text-critical-text">No delete seen, in the DLQ</span>'), "a message in the DLQ stays red");
 });
 
 test("a FIFO send SQS deduplicated says so, with the reason, and is not another plain send (QV-246)", () => {
@@ -173,7 +173,7 @@ test("a FIFO send SQS deduplicated says so, with the reason, and is not another 
   assert.ok(html.includes("Sent to py-fifo.fifo"), html);
   assert.ok(html.includes("Sent again to py-fifo.fifo, deduplicated by SQS"));
   assert.ok(html.includes(reason));
-  assert.ok(html.includes("deduplicated · enqueued nothing") && !html.includes("e2 Sent to"), "the second send is not drawn as a plain send");
+  assert.ok(html.includes("Deduplicated, so it enqueued nothing") && !html.includes("e2 Sent to"), "the second send is not drawn as a plain send");
 });
 
 test("with a trace link, each recorded step offers Open trace; without one, none does (QV-304)", () => {

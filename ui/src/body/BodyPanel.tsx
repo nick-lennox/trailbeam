@@ -32,12 +32,12 @@ export function BodyPanel({ view, access, hints = {} }: BodyPanelProps) {
     const hint = hints[view.reason];
     return (
       <section className="px-5 py-5 md:px-7" data-body-reason={view.reason}>
-        <h2 className="text-[1.125rem] text-sky-ink">No body for this message</h2>
-        <p className="mt-2 max-w-[72ch] text-[15px] leading-[1.55] text-sky-ink-2">{NO_BODY_TEXT[view.reason]}</p>
-        {noBodyNotes(view).map((n) => <p key={n} className="mt-1 max-w-[72ch] text-[15px] leading-[1.55] text-sky-ink-3">{n}</p>)}
-        {hint && <p className="mt-3 max-w-[72ch] text-sm leading-[1.5] text-sky-ink-2">{hint}</p>}
-        {view.size !== null && <p className="mt-3 font-mono text-caption text-sky-ink-3">Body size: {bytes(view.size)}, from the span.</p>}
-        <p className="mt-3 max-w-[72ch] text-sm text-sky-ink-3">{access}</p>
+        <h2 className="font-serif text-[1.125rem] text-ink">No body for this message</h2>
+        <p className="mt-2 max-w-[72ch] text-[15px] leading-[1.55] text-ink-2">{NO_BODY_TEXT[view.reason]}</p>
+        {noBodyNotes(view).map((n) => <p key={n} className="mt-1 max-w-[72ch] text-[15px] leading-[1.55] text-ink-3">{n}</p>)}
+        {hint && <p className="mt-3 max-w-[72ch] text-sm leading-[1.5] text-ink-2">{hint}</p>}
+        {view.size !== null && <p className="mt-3 text-xs text-ink-3">Body size: <span className="font-mono tabular-nums">{bytes(view.size)}</span>, from the span.</p>}
+        <p className="mt-3 max-w-[72ch] text-sm text-ink-3">{access}</p>
       </section>
     );
   }
@@ -55,20 +55,20 @@ export function BodyPanel({ view, access, hints = {} }: BodyPanelProps) {
   return (
     <section data-body-from={b.from_kind}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 pt-5 pb-3 md:px-7">
-        <h2 className="text-[1.125rem] text-sky-ink">Body</h2>
-        <span className="text-sm text-sky-ink-3">{access}</span>
-        <p className="w-full font-mono text-caption text-sky-ink-3">{facts.join(" · ")}</p>
+        <h2 className="font-serif text-[1.125rem] text-ink">Body</h2>
+        <span className="text-sm text-ink-3">{access}</span>
+        <p className="flex w-full flex-wrap gap-x-4 gap-y-0.5 text-xs text-ink-3" data-body-facts="">{facts.map((f) => <span key={f}>{f}</span>)}</p>
       </div>
       {offloaded && (
-        <p className="max-w-[72ch] px-5 pb-3 text-[15px] leading-[1.55] text-sky-ink-2 md:px-7" data-body-offloaded="">
+        <p className="max-w-[72ch] px-5 pb-3 text-[15px] leading-[1.55] text-ink-2 md:px-7" data-body-offloaded="">
           The payload is in S3. This body is the SQS Extended Client's pointer to it: the bucket and the key.
           Trailbeam and its packages never fetch the payload.
         </p>
       )}
-      <pre className="max-h-[32rem] overflow-auto border-y border-sky-line bg-sky p-4 font-mono text-caption leading-5 whitespace-pre-wrap break-words text-sky-ink-2 md:px-7">
+      <pre className="max-h-[32rem] overflow-auto border-y border-line bg-sunken p-4 font-mono text-caption leading-5 whitespace-pre-wrap break-words text-ink-2 md:px-7">
         {pretty(b.body, b.format)}
       </pre>
-      <p className="px-5 py-3 text-sm text-sky-ink-3 md:px-7">
+      <p className="px-5 py-3 text-sm text-ink-3 md:px-7">
         {offloaded
           ? "As stored. The package does not redact a pointer: it holds no payload, and redaction would change the S3 key it names."
           : "As stored, after the package redacted it. Redaction removes what its keys and patterns describe, and nothing else."}
