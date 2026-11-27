@@ -420,7 +420,32 @@ class App:
         # --proxy-auth-sign-out-url says where it ends
         sign_out = who.via in ("session", "shared_cookie") or (
             who.via == "proxy" and self.proxy_auth is not None and self.proxy_auth.sign_out_url is not None)
-        return {"auth": self._mode(), "via": who.via, "user": user, "sign_out": sign_out}
+        out = {"auth": self._mode(), "via": who.via, "user": user, "sign_out": sign_out}
+        ways = self._sign_in_ways(who.user_id)
+        if ways is not None:
+            out["sign_in"] = ways
+        return out
+
+    def _sign_in_ways(self, user_id: Optional[int]) -> Optional[dict]:
+        """``/api/me``'s ``sign_in``, for the account page: whether the person has a password, and the accounts at an
+        identity provider (single sign-on, oidc.py, or GitHub, github.py) that are them, each with whether this server
+        still offers that way in (``on``). None without a person or accounts."""
+        if user_id is None or self.accounts is None:
+            return None
+        u = self.accounts.user(user_id)
+        if u is None:
+            return None
+        same = lambda a, b: a.rstrip("/") == b.rstrip("/")  # noqa: E731
+        ways = []
+        for i in self.accounts.oidc_identities(user_id):
+            gh = self.github is not None and same(i["issuer"], self.github.settings.github_url)
+            sso = self.oidc is not None and same(i["issuer"], self.oidc.settings.issuer)
+            # a way this server no longer offers keeps its kind when the address says it (github.com)
+            github = gh or (not sso and same(i["issuer"], github_mod.GITHUB_URL))
+            label = self.github.settings.label if gh else self.oidc.settings.label if sso else None
+            ways.append({"provider": "github" if github else "sso", "label": label, "on": gh or sso,
+                         "email": i["email"], "last_sign_in_ms": i["last_sign_in_ms"]})
+        return {"password": u["password_hash"] is not None, "identities": ways}
 
     def ready(self) -> tuple[int, dict]:
         """``/api/ready``: 200 when the store answers, else 503. For a load balancer or a Kubernetes readiness

@@ -305,6 +305,21 @@ def test_a_member_signs_in_and_lands_where_they_were_going(tb, gh):
     assert tb.app.accounts.oidc_identities()
 
 
+def test_me_lists_the_github_account_as_a_way_in(tb, gh):
+    _admin(tb)
+    b = tb.browser()
+    tb.sign_in(b)
+    sign_in = _me(b)[1]["sign_in"]
+    assert sign_in["password"] is False
+    [way] = sign_in["identities"]
+    assert way["provider"] == "github" and way["label"] == "GitHub" and way["on"] is True
+    assert way["email"] == "alice@example.com" and way["last_sign_in_ms"] > 0
+    # GitHub sign-in turned off: the account is still theirs, but no longer a way in
+    tb.app.github = None
+    [way] = _me(b)[1]["sign_in"]["identities"]
+    assert way["on"] is False and way["label"] is None
+
+
 def test_the_account_is_the_github_id_not_the_login_or_email(tb, gh):
     _admin(tb)
     tb.sign_in(tb.browser())

@@ -5,10 +5,10 @@
 */
 import { useEffect, useState } from "react";
 import {
-  CodeWindow, EmptyState, TENANT_ENV, TENANT_IS, TENANTS_README, noTenantsText, storeIsEmpty, tenantsEmpty, tenantsFootnote,
+  EmptyState, TENANT_ENV, TENANT_IS, TENANTS_README, noTenantsText, storeIsEmpty, tenantsEmpty, tenantsFootnote,
   type TenantStats,
 } from "../src/index.ts";
-import { Card, TenantsCard, TenantsFoot, TenantsPage as TenantsView, type TenantRange } from "../src/design/index.ts";
+import { Card, CodeWindow, TenantsCard, TenantsFoot, TenantsPage as TenantsView, type TenantRange } from "../src/design/index.ts";
 import { getHealth, getJSON, tenantHref } from "./chrome.tsx";
 import { ShellFrame, ShellSearch } from "./frame.tsx";
 

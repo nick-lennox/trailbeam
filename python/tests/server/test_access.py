@@ -463,7 +463,8 @@ def test_people_sign_in_and_out_and_personal_tokens_carry_their_role(serve):
     assert call(url, "/tenants", headers={"Cookie": cookie})[0] == 200
     me = json.loads(call(url, "/api/me", headers={"Cookie": cookie})[2])
     assert me == {"auth": "accounts", "via": "session",
-                  "user": {"id": ana, "email": "ana@example.com", "name": "Ana", "role": "member"}, "sign_out": True}
+                  "user": {"id": ana, "email": "ana@example.com", "name": "Ana", "role": "member"}, "sign_out": True,
+                  "sign_in": {"password": True, "identities": []}}
     full = json.loads(call(url, "/api/health", headers={"Cookie": cookie})[2])
     assert full["config"]["auth"] == "accounts"
     # a session never sends spans
@@ -569,7 +570,7 @@ def test_disabling_or_removing_someone_stops_their_session_and_tokens(serve):
 
 # Every GET the server answers, API and pages, with what it answers once an admin exists and the request carries
 # nothing. A route added to the server without a level here fails test_every_route_has_a_level.
-PAGES = ["/", "/message?id=m-1", "/duplicates", "/stuck", "/tenants", "/people", "/tokens", "/ui/app.js", "/no-such-page",
+PAGES = ["/", "/message?id=m-1", "/duplicates", "/stuck", "/tenants", "/people", "/tokens", "/account", "/ui/app.js", "/no-such-page",
          "/metrics"]
 
 
@@ -609,7 +610,8 @@ def test_every_route_has_a_level():
         ("GET", "/login/oidc"): OPEN, ("GET", "/login/oidc/callback"): OPEN,
         ("GET", "/login/github"): OPEN, ("GET", "/login/github/callback"): OPEN,
         ("POST", "/v1/traces"): INGEST, ("GET", "/metrics"): METRICS,
-        ("GET", "/set-password"): OPEN, ("POST", "/set-password"): OPEN, ("GET", "/people"): ADMIN, ("GET", "/tokens"): MEMBER}
+        ("GET", "/set-password"): OPEN, ("POST", "/set-password"): OPEN, ("GET", "/people"): ADMIN, ("GET", "/tokens"): MEMBER,
+        ("GET", "/account"): MEMBER}
     for p in _api_paths() + PAGES:
         p = p.split("?")[0]
         assert access.level_of("GET", p) == ROUTES_EXPECTED.get(p, MEMBER), p

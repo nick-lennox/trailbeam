@@ -2674,6 +2674,34 @@ components:
                 name: {type: string}
                 role: {type: string, enum: [admin, member]}
           description: The person, for a session, a personal API token or a proxy's sign-in. Otherwise null.
+        sign_in:
+          type: object
+          additionalProperties: false
+          required: [password, identities]
+          description: |
+            How the person can sign in, for the Account page. Only with a person on a server with accounts.
+            Added in 0.5.
+          properties:
+            password: {type: boolean, description: Whether they have a password. Without one they sign in another way.}
+            identities:
+              type: array
+              description: Their accounts at an identity provider, oldest first.
+              items:
+                type: object
+                additionalProperties: false
+                required: [provider, label, 'on', email, last_sign_in_ms]
+                properties:
+                  provider: {type: string, enum: [sso, github], description: Single sign-on (OpenID Connect) or GitHub.}
+                  label:
+                    oneOf: [{type: 'null'}, {type: string}]
+                    description: The sign-in page's name for it (`--oidc-label`, or GitHub). Null when it is off.
+                  'on':
+                    type: boolean
+                    description: Whether this server offers this way in now. An account at a provider that is off can't sign in.
+                  email: {type: string, description: The email the provider gave at the last sign-in.}
+                  last_sign_in_ms:
+                    oneOf: [{type: 'null'}, {type: integer}]
+                    description: When they last signed in this way. Null before the first time.
     Error:
       type: object
       additionalProperties: false

@@ -227,7 +227,7 @@ footer{color:#6b7385;font-size:.8em;padding:1rem 1.2rem}
 def handle(api: Callable[[str, dict], object], api_error: type, path: str, query: dict) -> Optional[Response]:
     """Render the page for ``path``; None if ``path`` is not a page. ``api`` is ``App.api``."""
     pages = {"/": _index, "/message": _message, "/duplicates": _duplicates, "/stuck": _stuck, "/tenants": _tenants,
-             "/people": _people, "/tokens": _tokens}
+             "/people": _people, "/tokens": _tokens, "/account": _account}
     page = pages.get(path)
     if page is None:
         return None
@@ -240,6 +240,13 @@ def handle(api: Callable[[str, dict], object], api_error: type, path: str, query
 
 
 # ---- pages ------------------------------------------------------------------------------------
+
+
+def _account(api, q: dict) -> Response:
+    """``/account`` without the shared UI's build: as ``/people``, it says where the same facts are without it."""
+    return _page(200, "Account", "<h1>Account</h1><p>The Account page is part of the web screen's build, which this "
+                 "install doesn't have (build it with <code>npm run build</code> in <code>ui/</code>). Without it, "
+                 "<code>/api/me</code> says who you are signed in as and how you can sign in.</p>")
 
 
 def _people(api, q: dict) -> Response:

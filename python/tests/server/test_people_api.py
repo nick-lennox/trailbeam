@@ -316,6 +316,18 @@ def test_a_reset_link_sets_a_new_password_and_ends_the_other_sessions(srv):
     assert srv.app.signin.hasher.verify("a brand new password", srv.acc.user(srv.ben)["password_hash"])
 
 
+def test_me_says_how_the_person_signs_in(srv):
+    st, _, me = srv("GET", "/api/me", headers=srv.admin)
+    assert st == 200 and me["sign_in"] == {"password": True, "identities": []}
+    # someone invited who hasn't chosen a password yet
+    cy = srv("POST", "/api/users", {"email": "cy@example.com"}, srv.admin)[2]["user"]["id"]
+    sid, _ = srv.app.sessions.start(cy)
+    assert srv("GET", "/api/me", headers={"Cookie": f"trailbeam_sid={sid}"})[2]["sign_in"]["password"] is False
+    # the Account page is a shell page for anyone signed in
+    assert srv("GET", "/account", headers=srv.member)[0] == 200
+    assert srv("GET", "/account")[0] in (302, 303, 401)
+
+
 def test_set_password_refuses_bad_codes_mismatches_and_short_passwords(srv):
     code = _code(srv("POST", f"/api/users/{srv.ben}/link", {}, srv.admin)[2]["link"]["url"])
     assert set_password(srv, "not-a-code-at-all-but-long-enough")[0] == 403
