@@ -30,9 +30,13 @@ S3_EVENT_TIME_MS = "trailbeam.s3.event_time_ms"
 S3_CONFIGURATION_ID = "trailbeam.s3.configuration_id"
 S3_SEQUENCER = "trailbeam.s3.sequencer"
 S3_OBJECT_KEY = "trailbeam.s3.object_key"
+S3_ETAG = "trailbeam.s3.etag"
+S3_VERSION_ID = "trailbeam.s3.version_id"
 
 MAX_TEXT = 256
 MAX_KEY = 3072
+MAX_S3_ID = 1024
+_CONTROL_RE = re.compile("[\u0000-\u001f\u007f-\u009f]")
 _ID_RE = re.compile(r"[A-Za-z0-9-]{1,100}")
 _ACCOUNT_RE = re.compile(r"[0-9]{12}")
 _REGION_RE = re.compile(r"[a-z0-9-]{1,32}")
@@ -56,6 +60,12 @@ def _int(a: Mapping, name: str) -> Optional[int]:
     return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else None
 
 
+def _s3_id(a: Mapping, name: str) -> Optional[str]:
+    """An eTag or versionId (sections 23.2, 27.1): 1 to 1,024 characters with no control character."""
+    v = _text(a, name, MAX_S3_ID)
+    return v if v is not None and not _CONTROL_RE.search(v) else None
+
+
 def origin(r) -> Optional[dict]:
     """What one receive row's attributes say about where its message came from: a dict with ``kind``
     (EVENTBRIDGE or S3) and the checked fields, or None. The packages' checks (23.1, 23.2), applied again."""
@@ -73,6 +83,7 @@ def origin(r) -> Optional[dict]:
                 "region": _match(a, S3_REGION, _REGION_RE), "event_time_ms": _int(a, S3_EVENT_TIME_MS),
                 "configuration_id": _text(a, S3_CONFIGURATION_ID), "sequencer": _match(a, S3_SEQUENCER, _SEQUENCER_RE),
                 "object_key": _text(a, S3_OBJECT_KEY, MAX_KEY),
+                "etag": _s3_id(a, S3_ETAG), "version_id": _s3_id(a, S3_VERSION_ID),
                 "record_count": count if count is not None and count > 1 else None}
     return None
 

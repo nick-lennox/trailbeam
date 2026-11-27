@@ -213,15 +213,20 @@ class Consumer:
         return self._s("trailbeam s3_upload", t, a, start=start, order=order)
 
     def s3_receive(self, t, mid, handle, bucket="photos", key=None, event_time_ms=None,
-                   event_name="ObjectCreated:Put", **kw):
+                   event_name="ObjectCreated:Put", etag=None, version_id=None, **kw):
         """A receive whose body is an S3 event notification (contract section 23.2); ``key`` as S3 writes it
-        (URL-encoded), only on a queue whose body is captured."""
+        (URL-encoded), and the event's ``etag`` (no quotes) and ``version_id``, only on a queue whose body is
+        captured."""
         attrs = {"trailbeam.s3.event_name": event_name, "trailbeam.s3.bucket": bucket,
                  "trailbeam.s3.region": "us-east-1"}
         if event_time_ms is not None:
             attrs["trailbeam.s3.event_time_ms"] = event_time_ms
         if key is not None:
             attrs["trailbeam.s3.object_key"] = key
+        if etag is not None:
+            attrs["trailbeam.s3.etag"] = etag
+        if version_id is not None:
+            attrs["trailbeam.s3.version_id"] = version_id
         return self.receive_with(t, mid, handle, attrs, **kw)
 
     def receive_with(self, t, mid, handle, attrs: dict, **kw):

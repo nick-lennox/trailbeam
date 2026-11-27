@@ -1253,6 +1253,12 @@ read.
 | `trailbeam.s3.configuration_id` | string | when present | `s3.configurationId`, the ID of the bucket's notification configuration that sent it |
 | `trailbeam.s3.sequencer` | string | when valid | `s3.object.sequencer`, 1 to 64 hex digits; S3 sets it only for PUT and DELETE |
 | `trailbeam.s3.object_key` | string | only if the queue's body is captured | `s3.object.key` as S3 encodes it (URL-encoded, `red+flower.jpg`), at most 3,072 UTF-8 bytes, redacted by the body's rules (section 15.3) |
+| `trailbeam.s3.etag` | string | only if the queue's body is captured, and valid | `s3.object.eTag`, verbatim (S3 writes it without the quotes the call's response has), not redacted (3.7, QV-562) |
+| `trailbeam.s3.version_id` | string | only if the queue's body is captured, and valid | `s3.object.versionId`, verbatim, not redacted: present when the bucket has versioning on (3.7, QV-562) |
+
+"Valid" for the eTag and version ID is 27.1's: 1 to 1,024 characters (Unicode code points) with no control character.
+They are read only where the key is, because their one use is to tell two writes of that key apart (27.3); on such a
+queue the whole body, which holds them, is captured already.
 
 **The object key** is the one field here that is often the team's own data (user IDs, email addresses and file names
 are common in keys), so it follows body capture (section 15.1): on a queue whose body is not captured it is not read.
@@ -1436,11 +1442,13 @@ sender here.
 S3's event names no request of the caller's: it has the bucket, the object key, `eventTime`, the object's `eTag`, its
 `versionId` and a `sequencer`, and section 23.2 reads, on every queue, only the bucket, the event name and time, the
 region, the configuration ID and the sequencer. None of those names one upload. So Trailbeam joins an upload to a
-receive by the bucket, the **object key** and the event time. The key is the team's own data, so it follows body capture
+receive by the bucket, the **object key** and the event time, and checks the object's ETag and version ID where both
+sides have them. The key is the team's own data, so it follows body capture
 on both sides (the board's QV-314 decision, 23.5): the receive records it only on a queue whose body is captured
 (23.2), and the upload records it only when body capture is on for the bucket (27.1). **Where either side does not
-capture, nothing is joined**, and the message keeps the inferred step of section 23.3. Nothing new is read from the
-body: `eTag` and `versionId` stay unread.
+capture, nothing is joined**, and the message keeps the inferred step of section 23.3. Where the key is read, the
+receive also reads `eTag` and `versionId` (23.2): another process's write of the same key a moment later, one no
+Trailbeam package saw, has another version ID, or another ETag, so it is not taken for the recorded upload (QV-562).
 
 One upload's notification can go to several queues (one notification configuration each). Each queue gets its own SQS
 message, with its own SQS message ID, and all of them join the one upload.
@@ -1488,9 +1496,10 @@ stock instrumentation's span for the call. Test vectors: `s3.uploads` in
 
 ### 27.2 On a receive
 
-Nothing changes. Section 23.2's attributes are read as before: the bucket, event name and `trailbeam.s3.event_time_ms`
-on every queue, and `trailbeam.s3.object_key` (URL-encoded, as S3 writes it) only on a queue whose body is captured.
-The server keeps it only for a queue in its `TRAILBEAM_STORE_BODIES` (27.1).
+Section 23.2's attributes: the bucket, event name and `trailbeam.s3.event_time_ms` on every queue, and, only on a queue
+whose body is captured, `trailbeam.s3.object_key` (URL-encoded, as S3 writes it), `trailbeam.s3.etag` and
+`trailbeam.s3.version_id`. The server keeps the key only for a queue in its `TRAILBEAM_STORE_BODIES` (27.1); the ETag
+and version ID it keeps as it does an upload's.
 
 ### 27.3 How Trailbeam reads it
 
@@ -1498,9 +1507,16 @@ The server keeps it only for a queue in its `TRAILBEAM_STORE_BODIES` (27.1).
   object key; the buckets are the same, and the keys are the same once the receive's is URL-decoded (`+` is a space,
   `%XX` a UTF-8 byte); the receive's event name is the one the upload's operation raises; the receive's
   `trailbeam.s3.event_time_ms` (when S3 finished the request, S3's clock) is within the upload's span widened by
-  2 seconds on each side for the distance between the host's clock and S3's [judgment; not measured]; and exactly one
-  recorded upload meets all of that. When two do (the same key written twice within a few seconds), the receive joins
-  neither: Trailbeam does not guess which write the event was.
+  2 seconds on each side for the distance between the host's clock and S3's [judgment; not measured]; the receive's
+  `trailbeam.s3.etag` is the upload's with its quotes taken off, and its `trailbeam.s3.version_id` is the upload's,
+  each compared only when both have it; and exactly one recorded upload meets all of that. When two do (the same key
+  written twice within a few seconds, with the same ETag and no version ID), the receive joins neither: Trailbeam does
+  not guess which write the event was.
+- **A write Trailbeam did not see** (the console, `aws s3 cp`, a Lambda or service without a Trailbeam package) of the
+  same key within the window is told apart by its version ID in a bucket with versioning on, and otherwise by its
+  ETag. It is joined to the recorded upload, wrongly, only when the bucket has no versioning and the write's bytes
+  are the recorded upload's (the same ETag), or when the receive was recorded by a package that does not read the ETag
+  and version ID. Its message then shows the recorded upload as its sender.
 - Every SQS message whose receives join one upload shows it as an **observed** step, "Uploaded to S3 bucket *name* by
   *operation*", with the key, the ETag and version ID, and the SQS messages it reached, by queue. A message that also
   has a `trailbeam send` (a process re-sent the body) is still joined, as in 25.3.
@@ -1517,8 +1533,9 @@ In the API (`GET /api/messages/{message_id}`, [`openapi.yaml`](openapi.yaml)) th
 (`source: s3_upload`, `joined_by: bucket_key_time`, `reached`, `s3_delivery_ms`). Like an SNS publish it is the bucket's
 step, not the message's: it does not change the message's first seen, last seen, state or list pages. Each store keeps
 `s3_upload` spans apart from messages (SQLite: rows of `spans` with no message, the key in `message_id`, schema 24;
-Postgres: `s3_uploads`, and the receives' notifications in `s3_receives`, schema 18), and retention drops one by its
-own time against the cutoff of the bucket's name (`--retention-queues` takes it like a queue name).
+Postgres: `s3_uploads`, and the receives' notifications in `s3_receives`, schema 18, with their ETag and version ID
+from schema 19), and retention drops one by its own time against the cutoff of the bucket's name
+(`--retention-queues` takes it like a queue name).
 
 ### 27.4 Verified and not verified
 
@@ -1546,7 +1563,15 @@ Not verified:
   call, which would join an upload exactly and without the key. Section 23 does not read `responseElements`, and
   reading it on every queue is outside the QV-314 decision, so 3.7 does not use it.
 - A key whose redaction (section 15.3) changes it differently in its two forms (an email address matches the pattern
-  in the request's key, not in the URL-encoded one, where `@` is `%40`) is not joined.
+  in the request's key, not in the URL-encoded one, where `@` is `%40`) is not joined. Different keys that redact to
+  the same text (`[REDACTED]` replaces a long number in each) share one join key; their ETags tell them apart unless
+  the objects' bytes are the same.
+- That on AWS the record's `eTag` is the call's `ETag` without its quotes for all three operations, and that
+  `versionId` is the response's `VersionId`. Checked in moto 5.2.6 for the ETag only (2026-11-27): the event's `eTag`
+  is the response's without quotes for `PutObject`, `CopyObject` and `CompleteMultipartUpload` (`"…-1"`). moto puts no
+  `versionId` in the record, even in a versioned bucket, where AWS's event structure page says S3 does. If AWS writes
+  either differently, a recorded upload no longer joins its own event: the message keeps its inferred step, and
+  nothing is joined wrongly.
 
 ## 28. Changes in revision 3.7
 
@@ -1554,6 +1579,7 @@ Not verified:
 |---|---|
 | a message from an S3 notification had an inferred first step and no sender | `trailbeam s3_upload`, kind `s3.upload`, one per `PutObject`, `CompleteMultipartUpload` or `CopyObject` call, ok or failed (27.1) |
 | | Trailbeam joins receives to their upload by bucket, object key (body capture on both sides only) and event time, shows it as an observed step with the S3 delivery time, and drops the inferred step for that message (27.3) |
+| a receive of an S3 notification read the key only | on a queue whose body is captured it reads the record's `eTag` and `versionId` too (23.2), and the join requires them to be the upload's where both have them, so another process's write of the key is not joined (27.3, QV-562) |
 
 `trailbeam.schema_version` stays `3`: the span is optional and the receive is unchanged. A Trailbeam built before 3.7
 rejects `trailbeam s3_upload` as an unknown kind, in `partial_success`, and stores the rest of the export.

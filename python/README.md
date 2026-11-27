@@ -324,6 +324,10 @@ message keeps its inferred "S3 *event*" step. Joined, the timeline starts with "
 observed, with the process that uploaded, the other SQS messages the notification reached, and the S3 delivery time
 (SQS's `SentTimestamp` minus the record's `eventTime`).
 
+On a captured queue the receive also records the record's `eTag` and `versionId`, so a write of the same key by a
+process without Trailbeam (the console, `aws s3 cp`) a moment later is not taken for your upload. The one case it
+can't tell apart: a bucket without versioning, and a write of the same bytes (the same ETag).
+
 ```python
 trailbeam.boto.install(capture={"body_queues": ["photos", "photo-uploads"]})  # the bucket, and the queue
 ```

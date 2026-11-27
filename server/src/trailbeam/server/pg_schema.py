@@ -273,6 +273,13 @@ CREATE TABLE IF NOT EXISTS s3_receives (
 CREATE INDEX IF NOT EXISTS s3_receives_time ON s3_receives (time_ns);
 """
 
+# Version 19 (QV-562): the eTag and versionId of a receive's S3 notification (section 23.2, revision 3.7), which the
+# join compares with the upload's; NULL when the receive did not record them.
+S3_IDS = """
+ALTER TABLE s3_receives ADD COLUMN IF NOT EXISTS etag TEXT;
+ALTER TABLE s3_receives ADD COLUMN IF NOT EXISTS version_id TEXT;
+"""
+
 SEALING = """
 CREATE TABLE IF NOT EXISTS mid_places_late (       -- lookup rows written to a place once it was sealed
     mid TEXT COLLATE "C" NOT NULL,
@@ -471,7 +478,7 @@ CREATE TABLE IF NOT EXISTS hash_places (
     bucket BIGINT NOT NULL,
     PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
 ) PARTITION BY RANGE (rclass, bucket);
-""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + QUEUE_CREATE + SNS + account_tables.PG_OIDC + STEP_CREATE + EVENTBRIDGE + S3 + """
+""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + QUEUE_CREATE + SNS + account_tables.PG_OIDC + STEP_CREATE + EVENTBRIDGE + S3 + S3_IDS + """
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
@@ -864,8 +871,11 @@ MIGRATIONS: tuple = (
     # database before it holds an s3_upload span (a Trailbeam before 3.7 rejects them). Receives already stored get no
     # s3_receives row, so an upload recorded after the upgrade reaches only the messages received after it.
     Migration(18, "S3 uploads (QV-511)", tuple(statements(S3))),
+    # Version 19 (QV-562): the eTag and versionId of a receive's S3 notification, which the join compares with the
+    # upload's. Rows stored before it have neither: their join is 3.7's, by bucket, key and time.
+    Migration(19, "S3 notification eTag and versionId (QV-562)", tuple(statements(S3_IDS))),
 )
-LATEST = 18
+LATEST = 19
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 

@@ -65,7 +65,9 @@ answers a narrower question: where did this one message go?
 - **S3 uploads.** When the uploader runs a Trailbeam package, the inferred S3 step becomes the recorded
   `PutObject`, `CompleteMultipartUpload` or `CopyObject`: the bucket, the process, the ETag, the other SQS
   messages the notification reached, and the S3 delivery time. Trailbeam joins them by bucket, object key
-  and event time. The key is recorded only where body capture is on, for the bucket and for the queue, and
+  and event time, and checks the ETag and version ID, so another process's write of the key isn't taken
+  for yours (except the same bytes in a bucket without versioning). The key is recorded only where body
+  capture is on, for the bucket and for the queue, and
   stored only for those the server's `TRAILBEAM_STORE_BODIES` names too, so without both the step stays
   inferred. Object contents and user metadata are never read.
 - **Recorded and inferred steps are kept apart.** Trailbeam orders two events only when an observed

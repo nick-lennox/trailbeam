@@ -349,7 +349,10 @@ Contract section 27. Pass an `S3Client` to `instrument` too: each `PutObject`, `
 
 Trailbeam joins the upload to the SQS messages its bucket notification sent, by bucket, object key and event time,
 so only where body capture is on for the bucket in the uploading process and for the queue in the receiving one.
-Otherwise the message keeps its inferred "S3 *event*" step.
+Otherwise the message keeps its inferred "S3 *event*" step. On a captured queue the receive also records the record's
+`eTag` and `versionId`, so a write of the same key by a process without Trailbeam (the console, `aws s3 cp`) a moment
+later is not taken for your upload. The one case it can't tell apart: a bucket without versioning, and a write of the
+same bytes (the same ETag).
 
 ```js
 const { S3Client } = require('@aws-sdk/client-s3');

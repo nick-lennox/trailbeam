@@ -115,6 +115,53 @@ def test_what_does_not_join(new_store, why, up, rec):
     assert types(queries.message(s, "sqs-a", NOW, LT)) == ["s3_event", "received"], why
 
 
+ETAG = "9dd4e461268c8034f5c8564e155c67a6"  # the upload's ETag as the event has it: no quotes
+
+
+def test_another_process_s_write_of_the_key_is_not_joined(new_store):
+    # QV-562: a write of the same key the packages did not see (the console, a Lambda without Trailbeam), finished
+    # within the recorded call's window. Its event names another version, so it keeps its inferred step, and the
+    # upload's reached list has only the recorded write's message.
+    s = new_store()
+    put(s, upload(version_id="v1"), received(C, "sqs-a", etag=ETAG, version_id="v1"),
+        received(C, "sqs-other", t=T0 + 5 * SEC, et=T0_MS + 2_500, etag="0cc175b9c0f1b6a831c399e269772661",
+                 version_id="v2"))
+    other = queries.message(s, "sqs-other", NOW, LT)
+    assert types(other) == ["s3_event", "received"]
+    a = queries.message(s, "sqs-a", NOW, LT)["events"][0]
+    assert a["type"] == "s3_upload" and a["version_id"] == "v1"
+    assert a["reached"] == [{"queue": "orders", "message_ids": ["sqs-a"]}]
+
+
+@pytest.mark.parametrize("why,rec,joins", [
+    ("the same ETag and version ID", {"etag": ETAG, "version_id": "v1"}, True),
+    ("the ETag only (an unversioned bucket's event)", {"etag": ETAG}, True),
+    ("neither (a receive from a package that does not read them)", {}, True),
+    ("another version ID", {"etag": ETAG, "version_id": "v2"}, False),
+    ("another ETag, no version ID", {"etag": "0cc175b9c0f1b6a831c399e269772661"}, False),
+    ("the ETag with its quotes is still the same", {"etag": f'"{ETAG}"', "version_id": "v1"}, True),
+])
+def test_the_event_s_etag_and_version_id(new_store, why, rec, joins):
+    s = new_store()
+    put(s, upload(version_id="v1"), received(C, "sqs-a", **rec))
+    t = queries.message(s, "sqs-a", NOW, LT)
+    assert types(t) == (["s3_upload", "received"] if joins else ["s3_event", "received"]), why
+
+
+def test_two_keys_that_redact_alike_join_by_etag(new_store):
+    # Different objects whose keys redact to the same text (section 15.3) share a join key; their ETags tell them
+    # apart, so each event joins its own upload, and neither reaches the other's message.
+    s = new_store()
+    other = "0cc175b9c0f1b6a831c399e269772661"
+    put(s, upload(etag=f'"{ETAG}"'), U.s3_upload(T0 + 2 * SEC, start=T0 + SEC, key=KEY, etag=f'"{other}"'),
+        received(C, "sqs-a", etag=ETAG), received(C, "sqs-b", t=T0 + 4 * SEC, et=T0_MS + 1_800, etag=other))
+    a, b = (queries.message(s, m, NOW, LT)["events"][0] for m in ("sqs-a", "sqs-b"))
+    assert a["type"] == b["type"] == "s3_upload" and a["span"] != b["span"]
+    assert a["etag"] == f'"{ETAG}"' and b["etag"] == f'"{other}"'
+    assert a["reached"] == [{"queue": "orders", "message_ids": ["sqs-a"]}]
+    assert b["reached"] == [{"queue": "orders", "message_ids": ["sqs-b"]}]
+
+
 @pytest.mark.parametrize("why,store_bodies", [
     ("no opt-in on the server", frozenset()),
     ("the queue only: the upload's key is not stored", {"orders"}),
