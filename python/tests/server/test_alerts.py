@@ -46,10 +46,8 @@ def test_same_cause(c):
     assert alerts.same_cause(c["rule"], c["group"]) is c["expected"]
 
 
-def test_walk():
-    """A quiet rule (2 h) through a day of checks every 30 min: quiet at first, fires on a message after 2 h quiet,
-    resolves 2 h after the last one, fires again."""
-    w = F["walk"]
+def _walk(w):
+    """The walk's checks, memory and stored state carried from check to check as the scheduled check carries them."""
     memory = {"seen": None, "lastNewAt": None, "wasMuted": False}
     state: list = []
     prev_at = None
@@ -63,13 +61,26 @@ def test_walk():
                     "changes": [x["kind"] for x in d["changes"]]})
         memory, state, prev_at = got["memory"], d["next"], c["at"]
     assert out == w["expected"]
-    sent = [(i, k) for i, x in enumerate(out) for k in x["changes"]]
-    assert sent == [(9, "fired"), (13, "resolved"), (20, "fired")]
+    return [(i, k) for i, x in enumerate(out) for k in x["changes"]]
+
+
+def test_walk():
+    """A quiet rule (2 h) through a day of checks every 30 min: quiet at first, fires on a message after 2 h quiet,
+    resolves 2 h after the last one, fires again."""
+    assert _walk(F["walk"]) == [(9, "fired"), (13, "resolved"), (20, "fired")]
+
+
+def test_every_walk():
+    """An "every" rule sends at each check that finds new messages, also while already firing (QV-659)."""
+    assert _walk(F["everyWalk"]) == [(1, "fired"), (2, "fired"), (3, "fired"), (4, "resolved"), (6, "fired"),
+                                     (7, "resolved")]
 
 
 def test_the_cases_cover_every_change_and_mode():
     kinds = {x["kind"] for c in F["diff"] for x in c["expected"]["changes"]}
     assert kinds == {"fired", "changed", "resolved"}
+    again = [c for c in F["diff"] if any(x["kind"] == "fired" and x["from"] == "critical" for x in c["expected"]["changes"])]
+    assert [c["name"] for c in again] == ["every: new messages while already firing: fired again, since kept"]
     assert {c["rule"]["mode"] for c in F["causeRule"]} == {"quiet", "every"}
     assert {c["expected"] for c in F["toneOf"]} == {None, "good", "warning", "critical"}
     assert any(c["expected"]["muted"] for c in F["causeRule"])

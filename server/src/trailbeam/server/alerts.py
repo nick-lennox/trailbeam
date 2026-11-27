@@ -17,7 +17,8 @@ fixture, the stored state and, later, the API carry them unchanged. There are tw
   while ("quiet"), or at every check that finds new ones ("every"). check_cause_rule() works it out at one check.
 
 diff() compares what every rule is now with what was stored at the last check and says what changed. Only changes
-are delivered; a rule that stays critical is not sent again.
+are delivered; a rule that stays critical is not sent again, except an "every" cause rule, which sends a "fired" change
+at each check that finds new messages, also while it is already firing (QV-659).
 """
 from __future__ import annotations
 
@@ -66,6 +67,13 @@ def key_of(a: dict) -> str:
     return f"{a['dashboardId']}/{a['widgetId']}"
 
 
+def _fires_again(o: dict) -> bool:
+    """An "every" cause rule still firing, with new messages at this check: it sends again."""
+    r = o.get("rule") or {}
+    return (o["tone"] == "critical" and r.get("kind") == "cause" and r.get("mode") == "every"
+            and (r.get("newCount") or 0) > 0)
+
+
 def diff(prev: Iterable[dict], now: Iterable[dict], at: int) -> dict:
     """What the stored state becomes, and the changes to deliver: {"next", "changes", "gone"}.
 
@@ -73,7 +81,8 @@ def diff(prev: Iterable[dict], now: Iterable[dict], at: int) -> dict:
     ``now`` is every rule that has a figure at this check. A rule seen for the first time only notifies if it is
     already firing. A rule that disappears (widget, rule or dashboard deleted, or its figure is gone) is dropped
     without a notification, and comes back in ``gone``. A change is {"kind": "fired" | "changed" | "resolved",
-    "from": the tone before or None, "alert": the new stored record}."""
+    "from": the tone before or None, "alert": the new stored record}. An "every" cause rule that stays critical with
+    new messages at this check fires again, from "critical", its ``since`` kept."""
     before = {key_of(s): s for s in prev}
     nxt: list = []
     changes: list = []
@@ -84,6 +93,8 @@ def diff(prev: Iterable[dict], now: Iterable[dict], at: int) -> dict:
         s = {**o, "since": p["since"] if same else at, "checkedAt": at}
         nxt.append(s)
         if same:
+            if _fires_again(o):
+                changes.append({"kind": "fired", "from": p["tone"], "alert": s})
             continue
         if p is None:
             if o["tone"] != "good":

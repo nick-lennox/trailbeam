@@ -41,9 +41,10 @@ what the script writes.
 ## `alerts-parity.json`
 
 The alert rule cases both engines must agree on (QV-627): a dashboard rule's tone against its warn and crit limits,
-the changes between two checks (fired, changed, resolved, a rule gone), a cause rule at one check (the quiet period
-and its 5-minute slack, every check, mutes, a merge of error texts) and one quiet rule walked through a day of
-checks. It is written by `make-alerts-parity.py` from the open-source engine (`server/src/trailbeam/server/alerts.py`);
+the changes between two checks (fired, changed, resolved, a rule gone, an "every" rule firing again at a check with new
+messages), a cause rule at one check (the quiet period and its 5-minute slack, every check, mutes, a merge of error
+texts), one quiet rule walked through a day of checks (`walk`) and one "every" rule walked through checks 5 minutes
+apart (`everyWalk`). It is written by `make-alerts-parity.py` from the open-source engine (`server/src/trailbeam/server/alerts.py`);
 don't edit it by hand. Checked by `python/tests/server/test_alerts.py`, which also fails if the file is not what the
 script writes, and by the hosted app's `test/alerts-parity.test.ts` against its `lib/alerts/evaluate.ts`.
 `@trailbeam/ui` ships it as `@trailbeam/ui/fixtures/alerts-parity.json`, so there is one file and no copy.

@@ -75,6 +75,26 @@ DIFF = [
 ]
 
 
+def cause_obs(tone, mode, new_count):
+    """A cause rule's figure, as check_cause_rule makes it, for the diff cases."""
+    return obs("r1", tone, dashboard="rule", dashboardName="", value=str(new_count),
+               rule={"kind": "cause", "ruleId": "r1", "mode": mode, "newCount": new_count})
+
+
+def cause_stored(tone, mode, since, checked):
+    return {**cause_obs(tone, mode, 1), "since": since, "checkedAt": checked}
+
+
+DIFF += [
+    ("every: new messages while already firing: fired again, since kept",
+     [cause_stored("critical", "every", T0 - 10 * MIN, T0 - 5 * MIN)], [cause_obs("critical", "every", 2)], T0),
+    ("every: still firing with no new messages is not sent",
+     [cause_stored("critical", "every", T0 - 10 * MIN, T0 - 5 * MIN)], [cause_obs("critical", "every", 0)], T0),
+    ("quiet: new messages while already firing: not sent again",
+     [cause_stored("critical", "quiet", T0 - 10 * MIN, T0 - 5 * MIN)], [cause_obs("critical", "quiet", 2)], T0),
+]
+
+
 def rule(**kw):
     r = {"id": "r1", "kind": "cause", "causeKey": "v1|orders|handler|exc:TimeoutError:abc", "causeId": "c-abc",
          "label": "orders-handler raised TimeoutError", "queue": "orders", "channels": ["ch1"], "mode": "quiet",
@@ -160,6 +180,18 @@ SAME = [
 ]
 
 
+def every_walk():
+    """One "every" rule through checks 5 min apart, new messages at checks 1, 2 and 3 (QV-659): each of those sends."""
+    r = rule(mode="every", quietS=0)
+    arrivals = {1: ["m1"], 2: ["m2"], 3: ["m3"], 6: ["m4", "m5"]}
+    checks = []
+    msgs: list = []
+    for i in range(8):
+        msgs = msgs + arrivals.get(i, [])
+        checks.append({"at": T0 + i * 5 * MIN, "causeOf": {m: "c-abc" for m in msgs}})
+    return {"rule": r, "group": group(count=1), "checks": checks}
+
+
 def walk():
     """One quiet rule through a day of checks every 30 min: what each check sends. Memory and stored state are carried
     from check to check, as the scheduled check carries them."""
@@ -204,6 +236,10 @@ def main():
         assert alerts.same_cause(c["rule"], c["group"]) is c["expected"], c
     w = walk()
     f["walk"] = {**w, "expected": run_walk(w)}
+    ew = every_walk()
+    f["everyWalk"] = {**ew, "expected": run_walk(ew)}
+    assert [x["changes"] for x in f["everyWalk"]["expected"]] == [
+        [], ["fired"], ["fired"], ["fired"], ["resolved"], [], ["fired"], ["resolved"]], f["everyWalk"]["expected"]
     OUT.write_text(json.dumps(f, indent=1) + "\n")
 
 
