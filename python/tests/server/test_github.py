@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from elsewhere import Elsewhere
 from trailbeam.server import __main__ as main_mod, github, oidc
 from trailbeam.server.db import Database
 from trailbeam.server.server import make_server
@@ -38,6 +39,7 @@ class FakeGitHub:
         self.token_error = None  # e.g. "bad_verification_code": the token endpoint answers 200 with it
         self.page_size = 100
         self.next_host = None    # a Link rel="next" to another host
+        self.redirects: dict = {}  # path -> (status, Location): the endpoint answers with that redirect
         self.users = {"alice": self.user(1001, "alice", "Alice", "alice@example.com")}
         self.lock = threading.Lock()
         gh = self
@@ -56,7 +58,19 @@ class FakeGitHub:
                 self.end_headers()
                 self.wfile.write(b)
 
+            def _redirect(self):
+                to = gh.redirects.get(urllib.parse.urlsplit(self.path).path)
+                if to is None:
+                    return False
+                self.send_response(to[0])
+                self.send_header("Location", to[1])
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return True
+
             def do_POST(self):
+                if self._redirect():
+                    return
                 n = int(self.headers.get("Content-Length") or 0)
                 form = dict(urllib.parse.parse_qsl(self.rfile.read(n).decode()))
                 if self.path != "/login/oauth/access_token":
@@ -65,6 +79,8 @@ class FakeGitHub:
                 self._json(200, gh.token(form))
 
             def do_GET(self):
+                if self._redirect():
+                    return
                 u = urllib.parse.urlsplit(self.path)
                 tok = (self.headers.get("Authorization") or "").removeprefix("Bearer ")
                 gh.api_requests.append((u.path, self.headers.get("User-Agent"), self.headers.get("Accept")))
@@ -303,6 +319,21 @@ def test_a_member_signs_in_and_lands_where_they_were_going(tb, gh):
                for _, ua, accept in gh.api_requests)
     # the people list marks them as signing in through a provider (removing them doesn't keep them out)
     assert tb.app.accounts.oidc_identities()
+
+
+def test_me_lists_the_github_account_as_a_way_in(tb, gh):
+    _admin(tb)
+    b = tb.browser()
+    tb.sign_in(b)
+    sign_in = _me(b)[1]["sign_in"]
+    assert sign_in["password"] is False
+    [way] = sign_in["identities"]
+    assert way["provider"] == "github" and way["label"] == "GitHub" and way["on"] is True
+    assert way["email"] == "alice@example.com" and way["last_sign_in_ms"] > 0
+    # GitHub sign-in turned off: the account is still theirs, but no longer a way in
+    tb.app.github = None
+    [way] = _me(b)[1]["sign_in"]["identities"]
+    assert way["on"] is False and way["label"] is None
 
 
 def test_the_account_is_the_github_id_not_the_login_or_email(tb, gh):
@@ -561,6 +592,36 @@ def test_a_next_page_on_another_host_is_not_followed(tb, gh):
     b = tb.browser()
     assert tb.sign_in(b).status == 200
     assert _me(b)[1]["user"]["role"] == "member"  # the third team was on the page not followed
+
+
+@pytest.fixture
+def elsewhere():
+    e = Elsewhere()
+    yield e
+    e.close()
+
+
+@pytest.mark.parametrize("path", ["/api/v3/user", "/api/v3/user/teams"])
+@pytest.mark.parametrize("status", [302, 307])
+def test_an_api_redirect_is_not_followed_and_refuses_the_sign_in(tb, gh, elsewhere, path, status):
+    """urllib would follow it and copy ``Authorization: Bearer <the GitHub token>`` onto the request to the other
+    host. /user/teams is one of the paged endpoints, asked for only when teams are set."""
+    _admin(tb)
+    tb.configure(admin_teams="acme/ops")
+    gh.redirects[path] = (status, elsewhere.url + "/steal")
+    r = tb.sign_in(tb.browser())
+    assert r.status == 502 and "GitHub sent an answer this server can't read" in r.text
+    assert elsewhere.requests == []
+    assert tb.app.accounts.user_by_email("alice@example.com") is None
+
+
+@pytest.mark.parametrize("status", [302, 307])
+def test_a_token_endpoint_redirect_is_not_followed(tb, gh, elsewhere, status):
+    _admin(tb)
+    gh.redirects["/login/oauth/access_token"] = (status, elsewhere.url + "/steal")
+    r = tb.sign_in(tb.browser())
+    assert r.status == 502 and "GitHub sent an answer this server can't read" in r.text
+    assert elsewhere.requests == [] and gh.api_requests == []
 
 
 def test_with_no_admin_only_an_admin_team_gets_in_and_becomes_the_first_admin(store, gh):

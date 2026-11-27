@@ -83,6 +83,10 @@ tags:
     description: Who can sign in, and their role. Admins only.
   - name: Tokens
     description: Ingest tokens (admins only) and your own personal API tokens.
+  - name: Dashboards
+    description: |
+      Dashboards, their widgets, and what each widget draws over a time range (the hosted app's dashboards). A
+      preview: answered only while `TRAILBEAM_DASHBOARDS` is on (1, true, yes or on); off, every route is a `404`.
   - name: Ingest
     description: Where the packages and the OpenTelemetry Collector send spans. Not part of the API.
 security:
@@ -1846,6 +1850,315 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/IngestStatus'}
               example: {"code": 14, "message": "Trailbeam can't reach its store (the database is down or unreachable). Nothing in this export was stored. Retry after 1 s."}
+  /api/dashboards:
+    get:
+      operationId: list-dashboards
+      x-example-request: /api/dashboards
+      tags: [Dashboards]
+      summary: List the dashboards
+      description: |
+        Every dashboard, starred first, then the latest changed. `canUnlock`: whether you may lift someone
+        else's lock (an admin, or anyone before accounts exist). A preview, answered only while
+        `TRAILBEAM_DASHBOARDS` is on.
+      responses:
+        '200':
+          description: The dashboards.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [dashboards, canUnlock]
+                properties:
+                  dashboards: {type: array, items: {$ref: '#/components/schemas/Dashboard'}}
+                  canUnlock: {type: boolean}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/DashboardsOff'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    post:
+      operationId: add-dashboard
+      tags: [Dashboards]
+      summary: Make a dashboard
+      description: |
+        A dashboard named `name` (trimmed, at most 80 characters). Its definition is `imported` (a definition
+        as JSON text, as the hosted app's Import takes it), else `def`, else empty. Every definition is checked
+        as the hosted app checks it, at most 256 KB. `time`: the preset the dashboard opens at. You are its
+        owner. Needs a member.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string}
+                def: {$ref: '#/components/schemas/DashboardDef'}
+                imported: {type: string}
+                time: {$ref: '#/components/schemas/DashboardTime'}
+            example: {"name": "Orders", "def": {"variables": [], "sections": [], "widgets": [{"id": "w1", "type": "number", "title": "DLQ depth", "queries": [{"measure": "dlq_depth"}], "rule": {"crit": 0}, "layout": {"x": 0, "y": 0, "w": 3, "h": 2}}]}}
+      responses:
+        '201': {$ref: '#/components/responses/OneDashboard'}
+        '400': {$ref: '#/components/responses/DashboardRefused'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/DashboardsOff'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+  /api/dashboards/{dashboard_id}:
+    parameters:
+      - {$ref: '#/components/parameters/DashboardId'}
+    get:
+      operationId: get-dashboard
+      x-example-request: /api/dashboards/a1b2c3d4
+      tags: [Dashboards]
+      summary: One dashboard
+      description: The dashboard and its definition.
+      responses:
+        '200': {$ref: '#/components/responses/OneDashboard'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/DashboardGone'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    patch:
+      operationId: change-dashboard
+      x-example-request: /api/dashboards/a1b2c3d4
+      tags: [Dashboards]
+      summary: Rename, redefine, star or change a dashboard's time range
+      description: |
+        Any of `name`, `def` (the whole definition, checked) and `time`, which change only while the dashboard
+        is unlocked, and `starred`, which always does. `version`: change it only if it is still at that
+        version (else `409`). Needs a member.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+                def: {$ref: '#/components/schemas/DashboardDef'}
+                time: {$ref: '#/components/schemas/DashboardTime'}
+                starred: {type: boolean}
+                version: {type: integer}
+            example: {"starred": true}
+      responses:
+        '200': {$ref: '#/components/responses/OneDashboard'}
+        '400': {$ref: '#/components/responses/DashboardRefused'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/DashboardGone'}
+        '409': {$ref: '#/components/responses/DashboardBusy'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+    delete:
+      operationId: remove-dashboard
+      x-example-request: /api/dashboards/a1b2c3d4
+      tags: [Dashboards]
+      summary: Delete a dashboard
+      description: The dashboard and its widgets. A locked one is refused (`400`). Needs a member.
+      responses:
+        '200': {$ref: '#/components/responses/DashboardRemoved'}
+        '400': {$ref: '#/components/responses/DashboardRefused'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/DashboardsOff'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+  /api/dashboards/{dashboard_id}/lock:
+    parameters:
+      - {$ref: '#/components/parameters/DashboardId'}
+    post:
+      operationId: lock-dashboard
+      x-example-request: /api/dashboards/a1b2c3d4/lock
+      tags: [Dashboards]
+      summary: Lock or unlock a dashboard
+      description: |
+        `lock` true locks it under your name (a locked one stays as it is); false unlocks it, which only
+        whoever locked it, or an admin, may (`403`). Needs a member.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lock]
+              properties:
+                lock: {type: boolean}
+            example: {"lock": true}
+      responses:
+        '200':
+          description: The dashboard after, and who holds its lock.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [dashboard, lockedBy]
+                properties:
+                  dashboard: {$ref: '#/components/schemas/Dashboard'}
+                  lockedBy: {type: [string, 'null']}
+        '400': {$ref: '#/components/responses/DashboardRefused'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/DashboardGone'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+  /api/dashboards/{dashboard_id}/duplicate:
+    parameters:
+      - {$ref: '#/components/parameters/DashboardId'}
+    post:
+      operationId: duplicate-dashboard
+      x-example-request: /api/dashboards/a1b2c3d4/duplicate
+      tags: [Dashboards]
+      summary: Copy a dashboard
+      description: A copy named "<name> copy", unlocked, owned by you. Needs a member.
+      responses:
+        '201': {$ref: '#/components/responses/OneDashboard'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/DashboardGone'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+  /api/dashboards/{dashboard_id}/widgets:
+    parameters:
+      - {$ref: '#/components/parameters/DashboardId'}
+    post:
+      operationId: add-dashboard-widget
+      x-example-request: /api/dashboards/a1b2c3d4/widgets
+      tags: [Dashboards]
+      summary: Add a widget
+      description: |
+        `widget` at the end of the definition, checked as a whole definition is; without a text `id` it gets
+        one. Refused while the dashboard is locked. Needs a member.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [widget]
+              properties:
+                widget: {$ref: '#/components/schemas/DashboardWidget'}
+      responses:
+        '201': {$ref: '#/components/responses/DashboardWithWidget'}
+        '400': {$ref: '#/components/responses/DashboardRefused'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/DashboardGone'}
+        '409': {$ref: '#/components/responses/DashboardBusy'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+  /api/dashboards/{dashboard_id}/widgets/{widget_id}:
+    parameters:
+      - {$ref: '#/components/parameters/DashboardId'}
+      - {$ref: '#/components/parameters/WidgetId'}
+    patch:
+      operationId: change-dashboard-widget
+      x-example-request: /api/dashboards/a1b2c3d4/widgets/w1
+      tags: [Dashboards]
+      summary: Replace a widget
+      description: |
+        The first widget with this ID becomes `widget` (its ID stays), checked as a whole definition is.
+        Refused while the dashboard is locked. Needs a member.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [widget]
+              properties:
+                widget: {$ref: '#/components/schemas/DashboardWidget'}
+      responses:
+        '200': {$ref: '#/components/responses/DashboardWithWidget'}
+        '400': {$ref: '#/components/responses/DashboardRefused'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/DashboardGone'}
+        '409': {$ref: '#/components/responses/DashboardBusy'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+    delete:
+      operationId: remove-dashboard-widget
+      x-example-request: /api/dashboards/a1b2c3d4/widgets/w1
+      tags: [Dashboards]
+      summary: Remove a widget
+      description: Every widget with this ID. Refused while the dashboard is locked. Needs a member.
+      responses:
+        '200': {$ref: '#/components/responses/OneDashboard'}
+        '400': {$ref: '#/components/responses/DashboardRefused'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/DashboardGone'}
+        '409': {$ref: '#/components/responses/DashboardBusy'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+  /api/dashboards/{dashboard_id}/measures:
+    parameters:
+      - {$ref: '#/components/parameters/DashboardId'}
+    get:
+      operationId: get-dashboard-measures
+      x-example-request: /api/dashboards/a1b2c3d4/measures?range=1h
+      tags: [Dashboards]
+      summary: What every widget draws
+      description: |
+        Each widget's figures over a time range, worked out from the stored spans as the hosted dashboard
+        works them out: its measures' lines, its events, its queues and its alert state. A widget with its own
+        `time` keeps it. Queue measures (depth, age, headroom) need figures from AWS, which this server does
+        not read: they have none, and `noDepth` says so. Infinity and NaN are the strings `Infinity`,
+        `-Infinity` and `NaN`.
+      parameters:
+        - {$ref: '#/components/parameters/DashboardRange'}
+        - {$ref: '#/components/parameters/DashboardFrom'}
+        - {$ref: '#/components/parameters/DashboardTo'}
+        - {$ref: '#/components/parameters/DashboardBuckets'}
+        - {$ref: '#/components/parameters/DashboardData'}
+      responses:
+        '200': {$ref: '#/components/responses/DashboardMeasures'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/DashboardGone'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/dashboards/{dashboard_id}/widgets/{widget_id}/measures:
+    parameters:
+      - {$ref: '#/components/parameters/DashboardId'}
+      - {$ref: '#/components/parameters/WidgetId'}
+    get:
+      operationId: get-dashboard-widget-measures
+      x-example-request: /api/dashboards/a1b2c3d4/widgets/w1/measures?range=1h
+      tags: [Dashboards]
+      summary: What one widget draws
+      description: As `get-dashboard-measures`, for the first widget with this ID.
+      parameters:
+        - {$ref: '#/components/parameters/DashboardRange'}
+        - {$ref: '#/components/parameters/DashboardFrom'}
+        - {$ref: '#/components/parameters/DashboardTo'}
+        - {$ref: '#/components/parameters/DashboardBuckets'}
+        - {$ref: '#/components/parameters/DashboardData'}
+      responses:
+        '200': {$ref: '#/components/responses/DashboardMeasures'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/DashboardGone'}
+        '500': {$ref: '#/components/responses/InternalError'}
 components:
   headers:
     NoStore:
@@ -1900,6 +2213,45 @@ components:
       description: |
         An ingest token (`tbi_` and 40 letters and digits) sent as `Authorization: Bearer`. Ingest only.
   parameters:
+    DashboardId:
+      name: dashboard_id
+      in: path
+      required: true
+      description: The dashboard's ID, from `GET /api/dashboards`.
+      schema: {type: string}
+      example: a1b2c3d4
+    WidgetId:
+      name: widget_id
+      in: path
+      required: true
+      description: The widget's `id` in the dashboard's definition.
+      schema: {type: string}
+      example: w1
+    DashboardRange:
+      name: range
+      in: query
+      description: A preset range ending now. Without it, or `from` and `to`, the dashboard's `time`, else the past hour.
+      schema: {type: string, enum: [5m, 15m, 1h, 4h, 1d, 2d, 7d, 30d]}
+    DashboardFrom:
+      name: from
+      in: query
+      description: The range's start, in ms since the epoch, with `to`. At most 30 days before `to`.
+      schema: {type: integer, minimum: 0}
+    DashboardTo:
+      name: to
+      in: query
+      description: The range's end, in ms since the epoch, excluded.
+      schema: {type: integer, minimum: 0}
+    DashboardBuckets:
+      name: n
+      in: query
+      description: How many buckets a line has.
+      schema: {type: integer, minimum: 1, maximum: 200, default: 60}
+    DashboardData:
+      name: data
+      in: query
+      description: '`1` adds `data`: the events the figures were worked out from (the hosted app''s EventData).'
+      schema: {type: string, enum: ['1', 'true']}
     user_id:
       name: user_id
       in: path
@@ -1970,6 +2322,78 @@ components:
       description: The length of the time window in seconds, when `from_ms` is not given.
       schema: {type: integer, minimum: 1, maximum: 34560000, default: 86400}
   responses:
+    DashboardsOff:
+      description: No such route, or dashboards are off (`TRAILBEAM_DASHBOARDS`).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {"error": "no such endpoint: GET /api/dashboards"}
+    DashboardGone:
+      description: No dashboard (or widget) with this ID, or dashboards are off.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {"error": "This dashboard no longer exists."}
+    DashboardRefused:
+      description: |
+        The change is refused, in the hosted app's words: no name, a definition that fails its checks (which
+        widget, and why), JSON that does not parse, or a dashboard that is locked.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {"error": "Widget 2: queries has an unknown measure \"depth\"."}
+    DashboardBusy:
+      description: Someone changed the dashboard between your read and your change. Reload it and try again.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {"error": "Someone else changed this dashboard at the same moment. Reload it and try again."}
+    DashboardRemoved:
+      description: Whether there was a dashboard to delete.
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [removed]
+            properties:
+              removed: {type: boolean}
+    OneDashboard:
+      description: The dashboard.
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [dashboard]
+            properties:
+              dashboard: {$ref: '#/components/schemas/Dashboard'}
+    DashboardWithWidget:
+      description: The dashboard after, and the widget as stored.
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [dashboard, widget]
+            properties:
+              dashboard: {$ref: '#/components/schemas/Dashboard'}
+              widget: {$ref: '#/components/schemas/DashboardWidget'}
+    DashboardMeasures:
+      description: Each widget's figures, in the definition's order.
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [dashboard, time, now, capped, widgets]
+            properties:
+              dashboard: {type: string}
+              time: {$ref: '#/components/schemas/DashboardRangeTimes'}
+              now: {type: integer, description: The time the events were read up to, ms.}
+              capped: {type: boolean, description: 'More messages had spans in the range than were read (2000): the oldest are missing.'}
+              widgets: {type: array, items: {$ref: '#/components/schemas/WidgetMeasures'}}
+              data: {type: object, description: 'With `data=1`: the events, queues and queue figures the measures read.'}
     Forbidden:
       description: |
         Signed in, but not allowed: the route needs an admin, or a person (`/api/me/tokens` with the shared
@@ -2076,6 +2500,150 @@ components:
           schema: {$ref: '#/components/schemas/Error'}
           example: {"error": "no spans for message ID 'nope'"}
   schemas:
+    DashboardTime:
+      type: [string, 'null']
+      enum: [5m, 15m, 1h, 4h, 1d, 2d, 7d, 30d, null]
+      description: The preset range the dashboard opens at; null is the past hour.
+    DashboardWidget:
+      type: object
+      description: |
+        A widget's definition, as the hosted app's (lib/dashboards/types.ts `Widget`): stored and answered exactly
+        as given, so fields not named here are kept too.
+      required: [id, type, title, layout]
+      properties:
+        id: {type: string}
+        type: {type: string, enum: [timeseries, heatmap, distribution, number, gauge, toplist, queue_table, status_grid, event_list, queue_flow, note]}
+        title: {type: string}
+        filter: {type: string, description: "The Event explorer's query language; `$name` stands for a variable."}
+        queries:
+          type: array
+          items:
+            type: object
+            required: [measure]
+            properties:
+              measure: {type: string}
+              group_by: {type: string}
+        layout:
+          type: object
+          required: [x, y, w, h]
+          properties: {x: {type: number}, y: {type: number}, w: {type: number}, h: {type: number}}
+    DashboardDef:
+      type: object
+      required: [widgets]
+      properties:
+        variables:
+          type: array
+          items:
+            type: object
+            required: [name, field, value]
+            properties: {name: {type: string}, field: {type: string}, value: {type: string}}
+        sections:
+          type: array
+          items:
+            type: object
+            required: [id, title]
+            properties: {id: {type: string}, title: {type: string}}
+        widgets: {type: array, items: {$ref: '#/components/schemas/DashboardWidget'}}
+    Dashboard:
+      type: object
+      additionalProperties: false
+      description: The hosted app's Dashboard record (lib/dashboards/types.ts), with what this server keeps besides.
+      required: [id, name, def, time, starred, lockedBy, lockedById, createdBy, createdById, updatedBy, createdAt, updatedAt, version]
+      properties:
+        id: {type: string}
+        name: {type: string, maxLength: 80}
+        def: {$ref: '#/components/schemas/DashboardDef'}
+        time: {$ref: '#/components/schemas/DashboardTime'}
+        starred: {type: boolean}
+        lockedBy: {type: [string, 'null'], description: "The display name of who locked it, to show; null: not locked."}
+        lockedById: {type: [string, 'null'], description: "Their person ID, which decides who may unlock it."}
+        createdBy: {type: string, description: "The owner's display name, or how the request was let in."}
+        createdById: {type: [string, 'null'], description: "The owner's person ID; null before accounts, or by a token."}
+        updatedBy: {type: string}
+        createdAt: {type: integer, description: ms since the epoch.}
+        updatedAt: {type: integer, description: ms since the epoch.}
+        version: {type: integer, description: One more on every change. Send it back with a change to make it only if no one else changed it.}
+      example: {"id": "a1b2c3d4", "name": "Orders", "def": {"variables": [], "sections": [], "widgets": [{"id": "w1", "type": "number", "title": "DLQ depth", "queries": [{"measure": "dlq_depth"}], "rule": {"crit": 0}, "layout": {"x": 0, "y": 0, "w": 3, "h": 2}}]}, "time": null, "starred": false, "lockedBy": null, "lockedById": null, "createdBy": "Ada", "createdById": "1", "updatedBy": "Ada", "createdAt": 1795400000000, "updatedAt": 1795400000000, "version": 1}
+    DashboardRangeTimes:
+      type: object
+      additionalProperties: false
+      required: [from, to]
+      properties:
+        from: {type: integer}
+        to: {type: integer}
+        label: {type: string}
+        preset: {type: string}
+    MeasureNumber:
+      description: A number, or `Infinity`, `-Infinity` or `NaN` as text.
+      anyOf:
+        - {type: number}
+        - {type: string, enum: [Infinity, -Infinity, NaN]}
+    WidgetMeasures:
+      type: object
+      additionalProperties: false
+      required: [id, type, title, filter, time, queries, alert, queueOnlyTerms, noDepth]
+      properties:
+        id: {type: [string, 'null']}
+        type: {type: [string, 'null']}
+        title: {type: [string, 'null']}
+        filter: {type: string, description: The filter the widget runs, with the variables put in.}
+        time: {$ref: '#/components/schemas/DashboardRangeTimes'}
+        queries:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [measure, label, unit, groupBy, depthMissing, noHistory, lines]
+            properties:
+              measure: {type: string}
+              label: {type: string}
+              unit: {type: string}
+              groupBy: {type: [string, 'null']}
+              depthMissing: {type: boolean, description: A queue measure no queue has a figure for.}
+              noHistory: {type: boolean, description: A measure with no history over the range.}
+              lines:
+                type: array
+                description: One per value of the group-by field, or one for all of it; largest first.
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [name, now, points]
+                  properties:
+                    name: {type: string}
+                    now: {$ref: '#/components/schemas/MeasureNumber'}
+                    points: {type: array, items: {$ref: '#/components/schemas/MeasureNumber'}}
+        buckets:
+          type: array
+          description: A timeseries of the events measure, its events per bucket, ok and failed.
+          items:
+            type: object
+            additionalProperties: false
+            required: [ok, err]
+            properties: {ok: {type: integer}, err: {type: integer}}
+        events: {type: array, items: {type: object}, description: 'Event lists, distributions and heatmaps: the matching events, newest first, up to 500.'}
+        eventsCapped: {type: boolean}
+        queues:
+          type: array
+          description: Queue tables and status grids, per queue the filter leaves.
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, tone, values]
+            properties:
+              name: {type: string}
+              tone: {type: [string, 'null']}
+              values: {type: object, additionalProperties: {anyOf: [{$ref: '#/components/schemas/MeasureNumber'}, {type: 'null'}]}}
+        alert:
+          type: [object, 'null']
+          additionalProperties: false
+          required: [tone, value, limit, queue]
+          properties:
+            tone: {type: string}
+            value: {type: string}
+            limit: {type: string}
+            queue: {type: string}
+        queueOnlyTerms: {type: array, items: {type: string}}
+        noDepth: {type: [string, 'null'], description: Why queue measures have no figure here.}
     Me:
       type: object
       additionalProperties: false
@@ -2106,6 +2674,34 @@ components:
                 name: {type: string}
                 role: {type: string, enum: [admin, member]}
           description: The person, for a session, a personal API token or a proxy's sign-in. Otherwise null.
+        sign_in:
+          type: object
+          additionalProperties: false
+          required: [password, identities]
+          description: |
+            How the person can sign in, for the Account page. Only with a person on a server with accounts.
+            Added in 0.5.
+          properties:
+            password: {type: boolean, description: Whether they have a password. Without one they sign in another way.}
+            identities:
+              type: array
+              description: Their accounts at an identity provider, oldest first.
+              items:
+                type: object
+                additionalProperties: false
+                required: [provider, label, 'on', email, last_sign_in_ms]
+                properties:
+                  provider: {type: string, enum: [sso, github], description: Single sign-on (OpenID Connect) or GitHub.}
+                  label:
+                    oneOf: [{type: 'null'}, {type: string}]
+                    description: The sign-in page's name for it (`--oidc-label`, or GitHub). Null when it is off.
+                  'on':
+                    type: boolean
+                    description: Whether this server offers this way in now. An account at a provider that is off can't sign in.
+                  email: {type: string, description: The email the provider gave at the last sign-in.}
+                  last_sign_in_ms:
+                    oneOf: [{type: 'null'}, {type: integer}]
+                    description: When they last signed in this way. Null before the first time.
     Error:
       type: object
       additionalProperties: false

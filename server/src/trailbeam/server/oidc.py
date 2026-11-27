@@ -111,6 +111,32 @@ class OidcError(Exception):
         self.status = status
 
 
+class Redirected(Exception):
+    """A provider endpoint answered with a redirect, which the sign-in doesn't follow (see ``urlopen``)."""
+
+    def __init__(self, code: int, location: str):
+        super().__init__(f"HTTP {code} redirect to {location[:300]!r}, not followed")
+
+
+class _NoRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        fp.close()
+        raise Redirected(code, newurl)
+
+
+_OPENER = urllib.request.build_opener(_NoRedirects)
+
+
+def urlopen(req: urllib.request.Request, timeout: float):
+    """``urllib.request.urlopen`` that never follows a redirect: a 3xx raises Redirected. urllib's own handler copies
+    every header but Content-Length and Content-Type onto the new request, whatever its host or scheme, so a redirect
+    would send the access token (``Authorization: Bearer``) or the client secret (``Authorization: Basic``, which it
+    keeps when it turns a POST into a GET on a 301/302/303) to the host it names. None of the endpoints that sign-in
+    calls (discovery, token, userinfo, GitHub's OAuth and REST API) is meant to redirect, so a redirect refuses the
+    sign-in. (The JWKS keys are fetched by PyJWT, with no credentials.)"""
+    return _OPENER.open(req, timeout=timeout)
+
+
 def _is_loopback(host: Optional[str]) -> bool:
     if not host:
         return False
@@ -358,8 +384,11 @@ class Provider:
     def _get_json(self, url: str, headers: Optional[dict] = None, data: Optional[bytes] = None) -> dict:
         req = urllib.request.Request(url, data=data, headers={"Accept": "application/json", **(headers or {})})
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout_s) as r:  # noqa: S310 - URLs checked by check_url
+            with urlopen(req, timeout=self.timeout_s) as r:
                 body = r.read(MAX_RESPONSE + 1)
+        except Redirected as e:
+            raise OidcError("The identity provider sent an answer this server can't read.", f"{url}: {e}", 502) \
+                from None
         except urllib.error.HTTPError as e:
             text = e.read(2000).decode("utf-8", "replace")
             raise OidcError("The identity provider refused the sign-in. Try again, or ask your administrator.",

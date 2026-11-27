@@ -247,16 +247,34 @@ def parse_url(text: str) -> Optional[_Url]:
     return _Url(scheme, userinfo, host, port, path, query, fragment)
 
 
+_V4_REFUSED = tuple(ipaddress.IPv4Network(n) for n in (
+    # IANA's IPv4 special-purpose registry, the not globally reachable ones, plus multicast and the 240/4 reserve. A
+    # whole block is refused where only part of it is local (192.0.0.0/24): nothing in it is a webhook.
+    "0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.0.0.0/24",
+    "192.0.2.0/24", "192.88.99.0/24", "192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24",
+    "224.0.0.0/4", "240.0.0.0/4"))
+_V6_GLOBAL = ipaddress.IPv6Network("2000::/3")  # all of the global unicast space IANA has allocated
+_V6_REFUSED = tuple(ipaddress.IPv6Network(n) for n in (
+    "2001::/23",  # IETF protocol assignments, Teredo (2001::/32) among them
+    "2001:db8::/32", "3fff::/20"))  # documentation
+_NAT64 = ipaddress.IPv6Network("64:ff9b::/96")
+_6TO4 = ipaddress.IPv6Network("2002::/16")
+
+
 def _private_ip(a) -> bool:
-    if isinstance(a, ipaddress.IPv4Address):
-        x, y = a.packed[0], a.packed[1]
-        return x in (0, 10, 127) or (x == 169 and y == 254) or (x == 172 and 16 <= y <= 31) or (x == 192 and y == 168) \
-            or (x == 100 and 64 <= y <= 127)
-    if a.ipv4_mapped is not None:
+    """Any address that isn't a public one: refused unless Python calls it global and it is outside every range above.
+    IPv6 is allowed only in 2000::/3. NAT64 (64:ff9b::/96) and 6to4 (2002::/16) addresses carry an IPv4 address
+    that the gateway reaches, so that address is checked; the local-use NAT64 prefix (64:ff9b:1::/48), IPv4-mapped
+    and IPv4-compatible (::/96) addresses are refused outright, as are Teredo's."""
+    if not a.is_global or a.is_multicast:
         return True
-    first = a.packed[0]
-    return a in (ipaddress.IPv6Address("::1"), ipaddress.IPv6Address("::")) or first in (0xFC, 0xFD) \
-        or (first == 0xFE and 0x80 <= a.packed[1] <= 0xBF)
+    if isinstance(a, ipaddress.IPv4Address):
+        return any(a in n for n in _V4_REFUSED)
+    if a in _NAT64:
+        return _private_ip(ipaddress.IPv4Address(a.packed[12:]))
+    if a in _6TO4:
+        return _private_ip(ipaddress.IPv4Address(a.packed[2:6]))
+    return a not in _V6_GLOBAL or any(a in n for n in _V6_REFUSED)
 
 
 def private_host(host: str) -> bool:

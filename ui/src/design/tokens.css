@@ -297,3 +297,119 @@
   .hist-seg { transform-origin: bottom; animation: hist-rise 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) backwards; }
   @keyframes hist-rise { from { transform: scaleY(0); } }
 }
+
+/* The Overview's shared views (src/now): the message sequence diagram (MessageSequence), the queue lane (QueueLane) and the
+   observatory on "nothing to show yet" states (Watching). Moved from the hosted app's globals.css (QV-579). */
+/* Message sequence: one message as a sequence diagram. Participants are columns, arrows are calls, bars are time in a state. */
+/* The diagram's colors come from the landing page's sky: periwinkle is time in the queue,
+   amber is time with the consumer, and the pale trail is the message moving. The light
+   theme uses deeper versions of the same hues so they hold up on white. */
+.qs { --q-wait: #4f63d8; --q-run: var(--color-accent); --q-move: var(--color-ink-2); --q-bad: var(--color-critical); }
+[data-app-theme="night"] .qs { --q-wait: var(--color-wait); --q-run: var(--color-ember); --q-move: var(--color-trail); }
+.qs > input { position: absolute; opacity: 0; pointer-events: none; }
+.qs-fig { flex: none; }
+.qs-heads { display: flex; }
+.qs-head { display: grid; align-content: start; justify-items: center; gap: 2px; padding: 0 8px 12px; text-align: center; }
+.qs-head .ic { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 8px; border: 1px solid var(--color-line-strong); border-radius: 4px; background: var(--color-surface); color: var(--color-ink); }
+.qs-head b { font: 600 14px/1.3 var(--font-sans); color: var(--color-ink); }
+.qs-head .nm { font: 12.5px/1.4 var(--font-mono); color: var(--color-ink-2); overflow-wrap: anywhere; }
+.qs-head .pf { margin-top: 1px; font: 12px/1.35 var(--font-sans); color: var(--color-ink-3); }
+.qs-body { position: relative; margin-top: 0; padding-top: 6px; }
+.qs-life { position: absolute; top: 0; bottom: 0; width: 1px; background: linear-gradient(to bottom, var(--color-line-strong), var(--color-line-strong) 82%, transparent); opacity: 0.75; }
+.qs-bar { position: absolute; z-index: 2; width: 12px; border-radius: 6px; pointer-events: none; }
+.qs-bar.visible { background: linear-gradient(to right, color-mix(in srgb, var(--q-wait) 82%, #fff), var(--q-wait)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--q-wait) 16%, transparent), 0 4px 12px -2px color-mix(in srgb, var(--q-wait) 55%, transparent); min-height: 8px; }
+/* Named inflight, not hidden: Tailwind has a .hidden utility that would remove it. */
+.qs-bar.inflight { border: 1px solid color-mix(in srgb, var(--q-wait) 75%, transparent); background: repeating-linear-gradient(to bottom, color-mix(in srgb, var(--q-wait) 30%, var(--color-canvas)) 0 3px, color-mix(in srgb, var(--q-wait) 12%, var(--color-canvas)) 3px 6px); }
+.qs-bar.run { background: linear-gradient(to right, color-mix(in srgb, var(--q-run) 80%, #fff), var(--q-run)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--q-run) 16%, transparent), 0 4px 12px -2px color-mix(in srgb, var(--q-run) 55%, transparent); }
+.qs-bar span { position: absolute; top: 50%; transform: translateY(-50%); border-radius: 4px; padding: 1px 5px; background: var(--color-canvas); word-spacing: 1.5px; font: 11.5px/1.2 var(--font-sans); color: var(--color-ink-3); white-space: nowrap; }
+.qs-bar span b { margin-left: 2px; font: 500 11px var(--font-mono); color: var(--color-ink-2); font-variant-numeric: tabular-nums; }
+.qs-bar span.l { right: 17px; }
+.qs-bar span.r { left: 17px; }
+/* an axis break: two slanted strokes with the ground showing between them, across a lifeline and any bar on it */
+.qs-break { position: absolute; z-index: 3; width: 24px; height: 7px; margin: -3.5px 0 0 -12px; transform: skewY(-14deg); pointer-events: none;
+  border-top: 1.5px solid var(--color-ink-2); border-bottom: 1.5px solid var(--color-ink-2); background: var(--qs-ground, var(--color-canvas)); }
+.qs-break.key { position: static; display: inline-block; width: 14px; height: 6px; margin: 0 3px; vertical-align: middle; }
+/* a break in the drawing is the trigger of the note on scale (Tooltip, @trailbeam/ui/design). The target is
+   larger than the mark. The mark itself does not change on hover: the pointer does. */
+.qs-break-hit { position: absolute; z-index: 3; display: grid; place-items: center; width: 34px; height: 20px; margin: -10px 0 0 -17px; cursor: pointer; }
+.qs-break-hit .qs-break { position: static; margin: 0; }
+
+.ui-tooltip .qs-break.key { --qs-ground: var(--color-surface); }
+.qs-row { position: absolute; left: 0; right: 0; display: block; height: 40px; border-radius: 8px; cursor: pointer; transition: background-color 0.12s; }
+.qs-row:hover { background: color-mix(in srgb, var(--color-ink) 5%, transparent); }
+.qs-row .t { position: absolute; top: 50%; left: 10px; transform: translateY(-50%); font: 11px var(--font-mono); color: var(--color-ink-3); font-variant-numeric: tabular-nums; }
+.qs-arrow { position: absolute; top: 50%; height: 0; border-top: 1.5px solid var(--q-move); }
+.qs-arrow::before { content: ""; position: absolute; top: -4px; width: 6px; height: 6px; border-radius: 50%; background: var(--q-move); }
+.qs-arrow.ltr::before { left: -3px; }
+.qs-arrow.rtl::before { right: -3px; }
+.qs-arrow::after { content: ""; position: absolute; top: -5px; width: 7px; height: 7px; border: solid var(--q-move); border-width: 1.5px 1.5px 0 0; }
+.qs-arrow.ltr::after { right: 0; transform: rotate(45deg); }
+.qs-arrow.rtl::after { left: 0; transform: rotate(-135deg); }
+.qs-arrow.inferred { border-top: 1.5px dashed var(--q-bad); }
+.qs-arrow.inferred::before { background: var(--q-bad); }
+.qs-arrow.inferred::after { border-color: var(--q-bad); }
+.qs-arrow span, .qs-chip { position: absolute; top: 50%; border: 1px solid var(--color-line-strong); border-radius: 6px; padding: 2px 7px; background: var(--color-surface); box-shadow: var(--shadow-card); white-space: nowrap; }
+.qs-arrow span { left: 50%; transform: translate(-50%, -50%); margin-top: -1px; font: 500 11.5px/1.35 var(--font-mono); color: var(--color-ink); }
+.qs-arrow.inferred span { word-spacing: 1.5px; border-style: dashed; border-color: color-mix(in srgb, var(--q-bad) 60%, transparent); font-family: var(--font-sans); color: var(--color-critical-text); }
+.qs-mark { position: absolute; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; }
+.qs-mark.x { background: var(--q-bad); box-shadow: 0 0 0 3px var(--color-canvas), 0 0 0 6px color-mix(in srgb, var(--q-bad) 22%, transparent); }
+/* an error mark breathes: a slow red halo, so a failed step is the first thing seen */
+.qs-mark.x::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; background: var(--q-bad); opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .qs-mark.x { animation: qs-flash 2.4s ease-in-out infinite; }
+  .qs-mark.x::after { animation: qs-halo 2.4s ease-in-out infinite; }
+  @keyframes qs-flash { 0%, 100% { opacity: 1 } 50% { opacity: .55 } }
+  @keyframes qs-halo { 0%, 100% { opacity: 0; transform: scale(.6) } 50% { opacity: .3; transform: scale(1.15) } }
+}
+.qs-mark.tick { border: 2px solid var(--q-wait); background: var(--color-canvas); box-shadow: 0 0 0 3px var(--color-canvas); }
+.qs-chip { transform: translateY(-50%); word-spacing: 1.5px; font: 500 12px/1.35 var(--font-sans); color: var(--color-ink); }
+.qs-chip.x { border-color: color-mix(in srgb, var(--q-bad) 45%, transparent); background: color-mix(in srgb, var(--q-bad) 12%, var(--color-surface)); color: var(--color-critical-text); }
+.qs-chip.inferred { border-style: dashed; box-shadow: none; background: var(--color-canvas); color: var(--color-ink-2); font-weight: 400; }
+.qs-key { margin: 12px 0 0 10px; font-size: 12px; color: var(--color-ink-3); }
+.qs-side { min-width: 0; padding-top: 6px; }
+.qs-payload { margin-top: 20px; border-top: 1px solid var(--color-line); padding-top: 16px; }
+.qs-row { border: 0; padding: 0; background: none; text-align: left; font: inherit; }
+.qs-row.on, .qs-row.on:hover { background: color-mix(in srgb, var(--color-accent) 11%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 55%, transparent); }
+.qs-row.on .t { color: var(--color-accent); }
+.qs-row.on .qs-arrow:not(.inferred) span { border-color: var(--color-accent); }
+.qs-chip.warn { border-color: color-mix(in srgb, var(--color-serious) 45%, transparent); background: color-mix(in srgb, var(--color-serious) 12%, var(--color-surface)); color: var(--color-serious-text); }
+.qs-mark.warn { background: var(--color-serious); box-shadow: 0 0 0 3px var(--color-canvas), 0 0 0 6px color-mix(in srgb, var(--color-serious) 22%, transparent); }
+.qs-bar.open { border-bottom-left-radius: 0; border-bottom-right-radius: 0; -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent); mask-image: linear-gradient(to bottom, #000 55%, transparent); }
+
+/* The selected step's label in the sequence diagram: a steady accent outline, and a
+   soft pulse that repeats while the step is selected so the eye finds it. */
+.qs-row.on .qs-arrow span, .qs-row.on .qs-chip { outline: 1.5px solid var(--color-accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: no-preference) {
+  /* Repeats every 3.5 s: a soft ring for the first second, then rest. */
+  .qs-row.on .qs-arrow span, .qs-row.on .qs-chip { animation: qs-label-pulse 3.5s ease-out infinite; }
+  @keyframes qs-label-pulse {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 42%, transparent); filter: brightness(1.12); }
+    28% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--color-accent) 0%, transparent); filter: brightness(1); }
+    100% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--color-accent) 0%, transparent); filter: brightness(1); }
+  }
+}
+
+/* the queue lane on the Overview: a mark slides when its message changes state */
+.lane-mark { transition: transform .5s cubic-bezier(.3,.7,.2,1), opacity .4s linear, width .18s ease-out; }
+@media (prefers-reduced-motion: no-preference) { .lane-mark { animation: lane-in .3s ease-out; } @keyframes lane-in { from { opacity: 0; } } }
+@media (prefers-reduced-motion: reduce) { .lane-mark { transition: none; } }
+
+/* A message sequence that is still gaining steps: rows and bars move to their new places,
+   a new step drops in, and a new bar grows downward from where it starts. */
+@media (prefers-reduced-motion: no-preference) {
+  .qs-live .qs-body { transition: min-height .6s cubic-bezier(.3,.7,.2,1); }
+  .qs-live .qs-row { transition: top .6s cubic-bezier(.3,.7,.2,1), background-color .12s; animation: qs-step .5s ease-out; }
+  .qs-live .qs-bar { transition: top .6s cubic-bezier(.3,.7,.2,1), height .6s cubic-bezier(.3,.7,.2,1); animation: qs-grow .7s cubic-bezier(.3,.7,.2,1); }
+  .qs-live .qs-break-hit { transition: top .6s cubic-bezier(.3,.7,.2,1); }
+  @keyframes qs-step { from { opacity: 0; transform: translateY(-14px); } }
+  @keyframes qs-grow { from { clip-path: inset(0 -400px 100% -400px); } to { clip-path: inset(0 -400px 0 -400px); } }
+}
+
+/* The observatory's beam on "nothing to show yet" states (src/now/Watching.tsx).
+   It turns about the mouth of the dome's slit, a short arc either side of the line from the
+   dome's centre through the slit, slowly, one way and back. Still under reduced motion. */
+.watch-beam { transform-box: view-box; transform-origin: 169.4px 95.3px; transform: rotate(17deg); }
+@media (prefers-reduced-motion: no-preference) {
+  .watch-beam { animation: watch-beam 9s ease-in-out infinite alternate; }
+}
+@keyframes watch-beam { from { transform: rotate(4deg); } to { transform: rotate(30deg); } }
