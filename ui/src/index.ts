@@ -3,9 +3,11 @@
   and the hosted app. A view takes the API's data as props and knows nothing about where it runs.
   Plan: the hosted app's docs/plans/shared-ui.md.
 */
-export { TimelineView, NoticeText, Node, SourceTag, ORDER_SOURCE, BLIND_SPOTS, clock, traceUrl, purgeNote } from "./timeline/Timeline.tsx";
+// the timeline view and the message page are in @trailbeam/ui/design (their hover notes are the design system's Tooltip); their words are here
+export { ORDER_SOURCE, BLIND_SPOTS, NOTICE_LINKS, STATE_WORDS, clock, traceUrl, purgeNote } from "./timeline/words.ts";
 export { answerFor, consumersOf } from "./summary.ts";
 export { ErrorCauses } from "./timeline/ErrorCauses.tsx";
+export type { MessageHrefs, MessageTab } from "./message/types.ts";
 export { errorCauses, type ErrorCause } from "./errors.ts";
 export type * from "./timeline/types.ts";
 export { TenantSearch, TENANTS_TITLE, TENANTS_SUBTITLE, p95Note, tenantsFootnote, noTenantsText, P95_NOTE, fmtWait, fmtShare, TENANT_ENV, TENANT_IS, TENANTS_README } from "./tenants/Tenants.tsx";
@@ -66,11 +68,3 @@ export {
   type FlowService, type Note, type OverviewSummary,
 } from "./overview/derive.ts";
 export { overviewHref, overviewQuery, overviewWindow, pinnedOverview, readOverviewUrl, selfHostedHrefs, widerPresets, type OverviewUrl } from "./overview/selfhosted.ts";
-export { EventExplorer, type EventExplorerProps, type EventExport, type ExportOption } from "./events/EventExplorer.tsx";
-export { StepHistogram, niceMax, type HistogramProps } from "./events/Histogram.tsx";
-export {
-  EXPORT_HEADERS, EXPORT_MAX, EXPORT_PAGE, PAGE_LIMIT, barsOf, collectSteps, eventsQuery, exportRow, fmtStepTime, kindLabel, perLabel, pickedWindow,
-  serviceText, stepFailed, stepKey, stepMs, stepResult, toCsv, type Bar, type Window,
-} from "./events/model.ts";
-export { KIND_LABELS, QUERY_FIELDS, kindsOf, onlyKind, parseQuery, setField, type ParsedQuery, type QueryField, type Term } from "./events/query.ts";
-export { STEP_KINDS, type EventHistogram, type EventPage, type EventStep, type KindCounts, type StepKind } from "./events/types.ts";
