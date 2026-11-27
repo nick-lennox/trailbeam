@@ -2,17 +2,6 @@
 
 ## Unreleased
 
-- **RabbitMQ routing keys stay in your process unless you ask for them** (QV-533, contract revision 4.1). With
-  body capture off for a queue or exchange, the pika and amqplib hooks no longer export the routing key: the
-  publish, return and deliver spans carry `trailbeam.amqp.routing_key.hmac`, a keyed hash made with
-  `TRAILBEAM_RECEIPT_HASH_KEY`, and the timeline shows it as "hashed". Topic routing keys often hold IDs and email
-  addresses. The key is exported verbatim when the queue's or exchange's body is captured, or with
-  `TRAILBEAM_AMQP_EXPORT_ROUTING_KEYS=on` (`export_routing_keys=True` in Python, `exportRoutingKeys: true` in
-  Node.js). Trailbeam doesn't join or group by routing key, so nothing else changes. Message IDs are still
-  exported, since they are a message's identity, but without control characters (a trailing `\n` is dropped).
-  `python/README.md`, `node/README.md` and the contract (A16) now list every field the RabbitMQ hooks export.
-  **To keep seeing routing keys**, set `TRAILBEAM_AMQP_EXPORT_ROUTING_KEYS=on`.
-
 - **`npx trailbeam start` no longer leaves its output in Docker's log** (QV-409). It runs the container with
   `--log-driver none`, so the output still shows in the terminal but is not kept by `docker logs` or sent to a log
   service the Docker daemon is set up with (gelf, fluentd, awslogs, ...). That output holds the first run's token
