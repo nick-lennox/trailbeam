@@ -34,6 +34,8 @@ export {
 export {
   CreateToken, OneTimeToken, TokensTable, type CreateTokenProps, type OneTimeTokenProps, type TokensTableProps,
 } from "../tokens/TokensViews.tsx";
+export { CodeWindow, FirstRun, highlight, type FirstRunProps } from "../firstrun/FirstRun.tsx";
+export { AccountCard, type AccountCardProps, type AccountPasskeys } from "../account/AccountCard.tsx";
 export {
   HealthPill, OutcomePill, SourceTag, StatePill, SOURCE, POSSIBLY_PURGED_TITLE, purgeClock, purgeText, stateLook,
   type Outcome, type PurgeOf, type StateOf, type StepSource,

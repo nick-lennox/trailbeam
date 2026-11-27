@@ -1,14 +1,19 @@
 /*
   `/`: the Messages list, or, while the store holds no span and the URL has no filter, the first-run screen
   (design QV-146). The screen polls /api/health every 2 s while the tab is visible (10 s after a failure) and, when
-  the first span is stored, shows that message and renders the list below it, without a reload.
+  the first span is stored, shows that message and renders the list below it, without a reload. The first-run
+  screen is in the shell's frame (frame.tsx) on the design system; the list keeps the header frame until the
+  Messages list moves onto the design system (QV-582), and under the first-run screen it sits in a night panel,
+  so its sky colors read the same in the day theme.
 */
 import { useEffect, useRef, useState } from "react";
 import {
-  FirstRun, RUNTIME_KEY, retainedFor, storeHasSpans, storeIsEmpty, waitingStatus,
+  RUNTIME_KEY, retainedFor, storeHasSpans, storeIsEmpty, waitingStatus,
   type FirstMessage, type FirstRunStatus, type Health, type MessageSummary, type Runtime,
 } from "../src/index.ts";
+import { FirstRun, TopBar } from "../src/design/index.ts";
 import { Frame, getHealth, getJSON } from "./chrome.tsx";
+import { ShellFrame, ShellSearch } from "./frame.tsx";
 import { MessagesList } from "./lists.tsx";
 
 const POLL_MS = 2000;
@@ -87,11 +92,18 @@ function FirstRunPage({ health }: { health: Health }) {
   const received = status.kind === "received";
   useEffect(() => { document.title = received ? "Trailbeam" : "Get started · Trailbeam"; }, [received]);
   return (
-    <>
-      <FirstRun endpoint={`${location.origin}/v1/traces`} auth={health.config?.auth === "token" || health.config?.ingest_auth === "token" ? "token" : "off"} status={status}
-        version={health.version ?? "unknown"} runtime={runtime} onRuntime={pick} retainedFor={retainedFor(health)} />
-      {received && <div className="mt-10"><MessagesList params={{}} heading="h2" /></div>}
-    </>
+    <ShellFrame path="/">
+      <TopBar search={<ShellSearch />} />
+      <div className="max-w-4xl px-8 pt-8 pb-16">
+        <FirstRun endpoint={`${location.origin}/v1/traces`} auth={health.config?.auth === "token" || health.config?.ingest_auth === "token" ? "token" : "off"} status={status}
+          version={health.version ?? "unknown"} runtime={runtime} onRuntime={pick} retainedFor={retainedFor(health)} />
+      </div>
+      {received && (
+        <div data-app-theme="night" className="mx-8 mb-16 rounded-card border border-line bg-sky p-6 text-sky-ink">
+          <MessagesList params={{}} heading="h2" />
+        </div>
+      )}
+    </ShellFrame>
   );
 }
 
@@ -107,10 +119,10 @@ export function HomePage() {
     getHealth(5000).then((h) => setState(storeIsEmpty(h) ? { kind: "first-run", health: h } : { kind: "list" }), () => setState({ kind: "list" }));
   }, [filtered]);
   useEffect(() => { if (state.kind === "list") document.title = "Trailbeam"; }, [state.kind]);
+  if (state.kind === "first-run") return <FirstRunPage health={state.health} />;
   return (
     <Frame>
       {state.kind === "loading" && <p className="text-sky-ink-3">Loading messages</p>}
-      {state.kind === "first-run" && <FirstRunPage health={state.health} />}
       {state.kind === "list" && <MessagesList params={params} />}
     </Frame>
   );

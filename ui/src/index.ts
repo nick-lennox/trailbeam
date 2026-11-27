@@ -15,6 +15,8 @@ export {
   linkSentence, removeSentence, unsentSentence, removeSsoNote, signInAdmins,
 } from "./people/People.tsx";
 export type * from "./people/types.ts";
+export { ACCOUNT_ABOUT, PASSKEYS_ABOUT, PASSKEY_NOT_SAVED, WAY_OFF, accountWays, deviceName } from "./account/text.ts";
+export type * from "./account/types.ts";
 export {
   DEFAULT_EXPIRY, EXPIRY, INGEST_TEXT, OPEN_INGEST, OPEN_INGEST_CONFIRM, PERSONAL_TEXT,
   STATUS_TEXT as TOKEN_STATUS_TEXT, revokeSentence, secretSentence, sharedSentence, shownPrefix,
@@ -28,7 +30,7 @@ export {
   badBodyTerm, bodyHit, bodyMatches, bodyPath, bodyValues, isBodyField, numHit, parseBodyQuery, parsedBody, textHit, NUM, RANGE, type BodyTerm,
 } from "./body/search.ts";
 export type * from "./body/types.ts";
-export { FirstRun, CodeWindow, highlight, environment, EXAMPLE, INSTALL, RUNTIMES, RUNTIME_KEY, type FirstRunProps, type Runtime } from "./firstrun/FirstRun.tsx";
+export { environment, EXAMPLE, INSTALL, RUNTIMES, RUNTIME_KEY, type Runtime } from "./firstrun/text.ts";
 export {
   announcement, isDefaultEndpoint, retainedFor, storeHasSpans, storeIsEmpty, waitingStatus, NO_SPANS_AFTER_MS,
   type FirstMessage, type FirstRunStatus, type Health,

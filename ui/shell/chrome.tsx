@@ -1,6 +1,6 @@
 /* What every shell page shares: the header, the page frame, and reading Trailbeam's API on the same origin. */
 import { useEffect, useState, type ReactNode } from "react";
-import { TenantSearch, type Health } from "../src/index.ts";
+import { TenantSearch, type Health, type SignInIdentity } from "../src/index.ts";
 
 /** A tenant's messages: the Messages list, filtered (contract/tenants.md, "Tenant filter"). */
 export const tenantHref = (t: string) => `/?tenant=${encodeURIComponent(t)}`;
@@ -89,6 +89,8 @@ export type Me = {
   user: { id: number; email: string; name: string; role: "admin" | "member" } | null;
   /** Whether Sign out (/logout) ends anything; absent before 0.5 (then: a session or the token's cookie). */
   sign_out?: boolean;
+  /** How the person can sign in, for the Account page; absent without a person or accounts, and before 0.5. */
+  sign_in?: { password: boolean; identities: SignInIdentity[] };
 };
 
 let mePromise: Promise<Me | null> | null = null;
@@ -120,9 +122,9 @@ export function Account({ me }: { me: Me | null }) {
   return (
     <div className="flex items-center gap-3 text-sm text-sky-ink-2">
       {me.user && (
-        <span title={`${me.user.email} (${me.user.role})`} className="max-w-48 truncate">
+        <a href="/account" title={`${me.user.email} (${me.user.role})`} className="max-w-48 truncate hover:text-sky-ink">
           {me.user.name}{me.user.role === "admin" && <span className="ml-1 text-caption text-sky-ink-3">admin</span>}
-        </span>
+        </a>
       )}
       {signOut && <a href="/logout" className="hover:text-sky-ink">Sign out</a>}
     </div>
