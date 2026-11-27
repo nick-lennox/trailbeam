@@ -242,6 +242,63 @@ def test_the_memory_of_a_rule_is_kept_and_its_flags_cleared_once(store):
     assert store.rules_with_memory(WS)[0]["memory"]["seen"] == []
 
 
+# ── a NUL in a cause's text (QV-658) ─────────────────────────────────────────────────────────────────────────────
+
+NUL_KEY = "v1|orders|worker|exc:ValueError:invalid literal for int(): '\x00\x01'"
+NUL_LABEL = "worker raised ValueError: invalid literal for int(): '\x00\x01'"
+
+
+def _nul_deps(store, delivered, at=T):
+    group = {**MAKE.group(2, key=NUL_KEY), "label": NUL_LABEL}
+    return run.Deps(store=store, dashboards=lambda only: {}, data=lambda ws, boards: {},
+                    causes=lambda ws: {"groups": [group], "causeOf": {"m1": "c1", "m2": "c1"}, "capped": False},
+                    deliver=lambda ws, changes: delivered.append((ws, copy.deepcopy(changes))),
+                    now=lambda: at, owner="me")
+
+
+def test_a_nul_in_a_cause_round_trips_and_its_rule_still_alerts(store):
+    # Postgres text refuses NUL: the label, the key and the texts the check writes keep it on every store
+    rule = MAKE.rule("r1", causeKey=NUL_KEY, label=NUL_LABEL)
+    add(store, WS, rule, MAKE.memory())
+    [x] = store.rules_with_memory(WS)
+    assert x["rule"] == rule
+    delivered: list = []
+    result = run.run_alerts(_nul_deps(store, delivered))
+    assert result["failed"] == [] and result["changes"] == 1
+    [(ws, [change])] = delivered
+    assert ws == WS and change["kind"] == "fired"
+    [x] = store.rules_with_memory(WS)
+    assert x["rule"]["label"] == NUL_LABEL and x["rule"]["causeKey"] == NUL_KEY
+    assert x["memory"]["seen"] == ["m1", "m2"]
+    store.checked("w\x00", T, "DataError: a\x00b")
+    assert store.last_check("w\x00") == T
+    if hasattr(store, "rule_for_cause"):
+        assert store.rule_for_cause(WS, NUL_KEY)["id"] == "r1"
+        assert store.update_rule(WS, "r1", {"mutedBy": "u\x00"})["mutedBy"] == "u\x00"
+
+
+class _ForgetfulStore:
+    """A store whose memory writes fail, as Postgres's did on a NUL before QV-658."""
+
+    def __init__(self, t):
+        self.t = t
+
+    def __getattr__(self, name):
+        return getattr(self.t, name)
+
+    def remember(self, *a):
+        raise RuntimeError("could not write the memory")
+
+
+def test_a_memory_that_cannot_be_written_does_not_stop_the_changes_being_sent(store):
+    add(store, WS, MAKE.rule("r1", causeKey=NUL_KEY), MAKE.memory())
+    delivered: list = []
+    result = run.run_alerts(_nul_deps(_ForgetfulStore(store), delivered))
+    assert [c["kind"] for _, cs in delivered for c in cs] == ["fired"]  # what record() won is sent
+    assert result["failed"] == [{"ws": WS, "error": "could not write the memory"}]  # and the workspace says why
+    assert store.alert_states(WS)[0]["tone"] == "critical"
+
+
 # ── the API's reads and writes ───────────────────────────────────────────────────────────────────────────────────
 
 def channel(id_: str, at: int, **o) -> dict:
