@@ -47,7 +47,7 @@ export { CauseList, CauseMessagesTable, DeadLetterQueues, OutcomeTag, TrendBars,
 export { causesNote, dlqSplit, tenantsText, trendOf, versionsText, whenFirst, whenLast, OUTCOME_LABELS, TREND_BARS, TREND_MS } from "./causes/text.ts";
 export type * from "./causes/types.ts";
 export { duplicatesEmpty, lookupEmpty, messagesEmpty, stuckEmpty, tenantsEmpty, without } from "./messages/empty.tsx";
-export { QueuePage, type QueuePageProps, type QueueHrefs, type MessagesView } from "./queue/QueuePage.tsx";
+// the queue page itself is a client module, in @trailbeam/ui/design (QueuePage); its data and link types are here
 export { Chart, Legend, Tag, type ChartProps, type ChartLine, type LegendItem } from "./queue/Chart.tsx";
 export {
   QUEUE_PRESETS, DEFAULT_QUEUE_RANGE, STEPS_S, FAILING_NOW, SPAN_HEALTH_NOTE, NO_VERDICT, chartSummary, collapseMarkers, consoleUrl, coverageText, fmtMs, fmtRate,
