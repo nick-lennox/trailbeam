@@ -44,9 +44,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=2607637e1173ac04944e20a2855848993ff02d936601e9ca158996aea2f642a6"
+       "x-trailbeam-signature": "sha256=25f0cb1a639ec585e6ce1443a5426dd682cfa922c62fc2b9ad9e087cdbd7d6b0"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"warning\",\"title\":\"Queue depth\",\"value\":\"1,240\",\"limit\":\"above 1,000\",\"queue\":\"orders\",\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\",\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d1\",\"name\":\"Orders\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\"},\"widget_id\":\"w1\"}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"warning\",\"title\":\"Queue depth\",\"value\":\"1,240\",\"limit\":\"above 1,000\",\"queue\":\"orders\",\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\",\"no_longer_checked\":false,\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d1\",\"name\":\"Orders\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\"},\"widget_id\":\"w1\"}]}"
      }
     ]
    }
@@ -94,9 +94,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=374398feeac5b76bab6b31026fe2d002b35be32516f3f163c758d4866b0caaea"
+       "x-trailbeam-signature": "sha256=01218ae250cf83adc0633fa60306934c8520831e85df73491a23baa5577c5d9b"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"changed\",\"from\":\"warning\",\"tone\":\"critical\",\"title\":\"Queue depth\",\"value\":\"5,100\",\"limit\":\"above 5,000\",\"queue\":\"orders\",\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\",\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d1\",\"name\":\"Orders\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\"},\"widget_id\":\"w1\"}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"changed\",\"from\":\"warning\",\"tone\":\"critical\",\"title\":\"Queue depth\",\"value\":\"5,100\",\"limit\":\"above 5,000\",\"queue\":\"orders\",\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\",\"no_longer_checked\":false,\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d1\",\"name\":\"Orders\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\"},\"widget_id\":\"w1\"}]}"
      }
     ]
    }
@@ -144,9 +144,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=b9f5541662036da94f2b69c61315da60357163290e7ae397dc1ca8a819d00925"
+       "x-trailbeam-signature": "sha256=47c5b9419954e097959264f6766e56838e2a3e7a30b2ef073c09a3bec46453fc"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"changed\",\"from\":\"critical\",\"tone\":\"warning\",\"title\":\"Queue depth\",\"value\":\"1,240\",\"limit\":\"above 1,000\",\"queue\":\"orders\",\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\",\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d1\",\"name\":\"Orders\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\"},\"widget_id\":\"w1\"}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"changed\",\"from\":\"critical\",\"tone\":\"warning\",\"title\":\"Queue depth\",\"value\":\"1,240\",\"limit\":\"above 1,000\",\"queue\":\"orders\",\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\",\"no_longer_checked\":false,\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d1\",\"name\":\"Orders\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\"},\"widget_id\":\"w1\"}]}"
      }
     ]
    }
@@ -194,9 +194,111 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=686b46404cad719a923a5c3ae9fb37a241b748bc379eea2ad8c9b9c8553b7326"
+       "x-trailbeam-signature": "sha256=4ad233dd00c62a60ab494b19034d6a09b73fa5be7e710c1038ac18bb595424b6"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"resolved\",\"from\":\"critical\",\"tone\":\"good\",\"title\":\"Queue depth\",\"value\":\"12\",\"limit\":\"above 1,000\",\"queue\":null,\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\",\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d1\",\"name\":\"Orders\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\"},\"widget_id\":\"w1\"}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"resolved\",\"from\":\"critical\",\"tone\":\"good\",\"title\":\"Queue depth\",\"value\":\"12\",\"limit\":\"above 1,000\",\"queue\":null,\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\",\"no_longer_checked\":false,\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d1\",\"name\":\"Orders\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\"},\"widget_id\":\"w1\"}]}"
+     }
+    ]
+   }
+  },
+  {
+   "name": "webhook: a firing rule no longer checked",
+   "channel": {
+    "id": "ch_hook",
+    "kind": "webhook",
+    "name": "Ops hook",
+    "target": "https://hooks.example.com/alerts?token=abc",
+    "secret": "whsec_0123456789abcdef0123456789abcdef0123456789abcdef",
+    "minTone": "warning"
+   },
+   "workspace": {
+    "id": "ws_1",
+    "name": "Acme",
+    "slug": "acme"
+   },
+   "origin": "https://trailbeam.app",
+   "at": 1764000000000,
+   "changes": [
+    {
+     "kind": "resolved",
+     "from": "critical",
+     "alert": {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "Queue depth",
+      "tone": "good",
+      "value": "1,240",
+      "limit": "above 1,000",
+      "queue": "orders",
+      "since": 1763992800000,
+      "checkedAt": 1764000000000,
+      "noLongerChecked": true
+     }
+    }
+   ],
+   "expected": {
+    "posts": [
+     {
+      "url": "https://hooks.example.com/alerts?token=abc",
+      "headers": {
+       "content-type": "application/json",
+       "user-agent": "Trailbeam-Alerts/1",
+       "x-trailbeam-timestamp": "1764000000000",
+       "x-trailbeam-signature": "sha256=f7c900c4e37eafa35114b4f617b09b7bba1eda3d24d3ca7313fda0aedccb1148"
+      },
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"resolved\",\"from\":\"critical\",\"tone\":\"good\",\"title\":\"Queue depth\",\"value\":\"1,240\",\"limit\":\"above 1,000\",\"queue\":\"orders\",\"since\":\"2025-11-24T14:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\",\"no_longer_checked\":true,\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d1\",\"name\":\"Orders\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\"},\"widget_id\":\"w1\"}]}"
+     }
+    ]
+   }
+  },
+  {
+   "name": "webhook: a warning rule no longer checked, no queue",
+   "channel": {
+    "id": "ch_hook",
+    "kind": "webhook",
+    "name": "Ops hook",
+    "target": "https://hooks.example.com/alerts?token=abc",
+    "secret": "whsec_0123456789abcdef0123456789abcdef0123456789abcdef",
+    "minTone": "warning"
+   },
+   "workspace": {
+    "id": "ws_1",
+    "name": "Acme",
+    "slug": "acme"
+   },
+   "origin": "https://trailbeam.app",
+   "at": 1764000000000,
+   "changes": [
+    {
+     "kind": "resolved",
+     "from": "warning",
+     "alert": {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "Queue depth",
+      "tone": "good",
+      "value": "7.5 %",
+      "limit": "above 1,000",
+      "queue": "",
+      "since": 1763999700000,
+      "checkedAt": 1764000000000,
+      "noLongerChecked": true
+     }
+    }
+   ],
+   "expected": {
+    "posts": [
+     {
+      "url": "https://hooks.example.com/alerts?token=abc",
+      "headers": {
+       "content-type": "application/json",
+       "user-agent": "Trailbeam-Alerts/1",
+       "x-trailbeam-timestamp": "1764000000000",
+       "x-trailbeam-signature": "sha256=89d69293c33d292c164194990a0ceab442683be623333df8ca96c3107e40571c"
+      },
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"resolved\",\"from\":\"warning\",\"tone\":\"good\",\"title\":\"Queue depth\",\"value\":\"7.5 %\",\"limit\":\"above 1,000\",\"queue\":null,\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\",\"no_longer_checked\":true,\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d1\",\"name\":\"Orders\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\"},\"widget_id\":\"w1\"}]}"
      }
     ]
    }
@@ -244,9 +346,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=551cc5c8e48814de1ea4a4f2ff01494d680daa207249227ee5be8138353b0674"
+       "x-trailbeam-signature": "sha256=c658c74dc0fe5ddeb21e42dc1f5bf552cc39b7a41971e51f309c2050b814108e"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_2\",\"name\":\"Bits & \\\"Bobs\\\" <ltd>\",\"slug\":\"bits-bobs\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Error rate\",\"value\":\"7.5 %\",\"limit\":\"above 5 %\",\"queue\":null,\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/bits-bobs/dashboards/d2\",\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d2\",\"name\":\"Payments & <refunds>\",\"url\":\"https://trailbeam.app/app/bits-bobs/dashboards/d2\"},\"widget_id\":\"w9\"}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_2\",\"name\":\"Bits & \\\"Bobs\\\" <ltd>\",\"slug\":\"bits-bobs\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Error rate\",\"value\":\"7.5 %\",\"limit\":\"above 5 %\",\"queue\":null,\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/bits-bobs/dashboards/d2\",\"no_longer_checked\":false,\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d2\",\"name\":\"Payments & <refunds>\",\"url\":\"https://trailbeam.app/app/bits-bobs/dashboards/d2\"},\"widget_id\":\"w9\"}]}"
      }
     ]
    }
@@ -326,9 +428,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=415fe02351d2caec47287118516a0528cfe7b45c8837ee4ed1bbea97fac6b27d"
+       "x-trailbeam-signature": "sha256=92613ed2a831dc0a921e24ecef4cd1ce074659fb2a81009662dcfa84f73585d3"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"warning\",\"title\":\"Queue depth\",\"value\":\"1,240\",\"limit\":\"above 1,000\",\"queue\":\"orders\",\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\",\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d1\",\"name\":\"Orders\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\"},\"widget_id\":\"w1\"},{\"kind\":\"changed\",\"from\":\"warning\",\"tone\":\"critical\",\"title\":\"Queue depth\",\"value\":\"5,100\",\"limit\":\"above 5,000\",\"queue\":\"orders\",\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\",\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d1\",\"name\":\"Orders\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\"},\"widget_id\":\"w1\"},{\"kind\":\"resolved\",\"from\":\"critical\",\"tone\":\"good\",\"title\":\"Queue depth\",\"value\":\"12\",\"limit\":\"above 1,000\",\"queue\":null,\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\",\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d1\",\"name\":\"Orders\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\"},\"widget_id\":\"w1\"}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"warning\",\"title\":\"Queue depth\",\"value\":\"1,240\",\"limit\":\"above 1,000\",\"queue\":\"orders\",\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\",\"no_longer_checked\":false,\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d1\",\"name\":\"Orders\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\"},\"widget_id\":\"w1\"},{\"kind\":\"changed\",\"from\":\"warning\",\"tone\":\"critical\",\"title\":\"Queue depth\",\"value\":\"5,100\",\"limit\":\"above 5,000\",\"queue\":\"orders\",\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\",\"no_longer_checked\":false,\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d1\",\"name\":\"Orders\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\"},\"widget_id\":\"w1\"},{\"kind\":\"resolved\",\"from\":\"critical\",\"tone\":\"good\",\"title\":\"Queue depth\",\"value\":\"12\",\"limit\":\"above 1,000\",\"queue\":null,\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\",\"no_longer_checked\":false,\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d1\",\"name\":\"Orders\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\"},\"widget_id\":\"w1\"}]}"
      }
     ]
    }
@@ -376,9 +478,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=8283dfba49e2a606fc34be21368be0dde56b8a1ddd8a450e4116c206a6e0ab4e"
+       "x-trailbeam-signature": "sha256=e63ff602d3f96123035a47e86298a30a4650903deea4533018298b53a4cd6a27"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"warning\",\"title\":\"Test alert\",\"value\":\"1\",\"limit\":\"above 0\",\"queue\":null,\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards\",\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"\",\"name\":\"A test from Settings\",\"url\":\"https://trailbeam.app/app/acme/dashboards\"},\"widget_id\":\"test\"}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"warning\",\"title\":\"Test alert\",\"value\":\"1\",\"limit\":\"above 0\",\"queue\":null,\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards\",\"no_longer_checked\":false,\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"\",\"name\":\"A test from Settings\",\"url\":\"https://trailbeam.app/app/acme/dashboards\"},\"widget_id\":\"test\"}]}"
      }
     ]
    }
@@ -447,9 +549,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=bb2be662a07e286943aa469fb090b7deab50474632afb738bf2615de2e7ff788"
+       "x-trailbeam-signature": "sha256=fc6ffeefd6601026136660842571e0ebfb02e6883e9f020c0d00eeffd1641a47"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":\"good\",\"tone\":\"critical\",\"title\":\"Back after 24 h quiet: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":\"good\",\"tone\":\"critical\",\"title\":\"Back after 24 h quiet: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"no_longer_checked\":false,\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
      }
     ]
    }
@@ -518,9 +620,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=5e1b4d0ce720fdb348742fc4fb801464ea8ec1f53d5b10b09bf6700aae9653be"
+       "x-trailbeam-signature": "sha256=4132d1e0e35a9b5fda5830d6c348f71a90776fb0afef35ae1966b08ca7ed9ee0"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":\"good\",\"tone\":\"critical\",\"title\":\"New messages: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"1\",\"limit\":\"new messages at a check\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":1,\"not_finished\":1},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":\"good\",\"tone\":\"critical\",\"title\":\"New messages: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"1\",\"limit\":\"new messages at a check\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"no_longer_checked\":false,\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":1,\"not_finished\":1},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
      }
     ]
    }
@@ -589,9 +691,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=f589c10db0992ac05e6a051bf4cf878175b14f1d2fb0e8eb602fec1073cd6f39"
+       "x-trailbeam-signature": "sha256=3fa13dedfeb258009fd045b46af597d12ec60031fb65c597d0f86ad308197a1d"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"resolved\",\"from\":\"critical\",\"tone\":\"good\",\"title\":\"Quiet for 24 h: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"0\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":0,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"resolved\",\"from\":\"critical\",\"tone\":\"good\",\"title\":\"Quiet for 24 h: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"0\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"no_longer_checked\":false,\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":0,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
      }
     ]
    }
@@ -660,9 +762,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=038eb9567e0a4b4ac211b0b35590bdab591c6b7bcb71554427c9d3ee75e9cae6"
+       "x-trailbeam-signature": "sha256=366c3c895dd93fd6c978899f1dc0a6efc73bc1f89cb2b9400d8e13316157a023"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"resolved\",\"from\":\"critical\",\"tone\":\"good\",\"title\":\"No new messages: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"0\",\"limit\":\"new messages at a check\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":0,\"not_finished\":0},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"resolved\",\"from\":\"critical\",\"tone\":\"good\",\"title\":\"No new messages: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"0\",\"limit\":\"new messages at a check\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"no_longer_checked\":false,\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":0,\"not_finished\":0},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
      }
     ]
    }
@@ -731,9 +833,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=2f9252c1d5ea0071d5a3c79820442851980d447537724e4776670759e3ac0876"
+       "x-trailbeam-signature": "sha256=396b7eea702f6645acd7ccb7d2315e42273e33e88a85864ae2e61ba4d6eb0cd3"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"resolved\",\"from\":\"critical\",\"tone\":\"good\",\"title\":\"Quiet for 24 h: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"0\",\"limit\":\"new messages after 24 h quiet\",\"queue\":null,\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":null,\"basis\":\"exception\"},\"counts\":{\"new\":0,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"resolved\",\"from\":\"critical\",\"tone\":\"good\",\"title\":\"Quiet for 24 h: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"0\",\"limit\":\"new messages after 24 h quiet\",\"queue\":null,\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"no_longer_checked\":false,\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":null,\"basis\":\"exception\"},\"counts\":{\"new\":0,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
      }
     ]
    }
@@ -802,9 +904,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=bb2be662a07e286943aa469fb090b7deab50474632afb738bf2615de2e7ff788"
+       "x-trailbeam-signature": "sha256=fc6ffeefd6601026136660842571e0ebfb02e6883e9f020c0d00eeffd1641a47"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":\"good\",\"tone\":\"critical\",\"title\":\"Back after 24 h quiet: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":\"good\",\"tone\":\"critical\",\"title\":\"Back after 24 h quiet: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"no_longer_checked\":false,\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
      }
     ]
    }
@@ -874,9 +976,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=316cefe9403182d7347165e493cbca25958908d52f50b6b3cf5588f01f13b08c"
+       "x-trailbeam-signature": "sha256=7462565725113af1546dc4ad3badfb02115978df9a175ead6415b8d1adc927a0"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Still firing after a snooze: Back after 24 h quiet: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"0\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-23T10:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":0,\"not_finished\":7},\"after_snooze\":true,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Still firing after a snooze: Back after 24 h quiet: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"0\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-23T10:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"no_longer_checked\":false,\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":0,\"not_finished\":7},\"after_snooze\":true,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
      }
     ]
    }
@@ -958,9 +1060,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=fc7a1f42e61f80031a0589dc6a9c3a6aa41168cad5ae69873971ac6422fba017"
+       "x-trailbeam-signature": "sha256=5afc08593563d96d432e2b957e6e57fc7a66d1d563188f0e1c9b631650aab56a"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Regressed: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":{\"new_failures\":2,\"version\":\"v1.4.2\",\"resolved_by\":\"Sam\"},\"back_from_ignored\":false,\"triage\":{\"status\":\"open\",\"regressed\":true,\"assignee\":\"Sam\",\"notes\":3},\"dashboard\":null,\"widget_id\":null}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Regressed: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"no_longer_checked\":false,\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":{\"new_failures\":2,\"version\":\"v1.4.2\",\"resolved_by\":\"Sam\"},\"back_from_ignored\":false,\"triage\":{\"status\":\"open\",\"regressed\":true,\"assignee\":\"Sam\",\"notes\":3},\"dashboard\":null,\"widget_id\":null}]}"
      }
     ]
    }
@@ -1035,9 +1137,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=7e9e5b30fda0591cd9369fbf2f5bf7c617d12285cf48de76761c09d86299b54d"
+       "x-trailbeam-signature": "sha256=246cbd66e1580e65ffbd7cb2d91e62fc411dd29647ce6a8fb88690c774b9d237"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Regressed: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":null,\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":null,\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":{\"new_failures\":1,\"version\":null,\"resolved_by\":null},\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Regressed: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":null,\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"no_longer_checked\":false,\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":null,\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":{\"new_failures\":1,\"version\":null,\"resolved_by\":null},\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
      }
     ]
    }
@@ -1112,9 +1214,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=640a4f236280bb5bc9182a4b3bd52ee1199cefd4e65ad69ea62c5ff58c080ae8"
+       "x-trailbeam-signature": "sha256=a00ed427385da8f5ff6595fa5e37a0c6449f7d2a87f04c77c6029892c2026034"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Regressed: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":{\"new_failures\":5,\"version\":null,\"resolved_by\":\"Kim\"},\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Regressed: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"no_longer_checked\":false,\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":{\"new_failures\":5,\"version\":null,\"resolved_by\":\"Kim\"},\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
      }
     ]
    }
@@ -1189,9 +1291,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=d1b412d464c3f64a77755005cae3a4fb1430eafd9494b3e1e5695aca83997798"
+       "x-trailbeam-signature": "sha256=a18d6fd3a29060371e66437711cfdbe0879b1128b1d5df3f1e2923262b88faa8"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Regressed: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":{\"new_failures\":5,\"version\":\"2\",\"resolved_by\":\"Kim\"},\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Regressed: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"no_longer_checked\":false,\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":{\"new_failures\":5,\"version\":\"2\",\"resolved_by\":\"Kim\"},\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
      }
     ]
    }
@@ -1270,9 +1372,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=bfe7bca98f7c23cd7aee5985cc93f56e86d0b3de3d21cb6933fc975e2bb9f543"
+       "x-trailbeam-signature": "sha256=a16949b2fa7febebbe9b2c326fd8d15a78c19c3604de4d8f05c9d3e22a3703d0"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Back from ignored: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-21T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":true,\"triage\":{\"status\":\"ignored\",\"regressed\":false,\"assignee\":null,\"notes\":1},\"dashboard\":null,\"widget_id\":null}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Back from ignored: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-21T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"no_longer_checked\":false,\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":true,\"triage\":{\"status\":\"ignored\",\"regressed\":false,\"assignee\":null,\"notes\":1},\"dashboard\":null,\"widget_id\":null}]}"
      }
     ]
    }
@@ -1348,9 +1450,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=311dc2543fd89e0f231ba9c32fd012150438378a318564ff701961b4e2ea6c61"
+       "x-trailbeam-signature": "sha256=ead6b77e58f19b15b0e2908bf696d2878328712da2870c42c83c7d2798557e88"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Back after 24 h quiet: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":{\"status\":\"resolved\",\"regressed\":true,\"assignee\":null,\"notes\":0},\"dashboard\":null,\"widget_id\":null}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Back after 24 h quiet: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"no_longer_checked\":false,\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":{\"status\":\"resolved\",\"regressed\":true,\"assignee\":null,\"notes\":0},\"dashboard\":null,\"widget_id\":null}]}"
      }
     ]
    }
@@ -1419,9 +1521,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=4e62833f71f1e084faa0fe1cf3c7ecdf69844019ac917998d896cd104834de2d"
+       "x-trailbeam-signature": "sha256=16e656746425c17b33ee1b75097513d8bafb701470ed7f4b65b23af26cbb345b"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_2\",\"name\":\"Bits & \\\"Bobs\\\" <ltd>\",\"slug\":\"bits-bobs\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Back after 30 min quiet: Rejected <order> & \\\"refund\\\" — xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders.fifo\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/bits-bobs/stuck?cause=exc%3ATimeout%2F%C3%89%20%3F%26%3D\",\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"exc:Timeout/É ?&=\",\"label\":\"Rejected <order> & \\\"refund\\\" — xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"queue\":\"orders.fifo\",\"basis\":null},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_2\",\"name\":\"Bits & \\\"Bobs\\\" <ltd>\",\"slug\":\"bits-bobs\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Back after 30 min quiet: Rejected <order> & \\\"refund\\\" — xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders.fifo\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/bits-bobs/stuck?cause=exc%3ATimeout%2F%C3%89%20%3F%26%3D\",\"no_longer_checked\":false,\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"exc:Timeout/É ?&=\",\"label\":\"Rejected <order> & \\\"refund\\\" — xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"queue\":\"orders.fifo\",\"basis\":null},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
      }
     ]
    }
@@ -1490,9 +1592,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=ac99d5e42b8486ff93e94053f65ac7cff08d08fdfc13df2e2ccb737911ff49c0"
+       "x-trailbeam-signature": "sha256=85b80d244ebfc6c966e975253105f0eb622ab13b1618947878c9b55a8f5620f4"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Back after 24 h quiet: 🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀a…\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀ab🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Back after 24 h quiet: 🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀a…\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"no_longer_checked\":false,\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀ab🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
      }
     ]
    }
@@ -1561,9 +1663,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=5b49d7b7d811d61d440a5bf73be74d9639e3eaddc71c12f8a7896c7b627981e5"
+       "x-trailbeam-signature": "sha256=c51148e0e6eac3f741a26f5daa807aa7dfe9b63728f15e2cf230c2e737253c9f"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"New messages: Rejected by consumer (inferred)\",\"value\":\"3\",\"limit\":\"new messages at a check\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"Rejected by consumer (inferred)\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"New messages: Rejected by consumer (inferred)\",\"value\":\"3\",\"limit\":\"new messages at a check\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"no_longer_checked\":false,\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"Rejected by consumer (inferred)\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
      }
     ]
    }
@@ -1648,9 +1750,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=a304cc2393a45b413b0d3b454e7fd5c47ff7adfb650345a87a7fcd94d8ea9b1d"
+       "x-trailbeam-signature": "sha256=ee9225fec32ae1acbd4c344ddf7a823617bca1dd1f266826ea3fab5baa1cdfac"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":\"good\",\"tone\":\"critical\",\"title\":\"Back after 24 h quiet: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null},{\"kind\":\"changed\",\"from\":\"warning\",\"tone\":\"critical\",\"title\":\"Queue depth\",\"value\":\"5,100\",\"limit\":\"above 5,000\",\"queue\":\"orders\",\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\",\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d1\",\"name\":\"Orders\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\"},\"widget_id\":\"w1\"}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":\"good\",\"tone\":\"critical\",\"title\":\"Back after 24 h quiet: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"3\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"no_longer_checked\":false,\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":3,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null},{\"kind\":\"changed\",\"from\":\"warning\",\"tone\":\"critical\",\"title\":\"Queue depth\",\"value\":\"5,100\",\"limit\":\"above 5,000\",\"queue\":\"orders\",\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\",\"no_longer_checked\":false,\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d1\",\"name\":\"Orders\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\"},\"widget_id\":\"w1\"}]}"
      }
     ]
    }
@@ -1757,9 +1859,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764032400000",
-       "x-trailbeam-signature": "sha256=ccd4fbe3e31f52a902500a135570d7fe8f44a8f6dde92840d57463f73c19023e"
+       "x-trailbeam-signature": "sha256=dd63fb78f8bd31bcfc92ffac49cf2d4c5d01909ebb558df27dbb0ccc169537fc"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-25T01:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Still firing after a snooze: Back after 24 h quiet: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"0\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-23T10:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":0,\"not_finished\":7},\"after_snooze\":true,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null},{\"kind\":\"resolved\",\"from\":\"critical\",\"tone\":\"good\",\"title\":\"Quiet for 24 h: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"0\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":0,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-25T01:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"critical\",\"title\":\"Still firing after a snooze: Back after 24 h quiet: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"0\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-23T10:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"no_longer_checked\":false,\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":0,\"not_finished\":7},\"after_snooze\":true,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null},{\"kind\":\"resolved\",\"from\":\"critical\",\"tone\":\"good\",\"title\":\"Quiet for 24 h: orders-handler raised TimeoutError: upstream timed out\",\"value\":\"0\",\"limit\":\"new messages after 24 h quiet\",\"queue\":\"orders\",\"since\":\"2025-11-24T16:00:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/stuck?cause=c_9f2\",\"no_longer_checked\":false,\"rule\":{\"id\":\"r1\",\"kind\":\"cause\"},\"cause\":{\"id\":\"c_9f2\",\"label\":\"orders-handler raised TimeoutError: upstream timed out\",\"queue\":\"orders\",\"basis\":\"exception\"},\"counts\":{\"new\":0,\"not_finished\":7},\"after_snooze\":false,\"regressed\":null,\"back_from_ignored\":false,\"triage\":null,\"dashboard\":null,\"widget_id\":null}]}"
      }
     ]
    }
@@ -1952,6 +2054,104 @@
        "user-agent": "Trailbeam-Alerts/1"
       },
       "body": "{\"text\":\"*[Acme] Resolved: Queue depth*\\n• <https://trailbeam.app/app/acme/dashboards/d1|Resolved: Queue depth is 12 on Orders>\"}"
+     }
+    ]
+   }
+  },
+  {
+   "name": "slack: a firing rule no longer checked",
+   "channel": {
+    "id": "ch_slack",
+    "kind": "slack",
+    "name": "#ops",
+    "target": "https://hooks.slack.com/services/T000/B000/XXXXSECRET",
+    "secret": null,
+    "minTone": "warning"
+   },
+   "workspace": {
+    "id": "ws_1",
+    "name": "Acme",
+    "slug": "acme"
+   },
+   "origin": "https://trailbeam.app",
+   "at": 1764000000000,
+   "changes": [
+    {
+     "kind": "resolved",
+     "from": "critical",
+     "alert": {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "Queue depth",
+      "tone": "good",
+      "value": "1,240",
+      "limit": "above 1,000",
+      "queue": "orders",
+      "since": 1763992800000,
+      "checkedAt": 1764000000000,
+      "noLongerChecked": true
+     }
+    }
+   ],
+   "expected": {
+    "posts": [
+     {
+      "url": "https://hooks.slack.com/services/T000/B000/XXXXSECRET",
+      "headers": {
+       "content-type": "application/json",
+       "user-agent": "Trailbeam-Alerts/1"
+      },
+      "body": "{\"text\":\"*[Acme] No longer checked: Queue depth*\\n• <https://trailbeam.app/app/acme/dashboards/d1|No longer checked: Queue depth on Orders: its widget is gone or it has had no figure for 30 min. It was critical at 1,240 (worst queue: orders)>\"}"
+     }
+    ]
+   }
+  },
+  {
+   "name": "slack: a warning rule no longer checked, no queue",
+   "channel": {
+    "id": "ch_slack",
+    "kind": "slack",
+    "name": "#ops",
+    "target": "https://hooks.slack.com/services/T000/B000/XXXXSECRET",
+    "secret": null,
+    "minTone": "warning"
+   },
+   "workspace": {
+    "id": "ws_1",
+    "name": "Acme",
+    "slug": "acme"
+   },
+   "origin": "https://trailbeam.app",
+   "at": 1764000000000,
+   "changes": [
+    {
+     "kind": "resolved",
+     "from": "warning",
+     "alert": {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "Queue depth",
+      "tone": "good",
+      "value": "7.5 %",
+      "limit": "above 1,000",
+      "queue": "",
+      "since": 1763999700000,
+      "checkedAt": 1764000000000,
+      "noLongerChecked": true
+     }
+    }
+   ],
+   "expected": {
+    "posts": [
+     {
+      "url": "https://hooks.slack.com/services/T000/B000/XXXXSECRET",
+      "headers": {
+       "content-type": "application/json",
+       "user-agent": "Trailbeam-Alerts/1"
+      },
+      "body": "{\"text\":\"*[Acme] No longer checked: Queue depth*\\n• <https://trailbeam.app/app/acme/dashboards/d1|No longer checked: Queue depth on Orders: its widget is gone or it has had no figure for 30 min. It was warning at 7.5 %>\"}"
      }
     ]
    }
@@ -3686,6 +3886,112 @@
    }
   },
   {
+   "name": "email: a firing rule no longer checked",
+   "channel": {
+    "id": "ch_mail",
+    "kind": "email",
+    "name": "On call",
+    "target": "oncall@acme.io, lead@acme.io",
+    "secret": null,
+    "minTone": "critical"
+   },
+   "workspace": {
+    "id": "ws_1",
+    "name": "Acme",
+    "slug": "acme"
+   },
+   "origin": "https://trailbeam.app",
+   "at": 1764000000000,
+   "changes": [
+    {
+     "kind": "resolved",
+     "from": "critical",
+     "alert": {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "Queue depth",
+      "tone": "good",
+      "value": "1,240",
+      "limit": "above 1,000",
+      "queue": "orders",
+      "since": 1763992800000,
+      "checkedAt": 1764000000000,
+      "noLongerChecked": true
+     }
+    }
+   ],
+   "expected": {
+    "emails": [
+     {
+      "to": "oncall@acme.io",
+      "subject": "[Acme] No longer checked: Queue depth",
+      "text": "No longer checked: Queue depth on Orders: its widget is gone or it has had no figure for 30 min. It was critical at 1,240 (worst queue: orders)\nhttps://trailbeam.app/app/acme/dashboards/d1\n\n\n\nSent by Trailbeam to the \"On call\" alert channel of Acme.",
+      "html": "<div style=\"font-family:system-ui,sans-serif;font-size:14px;line-height:1.5\"><p><a href=\"https://trailbeam.app/app/acme/dashboards/d1\">No longer checked: Queue depth on Orders: its widget is gone or it has had no figure for 30 min. It was critical at 1,240 (worst queue: orders)</a></p><p style=\"color:#666\">Sent by Trailbeam to the &ldquo;On call&rdquo; alert channel of Acme.</p></div>"
+     },
+     {
+      "to": "lead@acme.io",
+      "subject": "[Acme] No longer checked: Queue depth",
+      "text": "No longer checked: Queue depth on Orders: its widget is gone or it has had no figure for 30 min. It was critical at 1,240 (worst queue: orders)\nhttps://trailbeam.app/app/acme/dashboards/d1\n\n\n\nSent by Trailbeam to the \"On call\" alert channel of Acme.",
+      "html": "<div style=\"font-family:system-ui,sans-serif;font-size:14px;line-height:1.5\"><p><a href=\"https://trailbeam.app/app/acme/dashboards/d1\">No longer checked: Queue depth on Orders: its widget is gone or it has had no figure for 30 min. It was critical at 1,240 (worst queue: orders)</a></p><p style=\"color:#666\">Sent by Trailbeam to the &ldquo;On call&rdquo; alert channel of Acme.</p></div>"
+     }
+    ]
+   }
+  },
+  {
+   "name": "email: a warning rule no longer checked, no queue",
+   "channel": {
+    "id": "ch_mail",
+    "kind": "email",
+    "name": "On call",
+    "target": "oncall@acme.io, lead@acme.io",
+    "secret": null,
+    "minTone": "critical"
+   },
+   "workspace": {
+    "id": "ws_1",
+    "name": "Acme",
+    "slug": "acme"
+   },
+   "origin": "https://trailbeam.app",
+   "at": 1764000000000,
+   "changes": [
+    {
+     "kind": "resolved",
+     "from": "warning",
+     "alert": {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "Queue depth",
+      "tone": "good",
+      "value": "7.5 %",
+      "limit": "above 1,000",
+      "queue": "",
+      "since": 1763999700000,
+      "checkedAt": 1764000000000,
+      "noLongerChecked": true
+     }
+    }
+   ],
+   "expected": {
+    "emails": [
+     {
+      "to": "oncall@acme.io",
+      "subject": "[Acme] No longer checked: Queue depth",
+      "text": "No longer checked: Queue depth on Orders: its widget is gone or it has had no figure for 30 min. It was warning at 7.5 %\nhttps://trailbeam.app/app/acme/dashboards/d1\n\n\n\nSent by Trailbeam to the \"On call\" alert channel of Acme.",
+      "html": "<div style=\"font-family:system-ui,sans-serif;font-size:14px;line-height:1.5\"><p><a href=\"https://trailbeam.app/app/acme/dashboards/d1\">No longer checked: Queue depth on Orders: its widget is gone or it has had no figure for 30 min. It was warning at 7.5 %</a></p><p style=\"color:#666\">Sent by Trailbeam to the &ldquo;On call&rdquo; alert channel of Acme.</p></div>"
+     },
+     {
+      "to": "lead@acme.io",
+      "subject": "[Acme] No longer checked: Queue depth",
+      "text": "No longer checked: Queue depth on Orders: its widget is gone or it has had no figure for 30 min. It was warning at 7.5 %\nhttps://trailbeam.app/app/acme/dashboards/d1\n\n\n\nSent by Trailbeam to the \"On call\" alert channel of Acme.",
+      "html": "<div style=\"font-family:system-ui,sans-serif;font-size:14px;line-height:1.5\"><p><a href=\"https://trailbeam.app/app/acme/dashboards/d1\">No longer checked: Queue depth on Orders: its widget is gone or it has had no figure for 30 min. It was warning at 7.5 %</a></p><p style=\"color:#666\">Sent by Trailbeam to the &ldquo;On call&rdquo; alert channel of Acme.</p></div>"
+     }
+    ]
+   }
+  },
+  {
    "name": "email: escaped names, no queue",
    "channel": {
     "id": "ch_mail",
@@ -5333,9 +5639,9 @@
        "content-type": "application/json",
        "user-agent": "Trailbeam-Alerts/1",
        "x-trailbeam-timestamp": "1764000000000",
-       "x-trailbeam-signature": "sha256=b7e870bbb829ef375eba817689475c7b199b273c077e91a24840dadd60956ff0"
+       "x-trailbeam-signature": "sha256=89600339c9f7304042522f1efd20fb79c5daeb2e1dd93bab847ab257ab03dae1"
       },
-      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"warning\",\"title\":\"Queue depth\",\"value\":\"1,240\",\"limit\":\"above 1,000\",\"queue\":\"orders\",\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\",\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d1\",\"name\":\"Orders\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\"},\"widget_id\":\"w1\"}]}"
+      "body": "{\"type\":\"trailbeam.alerts\",\"version\":1,\"sent_at\":\"2025-11-24T16:00:00.000Z\",\"workspace\":{\"id\":\"ws_1\",\"name\":\"Acme\",\"slug\":\"acme\"},\"changes\":[{\"kind\":\"fired\",\"from\":null,\"tone\":\"warning\",\"title\":\"Queue depth\",\"value\":\"1,240\",\"limit\":\"above 1,000\",\"queue\":\"orders\",\"since\":\"2025-11-24T15:55:00.000Z\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\",\"no_longer_checked\":false,\"rule\":{\"kind\":\"dashboard\"},\"dashboard\":{\"id\":\"d1\",\"name\":\"Orders\",\"url\":\"https://trailbeam.app/app/acme/dashboards/d1\"},\"widget_id\":\"w1\"}]}"
      }
     ]
    }
@@ -5507,6 +5813,56 @@
     }
    },
    "expected": true
+  },
+  {
+   "name": "critical channel, a critical rule no longer checked",
+   "channel": {
+    "id": "a",
+    "minTone": "critical"
+   },
+   "change": {
+    "kind": "resolved",
+    "from": "critical",
+    "alert": {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "Queue depth",
+     "tone": "good",
+     "value": "1,240",
+     "limit": "above 1,000",
+     "queue": "orders",
+     "since": 1763992800000,
+     "checkedAt": 1764000000000,
+     "noLongerChecked": true
+    }
+   },
+   "expected": true
+  },
+  {
+   "name": "critical channel, a warning rule no longer checked",
+   "channel": {
+    "id": "a",
+    "minTone": "critical"
+   },
+   "change": {
+    "kind": "resolved",
+    "from": "warning",
+    "alert": {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "Queue depth",
+     "tone": "good",
+     "value": "7.5 %",
+     "limit": "above 1,000",
+     "queue": "",
+     "since": 1763999700000,
+     "checkedAt": 1764000000000,
+     "noLongerChecked": true
+    }
+   },
+   "expected": false
   },
   {
    "name": "critical channel, resolved from warning",

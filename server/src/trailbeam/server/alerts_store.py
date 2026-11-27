@@ -242,9 +242,9 @@ class AlertTables:
         return self._run(f"UPDATE alert_state SET {sets} WHERE ws = ? AND dashboard_id = ? AND widget_id = ? "
                          "AND tone = ?", vals[2:] + (ws, vals[0], vals[1], prev_tone)) == 1
 
-    def drop_state(self, ws: str, dashboard_id: str, widget_id: str) -> None:
-        self._run("DELETE FROM alert_state WHERE ws = ? AND dashboard_id = ? AND widget_id = ?",
-                  (ws, dashboard_id, widget_id))
+    def drop_state(self, ws: str, dashboard_id: str, widget_id: str) -> bool:
+        return self._run("DELETE FROM alert_state WHERE ws = ? AND dashboard_id = ? AND widget_id = ?",
+                  (ws, dashboard_id, widget_id)) == 1
 
     # ---- rules and the check's memory of them -----------------------------------------------------------------
 
