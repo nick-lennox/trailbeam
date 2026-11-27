@@ -1,15 +1,17 @@
 /*
   The queue page at /queue?name=<queue> (QV-360 design §2, §8; the queue list is the Overview, overview.tsx), drawn with the
-  shared QueuePage. Everything the page shows is in its URL: range=<preset> or from=<ms>&to=<ms>, sel=<from>-<to>
+  shared QueuePage (@trailbeam/ui/design) in the shell's frame (frame.tsx), with ShellSearch in its top bar. Everything the page shows is in its URL: range=<preset> or from=<ms>&to=<ms>, sel=<from>-<to>
   (the selected minutes), split=version, and at=<account>:<region> when two queues share a name. They read
   /api/queues/{queue}/series, /api/flows and /api/stuck on the same origin.
 */
 import { useEffect, useState } from "react";
 import {
-  QUEUE_PRESETS, QueuePage, flowFor, fromSelfHosted, queueQuery, queueWindow, readQueueUrl, utc,
+  QUEUE_PRESETS, flowFor, fromSelfHosted, queueQuery, queueWindow, readQueueUrl, utc,
   type Flow, type FlowsResponse, type QueueHrefs, type QueuePageData, type QueuePreset, type QueueUrl, type SeriesResponse,
 } from "../src/index.ts";
-import { ApiError, Frame, Json, getHealth, getJSON } from "./chrome.tsx";
+import { QueuePage, TopBar } from "../src/design/index.ts";
+import { ApiError, getHealth, getJSON } from "./chrome.tsx";
+import { ShellFrame, ShellSearch } from "./frame.tsx";
 
 export const queueHref = (name: string, at?: string | null) => `/queue?${queueQuery({ name, at: at ?? null })}`;
 const atOf = (f: Pick<Flow, "account" | "region">) => (f.account ? `${f.account}:${f.region ?? ""}` : null);
@@ -41,7 +43,7 @@ function Picker({ u, keptMs }: { u: QueueUrl; keptMs: number | null }) {
     <label className="inline-flex items-center gap-2 text-sm text-ink-2">
       <span className="sr-only">Time range</span>
       <select value={value} onChange={(e) => go(e.target.value)}
-        className="rounded-full border border-line bg-surface px-3 py-1 text-sm text-ink">
+        className="h-8 rounded-control border border-line bg-surface px-2.5 text-sm text-ink shadow-card hover:border-line-strong">
         {QUEUE_PRESETS.map(([k, label, ms]) => (
           <option key={k} value={k} disabled={keptMs !== null && ms > keptMs}>{label}{keptMs !== null && ms > keptMs ? " (not kept)" : ""}</option>
         ))}
@@ -114,26 +116,34 @@ export function QueueShellPage() {
 
   if (!u0.name) {
     return (
-      <Frame>
-        <p className="text-sky-ink-2">Choose a queue from the <a className="text-dawn hover:underline" href="/overview">Overview</a>.</p>
-      </Frame>
+      <ShellFrame path="/queue">
+        <TopBar search={<ShellSearch />} />
+        <p className="px-8 pt-6 text-sm text-ink-2">Choose a queue from the <a className="text-brand hover:underline" href="/overview">Overview</a>.</p>
+      </ShellFrame>
     );
   }
 
   if (state.kind === "ambiguous") {
     return (
-      <Frame>
-        <h1 className="font-mono text-[1.875rem] text-sky-ink">{u0.name}</h1>
-        <p className="mt-2 text-sky-ink-2">More than one queue is called <span className="font-mono">{u0.name}</span>. Which one?</p>
-        <ul className="mt-3 border-t border-sky-line">
-          {state.flows.map((f) => (
-            <li key={f.key} className="border-b border-sky-line py-2">
-              <a className="font-mono text-dawn hover:underline" href={queueHref(f.name, atOf(f))}>{[f.account ?? "no account", f.region ?? "no region"].join(" · ")}</a>
-              <span className="ml-3 text-caption text-sky-ink-3">last seen {utc(f.lastSeen, { date: true })} UTC</span>
-            </li>
-          ))}
-        </ul>
-      </Frame>
+      <ShellFrame path="/queue">
+        <TopBar search={<ShellSearch />} />
+        <div className="px-8 pt-5 pb-12">
+          <nav aria-label="Breadcrumb" className="text-sm text-ink-3"><a href="/overview" className="hover:text-ink">Overview</a></nav>
+          <h1 className="mt-3 break-all font-serif text-title-sm text-ink">{u0.name}</h1>
+          <p className="mt-2 text-sm text-ink-2">More than one queue is called <span className="font-mono text-caption text-ink">{u0.name}</span>. Which one?</p>
+          <ul className="mt-4 overflow-hidden rounded-card border border-line bg-surface shadow-card">
+            {state.flows.map((f) => (
+              <li key={f.key} className="border-b border-line last:border-b-0">
+                <a className="flex flex-wrap items-baseline gap-x-4 gap-y-1 px-4 py-2.5 text-sm hover:bg-sunken" href={queueHref(f.name, atOf(f))}>
+                  <span className="text-ink-3">Account <span className="font-mono text-caption text-brand">{f.account ?? "none"}</span></span>
+                  <span className="text-ink-3">Region <span className="font-mono text-caption text-brand">{f.region ?? "none"}</span></span>
+                  <span className="ml-auto text-xs text-ink-3">Last seen <span className="font-mono text-caption">{utc(f.lastSeen, { date: true })}</span> UTC</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </ShellFrame>
     );
   }
 
@@ -148,8 +158,9 @@ export function QueueShellPage() {
   const now = Date.now();
   const clipped = keptMs !== null && u0.range.kind === "fixed" && u0.range.fromMs < now - keptMs;
   const rangeNote = keptMs === null ? null : clipped ? `Spans before ${utc(now - keptMs, { date: true })} UTC aren't kept on this server.` : `Kept for ${daysText(keptMs)} on this server`;
+  const json = `/api/queues/${encodeURIComponent(u0.name)}/series`;
   return (
-    <Frame>
+    <ShellFrame path="/queue">
       <QueuePage
         name={u0.name}
         data={state.kind === "ok" ? state.data : null}
@@ -163,10 +174,9 @@ export function QueueShellPage() {
         onSelect={(s) => { setSel(s); write({ sel: s }); }}
         split={split}
         onSplit={(on) => { setSplit(on); write({ split: on }); }}
+        search={<ShellSearch />}
+        footer={<>Times are in UTC. The same data as JSON: <a className="font-mono text-caption text-brand hover:underline" href={json}>{json}</a></>}
       />
-      <p className="mt-6 text-sm text-sky-ink-3">
-        Times are in UTC. <Json href={`/api/queues/${encodeURIComponent(u0.name)}/series`} />
-      </p>
-    </Frame>
+    </ShellFrame>
   );
 }

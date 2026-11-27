@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceResponse
 
 from . import __version__
+from . import github as github_mod
 from . import queues as queues_mod
 from . import alerts_api, dashboards_api, access as access_mod, auth as auth_mod, causes as causes_mod, proxy_auth as proxy_auth_mod, bodies, csrf, first_admin, \
     metrics, oidc as oidc_mod, passwords, people_api, queries, \
@@ -28,6 +29,7 @@ from .sessions import Sessions
 from .signin import AddressLimit, SignIn
 from .tokens import Tokens
 from . import events as events_mod
+from . import timeline_events
 from .store import ExportAbandoned, Store, StoreFull, StoreTimeout, StoreUnavailable, WriterBusy
 from .proxy import TrustedProxies
 from .otlp import PROBE_NOT_STORED, DecodeError, decode, valid_probe_id
@@ -53,13 +55,25 @@ class ApiError(Exception):
 class App:
     """Request handling, independent of the HTTP server so tests can call it directly."""
 
+    @property
+    def sso_buttons(self) -> list:
+        """The sign-in page's buttons: ``(path, label)`` for single sign-on (oidc.py) and GitHub (github.py), when
+        they are on."""
+        out = []
+        if self.oidc is not None:
+            out.append((oidc_mod.START_PATH, self.oidc.settings.label))
+        if self.github is not None:
+            out.append((github_mod.START_PATH, self.github.settings.label))
+        return out
+
     def __init__(self, db: Store, *, stuck_after_s: int = 300,
                  lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S, now: Callable[[], int] = time.time_ns,
                  max_receive_counts: Optional[dict] = None, ui_dir=ui_files.DEFAULT_UI_DIR, purger=None,
                  auth: Optional[auth_mod.Auth] = None, gate: Optional[IngestGate] = None,
                  trusted_proxies: Optional[TrustedProxies] = None, trace_link: Optional[str] = None,
                  accounts="auto", proxy_auth: Optional[proxy_auth_mod.ProxyAuthConfig] = None,
-                 oidc: Optional[oidc_mod.Settings] = None, oidc_provider=None, alerts="auto",
+                 oidc: Optional[oidc_mod.Settings] = None, oidc_provider=None,
+                 github: Optional[github_mod.Settings] = None, github_provider=None, alerts="auto",
                  public_url: Optional[str] = None, mailer=None, dashboards="auto"):
         self.db = db
         # --public-url: where links in emails and invites point (else the request's address); None: not set
@@ -90,7 +104,11 @@ class App:
         if oidc is not None and self.accounts is None:
             raise ValueError("single sign-on needs a store with accounts (a SQLite file or Postgres)")
         self.oidc = oidc_mod.Oidc(oidc, self.accounts, self.sessions, oidc_provider) if oidc is not None else None
-        self.sso_label = oidc.label if oidc is not None else None
+        # sign in with GitHub (github.py); None: off
+        if github is not None and self.accounts is None:
+            raise ValueError("GitHub sign-in needs a store with accounts (a SQLite file or Postgres)")
+        self.github = (github_mod.GitHub(github, self.accounts, self.sessions, github_provider)
+                       if github is not None else None)
         # sign-ins started per client address (each adds a row to oidc_logins until it runs out): approximate,
         # per replica, like the sign-in limit
         self.sso_starts = AddressLimit(max_failures=oidc_mod.STARTS_PER_ADDRESS, window_s=oidc_mod.STARTS_WINDOW_S)
@@ -113,7 +131,7 @@ class App:
             "health": self.health, "stats": self.stats_counts, "messages": self.messages, "duplicates": self.duplicates,
             "stuck": self.stuck, "causes": self.causes, "events": self.events, "tenants": self.tenants, "probes": self.probes,
             "me": self.me, "users": self._not_a_route, "tokens": self._not_a_route,
-            "queues": self.queues, "flows": self.flows}
+            "queues": self.queues, "flows": self.flows, "timeline-events": self.timeline_events}
         # /api/alerts (alerts_api.py): rules, channels and alert state; None (404) while the alert check is off
         self.alerts: alerts_api.AlertsApi | None = alerts_api.for_app(self) if alerts == "auto" else alerts
         # /api/dashboards (dashboards_api.py): dashboards, widgets and their measures; None (404) while
@@ -513,6 +531,15 @@ class App:
         return events_mod.page(self.db, from_ms, to_ms, _limit(q), queue=q.get("queue") or None,
                                service=q.get("service") or None, kinds=kinds,
                                message_id=q.get("message_id") or None, cursor=q.get("cursor"))
+
+    def timeline_events(self, q: dict, rest: list[str]) -> dict:
+        """``/api/timeline-events``: the Event explorer's events in [from_ms, to_ms], or the last ``since_s`` seconds
+        (default a day), made from each message's timeline, inferred ones included (timeline_events.py, QV-580)."""
+        if rest:
+            raise ApiError(404, "no such endpoint")
+        from_ms, to_ms = self._window(q)
+        return timeline_events.page(self.db, from_ms, to_ms, self.now(), self._lambda_timeout(q), self.max_receive_counts,
+                                    limit=_int(q, "limit", timeline_events.DEFAULT_MESSAGES, 1, timeline_events.MAX_MESSAGES))
 
     def causes(self, q: dict, rest: list[str]) -> dict:
         """``/api/causes``: the stuck messages grouped by why they didn't finish (causes.py, QV-367), the Needs
@@ -919,7 +946,10 @@ def make_handler(app: App):
                 self._setup_get()
                 return
             if path in (oidc_mod.START_PATH, oidc_mod.CALLBACK_PATH):
-                self._oidc(path, q)
+                self._sso(oidc_mod, app.oidc, "single sign-on", path, q)
+                return
+            if path in (github_mod.START_PATH, github_mod.CALLBACK_PATH):
+                self._sso(github_mod, app.github, "GitHub sign-in", path, q)
                 return
             if path == people_api.LINK_PATH:
                 self._send_page(web.password_page() if app.accounts is not None else
@@ -932,9 +962,9 @@ def make_handler(app: App):
                     if mode != "off":
                         self._sign_in_out(path, mode, q)
                         return
-                    if path == "/login" and app.oidc is not None:  # nobody has an account: single sign-on only
+                    if path == "/login" and app.sso_buttons:  # nobody has an account: single sign-on only
                         self._send_page(web.sign_in_page(auth_mod.safe_next(q.get("next")), status=200,
-                                                         sso=app.sso_label, password=False))
+                                                         sso=app.sso_buttons, password=False))
                         return
                     d = access_mod.Decision(True)
                 else:
@@ -966,9 +996,9 @@ def make_handler(app: App):
                 elif d.status == 403:
                     self._send_page(web.forbidden_page(d.message))
                 elif app.access.mode() == "accounts":
-                    self._send_page(web.sign_in_page(auth_mod.safe_next(self.path), sso=app.sso_label))
+                    self._send_page(web.sign_in_page(auth_mod.safe_next(self.path), sso=app.sso_buttons))
                 else:
-                    self._send_page(web.login_page(auth_mod.safe_next(self.path), sso=app.sso_label))
+                    self._send_page(web.login_page(auth_mod.safe_next(self.path), sso=app.sso_buttons))
                 return
             if u.path == "/metrics":  # behind the token when one is set (Prometheus: authorization.credentials_file)
                 try:
@@ -1010,18 +1040,19 @@ def make_handler(app: App):
                 # the proxy signed them in already: on to the page they asked for
                 self._send(303, "text/plain", b"", {"Location": auth_mod.safe_next(q.get("next"))})
             elif mode == "accounts":
-                self._send_page(web.sign_in_page(auth_mod.safe_next(q.get("next")), status=200, sso=app.sso_label))
+                self._send_page(web.sign_in_page(auth_mod.safe_next(q.get("next")), status=200, sso=app.sso_buttons))
             else:
-                self._send_page(web.login_page(auth_mod.safe_next(q.get("next")), status=200, sso=app.sso_label))
+                self._send_page(web.login_page(auth_mod.safe_next(q.get("next")), status=200, sso=app.sso_buttons))
 
-        def _oidc(self, path: str, q: dict):
-            """GET /login/oidc (to the identity provider) and /login/oidc/callback (back from it): oidc.py."""
-            if app.oidc is None:
+        def _sso(self, mod, flow, what: str, path: str, q: dict):
+            """GET /login/oidc (to the identity provider) and /login/oidc/callback (back from it): oidc.py; the same
+            for /login/github (github.py). ``mod``: the module (paths, cookies); ``flow``: its begin and finish."""
+            if flow is None:
                 self._send(404, "text/plain", b"not found")
                 return
             secure = self._scheme() == "https"
             client = self._client()
-            if path == oidc_mod.START_PATH:
+            if path == mod.START_PATH:
                 wait = app.sso_starts.retry_after(client)
                 if wait is not None:
                     self._send_page(_with_retry(web.sso_error_page(
@@ -1029,39 +1060,39 @@ def make_handler(app: App):
                     return
                 app.sso_starts.failed(client)  # counts every start, not only failed ones
                 try:
-                    url, browser = app.oidc.begin(auth_mod.safe_next(q.get("next")))
+                    url, browser = flow.begin(auth_mod.safe_next(q.get("next")))
                 except oidc_mod.OidcError as e:
-                    log.warning("single sign-on from %s: %s", client, e.detail)
+                    log.warning("%s from %s: %s", what, client, e.detail)
                     self._send_page(web.sso_error_page(e.message, e.status))
                     return
                 except Exception as e:  # noqa: BLE001 - the store
-                    log.warning("single sign-on from %s: the store is unreachable: %s", client, e)
+                    log.warning("%s from %s: the store is unreachable: %s", what, client, e)
                     self._send(503, "text/plain", b"the store is unreachable; try again", {"Retry-After": "1"})
                     return
                 self._send(302, "text/plain", b"", {"Location": url, "Cache-Control": "no-store",
                                                     "Referrer-Policy": "no-referrer",
-                                                    "Set-Cookie": oidc_mod.set_browser_cookie(browser, secure)})
+                                                    "Set-Cookie": mod.set_browser_cookie(browser, secure)})
                 return
-            clear = oidc_mod.clear_browser_cookie(secure)
+            clear = mod.clear_browser_cookie(secure)
             try:
-                done = app.oidc.finish(q, oidc_mod.browser_cookie(self.headers.get("Cookie"), secure))
+                done = flow.finish(q, mod.browser_cookie(self.headers.get("Cookie"), secure))
             except oidc_mod.OidcError as e:
-                log.warning("single sign-on refused for %s: %s", client, e.detail)
+                log.warning("%s refused for %s: %s", what, client, e.detail)
                 st, headers, body = web.sso_error_page(e.message, e.status)
                 self._send_page((st, {**headers, "Set-Cookie": clear}, body))
                 return
             except Exception:  # noqa: BLE001 - the store
-                log.exception("single sign-on failed")
+                log.exception("%s failed", what)
                 self._send(503, "text/plain", b"the store is unreachable; try again",
                            {"Retry-After": "1", "Set-Cookie": clear})
                 return
             if done.how != "known" or done.user["role"] == "admin":
                 app.access.state.changed()  # maybe the first admin: every page switches to accounts now
-            log.info("signed in with single sign-on: user %s (%s, %s) from %s", done.user["id"], done.how,
+            log.info("signed in with %s: user %s (%s, %s) from %s", what, done.user["id"], done.how,
                      done.user["role"], client)
             if done.kept_admin:
-                log.warning("single sign-on: user %s is no longer in an admin group, but stays an admin: they are "
-                            "the last admin who can sign in. Make someone else an admin first", done.user["id"])
+                log.warning("%s: user %s is no longer in an admin group or team, but stays an admin: they are "
+                            "the last admin who can sign in. Make someone else an admin first", what, done.user["id"])
             max_age = max(0, (done.expires_at_ms - time.time_ns() // 1_000_000) // 1000)
             st, headers, body = oidc_mod.continue_page(done.next_path)
             self._send_page((st, {**headers, "Set-Cookie": [sessions_mod.set_cookie(done.session_id, secure, max_age),

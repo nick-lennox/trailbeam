@@ -1,15 +1,18 @@
 /*
-  The Tokens page at /tokens (anyone signed in as a person). Admins see the ingest tokens (/api/tokens/ingest, with the
-  legacy shared token from TRAILBEAM_TOKEN listed but not changeable) and everyone sees their own personal API tokens
-  (/api/me/tokens): create (POST, which answers with the token, shown once) and revoke (DELETE .../{id}). After each,
-  the list is read again, so the page shows what the server holds. contract/openapi.yaml, tag Tokens.
+  The Tokens page at /tokens (anyone signed in as a person), in the shell's frame (frame.tsx) on the design system.
+  Admins see the ingest tokens (/api/tokens/ingest, with the legacy shared token from TRAILBEAM_TOKEN listed but not
+  changeable) and everyone sees their own personal API tokens (/api/me/tokens): create (POST, which answers with the
+  token, shown once) and revoke (DELETE .../{id}). After each, the list is read again, so the page shows what the
+  server holds. contract/openapi.yaml, tag Tokens.
 */
 import { useCallback, useEffect, useState } from "react";
 import {
-  CreateToken, INGEST_TEXT, OPEN_INGEST, OneTimeToken, PERSONAL_TEXT, TokensTable,
+  INGEST_TEXT, OPEN_INGEST, PERSONAL_TEXT,
   type IngestTokenList, type NewToken, type NewTokenRequest, type PersonalToken, type TokenKind,
 } from "../src/index.ts";
-import { Frame, getJSON, sendJSON, useMe } from "./chrome.tsx";
+import { Caution, CreateToken, OneTimeToken, PageHeader, Problem, SettingsSection, TokensTable } from "../src/design/index.ts";
+import { getJSON, sendJSON, useMe } from "./chrome.tsx";
+import { ShellFrame, ShellSearch } from "./frame.tsx";
 
 type Load<T> = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ok"; data: T };
 type Shown = { kind: TokenKind; name: string; secret: string };
@@ -42,8 +45,9 @@ function useTokens<T>(kind: TokenKind, on: boolean) {
   return { state, pending, problem, revoke, create };
 }
 
-const box = "mt-4 rounded-[16px] border border-sky-line bg-sky-2/55";
-const note = (text: string) => <p className="mt-4 rounded-[12px] border border-sky-line bg-sky-2 px-4 py-3 text-[15px] text-sky-ink-2" role="alert">{text}</p>;
+const Shell = ({ command }: { command: string }) => (
+  <p className="text-xs text-ink-3">The same from a shell: <code className="font-mono text-caption text-ink-2">{command}</code>.</p>
+);
 
 export function TokensPage() {
   const me = useMe();
@@ -59,62 +63,52 @@ export function TokensPage() {
     const made = await create(r);
     setShown({ kind, name: made.token.name, secret: made.secret });
   };
+  const open = ingest.state.kind === "ok" && ingest.state.data.ingest === "open";
 
   return (
-    <Frame>
-      <h1 className="text-[1.75rem] text-sky-ink">Tokens</h1>
-      {me && !person && (
-        <p className="mt-3 max-w-[80ch] text-sky-ink-2">
-          Tokens belong to a person: sign in with your email and password to manage yours.
-          {me.auth !== "accounts" && " This server has no accounts yet; the first admin is made with trailbeam users create --role admin."}
-        </p>
-      )}
-      {shown && <div className="mt-4"><OneTimeToken {...shown} onDismiss={() => setShown(null)} /></div>}
-
-      {admin && (
-        <section className="mt-6" aria-labelledby="ingest-tokens">
-          <h2 id="ingest-tokens" className="text-[1.25rem] text-sky-ink">Ingest tokens</h2>
-          <p className="mt-1 max-w-[80ch] text-sky-ink-2">{INGEST_TEXT} Only admins see these.</p>
-          {ingest.state.kind === "ok" && ingest.state.data.ingest === "open" && note(OPEN_INGEST)}
-          <div className={`${box} px-5 py-4`}>
-            <CreateToken kind="ingest" ingestOpen={ingest.state.kind === "ok" && ingest.state.data.ingest === "open"}
-              onCreate={onCreate("ingest", ingest.create)} />
-          </div>
-          {ingest.problem && note(ingest.problem)}
-          {ingest.state.kind === "loading" && <p className="mt-4 text-sky-ink-3">Loading ingest tokens</p>}
-          {ingest.state.kind === "error" && note(ingest.state.message)}
-          {ingest.state.kind === "ok" && (
-            <div className={`${box} overflow-x-auto`}>
-              <TokensTable kind="ingest" tokens={ingest.state.data.tokens} shared={ingest.state.data.shared_token}
-                pending={ingest.pending} onRevoke={(t) => ingest.revoke(t.id)} />
-            </div>
-          )}
-          <p className="mt-3 max-w-[80ch] text-sm text-sky-ink-3">
-            The same from a shell: <code className="font-mono text-caption">trailbeam tokens</code>.
+    <ShellFrame path="/tokens">
+      <PageHeader title="Tokens" subtitle="What sends spans to this Trailbeam, and what reads it as you." search={<ShellSearch />} />
+      <div className="grid max-w-5xl gap-12 px-8 pb-16">
+        {me && !person && (
+          <p className="max-w-2xl text-sm leading-relaxed text-ink-2">
+            Tokens belong to a person: sign in with your email and password to manage yours.
+            {me.auth !== "accounts" && <> This server has no accounts yet; the first admin is made with <code className="font-mono text-caption">trailbeam users create --role admin</code>.</>}
           </p>
-        </section>
-      )}
+        )}
+        {shown && <OneTimeToken {...shown} onDismiss={() => setShown(null)} />}
 
-      {person && (
-        <section className="mt-8" aria-labelledby="personal-tokens">
-          <h2 id="personal-tokens" className="text-[1.25rem] text-sky-ink">Your personal API tokens</h2>
-          <p className="mt-1 max-w-[80ch] text-sky-ink-2">{PERSONAL_TEXT} Only you see yours.</p>
-          <div className={`${box} px-5 py-4`}>
-            <CreateToken kind="personal" onCreate={onCreate("personal", mine.create)} />
-          </div>
-          {mine.problem && note(mine.problem)}
-          {mine.state.kind === "loading" && <p className="mt-4 text-sky-ink-3">Loading your tokens</p>}
-          {mine.state.kind === "error" && note(mine.state.message)}
-          {mine.state.kind === "ok" && (
-            <div className={`${box} overflow-x-auto`}>
-              <TokensTable kind="personal" tokens={mine.state.data.tokens} pending={mine.pending} onRevoke={(t) => mine.revoke(t.id)} />
+        {admin && (
+          <SettingsSection id="ingest-tokens" title="Ingest tokens" about={`${INGEST_TEXT} Only admins see these.`}>
+            <div className="grid gap-4">
+              {open && <Caution>{OPEN_INGEST}</Caution>}
+              <CreateToken kind="ingest" ingestOpen={open} onCreate={onCreate("ingest", ingest.create)} />
+              <Problem>{ingest.problem}</Problem>
+              {ingest.state.kind === "loading" && <p className="text-sm text-ink-3">Loading ingest tokens</p>}
+              {ingest.state.kind === "error" && <Problem>{ingest.state.message}</Problem>}
+              {ingest.state.kind === "ok" && (
+                <TokensTable kind="ingest" tokens={ingest.state.data.tokens} shared={ingest.state.data.shared_token}
+                  pending={ingest.pending} onRevoke={(t) => ingest.revoke(t.id)} />
+              )}
+              <Shell command="trailbeam tokens" />
             </div>
-          )}
-          <p className="mt-3 max-w-[80ch] text-sm text-sky-ink-3">
-            The same from a shell: <code className="font-mono text-caption">trailbeam tokens --personal</code>.
-          </p>
-        </section>
-      )}
-    </Frame>
+          </SettingsSection>
+        )}
+
+        {person && (
+          <SettingsSection id="personal-tokens" title="Your personal API tokens" about={`${PERSONAL_TEXT} Only you see yours.`}>
+            <div className="grid gap-4">
+              <CreateToken kind="personal" onCreate={onCreate("personal", mine.create)} />
+              <Problem>{mine.problem}</Problem>
+              {mine.state.kind === "loading" && <p className="text-sm text-ink-3">Loading your tokens</p>}
+              {mine.state.kind === "error" && <Problem>{mine.state.message}</Problem>}
+              {mine.state.kind === "ok" && (
+                <TokensTable kind="personal" tokens={mine.state.data.tokens} pending={mine.pending} onRevoke={(t) => mine.revoke(t.id)} />
+              )}
+              <Shell command="trailbeam tokens --personal" />
+            </div>
+          </SettingsSection>
+        )}
+      </div>
+    </ShellFrame>
   );
 }

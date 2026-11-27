@@ -58,6 +58,9 @@ FIRED = dash("fired", "warning")
 CHANGED = dash("changed", "critical", "warning", value="5,100", limit="above 5,000")
 DOWN = dash("changed", "warning", "critical")
 RESOLVED = dash("resolved", "good", "critical", value="12", queue="")
+# a firing rule whose widget was deleted, or whose figure has been missing for GONE_AFTER_MS (QV-660)
+UNCHECKED = dash("resolved", "good", "critical", noLongerChecked=True, since=T0 - 2 * H)
+UNCHECKED_WARN = dash("resolved", "good", "warning", noLongerChecked=True, queue="", value="7.5 %")
 NO_QUEUE = dash("fired", "critical", queue="", title="Error rate", value="7.5 %", limit="above 5 %", dashboardId="d2",
                 dashboardName="Payments & <refunds>", widgetId="w9")
 RULE_FIRED = cause("fired", frm="good")
@@ -110,6 +113,8 @@ for ch in (HOOK, SLACK, MAIL):
         send(f"{k}: warning to critical", ch, [CHANGED]),
         send(f"{k}: critical back to warning", ch, [DOWN]),
         send(f"{k}: resolved, no queue", ch, [RESOLVED]),
+        send(f"{k}: a firing rule no longer checked", ch, [UNCHECKED]),
+        send(f"{k}: a warning rule no longer checked, no queue", ch, [UNCHECKED_WARN]),
         send(f"{k}: escaped names, no queue", ch, [NO_QUEUE], ws=WS_ODD),
         send(f"{k}: several changes", ch, [FIRED, CHANGED, RESOLVED]),
         send(f"{k}: the Send test change", ch, [TEST]),
@@ -146,6 +151,8 @@ WANTS = [
     want("critical channel, into critical", {"id": "a", "minTone": "critical"}, CHANGED),
     want("critical channel, out of critical to warning", {"id": "a", "minTone": "critical"}, DOWN),
     want("critical channel, resolved from critical", {"id": "a", "minTone": "critical"}, RESOLVED),
+    want("critical channel, a critical rule no longer checked", {"id": "a", "minTone": "critical"}, UNCHECKED),
+    want("critical channel, a warning rule no longer checked", {"id": "a", "minTone": "critical"}, UNCHECKED_WARN),
     want("critical channel, resolved from warning", {"id": "a", "minTone": "critical"}, dash("resolved", "good", "warning")),
     want("a rule's change, channel ticked", {"id": "ch_mail", "minTone": "critical"}, RULE_RESOLVED),
     want("a rule's change, channel not ticked", {"id": "ch_mail", "minTone": "warning"}, RULE_OTHER),

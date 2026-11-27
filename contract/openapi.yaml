@@ -59,6 +59,10 @@ info:
     `/login/oidc` sends the browser to the identity provider, and `/login/oidc/callback` is where the
     provider sends it back (the redirect URI to register there). They start the same sign-in session as a
     password does, and are not part of this API either.
+
+    **Sign in with GitHub** (with `--github-client-id` and `--public-url`) adds two web pages of the same
+    kind: `/login/github` sends the browser to GitHub, and `/login/github/callback` is where GitHub sends
+    it back (the OAuth app's callback URL). They start the same sign-in session too.
 servers:
   - url: http://127.0.0.1:4318
     description: A Trailbeam server started with its defaults.
@@ -68,7 +72,7 @@ tags:
   - name: Problems
     description: Messages delivered more than once, and messages with no final delete.
   - name: Events
-    description: The recorded steps of every message in a time window, and their counts over time.
+    description: The recorded steps of every message in a time window, the events the Event explorer lists (inferred ones included), and their counts over time.
   - name: Tenants
     description: Per-tenant counts and tenant name search.
   - name: Queues
@@ -1044,6 +1048,102 @@ paths:
                     change_visibility: 0
                     outcome: 0
                   total: 11
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/timeline-events:
+    get:
+      operationId: list-timeline-events
+      x-example-request: /api/timeline-events?from_ms=1794852337380&to_ms=1794852337386&limit=5
+      tags: [Events]
+      summary: List the Event explorer's events, inferred ones included
+      description: |
+        Returns what happened to the messages active in a time window, one event per thing that
+        happened, newest first, made from each message's timeline. Unlike `GET /api/events`, this
+        includes what a timeline infers: an expired visibility timeout, a move to the dead-letter
+        queue, the Lambda trigger's delete after a successful handler, and a Lambda invocation that
+        never reported an outcome. This is what the Event explorer lists, here and in the hosted app.
+
+        The events are made by the same rules as `eventsOfTimeline` in `@trailbeam/ui`, so the field
+        names are that function's, in camelCase. A field an event has no value for is left out.
+
+        The messages read are those with a stored span in the window, or up to the Lambda timeout
+        before it, most recently active first, at most `limit` of them. Only their events in the
+        window, both ends included, are returned. A message's stored body (contract section 15) is
+        on the event whose span carried it, for queues the server stores bodies for.
+
+        The window is `from_ms` to `to_ms`, both included. Without them it is the last `since_s`
+        seconds, by default a day.
+      parameters:
+        - $ref: '#/components/parameters/window_from_ms'
+        - $ref: '#/components/parameters/window_to_ms'
+        - $ref: '#/components/parameters/since_s'
+        - $ref: '#/components/parameters/lambda_timeout_s'
+        - name: limit
+          in: query
+          description: The largest number of messages to read. `capped` says when the window had more.
+          schema: {type: integer, minimum: 1, maximum: 2000, default: 1000}
+      responses:
+        '200':
+          description: The events of the window's messages, newest first.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TimelineEventPage'}
+              example:
+                from_ms: 1794852337380
+                to_ms: 1794852337386
+                events:
+                - key: m-pay-2:e4
+                  ms: 1794852337385
+                  event: receive
+                  status: ok
+                  queue: payments
+                  messageId: m-pay-2
+                  producer: checkout-api
+                  detail: ''
+                  source: package
+                  hasPage: true
+                  live: true
+                  tenant: globex
+                  attrs:
+                    message.ApproximateReceiveCount: 2
+                    message.tenant: globex
+                    message.tenantSource: message_attribute
+                    message.BodySize: 40
+                    message.SentTimestamp: 1794852336914
+                    message.ApproximateFirstReceiveTimestamp: 1794852336919
+                    queue.account: '123456789012'
+                    queue.region: us-east-1
+                  service: orders-worker
+                  consumer: orders-worker
+                  receiveCount: 2
+                  call: ReceiveMessage
+                - key: m-pay-2:e3
+                  ms: 1794852337385
+                  event: visibility_expired
+                  status: ok
+                  queue: payments
+                  messageId: m-pay-2
+                  producer: checkout-api
+                  detail: Receive 1 was not deleted in time, so the message became visible again. Inferred from the next receive
+                  source: inferred
+                  hasPage: true
+                  live: true
+                  tenant: globex
+                  attrs:
+                    message.tenant: globex
+                    message.tenantSource: message_attribute
+                    message.BodySize: 40
+                    queue.account: '123456789012'
+                    queue.region: us-east-1
+                  service: sqs
+                  consumer: orders-worker
+                  receiveCount: 1
+                messages: 5
+                capped: true
+                bodies_capped: false
+                queues: [payments]
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
@@ -2089,7 +2189,7 @@ components:
       type: apiKey
       in: cookie
       name: trailbeam_sid
-      description: The cookie that signing in sets, with an email and password or with single sign-on (OpenID Connect, `/login/oidc`). Over HTTPS it is named `__Host-trailbeam_sid`. It works on the API and the web screen once an admin exists, never on ingest.
+      description: The cookie that signing in sets, with an email and password, with single sign-on (OpenID Connect, `/login/oidc`) or with GitHub (`/login/github`). Over HTTPS it is named `__Host-trailbeam_sid`. It works on the API and the web screen once an admin exists, never on ingest.
     proxySignIn:
       type: apiKey
       in: header
@@ -2848,6 +2948,54 @@ components:
         visibility_timeout: {type: [integer, 'null'], description: 'Visibility changes: the new timeout, in seconds.'}
         trace_id: {type: string}
         span_id: {type: string}
+    TimelineEventPage:
+      type: object
+      additionalProperties: false
+      required: [from_ms, to_ms, events, messages, capped, bodies_capped, queues]
+      properties:
+        from_ms: {type: integer, description: The start of the window the request used, in Unix milliseconds.}
+        to_ms: {type: integer, description: The end of the window the request used, in Unix milliseconds. Included.}
+        events:
+          type: array
+          items: {$ref: '#/components/schemas/TimelineEvent'}
+        messages: {type: integer, minimum: 0, description: The number of messages read.}
+        capped: {type: boolean, description: 'True when more messages than `limit` had spans in the window: the oldest of them were not read.'}
+        bodies_capped: {type: boolean, description: True when some stored bodies were left out, because the answer's bodies reached 4,000,000 characters.}
+        queues: {type: array, items: {type: string}, description: The queues of the events, sorted.}
+    TimelineEvent:
+      type: object
+      additionalProperties: false
+      description: One thing that happened to a message, as the Event explorer lists it (`Ev` in `@trailbeam/ui`). A field with no value is left out.
+      required: [key, ms, event, status, queue, messageId, service, producer, consumer, detail, source, hasPage]
+      properties:
+        key: {type: string, description: 'The message ID and the timeline event''s `id`: unique in the answer.'}
+        ms: {type: integer, description: When it happened, in Unix milliseconds.}
+        event:
+          type: string
+          enum: [send, receive, delete, visibility_change, processing_error, visibility_expired, dead_letter, filtered]
+          description: '`filtered` (a Lambda event filter dropped the message) comes only from the hosted app''s AWS records.'
+        status: {type: string, enum: [ok, error]}
+        queue: {type: string, description: The queue's name. For a move to the dead-letter queue, the queue it left.}
+        messageId: {type: string}
+        service: {type: string, description: 'The service that did it: the producer, the consumer, or `sqs` for what SQS did.'}
+        producer: {type: string, description: The service that sent the message, or empty when the send wasn't observed.}
+        consumer: {type: string}
+        tenant: {type: string, description: The message's tenant (contract 15.3).}
+        receiveCount: {type: integer, description: The receive count of the receive the event belongs to.}
+        durationMs: {type: number, description: 'Processing time: from the receive to the delete, or to a Lambda outcome.'}
+        waitMs: {type: integer, description: 'On a first receive: how long the message waited in the queue.'}
+        sizeBytes: {type: integer, description: 'On a send: the body size the span carried.'}
+        deduplicated: {type: boolean, description: On a send to a FIFO queue that SQS deduplicated.}
+        detail: {type: string, description: 'One line about the event, or empty.'}
+        source: {type: string, enum: [otel, package, cloudtrail, function_logs, inferred], description: 'Where the event is known from: `inferred` when the timeline infers it.'}
+        hasPage: {type: boolean, description: True. The message has a timeline page.}
+        live: {type: boolean, description: True. Read from recorded spans, not sample data.}
+        attrs:
+          type: object
+          description: 'What the spans said about the message and its queue, by the query language''s field names (`message.ApproximateReceiveCount`, `message.tenant`, `queue.region` and others).'
+          additionalProperties: {type: [string, number]}
+        body: {description: 'The message''s stored body, parsed when it is JSON, on the event whose span carried it.'}
+        call: {type: string, description: 'The call the event was: `SendMessage`, `SendMessageBatch`, `ReceiveMessage`, `DeleteMessage`, the Lambda trigger''s calls, or `Delete (inferred)`.'}
     Histogram:
       type: object
       additionalProperties: false
