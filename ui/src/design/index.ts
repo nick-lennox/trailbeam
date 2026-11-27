@@ -39,3 +39,5 @@ export {
   HealthPill, OutcomePill, SourceTag, StatePill, SOURCE, POSSIBLY_PURGED_TITLE, purgeClock, purgeText, stateLook,
   type Outcome, type PurgeOf, type StateOf, type StepSource,
 } from "./pills.tsx";
+export { Menu, MenuItem } from "./Menu.tsx";
+export { AWS_FAMILY, PlatformIcon, ServiceIcon } from "./icons.tsx";
