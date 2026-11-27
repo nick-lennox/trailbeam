@@ -394,6 +394,9 @@ class SqliteStore(Store):
                 steps[k] = steps.get(k, 0) + 1
             moves.append((cur.lastrowid, None, mid))
             if kind == "receive":
+                s3_row = migrations.s3_receive(cur.lastrowid, attrs)
+                if s3_row is not None:
+                    c.execute(migrations.S3_RECEIVE_SQL, s3_row)
                 j0 = time.perf_counter()
                 moves.extend((row, was, mid) for row, was in self._join_receive(cur.lastrowid, r))
                 join_s = time.perf_counter() - j0
@@ -756,7 +759,7 @@ class SqliteStore(Store):
                 out[r["row"]] = {"row": r["row"], "mid": r["mid"], "queue": r["queue"], "time_ns": r["time_ns"]}
         return sorted(out.values(), key=lambda r: (r["time_ns"], r["row"]))[:eventbridge.MAX_REACHED]
 
-    # S3 uploads (contract section 27), by the partial indexes of migrations.S3_INDEXES.
+    # S3 uploads (contract section 27): uploads by migrations.S3_UPLOAD_INDEX, receives by s3_receives.
     def s3_uploads(self, bucket, object_key, from_ns, to_ns) -> list[sqlite3.Row]:
         cols = ", ".join(s3.COLUMNS)
         return self.query(f"SELECT {cols} FROM spans INDEXED BY spans_s3_upload WHERE kind = 's3_upload' "
@@ -765,17 +768,17 @@ class SqliteStore(Store):
 
     def s3_receivers(self, bucket, object_key, from_ms, to_ms) -> list[dict]:
         out = []
-        # By bucket and event time on the index; the key is URL-encoded in the attributes, so it is compared decoded.
-        for r in self.query(f"SELECT row, mid, queue, time_ns, attributes FROM spans INDEXED BY spans_receive_s3 "
-                            f"WHERE kind = 'receive' AND {migrations.S3_KEY} IS NOT NULL AND {migrations.S3_BUCKET} = ? "
-                            f"AND {migrations.S3_TIME} >= ? AND {migrations.S3_TIME} <= ? ORDER BY time_ns, row LIMIT ?",
-                            (bucket, from_ms, to_ms, 20 * s3.MAX_REACHED)):
+        # By bucket, decoded key and event time on s3_receives (migrations.S3_RECEIVES), then each span's notification.
+        for r in self.query("SELECT s.row, s.mid, s.queue, s.time_ns, s.attributes FROM s3_receives k "
+                            "JOIN spans s ON s.row = k.row WHERE k.bucket = ? AND k.object_key = ? "
+                            "AND k.event_time_ms >= ? AND k.event_time_ms <= ? AND s.mid IS NOT NULL "
+                            "ORDER BY s.time_ns, s.row LIMIT ?", (bucket, object_key, from_ms, to_ms, s3.MAX_REACHED)):
             n = s3.notification(r)
-            if r["mid"] is not None and n is not None and n.bucket == bucket and n.key == object_key:
+            if n is not None and n.bucket == bucket and n.key == object_key:
                 out.append({"row": r["row"], "mid": r["mid"], "queue": r["queue"], "time_ns": r["time_ns"],
                             "event_time_ms": n.event_time_ms, "operation": n.operation, "etag": n.etag,
                             "version_id": n.version_id})
-        return out[:s3.MAX_REACHED]
+        return out
 
     def sent_messages(self, message_ids) -> set:
         mids = sorted(set(message_ids))

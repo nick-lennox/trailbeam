@@ -146,7 +146,7 @@ def test_the_fixture_is_a_schema_5_file():
 def test_a_file_from_main_upgrades_in_place_and_keeps_every_span(from_main):
     before = raw(from_main)
     db = Database(from_main, store_bodies=frozenset({"orders"}))
-    assert db.migrated == [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+    assert db.migrated == [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25]
     db.close()
     assert raw(from_main) == before  # every row, every column, same row IDs
     assert meta_version(from_main) == str(LATEST)
@@ -166,7 +166,8 @@ def test_a_file_from_main_upgrades_in_place_and_keeps_every_span(from_main):
                                        (21, "OpenID Connect sign-ins and identities", True),
                                        (22, "RabbitMQ settle kinds in the unjoined settle index", True),
                                        (23, "EventBridge PutEvents indexes", True),
-                                       (24, "S3 upload indexes", True)]
+                                       (24, "S3 upload indexes", True),
+                                       (25, "S3 receives by decoded object key", True)]
     assert schema(from_main) == schema_new_file(from_main + ".new")
 
 
@@ -201,6 +202,37 @@ def test_schema_10_takes_the_bodies_out_of_the_spans_and_keeps_each_once(from_ma
         assert by_id[body_id] == (mid, before[row])
     # the send and the receive of a message carried the same text: one row
     assert len(stored) == len({(m, b) for m, b in by_id.values()}) < len(carried)
+
+
+def test_schema_25_lists_the_s3_receives_stored_before_it(tmp_path):
+    """QV-563: a file at 24 has its S3 receives only in spans; the upgrade puts each in s3_receives, key decoded."""
+    import sys
+    sys.path.insert(0, str(HERE))
+    from spans import SEC, T0, Consumer, to_proto
+
+    path = str(tmp_path / "s3.sqlite")
+    db = Database(path, store_bodies=frozenset({"orders"}))
+    et = T0 // 1_000_000 + 800
+    spans = [Consumer().s3_receive(T0 + 3 * SEC, f"sqs-{k}", f"rh-{k}", event_time_ms=et, sent_ms=et + 300,
+                                   start=T0 + 2 * SEC, key=k, etag="9dd4e461268c8034f5c8564e155c67a6")
+             for k in ("a+dir%2Fred.jpg", "other.jpg")]
+    db.insert(decode(to_proto(spans).SerializeToString(), "application/x-protobuf").records)
+    want = [(r["mid"], r["event_time_ms"]) for r in db.s3_receivers("photos", "a dir/red.jpg", 0, 2 ** 62)]
+    db.close()
+    assert want == [("sqs-a+dir%2Fred.jpg", et)]
+    c = sqlite3.connect(path, isolation_level=None)  # back to 24, as 24 left it
+    c.executescript(f"""DROP TABLE s3_receives; {migrations.S3_INDEXES}
+                        UPDATE schema_version SET version = 24 WHERE version = 25;
+                        UPDATE meta SET value = '24' WHERE key = 'schema_version';""")
+    c.close()
+    db = Database(path, store_bodies=frozenset({"orders"}))
+    try:
+        assert db.migrated == [25]
+        assert [(r["mid"], r["event_time_ms"]) for r in db.s3_receivers("photos", "a dir/red.jpg", 0, 2 ** 62)] == want
+        assert db.query("SELECT COUNT(*) AS n FROM s3_receives")[0]["n"] == 2
+    finally:
+        db.close()
+    assert schema(path) == schema_new_file(str(tmp_path / "new.sqlite"))
 
 
 def schema_new_file(path) -> dict:

@@ -263,6 +263,19 @@ def test_an_exporter_retry_of_an_upload_changes_nothing(new_store):
     assert s.counts()["spans"] == {"s3_upload": 1}
 
 
+def test_a_busy_bucket_still_lists_the_key_s_receives(new_store):
+    # QV-563: more of the bucket's notifications in the upload's window than any limit on the bucket alone. The reached
+    # list is found by the key, so another key's receives never push the joined key's out.
+    s = new_store()
+    put(s, upload(), *[received(C, f"n{i}", t=T0 + 2 * SEC, et=T0_MS + 500, key=f"other-{i}") for i in range(2000)])
+    put(s, received(B, "sqs-b", t=T0 + 3 * SEC))
+    put(s, received(C, "sqs-a", t=T0 + 4 * SEC))
+    e = queries.message(s, "sqs-a", NOW, LT)["events"][0]
+    assert e["type"] == "s3_upload"
+    assert e["reached"] == [{"queue": "orders", "message_ids": ["sqs-a"]}, {"queue": "thumbs", "message_ids": ["sqs-b"]}]
+    assert e["reached_truncated"] is False
+
+
 def test_retention_drops_uploads_by_their_own_time(new_store):
     s = new_store()
     put(s, upload(), upload(error="SlowDown"), received(C, "sqs-a"))

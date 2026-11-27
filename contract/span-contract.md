@@ -1543,8 +1543,8 @@ and version ID it keeps as it does an upload's.
 In the API (`GET /api/messages/{message_id}`, [`openapi.yaml`](openapi.yaml)) the upload is an `s3_upload` step
 (`source: s3_upload`, `joined_by: bucket_key_time`, `reached`, `s3_delivery_ms`). Like an SNS publish it is the bucket's
 step, not the message's: it does not change the message's first seen, last seen, state or list pages. Each store keeps
-`s3_upload` spans apart from messages (SQLite: rows of `spans` with no message, the key in `message_id`, schema 24;
-Postgres: `s3_uploads`, and the receives' notifications in `s3_receives`, schema 18, with their ETag and version ID
+`s3_upload` spans apart from messages (SQLite: rows of `spans` with no message, the key in `message_id`, schema 24, and the receives' notifications by
+decoded key in `s3_receives` from schema 25; Postgres: `s3_uploads`, and the receives' notifications in `s3_receives`, schema 18, with their ETag and version ID
 from schema 19), and retention drops one by its own time against the cutoff of the bucket's name
 (`--retention-queues` takes it like a queue name).
 

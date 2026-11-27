@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from . import __version__
-from . import account_tables, body_table, summary_table
+from . import account_tables, body_table, s3, summary_table
 
 
 class SchemaError(RuntimeError):
@@ -129,10 +129,32 @@ CREATE INDEX IF NOT EXISTS spans_receive_eb ON spans ({EB_EVENT_ID}) WHERE kind 
 S3_BUCKET = """json_extract(attributes, '$."trailbeam.s3.bucket"')"""
 S3_TIME = """json_extract(attributes, '$."trailbeam.s3.event_time_ms"')"""
 S3_KEY = """json_extract(attributes, '$."trailbeam.s3.object_key"')"""
-S3_INDEXES = f"""
+S3_UPLOAD_INDEX = """
 CREATE INDEX IF NOT EXISTS spans_s3_upload ON spans (queue, message_id, time_ns) WHERE kind = 's3_upload';
-CREATE INDEX IF NOT EXISTS spans_receive_s3 ON spans ({S3_BUCKET}, {S3_TIME}) WHERE kind = 'receive' AND {S3_KEY} IS NOT NULL;
 """
+S3_INDEXES = S3_UPLOAD_INDEX + f"""CREATE INDEX IF NOT EXISTS spans_receive_s3 ON spans ({S3_BUCKET}, {S3_TIME}) WHERE kind = 'receive' AND {S3_KEY} IS NOT NULL;
+"""
+# Schema 25 (QV-563): the receives' S3 notifications by bucket, URL-decoded object key and event time, one row per
+# receive span, as Postgres's s3_receives (pg_schema.py). The key is URL-encoded in ``attributes``, so no index on
+# them can find one key's receives: spans_receive_s3 found the bucket's in the window and the key was compared after,
+# so a busy bucket's could fall past the query's limit. The row goes with its span (ON DELETE CASCADE).
+S3_RECEIVES = """
+CREATE TABLE IF NOT EXISTS s3_receives (
+    row INTEGER PRIMARY KEY REFERENCES spans(row) ON DELETE CASCADE,  -- the receive span
+    bucket TEXT NOT NULL,
+    object_key TEXT NOT NULL,        -- URL-decoded (s3.notification)
+    event_time_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS s3_receives_key ON s3_receives (bucket, object_key, event_time_ms);
+"""
+S3_RECEIVE_SQL = "INSERT OR REPLACE INTO s3_receives (row, bucket, object_key, event_time_ms) VALUES (?, ?, ?, ?)"
+
+
+def s3_receive(row: int, attributes) -> Optional[tuple]:
+    """The s3_receives row of a receive span with these attributes (a dict or its JSON), or None: S3_RECEIVE_SQL's
+    values."""
+    n = s3.notification({"attributes": attributes})
+    return None if n is None else (row, n.bucket, n.key, n.event_time_ms)
 UNJOINED_INDEX_22 = """
 DROP INDEX IF EXISTS spans_unjoined_hash;
 CREATE INDEX IF NOT EXISTS spans_unjoined_hash ON spans (receipt_hmac, key_id)
@@ -172,7 +194,7 @@ CREATE TABLE IF NOT EXISTS probes (id TEXT PRIMARY KEY, received_ns INTEGER NOT 
 """
 
 # The schema a new file gets: the result of every migration below.
-CREATE = SPANS_TABLE.format(name="spans", added=SPANS_ADDED) + SPANS_INDEXES + SNS_INDEXES + UNJOINED_INDEX_22 + EB_INDEXES + S3_INDEXES + """
+CREATE = SPANS_TABLE.format(name="spans", added=SPANS_ADDED) + SPANS_INDEXES + SNS_INDEXES + UNJOINED_INDEX_22 + EB_INDEXES + S3_UPLOAD_INDEX + S3_RECEIVES + """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """ + """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -252,6 +274,9 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # Schema 24 (QV-511) adds the S3 upload indexes (S3_INDEXES). s3_upload spans are rows of spans (kind 's3_upload', no
 # mid); no file before it has any, so the first index starts empty. Receives since 3.5 carry the S3 fields, the key
 # only on queues whose body is captured, so the second is built from one scan of spans. It changes no span data.
+# Schema 25 (QV-563) adds s3_receives (S3_RECEIVES), built from the receives spans_receive_s3 finds (the key decoded
+# in Python, one pass over the S3 receives only), then drops spans_receive_s3, which nothing reads any more. It
+# changes no span data.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new", added=""))
                   + [f"INSERT INTO spans_new ({SPANS_COLUMNS}) SELECT {SPANS_COLUMNS} FROM spans ORDER BY row",
                      "DROP TABLE spans",
@@ -317,6 +342,21 @@ def _to_14(conn: sqlite3.Connection) -> None:
         summary_table.refresh(conn, again)
 
 
+def _to_25(conn: sqlite3.Connection) -> None:
+    for sql in statements(S3_RECEIVES):
+        conn.execute(sql)
+    # spans_receive_s3 is there at 24; a file whose recorded version was set back by hand may not have it
+    have = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'spans_receive_s3'").fetchone()
+    by = "INDEXED BY spans_receive_s3 " if have else ""
+    cur = conn.execute(f"SELECT row, attributes FROM spans {by}WHERE kind = 'receive' AND {S3_KEY} IS NOT NULL")
+    while True:
+        part = cur.fetchmany(1000)
+        if not part:
+            break
+        conn.executemany(S3_RECEIVE_SQL, [v for v in (s3_receive(r, a) for r, a in part) if v is not None])
+    conn.execute("DROP INDEX IF EXISTS spans_receive_s3")
+
+
 MIGRATIONS = (
     Migration(2, "spans.start_ns", ("ALTER TABLE spans ADD COLUMN start_ns INTEGER",)),
     Migration(3, "spans call order", ("ALTER TABLE spans ADD COLUMN order_scope TEXT",
@@ -356,6 +396,7 @@ MIGRATIONS = (
     Migration(22, "RabbitMQ settle kinds in the unjoined settle index", tuple(statements(UNJOINED_INDEX_22))),
     Migration(23, "EventBridge PutEvents indexes", tuple(statements(EB_INDEXES))),
     Migration(24, "S3 upload indexes", tuple(statements(S3_INDEXES))),
+    Migration(25, "S3 receives by decoded object key", (), run=_to_25),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table
