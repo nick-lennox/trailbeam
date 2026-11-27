@@ -350,8 +350,9 @@ in it. The parameters and answer are in [`contract/openapi.yaml`](contract/opena
 ## Troubleshooting: no data arriving
 
 Set it up and see nothing? Run `trailbeam doctor` (0.4.0 or later; 0.3.0 stops with
-`unrecognized arguments: doctor`). It comes with the Python package (installing `trailbeam`
-is enough, the server extra is not needed) and checks, one line each:
+`unrecognized arguments: doctor`). It comes with the server, so on a service's host run
+`pip install "trailbeam[server]"` first: the `trailbeam` package alone has no `trailbeam` command. It checks,
+one line each:
 
 1. **Server reachable**: `GET /api/health` answers, and it is Trailbeam;
 2. **Ingest port accepts connections**: the address your services send to (4318 by default) is open and is
