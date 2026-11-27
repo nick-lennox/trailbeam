@@ -21,7 +21,7 @@ ignored" change is sent. A regression of a resolved cause sends one "Regressed" 
 
 Storage is not here: rules, alert state, checks and leases are read and written through ``AlertStore`` (a Protocol),
 and what the rules read (dashboards, events and queue figures, causes, triage, channels) comes in through ``Deps``.
-MemoryAlertStore is the store for tests; the SQLite and Postgres tables are a later part of QV-592. The records are
+MemoryAlertStore is the store for tests; alerts_store.AlertTables is the one on the SQLite and Postgres tables (QV-650). The records are
 dicts with the hosted app's JSON field names, as in alerts.py.
 
 contract/fixtures/alerts-run.json holds the run's decisions (which workspaces are checked in which order under a

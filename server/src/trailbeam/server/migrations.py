@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from . import __version__
-from . import account_tables, body_table, s3, summary_table
+from . import account_tables, alerts_store, body_table, s3, summary_table
 
 
 class SchemaError(RuntimeError):
@@ -205,7 +205,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 );
 """ + summary_table.CREATE + body_table.CREATE + PROBES_CREATE + account_tables.SQLITE_CREATE + f"""
 {account_tables.SQLITE_ADD_PROXY};
-""" + STEP_ROLLUP_CREATE + account_tables.SQLITE_OIDC
+""" + STEP_ROLLUP_CREATE + account_tables.SQLITE_OIDC + alerts_store.SQLITE_CREATE
 
 # Schema 1 was the first released (the CREATE of version 1 is in tests/server/test_migrations.py).
 # Schema 1 had no start_ns. Its rows came from contract v1 spans, stamped only when the response arrived,
@@ -276,6 +276,8 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # only on queues whose body is captured, so the second is built from one scan of spans. It changes no span data.
 # Schema 25 (QV-563) adds s3_receives (S3_RECEIVES), built from the receives spans_receive_s3 finds (the key decoded
 # in Python, one pass over the S3 receives only), then drops spans_receive_s3, which nothing reads any more. It
+# changes no span data.
+# Schema 26 (QV-650) adds the alert tables (alerts_store.py: rules, channels, state, checks and leases), empty. It
 # changes no span data.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new", added=""))
                   + [f"INSERT INTO spans_new ({SPANS_COLUMNS}) SELECT {SPANS_COLUMNS} FROM spans ORDER BY row",
@@ -397,6 +399,7 @@ MIGRATIONS = (
     Migration(23, "EventBridge PutEvents indexes", tuple(statements(EB_INDEXES))),
     Migration(24, "S3 upload indexes", tuple(statements(S3_INDEXES))),
     Migration(25, "S3 receives by decoded object key", (), run=_to_25),
+    Migration(26, "alert rules, channels, state and checks", tuple(statements(alerts_store.SQLITE_CREATE))),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

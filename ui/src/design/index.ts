@@ -19,7 +19,7 @@ export { NightWindow, WindowDots } from "./NightWindow.tsx";
 export { StatCard } from "./Stat.tsx";
 export { Sparkline } from "./Sparkline.tsx";
 export { Logo, Mark, DOME, DOT, NAME, W, H, LOCKUP_W } from "./Logo.tsx";
-export { PageHeader, TopBar } from "./TopBar.tsx";
+export { PageHeader, TopBar, type Fresh } from "./TopBar.tsx";
 export { MessageSearch, tenantText, type MessageSearchProps } from "./MessageSearch.tsx";
 export {
   TenantRanges, TenantsCard, TenantsFoot, TenantsPage, TenantsTable,

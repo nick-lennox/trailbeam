@@ -10,7 +10,7 @@
   A client module, reached through @trailbeam/ui/design, never the main entry (test/server-import.test.ts).
 */
 import type { ComponentType, ReactNode } from "react";
-import { PageHeader } from "../design/TopBar.tsx";
+import { PageHeader, type Fresh } from "../design/TopBar.tsx";
 import { UiLink, type LinkProps } from "../design/nav.tsx";
 import { Card } from "../design/Card.tsx";
 import { Tooltip } from "../design/Tooltip.tsx";
@@ -100,7 +100,7 @@ export type TenantsPageProps = {
   /** the host's message search, drawn in the top bar */
   search?: ReactNode;
   /** the top bar's freshness mark (PageHeader's) */
-  fresh?: boolean;
+  fresh?: Fresh;
   children?: ReactNode;
 };
 
