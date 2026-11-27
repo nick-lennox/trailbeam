@@ -1,14 +1,18 @@
+"use client";
+
 /*
   The first-run screen: what `/` shows while the store holds no span, from "install the package" to the first
   message. It draws its props and fetches nothing: the host polls /api/health (status.ts decides the status) and
-  renders the Messages list below it once the first message is in. Drawn in the sky (theme.css). Design: QV-146.
+  renders the Messages list below it once the first message is in. Design: QV-146. Drawn on the design system
+  (QV-587): role tokens, so it follows the app's night and day themes, the app's Button, and code in a NightWindow,
+  which stays dark in both; labels in the UI face, mono for code and values only. A client module, reached
+  through @trailbeam/ui/design; its words and code samples are text.ts, in the main entry.
 */
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { Button } from "../design/Button.tsx";
+import { NightWindow } from "../design/NightWindow.tsx";
 import { announcement, isDefaultEndpoint, type FirstRunStatus } from "./status.ts";
-
-export type Runtime = "python" | "node";
-export const RUNTIMES: [Runtime, string][] = [["python", "Python"], ["node", "Node.js"]];
-export const RUNTIME_KEY = "trailbeam.runtime";
+import { EXAMPLE, INSTALL, RUNTIMES, environment, type Runtime } from "./text.ts";
 
 const REPO = "https://github.com/nick-lennox/trailbeam";
 const LINKS = {
@@ -19,61 +23,27 @@ const LINKS = {
   collector: `${REPO}/blob/main/collector/README.md`,
 };
 
-export const INSTALL: Record<Runtime, string> = { python: "pip install trailbeam", node: "npm install trailbeam" };
-
-export const EXAMPLE: Record<Runtime, { caption: string; code: string }> = {
-  python: {
-    caption: "send_one.py",
-    code: `import boto3
-import trailbeam.boto
-
-trailbeam.boto.install()  # once per process, before or after creating clients
-
-sqs = boto3.client("sqs")
-sqs.send_message(QueueUrl="<queue URL>", MessageBody="hello from Trailbeam")`,
-  },
-  node: {
-    caption: "send-one.js",
-    code: `const { SQSClient, SendMessageCommand } = require("@aws-sdk/client-sqs");
-const trailbeam = require("trailbeam");
-
-const sqs = trailbeam.instrument(new SQSClient({}));
-
-async function main() {
-  await sqs.send(new SendMessageCommand({ QueueUrl: "<queue URL>", MessageBody: "hello from Trailbeam" }));
-  await trailbeam.forceFlush(); // a script that exits right away must flush, or its spans are lost
-}
-main();`,
-  },
-};
-
-/** The environment block for row 02. The hash key is left out on purpose: a pasted `$(openssl rand -hex 32)` makes a new key per terminal. */
-export function environment(endpoint: string, auth: "off" | "token"): string {
-  const lines = [`export TRAILBEAM_OTLP_TRACES_ENDPOINT=${endpoint}`, "export OTEL_SERVICE_NAME=orders-worker"];
-  if (auth === "token") lines.push('export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer%20<token>"');
-  return lines.join("\n");
-}
 
 const C = ({ children }: { children: ReactNode }) => <code className="font-mono text-caption">{children}</code>;
-const Ext = ({ href, children }: { href: string; children: ReactNode }) => <a href={href} className="text-dawn hover:underline">{children}</a>;
+const Ext = ({ href, children }: { href: string; children: ReactNode }) => <a href={href} className="text-brand hover:underline">{children}</a>;
 
 /* ---- code windows ---------------------------------------------------------------------------------------- */
 
 const TOKEN = /("(?:[^"\\]|\\.)*")|((?:#|\/\/) .*$)|\b(import|const|require|async|function|await|new|export)\b|(<token>|<queue URL>)/gm;
 const PLACEHOLDER = /(<token>|<queue URL>)/;
 
-const Placeholder = ({ text }: { text: string }) => <span className="text-trail underline decoration-sky-ink-3 decoration-dotted underline-offset-4">{text}</span>;
+const Placeholder = ({ text }: { text: string }) => <span className="text-code-name underline decoration-night-ink-3 decoration-dotted underline-offset-4">{text}</span>;
 
-/** The docs' syntax colors and no others: strings Trail, keywords Wait, comments Haze italic, placeholders marked. */
+/** The design system's code colors and no others: strings, keywords, comments in italic, placeholders marked. */
 export function highlight(code: string): ReactNode[] {
   const out: ReactNode[] = [];
   let at = 0;
   for (const m of code.matchAll(TOKEN)) {
     if (m.index > at) out.push(code.slice(at, m.index));
     const k = out.length;
-    if (m[1]) out.push(<span key={k} className="text-trail">{m[1].split(PLACEHOLDER).map((p, i) => (i % 2 ? <Placeholder key={i} text={p} /> : p))}</span>);
-    else if (m[2]) out.push(<span key={k} className="italic text-sky-ink-3">{m[2]}</span>);
-    else if (m[3]) out.push(<span key={k} className="text-wait">{m[3]}</span>);
+    if (m[1]) out.push(<span key={k} className="text-code-string">{m[1].split(PLACEHOLDER).map((p, i) => (i % 2 ? <Placeholder key={i} text={p} /> : p))}</span>);
+    else if (m[2]) out.push(<span key={k} className="italic text-code-comment">{m[2]}</span>);
+    else if (m[3]) out.push(<span key={k} className="text-code-keyword">{m[3]}</span>);
     else out.push(<Placeholder key={k} text={m[4]} />);
     at = m.index + m[0].length;
   }
@@ -103,10 +73,9 @@ function CopyButton({ text, target, name, onCopied }: { text: string; target: Re
     clip.writeText(text).then(() => { setState("copied"); onCopied("Copied to the clipboard."); }, select);
   };
   return (
-    <button type="button" onClick={copy} aria-label={name}
-      className="h-7 shrink-0 rounded-[5px] border border-sky-line px-2.5 text-[13px] text-sky-ink-2 hover:border-sky-ink hover:text-sky-ink">
+    <Button type="button" size="sm" onClick={copy} aria-label={name} className="shrink-0">
       {state === "copied" ? "Copied" : state === "select" ? "Select and copy" : "Copy"}
-    </button>
+    </Button>
   );
 }
 
@@ -114,12 +83,10 @@ function CopyButton({ text, target, name, onCopied }: { text: string; target: Re
 export function CodeWindow({ id, caption, code, copyName, onCopied }: { id?: string; caption: string; code: string; copyName: string; onCopied: (m: string) => void }) {
   const ref = useRef<HTMLPreElement>(null);
   return (
-    <div id={id} className="mt-3 overflow-hidden rounded-[12px] border border-sky-line bg-sky-2">
-      <div className="flex items-center justify-between gap-3 border-b border-sky-line px-5 py-2">
-        <span className="font-mono text-caption text-sky-ink-3">{caption}</span>
-        <CopyButton text={code} target={ref} name={copyName} onCopied={onCopied} />
-      </div>
-      <pre ref={ref} className="overflow-x-auto px-5 py-4 font-mono text-[13px] leading-[1.75] text-sky-ink"><code>{highlight(code)}</code></pre>
+    <div id={id} className="mt-3">
+      <NightWindow title={caption} meta={<CopyButton text={code} target={ref} name={copyName} onCopied={onCopied} />}>
+        <pre ref={ref} className="overflow-x-auto px-5 py-4 font-mono text-caption leading-6 text-night-ink"><code>{highlight(code)}</code></pre>
+      </NightWindow>
     </div>
   );
 }
@@ -128,11 +95,11 @@ export function CodeWindow({ id, caption, code, copyName, onCopied }: { id?: str
 
 function Row({ n, title, aside, children }: { n: string; title: string; aside?: ReactNode; children: ReactNode }) {
   return (
-    <section className="grid grid-cols-[2rem_1fr] border-t border-sky-line py-6 md:grid-cols-[2.5rem_1fr]">
-      <span className="pt-0.5 font-mono text-caption text-sky-ink-3" aria-hidden>{n}</span>
+    <section className="grid grid-cols-[2.25rem_1fr] border-t border-line py-6 md:grid-cols-[2.75rem_1fr]">
+      <span className="grid size-6 place-items-center rounded-full border border-line bg-canvas text-xs text-ink-2" aria-hidden>{n}</span>
       <div className="min-w-0">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-[15px] font-medium text-sky-ink">{title}</h2>
+          <h2 className="text-base font-semibold text-ink">{title}</h2>
           {aside}
         </div>
         {children}
@@ -152,23 +119,23 @@ function RuntimeSwitch({ runtime, onRuntime, controls }: { runtime: Runtime; onR
     tabs.current[j]?.focus();
   };
   return (
-    <div role="tablist" aria-label="Runtime" className="flex w-full rounded-full border border-sky-line bg-sky-2 p-0.5 text-sm md:w-auto">
+    <div role="tablist" aria-label="Runtime" className="flex w-full rounded-control border border-line bg-sunken p-0.5 text-sm md:w-auto">
       {RUNTIMES.map(([r, label], i) => (
         <button key={r} ref={(el) => { tabs.current[i] = el; }} type="button" role="tab" aria-selected={r === runtime} aria-controls={controls}
           tabIndex={r === runtime ? 0 : -1} onClick={() => onRuntime(r)} onKeyDown={(e) => key(e, i)}
-          className={`flex-1 rounded-full px-3 py-1 md:flex-none ${r === runtime ? "bg-sky-line text-sky-ink" : "text-sky-ink-2 hover:text-sky-ink"}`}>{label}</button>
+          className={`flex-1 rounded-[calc(var(--radius-control)-2px)] px-3 py-1 md:flex-none ${r === runtime ? "bg-surface text-ink shadow-card" : "text-ink-2 hover:text-ink"}`}>{label}</button>
       ))}
     </div>
   );
 }
 
 const DOT: Record<FirstRunStatus["kind"], string> = {
-  waiting: "border border-sky-ink-3 animate-wait motion-reduce:animate-none",
-  "no-spans": "border border-sky-ink-3",
-  ignored: "bg-ember",
-  rejected: "bg-lost",
-  unreachable: "bg-lost",
-  received: "bg-trail",
+  waiting: "border border-ink-3 animate-wait motion-reduce:animate-none",
+  "no-spans": "border border-ink-3",
+  ignored: "bg-warning",
+  rejected: "bg-critical",
+  unreachable: "bg-critical",
+  received: "bg-good",
 };
 
 function WaitingLine({ status, auth, version, announce }: { status: FirstRunStatus; auth: "off" | "token"; version: string; announce: string }) {
@@ -192,21 +159,21 @@ function WaitingLine({ status, auth, version, announce }: { status: FirstRunStat
       <span aria-hidden className={`mt-[0.55rem] size-1.5 shrink-0 rounded-full ${DOT[status.kind]}`} />
       <div className="min-w-0">
         <p className="sr-only" aria-live="polite">{announce}</p>
-        <p className="text-[15px] text-sky-ink" aria-hidden>{received ? "First message received" : "Waiting for your first message"}</p>
+        <p className="text-base font-medium text-ink" aria-hidden>{received ? "First message received" : "Waiting for your first message"}</p>
         {received ? (
           <>
-            <p className="mt-0.5 break-all font-mono text-caption text-sky-ink-2" aria-hidden>
-              {received.message_id} · {received.source_queue} · {received.consumer ?? "sent, not received yet"}
+            <p className="mt-0.5 text-sm text-ink-2" aria-hidden>
+              <span className="break-all font-mono text-caption text-ink">{received.message_id}</span> on <span className="break-all font-mono text-caption text-ink">{received.source_queue}</span>
+              {received.consumer ? <>, received by <span className="font-mono text-caption text-ink">{received.consumer}</span>.</> : ". Sent, not received yet."}
             </p>
-            <a href={`/message?id=${encodeURIComponent(received.message_id)}`}
-              className="mt-3 inline-block rounded-full bg-sky-ink px-4 py-1.5 text-[15px] text-sky ring-offset-sky hover:bg-trail">Open its timeline</a>
+            <Button variant="primary" size="sm" className="mt-3" href={`/message?id=${encodeURIComponent(received.message_id)}`}>Open its timeline</Button>
           </>
         ) : reason ? (
-          <p className="mt-0.5 max-w-[72ch] text-[15px] leading-[1.5] text-sky-ink-2" aria-hidden>{reason}</p>
+          <p className="mt-0.5 max-w-[72ch] text-sm leading-relaxed text-ink-2" aria-hidden>{reason}</p>
         ) : (
-          <p className="mt-0.5 font-mono text-caption text-sky-ink-3" aria-hidden>
-            {status.kind === "waiting" && status.hidden ? "Paused while this tab is hidden"
-              : `Checked ${status.kind === "waiting" && status.checkedAgoS !== null ? status.checkedAgoS : 0} s ago · no spans yet`}
+          <p className="mt-0.5 text-sm text-ink-3" aria-hidden>
+            {status.kind === "waiting" && status.hidden ? "Paused while this tab is hidden."
+              : `No spans yet. Checked ${status.kind === "waiting" && status.checkedAgoS !== null ? status.checkedAgoS : 0} s ago.`}
           </p>
         )}
       </div>
@@ -242,9 +209,9 @@ export function FirstRun({ endpoint, auth, status, version, runtime, onRuntime, 
 
   return (
     <div>
-      <p className="text-[12px] text-sky-ink-3">Get started</p>
-      <h1 className="mt-1 text-[1.875rem] leading-tight text-sky-ink">{retainedFor ? `No spans in the last ${retainedFor}` : "Send your first SQS message to Trailbeam"}</h1>
-      <p className="mt-2 max-w-[36rem] text-[17px] leading-[1.5] text-sky-ink-2">
+      <p className="text-xs font-medium text-ink-3">Get started</p>
+      <h1 className="mt-1 font-serif text-title-sm text-ink">{retainedFor ? `No spans in the last ${retainedFor}` : "Send your first SQS message to Trailbeam"}</h1>
+      <p className="mt-2 max-w-[36rem] text-base leading-relaxed text-ink-2">
         {retainedFor
           ? `Trailbeam keeps spans for ${retainedFor} and has deleted older ones. New messages show up here as your services send them.`
           : "Add the package to one service, point it here, and make one SQS call. The message shows up on this page by itself."}
@@ -255,65 +222,63 @@ export function FirstRun({ endpoint, auth, status, version, runtime, onRuntime, 
 
       <div className="mt-6">
         {!open && (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-sky-line py-4 text-[15px]">
-            <span className="text-sky-ink">Setup</span>
-            <span className="text-sky-ink-3" aria-hidden>·</span>
-            <span className="text-sky-ink-2">{label}</span>
-            <span className="text-sky-ink-3" aria-hidden>·</span>
-            <span className="min-w-0 break-all font-mono text-caption text-sky-ink-2">{endpoint}</span>
-            <button type="button" onClick={() => setOpen(true)} aria-expanded={false} className="ml-auto text-dawn hover:underline">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line py-4 text-sm">
+            <p className="min-w-0 text-ink-2">
+              <span className="font-medium text-ink">Setup</span> for {label}, sending to <span className="break-all font-mono text-caption text-ink">{endpoint}</span>
+            </p>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(true)} aria-expanded={false} className="ml-auto">
               {received ? "Show setup again" : "Show setup"}
-            </button>
+            </Button>
           </div>
         )}
         <div className={`grid transition-[grid-template-rows] duration-[240ms] ease-out motion-reduce:transition-none ${open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`} inert={!open} aria-hidden={!open || undefined}>
           <div className="min-h-0 overflow-hidden">
-            <Row n="01" title="Install the package" aside={<RuntimeSwitch runtime={runtime} onRuntime={onRuntime} controls={`${installId} ${exampleId}`} />}>
+            <Row n="1" title="Install the package" aside={<RuntimeSwitch runtime={runtime} onRuntime={onRuntime} controls={`${installId} ${exampleId}`} />}>
               <CodeWindow id={installId} caption="shell" code={INSTALL[runtime]} copyName="Copy the install command" onCopied={setCopied} />
-              <p className="mt-3 text-[15px] text-sky-ink-2">
+              <p className="mt-3 text-sm text-ink-2">
                 {runtime === "python" ? "Python 3.10 or later, with boto3." : <>Node.js 20 or later, with the AWS SDK v3 SQS client (<C>@aws-sdk/client-sqs</C>).</>}
               </p>
             </Row>
 
-            <Row n="02" title="Point it at this Trailbeam">
-              <p className="mt-2 text-[15px] text-sky-ink-2">The package sends its spans over OTLP/HTTP to this endpoint:</p>
+            <Row n="2" title="Point it at this Trailbeam">
+              <p className="mt-2 text-sm text-ink-2">The package sends its spans over OTLP/HTTP to this endpoint:</p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <output ref={endpointRef} className="min-w-0 break-all rounded-full border border-sky-line bg-sky-2 px-4 py-1.5 font-mono text-caption text-sky-ink">{endpoint}</output>
+                <output ref={endpointRef} className="min-w-0 break-all rounded-control border border-line bg-sunken px-3 py-1.5 font-mono text-caption text-ink">{endpoint}</output>
                 <CopyButton text={endpoint} target={endpointRef} name="Copy the endpoint" onCopied={setCopied} />
               </div>
-              <p className="mt-2 max-w-[72ch] text-[13px] leading-[1.5] text-sky-ink-3">
+              <p className="mt-2 max-w-[72ch] text-xs leading-relaxed text-ink-3">
                 {isDefaultEndpoint(endpoint)
                   ? <>This is the package&rsquo;s default, so a service on this machine can skip <C>TRAILBEAM_OTLP_TRACES_ENDPOINT</C>.</>
                   : <>This is the address your browser used. A service in a container or on another host may need a different one, such as <C>http://host.docker.internal:4318/v1/traces</C> from a container on Docker Desktop.</>}
               </p>
-              <p className="mt-4 max-w-[72ch] text-[15px] leading-[1.5] text-sky-ink-2" data-auth={auth}>
+              <p className="mt-4 max-w-[72ch] text-sm leading-relaxed text-ink-2" data-auth={auth}>
                 {auth === "off"
                   ? <>This Trailbeam has no access token, so services send without one. Anyone who can reach this port can send spans and read every message. Keep it on <C>127.0.0.1</C> or a trusted network, or <Ext href={LINKS.token}>set a token</Ext>.</>
                   : <>This Trailbeam needs its access token on every export. It&rsquo;s the token you signed in with: the value of <C>TRAILBEAM_TOKEN</C>, or the contents of the file <C>TRAILBEAM_TOKEN_FILE</C> or <C>--token-file</C> names, on the machine that runs Trailbeam. Trailbeam doesn&rsquo;t show it here.</>}
               </p>
               <CodeWindow caption="shell" code={env} copyName="Copy the environment variables" onCopied={setCopied} />
               {auth === "token" && (
-                <p className="mt-2 max-w-[72ch] text-[13px] leading-[1.5] text-sky-ink-3">
+                <p className="mt-2 max-w-[72ch] text-xs leading-relaxed text-ink-3">
                   Replace <C>&lt;token&gt;</C> with the access token. <C>%20</C> is the space after <C>Bearer</C>, encoded as OpenTelemetry expects. The header goes to every OTLP exporter in this process.
                 </p>
               )}
-              <p className="mt-2 max-w-[72ch] text-[13px] leading-[1.5] text-sky-ink-3">
+              <p className="mt-2 max-w-[72ch] text-xs leading-relaxed text-ink-3">
                 <C>OTEL_SERVICE_NAME</C> is the name timelines show for this service. Before a second service joins, give every service on the same queues the same <C>TRAILBEAM_RECEIPT_HASH_KEY</C> (<C>openssl rand -hex 32</C>, generated once). Without it the package uses a published default key and logs a warning.
               </p>
             </Row>
 
-            <Row n="03" title="Make one SQS call">
-              <p className="mt-2 max-w-[72ch] text-[15px] leading-[1.5] text-sky-ink-2">
+            <Row n="3" title="Make one SQS call">
+              <p className="mt-2 max-w-[72ch] text-sm leading-relaxed text-ink-2">
                 Call <C>install</C> once, then use SQS as usual. A send is enough for a first message. A receive and a delete fill in the rest of its timeline.
               </p>
               <CodeWindow id={exampleId} caption={example.caption} code={example.code} copyName="Copy the example" onCopied={setCopied} />
-              <p className="mt-2 max-w-[72ch] text-[13px] leading-[1.5] text-sky-ink-3">
-                Replace <C>&lt;queue URL&gt;</C> with a queue you can send to. {runtime === "python" ? <>Spans go out in batches every few seconds, and any still waiting go out when the process exits.</> : <>In a long-running service you don&rsquo;t need <C>forceFlush</C>: spans go out in batches every few seconds.</>} On AWS Lambda, wrap the handler instead: <Ext href={LINKS.python}>Python</Ext> · <Ext href={LINKS.node}>Node.js</Ext>.
+              <p className="mt-2 max-w-[72ch] text-xs leading-relaxed text-ink-3">
+                Replace <C>&lt;queue URL&gt;</C> with a queue you can send to. {runtime === "python" ? <>Spans go out in batches every few seconds, and any still waiting go out when the process exits.</> : <>In a long-running service you don&rsquo;t need <C>forceFlush</C>: spans go out in batches every few seconds.</>} On AWS Lambda, wrap the handler instead, as the <Ext href={LINKS.python}>Python</Ext> and <Ext href={LINKS.node}>Node.js</Ext> guides show.
               </p>
             </Row>
 
-            <p className="border-t border-sky-line pt-4 text-[13px] text-sky-ink-3">
-              More: <Ext href={LINKS.quickstart}>the quickstart</Ext> · <Ext href={LINKS.python}>Lambda</Ext> · <Ext href={LINKS.collector}>the Collector</Ext>
+            <p className="border-t border-line pt-4 text-xs text-ink-3">
+              More in <Ext href={LINKS.quickstart}>the quickstart</Ext>, the guide to <Ext href={LINKS.python}>AWS Lambda</Ext> and the guide to <Ext href={LINKS.collector}>the Collector</Ext>.
             </p>
           </div>
         </div>

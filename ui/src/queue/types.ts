@@ -7,6 +7,8 @@
   the fields the page reads, so the app passes its objects as they are.
 */
 
+import type { QueuePreset } from "./model.ts";
+
 export type Tone = "good" | "warning" | "critical";
 /** [period start ms, value] */
 export type Point = [number, number];
@@ -136,4 +138,26 @@ export type QueuePageData = {
   aws: QueueAwsView | null;
   /** the hosted sample workspace */
   sample?: boolean;
+};
+
+export type MessagesView = "sent" | "waited" | "slowest" | "failed" | "dead_lettered";
+
+/** Where the queue page's links go: the host's pages (QueuePage's `href`). */
+export type QueueHrefs = {
+  /** the queue list: the Overview in both products */
+  queues: string;
+  /** another queue's page (the DLQ's) */
+  queue: (name: string) => string;
+  /** messages Trailbeam recorded on the queue in [fromMs, toMs), for one of §6's links; null drops that link */
+  messages: (o: { queue: string; fromMs: number; toMs: number; view: MessagesView }) => string | null;
+  /** the stuck messages on this queue */
+  stuck: (queue: string) => string;
+  /** messages filtered to a service on this queue */
+  service?: (service: string, queue: string) => string | null;
+  /** this page at another preset (the empty state's "past 24 hours", "past 7 days") */
+  range: (preset: QueuePreset) => string;
+  /** connect an AWS account (hosted, no_account) */
+  connect?: string | null;
+  /** the role's settings (hosted, a read failed) */
+  connections?: string | null;
 };

@@ -1,17 +1,20 @@
 /* What every shell page shares: the header, the page frame, and reading Trailbeam's API on the same origin. */
 import { useEffect, useState, type ReactNode } from "react";
-import { TenantSearch, type Health } from "../src/index.ts";
+import { TenantSearch, type Health, type SignInIdentity } from "../src/index.ts";
 
 /** A tenant's messages: the Messages list, filtered (contract/tenants.md, "Tenant filter"). */
 export const tenantHref = (t: string) => `/?tenant=${encodeURIComponent(t)}`;
 export const messageHref = (id: string) => `/message?id=${encodeURIComponent(id)}`;
 
-/** Suggestions from the tenants named in the Tenants page's range: the one shown, else its default (a day). */
-const suggest = (text: string) => {
-  const since = location.pathname === "/tenants" ? new URLSearchParams(location.search).get("since_s") : null;
+/** Tenant names that start with `text`, from the Tenants page's range when it is the page shown, else the server's default (a day). */
+export function suggestTenants(text: string, signal?: AbortSignal, search = location.search, path = location.pathname): Promise<string[]> {
+  const since = path === "/tenants" ? new URLSearchParams(search).get("since_s") : null;
   const range = since ? `&since_s=${encodeURIComponent(since)}` : "";
-  return fetch(`/api/tenants/search?q=${encodeURIComponent(text)}${range}`).then((r) => (r.ok ? r.json() : { tenants: [] })).then((d: { tenants: string[] }) => d.tenants);
-};
+  return fetch(`/api/tenants/search?q=${encodeURIComponent(text)}${range}`, { signal, headers: { Accept: "application/json" } })
+    .then((r) => (r.ok ? r.json() : { tenants: [] })).then((d: { tenants?: string[] }) => d.tenants ?? []);
+}
+
+const suggest = (text: string) => suggestTenants(text);
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public reason?: string) { super(message); }
@@ -86,6 +89,8 @@ export type Me = {
   user: { id: number; email: string; name: string; role: "admin" | "member" } | null;
   /** Whether Sign out (/logout) ends anything; absent before 0.5 (then: a session or the token's cookie). */
   sign_out?: boolean;
+  /** How the person can sign in, for the Account page; absent without a person or accounts, and before 0.5. */
+  sign_in?: { password: boolean; identities: SignInIdentity[] };
 };
 
 let mePromise: Promise<Me | null> | null = null;
@@ -117,9 +122,9 @@ export function Account({ me }: { me: Me | null }) {
   return (
     <div className="flex items-center gap-3 text-sm text-sky-ink-2">
       {me.user && (
-        <span title={`${me.user.email} (${me.user.role})`} className="max-w-48 truncate">
+        <a href="/account" title={`${me.user.email} (${me.user.role})`} className="max-w-48 truncate hover:text-sky-ink">
           {me.user.name}{me.user.role === "admin" && <span className="ml-1 text-caption text-sky-ink-3">admin</span>}
-        </span>
+        </a>
       )}
       {signOut && <a href="/logout" className="hover:text-sky-ink">Sign out</a>}
     </div>
@@ -137,7 +142,7 @@ const PERSON_NAV = [["/tokens", "Tokens"]] as const;
 const SEEN_KEY = "trailbeam.tenantSeen";
 const remembered = () => { try { return sessionStorage.getItem(SEEN_KEY) === "1"; } catch { return false; } };
 const remember = () => { try { sessionStorage.setItem(SEEN_KEY, "1"); } catch { /* storage off: ask again next page */ } };
-function useTenantSeen(): boolean {
+export function useTenantSeen(): boolean {
   const [seen, setSeen] = useState(remembered);
   useEffect(() => {
     if (seen) return;
@@ -200,7 +205,8 @@ export const Json = ({ href }: { href: string }) => (
  * the window of the rows on screen. Without a clipboard (a plain-http host other than localhost), the link is
  * shown in a field, selected, to copy by hand.
  */
-export function CopyLink({ link, label = "Copy link" }: { link: () => string; label?: string }) {
+/** Copy a link to this page. `design`: drawn in the design system's look, for a page in the shared frame (frame.tsx). */
+export function CopyLink({ link, label = "Copy link", design = false }: { link: () => string; label?: string; design?: boolean }) {
   const [state, setState] = useState<{ kind: "idle" } | { kind: "copied" } | { kind: "select"; url: string }>({ kind: "idle" });
   useEffect(() => {
     if (state.kind !== "copied") return;
@@ -216,12 +222,14 @@ export function CopyLink({ link, label = "Copy link" }: { link: () => string; la
   return (
     <span className="inline-flex items-center gap-2">
       <button type="button" onClick={copy}
-        className="rounded-full border border-sky-line px-3 py-0.5 text-sm text-sky-ink-2 hover:border-sky-ink hover:text-sky-ink">
+        className={design ? "inline-flex h-10 items-center rounded-lg border border-line-strong bg-surface px-3 text-[13px] whitespace-nowrap text-ink-2 hover:text-ink"
+          : "rounded-full border border-sky-line px-3 py-0.5 text-sm text-sky-ink-2 hover:border-sky-ink hover:text-sky-ink"}>
         {state.kind === "copied" ? "Copied" : label}
       </button>
       {state.kind === "select" && (
         <input readOnly value={state.url} aria-label="Link to copy" autoFocus onFocus={(e) => e.currentTarget.select()}
-          className="w-72 rounded-full border border-sky-line bg-sky-2 px-3 py-0.5 font-mono text-caption text-sky-ink" />
+          className={design ? "h-10 w-72 rounded-lg border border-line-strong bg-canvas px-3 font-mono text-caption text-ink"
+            : "w-72 rounded-full border border-sky-line bg-sky-2 px-3 py-0.5 font-mono text-caption text-sky-ink"} />
       )}
       <span className="sr-only" aria-live="polite">{state.kind === "copied" ? "Link copied to the clipboard." : state.kind === "select" ? "Couldn't use the clipboard: the link is selected, press Ctrl+C or Cmd+C to copy." : ""}</span>
     </span>

@@ -6,7 +6,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { EXAMPLE, FirstRun, environment, highlight, type FirstRunProps } from "../src/firstrun/FirstRun.tsx";
+import { FirstRun, highlight, type FirstRunProps } from "../src/firstrun/FirstRun.tsx";
+import { EXAMPLE, environment } from "../src/firstrun/text.ts";
 import { NO_SPANS_AFTER_MS, announcement, isDefaultEndpoint, retainedFor, storeHasSpans, storeIsEmpty, waitingStatus, type Health } from "../src/firstrun/status.ts";
 import { EmptyState, MessagesTable, RECEIVES_TITLE, duplicateWhy, fmtAge, fmtThreshold, fmtTime, shortId, type MessageSummary } from "../src/messages/Messages.tsx";
 import { duplicatesEmpty, lookupEmpty, messagesEmpty, stuckEmpty, tenantsEmpty, without } from "../src/messages/empty.tsx";
@@ -64,13 +65,13 @@ test("State A: the three steps, the endpoint and the waiting line", () => {
   for (const s of [
     "Get started", "Send your first SQS message to Trailbeam",
     "Add the package to one service, point it here, and make one SQS call. The message shows up on this page by itself.",
-    "Waiting for your first message", "Checked 2 s ago · no spans yet",
-    "01", "Install the package", "pip install trailbeam", "Python 3.10 or later, with boto3.",
-    "02", "Point it at this Trailbeam", "The package sends its spans over OTLP/HTTP to this endpoint:",
+    "Waiting for your first message", "No spans yet. Checked 2 s ago.",
+    "1", "Install the package", "pip install trailbeam", "Python 3.10 or later, with boto3.",
+    "2", "Point it at this Trailbeam", "The package sends its spans over OTLP/HTTP to this endpoint:",
     "This is the package's default, so a service on this machine can skip TRAILBEAM_OTLP_TRACES_ENDPOINT",
     "This Trailbeam has no access token, so services send without one.",
     "export TRAILBEAM_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces", "export OTEL_SERVICE_NAME=orders-worker",
-    "03", "Make one SQS call", "trailbeam.boto.install()", 'QueueUrl="<queue URL>"',
+    "3", "Make one SQS call", "trailbeam.boto.install()", 'QueueUrl="<queue URL>"',
   ]) assert.ok(t.includes(s), `missing: ${s}\n${t}`);
   assert.ok(html.includes("<h1") && (html.match(/<h2/g) ?? []).length === 3, "one h1, a h2 per step");
   assert.ok(html.includes("<output") && html.includes("http://localhost:4318/v1/traces</output>"));
@@ -124,7 +125,7 @@ test("the waiting line with a reason", () => {
   for (const [status, s, also] of cases) {
     const t = text(render({ status }));
     assert.ok(t.includes("Waiting for your first message") && t.includes(s) && (!also || t.includes(also)), `${status.kind}: ${t.slice(0, 400)}`);
-    assert.ok(!t.includes("no spans yet") || status.kind === "waiting" && !status.hidden);
+    assert.ok(!t.includes("No spans yet") || status.kind === "waiting" && !status.hidden);
   }
   assert.ok(!text(render({ status: { kind: "no-spans" } })).includes("401"));
   assert.ok(text(render({ status: { kind: "no-spans" }, auth: "token" })).includes("If its log shows 401"));
@@ -136,14 +137,27 @@ test("State B: the first message, a link to its timeline, the setup collapsed", 
   const first = { message_id: "m-1", source_queue: "orders", consumer: null };
   const html = render({ status: { kind: "received", first } });
   const t = text(html);
-  assert.ok(t.includes("First message received") && t.includes("m-1 · orders · sent, not received yet"), t);
+  assert.ok(t.includes("First message received") && t.includes("m-1 on orders. Sent, not received yet."), t);
   assert.ok(!t.includes("Waiting for your first message"));
   assert.ok(html.includes('href="/message?id=m-1"') && t.includes("Open its timeline"));
-  assert.match(t, /Setup\s*·\s*Python\s*·\s*http:\/\/localhost:4318\/v1\/traces Show setup again/);
+  assert.match(t, /Setup for Python, sending to http:\/\/localhost:4318\/v1\/traces Show setup again/);
   assert.match(html, /grid-rows-\[0fr\]" inert="" aria-hidden="true"/, "the steps are collapsed and out of reach");
   assert.equal(announcement({ kind: "received", first }), "First message received: m-1. Open its timeline.");
   const named = text(render({ status: { kind: "received", first: { ...first, consumer: "orders-worker" } } }));
-  assert.ok(named.includes("m-1 · orders · orders-worker"));
+  assert.ok(named.includes("m-1 on orders, received by orders-worker."));
+});
+
+test("the screen follows the design system's rules: no sky colors, no 'a · b' fragments, no native title", () => {
+  const first = { message_id: "m-1", source_queue: "orders", consumer: "orders-worker" };
+  for (const status of [{ kind: "waiting", checkedAgoS: 2 }, { kind: "received", first }, { kind: "no-spans" }] as FirstRunProps["status"][]) {
+    for (const auth of ["off", "token"] as const) {
+      const html = render({ status, auth });
+      assert.doesNotMatch(html, /\b(?:text|bg|border|ring|decoration)-(?:sky|dawn|trail|wait|ember|lost)\b/, `${status.kind}: a sky color`);
+      assert.doesNotMatch(html, / title="/, `${status.kind}: a native title`);
+      // the middle dot is gone from the words; code (inside <pre>) is not words
+      assert.ok(!text(html.replace(/<pre[\s\S]*?<\/pre>/g, "")).includes("·"), `${status.kind}: a dot fragment`);
+    }
+  }
 });
 
 test("retention variant: its own heading, the setup collapsed", () => {

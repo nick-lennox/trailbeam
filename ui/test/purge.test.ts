@@ -26,7 +26,7 @@ test("a purged message says so, with the purge's time, and the purge is a record
   assert.match(answerFor(t), /removed by a PurgeQueue call on orders\. No delete was seen\./);
   assert.match(html, /Purged \(observed: PurgeQueue at \d\d:\d\d:\d\d\.\d{3}\)/);
   assert.match(html, / Queue purged /);
-  assert.match(html, /PurgeQueue · SQS accepted/);
+  assert.match(html, /PurgeQueue, accepted by SQS/);
   assert.match(html, /deletes every message in the queue/);
   assert.match(stateText(row(t)), /^purged \(observed: PurgeQueue at \d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}\)$/);
 });

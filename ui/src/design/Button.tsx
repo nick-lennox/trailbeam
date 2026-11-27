@@ -6,7 +6,8 @@ import { UiLink } from "./nav.tsx";
 /*
   One button, six variants. Pick by surface and weight:
   day: primary (the one main action per view), secondary, ink, ghost
-  night: inverse (main), inverse-outline
+  night: inverse (main), inverse-outline, for the landing page's dark panels (bg-night) only. Inside the
+  app the theme already makes the day variants dark, so an app page never needs these.
   With `href` it is a link, through the host's link component (nav.tsx).
 */
 const VARIANT = {
@@ -14,7 +15,7 @@ const VARIANT = {
   secondary: "border border-line bg-surface text-ink shadow-card hover:border-line-strong",
   ink: "bg-ink text-canvas hover:bg-ink/85",
   ghost: "text-ink-2 hover:bg-sunken hover:text-ink",
-  inverse: "bg-night-ink text-ink hover:bg-white",
+  inverse: "bg-night-ink text-night hover:bg-white",
   "inverse-outline": "border border-white/15 text-night-ink hover:bg-white/5",
 } as const;
 

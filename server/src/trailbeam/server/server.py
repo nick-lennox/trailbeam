@@ -18,9 +18,10 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceResponse
 
 from . import __version__
+from . import github as github_mod
 from . import queues as queues_mod
 from . import queue_now as queue_now_mod
-from . import alerts_api, access as access_mod, auth as auth_mod, causes as causes_mod, proxy_auth as proxy_auth_mod, bodies, csrf, first_admin, \
+from . import alerts_api, dashboards_api, access as access_mod, auth as auth_mod, causes as causes_mod, proxy_auth as proxy_auth_mod, bodies, csrf, first_admin, \
     metrics, oidc as oidc_mod, passwords, people_api, queries, \
     sessions as sessions_mod, trace_links, ui_files, web
 from .accounts import AccountError, Accounts, AdminExists, BadSetupCode, check_email, check_name
@@ -55,14 +56,31 @@ class ApiError(Exception):
 class App:
     """Request handling, independent of the HTTP server so tests can call it directly."""
 
+    @property
+    def sso_buttons(self) -> list:
+        """The sign-in page's buttons: ``(path, label)`` for single sign-on (oidc.py) and GitHub (github.py), when
+        they are on."""
+        out = []
+        if self.oidc is not None:
+            out.append((oidc_mod.START_PATH, self.oidc.settings.label))
+        if self.github is not None:
+            out.append((github_mod.START_PATH, self.github.settings.label))
+        return out
+
     def __init__(self, db: Store, *, stuck_after_s: int = 300,
                  lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S, now: Callable[[], int] = time.time_ns,
                  max_receive_counts: Optional[dict] = None, ui_dir=ui_files.DEFAULT_UI_DIR, purger=None,
                  auth: Optional[auth_mod.Auth] = None, gate: Optional[IngestGate] = None,
                  trusted_proxies: Optional[TrustedProxies] = None, trace_link: Optional[str] = None,
                  accounts="auto", proxy_auth: Optional[proxy_auth_mod.ProxyAuthConfig] = None,
-                 oidc: Optional[oidc_mod.Settings] = None, oidc_provider=None, alerts="auto"):
+                 oidc: Optional[oidc_mod.Settings] = None, oidc_provider=None,
+                 github: Optional[github_mod.Settings] = None, github_provider=None, alerts="auto",
+                 public_url: Optional[str] = None, mailer=None, dashboards="auto"):
         self.db = db
+        # --public-url: where links in emails and invites point (else the request's address); None: not set
+        self.public_url = public_url.rstrip("/") if public_url else None
+        # the operator's mail server (mail.py, TRAILBEAM_SMTP_HOST): invite and reset emails; None: links only
+        self.mailer = mailer
         # --trusted-proxy (proxy.py): whose X-Forwarded-For/-Proto/-Host is believed; empty: nobody's
         self.proxies = trusted_proxies or TrustedProxies()
         # --trace-link (trace_links.py): the URL template behind each step's "Open trace"; None: no links
@@ -87,7 +105,11 @@ class App:
         if oidc is not None and self.accounts is None:
             raise ValueError("single sign-on needs a store with accounts (a SQLite file or Postgres)")
         self.oidc = oidc_mod.Oidc(oidc, self.accounts, self.sessions, oidc_provider) if oidc is not None else None
-        self.sso_label = oidc.label if oidc is not None else None
+        # sign in with GitHub (github.py); None: off
+        if github is not None and self.accounts is None:
+            raise ValueError("GitHub sign-in needs a store with accounts (a SQLite file or Postgres)")
+        self.github = (github_mod.GitHub(github, self.accounts, self.sessions, github_provider)
+                       if github is not None else None)
         # sign-ins started per client address (each adds a row to oidc_logins until it runs out): approximate,
         # per replica, like the sign-in limit
         self.sso_starts = AddressLimit(max_failures=oidc_mod.STARTS_PER_ADDRESS, window_s=oidc_mod.STARTS_WINDOW_S)
@@ -113,6 +135,10 @@ class App:
             "queues": self.queues, "flows": self.flows, "timeline-events": self.timeline_events}
         # /api/alerts (alerts_api.py): rules, channels and alert state; None (404) while the alert check is off
         self.alerts: alerts_api.AlertsApi | None = alerts_api.for_app(self) if alerts == "auto" else alerts
+        # /api/dashboards (dashboards_api.py): dashboards, widgets and their measures; None (404) while
+        # TRAILBEAM_DASHBOARDS is off
+        self.dashboards: dashboards_api.DashboardsApi | None = \
+            dashboards_api.for_app(self) if dashboards == "auto" else dashboards
         self._init_metrics()
 
     # ---- /metrics -------------------------------------------------------------------------
@@ -315,9 +341,10 @@ class App:
         is the one whose level was checked. Not given (tests, in-process callers): matched on the exact path,
         the same way. Never normalised here: /api/users/ or /api//users is no route (a 404), not /api/users."""
         parts = [unquote(p) for p in path.split("/") if p]
-        if self.alerts is not None and alerts_api.is_alerts_path("/api/" + path):
-            try:
-                return self.alerts.call("GET", "/api/" + path, None, who)[1]
+        mounted = self.mounted("/api/" + path)
+        if mounted is not None:
+            try:  # the alerts API reads no query; the dashboards API's measures do
+                return mounted.call("GET", "/api/" + path, None if mounted is self.alerts else query, who)[1]
             except alerts_api.ApiProblem as e:
                 raise ApiError(e.status, e.message) from None
         r = access_mod.api_route("GET", "/api/" + path) if route is _UNSET else route
@@ -334,6 +361,15 @@ class App:
             return self.routes[parts[0]](query, parts[1:])
         except queries.CursorError as e:
             raise ApiError(400, str(e)) from None
+
+    def mounted(self, path: str):
+        """The JSON API mounted at this request path (alerts_api.py or dashboards_api.py), when it is on, or None.
+        Both answer ``call(method, path, body, who, base)`` and raise alerts_api.ApiProblem."""
+        if self.alerts is not None and alerts_api.is_alerts_path(path):
+            return self.alerts
+        if self.dashboards is not None and dashboards_api.is_dashboards_path(path):
+            return self.dashboards
+        return None
 
     def _not_a_route(self, query: dict, rest: list[str]) -> dict:
         """/api/users and /api/tokens paths that aren't one of access.API_ROUTES (matched in api)."""
@@ -385,7 +421,32 @@ class App:
         # --proxy-auth-sign-out-url says where it ends
         sign_out = who.via in ("session", "shared_cookie") or (
             who.via == "proxy" and self.proxy_auth is not None and self.proxy_auth.sign_out_url is not None)
-        return {"auth": self._mode(), "via": who.via, "user": user, "sign_out": sign_out}
+        out = {"auth": self._mode(), "via": who.via, "user": user, "sign_out": sign_out}
+        ways = self._sign_in_ways(who.user_id)
+        if ways is not None:
+            out["sign_in"] = ways
+        return out
+
+    def _sign_in_ways(self, user_id: Optional[int]) -> Optional[dict]:
+        """``/api/me``'s ``sign_in``, for the account page: whether the person has a password, and the accounts at an
+        identity provider (single sign-on, oidc.py, or GitHub, github.py) that are them, each with whether this server
+        still offers that way in (``on``). None without a person or accounts."""
+        if user_id is None or self.accounts is None:
+            return None
+        u = self.accounts.user(user_id)
+        if u is None:
+            return None
+        same = lambda a, b: a.rstrip("/") == b.rstrip("/")  # noqa: E731
+        ways = []
+        for i in self.accounts.oidc_identities(user_id):
+            gh = self.github is not None and same(i["issuer"], self.github.settings.github_url)
+            sso = self.oidc is not None and same(i["issuer"], self.oidc.settings.issuer)
+            # a way this server no longer offers keeps its kind when the address says it (github.com)
+            github = gh or (not sso and same(i["issuer"], github_mod.GITHUB_URL))
+            label = self.github.settings.label if gh else self.oidc.settings.label if sso else None
+            ways.append({"provider": "github" if github else "sso", "label": label, "on": gh or sso,
+                         "email": i["email"], "last_sign_in_ms": i["last_sign_in_ms"]})
+        return {"password": u["password_hash"] is not None, "identities": ways}
 
     def ready(self) -> tuple[int, dict]:
         """``/api/ready``: 200 when the store answers, else 503. For a load balancer or a Kubernetes readiness
@@ -845,12 +906,12 @@ def make_handler(app: App):
             """POST, PATCH and DELETE on the people-and-tokens routes (people_api.py), after csrf.check. The route
             and the person are checked before the body is read."""
             r = access_mod.api_route(method, path)
-            alerts = app.alerts if r is None and alerts_api.is_alerts_path(path) else None
-            if r is None and alerts is None:
+            mounted = app.mounted(path) if r is None else None
+            if r is None and mounted is None:
                 self.close_connection = True
                 self._json(404, {"error": f"no such endpoint: {method} {path}"})
                 return
-            # /api/alerts (alerts_api.py): let in at MEMBER; changing a channel needs an admin, checked by the handler
+            # /api/alerts and /api/dashboards: let in at MEMBER; what needs an admin is checked by the handler
             level, handler, rid = r if r is not None else (access_mod.MEMBER, "", None)
             try:
                 d = app.access.check(self.headers, level, self._scheme(), peer=self._peer())
@@ -876,11 +937,11 @@ def make_handler(app: App):
                 return
             raw = self.rfile.read(int(n))
             host = app.proxies.host(self._peer(), self.headers.get("Host"), self.headers.get("X-Forwarded-Host"))
-            base = f"{self._scheme()}://{host or 'localhost'}"
+            base = app.public_url or f"{self._scheme()}://{host or 'localhost'}"
             try:
                 body = None if method == "DELETE" else people_api.parse_body(self.headers.get("Content-Type"), raw)
-                if alerts is not None:
-                    status, obj = alerts.call(method, path, body, d.who, base)
+                if mounted is not None:
+                    status, obj = mounted.call(method, path, body, d.who, base)
                 else:
                     status, obj = app.people.call(handler, rid, body, d.who, base, time.time_ns() // 1_000_000)
             except people_api.ApiProblem as e:
@@ -926,7 +987,10 @@ def make_handler(app: App):
                 self._setup_get()
                 return
             if path in (oidc_mod.START_PATH, oidc_mod.CALLBACK_PATH):
-                self._oidc(path, q)
+                self._sso(oidc_mod, app.oidc, "single sign-on", path, q)
+                return
+            if path in (github_mod.START_PATH, github_mod.CALLBACK_PATH):
+                self._sso(github_mod, app.github, "GitHub sign-in", path, q)
                 return
             if path == people_api.LINK_PATH:
                 self._send_page(web.password_page() if app.accounts is not None else
@@ -939,9 +1003,9 @@ def make_handler(app: App):
                     if mode != "off":
                         self._sign_in_out(path, mode, q)
                         return
-                    if path == "/login" and app.oidc is not None:  # nobody has an account: single sign-on only
+                    if path == "/login" and app.sso_buttons:  # nobody has an account: single sign-on only
                         self._send_page(web.sign_in_page(auth_mod.safe_next(q.get("next")), status=200,
-                                                         sso=app.sso_label, password=False))
+                                                         sso=app.sso_buttons, password=False))
                         return
                     d = access_mod.Decision(True)
                 else:
@@ -973,9 +1037,9 @@ def make_handler(app: App):
                 elif d.status == 403:
                     self._send_page(web.forbidden_page(d.message))
                 elif app.access.mode() == "accounts":
-                    self._send_page(web.sign_in_page(auth_mod.safe_next(self.path), sso=app.sso_label))
+                    self._send_page(web.sign_in_page(auth_mod.safe_next(self.path), sso=app.sso_buttons))
                 else:
-                    self._send_page(web.login_page(auth_mod.safe_next(self.path), sso=app.sso_label))
+                    self._send_page(web.login_page(auth_mod.safe_next(self.path), sso=app.sso_buttons))
                 return
             if u.path == "/metrics":  # behind the token when one is set (Prometheus: authorization.credentials_file)
                 try:
@@ -1017,18 +1081,19 @@ def make_handler(app: App):
                 # the proxy signed them in already: on to the page they asked for
                 self._send(303, "text/plain", b"", {"Location": auth_mod.safe_next(q.get("next"))})
             elif mode == "accounts":
-                self._send_page(web.sign_in_page(auth_mod.safe_next(q.get("next")), status=200, sso=app.sso_label))
+                self._send_page(web.sign_in_page(auth_mod.safe_next(q.get("next")), status=200, sso=app.sso_buttons))
             else:
-                self._send_page(web.login_page(auth_mod.safe_next(q.get("next")), status=200, sso=app.sso_label))
+                self._send_page(web.login_page(auth_mod.safe_next(q.get("next")), status=200, sso=app.sso_buttons))
 
-        def _oidc(self, path: str, q: dict):
-            """GET /login/oidc (to the identity provider) and /login/oidc/callback (back from it): oidc.py."""
-            if app.oidc is None:
+        def _sso(self, mod, flow, what: str, path: str, q: dict):
+            """GET /login/oidc (to the identity provider) and /login/oidc/callback (back from it): oidc.py; the same
+            for /login/github (github.py). ``mod``: the module (paths, cookies); ``flow``: its begin and finish."""
+            if flow is None:
                 self._send(404, "text/plain", b"not found")
                 return
             secure = self._scheme() == "https"
             client = self._client()
-            if path == oidc_mod.START_PATH:
+            if path == mod.START_PATH:
                 wait = app.sso_starts.retry_after(client)
                 if wait is not None:
                     self._send_page(_with_retry(web.sso_error_page(
@@ -1036,39 +1101,39 @@ def make_handler(app: App):
                     return
                 app.sso_starts.failed(client)  # counts every start, not only failed ones
                 try:
-                    url, browser = app.oidc.begin(auth_mod.safe_next(q.get("next")))
+                    url, browser = flow.begin(auth_mod.safe_next(q.get("next")))
                 except oidc_mod.OidcError as e:
-                    log.warning("single sign-on from %s: %s", client, e.detail)
+                    log.warning("%s from %s: %s", what, client, e.detail)
                     self._send_page(web.sso_error_page(e.message, e.status))
                     return
                 except Exception as e:  # noqa: BLE001 - the store
-                    log.warning("single sign-on from %s: the store is unreachable: %s", client, e)
+                    log.warning("%s from %s: the store is unreachable: %s", what, client, e)
                     self._send(503, "text/plain", b"the store is unreachable; try again", {"Retry-After": "1"})
                     return
                 self._send(302, "text/plain", b"", {"Location": url, "Cache-Control": "no-store",
                                                     "Referrer-Policy": "no-referrer",
-                                                    "Set-Cookie": oidc_mod.set_browser_cookie(browser, secure)})
+                                                    "Set-Cookie": mod.set_browser_cookie(browser, secure)})
                 return
-            clear = oidc_mod.clear_browser_cookie(secure)
+            clear = mod.clear_browser_cookie(secure)
             try:
-                done = app.oidc.finish(q, oidc_mod.browser_cookie(self.headers.get("Cookie"), secure))
+                done = flow.finish(q, mod.browser_cookie(self.headers.get("Cookie"), secure))
             except oidc_mod.OidcError as e:
-                log.warning("single sign-on refused for %s: %s", client, e.detail)
+                log.warning("%s refused for %s: %s", what, client, e.detail)
                 st, headers, body = web.sso_error_page(e.message, e.status)
                 self._send_page((st, {**headers, "Set-Cookie": clear}, body))
                 return
             except Exception:  # noqa: BLE001 - the store
-                log.exception("single sign-on failed")
+                log.exception("%s failed", what)
                 self._send(503, "text/plain", b"the store is unreachable; try again",
                            {"Retry-After": "1", "Set-Cookie": clear})
                 return
             if done.how != "known" or done.user["role"] == "admin":
                 app.access.state.changed()  # maybe the first admin: every page switches to accounts now
-            log.info("signed in with single sign-on: user %s (%s, %s) from %s", done.user["id"], done.how,
+            log.info("signed in with %s: user %s (%s, %s) from %s", what, done.user["id"], done.how,
                      done.user["role"], client)
             if done.kept_admin:
-                log.warning("single sign-on: user %s is no longer in an admin group, but stays an admin: they are "
-                            "the last admin who can sign in. Make someone else an admin first", done.user["id"])
+                log.warning("%s: user %s is no longer in an admin group or team, but stays an admin: they are "
+                            "the last admin who can sign in. Make someone else an admin first", what, done.user["id"])
             max_age = max(0, (done.expires_at_ms - time.time_ns() // 1_000_000) // 1000)
             st, headers, body = oidc_mod.continue_page(done.next_path)
             self._send_page((st, {**headers, "Set-Cookie": [sessions_mod.set_cookie(done.session_id, secure, max_age),

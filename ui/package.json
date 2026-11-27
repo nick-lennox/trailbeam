@@ -1,6 +1,6 @@
 {
   "name": "@trailbeam/ui",
-  "version": "0.1.0-dev.19",
+  "version": "0.1.0-dev.24",
   "description": "Trailbeam's views (a message's timeline, and more to come), shared by self-hosted Trailbeam and the hosted app.",
   "license": "Apache-2.0",
   "private": true,
@@ -17,6 +17,10 @@
     "./model": {
       "types": "./dist/model/index.d.ts",
       "default": "./dist/model/index.js"
+    },
+    "./explorer": {
+      "types": "./dist/explorer/index.d.ts",
+      "default": "./dist/explorer/index.js"
     },
     "./theme.css": "./src/theme.css",
     "./fixtures/*": "./dist/fixtures/*",
@@ -43,12 +47,14 @@
     "@fontsource/ibm-plex-mono": "^5.2.6",
     "@fontsource/instrument-sans": "^5.3.0",
     "@fontsource/newsreader": "^5.2.8",
+    "@tailwindcss/node": "^4.3.5",
     "@tailwindcss/vite": "^4.1.13",
     "@types/node": "^26.6.6",
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.2",
     "lucide-react": "^0.544.0",
+    "postcss": "^8.5.33",
     "react": "19.1.1",
     "react-dom": "19.1.1",
     "tailwindcss": "^4.1.13",

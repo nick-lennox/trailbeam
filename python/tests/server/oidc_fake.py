@@ -32,6 +32,7 @@ class FakeIdP:
         self.discovery_issuer = None      # None: the real issuer
         self.auth_methods = ["client_secret_basic", "client_secret_post"]
         self.with_userinfo = True
+        self.redirects: dict = {}         # path -> (status, Location): the endpoint answers with that redirect
         self.codes: dict = {}
         self.token_requests: list = []
         self.lock = threading.Lock()
@@ -49,8 +50,20 @@ class FakeIdP:
                 self.end_headers()
                 self.wfile.write(b)
 
+            def _redirect(self):
+                to = idp.redirects.get(urllib.parse.urlsplit(self.path).path)
+                if to is None:
+                    return False
+                self.send_response(to[0])
+                self.send_header("Location", to[1])
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return True
+
             def do_GET(self):
                 p = urllib.parse.urlsplit(self.path).path
+                if self._redirect():
+                    return
                 if p == "/realms/test/.well-known/openid-configuration":
                     self._json(200, idp.discovery())
                 elif p == "/realms/test/jwks":
@@ -67,6 +80,8 @@ class FakeIdP:
                     self._json(404, {"error": "not found"})
 
             def do_POST(self):
+                if self._redirect():
+                    return
                 if urllib.parse.urlsplit(self.path).path != "/realms/test/token":
                     self._json(404, {"error": "not found"})
                     return

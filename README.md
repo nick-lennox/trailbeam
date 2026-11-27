@@ -349,7 +349,7 @@ in it. The parameters and answer are in [`contract/openapi.yaml`](contract/opena
 
 The Event explorer's events, inferred ones included, are listed by `GET /api/timeline-events` over `since_s` or
 `from_ms`/`to_ms`: one per thing that happened to each message active in the window, newest first, made from the
-message's timeline. Besides the recorded steps, that is an expired visibility timeout, a move to the dead-letter
+message's timeline. Besides the recorded steps (visibility changes included), that is an expired visibility timeout, a move to the dead-letter
 queue, the Lambda trigger's delete after a successful handler, and a Lambda invocation that never reported an
 outcome. The hosted app makes its explorer's events by the same rules, and both are tested against the same
 recorded spans. Operation `list-timeline-events` in [`contract/openapi.yaml`](contract/openapi.yaml).
@@ -584,6 +584,7 @@ own store (SQLite or Postgres). Nothing changes until the first admin exists. Af
 |---|---|---|
 | Signing in with an email and password (`/login`) | the person, with their role | the web screen and the API |
 | [Single sign-on](#single-sign-on-openid-connect) through your identity provider | the person, with their role | the web screen and the API |
+| [Signing in with GitHub](#sign-in-with-github) | the person, with their role | the web screen and the API |
 | Personal API token, `tbp_` and 40 letters and digits, as `Authorization: Bearer` | its owner, with the owner's role | the API and `/metrics` (scripts, CI, Prometheus) |
 | Ingest token, `tbi_` and 40 letters and digits, as `x-trailbeam-key` or `Authorization: Bearer` | a service | `POST /v1/traces` only |
 | `TRAILBEAM_TOKEN`, if set | anyone who has it | `POST /v1/traces` and `/metrics` only |
@@ -674,8 +675,9 @@ trailbeam tokens revoke 3                            # --personal for a personal
 **The People page** (`/people`, linked in the header for admins; members get "Not allowed") lists everyone who can
 sign in, with their role, status (active, invited, locked for now, or disabled) and last sign-in. From it an admin:
 
-- **adds a person**: an email, a name (the part before `@` if left out) and a role. The page then shows their
-  one-time invite link, once, to copy and send them privately;
+- **adds a person**: an email, a name (the part before `@` if left out) and a role. With a mail server set up
+  (below), the server emails them their one-time invite link. Without one, or if sending fails, the page shows the
+  link, once, to copy and send them privately;
 - **changes a role** between admin and member, or **disables** and **enables** someone;
 - makes a **new invite link** for someone who hasn't used theirs, or a **password reset link** for someone who has a
   password (for example when they are locked out after too many wrong passwords);
@@ -683,6 +685,26 @@ sign in, with their role, status (active, invited, locked for now, or disabled) 
 
 The controls that would leave no admin who can sign in (making the last one a member, disabling or removing them)
 are off, and the server refuses them anyway.
+
+**Invites by email.** Point the server at your mail server and the People page emails invite and password reset
+links instead of showing them. Without these settings nothing is sent, and the page shows each link as before.
+
+```sh norun="needs a mail server; test_invite_email.py sends through a test SMTP server"
+TRAILBEAM_SMTP_HOST=smtp.example.com
+TRAILBEAM_SMTP_FROM="Trailbeam <trailbeam@example.com>"
+TRAILBEAM_SMTP_PORT=587                        # default: 587, or 465 with ssl, 25 with none
+TRAILBEAM_SMTP_TLS=starttls                    # starttls, ssl, or none for a relay on a trusted network
+TRAILBEAM_SMTP_USER=trailbeam                  # if the mail server needs a sign-in (not with none)
+TRAILBEAM_SMTP_PASSWORD_FILE=/run/secrets/smtp-password   # or the password in TRAILBEAM_SMTP_PASSWORD
+TRAILBEAM_PUBLIC_URL=https://trailbeam.example.com        # where the links in the emails point
+```
+
+- Set `TRAILBEAM_PUBLIC_URL` too. Links in emails start with it, else with the address the admin's browser used,
+  which may not be one the person can open.
+- A setting that doesn't make sense (no `TRAILBEAM_SMTP_FROM`, a user without a password, a sign-in with `none`)
+  stops the server at start with the reason.
+- If the mail server refuses an email, the person is still added, and the page shows why along with the link to
+  pass on yourself.
 
 **The Tokens page** (`/tokens`, linked in the header for anyone signed in) has two parts:
 
@@ -715,8 +737,10 @@ curl -H "$ADMIN" -H 'Content-Type: application/json' -d '{"name": "orders-api pr
 - Adding a person gives no password: the answer holds a one-time **invite link**
   (`/set-password#code=...`, 7 days) for them to choose one. `POST /api/users/{id}/link` makes a new one, or for
   someone who has a password a **reset link** (24 hours). Choosing a password from a link ends the person's other
-  sessions. Each new link replaces the last, and the store keeps only its hash. Trailbeam sends no email:
-  pass the link on privately, because until it is used it opens that person's account.
+  sessions. Each new link replaces the last, and the store keeps only its hash. Without a mail server, Trailbeam
+  sends no email: pass the link on privately, because until it is used it opens that person's account. With one,
+  both routes email the link to the person (send `"send_email": false` not to), and the answer's `email` says
+  whether it was sent; once it was, the answer leaves out the link's `url`.
 - Two roles, `admin` and `member`. The last admin who can sign in can't be made a member, disabled or removed
   (`409`).
 - The first ingest token of a server without `TRAILBEAM_TOKEN` needs `"close_open_ingest": true`, because it
@@ -816,6 +840,60 @@ asymmetric signatures (RS256, ES256 and the like) are accepted. The provider's s
 sign-in, so a provider that is down doesn't stop Trailbeam starting. Calls to the provider time out after
 10 seconds. The issuer must be `https`, except on `localhost`. SAML and SCIM (automatic user sync) are not
 supported.
+
+### Sign in with GitHub
+
+People can also sign in with their GitHub account, on github.com or GitHub Enterprise Server. GitHub isn't an
+OpenID Connect provider for people, so this is GitHub's own OAuth sign-in, with settings of its own. It can be on
+alone, or beside single sign-on and passwords. It needs no extra package.
+
+```sh norun="starts a server that keeps running; python/tests/server/test_github.py tests it against a fake GitHub"
+trailbeam --accounts --public-url https://trailbeam.example.com \
+  --github-client-id Ov23liExampleId --github-client-secret-file /run/secrets/github-client-secret \
+  --github-allowed-orgs acme --github-admin-teams acme/platform
+```
+
+1. At GitHub, create an OAuth app (your organisation's **Settings**, **Developer settings**, **OAuth Apps**). Its
+   **Authorization callback URL** is `<public URL>/login/github/callback`, for example
+   `https://trailbeam.example.com/login/github/callback`. The server logs that URL at start.
+2. Give Trailbeam the app's client ID and secret, and `--public-url`. The callback URL is made from it, never from
+   the request's `Host` header.
+3. The sign-in page then shows **Sign in with GitHub**.
+
+Like single sign-on, it needs users and roles switched on (`--accounts`): without them the server refuses to start.
+
+| Setting | What it does |
+|---|---|
+| `--github-client-id`, `--github-client-secret-file` | the OAuth app; both are needed |
+| `--github-url https://github.example.com` | a GitHub Enterprise Server (default `https://github.com`) |
+| `--github-allowed-orgs acme,other` | only active members of these organisations may sign in |
+| `--github-admin-teams acme/platform` | people in any of these teams (`org/team-slug`) are admins |
+| `--github-member-teams acme/engineering` | people in any of these (and no admin team) are members |
+| `--github-default-role member` or `none` | everyone else allowed in: a member, or refused. Default `member`, or `none` when member teams are set |
+| `--github-link-email` | a GitHub account may sign in to an existing account here with the same email |
+| `--github-session-hours` | how long its sessions last (default 12, at most 720) |
+
+Every flag also has an environment variable: `TRAILBEAM_GITHUB_CLIENT_ID`, `TRAILBEAM_GITHUB_CLIENT_SECRET_FILE`
+(or the secret itself in `TRAILBEAM_GITHUB_CLIENT_SECRET`), `TRAILBEAM_GITHUB_URL`, `TRAILBEAM_GITHUB_ALLOWED_ORGS`,
+`TRAILBEAM_GITHUB_ADMIN_TEAMS`, `TRAILBEAM_GITHUB_MEMBER_TEAMS`, `TRAILBEAM_GITHUB_DEFAULT_ROLE`,
+`TRAILBEAM_GITHUB_LINK_EMAIL` and `TRAILBEAM_GITHUB_SESSION_HOURS`.
+
+- **Anyone can make a GitHub account**, so the server refuses to start with GitHub sign-in open to all of them: set
+  `--github-allowed-orgs` or `--github-member-teams`. To let any GitHub account with a verified email in as a
+  member, say so with `--github-default-role member`.
+- **Organisations and teams** need the `read:org` scope, which Trailbeam asks for only when they are set. If your
+  organisation restricts OAuth app access, an owner must approve the app first (the organisation's **Settings**,
+  **Third-party access**); until then its members are refused with a message saying so.
+- **With teams set, GitHub decides, at sign-in**, as groups do for single sign-on: the role is set again each time,
+  and the last admin who can sign in stays an admin.
+- **The first admin** can come from GitHub: while the server has no admin, only someone in an admin team gets in.
+- An account is the GitHub user ID, not the login or the email, so renaming an account at GitHub keeps it the same
+  person here. The email is the account's **primary email, which must be verified** at GitHub. An email that
+  already has an account here is refused unless `--github-link-email` is on.
+- The access token GitHub gives is used during the sign-in only, and isn't kept. Disabling someone at GitHub, or
+  taking them out of a team, takes effect at their next sign-in: disable them here too to cut them off at once.
+- The sign-in uses the same protections as single sign-on: a state that works once for 10 minutes, a browser
+  cookie (`trailbeam_github`) that must match, and PKCE.
 
 ### Behind a proxy (`--trusted-proxy`)
 
@@ -1879,7 +1957,7 @@ What each has today:
 | Message bodies, opt-in per queue, with `body.*` search | yes, for queues in `TRAILBEAM_STORE_BODIES`; anyone who can reach the server can read them | yes, for queues an admin opts in; owners and admins only |
 | Lambda error text on the timeline, errors grouped by cause | yes | yes |
 | JSON API | yes | |
-| Event explorer: every recorded step in a range, filtered by queue, service, kind or message, with CSV export | yes | yes, with PDF export too |
+| Event explorer: every event in a range, inferred ones included (an expired visibility timeout, a move to the dead-letter queue), with filters, `body.*` search and CSV and PDF export | yes | yes |
 | Overview of flows between services and queues, dashboards | not yet | yes |
 | Queue settings, depth and Lambda triggers read from AWS, and redrive | | yes, with a read-only role you connect (redrive needs a second, separate role) |
 | Retention: global, per queue, or forever | yes | yes |

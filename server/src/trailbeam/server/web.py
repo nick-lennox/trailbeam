@@ -227,7 +227,7 @@ footer{color:#6b7385;font-size:.8em;padding:1rem 1.2rem}
 def handle(api: Callable[[str, dict], object], api_error: type, path: str, query: dict) -> Optional[Response]:
     """Render the page for ``path``; None if ``path`` is not a page. ``api`` is ``App.api``."""
     pages = {"/": _index, "/message": _message, "/duplicates": _duplicates, "/stuck": _stuck, "/tenants": _tenants,
-             "/people": _people, "/tokens": _tokens}
+             "/people": _people, "/tokens": _tokens, "/account": _account}
     page = pages.get(path)
     if page is None:
         return None
@@ -240,6 +240,13 @@ def handle(api: Callable[[str, dict], object], api_error: type, path: str, query
 
 
 # ---- pages ------------------------------------------------------------------------------------
+
+
+def _account(api, q: dict) -> Response:
+    """``/account`` without the shared UI's build: as ``/people``, it says where the same facts are without it."""
+    return _page(200, "Account", "<h1>Account</h1><p>The Account page is part of the web screen's build, which this "
+                 "install doesn't have (build it with <code>npm run build</code> in <code>ui/</code>). Without it, "
+                 "<code>/api/me</code> says who you are signed in as and how you can sign in.</p>")
 
 
 def _people(api, q: dict) -> Response:
@@ -863,15 +870,18 @@ def _page(status: int, title: str, body: str) -> Response:
     return status, {"Content-Type": "text/html; charset=utf-8"}, html.encode()
 
 
-def _sso_button(next_path: str, label: Optional[str]) -> str:
-    """The single sign-on link (oidc.py), when it is on."""
-    if not label:
+def _sso_button(next_path: str, sso) -> str:
+    """The sign-in buttons, for the ways in that are on: ``sso`` is a list of ``(path, label)`` (single sign-on,
+    oidc.py: ``/login/oidc``; GitHub, github.py: ``/login/github``), or one label for single sign-on alone."""
+    if not sso:
         return ""
-    href = "/login/oidc?" + urlencode({"next": next_path})
-    return f'<p><a class="button" href="{escape(href)}">Sign in with {escape(label)}</a></p>'
+    if isinstance(sso, str):
+        sso = [("/login/oidc", sso)]
+    return "".join(f'<p><a class="button" href="{escape(path + "?" + urlencode({"next": next_path}))}">'
+                   f"Sign in with {escape(label)}</a></p>" for path, label in sso)
 
 
-def login_page(next_path: str, error: bool = False, status: int = 401, sso: Optional[str] = None) -> Response:
+def login_page(next_path: str, error: bool = False, status: int = 401, sso=None) -> Response:
     """The page a browser gets without the session cookie when the server has a token and no admin (auth.py)."""
     body = ("<h1>Sign in</h1>" + _sso_button(next_path, sso)
             + "<p>This Trailbeam server needs its access token (<code>TRAILBEAM_TOKEN</code>).</p>"
@@ -896,9 +906,10 @@ def _minutes(seconds: Optional[int]) -> str:
 
 
 def sign_in_page(next_path: str, email: str = "", outcome: Optional[str] = None, retry_after_s: Optional[int] = None,
-                 status: int = 401, sso: Optional[str] = None, password: bool = True) -> Response:
+                 status: int = 401, sso=None, password: bool = True) -> Response:
     """The page a browser gets without a session once the server has an admin (access.py): email and password, and
-    single sign-on when it is on (``sso``: its label). ``password=False``: single sign-on only (no admin yet)."""
+    the single sign-on and GitHub buttons when they are on (``sso``, as _sso_button). ``password=False``: those buttons
+    only (no admin yet)."""
     notice = SIGN_IN_NOTICES.get(outcome or "")
     head = "<h1>Sign in</h1>" + (f'<p class="notice">{escape(notice.format(minutes=_minutes(retry_after_s)))}</p>'
                                  if notice else "") + _sso_button(next_path, sso)

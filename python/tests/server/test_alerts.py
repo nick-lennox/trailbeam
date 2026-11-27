@@ -32,7 +32,7 @@ def test_tone(c):
 @pytest.mark.parametrize("c", F["diff"], ids=lambda c: c["name"])
 def test_diff(c):
     prev, now = copy.deepcopy(c["prev"]), copy.deepcopy(c["now"])
-    assert alerts.diff(prev, now, c["at"]) == c["expected"]
+    assert alerts.diff(prev, now, c["at"], c["present"]) == c["expected"]
     assert prev == c["prev"] and now == c["now"], "diff() changes neither input"
 
 
@@ -58,7 +58,7 @@ def test_walk():
         rd = {"groups": [{**w["group"], "count": len(c["causeOf"])}], "causeOf": c["causeOf"], "capped": False}
         prev = next((s for s in state if s["widgetId"] == w["rule"]["id"]), None)
         got = alerts.check_cause_rule(w["rule"], memory, prev, rd, c["at"], prev_at)
-        d = alerts.diff(state, [got["observed"]], c["at"])
+        d = alerts.diff(state, [got["observed"]], c["at"], [f"rule/{w['rule']['id']}"])
         out.append({"at": c["at"], "tone": got["observed"]["tone"], "newCount": got["observed"]["rule"]["newCount"],
                     "changes": [x["kind"] for x in d["changes"]]})
         memory, state, prev_at = got["memory"], d["next"], c["at"]
@@ -70,6 +70,8 @@ def test_walk():
 def test_the_cases_cover_every_change_and_mode():
     kinds = {x["kind"] for c in F["diff"] for x in c["expected"]["changes"]}
     assert kinds == {"fired", "changed", "resolved"}
+    assert any(x["alert"].get("noLongerChecked") for c in F["diff"] for x in c["expected"]["changes"])
+    assert any(not c["now"] and c["expected"]["next"] for c in F["diff"]), "a rule with no figure kept"
     assert {c["rule"]["mode"] for c in F["causeRule"]} == {"quiet", "every"}
     assert {c["expected"] for c in F["toneOf"]} == {None, "good", "warning", "critical"}
     assert any(c["expected"]["muted"] for c in F["causeRule"])

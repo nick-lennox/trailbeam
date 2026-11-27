@@ -1,6 +1,6 @@
 /*
   A message's failed Lambda outcomes, grouped by cause (../errors.ts). Drawn at the foot of the timeline,
-  in both products, whenever a handler failed. Each failed step also shows its own error text on the
+  in both products, whenever a handler failed, on the design system's role tokens. Each failed step also shows its own error text on the
   timeline; this section counts them.
 */
 import type { ErrorCause } from "../errors.ts";
@@ -18,27 +18,27 @@ export function ErrorCauses({ causes }: { causes: ErrorCause[] }) {
   if (!causes.length) return null;
   const total = causes.reduce((a, c) => a + c.count, 0);
   return (
-    <section aria-label="Handler errors, by cause" className="border-t border-sky-line px-4 pt-5 pb-6 md:px-8">
-      <h4 className="text-[15px] leading-[1.45] font-medium text-sky-ink">Handler errors, by cause</h4>
-      <p className="mt-1 max-w-[44rem] text-[13px] leading-[1.45] text-sky-ink-3">
+    <section aria-label="Handler errors, by cause" className="border-t border-line px-4 pt-5 pb-6 md:px-6">
+      <h4 className="font-serif text-[15px] leading-[1.45] font-semibold text-ink">Handler errors, by cause</h4>
+      <p className="mt-1 max-w-[44rem] text-[13px] leading-[1.45] text-ink-3">
         {plural(total, "failed outcome")} in {plural(causes.length, "cause")}. The packages record error text only for queues in their
         error queue list, and redact it before it leaves the function.
       </p>
       <ul className="mt-3 grid max-w-[48rem] gap-2">
         {causes.map((c) => (
-          <li key={c.steps[0]} className="grid gap-1 rounded-[12px] border border-sky-line bg-sky/60 px-4 py-3">
+          <li key={c.steps[0]} className="grid gap-1 rounded-card border border-line bg-surface px-4 py-3 shadow-card">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <span className="font-mono text-caption font-medium text-lost">{c.errorType ?? OUTCOME[c.outcome] ?? c.outcome}</span>
-              <span className="font-mono text-micro text-sky-ink-3">
-                {c.count}&times;
-                {c.deliveries.length > 0 && <>, {c.deliveries.length === 1 ? "delivery" : "deliveries"} {c.deliveries.join(", ")}</>}
-                , {c.first === c.last ? time(c.first) : `${time(c.first)} – ${time(c.last)}`} UTC
-                {" "}· {c.steps.join(", ")}
+              <span className="font-mono text-caption font-medium text-critical-text">{c.errorType ?? OUTCOME[c.outcome] ?? c.outcome}</span>
+              <span className="text-xs text-ink-3">
+                {c.count === 1 ? "Once" : <><span className="font-mono tabular-nums">{c.count}</span> times</>}
+                {c.deliveries.length > 0 && <>, {c.deliveries.length === 1 ? "delivery" : "deliveries"} <span className="font-mono tabular-nums">{c.deliveries.join(", ")}</span></>}
+                {", "}<span className="font-mono tabular-nums">{c.first === c.last ? time(c.first) : `${time(c.first)} to ${time(c.last)}`}</span> UTC
+                {", "}{c.steps.length === 1 ? "step" : "steps"} <span className="font-mono tabular-nums">{c.steps.join(", ")}</span>
               </span>
             </div>
             {c.message
-              ? <p className="font-mono text-caption break-words text-sky-ink-2">{c.message}</p>
-              : <p className="text-[13px] text-sky-ink-3">{c.errorType ? "No error text was recorded for this failure." : OUTCOME[c.outcome] ?? ""}</p>}
+              ? <p className="font-mono text-caption break-words text-ink-2">{c.message}</p>
+              : <p className="text-[13px] text-ink-3">{c.errorType ? "No error text was recorded for this failure." : OUTCOME[c.outcome] ?? ""}</p>}
           </li>
         ))}
       </ul>

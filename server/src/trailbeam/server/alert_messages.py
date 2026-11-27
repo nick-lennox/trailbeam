@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import quote
 
-from .alerts import quiet_text
+from .alerts import GONE_AFTER_MS, quiet_text
 
 TONE_WORD = {"good": "OK", "warning": "Warning", "critical": "Critical"}
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -190,11 +190,18 @@ def head(x: dict) -> str:
     a = x["alert"]
     if a.get("rule"):
         return cause_head(x["kind"], a["rule"])
+    if a.get("noLongerChecked"):
+        return f"No longer checked: {a['title']}"
     return f"Resolved: {a['title']}" if x["kind"] == "resolved" else f"{TONE_WORD[a['tone']]}: {a['title']}"
 
 
 def _dash_line(x: dict) -> str:
     a = x["alert"]
+    if a.get("noLongerChecked"):
+        # its widget or dashboard was deleted, or it has had no figure for a while: the last figure it had
+        queue = f" (worst queue: {a['queue']})" if a.get("queue") else ""
+        return (f"{head(x)} on {a['dashboardName']}: its widget is gone or it has had no figure for "
+                f"{GONE_AFTER_MS // 60_000} min. It was {TONE_WORD[x['from']].lower()} at {a['value']}{queue}")
     limit = "" if x["kind"] == "resolved" else f", {a['limit']}"
     queue = f" (worst queue: {a['queue']})" if a.get("queue") else ""
     was = f", was {TONE_WORD[x['from']].lower()}" if x["kind"] == "changed" else ""
@@ -233,7 +240,7 @@ def webhook_payload(ws: dict, changes: list, base: str, at: int) -> dict:
         item = {
             "kind": x["kind"], "from": x.get("from"), "tone": a["tone"], "title": cause_head(x["kind"], r) if r else a["title"],
             "value": a["value"], "limit": a["limit"], "queue": a.get("queue") or None, "since": iso(a["since"]),
-            "url": href_of(base, x),
+            "url": href_of(base, x), "no_longer_checked": bool(a.get("noLongerChecked")),
         }
         if r:
             # a rule's change has no dashboard: receivers read url. Note text is never sent, only the count
