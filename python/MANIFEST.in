@@ -1,0 +1,5 @@
+# The sdist carries the library only: some tests, and the benchmarks and smoke checks, import the server and are
+# AGPL-3.0-only (LICENSING.md), while this package is Apache-2.0. scripts/licences.py checks these lines.
+prune tests
+prune bench
+prune smoke

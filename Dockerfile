@@ -37,7 +37,7 @@ FROM python:${PYTHON_VERSION}-slim
 ARG TRAILBEAM_EXTRAS
 LABEL org.opencontainers.image.title="trailbeam" \
       org.opencontainers.image.description="Trailbeam: per-message timelines for Amazon SQS from Trailbeam OpenTelemetry spans" \
-      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
       org.opencontainers.image.source="https://github.com/nick-lennox/trailbeam"
 COPY --from=build /wheels /wheels
 RUN pip install --no-cache-dir --no-index --find-links /wheels "trailbeam[${TRAILBEAM_EXTRAS}]" && rm -rf /wheels \

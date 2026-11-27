@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Imports the server, so it is under the server's licence (LICENSING.md).
 """Writes alerts-run.json: the scheduled alert check's decisions both engines must agree on (QV-639).
 
 Self-hosted Trailbeam's check (server/src/trailbeam/server/alerts_run.py, python/tests/server/test_alerts_run.py) and

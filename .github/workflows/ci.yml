@@ -1174,6 +1174,8 @@ jobs:
     # Changelog entries are one file per pull request, changelog.d/QV-NNN.md (QV-448), so pull requests stop
     # conflicting on CHANGELOG.md. Fails a pull request that adds a line under Unreleased in CHANGELOG.md, or a
     # fragment that doesn't parse, and runs the fold script's tests. Every tier: it takes seconds.
+    # Also the licence check (QV-568, LICENSING.md): each folder's LICENSE, the manifests' licence metadata, and no
+    # Apache-2.0 file (the libraries, the contract, the kit, examples, demo, deploy) importing the AGPL server or UI.
     name: Changelog
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1186,7 +1188,9 @@ jobs:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           BRANCH: ${{ github.head_ref }}
         run: python3 scripts/changelog.py check --base "$PR_BASE" --branch "$BRANCH"
-      - name: The fold script's tests
+      - name: Licences, and no library file importing the server or the UI
+        run: python3 scripts/licences.py check
+      - name: The fold script's and the licence check's tests
         run: python3 -m unittest discover -s scripts -p 'test_*.py'
 
   ci-ok:

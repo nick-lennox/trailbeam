@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Imports the server, so it is under the server's licence (LICENSING.md).
 """The pika hooks against a real RabbitMQ (contract/span-contract-amqp.md): the scenarios of the QV-303 proof and of
 the contract's fixture, played with pika's BlockingConnection (and one with its asyncio adapter), each span checked
 against the server's ingest (A12) and the messages' timelines read back from a Trailbeam store.
