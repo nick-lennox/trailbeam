@@ -428,3 +428,26 @@ def test_an_x_death_naming_a_queue_whose_delivery_was_acked_is_not_a_move():
     assert t["state"] == "deleted"  # both copies acked
     assert "was acked" in [x for x in t["notices"] if x["code"] == "x_death_not_a_move"][0]["message"]
     s.close()
+
+
+# ---- routing keys hashed in the process (A5, revision 4.1; QV-533) -------------------------------------------
+
+def test_a_hashed_routing_key_shows_as_hashed_on_the_timeline_and_the_page():
+    """Body capture off: the packages send trailbeam.amqp.routing_key.hmac instead of the routing key. The steps
+    carry the hash as routing_key_hmac, the page labels it hashed, and nothing joins or groups on it."""
+    h = "0123456789abcdef0123456789abcdef"
+    spans = []
+    for sp in _happy_on("orders", "order-h", 0):
+        a = dict(sp["attributes"])
+        if a.pop("rabbitmq.destination.routing_key", None) is not None:
+            a["trailbeam.amqp.routing_key.hmac"], a["trailbeam.amqp.routing_key.key_id"] = h, "466b0c4f"
+        spans.append(dict(sp, attributes=a))
+    s = _vhost_store(spans)
+    t = tl(s, "order-h")
+    assert t["state"] == "deleted" and one(t, "routed")["queues"] == ["orders"]
+    for type_ in ("sent", "received"):
+        e = one(t, type_)
+        assert e["routing_key_hmac"] == h and "routing_key" not in e
+    html, text = _page(s, "order-h")
+    assert f"routing key hashed {h}" in text and "body capture is off" in html
+    s.close()

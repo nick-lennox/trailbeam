@@ -38,11 +38,17 @@ from opentelemetry.sdk.trace.export import SpanExporter
 
 from . import _capture
 from ._amqp import AmqpHooks, ChannelState
+from ._contract import resolve_hasher
 from ._emitter import Emitter, make_provider
 
 log = logging.getLogger("trailbeam")
 
 ENV_SET_MESSAGE_ID = "TRAILBEAM_AMQP_SET_MESSAGE_ID"
+ENV_EXPORT_ROUTING_KEYS = "TRAILBEAM_AMQP_EXPORT_ROUTING_KEYS"
+
+
+def _env_on(name: str) -> bool:
+    return (os.environ.get(name) or "").strip().lower() in ("on", "true", "1", "yes")
 _STATE_ATTR = "_trailbeam_amqp"
 _CONN_CLOSING_ATTR = "_trailbeam_closing"
 
@@ -440,6 +446,8 @@ def install(
     tenant: Optional[dict] = None,
     capture: Optional[dict] = None,
     set_message_id: Optional[bool] = None,
+    receipt_hash_key: Optional[str] = None,
+    export_routing_keys: Optional[bool] = None,
 ) -> TracerProvider:
     """Install the Trailbeam hooks into pika. Returns the Trailbeam tracer provider.
 
@@ -448,16 +456,26 @@ def install(
     ``capture`` are as for ``trailbeam.boto.install`` (A11: the tenant comes from a message header; the body
     lists name queues, and exchanges for publishes). ``set_message_id``: give a publish without a
     ``message_id`` a random UUID, marked ``trailbeam.amqp.message_id.source = package``; off unless True or
-    $TRAILBEAM_AMQP_SET_MESSAGE_ID is on. Calling ``install`` again replaces the previous installation.
+    $TRAILBEAM_AMQP_SET_MESSAGE_ID is on. Routing keys (A5): on a queue or exchange whose body is not captured,
+    the spans carry a keyed hash of the routing key, not the key; ``receipt_hash_key`` (else
+    $TRAILBEAM_RECEIPT_HASH_KEY) is the key, as for ``trailbeam.boto``. ``export_routing_keys=True``, or
+    $TRAILBEAM_AMQP_EXPORT_ROUTING_KEYS=on, exports every routing key verbatim. Calling ``install`` again replaces
+    the previous installation.
     """
     global _hooks
     with _install_lock:
         _uninstall_locked()
         if set_message_id is None:
-            set_message_id = (os.environ.get(ENV_SET_MESSAGE_ID) or "").strip().lower() in ("on", "true", "1", "yes")
+            set_message_id = _env_on(ENV_SET_MESSAGE_ID)
+        if export_routing_keys is None:
+            export_routing_keys = _env_on(ENV_EXPORT_ROUTING_KEYS)
+        config = _capture.resolve_config(tenant, capture)
+        # Resolve the key (and give its warning) only when a routing key can be hashed.
+        hashes = not export_routing_keys and "*" not in config.body_queues
+        hasher = resolve_hasher(receipt_hash_key) if hashes else None
         provider = make_provider(span_exporter, span_processor)
-        _hooks = AmqpHooks(Emitter(provider, None, source="client"), _capture.resolve_config(tenant, capture),
-                           set_message_id=bool(set_message_id))
+        _hooks = AmqpHooks(Emitter(provider, hasher, source="client"), config,
+                           set_message_id=bool(set_message_id), export_routing_keys=bool(export_routing_keys))
         _patch()
         _state["provider"] = provider
         return provider

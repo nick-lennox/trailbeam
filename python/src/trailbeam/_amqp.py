@@ -22,12 +22,16 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Mapping, Optional
 
 from . import _capture, _order
+from ._contract import resolve_hasher
 
 log = logging.getLogger("trailbeam")
 
 AMQP_SCHEMA_VERSION = 4
 RABBITMQ = "rabbitmq"
 DEFAULT_EXCHANGE = "amq.default"  # A5: the name the OpenTelemetry conventions use for ""
+ROUTING_KEY = "rabbitmq.destination.routing_key"
+ROUTING_KEY_HMAC = "trailbeam.amqp.routing_key.hmac"  # A5, revision 4.1: when the routing key is not exported
+ROUTING_KEY_KEY_ID = "trailbeam.amqp.routing_key.key_id"
 
 SPAN_PUBLISH = "trailbeam publish"
 SPAN_RETURN = "trailbeam return"
@@ -109,6 +113,23 @@ def _text(v: Any) -> Optional[str]:
     if REPLACEMENT_CHARACTER in v:
         return None
     return v if len(v.encode("utf-8", "surrogatepass")) <= MAX_TEXT_BYTES else None
+
+
+def _is_control(c: str) -> bool:
+    """Unicode category Cc: U+0000 to U+001F and U+007F to U+009F."""
+    o = ord(c)
+    return o < 0x20 or 0x7F <= o <= 0x9F
+
+
+def clean_message_id(v: Any) -> Optional[str]:
+    """A6: the ``message_id`` property as exported: a string ``_text`` keeps, without its control characters
+    (a trailing newline, an escape sequence), so it can't break a log line or a terminal. None when nothing is
+    left. Each package strips the same characters, so a publish and its deliveries keep one ID."""
+    mid = _text(v)
+    if mid is None:
+        return None
+    mid = "".join(c for c in mid if not _is_control(c))
+    return mid or None
 
 
 def _timestamp_ms(v: Any) -> Optional[int]:
@@ -247,10 +268,12 @@ class AmqpHooks:
     """Builds and emits the RabbitMQ spans. Every public method is safe to call from a client library's hook:
     a failure is logged at debug level and never reaches the application."""
 
-    def __init__(self, emitter, capture: Optional[_capture.Config] = None, set_message_id: bool = False):
+    def __init__(self, emitter, capture: Optional[_capture.Config] = None, set_message_id: bool = False,
+                 export_routing_keys: bool = False):
         self.emitter = emitter
         self.capture = capture if capture is not None else _capture.Config()
         self.set_message_id = set_message_id
+        self.export_routing_keys = bool(export_routing_keys)
         self._package_ids: "OrderedDict[str, None]" = OrderedDict()
         self._lock = threading.RLock()
 
@@ -271,8 +294,23 @@ class AmqpHooks:
                 self._package_ids.popitem(last=False)
         return mid
 
+    def _routing_key_attrs(self, name: str, routing_key: Any) -> dict:
+        """A5: the routing key verbatim when the body of ``name`` (the queue, or the exchange of a publish or
+        return) is captured or the export_routing_keys option is on; otherwise its keyed hash, with the receipt-hash
+        key. Routing keys often hold IDs and email addresses, and body capture off means application data stays in
+        the process."""
+        rk = _text(routing_key)
+        if rk is None:
+            return {}
+        if self.export_routing_keys or self.capture.body_on(name):
+            return {ROUTING_KEY: rk}
+        hasher = self.emitter.hasher
+        if hasher is None:  # built without a key (another client's hooks, tests): as boto, the env or the default
+            hasher = self.emitter.hasher = resolve_hasher()
+        return {ROUTING_KEY_HMAC: hasher(rk), ROUTING_KEY_KEY_ID: hasher.key_id}
+
     def _id_attrs(self, message_id: Any) -> dict:
-        mid = _text(message_id)
+        mid = clean_message_id(message_id)
         if mid is None:
             return {}
         with self._lock:
@@ -346,7 +384,7 @@ class AmqpHooks:
                       message_id: Any, delivery_mode: Any, headers: Any, body: Any, content_encoding: Any) -> dict:
         dest = exchange_name(exchange)
         a = self._base(st, SPAN_PUBLISH, "basic.publish", dest, channel=False)
-        a["rabbitmq.destination.routing_key"] = _text(routing_key)
+        a.update(self._routing_key_attrs(dest, routing_key))
         a.update(self._id_attrs(message_id))
         a["trailbeam.amqp.mandatory"] = bool(mandatory)
         if _amqp_int(delivery_mode) in (1, 2):
@@ -415,8 +453,9 @@ class AmqpHooks:
         self._safely(self._on_return, st, exchange, routing_key, reply_code, reply_text, message_id)
 
     def _on_return(self, st, exchange, routing_key, reply_code, reply_text, message_id) -> None:
-        a = self._base(st, SPAN_RETURN, "basic.return", exchange_name(exchange), channel=False)
-        a["rabbitmq.destination.routing_key"] = _text(routing_key)
+        dest = exchange_name(exchange)
+        a = self._base(st, SPAN_RETURN, "basic.return", dest, channel=False)
+        a.update(self._routing_key_attrs(dest, routing_key))
         a.update(self._id_attrs(message_id))
         a["trailbeam.amqp.reply_code"] = _amqp_int(reply_code)
         a["trailbeam.amqp.reply_text"] = _text(reply_text)
@@ -478,9 +517,9 @@ class AmqpHooks:
         if operation == "basic.deliver":
             a["trailbeam.amqp.consumer_tag"] = _text(consumer_tag)
         a["trailbeam.amqp.exchange"] = exchange_name(exchange)
-        a["rabbitmq.destination.routing_key"] = _text(routing_key)
+        a.update(self._routing_key_attrs(queue, routing_key))
         a["trailbeam.amqp.redelivered"] = bool(redelivered)
-        mid = _text(message_id)
+        mid = clean_message_id(message_id)
         a["messaging.message.id"] = mid
         h = headers if isinstance(headers, Mapping) else {}
         count, source = receive_count(bool(redelivered), h)

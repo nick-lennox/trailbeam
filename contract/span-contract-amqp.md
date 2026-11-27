@@ -1,4 +1,4 @@
-# Trailbeam span contract, schema version 4 (revision 4.0): broker-neutral kinds and RabbitMQ
+# Trailbeam span contract, schema version 4 (revision 4.1): broker-neutral kinds and RabbitMQ
 
 This file is part of the span contract. [`span-contract.md`](span-contract.md) defines the SQS spans (and,
 from 3.4, the SNS publish) and the rules every Trailbeam span follows. This file adds what schema version 4
@@ -10,6 +10,11 @@ The design behind it, and the proof on RabbitMQ 4.4.1 it rests on, is the QV-303
 (`rabbitmq-design` on QV-303). The keywords **must**, **must not**, **should** and **may** are used as in
 RFC 2119. **[verified]** marks a claim checked in that proof or in the documents linked; **[estimate]**
 marks a judgment.
+
+Revision 4.1 (QV-533) keeps routing keys in the process unless the user asks for them: with body capture off,
+the spans carry a keyed hash of the routing key (A5). It also strips control characters from message IDs (A6),
+and lists every field the hooks export (A16). It changes no required attribute, so a 4.0 Trailbeam accepts 4.1
+spans. The changes are in A17.
 
 Scope of 4.0:
 
@@ -147,7 +152,8 @@ sent the message [verified: the proof, QV-303].
 | Attribute | Type | Req. | Value |
 |---|---|---|---|
 | `messaging.destination.name` | string | must | the exchange; `amq.default` for the default exchange (`""`) |
-| `rabbitmq.destination.routing_key` | string | must when not empty | the routing key |
+| `rabbitmq.destination.routing_key` | string | must when not empty and exported (A5) | the routing key |
+| `trailbeam.amqp.routing_key.hmac`, `.key_id` | string | must when not empty and not exported (A5) | its keyed hash, and the key's ID |
 | `messaging.message.id` | string | must when set | the `message_id` property (A6) |
 | `trailbeam.amqp.message_id.source` | string | must with `messaging.message.id` | `application`, or `package` when a package option set it (A6) |
 | `trailbeam.amqp.mandatory` | bool | must | the `mandatory` flag |
@@ -181,7 +187,8 @@ sent the message [verified: the proof, QV-303].
 | Attribute | Type | Req. | Value |
 |---|---|---|---|
 | `messaging.destination.name` | string | must | the exchange from the return; `amq.default` for `""` |
-| `rabbitmq.destination.routing_key` | string | must when not empty | the routing key from the return |
+| `rabbitmq.destination.routing_key` | string | must when not empty and exported (A5) | the routing key from the return |
+| `trailbeam.amqp.routing_key.hmac`, `.key_id` | string | must when not empty and not exported (A5) | its keyed hash, and the key's ID |
 | `messaging.message.id` | string | must when set | the `message_id` property of the returned message |
 | `trailbeam.amqp.message_id.source` | string | must with `messaging.message.id` | as on the publish |
 | `trailbeam.amqp.reply_code` | int | must | the return's reply code, `312` (`NO_ROUTE`) for an unroutable message |
@@ -200,7 +207,8 @@ counted on its exchange and joins nothing.
 | `rabbitmq.message.delivery_tag` | int | must | the delivery tag |
 | `trailbeam.amqp.consumer_tag` | string | must for `basic.deliver` | the consumer tag |
 | `trailbeam.amqp.exchange` | string | must | the exchange the message was published to, from the delivery; `amq.default` for `""` |
-| `rabbitmq.destination.routing_key` | string | must when not empty | the routing key from the delivery |
+| `rabbitmq.destination.routing_key` | string | must when not empty and exported (A5) | the routing key from the delivery |
+| `trailbeam.amqp.routing_key.hmac`, `.key_id` | string | must when not empty and not exported (A5) | its keyed hash, and the key's ID |
 | `trailbeam.amqp.redelivered` | bool | must | the delivery's `redelivered` flag |
 | `trailbeam.receive_count` | int | must when known | section A7 |
 | `trailbeam.receive_count.source` | string | with `trailbeam.receive_count` | `x-acquired-count`, `x-delivery-count` or `first_delivery` (A7) |
@@ -306,6 +314,27 @@ A publisher does not know which queues an exchange routes a message to. Trailbea
 deliveries: "routed to N queues" counts the queues where the message was delivered, which is a lower bound
 (a queue no instrumented consumer reads is not seen).
 
+**Routing keys stay in the process unless asked for (revision 4.1).** The application chooses the routing key,
+and topic routing keys often carry entity IDs or email addresses (`user.alice@example.com.signup`). Body capture
+off is the user's signal that application data must not leave the process, so:
+
+- A package **must** export `rabbitmq.destination.routing_key` verbatim only when the body of the span's
+  destination is captured (its `messaging.destination.name` is in the body list of A11: the queue for a
+  delivery, the exchange for a publish or return), or when the user turned on the package's export-routing-keys
+  setting (`TRAILBEAM_AMQP_EXPORT_ROUTING_KEYS=on`, or the install option).
+- Otherwise it **must not** export the routing key, and **must** set `trailbeam.amqp.routing_key.hmac` =
+  `lower_hex(HMAC-SHA256(key, routing_key))[0:32]` and `trailbeam.amqp.routing_key.key_id` =
+  `lower_hex(HMAC-SHA256(key, "trailbeam key id"))[0:8]`, with the receipt-hash key and its rules
+  (`span-contract.md` section 7: `TRAILBEAM_RECEIPT_HASH_KEY`, the install option, else the published default
+  key with a warning). The routing key is hashed as UTF-8, after the A3 checks: a key A3 drops gets neither
+  attribute, and an empty one neither.
+- A span never carries both.
+
+Trailbeam does not join or group by the routing key: it only shows it on a step. So a hashed key loses
+nothing but the text. Equal hashes under one key ID mean equal routing keys. The hash protects the key only as
+well as the receipt-hash key is kept secret: with the published default key, anyone can hash a guessed routing
+key and compare [estimate: routing keys are short and guessable, so the default key gives no real protection].
+
 ## A6. Message identity
 
 `messaging.message.id` is the AMQP `message_id` property, when it is set and not empty. Unlike SQS's
@@ -325,6 +354,15 @@ deliveries: "routed to N queues" counts the queues where the message was deliver
 - **An ID set by a package** (P2, option a) is an opt-in package option, off by default, defined with the
   packages (QV-309). A package that sets `message_id` on a publish **must** mark that publish
   `trailbeam.amqp.message_id.source = package`; the deliveries can't tell, so it is shown on the publish only.
+- **Control characters** (Unicode category Cc: U+0000 to U+001F and U+007F to U+009F) are removed from the ID
+  before it is exported, after the A3 checks, so an ID can't end a log line or send escape sequences to a
+  terminal (revision 4.1). An ID of control characters only is treated as no ID. Both packages strip the
+  same characters on publishes, returns and deliveries, so `order-1\n` is exported, and joined, as `order-1`
+  everywhere. A3 already caps an ID at 255 bytes.
+- **The message ID leaves the process.** Unlike the routing key, it is exported whatever the capture settings:
+  it is the message's identity in Trailbeam's store (Keys, above), and a hash would leave nothing to look up.
+  The application chooses it, so an ID that holds an order number, an email or another business value is
+  exported as it is. Use opaque IDs (a UUID) if that matters; `set_message_id` gives one to a publish without an ID.
 - **Settle and close spans** carry the delivery's message ID. A delivery tag is valid only on its own channel
   [verified: confirms page above], so the process that settles a delivery is always the one that received
   it, and the package always has the delivery's ID. There is no map to miss, unlike SQS (`span-contract.md`
@@ -539,7 +577,8 @@ dead-letter and body attributes are never required.
 ## A13. Test vectors and fixtures
 
 - [`span-contract-amqp-vectors.json`](span-contract-amqp-vectors.json): `emit` cases (what the broker sent or
-  the application called, and the attributes a package **must** produce, as the `purge` vectors do), `receive_count`
+  the application called, and the attributes a package **must** produce, as the `purge` vectors do; played with
+  `context.receipt_hash_key` as the key and the case's `options`, from 4.1), `receive_count`
   cases for A7, `dead_letter` cases for A8, and `ingest` cases (a span's attributes, and whether a 4.0 Trailbeam
   accepts it or the start of the reason it rejects it with).
 - [`fixtures/amqp-4.0-spans.json`](fixtures/amqp-4.0-spans.json): the proof's scenarios as spans, written by
@@ -594,3 +633,42 @@ Not verified:
 Why no receipt-hash for RabbitMQ: a delivery tag is a small counter valid only on its own channel, so it gives
 no power to anyone outside that channel, unlike an SQS receipt handle. The design spike suggested hashing it
 anyway; this contract doesn't, because the hash would add a key to configure and protect nothing.
+
+## A16. What the RabbitMQ hooks export
+
+Every field a RabbitMQ span can carry, and where it comes from. The packages export nothing else: no other
+message property and no other header.
+
+| Field | Exported | From |
+|---|---|---|
+| The A3 attributes: kind, operation, vhost, broker host and port, client ID, process ID, thread, order ticks, channel ID and number | always | the connection and the process |
+| Queue or exchange name (`messaging.destination.name`, `trailbeam.amqp.exchange`) | always | the application's call, or the broker |
+| Routing key | **hashed** unless body capture is on for the queue or exchange, or export-routing-keys is on (A5) | the application |
+| `message_id` (`messaging.message.id`) | always, without control characters (A6) | **the application** |
+| Delivery tag, `redelivered`, `mandatory`, `delivery_mode`, confirm mode, a failure's error class name | always | the protocol, the client library |
+| Consumer tag | always | the broker (`amq.ctag-...`), or the application when it chose one |
+| `timestamp` property (`trailbeam.amqp.timestamp_ms`) | when set | the application |
+| Reply code and text of a return, a channel close or a connection close | always | the broker |
+| `x-acquired-count`, `x-delivery-count` headers | when there | the broker (A7) |
+| `x-death`, `x-first-death-*` headers (`trailbeam.dead_letter.*`) | when there: queue, exchange, reason, count, time of the newest entry (A8) | the broker, or a publisher that forged them |
+| Tenant (`trailbeam.tenant`), from the header or body path the tenant option names | only when the tenant option is set | the application |
+| Body size (`messaging.message.body.size`) | always | the body |
+| Body, redacted, and its capture status | only on queues and exchanges in the body list (A11) | the application |
+
+**Never exported:** `correlation_id`, `reply_to`, `user_id`, `app_id`, `type`, `content_type`,
+`content_encoding`, `expiration`, `priority`, `cluster_id`, every other header, and the body unless captured.
+[verified: the QV-526 review of both packages; `python/tests/test_pika_hooks.py` and
+`node/test/amqplib-hooks.test.js` check that a routing key with an email address doesn't reach the spans.]
+
+## A17. Changes in revision 4.1
+
+| 4.0 | 4.1 |
+|---|---|
+| `rabbitmq.destination.routing_key` on every publish, return and delivery | only with body capture on for the destination, or export-routing-keys on; otherwise `trailbeam.amqp.routing_key.hmac` and `.key_id` (A5) |
+| `messaging.message.id` exactly as the application set it, after A3 | with control characters removed (A6) |
+| no list of what leaves the process | A16 |
+
+A 4.0 Trailbeam accepts 4.1 spans: no required attribute changed, and the hash attributes are stored and not
+read. A 4.1 Trailbeam shows a hashed routing key on a step as `routing_key_hmac`, labelled hashed. A 4.0 package's
+spans, with routing keys verbatim, are still accepted and shown as before. Both packages, Python and Node.js,
+send the 4.1 attributes from the release that brings this revision.

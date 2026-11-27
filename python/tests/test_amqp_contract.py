@@ -139,6 +139,15 @@ def wire_text(v):
     return None if isinstance(v, str) and "\ufffd" in v else v
 
 
+def message_id(v):
+    """A6 (revision 4.1): the exported message ID, a string A3 keeps without its control characters (U+0000 to
+    U+001F, U+007F to U+009F); None when nothing is left."""
+    if not fits(v):
+        return None
+    v = re.sub("[\x00-\x1f\x7f-\x9f]", "", wire_text(v))
+    return v or None
+
+
 def fits(v) -> bool:
     """A3: a string the package copies, at most 255 bytes in UTF-8, valid UTF-8 and without U+FFFD."""
     v = wire_text(v)
@@ -227,7 +236,7 @@ def test_emit_deliveries_follow_a7_and_a8():
         assert attrs.get("trailbeam.receive_count.source") == source, case["name"]
         got = {k: v for k, v in attrs.items() if k.startswith("trailbeam.dead_letter.")}
         assert got == dead_letter(event["headers"]), case["name"]
-        assert attrs.get("messaging.message.id") == wire_text(event["properties"].get("message_id")), case["name"]
+        assert attrs.get("messaging.message.id") == message_id(event["properties"].get("message_id")), case["name"]
         seen += 1
     assert seen >= 5
 
@@ -290,3 +299,39 @@ def test_fixture_spans_are_accepted_and_consistent():
             assert attrs["messaging.destination.name"] == delivered["messaging.destination.name"]
     # Left open: the delivery the broker took back when it cancelled the consumer, and the stuck one.
     assert sorted(a["messaging.message.id"] for a in open_deliveries.values()) == ["m-stuck", "m-timeout"]
+
+
+def test_emit_routing_keys_follow_a5():
+    """A5 (revision 4.1): verbatim only with export_routing_keys or the body of the span's queue (the exchange of a
+    publish or return) captured; otherwise HMAC-SHA256 with the receipt-hash key, as span-contract.md section 7."""
+    import hashlib
+    import hmac
+
+    key = VECTORS["context"]["receipt_hash_key"].encode("utf-8")
+    key_id = hmac.new(key, b"trailbeam key id", hashlib.sha256).hexdigest()[:8]
+    seen = {"hashed": 0, "verbatim": 0}
+    for case in VECTORS["emit"]:
+        options = case.get("options", {})
+        rk = case["event"].get("routing_key")
+        for span in case["spans"]:
+            attrs = span["attributes"]
+            if attrs["trailbeam.kind"] not in ("amqp.publish", "amqp.return", "amqp.deliver"):
+                assert "rabbitmq.destination.routing_key" not in attrs, case["name"]
+                assert "trailbeam.amqp.routing_key.hmac" not in attrs, case["name"]
+                continue
+            if not fits(rk) or not wire_text(rk):  # A3, and an empty key is omitted
+                assert "rabbitmq.destination.routing_key" not in attrs, case["name"]
+                assert "trailbeam.amqp.routing_key.hmac" not in attrs, case["name"]
+                continue
+            name = attrs["messaging.destination.name"]
+            if options.get("export_routing_keys") or name in options.get("body_queues", []):
+                assert attrs["rabbitmq.destination.routing_key"] == wire_text(rk), case["name"]
+                assert "trailbeam.amqp.routing_key.hmac" in span["absent"], case["name"]
+                seen["verbatim"] += 1
+            else:
+                want = hmac.new(key, wire_text(rk).encode("utf-8"), hashlib.sha256).hexdigest()[:32]
+                assert attrs["trailbeam.amqp.routing_key.hmac"] == want, case["name"]
+                assert attrs["trailbeam.amqp.routing_key.key_id"] == key_id, case["name"]
+                assert "rabbitmq.destination.routing_key" in span["absent"], case["name"]
+                seen["hashed"] += 1
+    assert seen["hashed"] >= 10 and seen["verbatim"] >= 4, seen
