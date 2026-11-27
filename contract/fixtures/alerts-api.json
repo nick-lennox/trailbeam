@@ -1,0 +1,727 @@
+{
+ "about": "How an alert rule, a mute and a channel are checked, which self-hosted Trailbeam and the hosted app must agree on. Written by make-alerts-api.py; don't edit by hand. mutedUntil is from at.",
+ "at": 1764000000000,
+ "rules": [
+  {
+   "name": "refused: quiet 6 h, daily check",
+   "form": {
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600
+   },
+   "channelIds": [
+    "ch1",
+    "ch2"
+   ],
+   "everyMin": 1440,
+   "expected": {
+    "ok": false,
+    "error": "Pick a quiet period of 24 h, 7 days. Trailbeam checks once a day, at 13:00 UTC, so an alert can arrive up to a day after it happens."
+   }
+  },
+  {
+   "name": "quiet 24 h, daily check",
+   "form": {
+    "channels": [
+     "ch1",
+     "ch2"
+    ],
+    "mode": "quiet",
+    "quietS": 86400
+   },
+   "channelIds": [
+    "ch1",
+    "ch2"
+   ],
+   "everyMin": 1440,
+   "expected": {
+    "ok": true,
+    "channels": [
+     "ch1",
+     "ch2"
+    ],
+    "mode": "quiet",
+    "quietS": 86400
+   }
+  },
+  {
+   "name": "quiet 7 days",
+   "form": {
+    "channels": [
+     "ch2"
+    ],
+    "mode": "quiet",
+    "quietS": 604800
+   },
+   "channelIds": [
+    "ch1",
+    "ch2"
+   ],
+   "everyMin": 1440,
+   "expected": {
+    "ok": true,
+    "channels": [
+     "ch2"
+    ],
+    "mode": "quiet",
+    "quietS": 604800
+   }
+  },
+  {
+   "name": "every check: quietS is stored as 0",
+   "form": {
+    "channels": [
+     "ch1"
+    ],
+    "mode": "every",
+    "quietS": 3600
+   },
+   "channelIds": [
+    "ch1",
+    "ch2"
+   ],
+   "everyMin": 1440,
+   "expected": {
+    "ok": true,
+    "channels": [
+     "ch1"
+    ],
+    "mode": "every",
+    "quietS": 0
+   }
+  },
+  {
+   "name": "a channel twice is kept once",
+   "form": {
+    "channels": [
+     "ch1",
+     "ch1",
+     "ch2"
+    ],
+    "mode": "every",
+    "quietS": 0
+   },
+   "channelIds": [
+    "ch1",
+    "ch2"
+   ],
+   "everyMin": 5,
+   "expected": {
+    "ok": true,
+    "channels": [
+     "ch1",
+     "ch2"
+    ],
+    "mode": "every",
+    "quietS": 0
+   }
+  },
+  {
+   "name": "an unknown channel is dropped",
+   "form": {
+    "channels": [
+     "ch9",
+     "ch2"
+    ],
+    "mode": "every",
+    "quietS": 0
+   },
+   "channelIds": [
+    "ch1",
+    "ch2"
+   ],
+   "everyMin": 5,
+   "expected": {
+    "ok": true,
+    "channels": [
+     "ch2"
+    ],
+    "mode": "every",
+    "quietS": 0
+   }
+  },
+  {
+   "name": "quiet 30 min, every 5 minutes",
+   "form": {
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 1800
+   },
+   "channelIds": [
+    "ch1",
+    "ch2"
+   ],
+   "everyMin": 5,
+   "expected": {
+    "ok": true,
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 1800
+   }
+  },
+  {
+   "name": "quiet 1 h, every 5 minutes",
+   "form": {
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 3600
+   },
+   "channelIds": [
+    "ch1",
+    "ch2"
+   ],
+   "everyMin": 5,
+   "expected": {
+    "ok": true,
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 3600
+   }
+  },
+  {
+   "name": "quietS as text",
+   "form": {
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": "3600"
+   },
+   "channelIds": [
+    "ch1",
+    "ch2"
+   ],
+   "everyMin": 5,
+   "expected": {
+    "ok": true,
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 3600
+   }
+  },
+  {
+   "name": "refused: no channel ticked",
+   "form": {
+    "channels": [],
+    "mode": "every",
+    "quietS": 0
+   },
+   "channelIds": [
+    "ch1",
+    "ch2"
+   ],
+   "everyMin": 1440,
+   "expected": {
+    "ok": false,
+    "error": "Pick at least one channel."
+   }
+  },
+  {
+   "name": "refused: only unknown channels",
+   "form": {
+    "channels": [
+     "ch9"
+    ],
+    "mode": "every",
+    "quietS": 0
+   },
+   "channelIds": [
+    "ch1",
+    "ch2"
+   ],
+   "everyMin": 1440,
+   "expected": {
+    "ok": false,
+    "error": "Pick at least one channel."
+   }
+  },
+  {
+   "name": "refused: the workspace has no channel",
+   "form": {
+    "channels": [
+     "ch1"
+    ],
+    "mode": "every",
+    "quietS": 0
+   },
+   "channelIds": [],
+   "everyMin": 1440,
+   "expected": {
+    "ok": false,
+    "error": "Add an alert channel in Settings first."
+   }
+  },
+  {
+   "name": "refused: no mode",
+   "form": {
+    "channels": [
+     "ch1"
+    ],
+    "mode": "sometimes",
+    "quietS": 3600
+   },
+   "channelIds": [
+    "ch1",
+    "ch2"
+   ],
+   "everyMin": 1440,
+   "expected": {
+    "ok": false,
+    "error": "Pick when to send."
+   }
+  },
+  {
+   "name": "refused: quiet 1 h, daily check",
+   "form": {
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 3600
+   },
+   "channelIds": [
+    "ch1",
+    "ch2"
+   ],
+   "everyMin": 1440,
+   "expected": {
+    "ok": false,
+    "error": "Pick a quiet period of 24 h, 7 days. Trailbeam checks once a day, at 13:00 UTC, so an alert can arrive up to a day after it happens."
+   }
+  },
+  {
+   "name": "refused: quiet 30 min, hourly check",
+   "form": {
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 1800
+   },
+   "channelIds": [
+    "ch1",
+    "ch2"
+   ],
+   "everyMin": 60,
+   "expected": {
+    "ok": false,
+    "error": "Pick a quiet period of 1 h, 6 h, 24 h, 7 days. Trailbeam checks every hour, so an alert can arrive up to hour after it happens."
+   }
+  },
+  {
+   "name": "refused: a quiet period not offered",
+   "form": {
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 7200
+   },
+   "channelIds": [
+    "ch1",
+    "ch2"
+   ],
+   "everyMin": 5,
+   "expected": {
+    "ok": false,
+    "error": "Pick a quiet period of 30 min, 1 h, 6 h, 24 h, 7 days. Trailbeam checks every 5 minutes, so an alert can arrive up to 5 minutes after it happens."
+   }
+  },
+  {
+   "name": "refused: quiet 0",
+   "form": {
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 0
+   },
+   "channelIds": [
+    "ch1",
+    "ch2"
+   ],
+   "everyMin": 5,
+   "expected": {
+    "ok": false,
+    "error": "Pick a quiet period of 30 min, 1 h, 6 h, 24 h, 7 days. Trailbeam checks every 5 minutes, so an alert can arrive up to 5 minutes after it happens."
+   }
+  },
+  {
+   "name": "refused: quiet period not a number",
+   "form": {
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": "soon"
+   },
+   "channelIds": [
+    "ch1",
+    "ch2"
+   ],
+   "everyMin": 5,
+   "expected": {
+    "ok": false,
+    "error": "Pick a quiet period of 30 min, 1 h, 6 h, 24 h, 7 days. Trailbeam checks every 5 minutes, so an alert can arrive up to 5 minutes after it happens."
+   }
+  },
+  {
+   "name": "refused: quiet 30 min, every 2 hours",
+   "form": {
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 1800
+   },
+   "channelIds": [
+    "ch1",
+    "ch2"
+   ],
+   "everyMin": 120,
+   "expected": {
+    "ok": false,
+    "error": "Pick a quiet period of 6 h, 24 h, 7 days. Trailbeam checks every 2 hours, so an alert can arrive up to 2 hours after it happens."
+   }
+  }
+ ],
+ "mutes": [
+  {
+   "name": "mute until unmuted",
+   "forS": null,
+   "expected": {
+    "ok": true,
+    "mutedUntil": 8640000000000000
+   }
+  },
+  {
+   "name": "unmute",
+   "forS": 0,
+   "expected": {
+    "ok": true,
+    "mutedUntil": null
+   }
+  },
+  {
+   "name": "snooze 1 h",
+   "forS": 3600,
+   "expected": {
+    "ok": true,
+    "mutedUntil": 1764003600000
+   }
+  },
+  {
+   "name": "snooze 4 h",
+   "forS": 14400,
+   "expected": {
+    "ok": true,
+    "mutedUntil": 1764014400000
+   }
+  },
+  {
+   "name": "snooze 24 h",
+   "forS": 86400,
+   "expected": {
+    "ok": true,
+    "mutedUntil": 1764086400000
+   }
+  },
+  {
+   "name": "refused: snooze 2 h",
+   "forS": 7200,
+   "expected": {
+    "ok": false,
+    "error": "Snooze for 1, 4 or 24 hours."
+   }
+  },
+  {
+   "name": "refused: snooze for a negative time",
+   "forS": -3600,
+   "expected": {
+    "ok": false,
+    "error": "Snooze for 1, 4 or 24 hours."
+   }
+  },
+  {
+   "name": "refused: snooze as text",
+   "forS": "3600",
+   "expected": {
+    "ok": false,
+    "error": "Snooze for 1, 4 or 24 hours."
+   }
+  }
+ ],
+ "channels": [
+  {
+   "name": "webhook",
+   "form": {
+    "kind": "webhook",
+    "name": " Ops hook ",
+    "target": " https://hooks.example.com/alerts?token=abc ",
+    "minTone": "warning"
+   },
+   "allowLocal": false,
+   "expected": {
+    "ok": true,
+    "kind": "webhook",
+    "name": "Ops hook",
+    "target": "https://hooks.example.com/alerts?token=abc",
+    "minTone": "warning"
+   }
+  },
+  {
+   "name": "webhook, critical only",
+   "form": {
+    "kind": "webhook",
+    "name": "",
+    "target": "https://Example.COM",
+    "minTone": "critical"
+   },
+   "allowLocal": false,
+   "expected": {
+    "ok": true,
+    "kind": "webhook",
+    "name": "Webhook",
+    "target": "https://example.com/",
+    "minTone": "critical"
+   }
+  },
+  {
+   "name": "any other tone is warning",
+   "form": {
+    "kind": "webhook",
+    "name": "x",
+    "target": "https://example.com/a",
+    "minTone": "good"
+   },
+   "allowLocal": false,
+   "expected": {
+    "ok": true,
+    "kind": "webhook",
+    "name": "x",
+    "target": "https://example.com/a",
+    "minTone": "warning"
+   }
+  },
+  {
+   "name": "a long name is cut to 60",
+   "form": {
+    "kind": "slack",
+    "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+    "target": "https://hooks.slack.com/services/T000/B000/XXXX",
+    "minTone": "warning"
+   },
+   "allowLocal": false,
+   "expected": {
+    "ok": true,
+    "kind": "slack",
+    "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+    "target": "https://hooks.slack.com/services/T000/B000/XXXX",
+    "minTone": "warning"
+   }
+  },
+  {
+   "name": "slack, no name",
+   "form": {
+    "kind": "slack",
+    "name": "  ",
+    "target": "https://hooks.slack.com/services/T000/B000/XXXX",
+    "minTone": "critical"
+   },
+   "allowLocal": false,
+   "expected": {
+    "ok": true,
+    "kind": "slack",
+    "name": "Slack",
+    "target": "https://hooks.slack.com/services/T000/B000/XXXX",
+    "minTone": "critical"
+   }
+  },
+  {
+   "name": "email list",
+   "form": {
+    "kind": "email",
+    "name": "On call",
+    "target": "Oncall@Acme.io; lead@acme.io,oncall@acme.io",
+    "minTone": "critical"
+   },
+   "allowLocal": false,
+   "expected": {
+    "ok": true,
+    "kind": "email",
+    "name": "On call",
+    "target": "oncall@acme.io, lead@acme.io",
+    "minTone": "critical"
+   }
+  },
+  {
+   "name": "webhook on this machine, allowed locally",
+   "form": {
+    "kind": "webhook",
+    "name": "dev",
+    "target": "http://127.0.0.1:8080/hook",
+    "minTone": "warning"
+   },
+   "allowLocal": true,
+   "expected": {
+    "ok": true,
+    "kind": "webhook",
+    "name": "dev",
+    "target": "http://127.0.0.1:8080/hook",
+    "minTone": "warning"
+   }
+  },
+  {
+   "name": "refused: unknown kind",
+   "form": {
+    "kind": "pager",
+    "name": "x",
+    "target": "https://example.com",
+    "minTone": "warning"
+   },
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "Pick webhook, Slack or email."
+   }
+  },
+  {
+   "name": "refused: http webhook",
+   "form": {
+    "kind": "webhook",
+    "name": "x",
+    "target": "http://example.com/hook",
+    "minTone": "warning"
+   },
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "The URL must start with https://."
+   }
+  },
+  {
+   "name": "refused: not a URL",
+   "form": {
+    "kind": "webhook",
+    "name": "x",
+    "target": "example.com/hook",
+    "minTone": "warning"
+   },
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "Enter the full URL, starting with https://."
+   }
+  },
+  {
+   "name": "refused: credentials before the host",
+   "form": {
+    "kind": "webhook",
+    "name": "x",
+    "target": "https://user:pw@example.com/hook",
+    "minTone": "warning"
+   },
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "Put credentials in the URL's path or query, not before the host."
+   }
+  },
+  {
+   "name": "refused: private webhook",
+   "form": {
+    "kind": "webhook",
+    "name": "x",
+    "target": "https://10.0.0.5/hook",
+    "minTone": "warning"
+   },
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "The webhook must be on a public host, not a private or local address."
+   }
+  },
+  {
+   "name": "refused: webhook on this machine",
+   "form": {
+    "kind": "webhook",
+    "name": "x",
+    "target": "http://127.0.0.1:8080/hook",
+    "minTone": "warning"
+   },
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "The URL must start with https://."
+   }
+  },
+  {
+   "name": "refused: slack URL not Slack's",
+   "form": {
+    "kind": "slack",
+    "name": "x",
+    "target": "https://example.com/services/T/B/X",
+    "minTone": "warning"
+   },
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "Use a Slack incoming webhook URL: https://hooks.slack.com/services/…"
+   }
+  },
+  {
+   "name": "refused: no email address",
+   "form": {
+    "kind": "email",
+    "name": "x",
+    "target": " , ",
+    "minTone": "warning"
+   },
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "Enter at least one email address."
+   }
+  },
+  {
+   "name": "refused: not an email address",
+   "form": {
+    "kind": "email",
+    "name": "x",
+    "target": "oncall@acme.io, nobody",
+    "minTone": "warning"
+   },
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "\"nobody\" is not an email address."
+   }
+  },
+  {
+   "name": "refused: 11 email addresses",
+   "form": {
+    "kind": "email",
+    "name": "x",
+    "target": "p0@acme.io, p1@acme.io, p2@acme.io, p3@acme.io, p4@acme.io, p5@acme.io, p6@acme.io, p7@acme.io, p8@acme.io, p9@acme.io, p10@acme.io",
+    "minTone": "warning"
+   },
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "At most 10 addresses on one channel."
+   }
+  }
+ ]
+}

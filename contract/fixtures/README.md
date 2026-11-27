@@ -86,3 +86,13 @@ hosted app's, `<origin>/app/<slug>/...`; self-hosted Trailbeam makes the same un
 every case for real to a local HTTP server and a fake SMTP server and fails if the file is not what the script writes,
 and by the hosted app's `test/alerts-delivery.test.ts` against its `lib/alerts/deliver.ts` and `channels.ts`.
 `@trailbeam/ui` ships it as `@trailbeam/ui/fixtures/alerts-delivery.json`.
+
+## `alerts-api.json`
+
+How an alert rule, a mute and a channel are checked, which both products must agree on (QV-642): accepted and
+refused "Alert me" rule forms (channels, when to send, quiet periods against the check interval), mutes and snoozes,
+and new channels (kind, name, tone, target), each with what is stored or the error text. It is written by
+`make-alerts-api.py` from the open-source code (`server/src/trailbeam/server/alerts_api.py`); don't edit it by hand.
+Checked by `python/tests/server/test_alerts_api.py`, which also fails if the file is not what the script writes. The
+hosted app's `checkForm` and `muteRule` (`lib/alerts/rules.ts`) and `addChannel` (`lib/alerts/channels.ts`) give the
+same results on every case; `@trailbeam/ui` does not ship this file yet.
