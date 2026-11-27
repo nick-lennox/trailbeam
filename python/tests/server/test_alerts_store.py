@@ -455,7 +455,7 @@ def test_a_postgres_database_at_19_gets_the_alert_tables_a_new_one_has():
             c.execute("UPDATE schema_version SET version = 19")
         again = PostgresStore(s.url)
         try:
-            assert again.migrated == [20]
+            assert again.migrated == [20, 21]
             with again.ingest.connection() as c:
                 assert columns(c) == new and all(new.values())
         finally:

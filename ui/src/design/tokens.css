@@ -289,3 +289,11 @@
 @media (prefers-reduced-motion: reduce) {
   .live-dot { animation: none !important }
 }
+
+/* The Event explorer (@trailbeam/ui/explorer). Each row's level is a 3px strip on the left edge of its first cell, in
+   the row's level color (--bar); the chart's bars rise from the axis when it first draws. */
+.ev-row > td:first-child { box-shadow: inset 3px 0 0 var(--bar); padding-left: 14px; }
+@media (prefers-reduced-motion: no-preference) {
+  .hist-seg { transform-origin: bottom; animation: hist-rise 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) backwards; }
+  @keyframes hist-rise { from { transform: scaleY(0); } }
+}

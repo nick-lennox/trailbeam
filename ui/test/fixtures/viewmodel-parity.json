@@ -2670,6 +2670,59 @@
      "retrying": 1,
      "versions": []
     }
+   ],
+   "cause_messages": [
+    {
+     "message_id": "m-pay-2",
+     "cause": "bf87b57963d7",
+     "state": "not_deleted",
+     "current_queue": "payments-dlq",
+     "in_dead_letter_queue": true,
+     "deliveries": 3,
+     "first_seen": "2026-11-16T18:05:36.914000Z",
+     "last_seen": "2026-11-16T18:05:37.425000Z",
+     "consumers": [
+      {
+       "service_name": "orders-worker",
+       "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
+       "service_version": null
+      }
+     ]
+    },
+    {
+     "message_id": "m-bill-1",
+     "cause": "6a0aaff19a60",
+     "state": "not_deleted",
+     "current_queue": "billing",
+     "in_dead_letter_queue": false,
+     "deliveries": 3,
+     "first_seen": "2026-11-16T18:05:37.429000Z",
+     "last_seen": "2026-11-16T18:05:37.528000Z",
+     "consumers": [
+      {
+       "service_name": "billing-fn",
+       "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
+       "service_version": null
+      }
+     ]
+    },
+    {
+     "message_id": "m-bill-2",
+     "cause": "6a0aaff19a60",
+     "state": "not_deleted",
+     "current_queue": "billing",
+     "in_dead_letter_queue": false,
+     "deliveries": 1,
+     "first_seen": "2026-11-16T18:05:37.429000Z",
+     "last_seen": "2026-11-16T18:05:37.462000Z",
+     "consumers": [
+      {
+       "service_name": "billing-fn",
+       "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
+       "service_version": null
+      }
+     ]
+    }
    ]
   },
   "hosted": {
@@ -5361,6 +5414,59 @@
       }
      ]
     }
+   ],
+   "cause_messages": [
+    {
+     "message_id": "m-pay-2",
+     "cause": "bf87b57963d7",
+     "state": "not_deleted",
+     "current_queue": "payments-dlq",
+     "in_dead_letter_queue": true,
+     "deliveries": 3,
+     "first_seen": "2026-11-16T18:05:36.914000Z",
+     "last_seen": "2026-11-16T18:05:37.425000Z",
+     "consumers": [
+      {
+       "service_name": "orders-worker",
+       "client_id": "999116e7-988b-43d2-89b1-06277f0766e4",
+       "service_version": null
+      }
+     ]
+    },
+    {
+     "message_id": "m-bill-1",
+     "cause": "6a0aaff19a60",
+     "state": "not_deleted",
+     "current_queue": "billing",
+     "in_dead_letter_queue": false,
+     "deliveries": 3,
+     "first_seen": "2026-11-16T18:05:37.429000Z",
+     "last_seen": "2026-11-16T18:05:37.528000Z",
+     "consumers": [
+      {
+       "service_name": "billing-fn",
+       "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
+       "service_version": null
+      }
+     ]
+    },
+    {
+     "message_id": "m-bill-2",
+     "cause": "6a0aaff19a60",
+     "state": "not_deleted",
+     "current_queue": "billing",
+     "in_dead_letter_queue": false,
+     "deliveries": 1,
+     "first_seen": "2026-11-16T18:05:37.429000Z",
+     "last_seen": "2026-11-16T18:05:37.462000Z",
+     "consumers": [
+      {
+       "service_name": "billing-fn",
+       "client_id": "2b715bf1-05cc-4f28-a3d8-290faca812eb",
+       "service_version": null
+      }
+     ]
+    }
    ]
   }
  },
@@ -6450,6 +6556,221 @@
     "basis": "spans",
     "split": "",
     "versions": ""
+   }
+  ],
+  "issues": [
+   {
+    "id": "bf87b57963d7",
+    "kind": "not_deleted",
+    "title": "orders-worker received it and didn't delete it before its visibility timeout ran out (inferred)",
+    "evidence": "The consumer received it and no delete or outcome followed before its visibility timeout ran out, so SQS makes it visible again. The queue's visibility timeout wasn't read from AWS, so SQS's default of 30 s was assumed for when the message becomes visible again.",
+    "inferred": true,
+    "stage": "delete",
+    "queue": "payments",
+    "producers": [],
+    "consumers": [
+     "orders-worker"
+    ],
+    "dlq": "payments-dlq",
+    "tenants": "globex",
+    "maxReceives": 3,
+    "maxReceiveCount": null,
+    "visibilityTimeoutS": null,
+    "retentionDays": null,
+    "lifespans": [
+     {
+      "from": 1794852336914,
+      "to": 1794852337425,
+      "seen": 1794852337425,
+      "state": "dlq"
+     }
+    ],
+    "breakdowns": [
+     {
+      "label": "Receive count",
+      "mono": true,
+      "rows": [
+       {
+        "value": "3",
+        "n": 1
+       }
+      ]
+     },
+     {
+      "label": "State now",
+      "mono": false,
+      "rows": [
+       {
+        "value": "In the DLQ",
+        "n": 1
+       }
+      ]
+     }
+    ],
+    "timing": null,
+    "count": 1,
+    "inDlq": 1,
+    "notFinished": 0,
+    "handledTwice": 0,
+    "firstSeen": 1794852337425,
+    "lastSeen": 1794852337425,
+    "trend": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1
+    ],
+    "trendLabel": "last 24 hours",
+    "trendSpanMs": 86400000,
+    "messages": [
+     {
+      "id": "m-pay-2",
+      "queue": "payments-dlq",
+      "receives": 3,
+      "firstSeen": 1794852336914,
+      "lastSeen": 1794852337425,
+      "consumers": [
+       "orders-worker"
+      ],
+      "real": {
+       "state": "not_deleted",
+       "in_dead_letter_queue": true,
+       "deliveries": 3
+      }
+     }
+    ],
+    "shape": {
+     "steps": [],
+     "count": 0,
+     "example": "m-pay-2"
+    }
+   },
+   {
+    "id": "6a0aaff19a60",
+    "kind": "exc",
+    "title": "billing-fn raised TypeError: card declined for [REDACTED]",
+    "evidence": "The handler raised an exception while it held the message, and no delete followed. SQS delivers it again when its visibility timeout expires.",
+    "inferred": false,
+    "stage": "handler",
+    "queue": "billing",
+    "producers": [],
+    "consumers": [
+     "billing-fn"
+    ],
+    "dlq": null,
+    "tenants": "acme and 1 more",
+    "maxReceives": 3,
+    "maxReceiveCount": null,
+    "visibilityTimeoutS": null,
+    "retentionDays": null,
+    "lifespans": [
+     {
+      "from": 1794852337429,
+      "to": 1794855937716,
+      "seen": 1794852337528,
+      "state": "open"
+     },
+     {
+      "from": 1794852337429,
+      "to": 1794855937716,
+      "seen": 1794852337462,
+      "state": "open"
+     }
+    ],
+    "breakdowns": [
+     {
+      "label": "Receive count",
+      "mono": true,
+      "rows": [
+       {
+        "value": "1",
+        "n": 1
+       },
+       {
+        "value": "3",
+        "n": 1
+       }
+      ]
+     },
+     {
+      "label": "State now",
+      "mono": false,
+      "rows": [
+       {
+        "value": "Not deleted",
+        "n": 2
+       }
+      ]
+     }
+    ],
+    "timing": null,
+    "count": 2,
+    "inDlq": 0,
+    "notFinished": 2,
+    "handledTwice": 0,
+    "firstSeen": 1794852337462,
+    "lastSeen": 1794852337528,
+    "trend": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     2
+    ],
+    "trendLabel": "last 24 hours",
+    "trendSpanMs": 86400000,
+    "messages": [
+     {
+      "id": "m-bill-1",
+      "queue": "billing",
+      "receives": 3,
+      "firstSeen": 1794852337429,
+      "lastSeen": 1794852337528,
+      "consumers": [
+       "billing-fn"
+      ],
+      "real": {
+       "state": "not_deleted",
+       "in_dead_letter_queue": false,
+       "deliveries": 3
+      }
+     },
+     {
+      "id": "m-bill-2",
+      "queue": "billing",
+      "receives": 1,
+      "firstSeen": 1794852337429,
+      "lastSeen": 1794852337462,
+      "consumers": [
+       "billing-fn"
+      ],
+      "real": {
+       "state": "not_deleted",
+       "in_dead_letter_queue": false,
+       "deliveries": 1
+      }
+     }
+    ],
+    "shape": {
+     "steps": [],
+     "count": 0,
+     "example": "m-bill-1"
+    }
    }
   ]
  }

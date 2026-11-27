@@ -22,10 +22,10 @@ test("a joined PutEvents entry is an observed first step, named by its bus, from
   assert.deepEqual(t.events.map((e) => [e.type, e.inferred]), [["put_event", false], ["received", false], ["deleted", false]]);
   const html = text(render(t));
   assert.match(html, / e1 Put on EventBridge bus orders-bus /);
-  assert.match(html, /Trailbeam pkg/);
+  assert.match(html, /Trailbeam package/);
   assert.doesNotMatch(html, /Arrived via an EventBridge rule/);
   assert.match(html, /orders-api/, "where: the process that called PutEvents");
-  assert.match(html, /PutEvents · entry 0 · joined by event ID/);
+  assert.match(html, /PutEvents Entry 0 Joined by the event ID/);
   assert.match(html, /11710aed-b79e-4468-a20b-bb3c0c3b4860/);
   assert.match(html, /OrderPlaced/);
   assert.match(html, /Put on EventBridge bus orders-bus by PutEvents\./, "the server's reason");
@@ -35,14 +35,14 @@ test("a joined PutEvents entry is an observed first step, named by its bus, from
 test("the entry lists every message it reached, linking the others", () => {
   const html = render(byId("pe-orders"), (id) => `/messages/${id}`);
   const reached = text(html.slice(html.indexOf("data-reached")));
-  assert.match(reached, /Reached billing: pe-billing · orders: pe-orders \(this message\)/);
+  assert.match(reached, /Reached billing: pe-billing ?; orders: pe-orders \(this message\)/);
   assert.match(html, /href="\/messages\/pe-billing"/);
   assert.doesNotMatch(html, /href="\/messages\/pe-orders"/);
 });
 
 test("a sender-given Time is said to be the sender's, not EventBridge's", () => {
   const given = text(render(byId("pe-orders")));
-  assert.match(given, /EventBridge delivery 400 ms \(from the sender's time\)/);
+  assert.match(given, /EventBridge delivery 400 ms Measured from the sender's time/);
   assert.match(given, /Event time \(sender's\)/);
   assert.match(given, /measured from the sender's clock, not EventBridge's/);
 
