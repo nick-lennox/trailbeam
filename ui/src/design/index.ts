@@ -14,7 +14,7 @@ export { NightWindow, WindowDots } from "./NightWindow.tsx";
 export { StatCard } from "./Stat.tsx";
 export { Sparkline } from "./Sparkline.tsx";
 export { Logo, Mark, DOME, DOT, NAME, W, H, LOCKUP_W } from "./Logo.tsx";
-export { PageHeader, TopBar } from "./TopBar.tsx";
+export { PageHeader, TopBar, type Fresh } from "./TopBar.tsx";
 export {
   HealthPill, OutcomePill, SourceTag, StatePill, SOURCE, POSSIBLY_PURGED_TITLE, purgeClock, purgeText, stateLook,
   type Outcome, type PurgeOf, type StateOf, type StepSource,
