@@ -149,6 +149,13 @@ export interface AmqplibInstallOptions {
    * The application's options object is copied, not changed. Default: $TRAILBEAM_AMQP_SET_MESSAGE_ID, else off.
    */
   setMessageId?: boolean;
+  /**
+   * Key of the routing-key hash (A5). Takes precedence over $TRAILBEAM_RECEIPT_HASH_KEY: use the same key as the
+   * SQS hooks. On a queue or exchange whose body is not captured, spans carry only the hash of the routing key.
+   */
+  receiptHashKey?: string;
+  /** Export every routing key verbatim. Default: $TRAILBEAM_AMQP_EXPORT_ROUTING_KEYS, else off (hashed). */
+  exportRoutingKeys?: boolean;
   /** The folder of the amqplib package to hook, when `require('amqplib')` from here or the working directory finds another. */
   amqplibDir?: string;
 }

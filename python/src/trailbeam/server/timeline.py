@@ -857,6 +857,15 @@ def _op(r) -> Optional[str]:
     return v if isinstance(v, str) else None
 
 
+def _routing_key(ev: dict, a: dict) -> None:
+    """The routing key (A5), or, when the package did not export it (body capture off, revision 4.1), its keyed
+    hash: equal hashes mean equal keys under one receipt-hash key."""
+    if isinstance(a.get(amqp_mod.ROUTING_KEY), str) and a[amqp_mod.ROUTING_KEY]:
+        ev["routing_key"] = a[amqp_mod.ROUTING_KEY]
+    elif isinstance(a.get(amqp_mod.ROUTING_KEY_HMAC), str) and a[amqp_mod.ROUTING_KEY_HMAC]:
+        ev["routing_key_hmac"] = a[amqp_mod.ROUTING_KEY_HMAC]
+
+
 def _amqp_event(r, base: dict, by_row: dict, n_publish: int, latest_on: dict, seen: list) -> dict:
     """The observed event of one RabbitMQ row. ``n_publish``: which publish of the message this is (sends only);
     ``latest_on``: queue -> its latest delivery; ``seen``: every delivery of the message."""
@@ -866,8 +875,7 @@ def _amqp_event(r, base: dict, by_row: dict, n_publish: int, latest_on: dict, se
         ev = {"type": "sent", **base, "exchange": r["queue"], "operation": _op(r), "result": r["result"],
               "confirmed": a.get("trailbeam.amqp.confirmed") is True, "mandatory": a.get("trailbeam.amqp.mandatory") is True,
               "publish": n_publish}
-        if isinstance(a.get(amqp_mod.ROUTING_KEY), str):
-            ev["routing_key"] = a[amqp_mod.ROUTING_KEY]
+        _routing_key(ev, a)
         if r["error_code"]:
             ev["error_code"] = r["error_code"]
         if a.get("trailbeam.amqp.message_id.source") == "package":
@@ -884,8 +892,7 @@ def _amqp_event(r, base: dict, by_row: dict, n_publish: int, latest_on: dict, se
     if k == "return":
         ev = {"type": "returned", **base, "exchange": r["queue"], "operation": _op(r),
               "reply_code": a.get("trailbeam.amqp.reply_code")}
-        if isinstance(a.get(amqp_mod.ROUTING_KEY), str):
-            ev["routing_key"] = a[amqp_mod.ROUTING_KEY]
+        _routing_key(ev, a)
         text = a.get("trailbeam.amqp.reply_text")
         if isinstance(text, str) and text:
             ev["reply_text"] = text
@@ -899,10 +906,10 @@ def _amqp_event(r, base: dict, by_row: dict, n_publish: int, latest_on: dict, se
               "operation": _op(r), "redelivered": a.get("trailbeam.amqp.redelivered") is True}
         if r["count_source"] is not None:
             ev["receive_count_source"] = r["count_source"]
-        for name, key in ((amqp_mod.CONSUMER_TAG, "consumer_tag"), ("trailbeam.amqp.exchange", "exchange"),
-                          (amqp_mod.ROUTING_KEY, "routing_key")):
+        for name, key in ((amqp_mod.CONSUMER_TAG, "consumer_tag"), ("trailbeam.amqp.exchange", "exchange")):
             if isinstance(a.get(name), str) and a[name]:
                 ev[key] = a[name]
+        _routing_key(ev, a)
         for name, key in ((amqp_mod.DELIVERY_COUNT, "x_delivery_count"), (amqp_mod.ACQUIRED_COUNT, "x_acquired_count")):
             v = amqp_mod._int(a.get(name))
             if v is not None:

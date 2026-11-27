@@ -11,7 +11,7 @@ send.
 
 The keywords **must**, **must not**, **should** and **may** are used as in RFC 2119.
 
-**Schema version 4 (revision 4.0)** adds broker-neutral kinds (`<family>.<operation>`) and the RabbitMQ
+**Schema version 4 (revision 4.1)** adds broker-neutral kinds (`<family>.<operation>`) and the RabbitMQ
 (AMQP 0-9-1) spans, in [`span-contract-amqp.md`](span-contract-amqp.md). It changes nothing in the SQS and
 SNS spans below: their packages keep sending `trailbeam.schema_version = 3`, and a 4.0 Trailbeam also
 accepts `4` on them with the same meaning.

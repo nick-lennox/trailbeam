@@ -30,6 +30,7 @@ from .systems import RABBITMQ, system_of
 # A12 attribute names
 COUNT_SOURCE = "trailbeam.receive_count.source"
 ROUTING_KEY = "rabbitmq.destination.routing_key"
+ROUTING_KEY_HMAC = "trailbeam.amqp.routing_key.hmac"  # A5, revision 4.1: the routing key was not exported
 DELIVERY_COUNT = "trailbeam.amqp.delivery_count"
 ACQUIRED_COUNT = "trailbeam.amqp.acquired_count"
 CHANNEL = "trailbeam.amqp.channel.id"

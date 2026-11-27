@@ -2657,7 +2657,8 @@ components:
             With `deduplicated`: "SQS returned the same MessageId: this send was deduplicated and enqueued
             nothing". On RabbitMQ: why a publish is marked (`published_again`, or no publisher confirms).
         exchange: {type: string, description: 'RabbitMQ: the exchange the message was published to.'}
-        routing_key: {type: string, description: 'RabbitMQ: the routing key, when not empty.'}
+        routing_key: {type: string, description: 'RabbitMQ: the routing key, when not empty and the package exported it (contract/span-contract-amqp.md A5).'}
+        routing_key_hmac: {type: string, description: 'RabbitMQ: instead of `routing_key`, its keyed hash (32 hex characters), when the package did not export the key because body capture is off for the queue (A5, revision 4.1).'}
         result: {type: string, enum: [ok, failed], description: 'RabbitMQ: `ok` when the broker confirmed the publish (or, without confirms, the frame was written).'}
         error_code: {type: string, description: 'RabbitMQ: why the publish failed (`nack`, a reply-code name, or the client error).'}
         confirmed: {type: boolean, description: 'RabbitMQ: whether the channel was in publisher-confirm mode. Without it, nothing says the broker got the message.'}
@@ -2678,7 +2679,8 @@ components:
         redelivered: {type: boolean, description: 'RabbitMQ: the delivery''s `redelivered` flag.'}
         consumer_tag: {type: string, description: 'RabbitMQ: the consumer tag of a `basic.deliver`.'}
         exchange: {type: string, description: 'RabbitMQ: the exchange the message was published to.'}
-        routing_key: {type: string, description: 'RabbitMQ: the routing key, when not empty.'}
+        routing_key: {type: string, description: 'RabbitMQ: the routing key, when not empty and the package exported it (contract/span-contract-amqp.md A5).'}
+        routing_key_hmac: {type: string, description: 'RabbitMQ: instead of `routing_key`, its keyed hash (32 hex characters), when the package did not export the key because body capture is off for the queue (A5, revision 4.1).'}
         x_delivery_count: {type: integer, description: 'RabbitMQ: the `x-delivery-count` header: failed returns, checked against `x-delivery-limit`.'}
         x_acquired_count: {type: integer, description: 'RabbitMQ: the `x-acquired-count` header: every earlier delivery.'}
         dead_letter:
@@ -3154,6 +3156,7 @@ components:
         type: {const: returned}
         exchange: {type: string}
         routing_key: {type: string}
+        routing_key_hmac: {type: string}
         reply_code: {type: integer}
         reply_text: {type: string}
         reason: {type: string}

@@ -136,15 +136,24 @@ const same = (got, want) => got === want && typeof got === typeof want;
 
 test.describe('the contract emit vectors (A13)', () => {
   let exporter;
-  test.beforeEach(() => {
+  test.afterEach(() => amqplibHooks.uninstall());
+
+  // The package as the case says (A13): the vectors' receipt-hash key, and the case's options.
+  function installFor(c) {
     const m = memoryExporter();
     exporter = m.exporter;
-    amqplibHooks.install({ spanProcessor: m.spanProcessor });
-  });
-  test.afterEach(() => amqplibHooks.uninstall());
+    const options = c.options || {};
+    amqplibHooks.install({
+      spanProcessor: m.spanProcessor,
+      receiptHashKey: VECTORS.context.receipt_hash_key,
+      exportRoutingKeys: Boolean(options.export_routing_keys),
+      ...(options.body_queues ? { capture: { bodyQueues: options.body_queues } } : {}),
+    });
+  }
 
   for (const c of VECTORS.emit) {
     test(c.name, async () => {
+      installFor(c);
       const spans = await play(c.event, exporter);
       assert.deepStrictEqual(spans.map((s) => s.name), c.spans.map((s) => s.span_name));
       const raised = c.event.client && typeof c.event.client === 'object' ? c.event.client.raised : undefined;

@@ -696,6 +696,9 @@ def _details(e: dict) -> list[str]:
     if e.get("queues") and e["type"] == "routed":
         d.append("to " + ", ".join(f"<code>{escape(str(q))}</code>" for q in e["queues"]))
     add("routing key", "routing_key", lambda v: f"<code>{escape(str(v))}</code>")
+    add("routing key", "routing_key_hmac",
+        lambda v: f'<span title="Hashed in your process: body capture is off for this queue">hashed</span> '
+                  f'<code>{escape(str(v))}</code>')
     if e.get("cause"):
         d.append(f'cause <strong>{escape(RETURN_CAUSES.get(e["cause"], str(e["cause"])))}</strong>')
     if e.get("dead_letter_reason"):

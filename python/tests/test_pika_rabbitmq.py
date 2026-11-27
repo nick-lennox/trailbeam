@@ -20,6 +20,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor  # noqa: E402
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter  # noqa: E402
 
 import trailbeam.pika  # noqa: E402
+from trailbeam._contract import resolve_hasher  # noqa: E402
 from trailbeam.server import queries, systems  # noqa: E402
 from trailbeam.server.db import SqliteStore  # noqa: E402
 from trailbeam.server.otlp import decode, to_record  # noqa: E402
@@ -163,7 +164,10 @@ def test_publish_deliver_ack(exporter, names):
 
     pub, = spans_of(exporter, "trailbeam publish")
     assert a(pub) | {} == a(pub) and a(pub)["trailbeam.amqp.confirmed"] is True and a(pub)["trailbeam.result"] == "ok"
-    assert a(pub)["messaging.destination.name"] == "amq.default" and a(pub)["rabbitmq.destination.routing_key"] == q
+    assert a(pub)["messaging.destination.name"] == "amq.default"
+    # body capture off: the routing key stays in the process, as its keyed hash (A5, revision 4.1)
+    assert "rabbitmq.destination.routing_key" not in a(pub)
+    assert a(pub)["trailbeam.amqp.routing_key.hmac"] == resolve_hasher()(q)
     assert a(pub)["messaging.message.body.size"] == len(b'{"order": 1}')
     assert a(pub)["trailbeam.body.capture_status"] == "off"
     deliver, = spans_of(exporter, "trailbeam deliver")
