@@ -29,7 +29,8 @@ sys.path.insert(0, str(ROOT / "python" / "tests" / "server"))
 
 def lambda_spans(t0: int) -> list:
     """Lambda messages from t0 (ns): one that succeeds, one whose invocation never reports an outcome, and one that
-    fails, becomes visible again and succeeds on its second receive (spans.py, the server tests' span builder)."""
+    fails, becomes visible again and succeeds on its second receive; then a worker's message whose visibility timeout
+    it extends, once accepted and once refused, before it deletes it (spans.py, the server tests' span builder)."""
     from spans import Consumer
     fn, producer = Consumer("2026/11/16/[$LATEST]fn", service="billing-fn", source="lambda", queue="billing"), \
         Consumer("producer", service="checkout", queue="billing")
@@ -40,6 +41,11 @@ def lambda_spans(t0: int) -> list:
             fn.outcome(t0 + 6 * SEC, "m-fn-retry", "failed_exception", "inv-r1", error_type="RuntimeError"),
             fn.receive(t0 + 45 * SEC, "m-fn-retry", "rh-r2", count=2, lambda_inv="inv-r2"),
             fn.outcome(t0 + 46 * SEC, "m-fn-retry", "success", "inv-r2")]
+    worker = Consumer("worker-1", service="orders-worker", queue="orders")
+    out += [producer.send(t0 + 50 * SEC, "m-vis", queue="orders"), worker.receive(t0 + 51 * SEC, "m-vis", "rh-v"),
+            worker.change_visibility(t0 + 52 * SEC, "rh-v", 120, mid="m-vis"),
+            worker.change_visibility(t0 + 53 * SEC, "rh-v", 300, mid="m-vis", ok=False),
+            worker.delete(t0 + 54 * SEC, "rh-v", mid="m-vis")]
     for i, sp in enumerate(out, 1):  # fixed IDs, so a new recording is the same file
         sp.trace_id, sp.span_id = i.to_bytes(16, "big"), (0xF000 + i).to_bytes(8, "big")
     return out
