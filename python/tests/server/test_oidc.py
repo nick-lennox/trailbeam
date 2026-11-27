@@ -17,6 +17,7 @@ import pytest
 
 pytest.importorskip("jwt")
 
+from elsewhere import Elsewhere  # noqa: E402
 from oidc_fake import FakeIdP  # noqa: E402
 
 from trailbeam.server import __main__ as main_mod, oidc  # noqa: E402
@@ -392,6 +393,44 @@ def test_a_provider_that_is_down(store):
         assert r.status == 502 and "can&#x27;t be reached" in r.text
     finally:
         t.close()
+
+
+@pytest.fixture
+def elsewhere():
+    e = Elsewhere()
+    yield e
+    e.close()
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_a_token_endpoint_redirect_is_not_followed(tb, idp, elsewhere, status):
+    """On a 301/302/303 urllib would turn the POST into a GET and keep ``Authorization: Basic <client id:secret>``,
+    so the client secret would go to the other host."""
+    _admin(tb)
+    idp.redirects["/realms/test/token"] = (status, elsewhere.url + "/steal")
+    r = tb.sign_in(tb.browser())
+    assert r.status == 502 and "sent an answer this server can&#x27;t read" in r.text
+    assert elsewhere.requests == [] and idp.token_requests == []
+
+
+def test_a_userinfo_redirect_is_not_followed(tb, idp, elsewhere):
+    """It would send the access token (``Authorization: Bearer``)."""
+    _admin(tb)
+    idp.claims = {"email": None, "email_verified": None}  # so the server asks userinfo
+    idp.userinfo_claims = {"email": "from-userinfo@example.com", "email_verified": True}
+    idp.redirects["/realms/test/userinfo"] = (302, elsewhere.url + "/steal")
+    r = tb.sign_in(tb.browser())
+    assert r.status == 502 and "sent an answer this server can&#x27;t read" in r.text
+    assert elsewhere.requests == []
+    assert tb.app.accounts.user_by_email("from-userinfo@example.com") is None
+
+
+def test_a_discovery_redirect_is_not_followed(tb, idp, elsewhere):
+    _admin(tb)
+    idp.redirects["/realms/test/.well-known/openid-configuration"] = (302, elsewhere.url + "/steal")
+    r = tb.browser().get("/login/oidc")
+    assert r.status == 502 and "sent an answer this server can&#x27;t read" in r.text
+    assert elsewhere.requests == []
 
 
 # ---- groups and roles ---------------------------------------------------------------------------------------
