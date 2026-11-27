@@ -84,7 +84,7 @@ import time
 from dataclasses import dataclass
 
 from . import __version__
-from . import account_tables
+from . import account_tables, alerts_store
 from .migrations import SchemaError, SchemaTooNew
 
 # Partitioned tables: one partition of each per place.
@@ -478,7 +478,7 @@ CREATE TABLE IF NOT EXISTS hash_places (
     bucket BIGINT NOT NULL,
     PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
 ) PARTITION BY RANGE (rclass, bucket);
-""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + QUEUE_CREATE + SNS + account_tables.PG_OIDC + STEP_CREATE + EVENTBRIDGE + S3 + S3_IDS + """
+""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + QUEUE_CREATE + SNS + account_tables.PG_OIDC + STEP_CREATE + EVENTBRIDGE + S3 + S3_IDS + alerts_store.PG_CREATE + """
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
@@ -874,8 +874,11 @@ MIGRATIONS: tuple = (
     # Version 19 (QV-562): the eTag and versionId of a receive's S3 notification, which the join compares with the
     # upload's. Rows stored before it have neither: their join is 3.7's, by bucket, key and time.
     Migration(19, "S3 notification eTag and versionId (QV-562)", tuple(statements(S3_IDS))),
+    # Version 20 (QV-650): the alert tables (alerts_store.py: rules, channels, state, checks and leases), new and
+    # empty. Not partitioned: they hold no spans, and retention never touches them.
+    Migration(20, "alert rules, channels, state and checks (QV-650)", tuple(statements(alerts_store.PG_CREATE))),
 )
-LATEST = 19
+LATEST = 20
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 

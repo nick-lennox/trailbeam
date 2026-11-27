@@ -5,7 +5,8 @@
   the Overview at /overview (overview.tsx; /queues redirects there), a queue's page at /queue?name=<queue>
   (queue.tsx), the Event explorer at /events (events.tsx), for admins the People page at /people (people.tsx),
   and for anyone signed in the Tokens page at /tokens (tokens.tsx). They read Trailbeam's own
-  API on the same origin. Without the build, or with scripts off, the server's HTML pages answer instead.
+  API on the same origin, and move between pages through the shared Nav on the browser's history. Without the
+  build, or with scripts off, the server's HTML pages answer instead.
 */
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -14,6 +15,7 @@ import {
   noTenantsText, storeIsEmpty, tenantsEmpty, tenantsFootnote,
   type EmptyStateProps, type MessageBody, type TenantStats, type Timeline,
 } from "../src/index.ts";
+import { HistoryNav, usePath } from "../src/design/index.ts";
 import { ApiError, CopyLink, Header, bodyAccess, getHealth, getJSON, messageHref, tenantHref, useMe } from "./chrome.tsx";
 import { HomePage } from "./home.tsx";
 import { EventsPage } from "./events.tsx";
@@ -183,5 +185,11 @@ function MessagePage() {
 }
 
 const PAGES: Record<string, () => React.JSX.Element> = { "/": HomePage, "/duplicates": DuplicatesPage, "/stuck": StuckPage, "/tenants": TenantsPage, "/queue": QueueShellPage, "/queues": QueuesRedirect, "/overview": OverviewPage, "/events": EventsPage, "/people": PeoplePage, "/tokens": TokensPage };
-const App = PAGES[location.pathname] ?? MessagePage;
-createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);
+/* The shell's Nav is the browser's history (HistoryNav): a view that moves with the Nav's push changes the page
+   without a full load. The page is keyed on the Nav's version, so it reads location and its data again. */
+function App() {
+  const path = usePath();
+  const Page = PAGES[path] ?? MessagePage;
+  return <Page />;
+}
+createRoot(document.getElementById("root")!).render(<StrictMode><HistoryNav>{(v) => <App key={v} />}</HistoryNav></StrictMode>);

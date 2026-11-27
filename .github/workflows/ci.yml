@@ -267,6 +267,9 @@ jobs:
       - name: Postgres store tests
         if: matrix.part == 'store'
         run: pytest -q tests/server/test_postgres.py
+      - name: Alert tables on Postgres (rules, channels, state, the lease taken by one of two stores)
+        if: (success() || failure()) && matrix.part == 'store'
+        run: pytest -q tests/server/test_alerts_store.py
       - name: Fault tests on Postgres (SIGKILL, retries, disorder, a replica killed)
         if: matrix.part == 'server'
         run: pytest -q tests/server/test_faults.py
