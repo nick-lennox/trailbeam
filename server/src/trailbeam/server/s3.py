@@ -18,6 +18,7 @@ it, or for a failed call) and every attribute in ``attributes``; its ``mid`` is 
 - the event's ``eTag`` and ``versionId``, which a receive records with the key (QV-562), are the
   upload's ETag (quotes aside) and VersionId, each where both sides have it: another process's write of the same key
   in the window (one the packages did not see) has another version ID, or another ETag unless its bytes are the same;
+  and where the upload has an ETag, the event has one (QV-565): an event without one is not S3's;
 - and exactly one recorded upload meets all of the above. Two (the same key written twice within a few seconds) join
   neither: the receive keeps its inferred "S3 object created" step rather than show the wrong sender.
 
@@ -124,9 +125,14 @@ def _unquoted(etag: str) -> str:
 
 
 def _same_write(u: Mapping, n: Notification) -> bool:
-    """False when the upload's ETag or VersionId and the event's differ: another write of the key. A side without
-    one (a package that does not read them, an unversioned bucket) does not rule the upload out."""
+    """False when the upload's ETag or VersionId and the event's differ: another write of the key. False too when the
+    upload has an ETag and the event has none (QV-565): S3 writes ``eTag`` in every ObjectCreated record, and a
+    receive that records the key records it too (23.2), so an event without one is not S3's (a notification made by
+    hand and sent to the queue). A missing VersionId does not rule the upload out: an unversioned bucket's event has
+    none, and moto's has none even in a versioned bucket (27.4)."""
     a = sns_mod.attributes(u)
+    if isinstance(a.get(ETAG), str) and not isinstance(n.etag, str):
+        return False
     for theirs, ours, norm in ((n.etag, a.get(ETAG), _unquoted), (n.version_id, a.get(VERSION_ID), str)):
         if isinstance(theirs, str) and isinstance(ours, str) and norm(theirs) != norm(ours):
             return False

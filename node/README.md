@@ -359,6 +359,8 @@ Otherwise the message keeps its inferred "S3 *event*" step. On a captured queue 
 `eTag` and `versionId`, so a write of the same key by a process without Trailbeam (the console, `aws s3 cp`) a moment
 later is not taken for your upload. The one case it can't tell apart: a bucket without versioning, and a write of the
 same bytes (the same ETag).
+Nor can a receive show that S3 sent the notification: anyone who may `SendMessage` to the queue can post one by hand,
+and with the bucket, key, time and ETag right it joins your upload (contract section 27.3).
 
 ```js
 const { S3Client } = require('@aws-sdk/client-s3');

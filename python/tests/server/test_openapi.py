@@ -799,6 +799,7 @@ def _scenario_spans():
         p.s3_upload(T0 + SEC, bucket="photos", error="AccessDenied", start=T0),
         Consumer("thumbs", queue="photo-events").s3_receive(T0 + 3 * SEC, "via-s3-upload", "rh-s3", bucket="photos",
                                                               key="red+flower.jpg",
+                     etag="9dd4e461268c8034f5c8564e155c67a6", version_id="v1",
                      event_time_ms=T0 // ms + 800, sent_ms=T0 // ms + 1000, start=T0 + 2 * SEC),
     ]
 

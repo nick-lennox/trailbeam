@@ -56,8 +56,13 @@ def upload(t=T0 + SEC, **kw):
     return U.s3_upload(t, start=T0, **kw)
 
 
+ETAG = "9dd4e461268c8034f5c8564e155c67a6"  # the upload's ETag as the event has it: no quotes
+
+
 def received(c, mid, t=T0 + 3 * SEC, et=T0_MS + 800, **kw):
+    """A receive of the upload's notification on a captured queue: the key and, as S3 writes it, the upload's eTag."""
     kw.setdefault("key", ENCODED)
+    kw.setdefault("etag", ETAG)
     return c.s3_receive(t, mid, f"rh-{mid}", event_time_ms=et, sent_ms=T0_MS + 1100, start=t - SEC, **kw)
 
 
@@ -115,9 +120,6 @@ def test_what_does_not_join(new_store, why, up, rec):
     assert types(queries.message(s, "sqs-a", NOW, LT)) == ["s3_event", "received"], why
 
 
-ETAG = "9dd4e461268c8034f5c8564e155c67a6"  # the upload's ETag as the event has it: no quotes
-
-
 def test_another_process_s_write_of_the_key_is_not_joined(new_store):
     # QV-562: a write of the same key the packages did not see (the console, a Lambda without Trailbeam), finished
     # within the recorded call's window. Its event names another version, so it keeps its inferred step, and the
@@ -136,7 +138,8 @@ def test_another_process_s_write_of_the_key_is_not_joined(new_store):
 @pytest.mark.parametrize("why,rec,joins", [
     ("the same ETag and version ID", {"etag": ETAG, "version_id": "v1"}, True),
     ("the ETag only (an unversioned bucket's event)", {"etag": ETAG}, True),
-    ("neither (a receive from a package that does not read them)", {}, True),
+    ("the version ID only", {"etag": None, "version_id": "v1"}, False),
+    ("neither", {"etag": None}, False),
     ("another version ID", {"etag": ETAG, "version_id": "v2"}, False),
     ("another ETag, no version ID", {"etag": "0cc175b9c0f1b6a831c399e269772661"}, False),
     ("the ETag with its quotes is still the same", {"etag": f'"{ETAG}"', "version_id": "v1"}, True),
@@ -146,6 +149,24 @@ def test_the_event_s_etag_and_version_id(new_store, why, rec, joins):
     put(s, upload(version_id="v1"), received(C, "sqs-a", **rec))
     t = queries.message(s, "sqs-a", NOW, LT)
     assert types(t) == (["s3_upload", "received"] if joins else ["s3_event", "received"]), why
+
+
+def test_a_notification_made_by_hand_without_an_etag_is_not_joined(new_store):
+    # QV-565: anyone who may SendMessage to a captured queue, and knows the bucket, the key and about when it was
+    # written, can post an ObjectCreated record of their own. Without the eTag S3 writes in every such record, it
+    # joins nothing: its message keeps the inferred step, and the upload's reached list has only S3's message.
+    s = new_store()
+    put(s, upload(), received(C, "sqs-a"), received(B, "forged", t=T0 + 4 * SEC, etag=None))
+    assert types(queries.message(s, "forged", NOW, LT)) == ["s3_event", "received"]
+    a = queries.message(s, "sqs-a", NOW, LT)["events"][0]
+    assert a["type"] == "s3_upload" and a["reached"] == [{"queue": "orders", "message_ids": ["sqs-a"]}]
+
+
+def test_an_upload_without_an_etag_joins_an_event_without_one(new_store):
+    # The upload records no ETag when the response's is not valid (27.1); then nothing is compared.
+    s = new_store()
+    put(s, upload(etag=None), received(C, "sqs-a", etag=None))
+    assert types(queries.message(s, "sqs-a", NOW, LT)) == ["s3_upload", "received"]
 
 
 def test_two_keys_that_redact_alike_join_by_etag(new_store):
@@ -209,7 +230,7 @@ def test_an_overwrite_later_joins_its_own_upload(new_store):
     s = new_store()
     later = U.s3_upload(T0 + 31 * SEC, key=KEY, etag='"second"', start=T0 + 30 * SEC)
     put(s, upload(), later, received(C, "sqs-a"),
-        received(C, "sqs-b", t=T0 + 33 * SEC, et=T0_MS + 30_800))
+        received(C, "sqs-b", t=T0 + 33 * SEC, et=T0_MS + 30_800, etag="second"))
     a, b = queries.message(s, "sqs-a", NOW, LT)["events"][0], queries.message(s, "sqs-b", NOW, LT)["events"][0]
     assert a["etag"] == '"9dd4e461268c8034f5c8564e155c67a6"' and b["etag"] == '"second"'
     assert a["reached"] == [{"queue": "orders", "message_ids": ["sqs-a"]}]
