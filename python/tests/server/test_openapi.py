@@ -793,10 +793,12 @@ def _scenario_spans():
         p.put_event(T0 + SEC, error="ThrottlingException", index=1, start=T0),
         c.eb_receive(T0 + 3 * SEC, "via-put-events", "rh-e3", "11710aed-b79e-4468-a20b-bb3c0c3b4860",
                      time_ms=T0 // ms, sent_ms=T0 // ms + 400, start=T0 + 2 * SEC),
-        # s3_upload: a recorded PutObject joined by bucket, key and event time (contract 27.3), and a failed one
+        # s3_upload: a recorded PutObject joined by bucket, key and event time (contract 27.3), and a failed one. The
+        # keys are stored only with the server's opt-in for the bucket and the queue (QV-564; the test opts them in)
         p.s3_upload(T0 + SEC, bucket="photos", key="red flower.jpg", version_id="v1", start=T0),
         p.s3_upload(T0 + SEC, bucket="photos", error="AccessDenied", start=T0),
-        c.s3_receive(T0 + 3 * SEC, "via-s3-upload", "rh-s3", bucket="photos", key="red+flower.jpg",
+        Consumer("thumbs", queue="photo-events").s3_receive(T0 + 3 * SEC, "via-s3-upload", "rh-s3", bucket="photos",
+                                                              key="red+flower.jpg",
                      event_time_ms=T0 // ms + 800, sent_ms=T0 // ms + 1000, start=T0 + 2 * SEC),
     ]
 
@@ -814,6 +816,7 @@ def test_every_step_type_notice_and_state_in_the_file_is_answered(db, record_api
     c = contract()
     now = T0 + 120 * SEC
     app = server.App(db, ui_dir=None, now=lambda: now, max_receive_counts={"orders": 3})
+    db.store_bodies = frozenset({"photos", "photo-events"})  # the S3 keys the s3_upload join needs (QV-564)
     with serve(app) as base:
         load_fixture(base)
         status, _, _ = request(base, "POST", "/v1/traces", to_proto(_scenario_spans()).SerializeToString(),
