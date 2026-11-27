@@ -317,6 +317,11 @@ Contract section 27. `install()` also hooks boto3 `s3` clients: each `PutObject`
 - **Never recorded**: the object's contents, its user metadata (`Metadata`), `CopySource`, tags, checksums, encryption
   keys, and the response's `Location`.
 
+`*` in `body_queues` covers every bucket, so upgrading to 0.5.0 with `*` in the list (or with a queue named like a
+bucket) starts exporting the object key of every upload; `install()` has no option to leave S3 clients out. The server
+stores a key only for a bucket that `TRAILBEAM_STORE_BODIES` names, or for every bucket when it is `*`. Object keys
+often hold user IDs or file names: to keep them out, list queues by name instead of `*`, here and on the server.
+
 Trailbeam joins the upload to the SQS messages its bucket notification sent, by bucket, object key and event time. A
 receive records the key only on a queue whose body is captured (next section), so the join needs body capture on both
 sides: for the bucket in the uploading process, and for the queue in the receiving one. Where either is off, the
