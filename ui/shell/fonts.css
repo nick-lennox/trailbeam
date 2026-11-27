@@ -1,0 +1,21 @@
+/*
+  The design system's three families, bundled so a self-hosted Trailbeam makes no requests to outside
+  services. The variables are the ones next/font sets in the hosted app, so design.css reads the same
+  names in both products: Newsreader for the wordmark and headings, Instrument Sans for reading and UI,
+  IBM Plex Mono for values only.
+*/
+@import "@fontsource/newsreader/latin-400.css";
+@import "@fontsource/newsreader/latin-500.css";
+@import "@fontsource/newsreader/latin-400-italic.css";
+@import "@fontsource/instrument-sans/latin-400.css";
+@import "@fontsource/instrument-sans/latin-500.css";
+@import "@fontsource/instrument-sans/latin-600.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "@fontsource/ibm-plex-mono/latin-600.css";
+
+:root {
+  --font-newsreader: "Newsreader";
+  --font-instrument: "Instrument Sans";
+  --font-plex-mono: "IBM Plex Mono";
+}

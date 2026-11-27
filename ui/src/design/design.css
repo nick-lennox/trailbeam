@@ -1,0 +1,30 @@
+/*
+  Trailbeam's design system for Tailwind v4: the tokens, the app's night and day themes, and the
+  styles of the design components (@trailbeam/ui/design). Import it after tailwindcss and point
+  Tailwind at this package so it makes the classes the components use:
+
+    @import "tailwindcss";
+    @import "@trailbeam/ui/design.css";
+    @source "../node_modules/@trailbeam/ui/dist";
+
+  It is tokens.css (the tokens and themes) and base.css (the page's ground, selection and focus). A page
+  that keeps its own base styles imports "@trailbeam/ui/tokens.css" alone, as the open-source shell does.
+
+  Fonts are named through three CSS variables, the ones next/font sets in the hosted app:
+  --font-newsreader, --font-instrument and --font-plex-mono. The open-source shell bundles the same
+  families with fontsource and sets the variables itself (ui/shell/fonts.css).
+
+  Night is the default theme. The theme provider (AppThemeProvider) puts data-app-theme="night" or
+  "day" on its element; the day values are the tokens below, the night values are in the
+  [data-app-theme="night"] scope further down, under the same names, so a component follows the
+  theme without knowing about it.
+
+  Rules
+  - Components use tokens only. No raw hex in TSX.
+  - Brand violet is for actions and emphasis only. It never encodes data.
+  - Series colors encode data. Status colors encode state and always ship
+    with an icon and a label, never color alone.
+  - Text pairs are checked to WCAG AA (4.5:1) on their intended surface.
+*/
+@import "./tokens.css";
+@import "./base.css";
