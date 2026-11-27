@@ -5,7 +5,7 @@ Trailbeam is open source under two licences, from release 0.5.0 on:
 - **The client libraries and everything you put in your own services or infrastructure are Apache License 2.0.**
 - **Trailbeam's server and its web UI are GNU Affero General Public License v3.0 only (AGPL-3.0-only).**
 
-Releases 0.3.0 and 0.4.0 were Apache 2.0 throughout, and they stay Apache 2.0: a licence on code you already have
+Releases 0.4.0 and earlier were Apache 2.0 throughout, and they stay Apache 2.0: a licence on code you already have
 can't be taken back. What changes is the licence of the server and the UI in 0.5.0 and later.
 
 ## Which part is under which licence
@@ -31,13 +31,18 @@ can't be taken back. What changes is the licence of the server and the UI in 0.5
 | `python/tests/conformance/` | AGPL-3.0-only | The store conformance suite (tests of the server's store) |
 | `python/bench/` | AGPL-3.0-only | Benchmarks of the server |
 | `python/smoke/` | AGPL-3.0-only | Smoke, upgrade and backup checks of the server |
-| everything else at the root | AGPL-3.0-only | The root `Dockerfile` (the server's image), `scripts/`, `.github/`, the docs |
+| everything else at the root | AGPL-3.0-only | The root `Dockerfile` (the server's image), `scripts/`, `.github/`, the docs (but see code samples below) |
+| `assets/` | neither | The logo (see below) |
 
 The container image `ghcr.io/nick-lennox/trailbeam` is the server, so it is labelled AGPL-3.0-only. The Helm
 chart and the Compose file that run it are Apache-2.0: you can copy and change them freely, and running the image
 with them doesn't put them under the AGPL.
 
-The names Trailbeam and the logo are not covered by either licence.
+Code samples in the README, `CONTRIBUTING.md` and the other docs (the commands, configuration and code you copy into
+your own services and infrastructure) are Apache-2.0, like the libraries they show, though the docs themselves sit
+under the root's AGPL-3.0-only.
+
+The name Trailbeam and the logo (`assets/`) are not covered by either licence.
 
 ## What this means for you
 
@@ -48,12 +53,14 @@ it is under. Sending spans to a Trailbeam server, self-hosted or hosted, doesn't
 
 **You run the server unchanged**, for your team or company, in a container or with `pip install trailbeam-server`.
 You can do that freely, as before. The AGPL's conditions apply when you *modify* the server and let other people
-use it.
+use it, and when you hand out copies of it (see below).
 
 **You modify the server or the UI and let other people use it over a network.** Then the AGPL asks you to offer
 those users the source code of your modified version, under the AGPL. Changing its configuration (flags,
-environment variables, the Helm values) isn't modifying it. If you hand out copies of a modified server, the same
-applies to the people who get them.
+environment variables, the Helm values) isn't modifying it.
+
+**You hand out copies of the server or the UI, changed or not**: you mirror the image, or ship it in an appliance or
+an installer. Then include the licence and offer the source to the people who get them, as the AGPL asks.
 
 **You want to embed the server in a closed-source product, or offer a modified version without publishing your
 changes.** Ask us for a commercial licence.
@@ -74,25 +81,27 @@ This section is a plain-language summary. The licence texts in each `LICENSE` fi
   Foundation, apply to the server without us choosing it. With "only", the copyright holder decides if and when to
   move to a new version.
 - **SPDX lines.** Files don't need a licence header: their folder decides. A file whose licence differs from its
-  folder's says so in one of its first five lines:
+  folder's says so in one of its first five lines, with nothing else on the line (an explanation goes on the next
+  line, so that scanners can read the identifier):
 
   ```
   # SPDX-License-Identifier: AGPL-3.0-only
   ```
 
-  `docker-compose.yaml` and `.env.example` are marked Apache-2.0 this way, and a few library tests that import the
-  server to check what it makes of the library's spans are marked AGPL-3.0-only.
+  `docker-compose.yaml` and `.env.example` are marked Apache-2.0 this way; in an AGPL folder only the files that
+  `scripts/licences.py` lists (`EXPECTED_FILES`) may be. Marked AGPL-3.0-only are the library
+  tests that import the server to check what it makes of the library's spans (in `python/tests/` and `node/test/`),
+  and `deploy/monitoring/seed.py`, which uses the server's test helpers.
   So are the fixture generators in `contract/fixtures/` that import the server to write the expected results
   (`make-body-views.py`, `make-alerts-*.py`, `make-measures-parity.py`): a new generator that imports
-  `trailbeam.server` needs the line `# SPDX-License-Identifier: AGPL-3.0-only (imports the server; LICENSING.md)`,
-  or the check below fails. The fixtures they write stay Apache-2.0.
+  `trailbeam.server` needs that line, or the check below fails. The fixtures they write stay Apache-2.0.
 - **New files** go in the folder whose licence they should have. A new library file must not import the server
   (`trailbeam.server`) or the UI (`@trailbeam/ui`), or any AGPL file. Tests that need the server go in
   `python/tests/server/`, or start the server as a program (`python -m trailbeam.server`, the container image), which
   is allowed from Apache-2.0 code: it isn't an import.
 - **The check.** `python3 scripts/licences.py check` checks all of this: every `LICENSE` text, the folders above,
-  the licence in each package manifest and the image label, SPDX lines, and that no Apache-2.0 file imports an
-  AGPL-3.0 one. CI runs it on every pull request (the *Changelog* job).
+  the licence in each package manifest and the image label, SPDX lines, that the Apache-2.0 `trailbeam` sdist
+  leaves out the tests (`python/MANIFEST.in`), and that no Apache-2.0 file imports an AGPL-3.0 one. CI runs it on every pull request (the *Changelog* job).
   `python3 scripts/licences.py which PATH` says which licence a file is under, and why.
 
 The `trailbeam` Python library's `server`, `postgres` and `sso` extras install `trailbeam-server` (so that

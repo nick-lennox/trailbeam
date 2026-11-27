@@ -31,9 +31,9 @@ Everything is open source. From 0.5.0, two licences ([LICENSING.md](LICENSING.md
 | Part | Licence | Installing a library in your service | Running or modifying the server |
 | --- | --- | --- | --- |
 | Client libraries (Python, Node.js, Java, .NET, Go), the span contract, the conformance kit, examples, demo, Helm chart, Compose file | [Apache-2.0](python/LICENSE) | Nothing changes: Apache 2.0 as before, and no server code in them | Use, change and ship them freely |
-| The server (`trailbeam-server`, the container image) and the web UI (`@trailbeam/ui`) | [AGPL-3.0-only](server/LICENSE) | Doesn't apply: your service only sends spans to the server | Run it unchanged freely. If you modify it and let others use it over a network, offer them your version's source under the AGPL, or ask us for a commercial licence |
+| The server (`trailbeam-server`, the container image) and the web UI (`@trailbeam/ui`) | [AGPL-3.0-only](server/LICENSE) | Doesn't apply: your service only sends spans to the server | Run it unchanged freely. If you modify it and let others use it over a network, offer them your version's source under the AGPL, or ask us for a commercial licence. If you hand out copies, changed or not, include the licence and offer the source |
 
-Releases 0.3.0 and 0.4.0 stay Apache 2.0 throughout.
+Releases 0.4.0 and earlier stay Apache 2.0 throughout.
 
 ## What is Trailbeam?
 
@@ -1990,5 +1990,5 @@ part you changed. If your change alters a span, update
 
 The client libraries, the span contract, the conformance kit, the examples, the demo, the Helm chart and the
 Compose file are [Apache-2.0](python/LICENSE). The server and the web UI are [AGPL-3.0-only](LICENSE) from 0.5.0;
-0.3.0 and 0.4.0 are Apache-2.0. [LICENSING.md](LICENSING.md) says which folder is under which, and what that
+0.4.0 and earlier are Apache-2.0. [LICENSING.md](LICENSING.md) says which folder is under which, and what that
 means for you.

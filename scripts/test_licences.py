@@ -47,6 +47,8 @@ class TheRealRepository(unittest.TestCase):
         self.assertEqual(t.licence("docker-compose.yaml"), licences.APACHE)
         self.assertEqual(t.licence("Dockerfile"), licences.AGPL)
         self.assertEqual(t.licence("python/tests/server/conftest.py"), licences.AGPL)
+        self.assertEqual(t.licence("assets/banner.gif"), licences.NOT_LICENSED)
+        self.assertEqual(t.licence("deploy/monitoring/seed.py"), licences.AGPL)
 
 
 class Licences(unittest.TestCase):
@@ -77,6 +79,34 @@ class Licences(unittest.TestCase):
                                                                        "pom.xml")],
                          ["AGPL-3.0-only", "Apache-2.0", "AGPL-3.0-only", "Apache-2.0"])
 
+    def test_a_stray_licence_file_fails(self):
+        # A copy of the Apache text inside the server would relabel the whole folder under it.
+        r = Repo({"server/LICENSE": AGPL_TEXT, "server/src/x/LICENSE": APACHE_TEXT, "server/src/x/db.py": ""})
+        found = licences.licence_file_problems(r.tree)
+        self.assertTrue(any(p.startswith("server/src/x/LICENSE is in a folder") for p in found), found)
+
+    def test_an_apache_spdx_line_in_an_agpl_folder_fails_unless_listed(self):
+        r = Repo({"srv/a.py": "# SPDX-License-Identifier: Apache-2.0\n", "docker-compose.yaml":
+                  "# SPDX-License-Identifier: Apache-2.0\n", "lib/b.py": "# SPDX-License-Identifier: AGPL-3.0-only\n"})
+        found = licences.spdx_problems(r.tree)
+        self.assertEqual([p.split(":")[0] for p in found], ["srv/a.py"])
+
+    def test_an_spdx_line_must_be_a_plain_identifier(self):
+        r = Repo({"lib/a.py": "# SPDX-License-Identifier: Apache-2.0 OR MIT\n",
+                  "lib/b.py": "# SPDX-License-Identifier: AGPL-3.0-only (a remark)\n",
+                  "lib/c.py": "# SPDX-License-Identifier:\n",
+                  "lib/d.css": "/* SPDX-License-Identifier: Apache-2.0 */\n",
+                  "lib/e.html": "<!-- SPDX-License-Identifier: AGPL-3.0-only -->\n",
+                  "lib/f.py": "# SPDX-License-Identifier: AGPL-3.0-only\n# A remark on the next line.\n"})
+        self.assertEqual(sorted(p.split(":")[0] for p in licences.spdx_problems(r.tree)),
+                         ["lib/a.py", "lib/b.py", "lib/c.py"])
+        self.assertEqual(r.tree.licence("lib/e.html"), licences.AGPL)
+
+    def test_the_sdist_must_leave_the_tests_out(self):
+        r = Repo({"python/pyproject.toml": "", "python/MANIFEST.in": "prune tests\nprune bench\n"})
+        self.assertEqual(len(licences.sdist_problems(r.tree)), 1)
+        self.assertIn("prune smoke", licences.sdist_problems(r.tree)[0])
+
 
 class Imports(unittest.TestCase):
     def test_a_library_importing_the_server_fails(self):
@@ -106,6 +136,20 @@ class Imports(unittest.TestCase):
         found = r.imports()
         self.assertEqual(len(found), 1)
         self.assertIn("srv/helper.py", found[0])
+
+    def test_a_relative_import_of_the_server_from_a_src_folder_fails(self):
+        r = Repo({"lib/src/trailbeam/__init__.py": "", "lib/src/trailbeam/a.py": "from .server import db\n",
+                  "lib/src/trailbeam/b.py": "from . import server\n",
+                  "lib/src/trailbeam/hooks/c.py": "from ..server.web import app\n",
+                  "lib/src/trailbeam/d.py": "from . import boto\nfrom .servers import x\n"})
+        self.assertEqual(sorted(p.split(":")[0] for p in r.imports()),
+                         ["lib/src/trailbeam/a.py", "lib/src/trailbeam/b.py", "lib/src/trailbeam/hooks/c.py"])
+
+    def test_absolute_module(self):
+        self.assertEqual(licences.absolute_module("python/src/trailbeam/boto.py", "server", 1), "trailbeam.server")
+        self.assertEqual(licences.absolute_module("python/src/trailbeam/x/y.py", "server.db", 2), "trailbeam.server.db")
+        self.assertIsNone(licences.absolute_module("python/src/trailbeam/boto.py", "x", 3))
+        self.assertIsNone(licences.absolute_module("python/tests/a.py", "x", 1))
 
     def test_a_name_in_both_licences_is_judged_by_the_one_next_to_it(self):
         r = Repo({"srv/util.py": "", "lib/util.py": "", "lib/a.py": "import util\n"})

@@ -10,14 +10,20 @@ LICENSE file in the nearest folder above it, unless one of its first lines says 
     python3 scripts/licences.py which PATH...   # the licence of each file, and why
 
 `check` fails when:
-- a LICENSE file isn't exactly the Apache-2.0 or the AGPL-3.0 text (whitespace aside);
+- a LICENSE file isn't exactly the Apache-2.0 or the AGPL-3.0 text (whitespace aside), or is in a folder EXPECTED
+  doesn't list (a stray copy would relabel everything under it);
 - a folder in EXPECTED has no LICENSE of its own, or the wrong one;
 - a manifest's licence metadata (pyproject.toml, package.json, pom.xml, Directory.Build.props, Chart.yaml, the
   server's Dockerfile label) disagrees with EXPECTED_METADATA;
-- an SPDX line names a licence other than these two, or a file of EXPECTED_FILES lacks its line;
+- an SPDX line isn't exactly one of these two licences, or a file of EXPECTED_FILES lacks its line;
+- an Apache-2.0 SPDX line is on a file in an AGPL-3.0 folder that isn't in EXPECTED_FILES (an SPDX line may make a
+  file stricter than its folder, but only the listed files may make it looser);
+- python/MANIFEST.in doesn't keep the tests, benchmarks and smoke checks out of the Apache-2.0 sdist (some import
+  the server and are AGPL-3.0-only);
 - an Apache-2.0 file imports an AGPL-3.0 one. Python (parsed with ast) and JavaScript or TypeScript import, require
   and export-from: ``trailbeam.server`` and ``@trailbeam/ui`` are AGPL, and so is a relative import that lands in
-  an AGPL file. Java, Go and .NET can't import the server's Python or the UI's TypeScript, so they aren't scanned.
+  an AGPL file or, under a ``src/`` folder, names ``trailbeam.server`` (``from .server import db`` in the library:
+  trailbeam-server installs into the library's own ``trailbeam/`` folder). Java, Go and .NET can't import the server's Python or the UI's TypeScript, so they aren't scanned.
   Starting the server as a program (``python -m trailbeam.server``, the container image) or calling its HTTP API
   is not an import and is allowed: that is how the libraries' tests and the examples use it.
 - LICENSING.md doesn't list a folder of EXPECTED.
@@ -96,11 +102,18 @@ EXPECTED_FILES = {
     ".env.example": APACHE,
 }
 
+# Folders under neither licence: the logo, like the name Trailbeam, is a trademark (LICENSING.md).
+NOT_LICENSED_FOLDERS = ("assets",)
+NOT_LICENSED = "neither licence"
+
 # Imports of a module or package name that is AGPL, wherever it is installed from.
 AGPL_PYTHON = ("trailbeam.server",)
 AGPL_JS = ("@trailbeam/ui",)
 
-SPDX = re.compile(r"SPDX-License-Identifier:\s*([A-Za-z0-9.+-]+)")
+# The whole rest of the line is the licence expression (a comment's closing */ or --> aside), so that
+# "Apache-2.0 OR MIT" or a remark after the identifier is not read as plain Apache-2.0. The check accepts only the two
+# plain identifiers: an explanation goes on the next line.
+SPDX = re.compile(r"SPDX-License-Identifier:[ \t]*(.*?)[ \t]*(?:\*/|-->)?[ \t]*$")
 PY_EXT = {".py"}
 JS_EXT = {".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".mts", ".cts"}
 JS_IMPORT = re.compile(
@@ -137,7 +150,7 @@ class Tree:
             except OSError:
                 head = []
             m = next((m for line in head if (m := SPDX.search(line))), None)
-            self._spdx[f] = m.group(1) if m else None
+            self._spdx[f] = (m.group(1) or "(empty)") if m else None
         return self._spdx[f]
 
     def folder_licence(self, f: str) -> tuple[str | None, str]:
@@ -149,10 +162,17 @@ class Tree:
                 return self.licence_files[folder], folder
         return None, ""
 
+    def not_licensed(self, f: str) -> bool:
+        return PurePosixPath(f).parts[0] in NOT_LICENSED_FOLDERS
+
     def licence(self, f: str) -> str | None:
+        if self.not_licensed(f):
+            return NOT_LICENSED
         return self.spdx(f) or self.folder_licence(f)[0]
 
     def why(self, f: str) -> str:
+        if self.not_licensed(f):
+            return f"{NOT_LICENSED} (the logo is a trademark; LICENSING.md)"
         if self.spdx(f):
             return f"{self.spdx(f)} (its SPDX-License-Identifier line)"
         lic, folder = self.folder_licence(f)
@@ -223,6 +243,20 @@ def is_agpl_name(name: str, roots: tuple[str, ...]) -> bool:
     return any(name == r or name.startswith(r + ".") or name.startswith(r + "/") for r in roots)
 
 
+def absolute_module(f: str, module: str, level: int) -> str | None:
+    """The dotted name a relative import in f means, for a file under a src/ folder (where the package's import names
+    start); None elsewhere or when the import climbs above src/."""
+    parts = PurePosixPath(f).parts
+    if "src" not in parts[:-1]:
+        return None
+    i = len(parts) - 2 - parts[:-1][::-1].index("src")   # the nearest src/ above f
+    package = list(parts[i + 1:-1])
+    if level - 1 > len(package) - 1:
+        return None
+    package = package[:len(package) - (level - 1)]
+    return ".".join(package + [p for p in module.split(".") if p])
+
+
 def python_targets(tree: Tree, f: str, module: str, level: int) -> list[str]:
     """The repository files a Python import can mean. A bare module name is looked up next to the importing file
     first, then anywhere in the repository (tests put other folders on sys.path); a name no tracked file has is a
@@ -287,8 +321,10 @@ def import_problems(tree: Tree) -> list[str]:
         source = (tree.root / f).read_text(encoding="utf-8", errors="replace")
         if ext in PY_EXT:
             for line, mod, level in python_imports(source):
-                if not level and is_agpl_name(mod, AGPL_PYTHON):
-                    flag(f, line, f"imports {mod}, which is {AGPL} (server/)")
+                name = absolute_module(f, mod, level) if level else mod
+                if name and is_agpl_name(name, AGPL_PYTHON):
+                    shown = mod if not level else "." * level + mod + f" ({name})"
+                    flag(f, line, f"imports {shown}, which is {AGPL} (server/)")
                     continue
                 targets = python_targets(tree, f, mod, level)
                 if targets and all(tree.licence(t) == AGPL for t in targets):
@@ -323,6 +359,9 @@ def licence_file_problems(tree: Tree) -> list[str]:
         if lic is None:
             bad.append(f"{folder + '/' if folder else ''}LICENSE is neither the {APACHE} nor the {AGPL} text "
                        "(copy it from LICENSE or node/LICENSE)")
+        elif folder not in EXPECTED:
+            bad.append(f"{folder + '/' if folder else ''}LICENSE is in a folder scripts/licences.py EXPECTED doesn't "
+                       "list: remove it, or add the folder to EXPECTED and LICENSING.md")
     for folder, want in EXPECTED.items():
         name = f"{folder + '/' if folder else ''}LICENSE"
         if folder not in tree.licence_files:
@@ -373,8 +412,32 @@ def metadata_problems(tree: Tree) -> list[str]:
 
 
 def spdx_problems(tree: Tree) -> list[str]:
-    return [f"{f}: SPDX-License-Identifier {tree.spdx(f)} is neither {APACHE} nor {AGPL}"
-            for f in tree.files if tree.spdx(f) and tree.spdx(f) not in (APACHE, AGPL)]
+    bad = []
+    for f in tree.files:
+        lic = tree.spdx(f)
+        if not lic:
+            continue
+        if lic not in (APACHE, AGPL):
+            bad.append(f"{f}: SPDX-License-Identifier {lic!r} is neither {APACHE} nor {AGPL} (put any explanation "
+                       "on the next line)")
+        elif lic == APACHE and tree.folder_licence(f)[0] == AGPL and f not in EXPECTED_FILES:
+            bad.append(f"{f}: an {APACHE} SPDX line in an {AGPL} folder; only the files in scripts/licences.py "
+                       "EXPECTED_FILES may have one")
+    return bad
+
+
+# Folders of python/ that the Apache-2.0 sdist must leave out: setuptools would otherwise add tests/test*.py, and
+# some of those import the server (AGPL-3.0-only).
+SDIST_PRUNED = ("tests", "bench", "smoke")
+
+
+def sdist_problems(tree: Tree) -> list[str]:
+    if "python/pyproject.toml" not in tree.fileset:
+        return []
+    manifest = tree.root / "python" / "MANIFEST.in"
+    lines = manifest.read_text(encoding="utf-8").split("\n") if manifest.is_file() else []
+    return [f"python/MANIFEST.in must have `prune {d}`: the {APACHE} sdist must not ship {AGPL} test files"
+            for d in SDIST_PRUNED if f"prune {d}" not in (line.strip() for line in lines)]
 
 
 def doc_problems(tree: Tree) -> list[str]:
@@ -386,8 +449,8 @@ def doc_problems(tree: Tree) -> list[str]:
 
 
 def check(tree: Tree) -> list[str]:
-    return (licence_file_problems(tree) + metadata_problems(tree) + spdx_problems(tree) + import_problems(tree)
-            + doc_problems(tree))
+    return (licence_file_problems(tree) + metadata_problems(tree) + spdx_problems(tree) + sdist_problems(tree)
+            + import_problems(tree) + doc_problems(tree))
 
 
 def main(argv: list[str] | None = None) -> int:

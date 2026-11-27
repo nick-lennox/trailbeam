@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only (imports the server; LICENSING.md)
+# SPDX-License-Identifier: AGPL-3.0-only
+# Imports the server, so it is under the server's licence (LICENSING.md).
 """The pika hooks against the contract's RabbitMQ vectors (contract/span-contract-amqp-vectors.json, A13).
 
 Each ``emit`` case is played on a real ``pika.channel.Channel`` over a fake connection (tests/pika_fake.py): the

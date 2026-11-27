@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only (imports the server; LICENSING.md)
+# SPDX-License-Identifier: AGPL-3.0-only
+# Imports the server, so it is under the server's licence (LICENSING.md).
 """Writes measures-parity.json: the dashboard widget measure cases both engines must agree on (QV-632).
 
 Self-hosted Trailbeam (server/src/trailbeam/server/measures.py, python/tests/server/test_measures.py) and the hosted

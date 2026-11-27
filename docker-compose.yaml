@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: Apache-2.0 (the Compose file is Apache-2.0, the image it runs AGPL-3.0-only; LICENSING.md)
+# SPDX-License-Identifier: Apache-2.0
+# The Compose file is Apache-2.0; the image it runs is AGPL-3.0-only (LICENSING.md).
 # Trailbeam for a team: one Trailbeam server on its own Postgres, data on named volumes (QV-145).
 #
 #   install -m 600 .env.example .env   # readable by you only; then fill in the token, the Postgres password

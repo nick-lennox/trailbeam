@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only (imports the server; LICENSING.md)
+# SPDX-License-Identifier: AGPL-3.0-only
+# Imports the server, so it is under the server's licence (LICENSING.md).
 """Writes alerts-parity.json: the alert rule cases both engines must agree on (QV-627).
 
 Self-hosted Trailbeam (server/src/trailbeam/server/alerts.py, python/tests/server/test_alerts.py) and the hosted app
