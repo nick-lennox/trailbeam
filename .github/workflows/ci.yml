@@ -118,25 +118,25 @@ jobs:
           {
             echo "full=$full"
             echo "core=$core"
-            area python '^python/'
+            area python '^python/|^server/'
             area node '^node/'
-            area store '^python/src/trailbeam/server/|^python/tests/(server|conformance)/|^python/pyproject\.toml$|^contract/'
+            area store '^server/|^python/tests/(server|conformance)/|^python/pyproject\.toml$|^contract/'
             area java '^java/|^conformance/(drivers/java|kit\.py|bench/|checker\.py)'
             area go '^go/|^conformance/(drivers/go/|kit\.py|bench/|checker\.py)'
             area dotnet '^dotnet/|^conformance/(drivers/dotnet/|kit\.py|bench/|checker\.py)'
             # the client libraries the examples and demo use (the server is covered by the core jobs)
             area examples '^examples/|^demo/|^python/src/trailbeam/[^/]+\.py$|^python/pyproject\.toml$|^node/(src/|bin/|package)|^Dockerfile$'
-            area deploy '^deploy/helm/|^docker-compose\.yaml$|^\.env\.example$|^Dockerfile$'
+            area deploy '^deploy/helm/|^docker-compose\.yaml$|^\.env\.example$|^Dockerfile$|^(python|server)/pyproject\.toml$'
             area collector '^collector/'
             area docs '^README\.md$|^(python|node|java)/README\.md$|^\.env\.example$|^\.github/workflows/docs\.yml$'
             area perf '^python/bench/'
-            area upgrade '^python/smoke/|^python/src/trailbeam/server/(migrations|pg_schema|db|postgres|store)\.py$'
+            area upgrade '^python/smoke/|^server/src/trailbeam/server/(migrations|pg_schema|db|postgres|store)\.py$|^(python|server)/pyproject\.toml$'
             area monitoring '^deploy/monitoring/'
             area compat '^compat/|^\.github/workflows/compat\.yml$'
             # the pika and amqplib hooks and the package code they share, and the RabbitMQ contract (the rabbitmq job)
-            area rabbitmq '^python/src/trailbeam/(pika|_amqp|_capture|_emitter|_order|_export)\.py$|^python/tests/(test_pika_|pika_fake)|^contract/span-contract-amqp|^python/pyproject\.toml$|^node/src/(amqplib|capture|emitter|order|export|contract)\.js$|^node/test/(amqplib-|amqp_server_check)|^node/package(-lock)?\.json$|^python/src/trailbeam/server/(otlp|timeline|queries|systems|db)\.py$'
+            area rabbitmq '^python/src/trailbeam/(pika|_amqp|_capture|_emitter|_order|_export)\.py$|^python/tests/(test_pika_|pika_fake)|^contract/span-contract-amqp|^(python|server)/pyproject\.toml$|^node/src/(amqplib|capture|emitter|order|export|contract)\.js$|^node/test/(amqplib-|amqp_server_check)|^node/package(-lock)?\.json$|^server/src/trailbeam/server/(otlp|timeline|queries|systems|db)\.py$'
             # single sign-on and what it signs people in to (the keycloak job)
-            area sso '^python/src/trailbeam/server/(oidc|accounts|account_tables|access|sessions|server|web|__main__)\.py$|^python/tests/server/(test_oidc|test_oidc_keycloak|oidc_fake)\.py$|^python/tests/server/keycloak/|^python/pyproject\.toml$'
+            area sso '^server/src/trailbeam/server/(oidc|accounts|account_tables|access|sessions|server|web|__main__)\.py$|^python/tests/server/(test_oidc|test_oidc_keycloak|oidc_fake)\.py$|^python/tests/server/keycloak/|^(python|server)/pyproject\.toml$'
           } > "$RUNNER_TEMP/areas"
           cat "$RUNNER_TEMP/areas"
           get() { grep "^$1=" "$RUNNER_TEMP/areas" | cut -d= -f2; }
@@ -168,19 +168,23 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: pip install -e '.[test]' pytest-xdist
+      - run: pip install -e ../server -e '.[test]' pytest-xdist
       - run: pytest -q -n 6 --ignore=tests/conformance
       - name: Store conformance suite (SQLite)
         run: pytest -q tests/conformance
       - name: A SQLite install gets no Postgres driver
         run: |
-          python -m venv "$RUNNER_TEMP/plain" && "$RUNNER_TEMP/plain"/bin/pip install -q '.[server]'
+          python -m venv "$RUNNER_TEMP/plain" && "$RUNNER_TEMP/plain"/bin/pip install -q '.[server]' ../server
           ! "$RUNNER_TEMP/plain"/bin/pip show psycopg psycopg-binary psycopg-pool 2>/dev/null | grep -q '^Name'
           "$RUNNER_TEMP/plain"/bin/python -c "import sys, trailbeam.server.__main__; assert not any(m.startswith(('psycopg', 'jwt', 'cryptography')) for m in sys.modules)"
       - name: Without the sso extra, single sign-on says which extra it needs
         run: >-
           "$RUNNER_TEMP/plain"/bin/trailbeam --db "$RUNNER_TEMP/sso.sqlite" --oidc-issuer https://id.example.com
           --oidc-client-id trailbeam --public-url https://trailbeam.example.com 2>&1 | grep -F 'trailbeam[server,sso]'
+      # QV-567: the library and the server are two distributions. The library's wheel has no server or UI file,
+      # pip install trailbeam gets no server, and pip install "trailbeam[server]" gets trailbeam-server with it.
+      - name: trailbeam and trailbeam-server, from wheels built here
+        run: python smoke/split_check.py
 
   perf:
     # The QV-68 regression check (python/bench/README.md#ci-regression-check): the receipt-hash join plans on a
@@ -200,7 +204,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e '.[test]'
+      - run: pip install -e ../server -e '.[test]'
       - name: Join plans and thresholds
         run: python bench/ci_check.py --out "$RUNNER_TEMP/ci-perf"
       - name: The check fails on a broken join plan
@@ -253,7 +257,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e '.[test,postgres]'
+      - run: pip install -e ../server -e '.[test,postgres]'
       - name: Store conformance suite and contract fixtures (SQLite and Postgres)
         if: matrix.part == 'conformance'
         run: pytest -q tests/conformance
@@ -306,7 +310,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e '.[test]'
+      - run: pip install -e ../server -e '.[test]'
       - name: The hooks on RabbitMQ (newest pika)
         run: pytest -q tests/test_pika_rabbitmq.py tests/test_pika_vectors.py
       - name: The hooks on RabbitMQ (pika 1.3.2)
@@ -348,7 +352,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e '.[test,sso]'
+      - run: pip install -e ../server -e '.[test,sso]'
       - name: Start Keycloak with the test realm
         run: |
           docker run -d --name keycloak -p 127.0.0.1:8080:8080 \
@@ -748,17 +752,23 @@ jobs:
           docker image rm -f "$TB_NAME:ci" || true
 
   upgrade:
-    # Tier 3, and on pull requests that change the schema, migrations or python/smoke/.
-    # A store written by the published 0.3.0 keeps working under this checkout, and 0.3.0 can't damage it after.
-    # python/smoke/upgrade_check.py says what is checked.
-    name: Upgrade from 0.3.0 (${{ matrix.store }})
+    # Tier 3, and on pull requests that change the schema, migrations, the packaging or python/smoke/.
+    # A store written by a published release (0.4.0, the last one; and 0.3.0, for people who skip a release)
+    # keeps working under this checkout, and the old release can't damage it after. python/smoke/upgrade_check.py
+    # says what is checked. With pip, the new server is the old release's venv upgraded in place with
+    # pip install -U (QV-567: 0.4.0's trailbeam held trailbeam/server/, which is trailbeam-server's from 0.5.0).
+    name: Upgrade from ${{ matrix.from }} (${{ matrix.store }})
     needs: changes
     if: needs.changes.outputs.upgrade == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        store: [sqlite, sqlite-image, postgres]
+        include:
+          - { from: "0.4.0", store: sqlite }
+          - { from: "0.4.0", store: sqlite-image }
+          - { from: "0.4.0", store: postgres }
+          - { from: "0.3.0", store: sqlite }
     services:
       postgres:
         image: postgres:16
@@ -776,26 +786,32 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e '.[test,postgres]'
-      - name: 0.3.0 from PyPI, in a venv of its own
+      - run: pip install -e ../server -e '.[test,postgres]'
+      - name: ${{ matrix.from }} from PyPI in a venv of its own, and in another one upgraded in place to this checkout
         if: matrix.store != 'sqlite-image'
         run: |
-          python -m venv "$RUNNER_TEMP/old"
-          "$RUNNER_TEMP/old/bin/pip" install -q 'trailbeam[server,postgres]==0.3.0'
-      - name: SQLite, trailbeam start on the data directory 0.3.0 used
+          for v in old new; do
+            python -m venv "$RUNNER_TEMP/$v"
+            "$RUNNER_TEMP/$v/bin/pip" install -q 'trailbeam[server,postgres]==${{ matrix.from }}'
+          done
+          # --force-reinstall: until the version is raised for the release, this checkout has the old number
+          "$RUNNER_TEMP/new/bin/pip" install -q -U --force-reinstall '.[server,postgres]' ../server
+          "$RUNNER_TEMP/new/bin/pip" check
+          "$RUNNER_TEMP/new/bin/pip" list 2>/dev/null | grep -i '^trailbeam'
+      - name: SQLite, trailbeam start on the data directory the old release used
         if: matrix.store == 'sqlite'
-        run: python smoke/upgrade_check.py --store sqlite --old-cmd "$RUNNER_TEMP/old/bin/trailbeam" --new-cmd trailbeam
+        run: python smoke/upgrade_check.py --store sqlite --old-cmd "$RUNNER_TEMP/old/bin/trailbeam" --new-cmd "$RUNNER_TEMP/new/bin/trailbeam"
       - name: Postgres
         if: matrix.store == 'postgres'
         run: >-
-          python smoke/upgrade_check.py --store postgres --old-cmd "$RUNNER_TEMP/old/bin/trailbeam" --new-cmd trailbeam
+          python smoke/upgrade_check.py --store postgres --old-cmd "$RUNNER_TEMP/old/bin/trailbeam" --new-cmd "$RUNNER_TEMP/new/bin/trailbeam"
           --pg-url "postgresql://postgres:postgres@localhost:${{ job.services.postgres.ports['5432'] }}/postgres"
-      - name: SQLite, the published 0.3.0 image, then this checkout's image, on one volume
+      - name: SQLite, the published image, then this checkout's image, on one volume
         if: matrix.store == 'sqlite-image'
         run: |
           echo "TB_IMAGE=tbci-${{ github.run_id }}-${{ github.run_attempt }}-upgrade:ci" >> "$GITHUB_ENV"
           docker build -t "tbci-${{ github.run_id }}-${{ github.run_attempt }}-upgrade:ci" ..
-          python smoke/upgrade_check.py --store sqlite --old-image ghcr.io/nick-lennox/trailbeam:0.3.0 \
+          python smoke/upgrade_check.py --store sqlite --old-image ghcr.io/nick-lennox/trailbeam:${{ matrix.from }} \
             --new-image "tbci-${{ github.run_id }}-${{ github.run_attempt }}-upgrade:ci"
       - name: Remove this job's image
         if: always() && matrix.store == 'sqlite-image'
@@ -830,7 +846,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e '.[test,postgres]'
+      - run: pip install -e ../server -e '.[test,postgres]'
       - name: SQLite, trailbeam start's data directory
         if: matrix.store == 'sqlite'
         run: python smoke/backup_restore_check.py --store sqlite --cmd trailbeam
@@ -1117,7 +1133,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e 'python[server]'
+      - run: pip install -e ./server -e './python[server]'
       - run: deploy/monitoring/check.sh
 
   compat-table:

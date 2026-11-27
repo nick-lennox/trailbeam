@@ -3,7 +3,7 @@
 The end-to-end tests need the `trailbeam` package from ../python (and moto), which Trailbeam does not depend on.
 Locally they are skipped, with the reason and the command to install them, if those are missing. In CI
 (the ``CI`` variable GitHub Actions sets) or with ``TRAILBEAM_REQUIRE_E2E=1``, a missing package is an import
-error instead, which fails the run: CI installs them (`pip install -e './server[test]' -e './python[test]'`),
+error instead, which fails the run: CI installs them (`pip install -e ./server -e './python[test]'`),
 so a missing one there means the setup broke, not that the tests don't apply.
 """
 import importlib
@@ -11,7 +11,7 @@ import os
 
 import pytest
 
-INSTALL = "pip install -e './python[test]' (from the repository root)"
+INSTALL = "pip install -e ./server -e './python[test]' (from the repository root)"
 
 
 def required() -> bool:

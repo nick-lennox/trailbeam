@@ -9,7 +9,7 @@ Setup, from the repository root:
 
 ```sh
 python -m venv .venv && . .venv/bin/activate
-pip install -e 'python[test]'
+pip install -e ./server -e './python[test]'
 ```
 
 ## Load generator: `loadgen.py`
@@ -150,7 +150,7 @@ A short check of the Postgres store (QV-80), not the full harness: seed a databa
 the pages are timed in a loop.
 
 ```sh
-pip install -e 'python[test,postgres]'
+pip install -e ./server -e './python[test,postgres]'
 createdb bench
 python python/bench/pg_smoke.py --store-url postgresql://postgres@127.0.0.1:5432/bench --spans 1M --seed-only
 python python/bench/pg_smoke.py --store-url postgresql://postgres@127.0.0.1:5432/bench --spans 1M \
@@ -292,7 +292,7 @@ must all be added before the hour ends. With `--compare`, the second run asks ex
 
 ```sh
 python python/bench/tenants_page.py --store-url $PG --schema t224 --spans 2M --out base.json   # 7 days of traffic
-PYTHONPATH=<main>/python/src python python/bench/tenants_page.py --store-url $PG --schema t224 \
+PYTHONPATH=<main>/python/src:<main>/server/src python python/bench/tenants_page.py --store-url $PG --schema t224 \
   --current-hour 2.5M --out before.json   # run early in an hour; repeat until enough is in it
 python python/bench/tenants_page.py --store-url $PG --schema t224 --out after.json --compare before.json
 ```

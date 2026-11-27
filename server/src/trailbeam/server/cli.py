@@ -183,7 +183,7 @@ def sqlite_path(db: Optional[str]) -> str:
 
 
 def check_version(version: Optional[int], latest: int, where: str) -> None:
-    from .. import __version__
+    from . import __version__
 
     if version is None:
         raise CliError(f"{where} is not a Trailbeam store yet: start the server on it once")

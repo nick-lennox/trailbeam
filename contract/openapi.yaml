@@ -1,6 +1,6 @@
 # The Trailbeam server's HTTP interface: the read-only API under /api/ and the ingest endpoint.
 #
-# Written from python/src/trailbeam/server/server.py. The server is a plain http.server handler, so this
+# Written from server/src/trailbeam/server/server.py. The server is a plain http.server handler, so this
 # file is not generated: when a route, a parameter or a response field changes there, change it here in
 # the same commit. docs.trailbeam.app builds its API reference from this file.
 # python/tests/server/test_openapi.py fails when the two disagree: routes, query parameters and their

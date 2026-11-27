@@ -2,7 +2,7 @@
 
 How Trailbeam shows a message's captured body, and searches bodies, from the spans of span contract
 revision 3.2 ([section 15](span-contract.md#15-message-contents-revision-32)). Open-source Trailbeam
-(`python/src/trailbeam/server/bodies.py`) and the hosted app both follow this page. The view itself
+(`server/src/trailbeam/server/bodies.py`) and the hosted app both follow this page. The view itself
 is shared: `BodyPanel` in `@trailbeam/ui`. Both are tested against the same expected outputs in
 [`fixtures/`](fixtures/README.md).
 

@@ -8,7 +8,7 @@
 #   3. a real Prometheus scraping Trailbeam, and every Grafana dashboard and alert expression run on it.
 #
 # CI runs it (.github/workflows/ci.yml, job "monitoring"). Locally, from the repository root, with the server
-# installed (pip install -e 'python[server]'):
+# installed (pip install -e ./python -e ./server):
 #
 #   deploy/monitoring/check.sh
 #

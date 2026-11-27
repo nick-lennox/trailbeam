@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "trailbeam"
 version = "0.4.0"
-description = "Message-level timelines for Amazon SQS and RabbitMQ: OpenTelemetry hooks for boto3, AWS Lambda and pika, and, with the server extra, Trailbeam itself."
+description = "Message-level timelines for Amazon SQS and RabbitMQ: OpenTelemetry hooks for boto3, AWS Lambda and pika. The server extra adds Trailbeam itself (trailbeam-server)."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
@@ -22,22 +22,19 @@ dependencies = [
 pika = [
     "pika>=1.3",
 ]
-# Trailbeam itself: receives spans over OTLP/HTTP, keeps them in SQLite, serves the API and web screen.
-# pip install "trailbeam[server]", then run: trailbeam
+# Trailbeam itself is its own distribution, trailbeam-server (../server), at the same version as this one. These
+# extras pull it in, so the install commands from before 0.5.0 still work:
+#   pip install "trailbeam[server]", then run: trailbeam
 server = [
-    "opentelemetry-proto>=1.28",
-    "tomli>=1.1; python_version < '3.11'",  # the config file; tomllib from 3.11
+    "trailbeam-server==0.4.0",
 ]
 # Postgres instead of SQLite (TRAILBEAM_STORE_URL=postgres://...): pip install "trailbeam[server,postgres]".
-# Imported only when the store URL is a Postgres one, so a SQLite install doesn't need it.
 postgres = [
-    "psycopg[binary]>=3.1",
-    "psycopg-pool>=3.2",
+    "trailbeam-server[postgres]==0.4.0",
 ]
-# Single sign-on with OpenID Connect (--oidc-issuer): pip install "trailbeam[server,sso]". PyJWT checks the identity
-# provider's signed ID tokens, with cryptography; imported only when single sign-on is on.
+# Single sign-on with OpenID Connect (--oidc-issuer): pip install "trailbeam[server,sso]".
 sso = [
-    "PyJWT[crypto]>=2.8",
+    "trailbeam-server[sso]==0.4.0",
 ]
 test = [
     "opentelemetry-proto>=1.28",
@@ -56,16 +53,8 @@ test = [
     "pika>=1.3",
 ]
 
-[project.scripts]
-trailbeam = "trailbeam.server.__main__:main"
-
 [tool.setuptools.packages.find]
 where = ["src"]
-
-# The shared UI's shell, when it has been built (npm run build in ui/). Without it, Trailbeam serves its
-# server-rendered pages only.
-[tool.setuptools.package-data]
-"trailbeam.server" = ["ui/*.html", "ui/assets/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

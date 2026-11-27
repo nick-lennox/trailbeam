@@ -13,7 +13,7 @@ import sys
 import threading
 import time
 
-from .. import __version__
+from . import __version__
 from . import access, auth, config, first_admin, oidc, proxy_auth as proxy_auth_mod, trace_links
 from .accounts import Accounts
 from .backpressure import DEFAULT_MAX_PENDING, DEFAULT_MAX_WAIT_S, IngestGate

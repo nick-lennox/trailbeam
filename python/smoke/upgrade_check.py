@@ -1,9 +1,9 @@
-"""Upgrade check: a store written by an older Trailbeam (0.3.0) keeps working under this one.
+"""Upgrade check: a store written by an older Trailbeam (0.4.0 or 0.3.0) keeps working under this one.
 
     # SQLite, both servers from pip installs (the old one in its own venv):
     python smoke/upgrade_check.py --store sqlite --old-cmd /tmp/old/bin/trailbeam --new-cmd trailbeam
     # SQLite, the published image, then this checkout's image, on one Docker volume:
-    python smoke/upgrade_check.py --store sqlite --old-image ghcr.io/nick-lennox/trailbeam:0.3.0 --new-image tb:ci
+    python smoke/upgrade_check.py --store sqlite --old-image ghcr.io/nick-lennox/trailbeam:0.4.0 --new-image tb:ci
     # Postgres (the image has SQLite only, so pip installs):
     python smoke/upgrade_check.py --store postgres --pg-url postgresql://postgres:postgres@localhost:5432/postgres \\
         --old-cmd /tmp/old/bin/trailbeam --new-cmd trailbeam

@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+# Trailbeam itself: receives spans over OTLP/HTTP, keeps them in SQLite (or Postgres), serves the API and the web
+# screen, and provides the trailbeam command. The client library is the trailbeam distribution (../python);
+# pip install "trailbeam[server]" pulls this one in at the same version.
+[project]
+name = "trailbeam-server"
+version = "0.4.0"
+description = "Trailbeam itself: per-message timelines for Amazon SQS and RabbitMQ from Trailbeam OpenTelemetry spans, with a JSON API and a web screen."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+dependencies = [
+    # The server installs into the trailbeam package (trailbeam/server/). Depending on the library at the same
+    # version makes pip install or upgrade the library first: upgrading from 0.4.0, where trailbeam itself held
+    # trailbeam/server/, removes those old files before this distribution writes its own.
+    "trailbeam==0.4.0",
+    "opentelemetry-proto>=1.28",
+    "tomli>=1.1; python_version < '3.11'",  # the config file; tomllib from 3.11
+]
+
+[project.optional-dependencies]
+# Postgres instead of SQLite (TRAILBEAM_STORE_URL=postgres://...). Imported only when the store URL is a Postgres
+# one, so a SQLite install doesn't need it.
+postgres = [
+    "psycopg[binary]>=3.1",
+    "psycopg-pool>=3.2",
+]
+# Single sign-on with OpenID Connect (--oidc-issuer). PyJWT checks the identity provider's signed ID tokens, with
+# cryptography; imported only when single sign-on is on.
+sso = [
+    "PyJWT[crypto]>=2.8",
+]
+
+[project.scripts]
+trailbeam = "trailbeam.server.__main__:main"
+
+# trailbeam/ has no __init__.py here: it is the client library's package, and this distribution adds
+# trailbeam/server/ to it.
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = true
+
+# The shared UI's shell, when it has been built (npm run build in ui/). Without it, Trailbeam serves its
+# server-rendered pages only.
+[tool.setuptools.package-data]
+"trailbeam.server" = ["ui/*.html", "ui/assets/*"]

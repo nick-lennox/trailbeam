@@ -39,10 +39,13 @@ def test_the_postgres_driver_is_an_extra_and_not_a_dependency():
         import tomllib
     except ImportError:  # Python 3.10
         import tomli as tomllib
-    project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
-    assert not any("psycopg" in d for d in project["dependencies"])
-    assert not any("psycopg" in d for d in project["optional-dependencies"]["server"])
-    assert any(d.startswith("psycopg") for d in project["optional-dependencies"]["postgres"])
+    server = tomllib.loads((ROOT.parent / "server" / "pyproject.toml").read_text())["project"]
+    assert not any("psycopg" in d for d in server["dependencies"])
+    assert any(d.startswith("psycopg") for d in server["optional-dependencies"]["postgres"])
+    # trailbeam[postgres], as the docs and error messages say, pulls in trailbeam-server[postgres]
+    library = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+    assert not any("psycopg" in d for d in library["dependencies"] + library["optional-dependencies"]["server"])
+    assert [d.split("==")[0] for d in library["optional-dependencies"]["postgres"]] == ["trailbeam-server[postgres]"]
 
 
 def test_sqlite_runs_without_the_postgres_driver(tmp_path):

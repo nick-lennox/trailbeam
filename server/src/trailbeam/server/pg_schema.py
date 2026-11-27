@@ -83,7 +83,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-from .. import __version__
+from . import __version__
 from . import account_tables
 from .migrations import SchemaError, SchemaTooNew
 

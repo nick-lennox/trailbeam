@@ -25,7 +25,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from .. import __version__
+from . import __version__
 from . import account_tables, body_table, summary_table
 
 

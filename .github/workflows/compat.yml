@@ -54,7 +54,7 @@ jobs:
           PINS: ${{ matrix.pins }}
         run: |
           printf '%s\n' $PINS > "$RUNNER_TEMP/constraints.txt"
-          pip install -c "$RUNNER_TEMP/constraints.txt" -e '.[test]'
+          pip install -c "$RUNNER_TEMP/constraints.txt" -e ../server -e '.[test]'
       - name: Versions under test
         run: |
           python -c "import sys, sqlite3; print('Python', sys.version); print('SQLite', sqlite3.sqlite_version)"
@@ -129,7 +129,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e '.[test,postgres]'
+      - run: pip install -e ../server -e '.[test,postgres]'
       - name: Server version
         run: python -c "import os, psycopg; print(psycopg.connect(os.environ['TRAILBEAM_TEST_POSTGRES_URL']).execute('select version()').fetchone()[0])"
       - name: Store conformance suite and contract fixtures (SQLite and Postgres)

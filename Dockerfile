@@ -12,7 +12,7 @@
 ARG PYTHON_VERSION=3.12
 ARG TRAILBEAM_EXTRAS=server
 
-# The shared UI's shell (ui/), built into the Python package. Node is needed only here, not at runtime.
+# The shared UI's shell (ui/), built into the server package. Node is needed only here, not at runtime.
 FROM node:22-slim AS ui
 WORKDIR /src/ui
 COPY ui/package.json ui/package-lock.json ./
@@ -20,13 +20,18 @@ RUN npm ci --no-audit --no-fund
 COPY ui/ ./
 RUN npm run build
 
+# Two distributions: trailbeam (the client library, python/) and trailbeam-server (Trailbeam itself, server/,
+# with the UI). The extras of trailbeam pull in trailbeam-server, so the image installs "trailbeam[EXTRAS]" as
+# the README's pip install does.
 FROM python:${PYTHON_VERSION}-slim AS build
 ARG TRAILBEAM_EXTRAS
 WORKDIR /src
-COPY python/pyproject.toml python/README.md ./
-COPY python/src ./src
-COPY --from=ui /src/python/src/trailbeam/server/ui ./src/trailbeam/server/ui
-RUN pip wheel --no-cache-dir --wheel-dir /wheels ".[${TRAILBEAM_EXTRAS}]"
+COPY python/pyproject.toml python/README.md ./python/
+COPY python/src ./python/src
+COPY server/pyproject.toml server/README.md ./server/
+COPY server/src ./server/src
+COPY --from=ui /src/server/src/trailbeam/server/ui ./server/src/trailbeam/server/ui
+RUN pip wheel --no-cache-dir --wheel-dir /wheels "./python[${TRAILBEAM_EXTRAS}]" ./server
 
 FROM python:${PYTHON_VERSION}-slim
 ARG TRAILBEAM_EXTRAS

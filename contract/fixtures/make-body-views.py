@@ -1,11 +1,11 @@
 """Writes body-views.json: what contract/body-view.md gives for the recorded spans in contract-3.2-spans.json,
-from open-source Trailbeam's implementation (python/src/trailbeam/server/bodies.py).
+from open-source Trailbeam's implementation (server/src/trailbeam/server/bodies.py).
 
 The hosted app checks its own implementation against the file, so a change to the rules shows up as a
 diff here and a failing test there. The term cases at the end are written by hand from the spec; this
 script fails if the server disagrees with any of them.
 
-Run from the repository root, with the server installed (pip install -e "python[server]"):
+Run from the repository root, with the server installed (pip install -e ./python -e ./server):
 
     python contract/fixtures/make-body-views.py
 """

@@ -1,6 +1,6 @@
 """Record the spans the smoke test sends: real Trailbeam boto3 hooks on moto's local SQS emulator (no AWS).
 
-    pip install -e '../../python[test]' -e '..'
+    pip install -e '../../python[test]' -e '../../server'
     python record_spans.py            # rewrites recorded-spans.pb and recorded-spans.json
 
 Writes the spans as one OTLP/HTTP protobuf request body (``recorded-spans.pb``, what a Trailbeam package

@@ -149,7 +149,7 @@ function dockerArgs(argv, { env = process.env, image = (env.TRAILBEAM_IMAGE || '
   }
   args.push('-e', `TRAILBEAM_START_SHOWN_DATA_DIR=${shown}`);
   // docker runs without a TTY, so the server can't tell a person's terminal from a log: say which it is. Only
-  // a terminal gets the first admin's one-time setup link (python/src/trailbeam/server/first_admin.py).
+  // a terminal gets the first admin's one-time setup link (server/src/trailbeam/server/first_admin.py).
   if (terminal) args.push('-e', 'TRAILBEAM_START_TERMINAL=1');
   const passed = [];
   if (local['--db'] !== undefined) {

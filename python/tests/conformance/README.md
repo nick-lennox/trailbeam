@@ -1,7 +1,7 @@
 # Store conformance suite
 
 What any Trailbeam storage backend must do, checked through the `Store` interface
-(`python/src/trailbeam/server/store.py`) only. CI runs it against SQLite, in memory and on a WAL file.
+(`server/src/trailbeam/server/store.py`) only. CI runs it against SQLite, in memory and on a WAL file.
 
 ```sh
 pytest tests/conformance                                              # SQLite

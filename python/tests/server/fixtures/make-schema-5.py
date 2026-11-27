@@ -18,7 +18,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[3]
-sys.path[:0] = [str(ROOT / "python" / "src"), str(HERE.parent)]
+sys.path[:0] = [str(ROOT / "python" / "src"), str(ROOT / "server" / "src"), str(HERE.parent)]
 
 from spans import SEC, T0, Consumer, to_proto  # noqa: E402
 from trailbeam.server.db import Database  # noqa: E402

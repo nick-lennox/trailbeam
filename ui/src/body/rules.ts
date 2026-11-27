@@ -1,7 +1,7 @@
 /*
   The Body tab's rules (contract/body-view.md), for a server that keeps its own store: which body a
   message keeps, and why it has none. Self-hosted Trailbeam implements the same rules in Python
-  (python/src/trailbeam/server/bodies.py); both are checked against contract/fixtures/body-views.json.
+  (server/src/trailbeam/server/bodies.py); both are checked against contract/fixtures/body-views.json.
 */
 import type { BodyReason, MessageBody, StoredBody } from "./types.ts";
 

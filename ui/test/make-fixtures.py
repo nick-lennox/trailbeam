@@ -14,7 +14,7 @@ is tested on what Trailbeam really returns.
 - test/fixtures/put-event-timelines.json: contract 3.6 EventBridge PutEvents (section 25): one recorded entry on
   orders-bus, with a sender-given Time, that reached two queues, and one on the default bus, from the same span builder
 
-    pip install -e "python[server]"   # from the repository root
+    pip install -e ./python -e ./server   # from the repository root
     python ui/test/make-fixtures.py
 """
 import base64
