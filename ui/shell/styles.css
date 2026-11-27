@@ -1,15 +1,23 @@
 @import "tailwindcss";
+/* The hosted app's design tokens and themes (tokens.css: night and day, Tooltip), for the views moving onto it.
+   It comes first, so the views still in the open-source style keep theme.css's sky mapping of the role tokens;
+   inside an AppThemeProvider (data-app-theme) the design system's night and day values apply. */
+@import "../src/design/tokens.css";
 @import "../src/theme.css";
+@import "./fonts.css";
 @source "../src";
 @source "./";
-
-/* Bundled, so a self-hosted Trailbeam makes no requests to outside services. */
-@import "@fontsource/newsreader/latin-400.css";
-@import "@fontsource/newsreader/latin-500.css";
-@import "@fontsource/newsreader/latin-400-italic.css";
-@import "@fontsource/ibm-plex-mono/latin-400.css";
-@import "@fontsource/ibm-plex-mono/latin-500.css";
 
 html { background: var(--color-sky); color-scheme: dark; }
 body { margin: 0; background: var(--color-sky); color: var(--color-sky-ink); font-family: var(--font-serif); }
 :focus-visible { outline: 2px solid var(--color-sky-ink); outline-offset: 2px; }
+
+/* Until its pages move onto the design system (rows 1 to 10 of the one-UI plan), the shell keeps Tailwind's
+   own sans and its xs, sm and base sizes, which tokens.css retunes for the hosted app. */
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --text-xs: 0.75rem;
+  --text-xs--line-height: calc(1 / 0.75);
+  --text-sm--line-height: calc(1.25 / 0.875);
+  --text-base--line-height: calc(1.5 / 1);
+}

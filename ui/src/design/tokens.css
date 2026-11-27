@@ -1,0 +1,239 @@
+/*
+  The design system's tokens and themes (part of design.css), for a page that keeps its own base styles:
+  the tokens, the app's night scope, the fourth and fifth chart colors, the live dot and Tooltip's note.
+  The open-source shell imports this file; the hosted app imports design.css, which adds base.css.
+*/
+@theme {
+  /* ── Type ─────────────────────────────────────────────── */
+  /* Two families site-wide. Newsreader for anything a person reads or clicks;
+     IBM Plex Mono only for what was measured or is code. Newsreader's
+     x-height is small (~0.45em), so its UI/body steps sit 1px above where a
+     grotesk would. --font-sans is aliased to the serif so Tailwind's preflight
+     default and any stray font-sans stay inside the two families. */
+  --font-serif: var(--font-newsreader), ui-serif, Georgia, serif;
+  --font-sans: var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, SFMono-Regular, monospace;
+
+  /* Tailwind defaults re-tuned for Newsreader (used by /app and auth). */
+  --text-xs: 0.8125rem;           /* 13 — serif metadata */
+  --text-xs--line-height: 1.45;
+  --text-sm: 0.875rem;            /* 14 — UI and table text */
+  --text-sm--line-height: 1.45;
+  --text-base: 1rem;              /* 16 */
+  --text-base--line-height: 1.6;
+
+  --text-display: 3.75rem;        /* 60 — hero headline (desktop) */
+  --text-display--line-height: 1.02;
+  --text-display--letter-spacing: -0.02em;
+  --text-display-sm: 3rem;        /* 48 — hero headline (mobile) */
+  --text-display-sm--line-height: 1.04;
+  --text-display-sm--letter-spacing: -0.02em;
+  --text-title: 2.25rem;          /* 36 — section heading (desktop) */
+  --text-title--line-height: 1.1;
+  --text-title--letter-spacing: -0.015em;
+  --text-title-sm: 1.875rem;      /* 30 — section heading (mobile) */
+  --text-title-sm--line-height: 1.15;
+  --text-title-sm--letter-spacing: -0.01em;
+  --text-heading: 1.25rem;        /* 20 — card / step heading */
+  --text-heading--line-height: 1.35;
+  --text-lead: 1.1875rem;         /* 19 — intro paragraph */
+  --text-lead--line-height: 1.6;
+  --text-body: 1rem;              /* 16 */
+  --text-body--line-height: 1.6;
+  --text-small: 0.875rem;         /* 14 — UI text, nav, buttons */
+  --text-small--line-height: 1.45;
+  --text-caption: 0.75rem;        /* 12 — mono labels, IDs, times */
+  --text-caption--line-height: 1.4;
+  --text-micro: 0.6875rem;        /* 11 — mono source tags (11px is the floor for functional text) */
+  --text-micro--line-height: 1.4;
+
+  /* ── Day surface (default) ────────────────────────────── */
+  --color-canvas: #fbfaf8;        /* page background */
+  --color-surface: #ffffff;       /* cards, raised */
+  --color-sunken: #f4f3ef;        /* wells, hover */
+  --color-line: #e7e5df;          /* hairlines */
+  --color-line-strong: #d6d3cb;   /* hover borders, inputs */
+
+  --color-ink: #1b1a18;           /* primary text   16.9:1 on canvas */
+  --color-ink-2: #52514e;         /* secondary text  7.6:1 */
+  --color-ink-3: #6f6d66;         /* tertiary text   5.0:1 (was #85837c, 3.6:1 — failed AA) */
+
+  --color-brand: #5b4fe0;         /* actions, links  5.8:1 on white */
+  --color-brand-strong: #4a3fc4;  /* hover / pressed */
+  --color-brand-soft: #eeecfd;    /* icon tiles, selected */
+  --color-on-brand: #ffffff;      /* text and icons on a brand fill */
+  --color-accent: #a85a0c;        /* the logo's amber: "you are here" marks in the app. 5.3:1 on white */
+
+  /* ── Sky (v0.3: the landing page is one pre-dawn sky) ─── */
+  --color-sky: #0a0c22;           /* page: the sky after the hero */
+  --color-sky-2: #12153a;         /* raised panel on sky */
+  --color-sky-line: #2b2f63;      /* hairlines on sky */
+  --color-sky-ink: #f6f1e7;       /* primary text  16.6:1 on sky */
+  --color-sky-ink-2: #c6c5e0;     /* secondary     11.0:1 */
+  --color-sky-ink-3: #9a99c2;     /* tertiary       6.8:1 */
+  --color-trail: #fff3d9;         /* a healthy message's trail */
+  --color-wait: #93a5ff;          /* time spent waiting in SQS */
+  --color-ember: #ffb65e;         /* time in your handler / a retry */
+  --color-ember-deep: #a85a0c;    /* the logo's dot on light grounds */
+  --color-lost: #ff7667;          /* dead-lettered or dropped */
+  --color-visible: #7fdcb0;       /* a message that is visible again: it can be received  11.6:1 on sky */
+  --color-dawn: #ff9d7a;          /* horizon glow; links on sky */
+  --color-peak: #121035;          /* mountain + observatory silhouette */
+
+  /* ── Night surface (dark panels) ──────────────────────── */
+  --color-night: #111114;
+  --color-night-2: #1a1a1f;       /* raised inside night */
+  --color-night-line: #2a2a31;
+  --color-night-ink: #f4f4f5;     /* primary          */
+  --color-night-ink-2: #c4c4cb;   /* secondary         */
+  --color-night-ink-3: #8a8a93;   /* tertiary  5.5:1 on night */
+  --color-brand-night: #9085e9;   /* brand marks on night */
+  --color-brand-night-text: #b3abf3; /* brand links on night 9.0:1 */
+
+  /* ── Data series (validated dataviz palette) ──────────── */
+  --color-series-1: #2a78d6;      /* blue   — receive / queue wait */
+  --color-series-2: #eb6834;      /* orange — send / producer */
+  --color-series-3: #1baf7a;      /* green  — handler / consumer */
+  --color-series-1-night: #3987e5;
+  --color-series-2-night: #f07a4a;
+  --color-series-3-night: #199e70;
+
+  /* ── The queue page's colour roles (@trailbeam/ui theme.css, QV-360 design 4.2): whose hands the message is in.
+     The Overview's own send, receive and handle colours, so the page matches its neighbours. ── */
+  --color-flow-send: var(--color-series-2);     /* entering: sends, senders */
+  --color-flow-wait: var(--color-series-1);     /* in the queue: receives, time in queue, visible, oldest age */
+  --color-flow-handler: var(--color-series-3);  /* in your handler: handled, time in handler, in flight */
+  --color-flow-lost: var(--color-critical);     /* dead-lettered: DLQ moves, DLQ depth */
+
+  /* ── Status (reserved; always icon + label) ───────────── */
+  --color-good: #0ca30c;
+  --color-good-text: #006300;
+  --color-good-soft: #e9f6e9;
+  --color-good-ring: #c6e8c6;
+  --color-good-night: #199e70;
+
+  --color-warning: #fab219;
+  --color-warning-text: #8a5a00;
+  --color-warning-soft: #fff5dc;
+  --color-warning-ring: #f6dfa3;
+  --color-warning-night: #c98500;
+
+  --color-serious: #ec835a;
+  --color-serious-text: #a4421b;
+  --color-serious-soft: #fdeee7;
+  --color-serious-ring: #f5cdbd;
+  --color-serious-night: #e0855f;
+
+  --color-critical: #d03b3b;
+  --color-critical-text: #b02a2a;
+  --color-critical-soft: #fbeaea;
+  --color-critical-ring: #f1c4c4;
+  --color-critical-night: #e66767;
+  --color-critical-night-text: #f0a0a0;
+
+  /* ── Code (night only) ────────────────────────────────── */
+  --color-code-keyword: #b3abf3;
+  --color-code-name: #7fd1ae;
+  --color-code-string: #f2b38f;
+  --color-code-comment: #8a8a93;
+
+  /* ── Shape ────────────────────────────────────────────── */
+  --radius-control: 0.5rem;       /* 8  — buttons, inputs, tags */
+  --radius-card: 0.75rem;         /* 12 — cards, code windows */
+  --radius-panel: 1rem;           /* 16 — sections, product shots */
+
+  --shadow-card: 0 1px 2px rgb(27 26 24 / 0.05);
+  --shadow-raised: 0 1px 2px rgb(27 26 24 / 0.06), 0 8px 24px -8px rgb(27 26 24 / 0.12);
+  --shadow-panel: 0 24px 64px -16px rgb(27 26 24 / 0.28);
+  --shadow-glow: 0 1px 2px rgb(91 79 224 / 0.25), 0 4px 12px -2px rgb(91 79 224 / 0.35);
+
+  /* ── Motion ───────────────────────────────────────────── */
+  --ease-out-soft: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes pulse-dot { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+.live-dot { animation: pulse-dot 1.8s ease-in-out infinite; }
+
+/* The fourth and fifth colors of a chart grouped by queue or tenant. The first three are the series colors. */
+:root { --cat-4: #eda100; --cat-5: #e87ba4; }
+
+/* ── The app at night ─────────────────────────────────────────────
+   The logged-in app defaults to a dark, sky-themed surface. It reuses the
+   day token names and gives them night values inside this scope, so every
+   app component follows without knowing about the theme. */
+[data-app-theme="night"] {
+  color-scheme: dark;
+  --cat-4: #d9a21f;
+  --cat-5: #e0709c;
+  --color-canvas: #0a0c22;
+  --color-surface: #11143a;
+  --color-sunken: #1a1e4c;
+  --color-line: #272b5e;
+  --color-line-strong: #454a8a;
+  --color-ink: #f6f1e7;
+  --color-ink-2: #c6c5e0;
+  --color-ink-3: #9a99c2;
+  --color-brand: #b3abf3;
+  --color-brand-strong: #cbc5f8;
+  --color-brand-soft: #25245e;
+  --color-on-brand: #0a0c22;
+  --color-accent: #ffb65e;
+  --color-ember-deep: #ffb65e;
+  --color-series-1: #5a9cf0;
+  --color-series-2: #f58a5c;
+  --color-series-3: #35c491;
+  --color-good: #35c491;
+  --color-good-text: #86dcb9;
+  --color-good-soft: #10303a;
+  --color-good-ring: #1d5552;
+  --color-warning: #f0b23a;
+  --color-warning-text: #f6cf7a;
+  --color-warning-soft: #352c2c;
+  --color-warning-ring: #63502e;
+  --color-serious: #f08a63;
+  --color-serious-text: #f7b094;
+  --color-serious-soft: #372432;
+  --color-serious-ring: #6a3c3c;
+  --color-critical: #ec6464;
+  --color-critical-text: #f5a3a3;
+  --color-critical-soft: #381f35;
+  --color-critical-ring: #6e2f42;
+  /* the queue page's roles again, so they take the night series colours above (a var() is resolved where it is set) */
+  --color-flow-send: #f58a5c;
+  --color-flow-wait: #5a9cf0;
+  --color-flow-handler: #35c491;
+  --color-flow-lost: #ec6464;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.35), 0 10px 28px -8px rgb(0 0 0 / 0.6);
+  --shadow-panel: 0 24px 64px -16px rgb(0 0 0 / 0.75);
+  --shadow-glow: 0 0 0 1px rgb(179 171 243 / 0.25);
+  color: var(--color-ink);
+  /* A still night sky behind the app: a cool glow high up, a faint warm horizon, and stars. */
+  background-color: #0a0c22;
+  background-image:
+    radial-gradient(1px 1px at 40px 60px, rgb(246 241 231 / 0.55) 50%, transparent 51%),
+    radial-gradient(1px 1px at 190px 130px, rgb(246 241 231 / 0.35) 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 300px 30px, rgb(246 241 231 / 0.45) 50%, transparent 51%),
+    radial-gradient(1px 1px at 110px 250px, rgb(198 197 224 / 0.4) 50%, transparent 51%),
+    radial-gradient(1px 1px at 260px 310px, rgb(246 241 231 / 0.3) 50%, transparent 51%),
+    radial-gradient(1100px 520px at 72% -12%, rgb(147 165 255 / 0.13), transparent 62%),
+    radial-gradient(1000px 300px at 40% 108%, rgb(255 157 122 / 0.08), transparent 70%);
+  background-size: 360px 360px, 360px 360px, 360px 360px, 360px 360px, 360px 360px, 100% 100%, 100% 100%;
+  background-attachment: fixed;
+}
+:root:has([data-app-theme="night"]) { background: #0a0c22; color-scheme: dark; }
+[data-app-theme="night"] ::selection { background: rgb(179 171 243 / 0.35); color: var(--color-ink); }
+
+/* Tooltip (Tooltip.tsx): a note on the theme's surface, placed by the component */
+.ui-tooltip { position: fixed; z-index: 70; display: block; width: max-content; max-width: min(19rem, calc(100vw - 16px)); padding: 8px 12px;
+  border: 1px solid var(--color-line-strong); border-radius: 8px; background: var(--color-surface); box-shadow: var(--shadow-raised);
+  font-family: var(--font-sans); font-size: var(--text-xs); font-weight: 400; line-height: 1.5; letter-spacing: 0; text-align: left; white-space: normal; color: var(--color-ink-2);
+  pointer-events: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .ui-tooltip[data-side] { animation: ui-tooltip-in .14s ease-out; }
+  .ui-tooltip[data-side="below"] { --from: -3px; }
+  @keyframes ui-tooltip-in { from { opacity: 0; transform: translateY(var(--from, 3px)); } }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-dot { animation: none !important }
+}
