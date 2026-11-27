@@ -21,3 +21,15 @@ body { margin: 0; background: var(--color-sky); color: var(--color-sky-ink); fon
   --text-sm--line-height: calc(1.25 / 0.875);
   --text-base--line-height: calc(1.5 / 1);
 }
+
+/* Inside a theme scope (AppThemeProvider) the parts draw as they do in the hosted app: its body font (Instrument
+   Sans) and its retuned sizes, and by day its page ground. The legacy views above keep their look. */
+[data-app-theme] {
+  --font-sans: var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.45;
+  --text-sm--line-height: 1.45;
+  --text-base--line-height: 1.6;
+  font-family: var(--font-sans);
+}
+:root:has([data-app-theme="day"]), :root:has([data-app-theme="day"]) body { background: #fbfaf8; color-scheme: light; }
