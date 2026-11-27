@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
-  AddPerson, OneTimeLink, PeopleTable, LAST_ADMIN, ROLES, fmtWhen, isLastAdmin, linkButton, linkKind, linkSentence, removeSentence, removeSsoNote, signInAdmins,
+  AddPerson, OneTimeLink, PeopleTable, LAST_ADMIN, ROLES, emailedSentence, fmtWhen, isLastAdmin, linkButton, linkKind, linkSentence, removeSentence, removeSsoNote, signInAdmins, unsentSentence,
 } from "../src/people/People.tsx";
 import type { Person } from "../src/people/types.ts";
 
@@ -89,6 +89,25 @@ test("one-time links say what they do, how long they last, and that they are sho
   assert.match(html, /readOnly=""|readonly=""/);
   assert.ok(button(html, "Copy link") && button(html, "Done"));
   assert.equal(fmtWhen(expires), "2026-12-01 06:00 UTC");
+});
+
+test("an emailed link is not shown, and an email that failed says why and shows the link to copy", () => {
+  const expires = Date.UTC(2026, 11, 1, 6, 0);
+  const ben = { name: "Ben", email: "ben@example.com" };
+  const link = { kind: "invite" as const, expires_at_ms: expires };
+  assert.equal(emailedSentence(ben, link, "ben@example.com"),
+    "Ben's invite link was emailed to ben@example.com. It works once, until 2026-12-01 06:00 UTC. Make a new link if it doesn't arrive.");
+  assert.match(emailedSentence({ name: "ben@example.com", email: "ben@example.com" }, { ...link, kind: "reset" }, "ben@example.com"),
+    /^Their password reset link was emailed to ben@example\.com\./);
+  const sent = renderToStaticMarkup(createElement(OneTimeLink, { person: ben, link, email: { sent: true, to: "ben@example.com", error: null }, onDismiss: noop }));
+  assert.ok(!sent.includes("<input") && !button(sent, "Copy link") && button(sent, "Done"));
+  const failed = { sent: false, to: "ben@example.com", error: "The mail server refused ben@example.com." };
+  assert.equal(unsentSentence(failed), "The email to ben@example.com wasn't sent: The mail server refused ben@example.com. Copy the link and send it to them yourself.");
+  const html = renderToStaticMarkup(createElement(OneTimeLink, { person: ben, link: { ...link, url: "http://x/set-password#code=abc" }, email: failed, onDismiss: noop }));
+  assert.ok(html.includes("wasn&#x27;t sent") && button(html, "Copy link"));
+  assert.match(html, /value="http:\/\/x\/set-password#code=abc"/);
+  const form = renderToStaticMarkup(createElement(AddPerson, { onAdd: async () => {}, sendsEmail: true }));
+  assert.ok(button(form, "Add and email invite"));
 });
 
 test("removing asks first, and says what stops working", () => {

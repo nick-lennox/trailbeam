@@ -27,9 +27,12 @@ export type Person = {
 /** A one-time link: an invite (7 days) for someone with no password yet, else a password reset (24 hours). */
 export type PersonLink = {
   kind: "invite" | "reset";
-  /** `/set-password#code=...` on this server; shown only in the answer that made it */
-  url: string;
+  /** `/set-password#code=...` on this server; shown only in the answer that made it, and left out once it was emailed */
+  url?: string;
   expires_at_ms: number;
 };
 
-export type PersonWithLink = { user: Person; link: PersonLink };
+/** The email that took the link to the person (a server with a mail server set up), or null when none was sent for. */
+export type PersonEmail = { sent: boolean; to: string; error: string | null };
+
+export type PersonWithLink = { user: Person; link: PersonLink; email?: PersonEmail | null };
