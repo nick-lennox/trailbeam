@@ -10,11 +10,13 @@
   (what contract/body-view.md gives for them: each message's Body tab and the body.* searches), and
   @trailbeam/ui/fixtures/causes-parity.json (timelines and the cause groups both products must make of them,
   from test/make-causes-fixture.py), and @trailbeam/ui/fixtures/alerts-parity.json (alert rule cases and what both
-  engines must make of them, from ../contract/fixtures/make-alerts-parity.py). Run by npm run build:lib.
+  engines must make of them, from ../contract/fixtures/make-alerts-parity.py), and @trailbeam/ui/fixtures/measures-parity.json
+  (dashboard widget measure cases and what both engines must make of them, from ../contract/fixtures/make-measures-parity.py).
+  Run by npm run build:lib.
 */
 import { copyFileSync, mkdirSync } from "node:fs";
 
 const out = new URL("../dist/fixtures/", import.meta.url);
 mkdirSync(out, { recursive: true });
-for (const f of ["contract-3.2-spans.json", "body-views.json", "alerts-parity.json"]) copyFileSync(new URL(`../../contract/fixtures/${f}`, import.meta.url), new URL(f, out));
+for (const f of ["contract-3.2-spans.json", "body-views.json", "alerts-parity.json", "measures-parity.json"]) copyFileSync(new URL(`../../contract/fixtures/${f}`, import.meta.url), new URL(f, out));
 for (const f of ["contract-3.2-timelines.json", "purge-timelines.json", "sns-timelines.json", "causes-parity.json", "origin-timelines.json", "put-event-timelines.json"]) copyFileSync(new URL(`../test/fixtures/${f}`, import.meta.url), new URL(f, out));
