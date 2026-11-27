@@ -1957,7 +1957,7 @@ What each has today:
 | Message bodies, opt-in per queue, with `body.*` search | yes, for queues in `TRAILBEAM_STORE_BODIES`; anyone who can reach the server can read them | yes, for queues an admin opts in; owners and admins only |
 | Lambda error text on the timeline, errors grouped by cause | yes | yes |
 | JSON API | yes | |
-| Event explorer: every recorded step in a range, filtered by queue, service, kind or message, with CSV export | yes | yes, with PDF export too |
+| Event explorer: every event in a range, inferred ones included (an expired visibility timeout, a move to the dead-letter queue), with filters, `body.*` search and CSV and PDF export | yes | yes |
 | Overview of flows between services and queues, dashboards | not yet | yes |
 | Queue settings, depth and Lambda triggers read from AWS, and redrive | | yes, with a read-only role you connect (redrive needs a second, separate role) |
 | Retention: global, per queue, or forever | yes | yes |
