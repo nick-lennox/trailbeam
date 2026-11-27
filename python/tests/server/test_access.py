@@ -607,6 +607,7 @@ def test_every_route_has_a_level():
         ("GET", "/api/ready"): OPEN, ("GET", "/api/health"): OPEN, ("GET", "/login"): OPEN,
         ("POST", "/login"): OPEN, ("GET", "/logout"): OPEN, ("GET", "/setup"): OPEN, ("POST", "/setup"): OPEN,
         ("GET", "/login/oidc"): OPEN, ("GET", "/login/oidc/callback"): OPEN,
+        ("GET", "/login/github"): OPEN, ("GET", "/login/github/callback"): OPEN,
         ("POST", "/v1/traces"): INGEST, ("GET", "/metrics"): METRICS,
         ("GET", "/set-password"): OPEN, ("POST", "/set-password"): OPEN, ("GET", "/people"): ADMIN, ("GET", "/tokens"): MEMBER}
     for p in _api_paths() + PAGES:

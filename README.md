@@ -584,6 +584,7 @@ own store (SQLite or Postgres). Nothing changes until the first admin exists. Af
 |---|---|---|
 | Signing in with an email and password (`/login`) | the person, with their role | the web screen and the API |
 | [Single sign-on](#single-sign-on-openid-connect) through your identity provider | the person, with their role | the web screen and the API |
+| [Signing in with GitHub](#sign-in-with-github) | the person, with their role | the web screen and the API |
 | Personal API token, `tbp_` and 40 letters and digits, as `Authorization: Bearer` | its owner, with the owner's role | the API and `/metrics` (scripts, CI, Prometheus) |
 | Ingest token, `tbi_` and 40 letters and digits, as `x-trailbeam-key` or `Authorization: Bearer` | a service | `POST /v1/traces` only |
 | `TRAILBEAM_TOKEN`, if set | anyone who has it | `POST /v1/traces` and `/metrics` only |
@@ -839,6 +840,60 @@ asymmetric signatures (RS256, ES256 and the like) are accepted. The provider's s
 sign-in, so a provider that is down doesn't stop Trailbeam starting. Calls to the provider time out after
 10 seconds. The issuer must be `https`, except on `localhost`. SAML and SCIM (automatic user sync) are not
 supported.
+
+### Sign in with GitHub
+
+People can also sign in with their GitHub account, on github.com or GitHub Enterprise Server. GitHub isn't an
+OpenID Connect provider for people, so this is GitHub's own OAuth sign-in, with settings of its own. It can be on
+alone, or beside single sign-on and passwords. It needs no extra package.
+
+```sh norun="starts a server that keeps running; python/tests/server/test_github.py tests it against a fake GitHub"
+trailbeam --accounts --public-url https://trailbeam.example.com \
+  --github-client-id Ov23liExampleId --github-client-secret-file /run/secrets/github-client-secret \
+  --github-allowed-orgs acme --github-admin-teams acme/platform
+```
+
+1. At GitHub, create an OAuth app (your organisation's **Settings**, **Developer settings**, **OAuth Apps**). Its
+   **Authorization callback URL** is `<public URL>/login/github/callback`, for example
+   `https://trailbeam.example.com/login/github/callback`. The server logs that URL at start.
+2. Give Trailbeam the app's client ID and secret, and `--public-url`. The callback URL is made from it, never from
+   the request's `Host` header.
+3. The sign-in page then shows **Sign in with GitHub**.
+
+Like single sign-on, it needs users and roles switched on (`--accounts`): without them the server refuses to start.
+
+| Setting | What it does |
+|---|---|
+| `--github-client-id`, `--github-client-secret-file` | the OAuth app; both are needed |
+| `--github-url https://github.example.com` | a GitHub Enterprise Server (default `https://github.com`) |
+| `--github-allowed-orgs acme,other` | only active members of these organisations may sign in |
+| `--github-admin-teams acme/platform` | people in any of these teams (`org/team-slug`) are admins |
+| `--github-member-teams acme/engineering` | people in any of these (and no admin team) are members |
+| `--github-default-role member` or `none` | everyone else allowed in: a member, or refused. Default `member`, or `none` when member teams are set |
+| `--github-link-email` | a GitHub account may sign in to an existing account here with the same email |
+| `--github-session-hours` | how long its sessions last (default 12, at most 720) |
+
+Every flag also has an environment variable: `TRAILBEAM_GITHUB_CLIENT_ID`, `TRAILBEAM_GITHUB_CLIENT_SECRET_FILE`
+(or the secret itself in `TRAILBEAM_GITHUB_CLIENT_SECRET`), `TRAILBEAM_GITHUB_URL`, `TRAILBEAM_GITHUB_ALLOWED_ORGS`,
+`TRAILBEAM_GITHUB_ADMIN_TEAMS`, `TRAILBEAM_GITHUB_MEMBER_TEAMS`, `TRAILBEAM_GITHUB_DEFAULT_ROLE`,
+`TRAILBEAM_GITHUB_LINK_EMAIL` and `TRAILBEAM_GITHUB_SESSION_HOURS`.
+
+- **Anyone can make a GitHub account**, so the server refuses to start with GitHub sign-in open to all of them: set
+  `--github-allowed-orgs` or `--github-member-teams`. To let any GitHub account with a verified email in as a
+  member, say so with `--github-default-role member`.
+- **Organisations and teams** need the `read:org` scope, which Trailbeam asks for only when they are set. If your
+  organisation restricts OAuth app access, an owner must approve the app first (the organisation's **Settings**,
+  **Third-party access**); until then its members are refused with a message saying so.
+- **With teams set, GitHub decides, at sign-in**, as groups do for single sign-on: the role is set again each time,
+  and the last admin who can sign in stays an admin.
+- **The first admin** can come from GitHub: while the server has no admin, only someone in an admin team gets in.
+- An account is the GitHub user ID, not the login or the email, so renaming an account at GitHub keeps it the same
+  person here. The email is the account's **primary email, which must be verified** at GitHub. An email that
+  already has an account here is refused unless `--github-link-email` is on.
+- The access token GitHub gives is used during the sign-in only, and isn't kept. Disabling someone at GitHub, or
+  taking them out of a team, takes effect at their next sign-in: disable them here too to cut them off at once.
+- The sign-in uses the same protections as single sign-on: a state that works once for 10 minutes, a browser
+  cookie (`trailbeam_github`) that must match, and PKCE.
 
 ### Behind a proxy (`--trusted-proxy`)
 
