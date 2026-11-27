@@ -1394,6 +1394,87 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
         '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/queues/{queue}/now:
+    get:
+      operationId: get-queue-now
+      x-example-request: /api/queues/billing/now
+      tags: [Queues]
+      summary: Get what is in a queue now
+      description: |
+        Returns the messages your services sent or received that are in the queue right now, each visible or in
+        flight, worked out from their spans: "In ‹queue› now" on the Overview. Trailbeam makes no AWS calls and
+        never receives from the queue, so this lists only instrumented messages, and it can't say what else the
+        queue holds (`totals` and `uninstrumented` are always null here).
+
+        - A message is in the queue when it has a send or receive on this queue, no accepted delete of its latest
+          receive and no Lambda success for it, it was not purged, and its latest receive is not on another queue
+          (one received on its dead-letter queue has left). One sent more than 14 days ago, SQS's longest retention
+          period, has left too.
+        - A received message is in flight until its visibility timeout runs out, counted from its latest receive. The
+          timeout is SQS's default of 30 s (`config.visibilityKnown` is false), or the one an accepted
+          ChangeMessageVisibility on that receive set, counted from that change. After that the message is visible.
+          A message never received is visible.
+        - `notSeenOnDlq`: messages received `max_receive_count` times (as configured for the queue on this server)
+          whose last timeout ran out. SQS moves such a message to the dead-letter queue on the next receive attempt,
+          so it is not listed as in the queue. Inferred, not observed.
+        - `deleted`: accepted deletes and Lambda successes on the queue in the past minute. `seenOnDlq`: messages
+          SQS moved from this queue to a dead-letter queue in the past hour, as receives from the dead-letter queue
+          reported.
+
+        The fields are the hosted app's, in its camelCase, so the shared view reads either. `{queue}` is the queue's
+        key, URL-encoded, or its name when only one queue has that name, as for `/api/queues/{queue}/series`.
+        SQLite and Postgres both answer. A store without per-queue events (a third-party `Store`) answers 501.
+      parameters:
+        - name: queue
+          in: path
+          required: true
+          description: The queue's key or name.
+          schema: {type: string}
+        - name: limit
+          in: query
+          description: The most messages to read, oldest first (default and maximum 1000). `capped` says when there were more.
+          schema: {type: integer, minimum: 1, maximum: 1000, default: 1000}
+        - $ref: '#/components/parameters/lambda_timeout_s'
+      responses:
+        '200':
+          description: The instrumented messages in the queue now.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/QueueNow'}
+              example:
+                queue: {key: 123456789012/eu-west-1/billing, name: billing, account: '123456789012', region: eu-west-1,
+                        fifo: false}
+                nowMs: 1794855600000
+                config: {visibilityTimeoutS: null, retentionS: null, maxReceiveCount: 5, dlq: null, arn: null,
+                         lambdaTimeoutS: 900, visibilityKnown: false}
+                held:
+                - id: 7c0e5a52-1b2f-4f0e-9a51-3d1f0b6a9e10
+                  producer: billing-api
+                  consumer: billing-worker
+                  sentMs: 1794855580000
+                  receiveCount: 1
+                  state: in_flight
+                  lastReceiveMs: 1794855590000
+                  untilMs: 1794855620000
+                  leftS: 20
+                  used: 0.3333333333333333
+                  timeoutS: 30
+                  events: []
+                capped: false
+                instrumented: {visible: 0, inFlight: 1}
+                totals: null
+                uninstrumented: null
+                notSeenOnDlq: []
+                seenOnDlq: 0
+                deleted:
+                - {id: 0b9e7d3c-55a4-4c47-8f0e-2a6d1c9e8b71, atMs: 1794855571000}
+                producers:
+                - {name: billing-api, n: 1}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/flows:
     get:
       operationId: list-flows
@@ -3444,6 +3525,96 @@ components:
               p95_in_queue_ms: {type: [integer, 'null'], description: 'The 95th percentile of the time from send to first delivery, in milliseconds: within 1% of the nearest-rank value (contract/tenants.md). Null when there was no first delivery.'}
               first_deliveries: {type: integer, description: The first deliveries the percentile is computed from.}
               dead_lettered: {type: integer, description: Messages moved to a dead-letter queue in the window.}
+    QueueNow:
+      type: object
+      additionalProperties: false
+      required: [queue, nowMs, config, held, capped, instrumented, totals, uninstrumented, notSeenOnDlq, seenOnDlq,
+                 deleted, producers]
+      properties:
+        queue: {$ref: '#/components/schemas/QueueSeries/properties/queue'}
+        nowMs: {type: integer, description: 'The time the answer is for, in Unix milliseconds.'}
+        config:
+          type: object
+          additionalProperties: false
+          required: [visibilityTimeoutS, retentionS, maxReceiveCount, dlq, arn, lambdaTimeoutS, visibilityKnown]
+          properties:
+            visibilityTimeoutS: {type: 'null', description: 'The queue''s VisibilityTimeout. Always null: it is not read from AWS.'}
+            retentionS: {type: 'null', description: 'The queue''s MessageRetentionPeriod. Always null: it is not read from AWS.'}
+            maxReceiveCount: {type: [integer, 'null'], description: The maxReceiveCount configured for the queue on this server, or null.}
+            dlq: {type: 'null'}
+            arn: {type: 'null'}
+            lambdaTimeoutS: {type: integer}
+            visibilityKnown: {type: boolean, description: False. The timeouts are SQS's default of 30 s unless a visibility change set one.}
+        held:
+          type: array
+          description: The instrumented messages in the queue, oldest first.
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, producer, consumer, sentMs, receiveCount, state, lastReceiveMs, untilMs, leftS, used, timeoutS, events]
+            properties:
+              id: {type: string, description: The message ID.}
+              producer: {type: string, description: 'The service of its first send, or "" when no send was recorded.'}
+              consumer: {type: string, description: 'The service of its latest receive on this queue, or "".'}
+              sentMs: {type: integer, description: 'Its first send, else its latest receive''s SentTimestamp, else its first span, in Unix milliseconds.'}
+              receiveCount: {type: integer, minimum: 0, description: The receive count of its latest receive; 0 when never received.}
+              state: {type: string, enum: [visible, in_flight]}
+              lastReceiveMs: {type: [integer, 'null']}
+              untilMs: {type: [integer, 'null'], description: 'In flight: when its visibility timeout runs out.'}
+              leftS: {type: integer, minimum: 0, description: 'In flight: the seconds left, rounded up.'}
+              used: {type: number, minimum: 0, maximum: 1, description: 'In flight: the share of the timeout used.'}
+              timeoutS: {type: [integer, 'null'], description: The visibility timeout that applies to its latest receive.}
+              lastError: {type: string, description: 'Why its latest receive, or the one before it, did not end in a delete: a failed handler, or an inferred timeout.'}
+              events:
+                type: array
+                description: Its events, as `/api/timeline-events` makes them.
+                items: {$ref: '#/components/schemas/TimelineEvent'}
+        capped: {type: boolean, description: More messages matched than `limit`. The newest were not read.}
+        instrumented:
+          type: object
+          additionalProperties: false
+          required: [visible, inFlight]
+          properties:
+            visible: {type: integer, minimum: 0}
+            inFlight: {type: integer, minimum: 0}
+        totals: {type: 'null', description: What SQS says the queue holds. Always null here.}
+        uninstrumented: {type: 'null', description: SQS's totals minus the instrumented messages. Always null here.}
+        notSeenOnDlq:
+          type: array
+          description: Messages at maxReceiveCount whose last timeout ran out, inferred to move on the next receive attempt.
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, producer, consumer, sentMs, receiveCount, timedOutMs, events]
+            properties:
+              id: {type: string}
+              producer: {type: string}
+              consumer: {type: string}
+              sentMs: {type: integer}
+              receiveCount: {type: integer}
+              timedOutMs: {type: integer, description: When its last visibility timeout ran out. Not a move time.}
+              events: {type: array, items: {$ref: '#/components/schemas/TimelineEvent'}}
+        seenOnDlq: {type: integer, minimum: 0, description: Moves to a dead-letter queue reported in the past hour.}
+        deleted:
+          type: array
+          description: Accepted deletes and Lambda successes on the queue in the past minute, oldest first.
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, atMs]
+            properties:
+              id: {type: [string, 'null']}
+              atMs: {type: integer}
+        producers:
+          type: array
+          description: The held messages by producer, most first. A message with no recorded send is "No send observed".
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, n]
+            properties:
+              name: {type: string}
+              n: {type: integer, minimum: 1}
     QueueSeries:
       type: object
       additionalProperties: false
