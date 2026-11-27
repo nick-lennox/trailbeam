@@ -94,8 +94,9 @@ class AlertStore(Protocol):
         """Stores a rule's state. prev_tone None: insert it unless one is there; else update it only if its tone is
         still prev_tone. True if the write took effect."""
 
-    def drop_state(self, ws: str, dashboard_id: str, widget_id: str) -> None:
-        ...
+    def drop_state(self, ws: str, dashboard_id: str, widget_id: str) -> bool:
+        """Deletes a rule's state. True if there was one to delete: of two overlapping checks, the one that deleted it
+        sends its "no longer checked" change."""
 
     def workspaces_with_rules(self) -> set[str]:
         """The workspaces with at least one "Alert me" rule."""
@@ -166,8 +167,8 @@ class MemoryAlertStore:
         mine[k] = {f: state[f] for f in STATE_FIELDS}
         return True
 
-    def drop_state(self, ws: str, dashboard_id: str, widget_id: str) -> None:
-        self.states.get(ws, {}).pop(f"{dashboard_id}/{widget_id}", None)
+    def drop_state(self, ws: str, dashboard_id: str, widget_id: str) -> bool:
+        return self.states.get(ws, {}).pop(f"{dashboard_id}/{widget_id}", None) is not None
 
     def workspaces_with_rules(self) -> set[str]:
         return {ws for ws, rs in self.rules.items() if rs}
@@ -261,6 +262,20 @@ def alert_needs(dashboards: Iterable[dict]) -> dict:
             "rules": rules, "metrics": sorted(metrics)}
 
 
+def _is_rule(w: dict) -> bool:
+    """A widget the check evaluates: a number or time series of a known measure with a warn or crit limit."""
+    qs = w.get("queries") or []
+    rule = w.get("rule") or {}
+    return (w.get("type") in ("number", "timeseries") and ms.measure((qs[0] or {}).get("measure") if qs else "") is not None
+            and (rule.get("warn") is not None or rule.get("crit") is not None))
+
+
+def rule_keys(dashboards: Iterable[dict]) -> set[str]:
+    """The keys (alerts.key_of) of every dashboard rule in these dashboards, with a figure now or not: a stored state
+    whose key is here is kept while its figure is missing (alerts.diff ``present``)."""
+    return {f"{d['id']}/{w['id']}" for d in dashboards for w in (d.get("def") or {}).get("widgets") or [] if _is_rule(w)}
+
+
 def observe(dashboards: Iterable[dict], data: dict) -> list[dict]:
     """Every rule in these dashboards that has a figure now (evaluate.ts observe). A rule whose figure is missing
     (a queue measure with no figures) is left out."""
@@ -276,11 +291,13 @@ def observe(dashboards: Iterable[dict], data: dict) -> list[dict]:
     return out
 
 
-def record(store: AlertStore, ws: str, now: list[dict], at: int) -> list[dict]:
-    """Records what this check saw (store.ts record). Returns the changes this check won and must deliver: a change
-    whose conditional write did not take effect was made by another check, which sends it."""
+def record(store: AlertStore, ws: str, now: list[dict], at: int, present: Iterable[str] | None = None) -> list[dict]:
+    """Records what this check saw (store.ts record). ``present``: the keys of the rules that still exist, as
+    alerts.diff takes them. Returns the changes this check won and must deliver: a change whose conditional write did
+    not take effect was made by another check, which sends it. A firing rule dropped at this check sends its
+    "no longer checked" change only if this check is the one that deleted its state."""
     prev = store.alert_states(ws)
-    d = alerts.diff(prev, now, at)
+    d = alerts.diff(prev, now, at, present)
     changed = {alerts.key_of(c["alert"]): c for c in d["changes"]}
     before = {alerts.key_of(s): s for s in prev}
     won = []
@@ -292,7 +309,10 @@ def record(store: AlertStore, ws: str, now: list[dict], at: int) -> list[dict]:
         if c and ok:
             won.append(c)
     for s in d["gone"]:
-        store.drop_state(ws, s["dashboardId"], s["widgetId"])
+        ok = store.drop_state(ws, s["dashboardId"], s["widgetId"])
+        c = changed.get(alerts.key_of(s))
+        if c and ok:
+            won.append(c)
     store.checked(ws, at, None)
     return won
 
@@ -373,7 +393,7 @@ def run_alerts(deps: Deps) -> dict:
             if ruled:
                 seen.extend(ruled.observed)
             out["rules"] += len(seen)
-            changes = record(store, ws, seen, at)
+            changes = record(store, ws, seen, at, rule_keys(dashboards))
             if ruled:
                 changes = ruled.settle(changes)
             out["changes"] += len(changes)

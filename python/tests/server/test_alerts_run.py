@@ -338,3 +338,76 @@ def test_a_check_longer_than_the_interval_is_followed_at_once_and_never_overlaps
 def test_every_s_must_be_positive():
     with pytest.raises(ValueError):
         sched.AlertScheduler(dict, 0)
+
+
+# ── a rule whose figure goes missing, and one deleted while firing (QV-660) ──────────────────────────────────────
+
+DEPTH = {"id": "d1", "name": "Orders", "def": {"variables": [], "widgets": [
+    {"id": "w1", "type": "number", "title": "Backlog", "layout": {"x": 0, "y": 0, "w": 3, "h": 2},
+     "queries": [{"measure": "messages_visible"}], "rule": {"crit": 100}}]}}
+
+
+def _depth(at, visible):
+    """The queue figures at a check: orders with ``visible`` messages, or (None) a read that had no figure."""
+    live = {} if visible is None else {"orders": {"status": "ok", "visible": visible}}
+    return {"now": at, "queues": ["orders"], "queueLive": live, "events": []}
+
+
+class Boards:
+    """Workspace "a" with dashboards and no "Alert me" rule, checked every 5 min on one store."""
+
+    def __init__(self, boards):
+        self.store = run.MemoryAlertStore()
+        self.boards, self.at, self.sent, self.visible = boards, T, [], 500
+
+    def __call__(self):
+        self.sent = []
+        run.run_alerts(run.Deps(store=self.store, dashboards=lambda only: {"a": self.boards},
+                                data=lambda ws, b: _depth(self.at, self.visible), causes=None,
+                                deliver=lambda ws, ch: self.sent.extend(ch), now=lambda: self.at, owner="me"))
+        self.at += 5 * MIN
+        return [(x["kind"], x["from"], bool(x["alert"].get("noLongerChecked"))) for x in self.sent]
+
+
+def test_a_figure_missing_for_one_check_is_not_a_new_incident():
+    b = Boards([DEPTH])
+    assert b() == [("fired", None, False)]
+    since = b.store.states["a"]["d1/w1"]["since"]
+    b.visible = None
+    assert b() == [], "a missed read sends nothing"
+    assert b.store.states["a"]["d1/w1"]["since"] == since
+    b.visible = 600
+    assert b() == [], "back and still critical: the same incident, not sent again"
+    assert b.store.states["a"]["d1/w1"]["since"] == since
+    b.visible = 3
+    assert b() == [("resolved", "critical", False)]
+
+
+def test_a_figure_missing_for_good_is_no_longer_checked_after_the_limit():
+    b = Boards([DEPTH])
+    b()
+    b.visible = None
+    sent = [b() for _ in range(run.alerts.GONE_AFTER_MS // (5 * MIN))]
+    assert sent[:-1] == [[]] * (len(sent) - 1)
+    assert sent[-1] == [("resolved", "critical", True)]
+    assert "a" not in b.store.states or not b.store.states["a"]
+    assert b() == []
+
+
+def test_a_widget_deleted_while_firing_is_no_longer_checked():
+    b = Boards([DEPTH])
+    b()
+    b.boards = [{**DEPTH, "def": {"variables": [], "widgets": [
+        {**DEPTH["def"]["widgets"][0], "id": "w2", "rule": {"crit": 10_000}}]}}]
+    assert b() == [("resolved", "critical", True)]
+    assert set(b.store.states["a"]) == {"d1/w2"}
+
+
+def test_of_two_checks_only_the_one_that_drops_the_state_sends_no_longer_checked():
+    store = run.MemoryAlertStore(states={"a": [{"dashboardId": "d1", "widgetId": "w1", "dashboardName": "Orders",
+                                                "title": "Backlog", "tone": "critical", "value": "500", "limit": "above 100",
+                                                "queue": "orders", "since": T - H, "checkedAt": T - 5 * MIN}]})
+    stale = store.alert_states("a")
+    assert len(run.record(store, "a", [], T, set())) == 1
+    store.alert_states = lambda ws: stale  # the second check read the state before the first dropped it
+    assert run.record(store, "a", [], T, set()) == []

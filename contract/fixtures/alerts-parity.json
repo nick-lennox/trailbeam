@@ -189,6 +189,7 @@
    "prev": [],
    "now": [],
    "at": 1764000000000,
+   "present": [],
    "expected": {
     "next": [],
     "changes": [],
@@ -211,6 +212,9 @@
     }
    ],
    "at": 1764000000000,
+   "present": [
+    "d1/w1"
+   ],
    "expected": {
     "next": [
      {
@@ -256,6 +260,10 @@
     }
    ],
    "at": 1764000000000,
+   "present": [
+    "d1/w1",
+    "d1/w2"
+   ],
    "expected": {
     "next": [
      {
@@ -349,6 +357,9 @@
     }
    ],
    "at": 1764000000000,
+   "present": [
+    "d1/w1"
+   ],
    "expected": {
     "next": [
      {
@@ -397,6 +408,9 @@
     }
    ],
    "at": 1764000000000,
+   "present": [
+    "d1/w1"
+   ],
    "expected": {
     "next": [
      {
@@ -462,6 +476,9 @@
     }
    ],
    "at": 1764000000000,
+   "present": [
+    "d1/w1"
+   ],
    "expected": {
     "next": [
      {
@@ -527,6 +544,9 @@
     }
    ],
    "at": 1764000000000,
+   "present": [
+    "d1/w1"
+   ],
    "expected": {
     "next": [
      {
@@ -592,6 +612,9 @@
     }
    ],
    "at": 1764000000000,
+   "present": [
+    "d1/w1"
+   ],
    "expected": {
     "next": [
      {
@@ -657,6 +680,9 @@
     }
    ],
    "at": 1764000000000,
+   "present": [
+    "d1/w1"
+   ],
    "expected": {
     "next": [
      {
@@ -694,7 +720,7 @@
    }
   },
   {
-   "name": "a rule gone: dropped without a message",
+   "name": "a firing rule deleted: dropped, no longer checked",
    "prev": [
     {
      "dashboardId": "d1",
@@ -734,6 +760,9 @@
     }
    ],
    "at": 1764000000000,
+   "present": [
+    "d1/w2"
+   ],
    "expected": {
     "next": [
      {
@@ -749,6 +778,62 @@
       "checkedAt": 1764000000000
      }
     ],
+    "changes": [
+     {
+      "kind": "resolved",
+      "from": "critical",
+      "alert": {
+       "dashboardId": "d1",
+       "dashboardName": "Orders",
+       "widgetId": "w1",
+       "title": "W1",
+       "tone": "good",
+       "value": "7",
+       "limit": "above 5",
+       "queue": "orders",
+       "since": 1763996400000,
+       "checkedAt": 1764000000000,
+       "noLongerChecked": true
+      }
+     }
+    ],
+    "gone": [
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "W1",
+      "tone": "critical",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1763996400000,
+      "checkedAt": 1763999940000
+     }
+    ]
+   }
+  },
+  {
+   "name": "an OK rule deleted: dropped without a message",
+   "prev": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "good",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders",
+     "since": 1763996400000,
+     "checkedAt": 1763999940000
+    }
+   ],
+   "now": [],
+   "at": 1764000000000,
+   "present": [],
+   "expected": {
+    "next": [],
     "changes": [],
     "gone": [
      {
@@ -756,6 +841,357 @@
       "dashboardName": "Orders",
       "widgetId": "w1",
       "title": "W1",
+      "tone": "good",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1763996400000,
+      "checkedAt": 1763999940000
+     }
+    ]
+   }
+  },
+  {
+   "name": "a warning rule deleted: no longer checked",
+   "prev": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "warning",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders",
+     "since": 1763996400000,
+     "checkedAt": 1763999940000
+    }
+   ],
+   "now": [],
+   "at": 1764000000000,
+   "present": [],
+   "expected": {
+    "next": [],
+    "changes": [
+     {
+      "kind": "resolved",
+      "from": "warning",
+      "alert": {
+       "dashboardId": "d1",
+       "dashboardName": "Orders",
+       "widgetId": "w1",
+       "title": "W1",
+       "tone": "good",
+       "value": "7",
+       "limit": "above 5",
+       "queue": "orders",
+       "since": 1763996400000,
+       "checkedAt": 1764000000000,
+       "noLongerChecked": true
+      }
+     }
+    ],
+    "gone": [
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "W1",
+      "tone": "warning",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1763996400000,
+      "checkedAt": 1763999940000
+     }
+    ]
+   }
+  },
+  {
+   "name": "no figure for one check: kept as it was, nothing sent",
+   "prev": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "critical",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders",
+     "since": 1763996400000,
+     "checkedAt": 1763999940000
+    }
+   ],
+   "now": [],
+   "at": 1764000000000,
+   "present": [
+    "d1/w1"
+   ],
+   "expected": {
+    "next": [
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "W1",
+      "tone": "critical",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1763996400000,
+      "checkedAt": 1763999940000
+     }
+    ],
+    "changes": [],
+    "gone": []
+   }
+  },
+  {
+   "name": "the figure back, still critical: the same incident",
+   "prev": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "critical",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders",
+     "since": 1763996400000,
+     "checkedAt": 1763999400000
+    }
+   ],
+   "now": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "critical",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders"
+    }
+   ],
+   "at": 1764000000000,
+   "present": [
+    "d1/w1"
+   ],
+   "expected": {
+    "next": [
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "W1",
+      "tone": "critical",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1763996400000,
+      "checkedAt": 1764000000000
+     }
+    ],
+    "changes": [],
+    "gone": []
+   }
+  },
+  {
+   "name": "the figure back and OK: resolved",
+   "prev": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "critical",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders",
+     "since": 1763996400000,
+     "checkedAt": 1763999400000
+    }
+   ],
+   "now": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "good",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders"
+    }
+   ],
+   "at": 1764000000000,
+   "present": [
+    "d1/w1"
+   ],
+   "expected": {
+    "next": [
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "W1",
+      "tone": "good",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1764000000000,
+      "checkedAt": 1764000000000
+     }
+    ],
+    "changes": [
+     {
+      "kind": "resolved",
+      "from": "critical",
+      "alert": {
+       "dashboardId": "d1",
+       "dashboardName": "Orders",
+       "widgetId": "w1",
+       "title": "W1",
+       "tone": "good",
+       "value": "7",
+       "limit": "above 5",
+       "queue": "orders",
+       "since": 1764000000000,
+       "checkedAt": 1764000000000
+      }
+     }
+    ],
+    "gone": []
+   }
+  },
+  {
+   "name": "no figure, 1 ms short of the limit: still kept",
+   "prev": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "critical",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders",
+     "since": 1763996400000,
+     "checkedAt": 1763998200001
+    }
+   ],
+   "now": [],
+   "at": 1764000000000,
+   "present": [
+    "d1/w1"
+   ],
+   "expected": {
+    "next": [
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "W1",
+      "tone": "critical",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1763996400000,
+      "checkedAt": 1763998200001
+     }
+    ],
+    "changes": [],
+    "gone": []
+   }
+  },
+  {
+   "name": "no figure for the whole limit: dropped, no longer checked",
+   "prev": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "critical",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders",
+     "since": 1763996400000,
+     "checkedAt": 1763998200000
+    }
+   ],
+   "now": [],
+   "at": 1764000000000,
+   "present": [
+    "d1/w1"
+   ],
+   "expected": {
+    "next": [],
+    "changes": [
+     {
+      "kind": "resolved",
+      "from": "critical",
+      "alert": {
+       "dashboardId": "d1",
+       "dashboardName": "Orders",
+       "widgetId": "w1",
+       "title": "W1",
+       "tone": "good",
+       "value": "7",
+       "limit": "above 5",
+       "queue": "orders",
+       "since": 1763996400000,
+       "checkedAt": 1764000000000,
+       "noLongerChecked": true
+      }
+     }
+    ],
+    "gone": [
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "W1",
+      "tone": "critical",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1763996400000,
+      "checkedAt": 1763998200000
+     }
+    ]
+   }
+  },
+  {
+   "name": "an Alert me rule gone: dropped without a message",
+   "prev": [
+    {
+     "dashboardId": "rule",
+     "dashboardName": "Orders",
+     "widgetId": "r1",
+     "title": "R1",
+     "tone": "critical",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders",
+     "since": 1763996400000,
+     "checkedAt": 1763999940000
+    }
+   ],
+   "now": [],
+   "at": 1764000000000,
+   "present": [],
+   "expected": {
+    "next": [],
+    "changes": [],
+    "gone": [
+     {
+      "dashboardId": "rule",
+      "dashboardName": "Orders",
+      "widgetId": "r1",
+      "title": "R1",
       "tone": "critical",
       "value": "7",
       "limit": "above 5",
@@ -805,6 +1241,10 @@
     }
    ],
    "at": 1764000000000,
+   "present": [
+    "d1/w1",
+    "d2/w1"
+   ],
    "expected": {
     "next": [
      {
@@ -930,6 +1370,11 @@
     }
    ],
    "at": 1764000000000,
+   "present": [
+    "d1/c",
+    "d1/a",
+    "d1/b"
+   ],
    "expected": {
     "next": [
      {
