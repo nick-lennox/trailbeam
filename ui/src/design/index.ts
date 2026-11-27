@@ -44,3 +44,13 @@ export {
   HealthPill, OutcomePill, SourceTag, StatePill, SOURCE, POSSIBLY_PURGED_TITLE, purgeClock, purgeText, stateLook,
   type Outcome, type PurgeOf, type StateOf, type StepSource,
 } from "./pills.tsx";
+export { ServiceIcon, PlatformIcon, AWS_FAMILY } from "./icons.tsx";
+// the Overview's views (QV-579): the queue lane, a message's sequence, the messages behind a part of the flow map, and "nothing yet"
+export { Watching } from "../now/Watching.tsx";
+export { QueueLane, type LaneMessage } from "../now/QueueLane.tsx";
+export {
+  MessageSequence, Rows as SequenceRows, barsOf, sequenceOf, hash as sequenceHash, recorded as recordedBy, ORD as RECEIVE_ORDINALS, PLATFORM_ICON, SQS_ICON,
+  S as SequenceWord, type Fact, type MessageSequenceProps, type Participant, type QueueFacts, type Sequence, type SequenceBar, type SequencePart,
+  type SequenceStep, type SequenceTrigger,
+} from "../now/MessageSequence.tsx";
+export { PartMessages, type PartMessage, type PartMessagesProps } from "../now/PartMessages.tsx";
