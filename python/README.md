@@ -125,7 +125,7 @@ trailbeam.pika.install()
 
 The hooks sit on `pika.channel.Channel`, which every pika connection type uses (`BlockingConnection`, pika 1.5's
 thread-safe `Connection`, `SelectConnection`, and the asyncio, Tornado and Twisted adapters). pika 1.3 or later.
-They emit the spans of contract 4.0 (schema version 4):
+They emit the spans of contract 4.1 (schema version 4):
 
 | What the application or the broker does | Span |
 |---|---|
@@ -149,8 +149,37 @@ spans (pass the queue's name). With `auto_ack=True` a delivery is settled by the
 
 | Call | Effect |
 |---|---|
-| `install(*, span_exporter=None, span_processor=None, tenant=None, capture=None, set_message_id=None)` | Installs the hooks and returns the Trailbeam `TracerProvider`. `tenant` and `capture` are as for `trailbeam.boto` ([Message contents](#message-contents-opt-in)): the tenant comes from the message header `tenant["message_attribute"]` names, then the body path; `body_queues` lists queues, and exchanges for publishes. Only text bodies are captured (`not_text` otherwise). `set_message_id=True`, or `TRAILBEAM_AMQP_SET_MESSAGE_ID=on`, gives a publish without a `message_id` a random UUID (on a copy of its properties), marked `trailbeam.amqp.message_id.source = package`. A second call replaces the first installation. |
+| `install(*, span_exporter=None, span_processor=None, tenant=None, capture=None, set_message_id=None, receipt_hash_key=None, export_routing_keys=None)` | Installs the hooks and returns the Trailbeam `TracerProvider`. `tenant` and `capture` are as for `trailbeam.boto` ([Message contents](#message-contents-opt-in)): the tenant comes from the message header `tenant["message_attribute"]` names, then the body path; `body_queues` lists queues, and exchanges for publishes. Only text bodies are captured (`not_text` otherwise). `set_message_id=True`, or `TRAILBEAM_AMQP_SET_MESSAGE_ID=on`, gives a publish without a `message_id` a random UUID (on a copy of its properties), marked `trailbeam.amqp.message_id.source = package`. `receipt_hash_key` takes precedence over `TRAILBEAM_RECEIPT_HASH_KEY` for the routing-key hash. `export_routing_keys=True`, or `TRAILBEAM_AMQP_EXPORT_ROUTING_KEYS=on`, exports routing keys verbatim ([What the RabbitMQ hooks export](#what-the-rabbitmq-hooks-export)). A second call replaces the first installation. |
 | `uninstall()` | Removes the hooks, then flushes and shuts down the Trailbeam tracer provider. |
+
+### What the RabbitMQ hooks export
+
+Every field the hooks put on a span (contract [A16](../contract/span-contract-amqp.md#a16-what-the-rabbitmq-hooks-export)).
+Nothing else leaves the process.
+
+| Field | Exported |
+|---|---|
+| Queue and exchange names, vhost, broker host and port, channel and consumer tags, delivery tag, `redelivered`, `mandatory`, `delivery_mode`, confirm mode | always |
+| Routing key | **as a keyed hash** (`trailbeam.amqp.routing_key.hmac`), unless body capture is on for that queue or exchange (`capture={"body_queues": [...]}`) or `export_routing_keys=True` (or `TRAILBEAM_AMQP_EXPORT_ROUTING_KEYS=on`) is set: then verbatim |
+| `message_id` | **always, as the application set it**, with control characters (such as a trailing newline) removed |
+| `timestamp` | when set |
+| Reply code and text of a return or a close | always |
+| `x-acquired-count`, `x-delivery-count`, and the newest `x-death` entry (queue, exchange, reason, count, time) and `x-first-death-*` | when the message has them |
+| Tenant | only with the tenant option (`tenant["message_attribute"]`, or `TRAILBEAM_TENANT_ATTRIBUTE` / `_BODY_PATH`) |
+| Body size | always |
+| Body, redacted | only on queues and exchanges in the body list |
+
+Never exported: `correlation_id`, `reply_to`, `user_id`, `app_id`, `type`, `content_type`, `content_encoding`, `expiration`, `priority`, `cluster_id`, any other header, and the body unless you capture it.
+
+**The message ID leaves the process.** It is how Trailbeam identifies a message, so it is exported whatever the
+capture settings. Your application chooses it: if your IDs hold order numbers, email addresses or other business
+data, that data reaches Trailbeam. Use opaque IDs (a UUID), or let `set_message_id` give one to publishes without an ID.
+
+**Routing keys stay in the process by default.** Topic routing keys often hold IDs or email addresses
+(`user.alice@example.com.signup`), so with body capture off a span carries only an HMAC of the key, made with
+`TRAILBEAM_RECEIPT_HASH_KEY` (or `receipt_hash_key`). Trailbeam doesn't join or group by routing key, so nothing else changes; the timeline shows the key as
+"hashed". Equal hashes mean equal keys. The hash protects the key only if the key is secret: with the published
+default key, anyone can hash a guess and compare. Set your own key.
 
 ## Configuration
 

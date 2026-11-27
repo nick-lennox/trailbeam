@@ -43,10 +43,20 @@ def _wire(v):
     return v
 
 
-@pytest.fixture
-def exporter():
+def _install(case):
+    """The package as the case says (A13): the vectors' receipt-hash key, and the case's options."""
     exp = InMemorySpanExporter()
-    trailbeam.pika.install(span_processor=SimpleSpanProcessor(exp))
+    options = case.get("options", {})
+    trailbeam.pika.install(span_processor=SimpleSpanProcessor(exp),
+                           receipt_hash_key=VECTORS["context"]["receipt_hash_key"],
+                           export_routing_keys=options.get("export_routing_keys", False),
+                           capture={"body_queues": options["body_queues"]} if "body_queues" in options else None)
+    return exp
+
+
+@pytest.fixture
+def exporter(request):
+    exp = _install(request.node.callspec.params["case"])
     yield exp
     trailbeam.pika.uninstall()
 

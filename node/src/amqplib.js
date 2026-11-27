@@ -28,7 +28,7 @@ const path = require('node:path');
 const api = require('@opentelemetry/api');
 
 const { makeProvider, nowMs, SERVICE_INSTANCE_ID } = require('./emitter');
-const { SCOPE_NAME } = require('./contract');
+const { SCOPE_NAME, resolveHasher } = require('./contract');
 const { version } = require('./version');
 const order = require('./order');
 const capture = require('./capture');
@@ -37,6 +37,10 @@ const AMQP_SCHEMA_VERSION = 4;
 const RABBITMQ = 'rabbitmq';
 const DEFAULT_EXCHANGE = 'amq.default'; // A5: the name the OpenTelemetry conventions use for ""
 const ENV_SET_MESSAGE_ID = 'TRAILBEAM_AMQP_SET_MESSAGE_ID';
+const ENV_EXPORT_ROUTING_KEYS = 'TRAILBEAM_AMQP_EXPORT_ROUTING_KEYS';
+const ROUTING_KEY = 'rabbitmq.destination.routing_key';
+const ROUTING_KEY_HMAC = 'trailbeam.amqp.routing_key.hmac'; // A5, revision 4.1: when the routing key is not exported
+const ROUTING_KEY_KEY_ID = 'trailbeam.amqp.routing_key.key_id';
 
 const SPAN_PUBLISH = 'trailbeam publish';
 const SPAN_RETURN = 'trailbeam return';
@@ -125,6 +129,18 @@ function text(v) {
   if (typeof v !== 'string' || !v || v.length > MAX_TEXT_BYTES) return undefined; // a UTF-16 unit is >= 1 byte
   if (v.includes(REPLACEMENT_CHARACTER)) return undefined;
   return Buffer.byteLength(v, 'utf8') <= MAX_TEXT_BYTES ? v : undefined;
+}
+
+// Unicode category Cc: U+0000 to U+001F and U+007F to U+009F.
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/g;
+
+/** A6: the `messageId` property as exported: a string `text` keeps, without its control characters (a trailing
+ * newline, an escape sequence), so it can't break a log line or a terminal. undefined when nothing is left. Each
+ * package strips the same characters, so a publish and its deliveries keep one ID. */
+function cleanMessageId(v) {
+  const mid = text(v);
+  if (mid === undefined) return undefined;
+  return mid.replace(CONTROL_CHARACTERS, '') || undefined;
 }
 
 /** An AMQP timestamp (POSIX seconds) in milliseconds. amqplib gives a number, or `{'!': 'timestamp', value}`
@@ -321,11 +337,13 @@ class ChannelState {
 /** Builds and emits the RabbitMQ spans. Every public method is safe to call from a hook: a failure is
  * logged at debug level and never reaches the application. */
 class AmqpHooks {
-  constructor(tracer, clientId, config, setMessageId = false) {
+  constructor(tracer, clientId, config, setMessageId = false, { exportRoutingKeys = false, hasher } = {}) {
     this.tracer = tracer;
     this.clientId = clientId;
     this.config = config || capture.resolveConfig();
     this.setMessageId = Boolean(setMessageId);
+    this.exportRoutingKeys = Boolean(exportRoutingKeys);
+    this.hasher = hasher; // resolved on first use when not given: $TRAILBEAM_RECEIPT_HASH_KEY or the default key
     this.packageIds = new Set();
   }
 
@@ -343,8 +361,19 @@ class AmqpHooks {
     return mid;
   }
 
+  /** A5: the routing key verbatim when the body of `name` (the queue, or the exchange of a publish or return) is
+   * captured or the exportRoutingKeys option is on; otherwise its keyed hash, with the receipt-hash key. Routing
+   * keys often hold IDs and email addresses, and body capture off means application data stays in the process. */
+  routingKeyAttrs(name, routingKey) {
+    const rk = text(routingKey);
+    if (rk === undefined) return {};
+    if (this.exportRoutingKeys || this.config.bodyOn(name)) return { [ROUTING_KEY]: rk };
+    if (!this.hasher) this.hasher = resolveHasher();
+    return { [ROUTING_KEY_HMAC]: this.hasher.hash(rk), [ROUTING_KEY_KEY_ID]: this.hasher.keyId };
+  }
+
   idAttrs(messageId) {
-    const mid = text(messageId);
+    const mid = cleanMessageId(messageId);
     if (mid === undefined) return {};
     return {
       'messaging.message.id': mid,
@@ -414,7 +443,7 @@ class AmqpHooks {
   publishAttrs(st, exchange, routingKey, mandatory, messageId, deliveryMode, headers, body, contentEncoding) {
     const dest = exchangeName(exchange);
     const a = this.base(st, SPAN_PUBLISH, 'basic.publish', dest, false);
-    a['rabbitmq.destination.routing_key'] = text(routingKey);
+    Object.assign(a, this.routingKeyAttrs(dest, routingKey));
     Object.assign(a, this.idAttrs(messageId));
     a['trailbeam.amqp.mandatory'] = Boolean(mandatory);
     if (deliveryMode === 1 || deliveryMode === 2) a['trailbeam.amqp.delivery_mode'] = deliveryMode;
@@ -478,8 +507,9 @@ class AmqpHooks {
 
   onReturn(st, exchange, routingKey, replyCode, replyText, messageId) {
     this.safely('return', () => {
-      const a = this.base(st, SPAN_RETURN, 'basic.return', exchangeName(exchange), false);
-      a['rabbitmq.destination.routing_key'] = text(routingKey);
+      const dest = exchangeName(exchange);
+      const a = this.base(st, SPAN_RETURN, 'basic.return', dest, false);
+      Object.assign(a, this.routingKeyAttrs(dest, routingKey));
       Object.assign(a, this.idAttrs(messageId));
       a['trailbeam.amqp.reply_code'] = amqpInt(replyCode);
       a['trailbeam.amqp.reply_text'] = text(replyText);
@@ -519,9 +549,9 @@ class AmqpHooks {
     a['rabbitmq.message.delivery_tag'] = tag;
     if (operation === 'basic.deliver') a['trailbeam.amqp.consumer_tag'] = text(f.consumerTag);
     a['trailbeam.amqp.exchange'] = exchangeName(f.exchange);
-    a['rabbitmq.destination.routing_key'] = text(f.routingKey);
+    Object.assign(a, this.routingKeyAttrs(queue, f.routingKey));
     a['trailbeam.amqp.redelivered'] = Boolean(f.redelivered);
-    const mid = text(p.messageId);
+    const mid = cleanMessageId(p.messageId);
     a['messaging.message.id'] = mid;
     const h = isTable(p.headers) ? p.headers : {};
     const [count, source] = receiveCount(Boolean(f.redelivered), h);
@@ -1004,21 +1034,30 @@ function addExitHook() {
  * tenant comes from a message header; the body lists name queues, and exchanges for publishes).
  * `setMessageId`: give a publish without a `messageId` a random UUID, marked
  * `trailbeam.amqp.message_id.source = package`; off unless true or $TRAILBEAM_AMQP_SET_MESSAGE_ID is on.
+ * Routing keys (A5): on a queue or exchange whose body is not captured, the spans carry a keyed hash of the
+ * routing key, not the key; `receiptHashKey` (else $TRAILBEAM_RECEIPT_HASH_KEY) is the key, as for `install`.
+ * `exportRoutingKeys: true`, or $TRAILBEAM_AMQP_EXPORT_ROUTING_KEYS=on, exports every routing key verbatim.
  * `amqplibDir`: the folder of the amqplib package to hook, when it is not the one `require('amqplib')`
  * finds from here or from the working directory. Calling `install` again replaces the previous installation.
  */
+function envOn(name) {
+  return ['on', 'true', '1', 'yes'].includes((process.env[name] || '').trim().toLowerCase());
+}
+
 function install(options = {}) {
-  const { tenant, capture: captureOptions, amqplibDir } = options;
-  let { setMessageId } = options;
+  const { tenant, capture: captureOptions, amqplibDir, receiptHashKey } = options;
+  let { setMessageId, exportRoutingKeys } = options;
   const lib = loadAmqplib(amqplibDir);
   const config = capture.resolveConfig(tenant, captureOptions);
-  if (setMessageId === undefined || setMessageId === null) {
-    setMessageId = ['on', 'true', '1', 'yes'].includes((process.env[ENV_SET_MESSAGE_ID] || '').trim().toLowerCase());
-  }
+  if (setMessageId === undefined || setMessageId === null) setMessageId = envOn(ENV_SET_MESSAGE_ID);
+  if (exportRoutingKeys === undefined || exportRoutingKeys === null) exportRoutingKeys = envOn(ENV_EXPORT_ROUTING_KEYS);
+  // Resolve the key (and give its warning) only when a routing key can be hashed.
+  const hasher = !exportRoutingKeys && !config.bodyQueues.has('*') ? resolveHasher(receiptHashKey) : undefined;
   uninstallSync();
   const { provider, resource } = makeProvider(options);
   const tracer = provider.getTracer(SCOPE_NAME, version);
-  hooks = new AmqpHooks(tracer, String(resource.attributes[SERVICE_INSTANCE_ID]), config, setMessageId);
+  hooks = new AmqpHooks(tracer, String(resource.attributes[SERVICE_INSTANCE_ID]), config, setMessageId,
+    { exportRoutingKeys, hasher });
   patch(lib);
   state = { provider, lib };
   addExitHook();
@@ -1049,6 +1088,7 @@ module.exports = {
   uninstall,
   forceFlush,
   ENV_SET_MESSAGE_ID,
+  ENV_EXPORT_ROUTING_KEYS,
   // for tests and other AMQP 0-9-1 clients' hooks
   AmqpHooks,
   ChannelState,
@@ -1056,5 +1096,6 @@ module.exports = {
   deadLetterAttrs,
   amqpContentAttrs,
   exchangeName,
+  cleanMessageId,
   MAX_TEXT_BYTES,
 };

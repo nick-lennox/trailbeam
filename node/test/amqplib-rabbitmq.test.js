@@ -18,6 +18,7 @@ const { hrTimeToMilliseconds } = require('@opentelemetry/core');
 
 const amqplibHooks = require('../src/amqplib');
 const { memoryExporter } = require('./helpers');
+const { resolveHasher } = require('../src/contract');
 
 const URL = process.env.TRAILBEAM_TEST_AMQP_URL;
 const PYTHON = process.env.TRAILBEAM_TEST_SERVER_PYTHON;
@@ -176,7 +177,9 @@ test.describe('amqplib hooks on RabbitMQ', { skip }, () => {
     assert.strictEqual(a(pub)['trailbeam.amqp.confirmed'], true);
     assert.strictEqual(a(pub)['trailbeam.result'], 'ok');
     assert.strictEqual(a(pub)['messaging.destination.name'], 'amq.default');
-    assert.strictEqual(a(pub)['rabbitmq.destination.routing_key'], q);
+    // body capture off: the routing key stays in the process, as its keyed hash (A5, revision 4.1)
+    assert.ok(!('rabbitmq.destination.routing_key' in a(pub)));
+    assert.strictEqual(a(pub)['trailbeam.amqp.routing_key.hmac'], resolveHasher().hash(q));
     assert.strictEqual(a(pub)['messaging.message.body.size'], Buffer.byteLength('{"order": 1}'));
     assert.strictEqual(a(pub)['trailbeam.body.capture_status'], 'off');
     assert.strictEqual(a(pub)['trailbeam.amqp.delivery_mode'], 2);

@@ -9,6 +9,9 @@ const path = require('node:path');
 const amqplibHooks = require('../src/amqplib');
 const fake = require('./amqplib-fake');
 const { memoryExporter } = require('./helpers');
+const contract = require('../src/contract');
+
+const { ReceiptHasher } = contract;
 
 const channelModel = require(path.join(fake.dir, 'lib', 'channel_model.js'));
 const channelLib = require(path.join(fake.dir, 'lib', 'channel.js'));
@@ -269,6 +272,88 @@ test('setMessageId from the environment', async (t) => {
   assert.strictEqual(a['messaging.message.id'], 'mine');
   assert.strictEqual(a['trailbeam.amqp.message_id.source'], 'application');
   assert.strictEqual(b['trailbeam.amqp.message_id.source'], 'package');
+});
+
+// A mandatory publish to topic exchange "events" that comes back, and a delivery from queue "signups", all with a
+// routing key holding an email address. Returns the publish, return and deliver spans' attributes.
+async function publishReturnDeliver(options = {}) {
+  const exporter = installed(options);
+  let spans;
+  try {
+    const ch = await fake.openChannel(new fake.FakeConnection());
+    ch.publish('events', 'user.alice@example.com.signup', Buffer.from('x'), { mandatory: true, messageId: 'm-1' });
+    fake.returned(ch, 312, 'NO_ROUTE', 'events', 'user.alice@example.com.signup', { messageId: 'm-1' });
+    await fake.consume(ch, 'signups', 'ctag-1');
+    fake.deliver(ch, 'ctag-1', 1, { exchange: 'events', routingKey: 'user.alice@example.com.signup', properties: { messageId: 'm-1' } });
+    spans = exporter.getFinishedSpans();
+  } finally {
+    await amqplibHooks.uninstall();
+  }
+  const byName = Object.fromEntries(spans.map((s) => [s.name, s.attributes]));
+  return ['trailbeam publish', 'trailbeam return', 'trailbeam deliver'].map((n) => byName[n]);
+}
+
+test('with body capture off, publish, return and deliver carry only a hash of the routing key', async () => {
+  const key = 'k'.repeat(32);
+  const hasher = new ReceiptHasher(key);
+  for (const a of await publishReturnDeliver({ receiptHashKey: key })) {
+    assert.ok(!('rabbitmq.destination.routing_key' in a));
+    assert.ok(!JSON.stringify(a).includes('alice'));
+    assert.strictEqual(a['trailbeam.amqp.routing_key.hmac'], hasher.hash('user.alice@example.com.signup'));
+    assert.strictEqual(a['trailbeam.amqp.routing_key.key_id'], hasher.keyId);
+  }
+});
+
+test('exportRoutingKeys puts the routing key back on publish, return and deliver', async (t) => {
+  const viaOption = await publishReturnDeliver({ exportRoutingKeys: true });
+  process.env.TRAILBEAM_AMQP_EXPORT_ROUTING_KEYS = 'on';
+  t.after(() => { delete process.env.TRAILBEAM_AMQP_EXPORT_ROUTING_KEYS; });
+  const viaEnv = await publishReturnDeliver();
+  for (const a of [...viaOption, ...viaEnv]) {
+    assert.strictEqual(a['rabbitmq.destination.routing_key'], 'user.alice@example.com.signup');
+    assert.ok(!('trailbeam.amqp.routing_key.hmac' in a) && !('trailbeam.amqp.routing_key.key_id' in a));
+  }
+});
+
+test('body capture decides per queue and exchange', async () => {
+  const [pub, ret, dlv] = await publishReturnDeliver({ receiptHashKey: 'k'.repeat(32), capture: { bodyQueues: ['events'] } });
+  assert.strictEqual(pub['rabbitmq.destination.routing_key'], 'user.alice@example.com.signup'); // exchange captured
+  assert.strictEqual(ret['rabbitmq.destination.routing_key'], 'user.alice@example.com.signup');
+  assert.ok(!('rabbitmq.destination.routing_key' in dlv) && 'trailbeam.amqp.routing_key.hmac' in dlv);
+});
+
+test('no key warning when no routing key can be hashed', async (t) => {
+  const saved = process.env.TRAILBEAM_RECEIPT_HASH_KEY;
+  delete process.env.TRAILBEAM_RECEIPT_HASH_KEY;
+  const warnings = [];
+  contract._setWarn((msg) => warnings.push(msg));
+  t.after(() => {
+    contract._setWarn((msg) => process.emitWarning(msg, { code: 'TRAILBEAM' }));
+    if (saved !== undefined) process.env.TRAILBEAM_RECEIPT_HASH_KEY = saved;
+  });
+  await publishReturnDeliver({ exportRoutingKeys: true });
+  await publishReturnDeliver({ capture: { bodyQueues: ['*'] } });
+  assert.deepStrictEqual(warnings, []);
+  await publishReturnDeliver();
+  assert.ok(warnings.some((w) => w.includes('receipt-hash key')), warnings.join('\n'));
+});
+
+test('control characters are stripped from message IDs', async () => {
+  const exporter = installed();
+  let ids;
+  try {
+    const ch = await fake.openChannel(new fake.FakeConnection());
+    ch.publish('', 'orders', Buffer.from('x'), { messageId: 'm-1\n' });
+    await fake.consume(ch, 'orders', 'ctag-1');
+    fake.deliver(ch, 'ctag-1', 1, { routingKey: 'orders', properties: { messageId: 'm-1\n' } });
+    fake.deliver(ch, 'ctag-1', 2, { routingKey: 'orders', properties: { messageId: '\u001b\u0007' } });
+    ch.ackAll();
+    ids = attrsOf(exporter).map((a) => a['messaging.message.id']);
+  } finally {
+    await amqplibHooks.uninstall();
+  }
+  // publish, two deliveries, two acks
+  assert.deepStrictEqual(ids, ['m-1', 'm-1', undefined, 'm-1', undefined]);
 });
 
 test('a channel opened while installed passes through after uninstall, and amqplib is as it was', async () => {

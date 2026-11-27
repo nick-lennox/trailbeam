@@ -153,7 +153,7 @@ trailbeam.amqplib.install();
 The hooks sit on amqplib's channel classes, which both its promise API (`require('amqplib')`) and its callback API
 (`require('amqplib/callback_api')`) use, with or without connection recovery. amqplib 0.10 or later is an optional
 peer dependency: the package loads it only when `trailbeam.amqplib.install()` is called. They emit the spans of
-contract 4.0 (schema version 4), the same spans as the Python package's pika hooks:
+contract 4.1 (schema version 4), the same spans as the Python package's pika hooks:
 
 | What the application or the broker does | Span |
 |---|---|
@@ -178,9 +178,38 @@ so with a current broker use 0.10.6 or later; CI tests 0.10.9 and the newest.
 
 | Call | Effect |
 |---|---|
-| `amqplib.install({ spanExporter, spanProcessor, tenant, capture, setMessageId, amqplibDir })` | Installs the hooks and returns their `BasicTracerProvider`. `tenant` and `capture` are as for `install` ([Message contents](#message-contents-opt-in)): the tenant comes from the message header `tenant.messageAttribute` names, then the body path; `bodyQueues` lists queues, and exchanges for publishes. Only text bodies are captured (`not_text` otherwise). `setMessageId: true`, or `TRAILBEAM_AMQP_SET_MESSAGE_ID=on`, gives a publish without a `messageId` a random UUID (on a copy of its options), marked `trailbeam.amqp.message_id.source = package`. `amqplibDir`: the amqplib folder to hook, if `require('amqplib')` from the package or the working directory finds another copy. A second call replaces the first installation. |
+| `amqplib.install({ spanExporter, spanProcessor, tenant, capture, setMessageId, receiptHashKey, exportRoutingKeys, amqplibDir })` | Installs the hooks and returns their `BasicTracerProvider`. `tenant` and `capture` are as for `install` ([Message contents](#message-contents-opt-in)): the tenant comes from the message header `tenant.messageAttribute` names, then the body path; `bodyQueues` lists queues, and exchanges for publishes. Only text bodies are captured (`not_text` otherwise). `setMessageId: true`, or `TRAILBEAM_AMQP_SET_MESSAGE_ID=on`, gives a publish without a `messageId` a random UUID (on a copy of its options), marked `trailbeam.amqp.message_id.source = package`. `receiptHashKey` takes precedence over `TRAILBEAM_RECEIPT_HASH_KEY` for the routing-key hash. `exportRoutingKeys: true`, or `TRAILBEAM_AMQP_EXPORT_ROUTING_KEYS=on`, exports routing keys verbatim ([What the RabbitMQ hooks export](#what-the-rabbitmq-hooks-export)). `amqplibDir`: the amqplib folder to hook, if `require('amqplib')` from the package or the working directory finds another copy. A second call replaces the first installation. |
 | `amqplib.uninstall()` | Removes the hooks, then flushes and shuts down their provider. Returns a promise. |
 | `amqplib.forceFlush()` | Exports the spans that are waiting. Returns a promise. |
+
+### What the RabbitMQ hooks export
+
+Every field the hooks put on a span (contract [A16](../contract/span-contract-amqp.md#a16-what-the-rabbitmq-hooks-export)).
+Nothing else leaves the process.
+
+| Field | Exported |
+|---|---|
+| Queue and exchange names, vhost, broker host and port, channel and consumer tags, delivery tag, `redelivered`, `mandatory`, `deliveryMode` (or `persistent`), confirm mode | always |
+| Routing key | **as a keyed hash** (`trailbeam.amqp.routing_key.hmac`), unless body capture is on for that queue or exchange (`capture: { bodyQueues: [...] }`) or `exportRoutingKeys: true` (or `TRAILBEAM_AMQP_EXPORT_ROUTING_KEYS=on`) is set: then verbatim |
+| `messageId` | **always, as the application set it**, with control characters (such as a trailing newline) removed |
+| `timestamp` | when set |
+| Reply code and text of a return or a close | always |
+| `x-acquired-count`, `x-delivery-count`, and the newest `x-death` entry (queue, exchange, reason, count, time) and `x-first-death-*` | when the message has them |
+| Tenant | only with the tenant option (`tenant.messageAttribute`, or `TRAILBEAM_TENANT_ATTRIBUTE` / `_BODY_PATH`) |
+| Body size | always |
+| Body, redacted | only on queues and exchanges in the body list |
+
+Never exported: `correlationId`, `replyTo`, `userId`, `appId`, `type`, `contentType`, `contentEncoding`, `expiration`, `priority`, `clusterId`, any other header, and the body unless you capture it.
+
+**The message ID leaves the process.** It is how Trailbeam identifies a message, so it is exported whatever the
+capture settings. Your application chooses it: if your IDs hold order numbers, email addresses or other business
+data, that data reaches Trailbeam. Use opaque IDs (a UUID), or let `setMessageId` give one to publishes without an ID.
+
+**Routing keys stay in the process by default.** Topic routing keys often hold IDs or email addresses
+(`user.alice@example.com.signup`), so with body capture off a span carries only an HMAC of the key, made with
+`TRAILBEAM_RECEIPT_HASH_KEY` (or `receiptHashKey`). Trailbeam doesn't join or group by routing key, so nothing else changes; the timeline shows the key as
+"hashed". Equal hashes mean equal keys. The hash protects the key only if the key is secret: with the published
+default key, anyone can hash a guess and compare. Set your own key.
 
 ## Configuration
 

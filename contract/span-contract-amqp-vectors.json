@@ -1,9 +1,10 @@
 {
- "description": "Test vectors for contract/span-contract-amqp.md (schema version 4, RabbitMQ over AMQP 0-9-1). 'emit': each case is what the application called or the broker sent ('event', in a client-neutral form; 'recorded' lists the deliveries the package had recorded on the channel and not settled). A package must emit exactly the spans in 'spans', in that order: each named 'span_name', whose attributes include exactly 'attributes', carry every name in 'emit_present' (values depend on the process) and none in its 'absent'. Spans of one call share their interval and ticks. 'receive_count' and 'dead_letter' check sections A7 and A8 alone ('headers': the delivery's other headers, if any). A string written {\"bytes\": \"<hex>\"} is those bytes on the wire, not valid UTF-8: each package's tests decode it as its client library does (A3). 'ingest': whether a 4.0 Trailbeam accepts a span with these attributes, or the start of the reason it rejects it with (section A12); 'dropped' lists the attributes an accepted span loses (over 255 bytes, A3).",
+ "description": "Test vectors for contract/span-contract-amqp.md (schema version 4, RabbitMQ over AMQP 0-9-1). 'emit': each case is what the application called or the broker sent ('event', in a client-neutral form; 'recorded' lists the deliveries the package had recorded on the channel and not settled). A package must emit exactly the spans in 'spans', in that order: each named 'span_name', whose attributes include exactly 'attributes', carry every name in 'emit_present' (values depend on the process) and none in its 'absent'. Spans of one call share their interval and ticks. A case is played with the package installed with context.receipt_hash_key as its receipt-hash key and the case's 'options', if any: 'export_routing_keys' (A5) and 'body_queues', the body capture list (A11); without options, no body is captured, so routing keys are hashed (revision 4.1). 'receive_count' and 'dead_letter' check sections A7 and A8 alone ('headers': the delivery's other headers, if any). A string written {\"bytes\": \"<hex>\"} is those bytes on the wire, not valid UTF-8: each package's tests decode it as its client library does (A3). 'ingest': whether a 4.0 Trailbeam accepts a span with these attributes, or the start of the reason it rejects it with (section A12); 'dropped' lists the attributes an accepted span loses (over 255 bytes, A3).",
  "context": {
   "vhost": "/",
   "server.address": "localhost",
-  "server.port": 5672
+  "server.port": 5672,
+  "receipt_hash_key": "trailbeam-amqp-vectors-key-2026"
  },
  "emit_present": [
   "messaging.client.id",
@@ -45,19 +46,21 @@
       "trailbeam.amqp.vhost": "/",
       "server.address": "localhost",
       "server.port": 5672,
-      "rabbitmq.destination.routing_key": "orders",
       "messaging.message.id": "m-1",
       "trailbeam.amqp.message_id.source": "application",
       "trailbeam.amqp.mandatory": false,
       "trailbeam.amqp.confirmed": true,
       "trailbeam.result": "ok",
-      "trailbeam.amqp.delivery_mode": 2
+      "trailbeam.amqp.delivery_mode": 2,
+      "trailbeam.amqp.routing_key.hmac": "a6ba4b82fa61cbd30b5633ea2a8c764a",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
      },
      "absent": [
       "trailbeam.error_code",
       "trailbeam.amqp.channel.id",
       "trailbeam.start_observed",
-      "aws.sqs.queue.url"
+      "aws.sqs.queue.url",
+      "rabbitmq.destination.routing_key"
      ]
     }
    ]
@@ -131,15 +134,17 @@
       "trailbeam.amqp.vhost": "/",
       "server.address": "localhost",
       "server.port": 5672,
-      "rabbitmq.destination.routing_key": "orders",
       "messaging.message.id": "m-2",
       "trailbeam.amqp.message_id.source": "application",
       "trailbeam.amqp.mandatory": false,
       "trailbeam.amqp.confirmed": false,
-      "trailbeam.result": "ok"
+      "trailbeam.result": "ok",
+      "trailbeam.amqp.routing_key.hmac": "a6ba4b82fa61cbd30b5633ea2a8c764a",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
      },
      "absent": [
-      "trailbeam.error_code"
+      "trailbeam.error_code",
+      "rabbitmq.destination.routing_key"
      ]
     }
    ]
@@ -173,15 +178,18 @@
       "trailbeam.amqp.vhost": "/",
       "server.address": "localhost",
       "server.port": 5672,
-      "rabbitmq.destination.routing_key": "orders",
       "messaging.message.id": "m-3",
       "trailbeam.amqp.message_id.source": "application",
       "trailbeam.amqp.mandatory": false,
       "trailbeam.amqp.confirmed": true,
       "trailbeam.result": "failed",
-      "trailbeam.error_code": "nack"
+      "trailbeam.error_code": "nack",
+      "trailbeam.amqp.routing_key.hmac": "a6ba4b82fa61cbd30b5633ea2a8c764a",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
      },
-     "absent": []
+     "absent": [
+      "rabbitmq.destination.routing_key"
+     ]
     }
    ]
   },
@@ -217,15 +225,18 @@
       "trailbeam.amqp.vhost": "/",
       "server.address": "localhost",
       "server.port": 5672,
-      "rabbitmq.destination.routing_key": "k",
       "messaging.message.id": "m-4",
       "trailbeam.amqp.message_id.source": "application",
       "trailbeam.amqp.mandatory": false,
       "trailbeam.amqp.confirmed": true,
       "trailbeam.result": "failed",
-      "trailbeam.error_code": "NOT_FOUND"
+      "trailbeam.error_code": "NOT_FOUND",
+      "trailbeam.amqp.routing_key.hmac": "5d423513c6e9183ee8aaaa0b97be2598",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
      },
-     "absent": []
+     "absent": [
+      "rabbitmq.destination.routing_key"
+     ]
     }
    ]
   },
@@ -256,14 +267,16 @@
       "trailbeam.amqp.vhost": "/",
       "server.address": "localhost",
       "server.port": 5672,
-      "rabbitmq.destination.routing_key": "orders",
       "trailbeam.amqp.mandatory": false,
       "trailbeam.amqp.confirmed": true,
-      "trailbeam.result": "ok"
+      "trailbeam.result": "ok",
+      "trailbeam.amqp.routing_key.hmac": "a6ba4b82fa61cbd30b5633ea2a8c764a",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
      },
      "absent": [
       "messaging.message.id",
-      "trailbeam.amqp.message_id.source"
+      "trailbeam.amqp.message_id.source",
+      "rabbitmq.destination.routing_key"
      ]
     }
    ]
@@ -302,15 +315,17 @@
       "server.address": "localhost",
       "server.port": 5672,
       "trailbeam.start_observed": false,
-      "rabbitmq.destination.routing_key": "nobody",
       "messaging.message.id": "m-5",
       "trailbeam.amqp.message_id.source": "application",
       "trailbeam.amqp.reply_code": 312,
-      "trailbeam.amqp.reply_text": "NO_ROUTE"
+      "trailbeam.amqp.reply_text": "NO_ROUTE",
+      "trailbeam.amqp.routing_key.hmac": "e3215f8fbd750a2aab8f818c6d68d52a",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
      },
      "absent": [
       "trailbeam.order.issued",
-      "trailbeam.amqp.channel.id"
+      "trailbeam.amqp.channel.id",
+      "rabbitmq.destination.routing_key"
      ]
     },
     {
@@ -326,15 +341,17 @@
       "trailbeam.amqp.vhost": "/",
       "server.address": "localhost",
       "server.port": 5672,
-      "rabbitmq.destination.routing_key": "nobody",
       "messaging.message.id": "m-5",
       "trailbeam.amqp.message_id.source": "application",
       "trailbeam.amqp.mandatory": true,
       "trailbeam.amqp.confirmed": true,
-      "trailbeam.result": "ok"
+      "trailbeam.result": "ok",
+      "trailbeam.amqp.routing_key.hmac": "e3215f8fbd750a2aab8f818c6d68d52a",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
      },
      "absent": [
-      "trailbeam.error_code"
+      "trailbeam.error_code",
+      "rabbitmq.destination.routing_key"
      ]
     }
    ]
@@ -373,16 +390,18 @@
       "trailbeam.amqp.exchange": "amq.default",
       "trailbeam.amqp.redelivered": false,
       "trailbeam.amqp.consumer_tag": "ctag-1",
-      "rabbitmq.destination.routing_key": "orders",
       "messaging.message.id": "m-1",
       "trailbeam.receive_count": 1,
-      "trailbeam.receive_count.source": "first_delivery"
+      "trailbeam.receive_count.source": "first_delivery",
+      "trailbeam.amqp.routing_key.hmac": "a6ba4b82fa61cbd30b5633ea2a8c764a",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
      },
      "absent": [
       "trailbeam.amqp.acquired_count",
       "trailbeam.amqp.delivery_count",
       "trailbeam.dead_letter.source_queue",
-      "trailbeam.order.issued"
+      "trailbeam.order.issued",
+      "rabbitmq.destination.routing_key"
      ]
     }
    ]
@@ -424,16 +443,18 @@
       "trailbeam.amqp.exchange": "amq.default",
       "trailbeam.amqp.redelivered": false,
       "trailbeam.amqp.consumer_tag": "ctag-1",
-      "rabbitmq.destination.routing_key": "orders",
       "messaging.message.id": "m-1",
       "trailbeam.receive_count": 1,
-      "trailbeam.receive_count.source": "first_delivery"
+      "trailbeam.receive_count.source": "first_delivery",
+      "trailbeam.amqp.routing_key.hmac": "a6ba4b82fa61cbd30b5633ea2a8c764a",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
      },
      "absent": [
       "trailbeam.amqp.acquired_count",
       "trailbeam.amqp.delivery_count",
       "trailbeam.dead_letter.source_queue",
-      "trailbeam.order.issued"
+      "trailbeam.order.issued",
+      "rabbitmq.destination.routing_key"
      ]
     }
    ]
@@ -475,15 +496,17 @@
       "trailbeam.amqp.exchange": "amq.default",
       "trailbeam.amqp.redelivered": true,
       "trailbeam.amqp.consumer_tag": "ctag-1",
-      "rabbitmq.destination.routing_key": "orders",
       "messaging.message.id": "m-1",
       "trailbeam.receive_count": 3,
       "trailbeam.receive_count.source": "x-acquired-count",
       "trailbeam.amqp.acquired_count": 2,
-      "trailbeam.amqp.delivery_count": 1
+      "trailbeam.amqp.delivery_count": 1,
+      "trailbeam.amqp.routing_key.hmac": "a6ba4b82fa61cbd30b5633ea2a8c764a",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
      },
      "absent": [
-      "trailbeam.order.issued"
+      "trailbeam.order.issued",
+      "rabbitmq.destination.routing_key"
      ]
     }
    ]
@@ -522,13 +545,15 @@
       "trailbeam.amqp.exchange": "amq.default",
       "trailbeam.amqp.redelivered": true,
       "trailbeam.amqp.consumer_tag": "ctag-2",
-      "rabbitmq.destination.routing_key": "classic",
-      "messaging.message.id": "m-6"
+      "messaging.message.id": "m-6",
+      "trailbeam.amqp.routing_key.hmac": "6570a6fed1a025df296a6cf61b571c1b",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
      },
      "absent": [
       "trailbeam.receive_count",
       "trailbeam.receive_count.source",
-      "trailbeam.order.issued"
+      "trailbeam.order.issued",
+      "rabbitmq.destination.routing_key"
      ]
     }
    ]
@@ -585,7 +610,6 @@
       "trailbeam.amqp.exchange": "dlx",
       "trailbeam.amqp.redelivered": false,
       "trailbeam.amqp.consumer_tag": "ctag-3",
-      "rabbitmq.destination.routing_key": "orders",
       "messaging.message.id": "m-7",
       "trailbeam.receive_count": 4,
       "trailbeam.receive_count.source": "x-acquired-count",
@@ -597,10 +621,13 @@
       "trailbeam.dead_letter.time_ms": 1763980000000,
       "trailbeam.dead_letter.exchange": "amq.default",
       "trailbeam.dead_letter.first_queue": "orders",
-      "trailbeam.dead_letter.first_reason": "delivery_limit"
+      "trailbeam.dead_letter.first_reason": "delivery_limit",
+      "trailbeam.amqp.routing_key.hmac": "a6ba4b82fa61cbd30b5633ea2a8c764a",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
      },
      "absent": [
-      "trailbeam.order.issued"
+      "trailbeam.order.issued",
+      "rabbitmq.destination.routing_key"
      ]
     }
    ]
@@ -789,14 +816,16 @@
       "trailbeam.amqp.exchange": "amq.default",
       "trailbeam.amqp.redelivered": false,
       "trailbeam.amqp.consumer_tag": "ctag-9",
-      "rabbitmq.destination.routing_key": "orders",
       "trailbeam.receive_count": 1,
-      "trailbeam.receive_count.source": "first_delivery"
+      "trailbeam.receive_count.source": "first_delivery",
+      "trailbeam.amqp.routing_key.hmac": "a6ba4b82fa61cbd30b5633ea2a8c764a",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
      },
      "absent": [
       "messaging.message.id",
       "trailbeam.amqp.message_id.source",
-      "trailbeam.order.issued"
+      "trailbeam.order.issued",
+      "rabbitmq.destination.routing_key"
      ]
     }
    ]
@@ -833,13 +862,15 @@
       "trailbeam.amqp.exchange": "amq.default",
       "trailbeam.amqp.redelivered": false,
       "trailbeam.amqp.consumer_tag": "ctag-1",
-      "rabbitmq.destination.routing_key": "orders",
       "trailbeam.receive_count": 1,
-      "trailbeam.receive_count.source": "first_delivery"
+      "trailbeam.receive_count.source": "first_delivery",
+      "trailbeam.amqp.routing_key.hmac": "a6ba4b82fa61cbd30b5633ea2a8c764a",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
      },
      "absent": [
       "messaging.message.id",
-      "trailbeam.order.issued"
+      "trailbeam.order.issued",
+      "rabbitmq.destination.routing_key"
      ]
     }
    ]
@@ -876,15 +907,17 @@
       "rabbitmq.message.delivery_tag": 4,
       "trailbeam.amqp.exchange": "amq.default",
       "trailbeam.amqp.redelivered": false,
-      "rabbitmq.destination.routing_key": "orders",
       "messaging.message.id": "m-8",
       "trailbeam.receive_count": 1,
       "trailbeam.receive_count.source": "first_delivery",
-      "trailbeam.amqp.timestamp_ms": 1763980001000
+      "trailbeam.amqp.timestamp_ms": 1763980001000,
+      "trailbeam.amqp.routing_key.hmac": "a6ba4b82fa61cbd30b5633ea2a8c764a",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
      },
      "absent": [
       "trailbeam.start_observed",
-      "trailbeam.amqp.consumer_tag"
+      "trailbeam.amqp.consumer_tag",
+      "rabbitmq.destination.routing_key"
      ]
     }
    ]
@@ -1477,15 +1510,17 @@
       "rabbitmq.message.delivery_tag": 4,
       "trailbeam.amqp.exchange": "amq.default",
       "trailbeam.amqp.redelivered": false,
-      "rabbitmq.destination.routing_key": "orders",
       "messaging.message.id": "m-8",
       "trailbeam.receive_count": 1,
       "trailbeam.receive_count.source": "first_delivery",
-      "trailbeam.amqp.timestamp_ms": 9007199254740000
+      "trailbeam.amqp.timestamp_ms": 9007199254740000,
+      "trailbeam.amqp.routing_key.hmac": "a6ba4b82fa61cbd30b5633ea2a8c764a",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
      },
      "absent": [
       "trailbeam.start_observed",
-      "trailbeam.amqp.consumer_tag"
+      "trailbeam.amqp.consumer_tag",
+      "rabbitmq.destination.routing_key"
      ]
     }
    ]
@@ -1522,15 +1557,431 @@
       "rabbitmq.message.delivery_tag": 4,
       "trailbeam.amqp.exchange": "amq.default",
       "trailbeam.amqp.redelivered": false,
-      "rabbitmq.destination.routing_key": "orders",
       "messaging.message.id": "m-8",
       "trailbeam.receive_count": 1,
-      "trailbeam.receive_count.source": "first_delivery"
+      "trailbeam.receive_count.source": "first_delivery",
+      "trailbeam.amqp.routing_key.hmac": "a6ba4b82fa61cbd30b5633ea2a8c764a",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
      },
      "absent": [
       "trailbeam.start_observed",
       "trailbeam.amqp.consumer_tag",
-      "trailbeam.amqp.timestamp_ms"
+      "trailbeam.amqp.timestamp_ms",
+      "rabbitmq.destination.routing_key"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "export_routing_keys on: the return and the publish carry the routing key verbatim",
+   "event": {
+    "call": "basic.publish",
+    "exchange": "",
+    "routing_key": "nobody",
+    "mandatory": true,
+    "confirm_mode": true,
+    "properties": {
+     "message_id": "m-5"
+    },
+    "broker": {
+     "basic.return": {
+      "reply_code": 312,
+      "reply_text": "NO_ROUTE"
+     },
+     "confirm": "ack"
+    }
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam return",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.return",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "send",
+      "messaging.operation.name": "basic.return",
+      "messaging.destination.name": "amq.default",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "trailbeam.start_observed": false,
+      "rabbitmq.destination.routing_key": "nobody",
+      "messaging.message.id": "m-5",
+      "trailbeam.amqp.message_id.source": "application",
+      "trailbeam.amqp.reply_code": 312,
+      "trailbeam.amqp.reply_text": "NO_ROUTE"
+     },
+     "absent": [
+      "trailbeam.order.issued",
+      "trailbeam.amqp.channel.id",
+      "trailbeam.amqp.routing_key.hmac",
+      "trailbeam.amqp.routing_key.key_id"
+     ]
+    },
+    {
+     "span_name": "trailbeam publish",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.publish",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "send",
+      "messaging.operation.name": "basic.publish",
+      "messaging.destination.name": "amq.default",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "rabbitmq.destination.routing_key": "nobody",
+      "messaging.message.id": "m-5",
+      "trailbeam.amqp.message_id.source": "application",
+      "trailbeam.amqp.mandatory": true,
+      "trailbeam.amqp.confirmed": true,
+      "trailbeam.result": "ok"
+     },
+     "absent": [
+      "trailbeam.error_code",
+      "trailbeam.amqp.routing_key.hmac",
+      "trailbeam.amqp.routing_key.key_id"
+     ]
+    }
+   ],
+   "options": {
+    "export_routing_keys": true
+   }
+  },
+  {
+   "name": "export_routing_keys on: a delivery carries the routing key verbatim",
+   "event": {
+    "queue": "orders",
+    "consumer_tag": "ctag-1",
+    "delivery_tag": 1,
+    "redelivered": false,
+    "exchange": "",
+    "routing_key": "orders",
+    "properties": {
+     "message_id": "m-1"
+    },
+    "headers": {},
+    "method": "basic.deliver"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam deliver",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.deliver",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "receive",
+      "messaging.operation.name": "basic.deliver",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "trailbeam.start_observed": false,
+      "rabbitmq.message.delivery_tag": 1,
+      "trailbeam.amqp.exchange": "amq.default",
+      "trailbeam.amqp.redelivered": false,
+      "trailbeam.amqp.consumer_tag": "ctag-1",
+      "rabbitmq.destination.routing_key": "orders",
+      "messaging.message.id": "m-1",
+      "trailbeam.receive_count": 1,
+      "trailbeam.receive_count.source": "first_delivery"
+     },
+     "absent": [
+      "trailbeam.amqp.acquired_count",
+      "trailbeam.amqp.delivery_count",
+      "trailbeam.dead_letter.source_queue",
+      "trailbeam.order.issued",
+      "trailbeam.amqp.routing_key.hmac",
+      "trailbeam.amqp.routing_key.key_id"
+     ]
+    }
+   ],
+   "options": {
+    "export_routing_keys": true
+   }
+  },
+  {
+   "name": "body capture on for the queue: its deliveries carry the routing key verbatim",
+   "event": {
+    "queue": "orders",
+    "delivery_tag": 4,
+    "redelivered": false,
+    "exchange": "",
+    "routing_key": "orders",
+    "properties": {
+     "message_id": "m-8",
+     "timestamp": 1763980001
+    },
+    "headers": {},
+    "method": "basic.get"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam deliver",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.deliver",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "receive",
+      "messaging.operation.name": "basic.get",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "rabbitmq.message.delivery_tag": 4,
+      "trailbeam.amqp.exchange": "amq.default",
+      "trailbeam.amqp.redelivered": false,
+      "rabbitmq.destination.routing_key": "orders",
+      "messaging.message.id": "m-8",
+      "trailbeam.receive_count": 1,
+      "trailbeam.receive_count.source": "first_delivery",
+      "trailbeam.amqp.timestamp_ms": 1763980001000
+     },
+     "absent": [
+      "trailbeam.start_observed",
+      "trailbeam.amqp.consumer_tag",
+      "trailbeam.amqp.routing_key.hmac",
+      "trailbeam.amqp.routing_key.key_id"
+     ]
+    }
+   ],
+   "options": {
+    "body_queues": [
+     "orders"
+    ]
+   }
+  },
+  {
+   "name": "topic publish with body capture off: the routing key is hashed",
+   "event": {
+    "call": "basic.publish",
+    "exchange": "events",
+    "routing_key": "user.alice@example.com.signup",
+    "mandatory": false,
+    "confirm_mode": false,
+    "properties": {
+     "message_id": "order-1042"
+    },
+    "client": "wrote"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam publish",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.publish",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "send",
+      "messaging.operation.name": "basic.publish",
+      "messaging.destination.name": "events",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "messaging.message.id": "order-1042",
+      "trailbeam.amqp.message_id.source": "application",
+      "trailbeam.amqp.mandatory": false,
+      "trailbeam.amqp.confirmed": false,
+      "trailbeam.result": "ok",
+      "trailbeam.amqp.routing_key.hmac": "c089e5a29058a84a83c2702ed90f909c",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
+     },
+     "absent": [
+      "trailbeam.error_code",
+      "rabbitmq.destination.routing_key"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "topic publish with body capture on for its exchange: the routing key is verbatim",
+   "event": {
+    "call": "basic.publish",
+    "exchange": "events",
+    "routing_key": "user.alice@example.com.signup",
+    "mandatory": false,
+    "confirm_mode": false,
+    "properties": {
+     "message_id": "order-1042"
+    },
+    "client": "wrote"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam publish",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.publish",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "send",
+      "messaging.operation.name": "basic.publish",
+      "messaging.destination.name": "events",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "rabbitmq.destination.routing_key": "user.alice@example.com.signup",
+      "messaging.message.id": "order-1042",
+      "trailbeam.amqp.message_id.source": "application",
+      "trailbeam.amqp.mandatory": false,
+      "trailbeam.amqp.confirmed": false,
+      "trailbeam.result": "ok"
+     },
+     "absent": [
+      "trailbeam.error_code",
+      "trailbeam.amqp.routing_key.hmac",
+      "trailbeam.amqp.routing_key.key_id"
+     ]
+    }
+   ],
+   "options": {
+    "body_queues": [
+     "events"
+    ]
+   }
+  },
+  {
+   "name": "control characters are stripped from the message ID; the routing key is hashed as sent",
+   "event": {
+    "queue": "orders",
+    "consumer_tag": "ctag-1",
+    "delivery_tag": 7,
+    "redelivered": false,
+    "exchange": "",
+    "routing_key": "user.alice@example.com.signup\n",
+    "properties": {
+     "message_id": "order-1042\r\n"
+    },
+    "headers": {},
+    "method": "basic.deliver"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam deliver",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.deliver",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "receive",
+      "messaging.operation.name": "basic.deliver",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "trailbeam.start_observed": false,
+      "rabbitmq.message.delivery_tag": 7,
+      "trailbeam.amqp.exchange": "amq.default",
+      "trailbeam.amqp.redelivered": false,
+      "trailbeam.amqp.consumer_tag": "ctag-1",
+      "messaging.message.id": "order-1042",
+      "trailbeam.receive_count": 1,
+      "trailbeam.receive_count.source": "first_delivery",
+      "trailbeam.amqp.routing_key.hmac": "5ae0af5798f3b0d0f6cee93d9d22284d",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
+     },
+     "absent": [
+      "trailbeam.amqp.acquired_count",
+      "trailbeam.amqp.delivery_count",
+      "trailbeam.dead_letter.source_queue",
+      "trailbeam.order.issued",
+      "rabbitmq.destination.routing_key"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "a message ID of control characters only is dropped",
+   "event": {
+    "queue": "orders",
+    "consumer_tag": "ctag-1",
+    "delivery_tag": 1,
+    "redelivered": false,
+    "exchange": "",
+    "routing_key": "orders",
+    "properties": {
+     "message_id": "\u001b\u0007\r\n"
+    },
+    "headers": {},
+    "method": "basic.deliver"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam deliver",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.deliver",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "receive",
+      "messaging.operation.name": "basic.deliver",
+      "messaging.destination.name": "orders",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "trailbeam.start_observed": false,
+      "rabbitmq.message.delivery_tag": 1,
+      "trailbeam.amqp.exchange": "amq.default",
+      "trailbeam.amqp.redelivered": false,
+      "trailbeam.amqp.consumer_tag": "ctag-1",
+      "trailbeam.receive_count": 1,
+      "trailbeam.receive_count.source": "first_delivery",
+      "trailbeam.amqp.routing_key.hmac": "a6ba4b82fa61cbd30b5633ea2a8c764a",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
+     },
+     "absent": [
+      "trailbeam.amqp.acquired_count",
+      "trailbeam.amqp.delivery_count",
+      "trailbeam.dead_letter.source_queue",
+      "trailbeam.order.issued",
+      "messaging.message.id",
+      "rabbitmq.destination.routing_key"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "control characters are stripped from a published message ID",
+   "event": {
+    "call": "basic.publish",
+    "exchange": "events",
+    "routing_key": "user.alice@example.com.signup",
+    "mandatory": false,
+    "confirm_mode": false,
+    "properties": {
+     "message_id": "order-1042\u0000\u009b"
+    },
+    "client": "wrote"
+   },
+   "spans": [
+    {
+     "span_name": "trailbeam publish",
+     "attributes": {
+      "trailbeam.schema_version": 4,
+      "trailbeam.kind": "amqp.publish",
+      "trailbeam.source": "client",
+      "messaging.system.name": "rabbitmq",
+      "messaging.operation.type": "send",
+      "messaging.operation.name": "basic.publish",
+      "messaging.destination.name": "events",
+      "trailbeam.amqp.vhost": "/",
+      "server.address": "localhost",
+      "server.port": 5672,
+      "messaging.message.id": "order-1042",
+      "trailbeam.amqp.message_id.source": "application",
+      "trailbeam.amqp.mandatory": false,
+      "trailbeam.amqp.confirmed": false,
+      "trailbeam.result": "ok",
+      "trailbeam.amqp.routing_key.hmac": "c089e5a29058a84a83c2702ed90f909c",
+      "trailbeam.amqp.routing_key.key_id": "466b0c4f"
+     },
+     "absent": [
+      "trailbeam.error_code",
+      "rabbitmq.destination.routing_key"
      ]
     }
    ]

@@ -8,7 +8,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor  # noqa: E402
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter  # noqa: E402
 
 import trailbeam.pika  # noqa: E402
-from trailbeam import _amqp  # noqa: E402
+from trailbeam import _amqp, _contract  # noqa: E402
 
 import pika_fake as fake  # noqa: E402
 
@@ -118,6 +118,71 @@ def test_set_message_id_from_the_environment(monkeypatch):
     a, b = (s.attributes for s in exp.get_finished_spans())
     assert a["messaging.message.id"] == "mine" and a["trailbeam.amqp.message_id.source"] == "application"
     assert b["trailbeam.amqp.message_id.source"] == "package"
+
+
+def _publish_return_deliver(**install):
+    """A mandatory publish to topic exchange "events" that comes back, and a delivery from queue "signups", all
+    with a routing key holding an email address. Returns the publish, return and deliver spans' attributes."""
+    exp = InMemorySpanExporter()
+    trailbeam.pika.install(span_processor=SimpleSpanProcessor(exp), **install)
+    try:
+        conn = fake.FakeConnection()
+        ch = fake.open_channel(conn)
+        ch.basic_publish("events", "user.alice@example.com.signup", b"x", mandatory=True,
+                         properties=pika.BasicProperties(message_id="m-1"))
+        fake.returned(ch, 312, "NO_ROUTE", "events", "user.alice@example.com.signup",
+                      pika.BasicProperties(message_id="m-1"))
+        fake.consume(ch, "signups", "ctag-1")
+        fake.deliver(ch, "ctag-1", 1, False, "events", "user.alice@example.com.signup",
+                     pika.BasicProperties(message_id="m-1"))
+    finally:
+        trailbeam.pika.uninstall()
+    spans = {s.name: dict(s.attributes) for s in exp.get_finished_spans()}
+    return [spans[n] for n in ("trailbeam publish", "trailbeam return", "trailbeam deliver")]
+
+
+def test_with_body_capture_off_publish_return_and_deliver_carry_only_a_hash_of_the_routing_key():
+    key = "k" * 32
+    for a in _publish_return_deliver(receipt_hash_key=key):
+        assert "rabbitmq.destination.routing_key" not in a
+        assert "alice" not in repr(a)
+        assert a["trailbeam.amqp.routing_key.hmac"] == _contract.ReceiptHasher(key)("user.alice@example.com.signup")
+        assert a["trailbeam.amqp.routing_key.key_id"] == _contract.ReceiptHasher(key).key_id
+
+
+def test_export_routing_keys_puts_the_routing_key_back_on_publish_return_and_deliver(monkeypatch):
+    for spans in (_publish_return_deliver(export_routing_keys=True),
+                  (monkeypatch.setenv("TRAILBEAM_AMQP_EXPORT_ROUTING_KEYS", "on") or _publish_return_deliver())):
+        for a in spans:
+            assert a["rabbitmq.destination.routing_key"] == "user.alice@example.com.signup"
+            assert "trailbeam.amqp.routing_key.hmac" not in a and "trailbeam.amqp.routing_key.key_id" not in a
+
+
+def test_body_capture_decides_per_queue_and_exchange():
+    pub, ret, dlv = _publish_return_deliver(receipt_hash_key="k" * 32, capture={"body_queues": ["events"]})
+    assert pub["rabbitmq.destination.routing_key"] == ret["rabbitmq.destination.routing_key"]  # exchange captured
+    assert "rabbitmq.destination.routing_key" not in dlv and "trailbeam.amqp.routing_key.hmac" in dlv
+
+
+def test_no_key_warning_when_no_routing_key_can_be_hashed(monkeypatch, caplog):
+    monkeypatch.delenv("TRAILBEAM_RECEIPT_HASH_KEY", raising=False)
+    monkeypatch.setattr(_contract, "_warned", set())
+    _publish_return_deliver(export_routing_keys=True)
+    _publish_return_deliver(capture={"body_queues": ["*"]})
+    assert "receipt-hash key" not in caplog.text
+    _publish_return_deliver()
+    assert "receipt-hash key" in caplog.text
+
+
+def test_control_characters_are_stripped_from_message_ids(exporter):
+    ch = fake.open_channel(fake.FakeConnection())
+    ch.basic_publish("", "orders", b"x", properties=pika.BasicProperties(message_id="m-1\n"))
+    fake.consume(ch, "orders", "ctag-1")
+    fake.deliver(ch, "ctag-1", 1, False, "", "orders", pika.BasicProperties(message_id="m-1\n"))
+    fake.deliver(ch, "ctag-1", 2, False, "", "orders", pika.BasicProperties(message_id="\x1b\x07"))
+    ch.basic_ack(0, multiple=True)
+    ids = [s.attributes.get("messaging.message.id") for s in exporter.get_finished_spans()]
+    assert ids == ["m-1", "m-1", None, "m-1", None]  # publish, two deliveries, two acks
 
 
 def test_deliveries_of_an_unknown_consumer_or_a_server_named_queue_get_no_span(exporter):
