@@ -55,8 +55,8 @@ from typing import Callable, NamedTuple, Optional
 from . import __version__
 from .accounts import AccountError, SsoRefused
 from .cookies import cookie
-from .oidc import (LOGIN_TTL_MS, MAX_RESPONSE, HTTP_TIMEOUT_S, Done, OidcError, SettingsError, _names,
-                   _session_hours, check_url, pkce_challenge, read_secret_file)
+from .oidc import (LOGIN_TTL_MS, MAX_RESPONSE, HTTP_TIMEOUT_S, Done, OidcError, Redirected, SettingsError, _names,
+                   _session_hours, check_url, pkce_challenge, read_secret_file, urlopen)
 
 log = logging.getLogger("trailbeam.server")
 
@@ -248,8 +248,10 @@ class Provider:
         h = {"Accept": "application/json", "User-Agent": f"trailbeam/{__version__}", **(headers or {})}
         req = urllib.request.Request(url, data=data, headers=h)
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout_s) as r:  # noqa: S310 - URLs checked by check_url
+            with urlopen(req, timeout=self.timeout_s) as r:  # never follows a redirect: the token goes nowhere else
                 body, link = r.read(MAX_RESPONSE + 1), r.headers.get("Link")
+        except Redirected as e:
+            raise OidcError("GitHub sent an answer this server can't read.", f"{url}: {e}", 502) from None
         except urllib.error.HTTPError as e:
             text = e.read(2000).decode("utf-8", "replace")
             raise OidcError("GitHub refused the sign-in. Try again, or ask your administrator.",
