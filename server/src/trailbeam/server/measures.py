@@ -749,11 +749,16 @@ def no_depth(data: dict) -> str:
     qs = list((data.get("queueLive") or {}).values())
     failed = next((q for q in qs if q.get("status") == "failed"), None)
     if failed:
-        return f"No data. {why_none(failed)}"
+        return _no_data(why_none(failed))
     if any(q.get("status") == "ok" for q in qs):
         return ("No data for this measure from the queues that match. It needs a setting the queue does not have "
                 "(a redrive policy, for example) or a figure CloudWatch has not reported yet.")
-    return f"No data. {why_none(qs[0] if qs else None)}"
+    return _no_data(why_none(qs[0] if qs else None))
+
+
+def _no_data(why: str) -> str:
+    """why, led by "No data." unless it already says so (why_none's own sentences do, QV-635)."""
+    return why if why.startswith("No data") else f"No data. {why}"
 
 
 def queue_only_terms(filter_: str) -> list:
