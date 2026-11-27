@@ -4,8 +4,8 @@
   at /message?id=<message ID> (the timeline, and with &tab=body the Body tab), the Tenants page at /tenants
   (tenants.tsx, in the shared frame),
   the Overview at /overview (overview.tsx; /queues redirects there), a queue's page at /queue?name=<queue>
-  (queue.tsx), the Event explorer at /events (events.tsx), for admins the People page at /people (people.tsx),
-  and for anyone signed in the Tokens page at /tokens (tokens.tsx). They read Trailbeam's own
+  (queue.tsx), the Event explorer at /events (events.tsx), for admins the People page at /people (people.tsx, in the
+  shared frame), and for anyone signed in the Tokens page at /tokens (tokens.tsx, in the shared frame). They read Trailbeam's own
   API on the same origin, and move between pages through the shared Nav on the browser's history. Without the
   build, or with scripts off, the server's HTML pages answer instead.
 */
