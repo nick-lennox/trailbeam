@@ -46,7 +46,8 @@ export {
   HealthPill, OutcomePill, SourceTag, StatePill, SOURCE, POSSIBLY_PURGED_TITLE, purgeClock, purgeText, stateLook,
   type Outcome, type PurgeOf, type StateOf, type StepSource,
 } from "./pills.tsx";
-export { ServiceIcon, PlatformIcon, AWS_FAMILY } from "./icons.tsx";
+export { Menu, MenuItem } from "./Menu.tsx";
+export { AWS_FAMILY, PlatformIcon, ServiceIcon } from "./icons.tsx";
 // the Overview's views (QV-579): the queue lane, a message's sequence, the messages behind a part of the flow map, and "nothing yet"
 export { Watching } from "../now/Watching.tsx";
 export { QueueLane, type LaneMessage } from "../now/QueueLane.tsx";
