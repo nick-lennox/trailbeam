@@ -60,3 +60,17 @@ them in unchanged. It is written by `make-measures-parity.py` from the open-sour
 (`server/src/trailbeam/server/measures.py`); don't edit it by hand. Checked by `python/tests/server/test_measures.py`,
 which also fails if the file is not what the script writes, and by the hosted app's `test/measures-parity.test.ts`
 against its `lib/dashboards/measures.ts`. `@trailbeam/ui` ships it as `@trailbeam/ui/fixtures/measures-parity.json`.
+
+## `alerts-delivery.json`
+
+What an alert sends, which both products must agree on (QV-636): for a webhook, Slack and email channel, the request
+(URL, headers with the HMAC signature, body) or the emails a check's changes make, from dashboard rules and "Alert me"
+cause rules (quiet and every check, resolved, after a snooze, regressed, back from ignored, triage, a capped read, an
+inferred or long label, escaping); which channels want which change; and how a channel's target is checked (http or
+https, private and local hosts, Slack's own URLs, email lists) and shown without its secret part. Links in it are the
+hosted app's, `<origin>/app/<slug>/...`; self-hosted Trailbeam makes the same under its own URL. It is written by
+`make-alerts-delivery.py` from the open-source code (`server/src/trailbeam/server/alert_messages.py` and
+`alert_delivery.py`); don't edit it by hand. Checked by `python/tests/server/test_alert_delivery.py`, which also sends
+every case for real to a local HTTP server and a fake SMTP server and fails if the file is not what the script writes,
+and by the hosted app's `test/alerts-delivery.test.ts` against its `lib/alerts/deliver.ts` and `channels.ts`.
+`@trailbeam/ui` ships it as `@trailbeam/ui/fixtures/alerts-delivery.json`.
