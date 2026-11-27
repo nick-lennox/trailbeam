@@ -1,0 +1,3979 @@
+{
+ "about": "Alert rule cases both engines must agree on (QV-627). Written by make-alerts-parity.py; see that file.",
+ "version": 1,
+ "toneOf": [
+  {
+   "name": "no rule",
+   "value": 5,
+   "rule": null,
+   "expected": null
+  },
+  {
+   "name": "a rule with no limit",
+   "value": 5,
+   "rule": {},
+   "expected": null
+  },
+  {
+   "name": "a rule with only below set",
+   "value": 5,
+   "rule": {
+    "below": true
+   },
+   "expected": null
+  },
+  {
+   "name": "warn only, under",
+   "value": 4,
+   "rule": {
+    "warn": 5
+   },
+   "expected": "good"
+  },
+  {
+   "name": "warn only, at the limit: not over",
+   "value": 5,
+   "rule": {
+    "warn": 5
+   },
+   "expected": "good"
+  },
+  {
+   "name": "warn only, over",
+   "value": 6,
+   "rule": {
+    "warn": 5
+   },
+   "expected": "warning"
+  },
+  {
+   "name": "crit only, over",
+   "value": 11,
+   "rule": {
+    "crit": 10
+   },
+   "expected": "critical"
+  },
+  {
+   "name": "crit only, under",
+   "value": 9,
+   "rule": {
+    "crit": 10
+   },
+   "expected": "good"
+  },
+  {
+   "name": "both, under warn",
+   "value": 1,
+   "rule": {
+    "warn": 5,
+    "crit": 10
+   },
+   "expected": "good"
+  },
+  {
+   "name": "both, between",
+   "value": 7,
+   "rule": {
+    "warn": 5,
+    "crit": 10
+   },
+   "expected": "warning"
+  },
+  {
+   "name": "both, at crit: only warning",
+   "value": 10,
+   "rule": {
+    "warn": 5,
+    "crit": 10
+   },
+   "expected": "warning"
+  },
+  {
+   "name": "both, over crit",
+   "value": 10.5,
+   "rule": {
+    "warn": 5,
+    "crit": 10
+   },
+   "expected": "critical"
+  },
+  {
+   "name": "crit under warn: crit wins when both are passed",
+   "value": 20,
+   "rule": {
+    "warn": 15,
+    "crit": 10
+   },
+   "expected": "critical"
+  },
+  {
+   "name": "crit under warn, between them: critical",
+   "value": 12,
+   "rule": {
+    "warn": 15,
+    "crit": 10
+   },
+   "expected": "critical"
+  },
+  {
+   "name": "a zero limit counts",
+   "value": 0.001,
+   "rule": {
+    "crit": 0
+   },
+   "expected": "critical"
+  },
+  {
+   "name": "negative figures",
+   "value": -3,
+   "rule": {
+    "warn": -5,
+    "crit": -1
+   },
+   "expected": "warning"
+  },
+  {
+   "name": "below: warn and crit",
+   "value": 8,
+   "rule": {
+    "warn": 10,
+    "crit": 5,
+    "below": true
+   },
+   "expected": "warning"
+  },
+  {
+   "name": "below: under crit",
+   "value": 4,
+   "rule": {
+    "warn": 10,
+    "crit": 5,
+    "below": true
+   },
+   "expected": "critical"
+  },
+  {
+   "name": "below: at warn is not under",
+   "value": 10,
+   "rule": {
+    "warn": 10,
+    "crit": 5,
+    "below": true
+   },
+   "expected": "good"
+  },
+  {
+   "name": "below: over both",
+   "value": 50,
+   "rule": {
+    "warn": 10,
+    "crit": 5,
+    "below": true
+   },
+   "expected": "good"
+  },
+  {
+   "name": "below false is above",
+   "value": 50,
+   "rule": {
+    "warn": 10,
+    "below": false
+   },
+   "expected": "warning"
+  }
+ ],
+ "diff": [
+  {
+   "name": "nothing before, nothing now",
+   "prev": [],
+   "now": [],
+   "at": 1764000000000,
+   "expected": {
+    "next": [],
+    "changes": [],
+    "gone": []
+   }
+  },
+  {
+   "name": "first seen OK: stored, nothing sent",
+   "prev": [],
+   "now": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "good",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders"
+    }
+   ],
+   "at": 1764000000000,
+   "expected": {
+    "next": [
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "W1",
+      "tone": "good",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1764000000000,
+      "checkedAt": 1764000000000
+     }
+    ],
+    "changes": [],
+    "gone": []
+   }
+  },
+  {
+   "name": "first seen firing: fired from nothing",
+   "prev": [],
+   "now": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "warning",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders"
+    },
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w2",
+     "title": "W2",
+     "tone": "critical",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders"
+    }
+   ],
+   "at": 1764000000000,
+   "expected": {
+    "next": [
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "W1",
+      "tone": "warning",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1764000000000,
+      "checkedAt": 1764000000000
+     },
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w2",
+      "title": "W2",
+      "tone": "critical",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1764000000000,
+      "checkedAt": 1764000000000
+     }
+    ],
+    "changes": [
+     {
+      "kind": "fired",
+      "from": null,
+      "alert": {
+       "dashboardId": "d1",
+       "dashboardName": "Orders",
+       "widgetId": "w1",
+       "title": "W1",
+       "tone": "warning",
+       "value": "7",
+       "limit": "above 5",
+       "queue": "orders",
+       "since": 1764000000000,
+       "checkedAt": 1764000000000
+      }
+     },
+     {
+      "kind": "fired",
+      "from": null,
+      "alert": {
+       "dashboardId": "d1",
+       "dashboardName": "Orders",
+       "widgetId": "w2",
+       "title": "W2",
+       "tone": "critical",
+       "value": "7",
+       "limit": "above 5",
+       "queue": "orders",
+       "since": 1764000000000,
+       "checkedAt": 1764000000000
+      }
+     }
+    ],
+    "gone": []
+   }
+  },
+  {
+   "name": "stays critical: not sent again, since kept",
+   "prev": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "critical",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders",
+     "since": 1763996400000,
+     "checkedAt": 1763999940000
+    }
+   ],
+   "now": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "critical",
+     "value": "9",
+     "limit": "above 5",
+     "queue": "orders"
+    }
+   ],
+   "at": 1764000000000,
+   "expected": {
+    "next": [
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "W1",
+      "tone": "critical",
+      "value": "9",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1763996400000,
+      "checkedAt": 1764000000000
+     }
+    ],
+    "changes": [],
+    "gone": []
+   }
+  },
+  {
+   "name": "OK to warning: fired",
+   "prev": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "good",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders",
+     "since": 1763996400000,
+     "checkedAt": 1763999940000
+    }
+   ],
+   "now": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "warning",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders"
+    }
+   ],
+   "at": 1764000000000,
+   "expected": {
+    "next": [
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "W1",
+      "tone": "warning",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1764000000000,
+      "checkedAt": 1764000000000
+     }
+    ],
+    "changes": [
+     {
+      "kind": "fired",
+      "from": "good",
+      "alert": {
+       "dashboardId": "d1",
+       "dashboardName": "Orders",
+       "widgetId": "w1",
+       "title": "W1",
+       "tone": "warning",
+       "value": "7",
+       "limit": "above 5",
+       "queue": "orders",
+       "since": 1764000000000,
+       "checkedAt": 1764000000000
+      }
+     }
+    ],
+    "gone": []
+   }
+  },
+  {
+   "name": "OK to critical: fired",
+   "prev": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "good",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders",
+     "since": 1763996400000,
+     "checkedAt": 1763999940000
+    }
+   ],
+   "now": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "critical",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders"
+    }
+   ],
+   "at": 1764000000000,
+   "expected": {
+    "next": [
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "W1",
+      "tone": "critical",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1764000000000,
+      "checkedAt": 1764000000000
+     }
+    ],
+    "changes": [
+     {
+      "kind": "fired",
+      "from": "good",
+      "alert": {
+       "dashboardId": "d1",
+       "dashboardName": "Orders",
+       "widgetId": "w1",
+       "title": "W1",
+       "tone": "critical",
+       "value": "7",
+       "limit": "above 5",
+       "queue": "orders",
+       "since": 1764000000000,
+       "checkedAt": 1764000000000
+      }
+     }
+    ],
+    "gone": []
+   }
+  },
+  {
+   "name": "warning to critical: changed",
+   "prev": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "warning",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders",
+     "since": 1763996400000,
+     "checkedAt": 1763999940000
+    }
+   ],
+   "now": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "critical",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders"
+    }
+   ],
+   "at": 1764000000000,
+   "expected": {
+    "next": [
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "W1",
+      "tone": "critical",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1764000000000,
+      "checkedAt": 1764000000000
+     }
+    ],
+    "changes": [
+     {
+      "kind": "changed",
+      "from": "warning",
+      "alert": {
+       "dashboardId": "d1",
+       "dashboardName": "Orders",
+       "widgetId": "w1",
+       "title": "W1",
+       "tone": "critical",
+       "value": "7",
+       "limit": "above 5",
+       "queue": "orders",
+       "since": 1764000000000,
+       "checkedAt": 1764000000000
+      }
+     }
+    ],
+    "gone": []
+   }
+  },
+  {
+   "name": "critical to warning: changed",
+   "prev": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "critical",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders",
+     "since": 1763996400000,
+     "checkedAt": 1763999940000
+    }
+   ],
+   "now": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "warning",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders"
+    }
+   ],
+   "at": 1764000000000,
+   "expected": {
+    "next": [
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "W1",
+      "tone": "warning",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1764000000000,
+      "checkedAt": 1764000000000
+     }
+    ],
+    "changes": [
+     {
+      "kind": "changed",
+      "from": "critical",
+      "alert": {
+       "dashboardId": "d1",
+       "dashboardName": "Orders",
+       "widgetId": "w1",
+       "title": "W1",
+       "tone": "warning",
+       "value": "7",
+       "limit": "above 5",
+       "queue": "orders",
+       "since": 1764000000000,
+       "checkedAt": 1764000000000
+      }
+     }
+    ],
+    "gone": []
+   }
+  },
+  {
+   "name": "critical to OK: resolved",
+   "prev": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "critical",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders",
+     "since": 1763996400000,
+     "checkedAt": 1763999940000
+    }
+   ],
+   "now": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "good",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders"
+    }
+   ],
+   "at": 1764000000000,
+   "expected": {
+    "next": [
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "W1",
+      "tone": "good",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1764000000000,
+      "checkedAt": 1764000000000
+     }
+    ],
+    "changes": [
+     {
+      "kind": "resolved",
+      "from": "critical",
+      "alert": {
+       "dashboardId": "d1",
+       "dashboardName": "Orders",
+       "widgetId": "w1",
+       "title": "W1",
+       "tone": "good",
+       "value": "7",
+       "limit": "above 5",
+       "queue": "orders",
+       "since": 1764000000000,
+       "checkedAt": 1764000000000
+      }
+     }
+    ],
+    "gone": []
+   }
+  },
+  {
+   "name": "a rule gone: dropped without a message",
+   "prev": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "critical",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders",
+     "since": 1763996400000,
+     "checkedAt": 1763999940000
+    },
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w2",
+     "title": "W2",
+     "tone": "good",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders",
+     "since": 1763996400000,
+     "checkedAt": 1763999940000
+    }
+   ],
+   "now": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w2",
+     "title": "W2",
+     "tone": "good",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders"
+    }
+   ],
+   "at": 1764000000000,
+   "expected": {
+    "next": [
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w2",
+      "title": "W2",
+      "tone": "good",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1763996400000,
+      "checkedAt": 1764000000000
+     }
+    ],
+    "changes": [],
+    "gone": [
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "W1",
+      "tone": "critical",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1763996400000,
+      "checkedAt": 1763999940000
+     }
+    ]
+   }
+  },
+  {
+   "name": "same widget ID on two dashboards",
+   "prev": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "good",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders",
+     "since": 1763996400000,
+     "checkedAt": 1763999940000
+    }
+   ],
+   "now": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "critical",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders"
+    },
+    {
+     "dashboardId": "d2",
+     "dashboardName": "Orders",
+     "widgetId": "w1",
+     "title": "W1",
+     "tone": "critical",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders"
+    }
+   ],
+   "at": 1764000000000,
+   "expected": {
+    "next": [
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "W1",
+      "tone": "critical",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1764000000000,
+      "checkedAt": 1764000000000
+     },
+     {
+      "dashboardId": "d2",
+      "dashboardName": "Orders",
+      "widgetId": "w1",
+      "title": "W1",
+      "tone": "critical",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1764000000000,
+      "checkedAt": 1764000000000
+     }
+    ],
+    "changes": [
+     {
+      "kind": "fired",
+      "from": "good",
+      "alert": {
+       "dashboardId": "d1",
+       "dashboardName": "Orders",
+       "widgetId": "w1",
+       "title": "W1",
+       "tone": "critical",
+       "value": "7",
+       "limit": "above 5",
+       "queue": "orders",
+       "since": 1764000000000,
+       "checkedAt": 1764000000000
+      }
+     },
+     {
+      "kind": "fired",
+      "from": null,
+      "alert": {
+       "dashboardId": "d2",
+       "dashboardName": "Orders",
+       "widgetId": "w1",
+       "title": "W1",
+       "tone": "critical",
+       "value": "7",
+       "limit": "above 5",
+       "queue": "orders",
+       "since": 1764000000000,
+       "checkedAt": 1764000000000
+      }
+     }
+    ],
+    "gone": []
+   }
+  },
+  {
+   "name": "the order of now is kept",
+   "prev": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "b",
+     "title": "B",
+     "tone": "warning",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders",
+     "since": 1763996400000,
+     "checkedAt": 1763999940000
+    },
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "a",
+     "title": "A",
+     "tone": "good",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders",
+     "since": 1763996400000,
+     "checkedAt": 1763999940000
+    }
+   ],
+   "now": [
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "c",
+     "title": "C",
+     "tone": "critical",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders"
+    },
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "a",
+     "title": "A",
+     "tone": "good",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders"
+    },
+    {
+     "dashboardId": "d1",
+     "dashboardName": "Orders",
+     "widgetId": "b",
+     "title": "B",
+     "tone": "good",
+     "value": "7",
+     "limit": "above 5",
+     "queue": "orders"
+    }
+   ],
+   "at": 1764000000000,
+   "expected": {
+    "next": [
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "c",
+      "title": "C",
+      "tone": "critical",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1764000000000,
+      "checkedAt": 1764000000000
+     },
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "a",
+      "title": "A",
+      "tone": "good",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1763996400000,
+      "checkedAt": 1764000000000
+     },
+     {
+      "dashboardId": "d1",
+      "dashboardName": "Orders",
+      "widgetId": "b",
+      "title": "B",
+      "tone": "good",
+      "value": "7",
+      "limit": "above 5",
+      "queue": "orders",
+      "since": 1764000000000,
+      "checkedAt": 1764000000000
+     }
+    ],
+    "changes": [
+     {
+      "kind": "fired",
+      "from": null,
+      "alert": {
+       "dashboardId": "d1",
+       "dashboardName": "Orders",
+       "widgetId": "c",
+       "title": "C",
+       "tone": "critical",
+       "value": "7",
+       "limit": "above 5",
+       "queue": "orders",
+       "since": 1764000000000,
+       "checkedAt": 1764000000000
+      }
+     },
+     {
+      "kind": "resolved",
+      "from": "warning",
+      "alert": {
+       "dashboardId": "d1",
+       "dashboardName": "Orders",
+       "widgetId": "b",
+       "title": "B",
+       "tone": "good",
+       "value": "7",
+       "limit": "above 5",
+       "queue": "orders",
+       "since": 1764000000000,
+       "checkedAt": 1764000000000
+      }
+     }
+    ],
+    "gone": []
+   }
+  }
+ ],
+ "causeRule": [
+  {
+   "name": "the first check only notes what is there",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": null,
+    "lastNewAt": null,
+    "wasMuted": false
+   },
+   "prev": null,
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 2,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "x": "other"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": null,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "good",
+     "value": "0",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 0,
+      "notFinished": 2,
+      "prevCheckAt": null,
+      "lastNewAt": null,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1764000000000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "the first check of an every rule: nothing sent",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "every",
+    "quietS": 0,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": null,
+    "lastNewAt": null,
+    "wasMuted": false
+   },
+   "prev": null,
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 2,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "x": "other"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": null,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "good",
+     "value": "0",
+     "limit": "new messages at a check",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "every",
+      "quietS": 0,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 0,
+      "notFinished": 2,
+      "prevCheckAt": null,
+      "lastNewAt": null,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1764000000000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "every: new messages fire",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "every",
+    "quietS": 0,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1"
+    ],
+    "lastNewAt": 1763996400000,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "good"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 2,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "x": "other"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "critical",
+     "value": "1",
+     "limit": "new messages at a check",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "every",
+      "quietS": 0,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 1,
+      "notFinished": 2,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763996400000,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1764000000000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "every: none new resolves",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "every",
+    "quietS": 0,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1",
+     "m2"
+    ],
+    "lastNewAt": 1763996400000,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "critical"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 2,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "x": "other"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "good",
+     "value": "0",
+     "limit": "new messages at a check",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "every",
+      "quietS": 0,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 0,
+      "notFinished": 2,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763996400000,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1763996400000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "quiet: new after the quiet period fires",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1"
+    ],
+    "lastNewAt": 1763974800000,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "good"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 2,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "x": "other"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "critical",
+     "value": "1",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 1,
+      "notFinished": 2,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763974800000,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1764000000000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "quiet: new inside the quiet period does not",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1"
+    ],
+    "lastNewAt": 1763996400000,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "good"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 2,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "x": "other"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "good",
+     "value": "1",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 1,
+      "notFinished": 2,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763996400000,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1764000000000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "quiet: new while firing stays firing",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1"
+    ],
+    "lastNewAt": 1763996400000,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "critical"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 2,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "x": "other"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "critical",
+     "value": "1",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 1,
+      "notFinished": 2,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763996400000,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1764000000000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "quiet: no new, inside the period, still firing",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1",
+     "m2"
+    ],
+    "lastNewAt": 1763996400000,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "critical"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 2,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "x": "other"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "critical",
+     "value": "0",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 0,
+      "notFinished": 2,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763996400000,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1763996400000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "quiet: no new, the period over, resolves",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1",
+     "m2"
+    ],
+    "lastNewAt": 1763978400000,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "critical"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 2,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "x": "other"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "good",
+     "value": "0",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 0,
+      "notFinished": 2,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763978400000,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1763978400000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "quiet: the period counts as over 5 min early",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1",
+     "m2"
+    ],
+    "lastNewAt": 1763978700000,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "critical"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 2,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "x": "other"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "good",
+     "value": "0",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 0,
+      "notFinished": 2,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763978700000,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1763978700000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "quiet: 1 ms short of the slack is not over",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1",
+     "m2"
+    ],
+    "lastNewAt": 1763978700001,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "critical"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 2,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "x": "other"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "critical",
+     "value": "0",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 0,
+      "notFinished": 2,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763978700001,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1763978700001,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "quiet: new exactly at the early end fires",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1"
+    ],
+    "lastNewAt": 1763978700000,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "good"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 2,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "x": "other"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "critical",
+     "value": "1",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 1,
+      "notFinished": 2,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763978700000,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1764000000000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "quiet: no new, never fired, stays OK",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1",
+     "m2"
+    ],
+    "lastNewAt": 1763892000000,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "good"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 2,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "x": "other"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "good",
+     "value": "0",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 0,
+      "notFinished": 2,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763892000000,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1763892000000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "a message that left the cause is not new",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1",
+     "m2",
+     "m0"
+    ],
+    "lastNewAt": 1763892000000,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "good"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 2,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "x": "other"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "good",
+     "value": "0",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 0,
+      "notFinished": 2,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763892000000,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1763892000000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "seen but no lastNewAt: counts from now",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1"
+    ],
+    "lastNewAt": null,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "good"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 2,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "x": "other"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": null,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "good",
+     "value": "1",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 1,
+      "notFinished": 2,
+      "prevCheckAt": null,
+      "lastNewAt": null,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1764000000000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "30 min quiet, in minutes",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 1800,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1"
+    ],
+    "lastNewAt": 1763996400000,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "good"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 3,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "critical",
+     "value": "2",
+     "limit": "new messages after 30 min quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 1800,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 2,
+      "notFinished": 3,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763996400000,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2",
+      "m3"
+     ],
+     "lastNewAt": 1764000000000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "7 days quiet",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 604800,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [],
+    "lastNewAt": 1763308800000,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "good"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 3,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "critical",
+     "value": "3",
+     "limit": "new messages after 7 days quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 604800,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 3,
+      "notFinished": 3,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763308800000,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2",
+      "m3"
+     ],
+     "lastNewAt": 1764000000000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "muted: worked out as usual, muted said",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": 1764003600000,
+    "mutedBy": "u1",
+    "mutedAt": 1763996400000,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1"
+    ],
+    "lastNewAt": 1763974800000,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "good"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 2,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "x": "other"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "critical",
+     "value": "1",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 1,
+      "notFinished": 2,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763974800000,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1764000000000,
+     "wasMuted": true
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": true
+   }
+  },
+  {
+   "name": "muted forever",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": 8640000000000000,
+    "mutedBy": "u1",
+    "mutedAt": 1763996400000,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1"
+    ],
+    "lastNewAt": 1763974800000,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "good"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 2,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "x": "other"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": null,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "critical",
+     "value": "1",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 1,
+      "notFinished": 2,
+      "prevCheckAt": null,
+      "lastNewAt": 1763974800000,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1764000000000,
+     "wasMuted": true
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": true
+   }
+  },
+  {
+   "name": "a snooze that ends now is over",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": 1764000000000,
+    "mutedBy": "u1",
+    "mutedAt": 1763996400000,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1"
+    ],
+    "lastNewAt": 1763974800000,
+    "wasMuted": true
+   },
+   "prev": {
+    "tone": "critical"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 2,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "x": "other"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "critical",
+     "value": "1",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 1,
+      "notFinished": 2,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763974800000,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1764000000000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "the cause gone: the rule's own label, nothing seen",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1"
+    ],
+    "lastNewAt": 1763996400000,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "critical"
+   },
+   "read": {
+    "groups": [],
+    "causeOf": {},
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "critical",
+     "value": "0",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "",
+      "inferred": false,
+      "newCount": 0,
+      "notFinished": 0,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763996400000,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [],
+     "lastNewAt": 1763996400000,
+     "wasMuted": false
+    },
+    "seenAs": null,
+    "muted": false
+   }
+  },
+  {
+   "name": "error texts merged into one group: still the rule's cause",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1"
+    ],
+    "lastNewAt": 1763974800000,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "good"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-all",
+      "key": "v1|orders|handler|exc:TimeoutError:*",
+      "label": "orders-handler raised TimeoutError (5 texts)",
+      "queue": "orders",
+      "count": 5,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-all",
+     "m2": "c-all",
+     "m9": "c-all"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError (5 texts)",
+     "tone": "critical",
+     "value": "2",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-all",
+      "label": "orders-handler raised TimeoutError (5 texts)",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 2,
+      "notFinished": 3,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763974800000,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2",
+      "m9"
+     ],
+     "lastNewAt": 1764000000000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError (5 texts)",
+     "queue": "orders",
+     "causeId": "c-all"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "a rule on the merged group matches the texts split again",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:*",
+    "causeId": "c-all",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1"
+    ],
+    "lastNewAt": 1763974800000,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "good"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-a",
+      "key": "v1|orders|handler|exc:TimeoutError:a",
+      "label": "a",
+      "queue": "orders",
+      "count": 1,
+      "basis": "exception",
+      "inferred": false
+     },
+     {
+      "id": "c-b",
+      "key": "v1|orders|handler|exc:TimeoutError:b",
+      "label": "b",
+      "queue": "orders-2",
+      "count": 4,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-a",
+     "m2": "c-b"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "b",
+     "tone": "critical",
+     "value": "1",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders-2",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-b",
+      "label": "b",
+      "queue": "orders-2",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 1,
+      "notFinished": 2,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763974800000,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1764000000000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "b",
+     "queue": "orders-2",
+     "causeId": "c-b"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "two groups of equal size: the first names it",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:*",
+    "causeId": "c-all",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": null,
+    "lastNewAt": null,
+    "wasMuted": false
+   },
+   "prev": null,
+   "read": {
+    "groups": [
+     {
+      "id": "c-a",
+      "key": "v1|orders|handler|exc:TimeoutError:a",
+      "label": "a",
+      "queue": "orders",
+      "count": 2,
+      "basis": "exception",
+      "inferred": false
+     },
+     {
+      "id": "c-b",
+      "key": "v1|orders|handler|exc:TimeoutError:b",
+      "label": "b",
+      "queue": "orders",
+      "count": 2,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-a",
+     "m2": "c-b"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": null,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "a",
+     "tone": "good",
+     "value": "0",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-a",
+      "label": "a",
+      "queue": "orders",
+      "basis": "exception",
+      "inferred": false,
+      "newCount": 0,
+      "notFinished": 2,
+      "prevCheckAt": null,
+      "lastNewAt": null,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1764000000000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "a",
+     "queue": "orders",
+     "causeId": "c-a"
+    },
+    "muted": false
+   }
+  },
+  {
+   "name": "a merge only joins exception groups",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|status:500",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1"
+    ],
+    "lastNewAt": 1763974800000,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "good"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-s",
+      "key": "v1|orders|handler|status:*",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 3,
+      "basis": "exception",
+      "inferred": false
+     }
+    ],
+    "causeOf": {
+     "m1": "c-s",
+     "m2": "c-s"
+    },
+    "capped": false
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "good",
+     "value": "0",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "",
+      "inferred": false,
+      "newCount": 0,
+      "notFinished": 0,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763974800000,
+      "capped": false
+     }
+    },
+    "memory": {
+     "seen": [],
+     "lastNewAt": 1763974800000,
+     "wasMuted": false
+    },
+    "seenAs": null,
+    "muted": false
+   }
+  },
+  {
+   "name": "capped read, inferred group",
+   "rule": {
+    "id": "r1",
+    "kind": "cause",
+    "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+    "causeId": "c-abc",
+    "label": "orders-handler raised TimeoutError",
+    "queue": "orders",
+    "channels": [
+     "ch1"
+    ],
+    "mode": "quiet",
+    "quietS": 21600,
+    "mutedUntil": null,
+    "mutedBy": null,
+    "mutedAt": null,
+    "createdBy": "u1",
+    "createdAt": 1763827200000,
+    "updatedAt": 1763827200000
+   },
+   "memory": {
+    "seen": [
+     "m1"
+    ],
+    "lastNewAt": 1763974800000,
+    "wasMuted": false
+   },
+   "prev": {
+    "tone": "good"
+   },
+   "read": {
+    "groups": [
+     {
+      "id": "c-abc",
+      "key": "v1|orders|handler|exc:TimeoutError:abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "count": 2,
+      "basis": "",
+      "inferred": true
+     }
+    ],
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc"
+    },
+    "capped": true
+   },
+   "at": 1764000000000,
+   "prevCheckAt": 1763999400000,
+   "expected": {
+    "observed": {
+     "dashboardId": "rule",
+     "dashboardName": "",
+     "widgetId": "r1",
+     "title": "orders-handler raised TimeoutError",
+     "tone": "critical",
+     "value": "1",
+     "limit": "new messages after 6 h quiet",
+     "queue": "orders",
+     "rule": {
+      "kind": "cause",
+      "ruleId": "r1",
+      "channels": [
+       "ch1"
+      ],
+      "mode": "quiet",
+      "quietS": 21600,
+      "causeId": "c-abc",
+      "label": "orders-handler raised TimeoutError",
+      "queue": "orders",
+      "basis": "",
+      "inferred": true,
+      "newCount": 1,
+      "notFinished": 2,
+      "prevCheckAt": 1763999400000,
+      "lastNewAt": 1763974800000,
+      "capped": true
+     }
+    },
+    "memory": {
+     "seen": [
+      "m1",
+      "m2"
+     ],
+     "lastNewAt": 1764000000000,
+     "wasMuted": false
+    },
+    "seenAs": {
+     "label": "orders-handler raised TimeoutError",
+     "queue": "orders",
+     "causeId": "c-abc"
+    },
+    "muted": false
+   }
+  }
+ ],
+ "sameCause": [
+  {
+   "rule": "v1|q|c|exc:E:abc",
+   "group": "v1|q|c|exc:E:abc",
+   "expected": true
+  },
+  {
+   "rule": "v1|q|c|exc:E:abc",
+   "group": "v1|q|c|exc:E:*",
+   "expected": true
+  },
+  {
+   "rule": "v1|q|c|exc:E:*",
+   "group": "v1|q|c|exc:E:abc",
+   "expected": true
+  },
+  {
+   "rule": "v1|q|c|exc:E:abc",
+   "group": "v1|q|c|exc:F:*",
+   "expected": false
+  },
+  {
+   "rule": "v1|q|c|exc:E:abc",
+   "group": "v1|q2|c|exc:E:*",
+   "expected": false
+  },
+  {
+   "rule": "v1|q|c|status:500",
+   "group": "v1|q|c|status:*",
+   "expected": false
+  },
+  {
+   "rule": "v1|q|c|exc:E:abc",
+   "group": "v1|q|c|exc:E:abd",
+   "expected": false
+  },
+  {
+   "rule": "v1|q|c|exc:E:*",
+   "group": "v1|q|c|exc:E:*",
+   "expected": true
+  }
+ ],
+ "walk": {
+  "rule": {
+   "id": "r1",
+   "kind": "cause",
+   "causeKey": "v1|orders|handler|exc:TimeoutError:abc",
+   "causeId": "c-abc",
+   "label": "orders-handler raised TimeoutError",
+   "queue": "orders",
+   "channels": [
+    "ch1"
+   ],
+   "mode": "quiet",
+   "quietS": 7200,
+   "mutedUntil": null,
+   "mutedBy": null,
+   "mutedAt": null,
+   "createdBy": "u1",
+   "createdAt": 1763827200000,
+   "updatedAt": 1763827200000
+  },
+  "group": {
+   "id": "c-abc",
+   "key": "v1|orders|handler|exc:TimeoutError:abc",
+   "label": "orders-handler raised TimeoutError",
+   "queue": "orders",
+   "count": 1,
+   "basis": "exception",
+   "inferred": false
+  },
+  "checks": [
+   {
+    "at": 1764000000000,
+    "causeOf": {
+     "m1": "c-abc"
+    }
+   },
+   {
+    "at": 1764001800000,
+    "causeOf": {
+     "m1": "c-abc"
+    }
+   },
+   {
+    "at": 1764003600000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc"
+    }
+   },
+   {
+    "at": 1764005400000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc"
+    }
+   },
+   {
+    "at": 1764007200000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc"
+    }
+   },
+   {
+    "at": 1764009000000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc"
+    }
+   },
+   {
+    "at": 1764010800000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc"
+    }
+   },
+   {
+    "at": 1764012600000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc"
+    }
+   },
+   {
+    "at": 1764014400000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc"
+    }
+   },
+   {
+    "at": 1764016200000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc",
+     "m4": "c-abc"
+    }
+   },
+   {
+    "at": 1764018000000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc",
+     "m4": "c-abc"
+    }
+   },
+   {
+    "at": 1764019800000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc",
+     "m4": "c-abc"
+    }
+   },
+   {
+    "at": 1764021600000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc",
+     "m4": "c-abc"
+    }
+   },
+   {
+    "at": 1764023400000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc",
+     "m4": "c-abc"
+    }
+   },
+   {
+    "at": 1764025200000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc",
+     "m4": "c-abc"
+    }
+   },
+   {
+    "at": 1764027000000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc",
+     "m4": "c-abc"
+    }
+   },
+   {
+    "at": 1764028800000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc",
+     "m4": "c-abc"
+    }
+   },
+   {
+    "at": 1764030600000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc",
+     "m4": "c-abc"
+    }
+   },
+   {
+    "at": 1764032400000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc",
+     "m4": "c-abc"
+    }
+   },
+   {
+    "at": 1764034200000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc",
+     "m4": "c-abc"
+    }
+   },
+   {
+    "at": 1764036000000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc",
+     "m4": "c-abc",
+     "m5": "c-abc",
+     "m6": "c-abc"
+    }
+   },
+   {
+    "at": 1764037800000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc",
+     "m4": "c-abc",
+     "m5": "c-abc",
+     "m6": "c-abc"
+    }
+   },
+   {
+    "at": 1764039600000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc",
+     "m4": "c-abc",
+     "m5": "c-abc",
+     "m6": "c-abc"
+    }
+   },
+   {
+    "at": 1764041400000,
+    "causeOf": {
+     "m1": "c-abc",
+     "m2": "c-abc",
+     "m3": "c-abc",
+     "m4": "c-abc",
+     "m5": "c-abc",
+     "m6": "c-abc"
+    }
+   }
+  ],
+  "expected": [
+   {
+    "at": 1764000000000,
+    "tone": "good",
+    "newCount": 0,
+    "changes": []
+   },
+   {
+    "at": 1764001800000,
+    "tone": "good",
+    "newCount": 0,
+    "changes": []
+   },
+   {
+    "at": 1764003600000,
+    "tone": "good",
+    "newCount": 1,
+    "changes": []
+   },
+   {
+    "at": 1764005400000,
+    "tone": "good",
+    "newCount": 1,
+    "changes": []
+   },
+   {
+    "at": 1764007200000,
+    "tone": "good",
+    "newCount": 0,
+    "changes": []
+   },
+   {
+    "at": 1764009000000,
+    "tone": "good",
+    "newCount": 0,
+    "changes": []
+   },
+   {
+    "at": 1764010800000,
+    "tone": "good",
+    "newCount": 0,
+    "changes": []
+   },
+   {
+    "at": 1764012600000,
+    "tone": "good",
+    "newCount": 0,
+    "changes": []
+   },
+   {
+    "at": 1764014400000,
+    "tone": "good",
+    "newCount": 0,
+    "changes": []
+   },
+   {
+    "at": 1764016200000,
+    "tone": "critical",
+    "newCount": 1,
+    "changes": [
+     "fired"
+    ]
+   },
+   {
+    "at": 1764018000000,
+    "tone": "critical",
+    "newCount": 0,
+    "changes": []
+   },
+   {
+    "at": 1764019800000,
+    "tone": "critical",
+    "newCount": 0,
+    "changes": []
+   },
+   {
+    "at": 1764021600000,
+    "tone": "critical",
+    "newCount": 0,
+    "changes": []
+   },
+   {
+    "at": 1764023400000,
+    "tone": "good",
+    "newCount": 0,
+    "changes": [
+     "resolved"
+    ]
+   },
+   {
+    "at": 1764025200000,
+    "tone": "good",
+    "newCount": 0,
+    "changes": []
+   },
+   {
+    "at": 1764027000000,
+    "tone": "good",
+    "newCount": 0,
+    "changes": []
+   },
+   {
+    "at": 1764028800000,
+    "tone": "good",
+    "newCount": 0,
+    "changes": []
+   },
+   {
+    "at": 1764030600000,
+    "tone": "good",
+    "newCount": 0,
+    "changes": []
+   },
+   {
+    "at": 1764032400000,
+    "tone": "good",
+    "newCount": 0,
+    "changes": []
+   },
+   {
+    "at": 1764034200000,
+    "tone": "good",
+    "newCount": 0,
+    "changes": []
+   },
+   {
+    "at": 1764036000000,
+    "tone": "critical",
+    "newCount": 2,
+    "changes": [
+     "fired"
+    ]
+   },
+   {
+    "at": 1764037800000,
+    "tone": "critical",
+    "newCount": 0,
+    "changes": []
+   },
+   {
+    "at": 1764039600000,
+    "tone": "critical",
+    "newCount": 0,
+    "changes": []
+   },
+   {
+    "at": 1764041400000,
+    "tone": "critical",
+    "newCount": 0,
+    "changes": []
+   }
+  ]
+ }
+}

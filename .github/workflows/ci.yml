@@ -118,7 +118,8 @@ jobs:
           {
             echo "full=$full"
             echo "core=$core"
-            area python '^python/|^server/'
+            # contract/fixtures/alerts-parity: the alert rules' shared cases, run by python/tests/server/test_alerts.py
+            area python '^python/|^server/|^contract/fixtures/(alerts-parity\.json|make-alerts-parity\.py)$'
             area node '^node/'
             area store '^server/|^python/tests/(server|conformance)/|^python/pyproject\.toml$|^contract/'
             area java '^java/|^conformance/(drivers/java|kit\.py|bench/|checker\.py)'
