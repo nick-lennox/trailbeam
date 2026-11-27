@@ -1,0 +1,3888 @@
+{
+ "about": "The scheduled alert check's decisions both engines must agree on (QV-639). Written by make-alerts-run.py; see that file.",
+ "version": 1,
+ "cases": [
+  {
+   "name": "oldest checked first: never, then 20 min ago, then 10 min ago",
+   "start": 1764000000000,
+   "budgetMs": 60000,
+   "owner": "check-1",
+   "only": null,
+   "channels": null,
+   "cost": {
+    "a": 25000,
+    "b": 25000,
+    "c": 25000
+   },
+   "dashboards": {},
+   "data": {},
+   "causes": {
+    "a": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 1,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1"
+     },
+     "capped": false
+    },
+    "b": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 1,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1"
+     },
+     "capped": false
+    },
+    "c": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 1,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1"
+     },
+     "capped": false
+    }
+   },
+   "fail": {},
+   "store": {
+    "rules": {
+     "a": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ],
+     "b": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ],
+     "c": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ]
+    },
+    "states": {},
+    "checks": {
+     "a": {
+      "checkedAt": 1763999400000,
+      "error": null
+     },
+     "c": {
+      "checkedAt": 1763998800000,
+      "error": null
+     }
+    },
+    "leases": {}
+   },
+   "expected": {
+    "result": {
+     "workspaces": 3,
+     "rules": 3,
+     "changes": 0,
+     "failed": [],
+     "skipped": {
+      "noChannel": 0,
+      "leased": 0,
+      "budget": 0
+     },
+     "ms": 75000
+    },
+    "delivered": [],
+    "store": {
+     "rules": {
+      "a": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763992800000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ],
+      "b": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763992800000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ],
+      "c": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763992800000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ]
+     },
+     "states": {
+      "a": [
+       {
+        "dashboardId": "rule",
+        "widgetId": "r1",
+        "dashboardName": "",
+        "title": "TimeoutError: read timed out",
+        "tone": "good",
+        "value": "0",
+        "limit": "new messages after 1 h quiet",
+        "queue": "orders",
+        "since": 1764000050000,
+        "checkedAt": 1764000050000
+       }
+      ],
+      "b": [
+       {
+        "dashboardId": "rule",
+        "widgetId": "r1",
+        "dashboardName": "",
+        "title": "TimeoutError: read timed out",
+        "tone": "good",
+        "value": "0",
+        "limit": "new messages after 1 h quiet",
+        "queue": "orders",
+        "since": 1764000000000,
+        "checkedAt": 1764000000000
+       }
+      ],
+      "c": [
+       {
+        "dashboardId": "rule",
+        "widgetId": "r1",
+        "dashboardName": "",
+        "title": "TimeoutError: read timed out",
+        "tone": "good",
+        "value": "0",
+        "limit": "new messages after 1 h quiet",
+        "queue": "orders",
+        "since": 1764000025000,
+        "checkedAt": 1764000025000
+       }
+      ]
+     },
+     "checks": {
+      "a": {
+       "checkedAt": 1764000050000,
+       "error": null
+      },
+      "b": {
+       "checkedAt": 1764000000000,
+       "error": null
+      },
+      "c": {
+       "checkedAt": 1764000025000,
+       "error": null
+      }
+     },
+     "leases": {
+      "a": {
+       "owner": "check-1",
+       "until": 0
+      },
+      "b": {
+       "owner": "check-1",
+       "until": 0
+      },
+      "c": {
+       "owner": "check-1",
+       "until": 0
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "the budget: no workspace starts once it has passed; the rest wait",
+   "start": 1764000000000,
+   "budgetMs": 50000,
+   "owner": "check-1",
+   "only": null,
+   "channels": null,
+   "cost": {
+    "a": 25000,
+    "b": 25000,
+    "c": 25000
+   },
+   "dashboards": {},
+   "data": {},
+   "causes": {
+    "a": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 1,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1"
+     },
+     "capped": false
+    },
+    "b": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 1,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1"
+     },
+     "capped": false
+    },
+    "c": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 1,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1"
+     },
+     "capped": false
+    }
+   },
+   "fail": {},
+   "store": {
+    "rules": {
+     "a": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ],
+     "b": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ],
+     "c": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ]
+    },
+    "states": {},
+    "checks": {
+     "a": {
+      "checkedAt": 1763999400000,
+      "error": null
+     },
+     "c": {
+      "checkedAt": 1763998800000,
+      "error": null
+     }
+    },
+    "leases": {}
+   },
+   "expected": {
+    "result": {
+     "workspaces": 2,
+     "rules": 2,
+     "changes": 0,
+     "failed": [],
+     "skipped": {
+      "noChannel": 0,
+      "leased": 0,
+      "budget": 1
+     },
+     "ms": 50000
+    },
+    "delivered": [],
+    "store": {
+     "rules": {
+      "a": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763992800000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ],
+      "b": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763992800000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ],
+      "c": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763992800000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ]
+     },
+     "states": {
+      "b": [
+       {
+        "dashboardId": "rule",
+        "widgetId": "r1",
+        "dashboardName": "",
+        "title": "TimeoutError: read timed out",
+        "tone": "good",
+        "value": "0",
+        "limit": "new messages after 1 h quiet",
+        "queue": "orders",
+        "since": 1764000000000,
+        "checkedAt": 1764000000000
+       }
+      ],
+      "c": [
+       {
+        "dashboardId": "rule",
+        "widgetId": "r1",
+        "dashboardName": "",
+        "title": "TimeoutError: read timed out",
+        "tone": "good",
+        "value": "0",
+        "limit": "new messages after 1 h quiet",
+        "queue": "orders",
+        "since": 1764000025000,
+        "checkedAt": 1764000025000
+       }
+      ]
+     },
+     "checks": {
+      "a": {
+       "checkedAt": 1763999400000,
+       "error": null
+      },
+      "b": {
+       "checkedAt": 1764000000000,
+       "error": null
+      },
+      "c": {
+       "checkedAt": 1764000025000,
+       "error": null
+      }
+     },
+     "leases": {
+      "b": {
+       "owner": "check-1",
+       "until": 0
+      },
+      "c": {
+       "owner": "check-1",
+       "until": 0
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "a budget of 0: nothing is checked",
+   "start": 1764000000000,
+   "budgetMs": 0,
+   "owner": "check-1",
+   "only": null,
+   "channels": null,
+   "cost": {
+    "a": 25000,
+    "b": 25000,
+    "c": 25000
+   },
+   "dashboards": {},
+   "data": {},
+   "causes": {
+    "a": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 1,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1"
+     },
+     "capped": false
+    },
+    "b": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 1,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1"
+     },
+     "capped": false
+    },
+    "c": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 1,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1"
+     },
+     "capped": false
+    }
+   },
+   "fail": {},
+   "store": {
+    "rules": {
+     "a": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ],
+     "b": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ],
+     "c": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ]
+    },
+    "states": {},
+    "checks": {
+     "a": {
+      "checkedAt": 1763999400000,
+      "error": null
+     },
+     "c": {
+      "checkedAt": 1763998800000,
+      "error": null
+     }
+    },
+    "leases": {}
+   },
+   "expected": {
+    "result": {
+     "workspaces": 0,
+     "rules": 0,
+     "changes": 0,
+     "failed": [],
+     "skipped": {
+      "noChannel": 0,
+      "leased": 0,
+      "budget": 3
+     },
+     "ms": 0
+    },
+    "delivered": [],
+    "store": {
+     "rules": {
+      "a": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763992800000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ],
+      "b": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763992800000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ],
+      "c": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763992800000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ]
+     },
+     "states": {},
+     "checks": {
+      "a": {
+       "checkedAt": 1763999400000,
+       "error": null
+      },
+      "c": {
+       "checkedAt": 1763998800000,
+       "error": null
+      }
+     },
+     "leases": {}
+    }
+   }
+  },
+  {
+   "name": "leases: held by another check, or checked fine within the gap, is skipped; an ended lease or a failed check within the gap is not",
+   "start": 1764000000000,
+   "budgetMs": 60000,
+   "owner": "check-1",
+   "only": null,
+   "channels": null,
+   "cost": {},
+   "dashboards": {},
+   "data": {},
+   "causes": {
+    "held": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 1,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1"
+     },
+     "capped": false
+    },
+    "fresh": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 1,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1"
+     },
+     "capped": false
+    },
+    "failed": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 1,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1"
+     },
+     "capped": false
+    },
+    "ended": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 1,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1"
+     },
+     "capped": false
+    },
+    "old": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 1,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1"
+     },
+     "capped": false
+    }
+   },
+   "fail": {},
+   "store": {
+    "rules": {
+     "held": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ],
+     "fresh": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ],
+     "failed": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ],
+     "ended": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ],
+     "old": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ]
+    },
+    "states": {},
+    "checks": {
+     "fresh": {
+      "checkedAt": 1763999970000,
+      "error": null
+     },
+     "failed": {
+      "checkedAt": 1763999970000,
+      "error": "boom"
+     },
+     "old": {
+      "checkedAt": 1763999955000,
+      "error": null
+     }
+    },
+    "leases": {
+     "held": {
+      "owner": "other",
+      "until": 1764000060000
+     },
+     "ended": {
+      "owner": "other",
+      "until": 1763999999999
+     }
+    }
+   },
+   "expected": {
+    "result": {
+     "workspaces": 3,
+     "rules": 3,
+     "changes": 0,
+     "failed": [],
+     "skipped": {
+      "noChannel": 0,
+      "leased": 2,
+      "budget": 0
+     },
+     "ms": 0
+    },
+    "delivered": [],
+    "store": {
+     "rules": {
+      "held": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763992800000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ],
+      "fresh": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763992800000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ],
+      "failed": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763992800000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ],
+      "ended": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763992800000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ],
+      "old": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763992800000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ]
+     },
+     "states": {
+      "ended": [
+       {
+        "dashboardId": "rule",
+        "widgetId": "r1",
+        "dashboardName": "",
+        "title": "TimeoutError: read timed out",
+        "tone": "good",
+        "value": "0",
+        "limit": "new messages after 1 h quiet",
+        "queue": "orders",
+        "since": 1764000000000,
+        "checkedAt": 1764000000000
+       }
+      ],
+      "failed": [
+       {
+        "dashboardId": "rule",
+        "widgetId": "r1",
+        "dashboardName": "",
+        "title": "TimeoutError: read timed out",
+        "tone": "good",
+        "value": "0",
+        "limit": "new messages after 1 h quiet",
+        "queue": "orders",
+        "since": 1764000000000,
+        "checkedAt": 1764000000000
+       }
+      ],
+      "old": [
+       {
+        "dashboardId": "rule",
+        "widgetId": "r1",
+        "dashboardName": "",
+        "title": "TimeoutError: read timed out",
+        "tone": "good",
+        "value": "0",
+        "limit": "new messages after 1 h quiet",
+        "queue": "orders",
+        "since": 1764000000000,
+        "checkedAt": 1764000000000
+       }
+      ]
+     },
+     "checks": {
+      "ended": {
+       "checkedAt": 1764000000000,
+       "error": null
+      },
+      "failed": {
+       "checkedAt": 1764000000000,
+       "error": null
+      },
+      "fresh": {
+       "checkedAt": 1763999970000,
+       "error": null
+      },
+      "old": {
+       "checkedAt": 1764000000000,
+       "error": null
+      }
+     },
+     "leases": {
+      "ended": {
+       "owner": "check-1",
+       "until": 0
+      },
+      "failed": {
+       "owner": "check-1",
+       "until": 0
+      },
+      "fresh": {
+       "owner": "",
+       "until": 0
+      },
+      "held": {
+       "owner": "other",
+       "until": 1764000060000
+      },
+      "old": {
+       "owner": "check-1",
+       "until": 0
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "channels: a workspace with rules and no channel is skipped; one without rules is not counted",
+   "start": 1764000000000,
+   "budgetMs": 60000,
+   "owner": "check-1",
+   "only": null,
+   "channels": [
+    "a",
+    "c"
+   ],
+   "cost": {},
+   "dashboards": {
+    "c": [
+     {
+      "id": "d2",
+      "name": "Plain",
+      "def": {
+       "variables": [],
+       "widgets": [
+        {
+         "id": "w1",
+         "type": "number",
+         "title": "Sent",
+         "layout": {
+          "x": 0,
+          "y": 0,
+          "w": 3,
+          "h": 2
+         },
+         "queries": [
+          {
+           "measure": "sent"
+          }
+         ]
+        }
+       ]
+      }
+     }
+    ],
+    "d": [
+     {
+      "id": "d1",
+      "name": "Orders",
+      "def": {
+       "variables": [],
+       "widgets": [
+        {
+         "id": "w1",
+         "type": "number",
+         "title": "Dead-letter moves",
+         "layout": {
+          "x": 0,
+          "y": 0,
+          "w": 3,
+          "h": 2
+         },
+         "queries": [
+          {
+           "measure": "dead_lettered"
+          }
+         ],
+         "rule": {
+          "crit": 0
+         }
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "data": {
+    "d": {
+     "now": 1764000000000,
+     "queues": [
+      "orders"
+     ],
+     "queueLive": {},
+     "events": [
+      {
+       "ms": 1763999400000,
+       "event": "dead_letter",
+       "status": "error",
+       "queue": "orders",
+       "messageId": "m9"
+      }
+     ]
+    }
+   },
+   "causes": {
+    "a": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 1,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1"
+     },
+     "capped": false
+    },
+    "b": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 1,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1"
+     },
+     "capped": false
+    }
+   },
+   "fail": {},
+   "store": {
+    "rules": {
+     "a": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ],
+     "b": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ]
+    },
+    "states": {},
+    "checks": {},
+    "leases": {}
+   },
+   "expected": {
+    "result": {
+     "workspaces": 1,
+     "rules": 1,
+     "changes": 0,
+     "failed": [],
+     "skipped": {
+      "noChannel": 2,
+      "leased": 0,
+      "budget": 0
+     },
+     "ms": 0
+    },
+    "delivered": [],
+    "store": {
+     "rules": {
+      "a": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763992800000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ],
+      "b": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763992800000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ]
+     },
+     "states": {
+      "a": [
+       {
+        "dashboardId": "rule",
+        "widgetId": "r1",
+        "dashboardName": "",
+        "title": "TimeoutError: read timed out",
+        "tone": "good",
+        "value": "0",
+        "limit": "new messages after 1 h quiet",
+        "queue": "orders",
+        "since": 1764000000000,
+        "checkedAt": 1764000000000
+       }
+      ]
+     },
+     "checks": {
+      "a": {
+       "checkedAt": 1764000000000,
+       "error": null
+      }
+     },
+     "leases": {
+      "a": {
+       "owner": "check-1",
+       "until": 0
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "only: one workspace",
+   "start": 1764000000000,
+   "budgetMs": 60000,
+   "owner": "check-1",
+   "only": "b",
+   "channels": null,
+   "cost": {},
+   "dashboards": {},
+   "data": {},
+   "causes": {
+    "a": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 2,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1",
+      "m2": "c1"
+     },
+     "capped": false
+    },
+    "b": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 2,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1",
+      "m2": "c1"
+     },
+     "capped": false
+    }
+   },
+   "fail": {},
+   "store": {
+    "rules": {
+     "a": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ],
+     "b": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ]
+    },
+    "states": {},
+    "checks": {},
+    "leases": {}
+   },
+   "expected": {
+    "result": {
+     "workspaces": 1,
+     "rules": 1,
+     "changes": 1,
+     "failed": [],
+     "skipped": {
+      "noChannel": 0,
+      "leased": 0,
+      "budget": 0
+     },
+     "ms": 0
+    },
+    "delivered": [
+     {
+      "ws": "b",
+      "changes": [
+       {
+        "kind": "fired",
+        "from": null,
+        "alert": {
+         "dashboardId": "rule",
+         "dashboardName": "",
+         "widgetId": "r1",
+         "title": "TimeoutError: read timed out",
+         "tone": "critical",
+         "value": "1",
+         "limit": "new messages after 1 h quiet",
+         "queue": "orders",
+         "rule": {
+          "kind": "cause",
+          "ruleId": "r1",
+          "channels": [
+           "ch1"
+          ],
+          "mode": "quiet",
+          "quietS": 3600,
+          "causeId": "c1",
+          "label": "TimeoutError: read timed out",
+          "queue": "orders",
+          "basis": "exception",
+          "inferred": false,
+          "newCount": 1,
+          "notFinished": 2,
+          "prevCheckAt": null,
+          "lastNewAt": 1763992800000,
+          "capped": false
+         },
+         "since": 1764000000000,
+         "checkedAt": 1764000000000
+        }
+       }
+      ]
+     }
+    ],
+    "store": {
+     "rules": {
+      "a": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763992800000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ],
+      "b": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1",
+          "m2"
+         ],
+         "lastNewAt": 1764000000000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ]
+     },
+     "states": {
+      "b": [
+       {
+        "dashboardId": "rule",
+        "widgetId": "r1",
+        "dashboardName": "",
+        "title": "TimeoutError: read timed out",
+        "tone": "critical",
+        "value": "1",
+        "limit": "new messages after 1 h quiet",
+        "queue": "orders",
+        "since": 1764000000000,
+        "checkedAt": 1764000000000
+       }
+      ]
+     },
+     "checks": {
+      "b": {
+       "checkedAt": 1764000000000,
+       "error": null
+      }
+     },
+     "leases": {
+      "b": {
+       "owner": "check-1",
+       "until": 0
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "a dashboard rule fires and is sent",
+   "start": 1764000000000,
+   "budgetMs": 60000,
+   "owner": "check-1",
+   "only": null,
+   "channels": null,
+   "cost": {},
+   "dashboards": {
+    "a": [
+     {
+      "id": "d1",
+      "name": "Orders",
+      "def": {
+       "variables": [],
+       "widgets": [
+        {
+         "id": "w1",
+         "type": "number",
+         "title": "Dead-letter moves",
+         "layout": {
+          "x": 0,
+          "y": 0,
+          "w": 3,
+          "h": 2
+         },
+         "queries": [
+          {
+           "measure": "dead_lettered"
+          }
+         ],
+         "rule": {
+          "crit": 0
+         }
+        }
+       ]
+      }
+     },
+     {
+      "id": "d2",
+      "name": "Plain",
+      "def": {
+       "variables": [],
+       "widgets": [
+        {
+         "id": "w1",
+         "type": "number",
+         "title": "Sent",
+         "layout": {
+          "x": 0,
+          "y": 0,
+          "w": 3,
+          "h": 2
+         },
+         "queries": [
+          {
+           "measure": "sent"
+          }
+         ]
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "data": {
+    "a": {
+     "now": 1764000000000,
+     "queues": [
+      "orders"
+     ],
+     "queueLive": {},
+     "events": [
+      {
+       "ms": 1763999400000,
+       "event": "dead_letter",
+       "status": "error",
+       "queue": "orders",
+       "messageId": "m9"
+      }
+     ]
+    }
+   },
+   "causes": {},
+   "fail": {},
+   "store": {
+    "rules": {},
+    "states": {},
+    "checks": {},
+    "leases": {}
+   },
+   "expected": {
+    "result": {
+     "workspaces": 1,
+     "rules": 1,
+     "changes": 1,
+     "failed": [],
+     "skipped": {
+      "noChannel": 0,
+      "leased": 0,
+      "budget": 0
+     },
+     "ms": 0
+    },
+    "delivered": [
+     {
+      "ws": "a",
+      "changes": [
+       {
+        "kind": "fired",
+        "from": null,
+        "alert": {
+         "dashboardId": "d1",
+         "dashboardName": "Orders",
+         "widgetId": "w1",
+         "title": "Dead-letter moves",
+         "tone": "critical",
+         "value": "1",
+         "limit": "above 0",
+         "queue": "",
+         "since": 1764000000000,
+         "checkedAt": 1764000000000
+        }
+       }
+      ]
+     }
+    ],
+    "store": {
+     "rules": {},
+     "states": {
+      "a": [
+       {
+        "dashboardId": "d1",
+        "widgetId": "w1",
+        "dashboardName": "Orders",
+        "title": "Dead-letter moves",
+        "tone": "critical",
+        "value": "1",
+        "limit": "above 0",
+        "queue": "",
+        "since": 1764000000000,
+        "checkedAt": 1764000000000
+       }
+      ]
+     },
+     "checks": {
+      "a": {
+       "checkedAt": 1764000000000,
+       "error": null
+      }
+     },
+     "leases": {
+      "a": {
+       "owner": "check-1",
+       "until": 0
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "a dashboard rule still critical: recorded, not sent again",
+   "start": 1764000000000,
+   "budgetMs": 60000,
+   "owner": "check-1",
+   "only": null,
+   "channels": null,
+   "cost": {},
+   "dashboards": {
+    "a": [
+     {
+      "id": "d1",
+      "name": "Orders",
+      "def": {
+       "variables": [],
+       "widgets": [
+        {
+         "id": "w1",
+         "type": "number",
+         "title": "Dead-letter moves",
+         "layout": {
+          "x": 0,
+          "y": 0,
+          "w": 3,
+          "h": 2
+         },
+         "queries": [
+          {
+           "measure": "dead_lettered"
+          }
+         ],
+         "rule": {
+          "crit": 0
+         }
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "data": {
+    "a": {
+     "now": 1764000000000,
+     "queues": [
+      "orders"
+     ],
+     "queueLive": {},
+     "events": [
+      {
+       "ms": 1763999400000,
+       "event": "dead_letter",
+       "status": "error",
+       "queue": "orders",
+       "messageId": "m9"
+      }
+     ]
+    }
+   },
+   "causes": {},
+   "fail": {},
+   "store": {
+    "rules": {},
+    "states": {
+     "a": [
+      {
+       "dashboardId": "d1",
+       "widgetId": "w1",
+       "dashboardName": "Orders",
+       "title": "Dead-letter moves",
+       "tone": "critical",
+       "value": "1",
+       "limit": "above 0",
+       "queue": "",
+       "since": 1763996400000,
+       "checkedAt": 1763999700000
+      }
+     ]
+    },
+    "checks": {},
+    "leases": {}
+   },
+   "expected": {
+    "result": {
+     "workspaces": 1,
+     "rules": 1,
+     "changes": 0,
+     "failed": [],
+     "skipped": {
+      "noChannel": 0,
+      "leased": 0,
+      "budget": 0
+     },
+     "ms": 0
+    },
+    "delivered": [],
+    "store": {
+     "rules": {},
+     "states": {
+      "a": [
+       {
+        "dashboardId": "d1",
+        "widgetId": "w1",
+        "dashboardName": "Orders",
+        "title": "Dead-letter moves",
+        "tone": "critical",
+        "value": "1",
+        "limit": "above 0",
+        "queue": "",
+        "since": 1763996400000,
+        "checkedAt": 1764000000000
+       }
+      ]
+     },
+     "checks": {
+      "a": {
+       "checkedAt": 1764000000000,
+       "error": null
+      }
+     },
+     "leases": {
+      "a": {
+       "owner": "check-1",
+       "until": 0
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "a rule fires on a new message after the quiet period",
+   "start": 1764000000000,
+   "budgetMs": 60000,
+   "owner": "check-1",
+   "only": null,
+   "channels": null,
+   "cost": {},
+   "dashboards": {},
+   "data": {},
+   "causes": {
+    "a": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 2,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1",
+      "m2": "c1"
+     },
+     "capped": false
+    }
+   },
+   "fail": {},
+   "store": {
+    "rules": {
+     "a": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ]
+    },
+    "states": {},
+    "checks": {},
+    "leases": {}
+   },
+   "expected": {
+    "result": {
+     "workspaces": 1,
+     "rules": 1,
+     "changes": 1,
+     "failed": [],
+     "skipped": {
+      "noChannel": 0,
+      "leased": 0,
+      "budget": 0
+     },
+     "ms": 0
+    },
+    "delivered": [
+     {
+      "ws": "a",
+      "changes": [
+       {
+        "kind": "fired",
+        "from": null,
+        "alert": {
+         "dashboardId": "rule",
+         "dashboardName": "",
+         "widgetId": "r1",
+         "title": "TimeoutError: read timed out",
+         "tone": "critical",
+         "value": "1",
+         "limit": "new messages after 1 h quiet",
+         "queue": "orders",
+         "rule": {
+          "kind": "cause",
+          "ruleId": "r1",
+          "channels": [
+           "ch1"
+          ],
+          "mode": "quiet",
+          "quietS": 3600,
+          "causeId": "c1",
+          "label": "TimeoutError: read timed out",
+          "queue": "orders",
+          "basis": "exception",
+          "inferred": false,
+          "newCount": 1,
+          "notFinished": 2,
+          "prevCheckAt": null,
+          "lastNewAt": 1763992800000,
+          "capped": false
+         },
+         "since": 1764000000000,
+         "checkedAt": 1764000000000
+        }
+       }
+      ]
+     }
+    ],
+    "store": {
+     "rules": {
+      "a": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1",
+          "m2"
+         ],
+         "lastNewAt": 1764000000000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ]
+     },
+     "states": {
+      "a": [
+       {
+        "dashboardId": "rule",
+        "widgetId": "r1",
+        "dashboardName": "",
+        "title": "TimeoutError: read timed out",
+        "tone": "critical",
+        "value": "1",
+        "limit": "new messages after 1 h quiet",
+        "queue": "orders",
+        "since": 1764000000000,
+        "checkedAt": 1764000000000
+       }
+      ]
+     },
+     "checks": {
+      "a": {
+       "checkedAt": 1764000000000,
+       "error": null
+      }
+     },
+     "leases": {
+      "a": {
+       "owner": "check-1",
+       "until": 0
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "muted: it fires, the state is recorded, nothing is sent",
+   "start": 1764000000000,
+   "budgetMs": 60000,
+   "owner": "check-1",
+   "only": null,
+   "channels": null,
+   "cost": {},
+   "dashboards": {},
+   "data": {},
+   "causes": {
+    "a": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 2,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1",
+      "m2": "c1"
+     },
+     "capped": false
+    }
+   },
+   "fail": {},
+   "store": {
+    "rules": {
+     "a": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": 8640000000000000,
+        "mutedBy": "u2",
+        "mutedAt": 1763996400000,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ]
+    },
+    "states": {},
+    "checks": {},
+    "leases": {}
+   },
+   "expected": {
+    "result": {
+     "workspaces": 1,
+     "rules": 1,
+     "changes": 0,
+     "failed": [],
+     "skipped": {
+      "noChannel": 0,
+      "leased": 0,
+      "budget": 0
+     },
+     "ms": 0
+    },
+    "delivered": [],
+    "store": {
+     "rules": {
+      "a": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": 8640000000000000,
+         "mutedBy": "u2",
+         "mutedAt": 1763996400000,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1",
+          "m2"
+         ],
+         "lastNewAt": 1764000000000,
+         "wasMuted": true,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ]
+     },
+     "states": {
+      "a": [
+       {
+        "dashboardId": "rule",
+        "widgetId": "r1",
+        "dashboardName": "",
+        "title": "TimeoutError: read timed out",
+        "tone": "critical",
+        "value": "1",
+        "limit": "new messages after 1 h quiet",
+        "queue": "orders",
+        "since": 1764000000000,
+        "checkedAt": 1764000000000
+       }
+      ]
+     },
+     "checks": {
+      "a": {
+       "checkedAt": 1764000000000,
+       "error": null
+      }
+     },
+     "leases": {
+      "a": {
+       "owner": "check-1",
+       "until": 0
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "snoozed: it resolves, the state is recorded, nothing is sent",
+   "start": 1764000000000,
+   "budgetMs": 60000,
+   "owner": "check-1",
+   "only": null,
+   "channels": null,
+   "cost": {},
+   "dashboards": {},
+   "data": {},
+   "causes": {
+    "a": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 1,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1"
+     },
+     "capped": false
+    }
+   },
+   "fail": {},
+   "store": {
+    "rules": {
+     "a": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": 1764003600000,
+        "mutedBy": "u2",
+        "mutedAt": 1763996400000,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": true,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ]
+    },
+    "states": {
+     "a": [
+      {
+       "dashboardId": "rule",
+       "widgetId": "r1",
+       "dashboardName": "",
+       "title": "TimeoutError: read timed out",
+       "tone": "critical",
+       "value": "1",
+       "limit": "new messages after 1 h quiet",
+       "queue": "orders",
+       "since": 1763989200000,
+       "checkedAt": 1763999700000
+      }
+     ]
+    },
+    "checks": {},
+    "leases": {}
+   },
+   "expected": {
+    "result": {
+     "workspaces": 1,
+     "rules": 1,
+     "changes": 0,
+     "failed": [],
+     "skipped": {
+      "noChannel": 0,
+      "leased": 0,
+      "budget": 0
+     },
+     "ms": 0
+    },
+    "delivered": [],
+    "store": {
+     "rules": {
+      "a": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": 1764003600000,
+         "mutedBy": "u2",
+         "mutedAt": 1763996400000,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763992800000,
+         "wasMuted": true,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ]
+     },
+     "states": {
+      "a": [
+       {
+        "dashboardId": "rule",
+        "widgetId": "r1",
+        "dashboardName": "",
+        "title": "TimeoutError: read timed out",
+        "tone": "good",
+        "value": "0",
+        "limit": "new messages after 1 h quiet",
+        "queue": "orders",
+        "since": 1764000000000,
+        "checkedAt": 1764000000000
+       }
+      ]
+     },
+     "checks": {
+      "a": {
+       "checkedAt": 1764000000000,
+       "error": null
+      }
+     },
+     "leases": {
+      "a": {
+       "owner": "check-1",
+       "until": 0
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "a snooze that ended: still firing sends one change, since the rule began firing",
+   "start": 1764000000000,
+   "budgetMs": 60000,
+   "owner": "check-1",
+   "only": null,
+   "channels": null,
+   "cost": {},
+   "dashboards": {},
+   "data": {},
+   "causes": {
+    "a": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 1,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1"
+     },
+     "capped": false
+    }
+   },
+   "fail": {},
+   "store": {
+    "rules": {
+     "a": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": 1763999940000,
+        "mutedBy": "u2",
+        "mutedAt": 1763996400000,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763998800000,
+        "wasMuted": true,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ]
+    },
+    "states": {
+     "a": [
+      {
+       "dashboardId": "rule",
+       "widgetId": "r1",
+       "dashboardName": "",
+       "title": "TimeoutError: read timed out",
+       "tone": "critical",
+       "value": "1",
+       "limit": "new messages after 1 h quiet",
+       "queue": "orders",
+       "since": 1763989200000,
+       "checkedAt": 1763999700000
+      }
+     ]
+    },
+    "checks": {},
+    "leases": {}
+   },
+   "expected": {
+    "result": {
+     "workspaces": 1,
+     "rules": 1,
+     "changes": 1,
+     "failed": [],
+     "skipped": {
+      "noChannel": 0,
+      "leased": 0,
+      "budget": 0
+     },
+     "ms": 0
+    },
+    "delivered": [
+     {
+      "ws": "a",
+      "changes": [
+       {
+        "kind": "fired",
+        "from": null,
+        "alert": {
+         "dashboardId": "rule",
+         "dashboardName": "",
+         "widgetId": "r1",
+         "title": "TimeoutError: read timed out",
+         "tone": "critical",
+         "value": "0",
+         "limit": "new messages after 1 h quiet",
+         "queue": "orders",
+         "rule": {
+          "kind": "cause",
+          "ruleId": "r1",
+          "channels": [
+           "ch1"
+          ],
+          "mode": "quiet",
+          "quietS": 3600,
+          "causeId": "c1",
+          "label": "TimeoutError: read timed out",
+          "queue": "orders",
+          "basis": "exception",
+          "inferred": false,
+          "newCount": 0,
+          "notFinished": 1,
+          "prevCheckAt": null,
+          "lastNewAt": 1763998800000,
+          "capped": false,
+          "afterSnooze": true
+         },
+         "since": 1763989200000,
+         "checkedAt": 1764000000000
+        }
+       }
+      ]
+     }
+    ],
+    "store": {
+     "rules": {
+      "a": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": 1763999940000,
+         "mutedBy": "u2",
+         "mutedAt": 1763996400000,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763998800000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ]
+     },
+     "states": {
+      "a": [
+       {
+        "dashboardId": "rule",
+        "widgetId": "r1",
+        "dashboardName": "",
+        "title": "TimeoutError: read timed out",
+        "tone": "critical",
+        "value": "0",
+        "limit": "new messages after 1 h quiet",
+        "queue": "orders",
+        "since": 1763989200000,
+        "checkedAt": 1764000000000
+       }
+      ]
+     },
+     "checks": {
+      "a": {
+       "checkedAt": 1764000000000,
+       "error": null
+      }
+     },
+     "leases": {
+      "a": {
+       "owner": "check-1",
+       "until": 0
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "a snooze that ended on a quiet rule: it resolves and nothing is sent",
+   "start": 1764000000000,
+   "budgetMs": 60000,
+   "owner": "check-1",
+   "only": null,
+   "channels": null,
+   "cost": {},
+   "dashboards": {},
+   "data": {},
+   "causes": {
+    "a": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 1,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1"
+     },
+     "capped": false
+    }
+   },
+   "fail": {},
+   "store": {
+    "rules": {
+     "a": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": 1763999940000,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": true,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ]
+    },
+    "states": {
+     "a": [
+      {
+       "dashboardId": "rule",
+       "widgetId": "r1",
+       "dashboardName": "",
+       "title": "TimeoutError: read timed out",
+       "tone": "critical",
+       "value": "1",
+       "limit": "new messages after 1 h quiet",
+       "queue": "orders",
+       "since": 1763989200000,
+       "checkedAt": 1763999700000
+      }
+     ]
+    },
+    "checks": {},
+    "leases": {}
+   },
+   "expected": {
+    "result": {
+     "workspaces": 1,
+     "rules": 1,
+     "changes": 0,
+     "failed": [],
+     "skipped": {
+      "noChannel": 0,
+      "leased": 0,
+      "budget": 0
+     },
+     "ms": 0
+    },
+    "delivered": [],
+    "store": {
+     "rules": {
+      "a": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": 1763999940000,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763992800000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ]
+     },
+     "states": {
+      "a": [
+       {
+        "dashboardId": "rule",
+        "widgetId": "r1",
+        "dashboardName": "",
+        "title": "TimeoutError: read timed out",
+        "tone": "good",
+        "value": "0",
+        "limit": "new messages after 1 h quiet",
+        "queue": "orders",
+        "since": 1764000000000,
+        "checkedAt": 1764000000000
+       }
+      ]
+     },
+     "checks": {
+      "a": {
+       "checkedAt": 1764000000000,
+       "error": null
+      }
+     },
+     "leases": {
+      "a": {
+       "owner": "check-1",
+       "until": 0
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "a snooze that ended on a rule that fires again now: the usual change, no second one",
+   "start": 1764000000000,
+   "budgetMs": 60000,
+   "owner": "check-1",
+   "only": null,
+   "channels": null,
+   "cost": {},
+   "dashboards": {},
+   "data": {},
+   "causes": {
+    "a": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 2,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1",
+      "m2": "c1"
+     },
+     "capped": false
+    }
+   },
+   "fail": {},
+   "store": {
+    "rules": {
+     "a": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": 1763999940000,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": true,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ]
+    },
+    "states": {},
+    "checks": {},
+    "leases": {}
+   },
+   "expected": {
+    "result": {
+     "workspaces": 1,
+     "rules": 1,
+     "changes": 1,
+     "failed": [],
+     "skipped": {
+      "noChannel": 0,
+      "leased": 0,
+      "budget": 0
+     },
+     "ms": 0
+    },
+    "delivered": [
+     {
+      "ws": "a",
+      "changes": [
+       {
+        "kind": "fired",
+        "from": null,
+        "alert": {
+         "dashboardId": "rule",
+         "dashboardName": "",
+         "widgetId": "r1",
+         "title": "TimeoutError: read timed out",
+         "tone": "critical",
+         "value": "1",
+         "limit": "new messages after 1 h quiet",
+         "queue": "orders",
+         "rule": {
+          "kind": "cause",
+          "ruleId": "r1",
+          "channels": [
+           "ch1"
+          ],
+          "mode": "quiet",
+          "quietS": 3600,
+          "causeId": "c1",
+          "label": "TimeoutError: read timed out",
+          "queue": "orders",
+          "basis": "exception",
+          "inferred": false,
+          "newCount": 1,
+          "notFinished": 2,
+          "prevCheckAt": null,
+          "lastNewAt": 1763992800000,
+          "capped": false
+         },
+         "since": 1764000000000,
+         "checkedAt": 1764000000000
+        }
+       }
+      ]
+     }
+    ],
+    "store": {
+     "rules": {
+      "a": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": 1763999940000,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1",
+          "m2"
+         ],
+         "lastNewAt": 1764000000000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ]
+     },
+     "states": {
+      "a": [
+       {
+        "dashboardId": "rule",
+        "widgetId": "r1",
+        "dashboardName": "",
+        "title": "TimeoutError: read timed out",
+        "tone": "critical",
+        "value": "1",
+        "limit": "new messages after 1 h quiet",
+        "queue": "orders",
+        "since": 1764000000000,
+        "checkedAt": 1764000000000
+       }
+      ]
+     },
+     "checks": {
+      "a": {
+       "checkedAt": 1764000000000,
+       "error": null
+      }
+     },
+     "leases": {
+      "a": {
+       "owner": "check-1",
+       "until": 0
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "a failing workspace is recorded with its error and doesn't stop the others",
+   "start": 1764000000000,
+   "budgetMs": 60000,
+   "owner": "check-1",
+   "only": null,
+   "channels": null,
+   "cost": {},
+   "dashboards": {},
+   "data": {},
+   "causes": {
+    "a": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 2,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1",
+      "m2": "c1"
+     },
+     "capped": false
+    },
+    "b": {
+     "groups": [
+      {
+       "id": "c1",
+       "key": "v1|orders|worker|exc:TimeoutError",
+       "label": "TimeoutError: read timed out",
+       "queue": "orders",
+       "count": 2,
+       "basis": "exception",
+       "inferred": false
+      }
+     ],
+     "causeOf": {
+      "m1": "c1",
+      "m2": "c1"
+     },
+     "capped": false
+    }
+   },
+   "fail": {
+    "a": "the causes read failed"
+   },
+   "store": {
+    "rules": {
+     "a": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ],
+     "b": [
+      {
+       "rule": {
+        "id": "r1",
+        "kind": "cause",
+        "causeKey": "v1|orders|worker|exc:TimeoutError",
+        "causeId": "c1",
+        "label": "TimeoutError: read timed out",
+        "queue": "orders",
+        "channels": [
+         "ch1"
+        ],
+        "mode": "quiet",
+        "quietS": 3600,
+        "mutedUntil": null,
+        "mutedBy": null,
+        "mutedAt": null,
+        "createdBy": "u1",
+        "createdAt": 1763913600000,
+        "updatedAt": 1763913600000
+       },
+       "memory": {
+        "seen": [
+         "m1"
+        ],
+        "lastNewAt": 1763992800000,
+        "wasMuted": false,
+        "wasHeld": false,
+        "regressedSeen": null
+       }
+      }
+     ]
+    },
+    "states": {},
+    "checks": {
+     "a": {
+      "checkedAt": 1763992800000,
+      "error": null
+     },
+     "b": {
+      "checkedAt": 1763996400000,
+      "error": null
+     }
+    },
+    "leases": {}
+   },
+   "expected": {
+    "result": {
+     "workspaces": 2,
+     "rules": 1,
+     "changes": 1,
+     "failed": [
+      {
+       "ws": "a",
+       "error": "the causes read failed"
+      }
+     ],
+     "skipped": {
+      "noChannel": 0,
+      "leased": 0,
+      "budget": 0
+     },
+     "ms": 0
+    },
+    "delivered": [
+     {
+      "ws": "b",
+      "changes": [
+       {
+        "kind": "fired",
+        "from": null,
+        "alert": {
+         "dashboardId": "rule",
+         "dashboardName": "",
+         "widgetId": "r1",
+         "title": "TimeoutError: read timed out",
+         "tone": "critical",
+         "value": "1",
+         "limit": "new messages after 1 h quiet",
+         "queue": "orders",
+         "rule": {
+          "kind": "cause",
+          "ruleId": "r1",
+          "channels": [
+           "ch1"
+          ],
+          "mode": "quiet",
+          "quietS": 3600,
+          "causeId": "c1",
+          "label": "TimeoutError: read timed out",
+          "queue": "orders",
+          "basis": "exception",
+          "inferred": false,
+          "newCount": 1,
+          "notFinished": 2,
+          "prevCheckAt": 1763996400000,
+          "lastNewAt": 1763992800000,
+          "capped": false
+         },
+         "since": 1764000000000,
+         "checkedAt": 1764000000000
+        }
+       }
+      ]
+     }
+    ],
+    "store": {
+     "rules": {
+      "a": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1"
+         ],
+         "lastNewAt": 1763992800000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ],
+      "b": [
+       {
+        "rule": {
+         "id": "r1",
+         "kind": "cause",
+         "causeKey": "v1|orders|worker|exc:TimeoutError",
+         "causeId": "c1",
+         "label": "TimeoutError: read timed out",
+         "queue": "orders",
+         "channels": [
+          "ch1"
+         ],
+         "mode": "quiet",
+         "quietS": 3600,
+         "mutedUntil": null,
+         "mutedBy": null,
+         "mutedAt": null,
+         "createdBy": "u1",
+         "createdAt": 1763913600000,
+         "updatedAt": 1763913600000
+        },
+        "memory": {
+         "seen": [
+          "m1",
+          "m2"
+         ],
+         "lastNewAt": 1764000000000,
+         "wasMuted": false,
+         "wasHeld": false,
+         "regressedSeen": null
+        }
+       }
+      ]
+     },
+     "states": {
+      "b": [
+       {
+        "dashboardId": "rule",
+        "widgetId": "r1",
+        "dashboardName": "",
+        "title": "TimeoutError: read timed out",
+        "tone": "critical",
+        "value": "1",
+        "limit": "new messages after 1 h quiet",
+        "queue": "orders",
+        "since": 1764000000000,
+        "checkedAt": 1764000000000
+       }
+      ]
+     },
+     "checks": {
+      "a": {
+       "checkedAt": 1764000000000,
+       "error": "the causes read failed"
+      },
+      "b": {
+       "checkedAt": 1764000000000,
+       "error": null
+      }
+     },
+     "leases": {
+      "a": {
+       "owner": "check-1",
+       "until": 0
+      },
+      "b": {
+       "owner": "check-1",
+       "until": 0
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "no rules anywhere: nothing is read",
+   "start": 1764000000000,
+   "budgetMs": 60000,
+   "owner": "check-1",
+   "only": null,
+   "channels": null,
+   "cost": {},
+   "dashboards": {
+    "a": [
+     {
+      "id": "d2",
+      "name": "Plain",
+      "def": {
+       "variables": [],
+       "widgets": [
+        {
+         "id": "w1",
+         "type": "number",
+         "title": "Sent",
+         "layout": {
+          "x": 0,
+          "y": 0,
+          "w": 3,
+          "h": 2
+         },
+         "queries": [
+          {
+           "measure": "sent"
+          }
+         ]
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "data": {},
+   "causes": {},
+   "fail": {},
+   "store": {
+    "rules": {},
+    "states": {},
+    "checks": {},
+    "leases": {}
+   },
+   "expected": {
+    "result": {
+     "workspaces": 0,
+     "rules": 0,
+     "changes": 0,
+     "failed": [],
+     "skipped": {
+      "noChannel": 0,
+      "leased": 0,
+      "budget": 0
+     },
+     "ms": 0
+    },
+    "delivered": [],
+    "store": {
+     "rules": {},
+     "states": {},
+     "checks": {},
+     "leases": {}
+    }
+   }
+  }
+ ]
+}
