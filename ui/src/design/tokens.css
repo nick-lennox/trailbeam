@@ -224,6 +224,58 @@
 :root:has([data-app-theme="night"]) { background: #0a0c22; color-scheme: dark; }
 [data-app-theme="night"] ::selection { background: rgb(179 171 243 / 0.35); color: var(--color-ink); }
 
+/* ── The app by day ───────────────────────────────────────────────
+   The day values above again, inside the scope AppThemeProvider sets, so a page that maps the role tokens
+   to something else on :root (the open-source shell maps them to the sky, theme.css) still draws the parts
+   by day. The same names as the night scope, so day inside night works too. */
+[data-app-theme="day"] {
+  color-scheme: light;
+  --cat-4: #eda100;
+  --cat-5: #e87ba4;
+  --color-canvas: #fbfaf8;
+  --color-surface: #ffffff;
+  --color-sunken: #f4f3ef;
+  --color-line: #e7e5df;
+  --color-line-strong: #d6d3cb;
+  --color-ink: #1b1a18;
+  --color-ink-2: #52514e;
+  --color-ink-3: #6f6d66;
+  --color-brand: #5b4fe0;
+  --color-brand-strong: #4a3fc4;
+  --color-brand-soft: #eeecfd;
+  --color-on-brand: #ffffff;
+  --color-accent: #a85a0c;
+  --color-ember-deep: #a85a0c;
+  --color-series-1: #2a78d6;
+  --color-series-2: #eb6834;
+  --color-series-3: #1baf7a;
+  --color-good: #0ca30c;
+  --color-good-text: #006300;
+  --color-good-soft: #e9f6e9;
+  --color-good-ring: #c6e8c6;
+  --color-warning: #fab219;
+  --color-warning-text: #8a5a00;
+  --color-warning-soft: #fff5dc;
+  --color-warning-ring: #f6dfa3;
+  --color-serious: #ec835a;
+  --color-serious-text: #a4421b;
+  --color-serious-soft: #fdeee7;
+  --color-serious-ring: #f5cdbd;
+  --color-critical: #d03b3b;
+  --color-critical-text: #b02a2a;
+  --color-critical-soft: #fbeaea;
+  --color-critical-ring: #f1c4c4;
+  --color-flow-send: #eb6834;
+  --color-flow-wait: #2a78d6;
+  --color-flow-handler: #1baf7a;
+  --color-flow-lost: #d03b3b;
+  --shadow-card: 0 1px 2px rgb(27 26 24 / 0.05);
+  --shadow-raised: 0 1px 2px rgb(27 26 24 / 0.06), 0 8px 24px -8px rgb(27 26 24 / 0.12);
+  --shadow-panel: 0 24px 64px -16px rgb(27 26 24 / 0.28);
+  --shadow-glow: 0 1px 2px rgb(91 79 224 / 0.25), 0 4px 12px -2px rgb(91 79 224 / 0.35);
+  color: var(--color-ink);
+}
+
 /* Tooltip (Tooltip.tsx): a note on the theme's surface, placed by the component */
 .ui-tooltip { position: fixed; z-index: 70; display: block; width: max-content; max-width: min(19rem, calc(100vw - 16px)); padding: 8px 12px;
   border: 1px solid var(--color-line-strong); border-radius: 8px; background: var(--color-surface); box-shadow: var(--shadow-raised);
