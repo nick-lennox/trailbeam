@@ -8,7 +8,7 @@ export { answerFor, consumersOf } from "./summary.ts";
 export { ErrorCauses } from "./timeline/ErrorCauses.tsx";
 export { errorCauses, type ErrorCause } from "./errors.ts";
 export type * from "./timeline/types.ts";
-export { TenantsTable, TenantSearch, tenantsFootnote, noTenantsText, P95_NOTE, fmtWait, fmtShare, TENANT_ENV, TENANT_IS, TENANTS_README } from "./tenants/Tenants.tsx";
+export { TenantSearch, TENANTS_TITLE, TENANTS_SUBTITLE, p95Note, tenantsFootnote, noTenantsText, P95_NOTE, fmtWait, fmtShare, TENANT_ENV, TENANT_IS, TENANTS_README } from "./tenants/Tenants.tsx";
 export type * from "./tenants/types.ts";
 export {
   AddPerson, OneTimeLink, PeopleTable, LAST_ADMIN, ROLES, ROLE_TEXT, STATUS_HINT, STATUS_TEXT, fmtWhen, isLastAdmin, linkButton, linkKind, linkSentence,
