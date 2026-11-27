@@ -31,8 +31,9 @@ test("eventsOfTimeline makes the server's events of the same timelines, newest f
 
 test("the fixture covers inferred events, kept bodies, tenants and body sizes", () => {
   const evs = f.answer.events;
-  for (const k of ["send", "receive", "delete", "processing_error", "visibility_expired", "dead_letter"]) assert.ok(evs.some((e) => e.event === k), k);
+  for (const k of ["send", "receive", "delete", "visibility_change", "processing_error", "visibility_expired", "dead_letter"]) assert.ok(evs.some((e) => e.event === k), k);
   assert.ok(evs.some((e) => e.source === "inferred"));
+  assert.ok(evs.some((e) => e.event === "visibility_change" && e.status === "error"), "a visibility change SQS refused");
   assert.ok(evs.some((e) => e.body !== undefined), "a kept body");
   assert.ok(evs.some((e) => e.tenant), "a tenant");
   assert.ok(evs.some((e) => e.sizeBytes !== undefined), "a body size");
