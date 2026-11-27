@@ -122,7 +122,9 @@ def _ipv4(host: str) -> Optional[str]:
 
 def _ipv6_text(a: ipaddress.IPv6Address) -> str:
     """An IPv6 address as the URL class writes it: RFC 5952, never with an IPv4 tail."""
-    h = [format(int(x, 16), "x") for x in a.exploded.split(":")]
+    # From the bytes, not .exploded: newer Pythons write an IPv4-mapped address's tail as dotted IPv4 there.
+    b = a.packed
+    h = [format(b[i] << 8 | b[i + 1], "x") for i in range(0, 16, 2)]
     best, at = 1, -1
     i = 0
     while i < 8:

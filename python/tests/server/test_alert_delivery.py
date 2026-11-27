@@ -80,6 +80,16 @@ def test_check_target(c):
     assert d.check_target(c["kind"], c["raw"], c["allowLocal"]) == c["expected"]
 
 
+@pytest.mark.parametrize(("raw", "host"), [
+    ("https://[::ffff:127.0.0.1]/", "[::ffff:7f00:1]"),
+    ("https://[::FFFF:10.0.0.5]/", "[::ffff:a00:5]"),
+    ("https://[::ffff:8.8.8.8]/", "[::ffff:808:808]"),
+])
+def test_ipv4_mapped_hosts_parse_on_every_python(raw, host):
+    # Python 3.12.4+ writes .exploded of an IPv4-mapped address with a dotted tail; the parser must not depend on it.
+    assert d.parse_url(raw).host == host
+
+
 @pytest.mark.parametrize("c", F["shownTarget"], ids=lambda c: c["name"])
 def test_shown_target(c):
     assert d.shown_target(c["channel"]) == c["expected"]
