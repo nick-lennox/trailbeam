@@ -1,13 +1,16 @@
 /*
-  The Account page at /account (anyone signed in as a person), in the shell's frame (frame.tsx) on the design system:
-  who you are, and the passkeys that can sign you in (/api/me/passkeys, QV-665). Add a passkey asks the server for
-  options, has the browser make one (navigator.credentials.create) and sends it back; Remove deletes one. After each,
-  the list is read again, so the page shows what the server holds. The copy is the hosted app's AccountCard's.
-  contract/openapi.yaml, tag Account.
+  The Account page at /account (anyone signed in: the server answers others with its sign-in or "Not allowed"
+  page), in the shell's frame (frame.tsx) on the design system. One card, the shared AccountCard: who you are
+  signed in as, from /api/me, the ways you can sign in, from its sign_in (a password, and accounts at single
+  sign-on or GitHub), and the passkeys that can sign you in (/api/me/passkeys, QV-665; contract/openapi.yaml, tag
+  Account). Add a passkey asks the server for options, has the browser make one (navigator.credentials.create) and
+  sends it back; Remove deletes one. After each, the list is read again, so the page shows what the server holds.
+  With passkeys off on the server, or a browser that can't make them, the card has no passkey part and a line under
+  it says why. Sign out is the sidebar's.
 */
 import { useCallback, useEffect, useState } from "react";
-import { fmtWhen } from "../src/index.ts";
-import { Button, PageHeader, Problem, SettingsSection } from "../src/design/index.ts";
+import { ACCOUNT_ABOUT, ROLES, accountWays } from "../src/index.ts";
+import { AccountCard, PageHeader } from "../src/design/index.ts";
 import { getJSON, sendJSON, useMe } from "./chrome.tsx";
 import { ShellFrame, ShellSearch } from "./frame.tsx";
 import { browserProblem, creationOptions, deviceName, registrationJSON, type CreationOptionsJSON } from "./passkeys.ts";
@@ -18,17 +21,16 @@ type Load = { kind: "loading" } | { kind: "error"; message: string } | { kind: "
 
 export function AccountPage() {
   const me = useMe();
-  const person = me?.user ?? null;
+  const user = me?.user ?? null;
   const [state, setState] = useState<Load>({ kind: "loading" });
   const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState<number | null>(null);
   const [problem, setProblem] = useState("");
   useEffect(() => { document.title = "Account · Trailbeam"; }, []);
 
   const load = useCallback(() => getJSON<List>("/api/me/passkeys")
     .then((data) => setState({ kind: "ok", data }))
     .catch((e: Error) => setState({ kind: "error", message: e.message })), []);
-  useEffect(() => { if (person) void load(); }, [person, load]);
+  useEffect(() => { if (user) void load(); }, [user, load]);
 
   const add = async () => {
     setBusy(true);
@@ -52,64 +54,42 @@ export function AccountPage() {
     }
   };
 
-  const remove = (id: number) => {
-    setPending(id);
+  const remove = (id: string) => {
+    setBusy(true);
     setProblem("");
     sendJSON("DELETE", `/api/me/passkeys/${id}`)
       .catch((e: Error) => setProblem(e.message))
       .then(load)
-      .finally(() => setPending(null));
+      .finally(() => setBusy(false));
   };
 
+  const ways = me?.sign_in && user
+    ? accountWays({ via: me.via, admin: user.role === "admin", password: me.sign_in.password, identities: me.sign_in.identities })
+    : [];
   const supported = typeof window !== "undefined" && "PublicKeyCredential" in window;
   const list = state.kind === "ok" ? state.data : null;
+  const passkeysShown = state.kind !== "ok" || (list!.on && supported);
 
   return (
     <ShellFrame path="/account">
-      <PageHeader title="Account" subtitle="Who you are signed in as, and how you sign in." search={<ShellSearch />} />
-      <div className="grid max-w-5xl gap-12 px-8 pb-16">
-        {me && !person && (
-          <p className="max-w-2xl text-sm leading-relaxed text-ink-2">Your account is a person's: sign in with your email and password to see it.</p>
+      <PageHeader title="Your account" subtitle={ACCOUNT_ABOUT} search={<ShellSearch />} />
+      <div className="grid max-w-3xl gap-4 px-8 pb-16">
+        <AccountCard
+          user={user && { name: user.name, email: user.email, role: ROLES.find((r) => r[0] === user.role)?.[1] }}
+          ways={ways}
+          passkeys={user && passkeysShown ? {
+            keys: list ? list.passkeys.map((k) => ({ id: String(k.id), name: k.name, createdAt: k.created_at_ms })) : null,
+            onAdd: add,
+            onRemove: remove,
+            busy: busy || !list,
+            error: problem || (state.kind === "error" ? state.message : ""),
+          } : undefined} />
+        {user && list && !list.on && (
+          <p className="max-w-2xl text-sm leading-relaxed text-ink-3">
+            Passkeys are off on this server. An operator turns them on by setting its public URL (<code className="font-mono text-caption">TRAILBEAM_PUBLIC_URL</code>) and installing <code className="font-mono text-caption">trailbeam[server,passkeys]</code>.
+          </p>
         )}
-        {person && (
-          <SettingsSection id="sign-in" title="Sign-in"
-            about={<>Signed in as <span className="text-ink">{person.name}</span>, <span className="font-mono text-caption">{person.email}</span></>}>
-            <div className="grid gap-4">
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="min-w-0">
-                  <h3 className="text-sm font-medium text-ink">Passkeys</h3>
-                  <p className="mt-1 text-sm text-ink-2">Sign in with Face ID, Touch ID, Windows Hello or a security key instead of a password.</p>
-                </div>
-                {list?.on && supported && (
-                  <Button size="sm" variant="ink" className="ml-auto" onClick={add} disabled={busy}>{busy ? "Adding" : "Add a passkey"}</Button>
-                )}
-              </div>
-              {list && !list.on && (
-                <p className="max-w-2xl text-sm leading-relaxed text-ink-3">
-                  Passkeys are off on this server. An operator turns them on by setting its public URL (<code className="font-mono text-caption">TRAILBEAM_PUBLIC_URL</code>) and installing <code className="font-mono text-caption">trailbeam[server,passkeys]</code>.
-                </p>
-              )}
-              {list?.on && !supported && <p className="text-sm text-ink-3">This browser can't make passkeys.</p>}
-              <Problem>{problem}</Problem>
-              {state.kind === "loading" && <p className="text-sm text-ink-3">Loading your passkeys</p>}
-              {state.kind === "error" && <Problem>{state.message}</Problem>}
-              {list && list.passkeys.length > 0 && (
-                <ul className="divide-y divide-line rounded-lg border border-line">
-                  {list.passkeys.map((k) => (
-                    <li key={k.id} className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
-                      <span className="text-ink">{k.name}</span>
-                      {k.synced && <span className="text-ink-3">synced</span>}
-                      <span className="text-ink-3">added <span className="font-mono text-caption">{fmtWhen(k.created_at_ms)}</span></span>
-                      <span className="text-ink-3">last used {k.last_used_ms === null ? "never" : <span className="font-mono text-caption">{fmtWhen(k.last_used_ms)}</span>}</span>
-                      <Button size="sm" variant="ghost" className="ml-auto" disabled={pending === k.id} onClick={() => remove(k.id)}
-                        aria-label={`Remove ${k.name}`}>Remove</Button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </SettingsSection>
-        )}
+        {user && list?.on && !supported && <p className="text-sm text-ink-3">This browser can't make passkeys.</p>}
       </div>
     </ShellFrame>
   );

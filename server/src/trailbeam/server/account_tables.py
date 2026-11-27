@@ -31,7 +31,7 @@ Postgres schema 8. The two single sign-on tables (phase 3b, oidc.py) came with S
 - ``oidc_identities``: which person an identity provider's account is. ``issuer`` and ``subject`` are the ID token's
   ``iss`` and ``sub``, which never change for an account (an email can). Removed with the person.
 
-- ``passkeys`` (SQLite schema 27, Postgres schema 21; QV-665, passkeys.py): a person's passkeys (WebAuthn
+- ``passkeys`` (SQLite schema 28, Postgres schema 22; QV-665, passkeys.py): a person's passkeys (WebAuthn
   credentials). ``credential_id`` (base64url) is what the authenticator names it by, unique across people;
   ``public_key`` is its COSE public key (base64url). ``sign_count`` is the authenticator's counter as last seen
   (0 for the many that keep none). Removed with the person.

@@ -321,6 +321,32 @@ def test_a_public_name_resolving_to_a_private_address_is_refused_before_connecti
         open_.close()
 
 
+NOT_PUBLIC = ["64:ff9b::a9fe:a9fe", "64:ff9b::a00:1", "64:ff9b:1::5db8:d822", "2002:a9fe:a9fe::1", "::7f00:1",
+              "fec0::1", "2001:0:4136:e378:8000:63bf:3fff:fdd2", "2001:db8::1", "ff02::1", "198.18.0.1", "192.0.0.170",
+              "203.0.113.5", "240.0.0.1", "255.255.255.255", "224.0.0.1"]
+
+
+@pytest.mark.parametrize("addr", NOT_PUBLIC)
+def test_a_name_resolving_to_a_non_global_address_is_refused(monkeypatch, addr):
+    """QV-673: not only the usual private ranges. NAT64 and 6to4 addresses are judged by the IPv4 address they carry,
+    which a gateway would reach for us."""
+    fake_dns(monkeypatch, [addr])
+    fails(webhook("https://hooks.example.com/x"), d.Delivery(base="x"), "The webhook's host is a private or local address.")
+
+
+@pytest.mark.parametrize("addr", NOT_PUBLIC)
+def test_a_non_global_address_is_refused_as_a_target(addr):
+    host = f"[{addr}]" if ":" in addr else addr
+    assert d.check_target("webhook", f"https://{host}/")["ok"] is False
+
+
+@pytest.mark.parametrize("addr", ["93.184.216.34", "2606:4700:4700::1111", "64:ff9b::5db8:d822"])
+def test_public_addresses_stay_allowed(addr):
+    """A DNS64 resolver answers 64:ff9b::<IPv4> for a name with only an IPv4 address: a public one must still work.
+    (No public 6to4 case: Python before 3.12.4 calls all of 2002::/16 non-global, so it is refused there.)"""
+    assert not d.private_host(addr)
+
+
 @pytest.mark.parametrize("answers", [["93.184.216.34", "10.0.0.5"], ["2606:2800:220:1::1", "::1"],
                                      ["93.184.216.34", "::ffff:169.254.169.254"]])
 def test_a_name_with_any_private_address_is_refused(monkeypatch, answers):

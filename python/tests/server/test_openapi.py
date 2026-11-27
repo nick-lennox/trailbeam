@@ -174,7 +174,7 @@ def test_every_x_example_request_answers_200_on_the_fixture(fixture_server, reco
     asked = 0
     for op in contract().ops:
         req = op.op.get("x-example-request")
-        if req and not _people_op(op):  # those need an admin: test_people_api.py asks them
+        if req and not _people_op(op) and not _off_op(op):  # people: test_people_api.py asks them
             status, _, body = request(fixture_server, op.method, req)
             assert status == 200, (req, body[:200])
             asked += 1
@@ -239,10 +239,18 @@ def _people_op(op) -> bool:
     return bool(PEOPLE_TAGS & set(op.op.get("tags", [])))
 
 
+# off unless a setting turns them on, so not served by these tests' servers: test_dashboards_api.py asks them
+OFF_BY_DEFAULT_TAGS = {"Dashboards"}
+
+
+def _off_op(op) -> bool:
+    return bool(OFF_BY_DEFAULT_TAGS & set(op.op.get("tags", [])))
+
+
 def test_every_route_in_the_file_is_served(fixture_server):
     """Each operation, with the fixture's message for a path parameter, answers 200."""
     for op in contract().ops:
-        if _people_op(op):
+        if _people_op(op) or _off_op(op):
             continue
         path = _concrete(op.template)
         if op.method == "GET":
@@ -301,6 +309,8 @@ def test_every_route_the_server_serves_is_in_the_file(app, fixture_server):
     assert not missing, "served, but not in contract/openapi.yaml:\n" + "\n".join(missing)
     # the probe found the routes: one served path per operation at least
     for op in c.ops:
+        if _off_op(op):
+            continue
         assert any(op.regex.match(quote(s.split(" ", 1)[1], safe="/")) and s.startswith(op.method)
                    for s in served), op.key
 
@@ -373,7 +383,7 @@ def _ask(app, op, q):
 
 
 def _api_ops():
-    return [o for o in contract().ops if o.method == "GET"]
+    return [o for o in contract().ops if o.method == "GET" and not _off_op(o)]
 
 
 def _explore(app, op, ints):
@@ -647,7 +657,7 @@ def test_every_status_the_file_lists_is_answered_and_matches_it(db, record_api_r
 
     assert not record_api_responses.problems, "\n".join(record_api_responses.problems)
     answered = {(s.op.key, s.status) for s in record_api_responses.seen}
-    never = [f"{op.key} {status}" for op in ops for status in op.op["responses"]
+    never = [f"{op.key} {status}" for op in ops if not _off_op(op) for status in op.op["responses"]
              if (op.key, int(status)) not in answered]
     assert not never, "the file lists these statuses, the server never gave them:\n" + "\n".join(never)
 

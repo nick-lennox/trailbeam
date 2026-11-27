@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from . import __version__
-from . import account_tables, alerts_store, body_table, s3, summary_table
+from . import account_tables, alerts_store, body_table, dashboards_store, s3, summary_table
 
 
 class SchemaError(RuntimeError):
@@ -205,7 +205,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 );
 """ + summary_table.CREATE + body_table.CREATE + PROBES_CREATE + account_tables.SQLITE_CREATE + f"""
 {account_tables.SQLITE_ADD_PROXY};
-""" + STEP_ROLLUP_CREATE + account_tables.SQLITE_OIDC + alerts_store.SQLITE_CREATE + account_tables.SQLITE_PASSKEYS
+""" + STEP_ROLLUP_CREATE + account_tables.SQLITE_OIDC + alerts_store.SQLITE_CREATE + dashboards_store.SQLITE_CREATE + account_tables.SQLITE_PASSKEYS
 
 # Schema 1 was the first released (the CREATE of version 1 is in tests/server/test_migrations.py).
 # Schema 1 had no start_ns. Its rows came from contract v1 spans, stamped only when the response arrived,
@@ -279,7 +279,9 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # changes no span data.
 # Schema 26 (QV-650) adds the alert tables (alerts_store.py: rules, channels, state, checks and leases), empty. It
 # changes no span data.
-# Schema 27 (QV-665) adds the passkey tables (account_tables.py: passkeys, passkey_challenges), empty. It changes no
+# Schema 27 (QV-652) adds the dashboard tables (dashboards_store.py: dashboards and their widgets), empty. It changes
+# no span data.
+# Schema 28 (QV-665) adds the passkey tables (account_tables.py: passkeys, passkey_challenges), empty. It changes no
 # span data.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new", added=""))
                   + [f"INSERT INTO spans_new ({SPANS_COLUMNS}) SELECT {SPANS_COLUMNS} FROM spans ORDER BY row",
@@ -402,7 +404,8 @@ MIGRATIONS = (
     Migration(24, "S3 upload indexes", tuple(statements(S3_INDEXES))),
     Migration(25, "S3 receives by decoded object key", (), run=_to_25),
     Migration(26, "alert rules, channels, state and checks", tuple(statements(alerts_store.SQLITE_CREATE))),
-    Migration(27, "passkeys and their challenges", tuple(statements(account_tables.SQLITE_PASSKEYS))),
+    Migration(27, "dashboards and their widgets", tuple(statements(dashboards_store.SQLITE_CREATE))),
+    Migration(28, "passkeys and their challenges", tuple(statements(account_tables.SQLITE_PASSKEYS))),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

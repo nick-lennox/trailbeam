@@ -6415,11 +6415,171 @@
   {
    "name": "webhook: public IPv6",
    "kind": "webhook",
-   "raw": "https://[2001:db8:0:0:0:0:0:1]/hook",
+   "raw": "https://[2606:4700:4700:0:0:0:0:1111]/hook",
    "allowLocal": false,
    "expected": {
     "ok": true,
-    "target": "https://[2001:db8::1]/hook"
+    "target": "https://[2606:4700:4700::1111]/hook"
+   }
+  },
+  {
+   "name": "webhook: IPv6 documentation",
+   "kind": "webhook",
+   "raw": "https://[2001:db8::1]/hook",
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "The webhook must be on a public host, not a private or local address."
+   }
+  },
+  {
+   "name": "webhook: NAT64 of cloud metadata",
+   "kind": "webhook",
+   "raw": "https://[64:ff9b::a9fe:a9fe]/",
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "The webhook must be on a public host, not a private or local address."
+   }
+  },
+  {
+   "name": "webhook: NAT64 of 10/8",
+   "kind": "webhook",
+   "raw": "https://[64:ff9b::a00:1]/",
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "The webhook must be on a public host, not a private or local address."
+   }
+  },
+  {
+   "name": "webhook: NAT64 of a public address",
+   "kind": "webhook",
+   "raw": "https://[64:ff9b::5db8:d822]/",
+   "allowLocal": false,
+   "expected": {
+    "ok": true,
+    "target": "https://[64:ff9b::5db8:d822]/"
+   }
+  },
+  {
+   "name": "webhook: local-use NAT64",
+   "kind": "webhook",
+   "raw": "https://[64:ff9b:1::5db8:d822]/",
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "The webhook must be on a public host, not a private or local address."
+   }
+  },
+  {
+   "name": "webhook: 6to4 of cloud metadata",
+   "kind": "webhook",
+   "raw": "https://[2002:a9fe:a9fe::1]/",
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "The webhook must be on a public host, not a private or local address."
+   }
+  },
+  {
+   "name": "webhook: Teredo",
+   "kind": "webhook",
+   "raw": "https://[2001:0:4136:e378:8000:63bf:3fff:fdd2]/",
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "The webhook must be on a public host, not a private or local address."
+   }
+  },
+  {
+   "name": "webhook: IPv4-compatible IPv6",
+   "kind": "webhook",
+   "raw": "https://[::7f00:1]/",
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "The webhook must be on a public host, not a private or local address."
+   }
+  },
+  {
+   "name": "webhook: IPv6 site local",
+   "kind": "webhook",
+   "raw": "https://[fec0::1]/",
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "The webhook must be on a public host, not a private or local address."
+   }
+  },
+  {
+   "name": "webhook: IPv6 multicast",
+   "kind": "webhook",
+   "raw": "https://[ff02::1]/",
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "The webhook must be on a public host, not a private or local address."
+   }
+  },
+  {
+   "name": "webhook: benchmarking 198.18/15",
+   "kind": "webhook",
+   "raw": "https://198.18.0.1/",
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "The webhook must be on a public host, not a private or local address."
+   }
+  },
+  {
+   "name": "webhook: 192.0.0/24",
+   "kind": "webhook",
+   "raw": "https://192.0.0.170/",
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "The webhook must be on a public host, not a private or local address."
+   }
+  },
+  {
+   "name": "webhook: documentation 203.0.113/24",
+   "kind": "webhook",
+   "raw": "https://203.0.113.5/",
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "The webhook must be on a public host, not a private or local address."
+   }
+  },
+  {
+   "name": "webhook: 240/4",
+   "kind": "webhook",
+   "raw": "https://240.0.0.1/",
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "The webhook must be on a public host, not a private or local address."
+   }
+  },
+  {
+   "name": "webhook: broadcast",
+   "kind": "webhook",
+   "raw": "https://255.255.255.255/",
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "The webhook must be on a public host, not a private or local address."
+   }
+  },
+  {
+   "name": "webhook: multicast",
+   "kind": "webhook",
+   "raw": "https://224.0.0.1/",
+   "allowLocal": false,
+   "expected": {
+    "ok": false,
+    "error": "The webhook must be on a public host, not a private or local address."
    }
   },
   {

@@ -242,6 +242,13 @@ def handle(api: Callable[[str, dict], object], api_error: type, path: str, query
 # ---- pages ------------------------------------------------------------------------------------
 
 
+def _account(api, q: dict) -> Response:
+    """``/account`` without the shared UI's build: as ``/people``, it says where the same facts are without it."""
+    return _page(200, "Account", "<h1>Account</h1><p>The Account page is part of the web screen's build, which this "
+                 "install doesn't have (build it with <code>npm run build</code> in <code>ui/</code>). Without it, "
+                 "<code>/api/me</code> says who you are signed in as and how you can sign in.</p>")
+
+
 def _people(api, q: dict) -> Response:
     """``/people`` without the shared UI's build (an editable install from a clone that was never built): the
     People page is drawn only by the shell, so this says how to manage people without it."""

@@ -72,8 +72,8 @@ ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/set-password"): OPEN,  # invite and reset links (people_api.py); the code in it is the credential
     ("POST", "/set-password"): OPEN,
     ("GET", "/people"): ADMIN,  # the People page; its data is /api/users, ADMIN too
-    ("GET", "/account"): MEMBER,  # the Account page: your passkeys (/api/me/passkeys)
     ("GET", "/tokens"): MEMBER,  # the Tokens page: /api/me/tokens for everyone, /api/tokens/ingest (ADMIN) for admins
+    ("GET", "/account"): MEMBER,  # the Account page: who you are and how you sign in (/api/me), and your passkeys
 }
 
 # The routes that manage people and tokens (people_api.py): (method, path template, level, handler name).

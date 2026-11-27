@@ -3,13 +3,14 @@
   this server's pages as its items, inside the design system's theme. Each page moves into it from the header
   frame (chrome.tsx Frame) when it moves onto the design system, in rows 1 to 10; until then the pages keep
   the header, so nothing they show changes. The items are the header's: People only for admins, Tokens for
-  anyone signed in. The account slot is the header's too: the name, and Sign out when it ends anything.
+  anyone signed in. The account slot is the header's too: the name, a link to the Account page, and Sign out when
+  it ends anything.
   ShellSearch is the top bar's search on this server: a message ID opens its timeline, tenant:<name> (or a
   suggested tenant) lists that tenant's messages, and suggestions come from /api/tenants/search.
 */
 import { useCallback, useRef, type ReactNode } from "react";
 import { CircleAlert, Copy, KeyRound, ListFilter, Search, Users, UserCog, Workflow } from "lucide-react";
-import { AppThemeProvider, MessageSearch, Sidebar, Tooltip, tenantText, type SidebarItem, type SidebarQueue } from "../src/design/index.ts";
+import { AppThemeProvider, MessageSearch, Sidebar, Tooltip, UiLink, tenantText, type SidebarItem, type SidebarQueue } from "../src/design/index.ts";
 import { messageHref, suggestTenants, tenantHref, useMe, useTenantSeen, type Me } from "./chrome.tsx";
 
 export function shellItems(me: Me | null, path: string): SidebarItem[][] {
@@ -41,7 +42,7 @@ export function ShellAccount({ me }: { me: Me | null }) {
     <>
       {me.user && (
         <Tooltip content={`${me.user.email}, ${me.user.role}`} className="min-w-0 truncate text-sm text-ink">
-          <a href="/account" className="hover:underline">{me.user.name}</a>
+          <UiLink href="/account" className="hover:underline">{me.user.name}</UiLink>
         </Tooltip>
       )}
       {signOut ? <a href="/logout" className="ml-auto rounded-md px-1.5 text-sm text-ink-3 hover:bg-surface/70 hover:text-ink">Sign out</a> : <span className="ml-auto" />}
