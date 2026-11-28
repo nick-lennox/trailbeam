@@ -1,3 +1,4 @@
+import { RABBITMQ, systemOfQueueUrl } from "../systems.ts";
 import type { Flow } from "../queue/selfhosted.ts";
 import { FAILING_NOW, spanHealth } from "../queue/model.ts";
 import { dlqChange, health as healthWhy, type QueueLive, type Tone } from "./queue-live.ts";
@@ -15,6 +16,8 @@ export type Queue = {
   dlq: number;
   health: "good" | "warning" | "critical";
   spark: number[];
+  /** a RabbitMQ queue's (QV-308), from its flow's URL; an SQS queue leaves it out */
+  system?: "rabbitmq";
 };
 /** Sends from a producer to a queue, or receives from a queue by a consumer, per minute. */
 export type Edge = { from: string; to: string; perMin: number };
@@ -199,7 +202,8 @@ export function overviewData<T = unknown, V extends InQueueLike = InQueueLike>(w
     }
     const fifo = qd?.live.fifo ?? f.queue.endsWith(".fifo");
     data.queues.push({ name: f.queue, type: fifo ? "FIFO" : "Standard", consumer: f.consumers[0]?.name ?? "", sentPerMin: perMin(f.sent), p95WaitMs: 0,
-      stuck: qd?.live.stuck ?? 0, dlq: qd?.live.dlqDepth ?? 0, health: health ?? "good", spark: [] });
+      stuck: qd?.live.stuck ?? 0, dlq: qd?.live.dlqDepth ?? 0, health: health ?? "good", spark: [],
+      ...(systemOfQueueUrl(f.url ?? f.key) === RABBITMQ ? { system: "rabbitmq" as const } : {}) });
     for (const p of f.producers) {
       data.sends.push({ from: p.name, to: f.queue, perMin: perMin(p.n) });
       if (p.lambda) data.producerPlatform[p.name] = "Lambda";

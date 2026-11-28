@@ -184,7 +184,7 @@ const empty = (e: Parameters<typeof EmptyState>[0] | null) => (e ? text(renderTo
 const link = (e: Parameters<typeof EmptyState>[0] | null) => e?.link?.href;
 
 test("empty states while no span is stored point to setup", () => {
-  assert.equal(empty(stuckEmpty(300, true)), "No messages yet. A message shows up here when it's older than 300 s and has no final delete. Set up your first service");
+  assert.equal(empty(stuckEmpty(300, true)), "No messages yet. A message shows up here when it's older than 300 s and has no final delete, or on RabbitMQ no ack. Set up your first service");
   assert.equal(empty(duplicatesEmpty({}, true)), "No messages yet. Duplicates show up once a service sends spans. Set up your first service");
   assert.equal(empty(tenantsEmpty()), "No messages yet. Tenants show up once a service sends spans with a tenant set. Set up your first service");
   assert.equal(empty(lookupEmpty("abc", true)), "No message with the ID abc has reached Trailbeam. No service has sent spans here yet. Set up your first service");
@@ -193,8 +193,8 @@ test("empty states while no span is stored point to setup", () => {
 });
 
 test("empty states once spans exist", () => {
-  assert.equal(empty(stuckEmpty(300, false)), "No stuck messages. Every message first seen more than 300 s ago has a final delete.");
-  assert.equal(empty(duplicatesEmpty({}, false)), "No duplicates. No message was received more than once or handled more than once.");
+  assert.equal(empty(stuckEmpty(300, false)), "No stuck messages. Every message first seen more than 300 s ago has a final delete, or on RabbitMQ an ack.");
+  assert.equal(empty(duplicatesEmpty({}, false)), "No duplicates. No message was received more than once or handled more than once. A RabbitMQ message routed to two queues is one delivery on each, not a duplicate.");
   const byReason = duplicatesEmpty({ reason: "succeeded_more_than_once", queue: "q" }, false);
   assert.equal(empty(byReason), 'No duplicates for "handled more than once". Show every reason');
   assert.equal(link(byReason), "/duplicates?queue=q");

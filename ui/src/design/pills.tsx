@@ -2,6 +2,7 @@ import type { ElementType } from "react";
 import { AlertTriangle, CheckCircle2, CircleDashed, Eraser, Filter, PauseCircle, RotateCw, Send, Skull, XOctagon } from "lucide-react";
 import { POSSIBLY_PURGED_TITLE } from "../messages/Messages.tsx";
 import { Tooltip } from "./Tooltip.tsx";
+import { isRabbitMq } from "../systems.ts";
 
 /*
   The pills: a message's outcome or state, a queue's health, and where a timeline step came from.
@@ -82,12 +83,19 @@ export function SourceTag({ source, night = false }: { source: StepSource; night
 export type PurgeOf = { status: "purged" | "possibly_purged"; start: string };
 export type StateOf = {
   state: string; in_dead_letter_queue: boolean; deliveries: number; purge?: PurgeOf | null;
+  /** the message's key: a RabbitMQ message's state is in RabbitMQ's words (QV-308) */
+  message_id?: string; system?: string;
 };
 const GOOD = "bg-good-soft text-good-text ring-good-ring";
 const NEUTRAL = "bg-sunken text-ink-2 ring-line";
 
 export function stateLook(m: StateOf): Look {
   if (m.in_dead_letter_queue) return { label: "In the DLQ", icon: Skull, cls: "bg-critical-soft text-critical-text ring-critical-ring" };
+  if (isRabbitMq(m)) {
+    if (m.state === "deleted") return { label: "Done", icon: CheckCircle2, cls: GOOD };
+    if (m.deliveries === 0) return { label: "Not delivered", icon: Send, cls: NEUTRAL };
+    if (m.state === "not_deleted") return { label: "No ack seen", icon: PauseCircle, cls: "bg-serious-soft text-serious-text ring-serious-ring" };
+  }
   if (m.state === "deleted") return { label: "Deleted", icon: CheckCircle2, cls: GOOD };
   if (m.state === "deleted_inferred") return { label: "Deleted by Lambda", icon: CheckCircle2, cls: GOOD };
   if (m.state === "purged") return { label: "Purged", icon: Eraser, cls: NEUTRAL };

@@ -1,0 +1,5449 @@
+{
+ "note": "GET /api/messages/{id}, the Messages list's rows and GET /api/flows for the RabbitMQ messages of contract/fixtures/amqp-4.0-spans.json (contract 4.0), made by Trailbeam itself (ui/test/make-amqp-fixture.py).",
+ "items": [
+  {
+   "message_id": "~rabbitmq~m-stuck",
+   "state": "not_deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "deliveries": 1,
+   "successful_deliveries": 0,
+   "consumers": [
+    {
+     "service_name": "orders-worker",
+     "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+     "service_version": null
+    }
+   ],
+   "first_seen": "2025-11-24T10:26:40.100000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.101000Z"
+  },
+  {
+   "message_id": "~rabbitmq~m-timeout",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "deliveries": 2,
+   "successful_deliveries": 1,
+   "consumers": [
+    {
+     "service_name": "orders-worker",
+     "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+     "service_version": null
+    }
+   ],
+   "first_seen": "2025-11-24T10:26:40.092000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.096000Z"
+  },
+  {
+   "message_id": "~rabbitmq~m-classic",
+   "state": "deleted",
+   "source_queue": "classic",
+   "current_queue": "classic",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "deliveries": 2,
+   "successful_deliveries": 1,
+   "consumers": [
+    {
+     "service_name": "orders-worker",
+     "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+     "service_version": null
+    }
+   ],
+   "first_seen": "2025-11-24T10:26:40.078000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.082000Z"
+  },
+  {
+   "message_id": "~rabbitmq~m-noroute",
+   "state": "not_deleted",
+   "source_queue": "amq.default",
+   "current_queue": "amq.default",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "deliveries": 0,
+   "successful_deliveries": 0,
+   "consumers": [],
+   "first_seen": "2025-11-24T10:26:40.074000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.074000Z"
+  },
+  {
+   "message_id": "~rabbitmq~m-retry",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "deliveries": 2,
+   "successful_deliveries": 2,
+   "consumers": [
+    {
+     "service_name": "orders-worker",
+     "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+     "service_version": null
+    }
+   ],
+   "first_seen": "2025-11-24T10:26:40.061000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.069000Z"
+  },
+  {
+   "message_id": "~rabbitmq~m-fan",
+   "state": "deleted",
+   "source_queue": "fan.a",
+   "current_queue": "fan.b",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "deliveries": 2,
+   "successful_deliveries": 2,
+   "consumers": [
+    {
+     "service_name": "orders-worker",
+     "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+     "service_version": null
+    }
+   ],
+   "first_seen": "2025-11-24T10:26:40.053000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.057000Z"
+  },
+  {
+   "message_id": "~rabbitmq~m-reject",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders.dlq",
+   "in_dead_letter_queue": true,
+   "dead_letter_queue_move": "observed",
+   "deliveries": 2,
+   "successful_deliveries": 1,
+   "consumers": [
+    {
+     "service_name": "dlq-worker",
+     "client_id": "be2a835c-27b6-5e50-af47-91cad45a07c9",
+     "service_version": null
+    },
+    {
+     "service_name": "orders-worker",
+     "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+     "service_version": null
+    }
+   ],
+   "first_seen": "2025-11-24T10:26:40.045000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.049000Z"
+  },
+  {
+   "message_id": "~rabbitmq~m-crash",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders.dlq",
+   "in_dead_letter_queue": true,
+   "dead_letter_queue_move": "observed",
+   "deliveries": 4,
+   "successful_deliveries": 1,
+   "consumers": [
+    {
+     "service_name": "dlq-worker",
+     "client_id": "be2a835c-27b6-5e50-af47-91cad45a07c9",
+     "service_version": null
+    },
+    {
+     "service_name": "orders-worker",
+     "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+     "service_version": null
+    }
+   ],
+   "first_seen": "2025-11-24T10:26:40.033000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.041000Z"
+  },
+  {
+   "message_id": "~rabbitmq~m-loop",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "deliveries": 6,
+   "successful_deliveries": 1,
+   "consumers": [
+    {
+     "service_name": "orders-worker",
+     "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+     "service_version": null
+    }
+   ],
+   "first_seen": "2025-11-24T10:26:40.017000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.029000Z"
+  },
+  {
+   "message_id": "~rabbitmq~m-requeue",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "deliveries": 2,
+   "successful_deliveries": 1,
+   "consumers": [
+    {
+     "service_name": "orders-worker",
+     "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+     "service_version": null
+    }
+   ],
+   "first_seen": "2025-11-24T10:26:40.009000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.013000Z"
+  },
+  {
+   "message_id": "~rabbitmq~m-happy",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "deliveries": 1,
+   "successful_deliveries": 1,
+   "consumers": [
+    {
+     "service_name": "orders-worker",
+     "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+     "service_version": null
+    }
+   ],
+   "first_seen": "2025-11-24T10:26:40.003000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.005000Z"
+  }
+ ],
+ "timelines": [
+  {
+   "message_id": "~rabbitmq~m-classic",
+   "system": "rabbitmq",
+   "state": "deleted",
+   "source_queue": "classic",
+   "current_queue": "classic",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "publishes": 1,
+   "deliveries": 2,
+   "successful_deliveries": 1,
+   "copies": [
+    {
+     "queue": "classic",
+     "vhost": "/",
+     "deliveries": 2,
+     "ended": "acked"
+    }
+   ],
+   "first_seen": "2025-11-24T10:26:40.078000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.082000Z",
+   "concurrent_groups": 1,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": true,
+     "label": "concurrent, order unknown",
+     "observed_events": 4,
+     "inferred_events": 2,
+     "ordered_inside": 4,
+     "start": null,
+     "end": "2025-11-24T10:26:40.081000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-24T10:26:40.082000Z",
+     "end": "2025-11-24T10:26:40.082000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.078000Z",
+     "time_unix_nano": "1763980000078000000",
+     "start": "2025-11-24T10:26:40.075000Z",
+     "start_unix_nano": "1763980000075000000",
+     "end": "2025-11-24T10:26:40.078000Z",
+     "end_unix_nano": "1763980000078000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "amq.default",
+     "consumer": {
+      "service_name": "checkout-api",
+      "client_id": "f84db1cd-771e-51b8-8c3a-01223349332f",
+      "source": "client",
+      "pid": 4101
+     },
+     "span": {
+      "trace_id": "17285f268e3cdbdaa0535b625ffeb31f",
+      "span_id": "a6d098a6037ef384"
+     },
+     "process_order": {
+      "scope": "f7cfd764-0e14-5c8e-8d0b-5fd5b8469abe",
+      "issued": 20,
+      "returned": 21
+     },
+     "exchange": "amq.default",
+     "operation": "basic.publish",
+     "result": "ok",
+     "confirmed": true,
+     "mandatory": false,
+     "publish": 1,
+     "routing_key": "classic",
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "routed",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": "2025-11-24T10:26:40.075000Z",
+      "to": "2025-11-24T10:26:40.079000Z"
+     },
+     "reason": "Exchange amq.default routed this message to 1 queue: classic. Counted from the queues it was delivered on, so it is a lower bound: a queue that no consumer with Trailbeam reads is not seen. Each queue holds its own copy, which is not a duplicate.",
+     "exchange": "amq.default",
+     "queues": [
+      "classic"
+     ],
+     "count": 1,
+     "lower_bound": true,
+     "group": 0,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from the publish: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e3",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from delivery 1: it came before it."
+     }
+    },
+    {
+     "id": "e3",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.079000Z",
+     "time_unix_nano": "1763980000079000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.079000Z",
+     "end_unix_nano": "1763980000079000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "classic",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "0ae5d96da9e4c04183b77a0f3a5ec859",
+      "span_id": "d2faf563af9c78a5"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 49
+     },
+     "delivery": 1,
+     "receive_count": 1,
+     "operation": "basic.deliver",
+     "redelivered": false,
+     "receive_count_source": "first_delivery",
+     "consumer_tag": "ctag-classic",
+     "exchange": "amq.default",
+     "routing_key": "classic",
+     "after": []
+    },
+    {
+     "id": "e4",
+     "type": "requeued",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.080000Z",
+     "time_unix_nano": "1763980000080000000",
+     "start": "2025-11-24T10:26:40.080000Z",
+     "start_unix_nano": "1763980000080000000",
+     "end": "2025-11-24T10:26:40.080000Z",
+     "end_unix_nano": "1763980000080000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "classic",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "15137f83790a584130df7e95ffd952b6",
+      "span_id": "40515296d69d1d36"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": 50,
+      "returned": 51
+     },
+     "delivery": 1,
+     "operation": "basic.nack",
+     "result": "ok",
+     "multiple": false,
+     "requeue": true,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "The publish ended (2025-11-24T10:26:40.078000Z) before this started (2025-11-24T10:26:40.080000Z), on the hosts' clocks."
+      },
+      {
+       "event": "e3",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Delivery 1 ended (2025-11-24T10:26:40.079000Z) before this started (2025-11-24T10:26:40.080000Z), on the hosts' clocks. Same process: delivery 1 returned before this call was issued."
+      }
+     ]
+    },
+    {
+     "id": "e5",
+     "type": "returned_to_queue",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": "2025-11-24T10:26:40.080000Z",
+      "to": "2025-11-24T10:26:40.081000Z"
+     },
+     "reason": "The consumer requeued the message with basic.nack (requeue = true), so RabbitMQ put it back in the queue at once.",
+     "queue": "classic",
+     "cause": "requeued",
+     "cause_observed": true,
+     "after_delivery": 1,
+     "before_delivery": 2,
+     "group": 0,
+     "after": [
+      {
+       "event": "e4",
+       "type": "requeued",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from the requeue of delivery 1: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e6",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from delivery 2: it came before it."
+     }
+    },
+    {
+     "id": "e6",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.081000Z",
+     "time_unix_nano": "1763980000081000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.081000Z",
+     "end_unix_nano": "1763980000081000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "classic",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "4d82c0f14c0e874d61f55e233f7c374d",
+      "span_id": "121ca13f4cdc2cc5"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 52
+     },
+     "delivery": 2,
+     "receive_count": null,
+     "operation": "basic.deliver",
+     "redelivered": true,
+     "consumer_tag": "ctag-classic",
+     "exchange": "amq.default",
+     "routing_key": "classic",
+     "after": []
+    },
+    {
+     "id": "e7",
+     "type": "acked",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.082000Z",
+     "time_unix_nano": "1763980000082000000",
+     "start": "2025-11-24T10:26:40.082000Z",
+     "start_unix_nano": "1763980000082000000",
+     "end": "2025-11-24T10:26:40.082000Z",
+     "end_unix_nano": "1763980000082000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "classic",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "97e39642f79f84cbe48f13cadade311e",
+      "span_id": "71285d0eac8e0ace"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": 53,
+      "returned": 54
+     },
+     "delivery": 2,
+     "operation": "basic.ack",
+     "result": "ok",
+     "multiple": false,
+     "status": "final",
+     "after": [
+      {
+       "event": "e4",
+       "type": "requeued",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "The requeue of delivery 1 ended (2025-11-24T10:26:40.080000Z) before this started (2025-11-24T10:26:40.082000Z), on the hosts' clocks. Same process: the requeue of delivery 1 returned before this call was issued."
+      },
+      {
+       "event": "e6",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Delivery 2 ended (2025-11-24T10:26:40.081000Z) before this started (2025-11-24T10:26:40.082000Z), on the hosts' clocks. Same process: delivery 2 returned before this call was issued."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e4",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e7",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e4",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e7",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e4",
+      "to": "e7",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e6",
+      "to": "e7",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 6,
+     "process_order": 4,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": []
+  },
+  {
+   "message_id": "~rabbitmq~m-crash",
+   "system": "rabbitmq",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders.dlq",
+   "in_dead_letter_queue": true,
+   "dead_letter_queue_move": "observed",
+   "send_observed": true,
+   "publishes": 1,
+   "deliveries": 4,
+   "successful_deliveries": 1,
+   "copies": [
+    {
+     "queue": "orders",
+     "vhost": "/",
+     "deliveries": 3,
+     "ended": "moved"
+    },
+    {
+     "queue": "orders.dlq",
+     "vhost": "/",
+     "deliveries": 1,
+     "ended": "acked"
+    }
+   ],
+   "first_seen": "2025-11-24T10:26:40.033000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.041000Z",
+   "concurrent_groups": 1,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": true,
+     "label": "concurrent, order unknown",
+     "observed_events": 9,
+     "inferred_events": 3,
+     "ordered_inside": 6,
+     "start": null,
+     "end": "2025-11-24T10:26:40.040000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-24T10:26:40.041000Z",
+     "end": "2025-11-24T10:26:40.041000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.033000Z",
+     "time_unix_nano": "1763980000033000000",
+     "start": "2025-11-24T10:26:40.030000Z",
+     "start_unix_nano": "1763980000030000000",
+     "end": "2025-11-24T10:26:40.033000Z",
+     "end_unix_nano": "1763980000033000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "amq.default",
+     "consumer": {
+      "service_name": "checkout-api",
+      "client_id": "f84db1cd-771e-51b8-8c3a-01223349332f",
+      "source": "client",
+      "pid": 4101
+     },
+     "span": {
+      "trace_id": "88f4e4af77ea48867f8c9f32c9372a93",
+      "span_id": "0da75f08dfe04a92"
+     },
+     "process_order": {
+      "scope": "f7cfd764-0e14-5c8e-8d0b-5fd5b8469abe",
+      "issued": 7,
+      "returned": 8
+     },
+     "exchange": "amq.default",
+     "operation": "basic.publish",
+     "result": "ok",
+     "confirmed": true,
+     "mandatory": false,
+     "publish": 1,
+     "routing_key": "orders",
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "routed",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": "2025-11-24T10:26:40.030000Z",
+      "to": "2025-11-24T10:26:40.034000Z"
+     },
+     "reason": "Exchange amq.default routed this message to 1 queue: orders. Counted from the queues it was delivered on, so it is a lower bound: a queue that no consumer with Trailbeam reads is not seen. Each queue holds its own copy, which is not a duplicate.",
+     "exchange": "amq.default",
+     "queues": [
+      "orders"
+     ],
+     "count": 1,
+     "lower_bound": true,
+     "group": 0,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from the publish: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e3",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from delivery 1: it came before it."
+     }
+    },
+    {
+     "id": "e3",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.034000Z",
+     "time_unix_nano": "1763980000034000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.034000Z",
+     "end_unix_nano": "1763980000034000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "17f6d998010955be2cb2b5480fe9613c",
+      "span_id": "fbec216be067427e"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 28
+     },
+     "delivery": 1,
+     "receive_count": 1,
+     "operation": "basic.deliver",
+     "redelivered": false,
+     "receive_count_source": "first_delivery",
+     "consumer_tag": "ctag-crash-0",
+     "exchange": "amq.default",
+     "routing_key": "orders",
+     "after": []
+    },
+    {
+     "id": "e4",
+     "type": "channel_closed",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.035000Z",
+     "time_unix_nano": "1763980000035000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.035000Z",
+     "end_unix_nano": "1763980000035000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "df4c933013d4778d586199dfde8cb44b",
+      "span_id": "9d520949af83f50b"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 29
+     },
+     "delivery": 1,
+     "operation": "connection.lost",
+     "result": null,
+     "initiator": "network",
+     "reason": "The connection was lost while this delivery was not settled. RabbitMQ returns the channel's unacked deliveries to the queue.",
+     "after": []
+    },
+    {
+     "id": "e5",
+     "type": "returned_to_queue",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": null,
+      "to": "2025-11-24T10:26:40.036000Z"
+     },
+     "reason": "The channel of this delivery closed before it was acked (the connection was lost), and RabbitMQ returned the message to the queue. The close is when the client saw it; the broker may have returned the message later.",
+     "queue": "orders",
+     "cause": "channel_closed",
+     "cause_observed": true,
+     "after_delivery": 1,
+     "before_delivery": 2,
+     "group": 0,
+     "after": [
+      {
+       "event": "e3",
+       "type": "received",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from delivery 1: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e6",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from delivery 2: it came before it."
+     }
+    },
+    {
+     "id": "e6",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.036000Z",
+     "time_unix_nano": "1763980000036000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.036000Z",
+     "end_unix_nano": "1763980000036000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "ab26319d54a013cd129a668e1e1413f6",
+      "span_id": "a1a235fc234c10d4"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 30
+     },
+     "delivery": 2,
+     "receive_count": 2,
+     "operation": "basic.deliver",
+     "redelivered": true,
+     "receive_count_source": "x-acquired-count",
+     "consumer_tag": "ctag-crash-1",
+     "exchange": "amq.default",
+     "routing_key": "orders",
+     "x_delivery_count": 1,
+     "x_acquired_count": 1,
+     "after": [
+      {
+       "event": "e3",
+       "type": "received",
+       "sources": [
+        "receive_count"
+       ],
+       "source": "receive_count",
+       "why": "The receive counts RabbitMQ gave (redelivered = false and the x-acquired-count header) show delivery 1 (receive count 1) came before this one (receive count 2)."
+      }
+     ]
+    },
+    {
+     "id": "e7",
+     "type": "channel_closed",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.037000Z",
+     "time_unix_nano": "1763980000037000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.037000Z",
+     "end_unix_nano": "1763980000037000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "b185fb2e35b54d56d41c6145456ff998",
+      "span_id": "0881493a4ed1e1a1"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 31
+     },
+     "delivery": 2,
+     "operation": "connection.lost",
+     "result": null,
+     "initiator": "network",
+     "reason": "The connection was lost while this delivery was not settled. RabbitMQ returns the channel's unacked deliveries to the queue.",
+     "after": []
+    },
+    {
+     "id": "e8",
+     "type": "returned_to_queue",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": null,
+      "to": "2025-11-24T10:26:40.038000Z"
+     },
+     "reason": "The channel of this delivery closed before it was acked (the connection was lost), and RabbitMQ returned the message to the queue. The close is when the client saw it; the broker may have returned the message later.",
+     "queue": "orders",
+     "cause": "channel_closed",
+     "cause_observed": true,
+     "after_delivery": 2,
+     "before_delivery": 3,
+     "group": 0,
+     "after": [
+      {
+       "event": "e6",
+       "type": "received",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from delivery 2: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e9",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from delivery 3: it came before it."
+     }
+    },
+    {
+     "id": "e9",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.038000Z",
+     "time_unix_nano": "1763980000038000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.038000Z",
+     "end_unix_nano": "1763980000038000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "0a34c31d73ee53b6b3646ecb880c224c",
+      "span_id": "38a301f5407eecab"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 32
+     },
+     "delivery": 3,
+     "receive_count": 3,
+     "operation": "basic.deliver",
+     "redelivered": true,
+     "receive_count_source": "x-acquired-count",
+     "consumer_tag": "ctag-crash-2",
+     "exchange": "amq.default",
+     "routing_key": "orders",
+     "x_delivery_count": 2,
+     "x_acquired_count": 2,
+     "after": [
+      {
+       "event": "e6",
+       "type": "received",
+       "sources": [
+        "receive_count"
+       ],
+       "source": "receive_count",
+       "why": "The receive counts RabbitMQ gave (the x-acquired-count header and the x-acquired-count header) show delivery 2 (receive count 2) came before this one (receive count 3)."
+      }
+     ]
+    },
+    {
+     "id": "e10",
+     "type": "channel_closed",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.039000Z",
+     "time_unix_nano": "1763980000039000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.039000Z",
+     "end_unix_nano": "1763980000039000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "6fae0a64676714606f310780d444a242",
+      "span_id": "3814f7ce50dbbb1b"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 33
+     },
+     "delivery": 3,
+     "operation": "connection.lost",
+     "result": null,
+     "initiator": "network",
+     "reason": "The connection was lost while this delivery was not settled. RabbitMQ returns the channel's unacked deliveries to the queue.",
+     "after": []
+    },
+    {
+     "id": "e11",
+     "type": "moved_to_dead_letter_queue",
+     "inferred": false,
+     "source": "amqp_x_death",
+     "time": null,
+     "window": {
+      "from": null,
+      "to": "2025-11-24T10:26:40.040000Z"
+     },
+     "reported_by": "reported by RabbitMQ (the x-death header on the delivery from the dead-letter queue)",
+     "reported_on_delivery": 4,
+     "from_queue": "orders",
+     "to_queue": "orders.dlq",
+     "dead_letter_reason": "delivery_limit",
+     "dead_letter_count": 1,
+     "first_dead_lettered": "2025-11-24T10:26:40.000000Z",
+     "first_dead_lettered_ms": 1763980000000,
+     "reason": "RabbitMQ reported this move: the delivery on orders.dlq carries an x-death header naming orders, with reason delivery_limit (it was returned to the queue more times than x-delivery-limit allows). x-death says it was first dead-lettered from orders for this reason at 2025-11-24T10:26:40.000000Z, to the second, on the broker's clock. It happened after the last delivery on orders and before that delivery.",
+     "group": 0,
+     "after": [
+      {
+       "event": "e9",
+       "type": "received",
+       "sources": [
+        "amqp_x_death"
+       ],
+       "source": "amqp_x_death",
+       "why": "RabbitMQ dead-letters a message off orders only after its deliveries there, and reported the move later, so it came after delivery 3."
+      }
+     ],
+     "before": {
+      "event": "e12",
+      "type": "received",
+      "sources": [
+       "amqp_x_death"
+      ],
+      "source": "amqp_x_death",
+      "why": "RabbitMQ reported the move on delivery 4: its x-death header names orders."
+     }
+    },
+    {
+     "id": "e12",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.040000Z",
+     "time_unix_nano": "1763980000040000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.040000Z",
+     "end_unix_nano": "1763980000040000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders.dlq",
+     "consumer": {
+      "service_name": "dlq-worker",
+      "client_id": "be2a835c-27b6-5e50-af47-91cad45a07c9",
+      "source": "client",
+      "pid": 4303
+     },
+     "span": {
+      "trace_id": "cf444e29ccb5abca4b492496afd344b1",
+      "span_id": "43b02ad51cb9e0d6"
+     },
+     "process_order": {
+      "scope": "ceb6d032-4606-56bb-a7de-1dddb6c3b9da",
+      "issued": null,
+      "returned": 1
+     },
+     "delivery": 4,
+     "receive_count": 4,
+     "operation": "basic.deliver",
+     "redelivered": false,
+     "receive_count_source": "x-acquired-count",
+     "consumer_tag": "ctag-dlq",
+     "exchange": "dlx",
+     "routing_key": "orders",
+     "x_delivery_count": 3,
+     "x_acquired_count": 3,
+     "dead_letter": {
+      "source_queue": "orders",
+      "reason": "delivery_limit",
+      "count": 1,
+      "time_ms": 1763980000000,
+      "exchange": "amq.default",
+      "first_queue": "orders",
+      "first_reason": "delivery_limit"
+     },
+     "after": []
+    },
+    {
+     "id": "e13",
+     "type": "acked",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.041000Z",
+     "time_unix_nano": "1763980000041000000",
+     "start": "2025-11-24T10:26:40.041000Z",
+     "start_unix_nano": "1763980000041000000",
+     "end": "2025-11-24T10:26:40.041000Z",
+     "end_unix_nano": "1763980000041000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "orders.dlq",
+     "consumer": {
+      "service_name": "dlq-worker",
+      "client_id": "be2a835c-27b6-5e50-af47-91cad45a07c9",
+      "source": "client",
+      "pid": 4303
+     },
+     "span": {
+      "trace_id": "7681864a5c2518e634520e5247e877fe",
+      "span_id": "e3e2b4a8514abe03"
+     },
+     "process_order": {
+      "scope": "ceb6d032-4606-56bb-a7de-1dddb6c3b9da",
+      "issued": 2,
+      "returned": 3
+     },
+     "delivery": 4,
+     "operation": "basic.ack",
+     "result": "ok",
+     "multiple": false,
+     "status": "final",
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "The publish ended (2025-11-24T10:26:40.033000Z) before this started (2025-11-24T10:26:40.041000Z), on the hosts' clocks."
+      },
+      {
+       "event": "e4",
+       "type": "channel_closed",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "The channel close of delivery 1 ended (2025-11-24T10:26:40.035000Z) before this started (2025-11-24T10:26:40.041000Z), on the hosts' clocks."
+      },
+      {
+       "event": "e7",
+       "type": "channel_closed",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "The channel close of delivery 2 ended (2025-11-24T10:26:40.037000Z) before this started (2025-11-24T10:26:40.041000Z), on the hosts' clocks."
+      },
+      {
+       "event": "e9",
+       "type": "received",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "Delivery 3 ended (2025-11-24T10:26:40.038000Z) before this started (2025-11-24T10:26:40.041000Z), on the hosts' clocks."
+      },
+      {
+       "event": "e10",
+       "type": "channel_closed",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "The channel close of delivery 3 ended (2025-11-24T10:26:40.039000Z) before this started (2025-11-24T10:26:40.041000Z), on the hosts' clocks."
+      },
+      {
+       "event": "e12",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Delivery 4 ended (2025-11-24T10:26:40.040000Z) before this started (2025-11-24T10:26:40.041000Z), on the hosts' clocks. Same process: delivery 4 returned before this call was issued."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e13",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e6",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e9",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e13",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e4",
+      "to": "e13",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e6",
+      "to": "e9",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e6",
+      "to": "e13",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e7",
+      "to": "e13",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e9",
+      "to": "e13",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e10",
+      "to": "e13",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e12",
+      "to": "e13",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 8,
+     "process_order": 1,
+     "receive_count": 3,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": []
+  },
+  {
+   "message_id": "~rabbitmq~m-fan",
+   "system": "rabbitmq",
+   "state": "deleted",
+   "source_queue": "fan.a",
+   "current_queue": "fan.b",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "publishes": 1,
+   "deliveries": 2,
+   "successful_deliveries": 2,
+   "copies": [
+    {
+     "queue": "fan.a",
+     "vhost": "/",
+     "deliveries": 1,
+     "ended": "acked"
+    },
+    {
+     "queue": "fan.b",
+     "vhost": "/",
+     "deliveries": 1,
+     "ended": "acked"
+    }
+   ],
+   "first_seen": "2025-11-24T10:26:40.053000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.057000Z",
+   "concurrent_groups": 1,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": true,
+     "label": "concurrent, order unknown",
+     "observed_events": 5,
+     "inferred_events": 1,
+     "ordered_inside": 5,
+     "start": null,
+     "end": "2025-11-24T10:26:40.057000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.053000Z",
+     "time_unix_nano": "1763980000053000000",
+     "start": "2025-11-24T10:26:40.050000Z",
+     "start_unix_nano": "1763980000050000000",
+     "end": "2025-11-24T10:26:40.053000Z",
+     "end_unix_nano": "1763980000053000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "fan",
+     "consumer": {
+      "service_name": "checkout-api",
+      "client_id": "f84db1cd-771e-51b8-8c3a-01223349332f",
+      "source": "client",
+      "pid": 4101
+     },
+     "span": {
+      "trace_id": "6697183808220eb080a03df32ddaa191",
+      "span_id": "38b0631495dc3149"
+     },
+     "process_order": {
+      "scope": "f7cfd764-0e14-5c8e-8d0b-5fd5b8469abe",
+      "issued": 11,
+      "returned": 12
+     },
+     "exchange": "fan",
+     "operation": "basic.publish",
+     "result": "ok",
+     "confirmed": true,
+     "mandatory": false,
+     "publish": 1,
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "routed",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": "2025-11-24T10:26:40.050000Z",
+      "to": "2025-11-24T10:26:40.054000Z"
+     },
+     "reason": "Exchange fan routed this message to 2 queues: fan.a, fan.b. Counted from the queues it was delivered on, so it is a lower bound: a queue that no consumer with Trailbeam reads is not seen. Each queue holds its own copy, which is not a duplicate.",
+     "exchange": "fan",
+     "queues": [
+      "fan.a",
+      "fan.b"
+     ],
+     "count": 2,
+     "lower_bound": true,
+     "group": 0,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from the publish: it came after it."
+      }
+     ]
+    },
+    {
+     "id": "e3",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.054000Z",
+     "time_unix_nano": "1763980000054000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.054000Z",
+     "end_unix_nano": "1763980000054000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "fan.a",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "e1f80b13307f9d27cf9e086d4a83b75d",
+      "span_id": "8f089bd76c6efc9b"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 37
+     },
+     "delivery": 1,
+     "receive_count": 1,
+     "operation": "basic.deliver",
+     "redelivered": false,
+     "receive_count_source": "first_delivery",
+     "consumer_tag": "ctag-fan.a",
+     "exchange": "fan",
+     "after": []
+    },
+    {
+     "id": "e4",
+     "type": "acked",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.055000Z",
+     "time_unix_nano": "1763980000055000000",
+     "start": "2025-11-24T10:26:40.055000Z",
+     "start_unix_nano": "1763980000055000000",
+     "end": "2025-11-24T10:26:40.055000Z",
+     "end_unix_nano": "1763980000055000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "fan.a",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "ffb13b57fa0eed292a07456cb7712be6",
+      "span_id": "a95260dceed1fab0"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": 38,
+      "returned": 39
+     },
+     "delivery": 1,
+     "operation": "basic.ack",
+     "result": "ok",
+     "multiple": false,
+     "status": "final",
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "The publish ended (2025-11-24T10:26:40.053000Z) before this started (2025-11-24T10:26:40.055000Z), on the hosts' clocks."
+      },
+      {
+       "event": "e3",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Delivery 1 ended (2025-11-24T10:26:40.054000Z) before this started (2025-11-24T10:26:40.055000Z), on the hosts' clocks. Same process: delivery 1 returned before this call was issued."
+      }
+     ]
+    },
+    {
+     "id": "e5",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.056000Z",
+     "time_unix_nano": "1763980000056000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.056000Z",
+     "end_unix_nano": "1763980000056000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "fan.b",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "a9266c39a56fd589512f1b1900946c59",
+      "span_id": "fdca097742d5f526"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 40
+     },
+     "delivery": 2,
+     "receive_count": 1,
+     "operation": "basic.deliver",
+     "redelivered": false,
+     "receive_count_source": "first_delivery",
+     "consumer_tag": "ctag-fan.b",
+     "exchange": "fan",
+     "after": []
+    },
+    {
+     "id": "e6",
+     "type": "acked",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.057000Z",
+     "time_unix_nano": "1763980000057000000",
+     "start": "2025-11-24T10:26:40.057000Z",
+     "start_unix_nano": "1763980000057000000",
+     "end": "2025-11-24T10:26:40.057000Z",
+     "end_unix_nano": "1763980000057000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "fan.b",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "4169b58826c8539649bfce5398487f57",
+      "span_id": "c3dc67fb349eaeb7"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": 41,
+      "returned": 42
+     },
+     "delivery": 2,
+     "operation": "basic.ack",
+     "result": "ok",
+     "multiple": false,
+     "status": "final",
+     "after": [
+      {
+       "event": "e4",
+       "type": "acked",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "The ack of delivery 1 ended (2025-11-24T10:26:40.055000Z) before this started (2025-11-24T10:26:40.057000Z), on the hosts' clocks. Same process: the ack of delivery 1 returned before this call was issued."
+      },
+      {
+       "event": "e5",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Delivery 2 ended (2025-11-24T10:26:40.056000Z) before this started (2025-11-24T10:26:40.057000Z), on the hosts' clocks. Same process: delivery 2 returned before this call was issued."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e4",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e6",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e4",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e6",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e4",
+      "to": "e6",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e5",
+      "to": "e6",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 6,
+     "process_order": 4,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": []
+  },
+  {
+   "message_id": "~rabbitmq~m-happy",
+   "system": "rabbitmq",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "publishes": 1,
+   "deliveries": 1,
+   "successful_deliveries": 1,
+   "copies": [
+    {
+     "queue": "orders",
+     "vhost": "/",
+     "deliveries": 1,
+     "ended": "acked"
+    }
+   ],
+   "first_seen": "2025-11-24T10:26:40.003000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.005000Z",
+   "concurrent_groups": 1,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": true,
+     "label": "concurrent, order unknown",
+     "observed_events": 2,
+     "inferred_events": 1,
+     "ordered_inside": 1,
+     "start": null,
+     "end": "2025-11-24T10:26:40.004000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-24T10:26:40.005000Z",
+     "end": "2025-11-24T10:26:40.005000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.003000Z",
+     "time_unix_nano": "1763980000003000000",
+     "start": "2025-11-24T10:26:40.000000Z",
+     "start_unix_nano": "1763980000000000000",
+     "end": "2025-11-24T10:26:40.003000Z",
+     "end_unix_nano": "1763980000003000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "amq.default",
+     "consumer": {
+      "service_name": "checkout-api",
+      "client_id": "f84db1cd-771e-51b8-8c3a-01223349332f",
+      "source": "client",
+      "pid": 4101
+     },
+     "span": {
+      "trace_id": "9857b20e11e59ecd12131014bb79d0f0",
+      "span_id": "77c5ab1a641ab3e7"
+     },
+     "process_order": {
+      "scope": "f7cfd764-0e14-5c8e-8d0b-5fd5b8469abe",
+      "issued": 1,
+      "returned": 2
+     },
+     "exchange": "amq.default",
+     "operation": "basic.publish",
+     "result": "ok",
+     "confirmed": true,
+     "mandatory": false,
+     "publish": 1,
+     "routing_key": "orders",
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "routed",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": "2025-11-24T10:26:40.000000Z",
+      "to": "2025-11-24T10:26:40.004000Z"
+     },
+     "reason": "Exchange amq.default routed this message to 1 queue: orders. Counted from the queues it was delivered on, so it is a lower bound: a queue that no consumer with Trailbeam reads is not seen. Each queue holds its own copy, which is not a duplicate.",
+     "exchange": "amq.default",
+     "queues": [
+      "orders"
+     ],
+     "count": 1,
+     "lower_bound": true,
+     "group": 0,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from the publish: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e3",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from delivery 1: it came before it."
+     }
+    },
+    {
+     "id": "e3",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.004000Z",
+     "time_unix_nano": "1763980000004000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.004000Z",
+     "end_unix_nano": "1763980000004000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "101f7b3d05e2df38f79142cec0a27551",
+      "span_id": "0726ffbeab299290"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 1
+     },
+     "delivery": 1,
+     "receive_count": 1,
+     "operation": "basic.deliver",
+     "redelivered": false,
+     "receive_count_source": "first_delivery",
+     "consumer_tag": "ctag-1",
+     "exchange": "amq.default",
+     "routing_key": "orders",
+     "after": []
+    },
+    {
+     "id": "e4",
+     "type": "acked",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.005000Z",
+     "time_unix_nano": "1763980000005000000",
+     "start": "2025-11-24T10:26:40.005000Z",
+     "start_unix_nano": "1763980000005000000",
+     "end": "2025-11-24T10:26:40.005000Z",
+     "end_unix_nano": "1763980000005000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "cb710fb58a7728f2defe45da5953764d",
+      "span_id": "4e25b6c6d4390a90"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": 2,
+      "returned": 3
+     },
+     "delivery": 1,
+     "operation": "basic.ack",
+     "result": "ok",
+     "multiple": false,
+     "status": "final",
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "The publish ended (2025-11-24T10:26:40.003000Z) before this started (2025-11-24T10:26:40.005000Z), on the hosts' clocks."
+      },
+      {
+       "event": "e3",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Delivery 1 ended (2025-11-24T10:26:40.004000Z) before this started (2025-11-24T10:26:40.005000Z), on the hosts' clocks. Same process: delivery 1 returned before this call was issued."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e4",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e4",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 2,
+     "process_order": 1,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": []
+  },
+  {
+   "message_id": "~rabbitmq~m-loop",
+   "system": "rabbitmq",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "publishes": 1,
+   "deliveries": 6,
+   "successful_deliveries": 1,
+   "copies": [
+    {
+     "queue": "orders",
+     "vhost": "/",
+     "deliveries": 6,
+     "ended": "acked"
+    }
+   ],
+   "first_seen": "2025-11-24T10:26:40.017000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.029000Z",
+   "concurrent_groups": 1,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": true,
+     "label": "concurrent, order unknown",
+     "observed_events": 12,
+     "inferred_events": 6,
+     "ordered_inside": 21,
+     "start": null,
+     "end": "2025-11-24T10:26:40.028000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-24T10:26:40.029000Z",
+     "end": "2025-11-24T10:26:40.029000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.017000Z",
+     "time_unix_nano": "1763980000017000000",
+     "start": "2025-11-24T10:26:40.014000Z",
+     "start_unix_nano": "1763980000014000000",
+     "end": "2025-11-24T10:26:40.017000Z",
+     "end_unix_nano": "1763980000017000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "amq.default",
+     "consumer": {
+      "service_name": "checkout-api",
+      "client_id": "f84db1cd-771e-51b8-8c3a-01223349332f",
+      "source": "client",
+      "pid": 4101
+     },
+     "span": {
+      "trace_id": "edb7e443dbbfd0d0ef00f8ada24fbec0",
+      "span_id": "2af4d8187b679ace"
+     },
+     "process_order": {
+      "scope": "f7cfd764-0e14-5c8e-8d0b-5fd5b8469abe",
+      "issued": 5,
+      "returned": 6
+     },
+     "exchange": "amq.default",
+     "operation": "basic.publish",
+     "result": "ok",
+     "confirmed": true,
+     "mandatory": false,
+     "publish": 1,
+     "routing_key": "orders",
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "routed",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": "2025-11-24T10:26:40.014000Z",
+      "to": "2025-11-24T10:26:40.018000Z"
+     },
+     "reason": "Exchange amq.default routed this message to 1 queue: orders. Counted from the queues it was delivered on, so it is a lower bound: a queue that no consumer with Trailbeam reads is not seen. Each queue holds its own copy, which is not a duplicate.",
+     "exchange": "amq.default",
+     "queues": [
+      "orders"
+     ],
+     "count": 1,
+     "lower_bound": true,
+     "group": 0,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from the publish: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e3",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from delivery 1: it came before it."
+     }
+    },
+    {
+     "id": "e3",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.018000Z",
+     "time_unix_nano": "1763980000018000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.018000Z",
+     "end_unix_nano": "1763980000018000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "5cf67e2766d04b8f69e585d4229c8682",
+      "span_id": "5ffca6e013c5bd10"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 10
+     },
+     "delivery": 1,
+     "receive_count": 1,
+     "operation": "basic.deliver",
+     "redelivered": false,
+     "receive_count_source": "first_delivery",
+     "consumer_tag": "ctag-1",
+     "exchange": "amq.default",
+     "routing_key": "orders",
+     "after": []
+    },
+    {
+     "id": "e4",
+     "type": "requeued",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.019000Z",
+     "time_unix_nano": "1763980000019000000",
+     "start": "2025-11-24T10:26:40.019000Z",
+     "start_unix_nano": "1763980000019000000",
+     "end": "2025-11-24T10:26:40.019000Z",
+     "end_unix_nano": "1763980000019000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "bdfbcb3699ec4f93239664192bfcb2af",
+      "span_id": "9a3654eb7283dd0f"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": 11,
+      "returned": 12
+     },
+     "delivery": 1,
+     "operation": "basic.nack",
+     "result": "ok",
+     "multiple": false,
+     "requeue": true,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "The publish ended (2025-11-24T10:26:40.017000Z) before this started (2025-11-24T10:26:40.019000Z), on the hosts' clocks."
+      },
+      {
+       "event": "e3",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Delivery 1 ended (2025-11-24T10:26:40.018000Z) before this started (2025-11-24T10:26:40.019000Z), on the hosts' clocks. Same process: delivery 1 returned before this call was issued."
+      }
+     ]
+    },
+    {
+     "id": "e5",
+     "type": "returned_to_queue",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": "2025-11-24T10:26:40.019000Z",
+      "to": "2025-11-24T10:26:40.020000Z"
+     },
+     "reason": "The consumer requeued the message with basic.nack (requeue = true), so RabbitMQ put it back in the queue at once.",
+     "queue": "orders",
+     "cause": "requeued",
+     "cause_observed": true,
+     "after_delivery": 1,
+     "before_delivery": 2,
+     "group": 0,
+     "after": [
+      {
+       "event": "e4",
+       "type": "requeued",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from the requeue of delivery 1: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e6",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from delivery 2: it came before it."
+     }
+    },
+    {
+     "id": "e6",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.020000Z",
+     "time_unix_nano": "1763980000020000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.020000Z",
+     "end_unix_nano": "1763980000020000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "d7b3dff754348a8e075f6be097346910",
+      "span_id": "9b207b16ec1f494e"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 13
+     },
+     "delivery": 2,
+     "receive_count": 2,
+     "operation": "basic.deliver",
+     "redelivered": true,
+     "receive_count_source": "x-acquired-count",
+     "consumer_tag": "ctag-1",
+     "exchange": "amq.default",
+     "routing_key": "orders",
+     "x_acquired_count": 1,
+     "after": [
+      {
+       "event": "e3",
+       "type": "received",
+       "sources": [
+        "receive_count"
+       ],
+       "source": "receive_count",
+       "why": "The receive counts RabbitMQ gave (redelivered = false and the x-acquired-count header) show delivery 1 (receive count 1) came before this one (receive count 2)."
+      }
+     ]
+    },
+    {
+     "id": "e7",
+     "type": "requeued",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.021000Z",
+     "time_unix_nano": "1763980000021000000",
+     "start": "2025-11-24T10:26:40.021000Z",
+     "start_unix_nano": "1763980000021000000",
+     "end": "2025-11-24T10:26:40.021000Z",
+     "end_unix_nano": "1763980000021000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "6ce4c0a920bb1feca04e1e22318c1756",
+      "span_id": "aa63cf43254c7ad5"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": 14,
+      "returned": 15
+     },
+     "delivery": 2,
+     "operation": "basic.nack",
+     "result": "ok",
+     "multiple": false,
+     "requeue": true,
+     "after": [
+      {
+       "event": "e4",
+       "type": "requeued",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "The requeue of delivery 1 ended (2025-11-24T10:26:40.019000Z) before this started (2025-11-24T10:26:40.021000Z), on the hosts' clocks. Same process: the requeue of delivery 1 returned before this call was issued."
+      },
+      {
+       "event": "e6",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Delivery 2 ended (2025-11-24T10:26:40.020000Z) before this started (2025-11-24T10:26:40.021000Z), on the hosts' clocks. Same process: delivery 2 returned before this call was issued."
+      }
+     ]
+    },
+    {
+     "id": "e8",
+     "type": "returned_to_queue",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": "2025-11-24T10:26:40.021000Z",
+      "to": "2025-11-24T10:26:40.022000Z"
+     },
+     "reason": "The consumer requeued the message with basic.nack (requeue = true), so RabbitMQ put it back in the queue at once.",
+     "queue": "orders",
+     "cause": "requeued",
+     "cause_observed": true,
+     "after_delivery": 2,
+     "before_delivery": 3,
+     "group": 0,
+     "after": [
+      {
+       "event": "e7",
+       "type": "requeued",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from the requeue of delivery 2: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e9",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from delivery 3: it came before it."
+     }
+    },
+    {
+     "id": "e9",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.022000Z",
+     "time_unix_nano": "1763980000022000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.022000Z",
+     "end_unix_nano": "1763980000022000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "6a6319d2a80644a815e9536cfb0c52e9",
+      "span_id": "d8d64998e78b6211"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 16
+     },
+     "delivery": 3,
+     "receive_count": 3,
+     "operation": "basic.deliver",
+     "redelivered": true,
+     "receive_count_source": "x-acquired-count",
+     "consumer_tag": "ctag-1",
+     "exchange": "amq.default",
+     "routing_key": "orders",
+     "x_acquired_count": 2,
+     "after": [
+      {
+       "event": "e6",
+       "type": "received",
+       "sources": [
+        "receive_count"
+       ],
+       "source": "receive_count",
+       "why": "The receive counts RabbitMQ gave (the x-acquired-count header and the x-acquired-count header) show delivery 2 (receive count 2) came before this one (receive count 3)."
+      }
+     ]
+    },
+    {
+     "id": "e10",
+     "type": "requeued",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.023000Z",
+     "time_unix_nano": "1763980000023000000",
+     "start": "2025-11-24T10:26:40.023000Z",
+     "start_unix_nano": "1763980000023000000",
+     "end": "2025-11-24T10:26:40.023000Z",
+     "end_unix_nano": "1763980000023000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "40de3a46a94fcd29dc11d547f7caac75",
+      "span_id": "2d69dbf6d4bcfa62"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": 17,
+      "returned": 18
+     },
+     "delivery": 3,
+     "operation": "basic.nack",
+     "result": "ok",
+     "multiple": false,
+     "requeue": true,
+     "after": [
+      {
+       "event": "e7",
+       "type": "requeued",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "The requeue of delivery 2 ended (2025-11-24T10:26:40.021000Z) before this started (2025-11-24T10:26:40.023000Z), on the hosts' clocks. Same process: the requeue of delivery 2 returned before this call was issued."
+      },
+      {
+       "event": "e9",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Delivery 3 ended (2025-11-24T10:26:40.022000Z) before this started (2025-11-24T10:26:40.023000Z), on the hosts' clocks. Same process: delivery 3 returned before this call was issued."
+      }
+     ]
+    },
+    {
+     "id": "e11",
+     "type": "returned_to_queue",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": "2025-11-24T10:26:40.023000Z",
+      "to": "2025-11-24T10:26:40.024000Z"
+     },
+     "reason": "The consumer requeued the message with basic.nack (requeue = true), so RabbitMQ put it back in the queue at once.",
+     "queue": "orders",
+     "cause": "requeued",
+     "cause_observed": true,
+     "after_delivery": 3,
+     "before_delivery": 4,
+     "group": 0,
+     "after": [
+      {
+       "event": "e10",
+       "type": "requeued",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from the requeue of delivery 3: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e12",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from delivery 4: it came before it."
+     }
+    },
+    {
+     "id": "e12",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.024000Z",
+     "time_unix_nano": "1763980000024000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.024000Z",
+     "end_unix_nano": "1763980000024000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "7fb63e648f71290b5ef393de148af913",
+      "span_id": "e5d7af9afca2ae63"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 19
+     },
+     "delivery": 4,
+     "receive_count": 4,
+     "operation": "basic.deliver",
+     "redelivered": true,
+     "receive_count_source": "x-acquired-count",
+     "consumer_tag": "ctag-1",
+     "exchange": "amq.default",
+     "routing_key": "orders",
+     "x_acquired_count": 3,
+     "after": [
+      {
+       "event": "e9",
+       "type": "received",
+       "sources": [
+        "receive_count"
+       ],
+       "source": "receive_count",
+       "why": "The receive counts RabbitMQ gave (the x-acquired-count header and the x-acquired-count header) show delivery 3 (receive count 3) came before this one (receive count 4)."
+      }
+     ]
+    },
+    {
+     "id": "e13",
+     "type": "requeued",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.025000Z",
+     "time_unix_nano": "1763980000025000000",
+     "start": "2025-11-24T10:26:40.025000Z",
+     "start_unix_nano": "1763980000025000000",
+     "end": "2025-11-24T10:26:40.025000Z",
+     "end_unix_nano": "1763980000025000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "ab8a3db794a0185033961cbf66646f4f",
+      "span_id": "ce7ecdf2480e05e8"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": 20,
+      "returned": 21
+     },
+     "delivery": 4,
+     "operation": "basic.nack",
+     "result": "ok",
+     "multiple": false,
+     "requeue": true,
+     "after": [
+      {
+       "event": "e10",
+       "type": "requeued",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "The requeue of delivery 3 ended (2025-11-24T10:26:40.023000Z) before this started (2025-11-24T10:26:40.025000Z), on the hosts' clocks. Same process: the requeue of delivery 3 returned before this call was issued."
+      },
+      {
+       "event": "e12",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Delivery 4 ended (2025-11-24T10:26:40.024000Z) before this started (2025-11-24T10:26:40.025000Z), on the hosts' clocks. Same process: delivery 4 returned before this call was issued."
+      }
+     ]
+    },
+    {
+     "id": "e14",
+     "type": "returned_to_queue",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": "2025-11-24T10:26:40.025000Z",
+      "to": "2025-11-24T10:26:40.026000Z"
+     },
+     "reason": "The consumer requeued the message with basic.nack (requeue = true), so RabbitMQ put it back in the queue at once.",
+     "queue": "orders",
+     "cause": "requeued",
+     "cause_observed": true,
+     "after_delivery": 4,
+     "before_delivery": 5,
+     "group": 0,
+     "after": [
+      {
+       "event": "e13",
+       "type": "requeued",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from the requeue of delivery 4: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e15",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from delivery 5: it came before it."
+     }
+    },
+    {
+     "id": "e15",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.026000Z",
+     "time_unix_nano": "1763980000026000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.026000Z",
+     "end_unix_nano": "1763980000026000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "2a51b40dc7a7be883218c53a1db4e047",
+      "span_id": "1da86d5b4fada26d"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 22
+     },
+     "delivery": 5,
+     "receive_count": 5,
+     "operation": "basic.deliver",
+     "redelivered": true,
+     "receive_count_source": "x-acquired-count",
+     "consumer_tag": "ctag-1",
+     "exchange": "amq.default",
+     "routing_key": "orders",
+     "x_acquired_count": 4,
+     "after": [
+      {
+       "event": "e12",
+       "type": "received",
+       "sources": [
+        "receive_count"
+       ],
+       "source": "receive_count",
+       "why": "The receive counts RabbitMQ gave (the x-acquired-count header and the x-acquired-count header) show delivery 4 (receive count 4) came before this one (receive count 5)."
+      }
+     ]
+    },
+    {
+     "id": "e16",
+     "type": "requeued",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.027000Z",
+     "time_unix_nano": "1763980000027000000",
+     "start": "2025-11-24T10:26:40.027000Z",
+     "start_unix_nano": "1763980000027000000",
+     "end": "2025-11-24T10:26:40.027000Z",
+     "end_unix_nano": "1763980000027000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "485ec42f9b1aa45fd03d18a012fa0821",
+      "span_id": "904af8114be61709"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": 23,
+      "returned": 24
+     },
+     "delivery": 5,
+     "operation": "basic.nack",
+     "result": "ok",
+     "multiple": false,
+     "requeue": true,
+     "after": [
+      {
+       "event": "e13",
+       "type": "requeued",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "The requeue of delivery 4 ended (2025-11-24T10:26:40.025000Z) before this started (2025-11-24T10:26:40.027000Z), on the hosts' clocks. Same process: the requeue of delivery 4 returned before this call was issued."
+      },
+      {
+       "event": "e15",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Delivery 5 ended (2025-11-24T10:26:40.026000Z) before this started (2025-11-24T10:26:40.027000Z), on the hosts' clocks. Same process: delivery 5 returned before this call was issued."
+      }
+     ]
+    },
+    {
+     "id": "e17",
+     "type": "returned_to_queue",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": "2025-11-24T10:26:40.027000Z",
+      "to": "2025-11-24T10:26:40.028000Z"
+     },
+     "reason": "The consumer requeued the message with basic.nack (requeue = true), so RabbitMQ put it back in the queue at once.",
+     "queue": "orders",
+     "cause": "requeued",
+     "cause_observed": true,
+     "after_delivery": 5,
+     "before_delivery": 6,
+     "group": 0,
+     "after": [
+      {
+       "event": "e16",
+       "type": "requeued",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from the requeue of delivery 5: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e18",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from delivery 6: it came before it."
+     }
+    },
+    {
+     "id": "e18",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.028000Z",
+     "time_unix_nano": "1763980000028000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.028000Z",
+     "end_unix_nano": "1763980000028000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "8722995da5dc76635f22c37eec22d1b5",
+      "span_id": "eccd8a7afa1944ab"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 25
+     },
+     "delivery": 6,
+     "receive_count": 6,
+     "operation": "basic.deliver",
+     "redelivered": true,
+     "receive_count_source": "x-acquired-count",
+     "consumer_tag": "ctag-1",
+     "exchange": "amq.default",
+     "routing_key": "orders",
+     "x_acquired_count": 5,
+     "after": [
+      {
+       "event": "e15",
+       "type": "received",
+       "sources": [
+        "receive_count"
+       ],
+       "source": "receive_count",
+       "why": "The receive counts RabbitMQ gave (the x-acquired-count header and the x-acquired-count header) show delivery 5 (receive count 5) came before this one (receive count 6)."
+      }
+     ]
+    },
+    {
+     "id": "e19",
+     "type": "acked",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.029000Z",
+     "time_unix_nano": "1763980000029000000",
+     "start": "2025-11-24T10:26:40.029000Z",
+     "start_unix_nano": "1763980000029000000",
+     "end": "2025-11-24T10:26:40.029000Z",
+     "end_unix_nano": "1763980000029000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "d0985847101aa3fda54f97874d06d7db",
+      "span_id": "995fe0ff8ed78921"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": 26,
+      "returned": 27
+     },
+     "delivery": 6,
+     "operation": "basic.ack",
+     "result": "ok",
+     "multiple": false,
+     "status": "final",
+     "after": [
+      {
+       "event": "e16",
+       "type": "requeued",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "The requeue of delivery 5 ended (2025-11-24T10:26:40.027000Z) before this started (2025-11-24T10:26:40.029000Z), on the hosts' clocks. Same process: the requeue of delivery 5 returned before this call was issued."
+      },
+      {
+       "event": "e18",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Delivery 6 ended (2025-11-24T10:26:40.028000Z) before this started (2025-11-24T10:26:40.029000Z), on the hosts' clocks. Same process: delivery 6 returned before this call was issued."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e4",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e7",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e10",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e13",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e16",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e19",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e4",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e6",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e7",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e9",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e10",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e12",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e13",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e15",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e16",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e18",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e19",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e4",
+      "to": "e7",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e4",
+      "to": "e10",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e4",
+      "to": "e13",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e4",
+      "to": "e16",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e4",
+      "to": "e19",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e6",
+      "to": "e7",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e6",
+      "to": "e9",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e6",
+      "to": "e10",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e6",
+      "to": "e12",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e6",
+      "to": "e13",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e6",
+      "to": "e15",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e6",
+      "to": "e16",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e6",
+      "to": "e18",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e6",
+      "to": "e19",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e7",
+      "to": "e10",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e7",
+      "to": "e13",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e7",
+      "to": "e16",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e7",
+      "to": "e19",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e9",
+      "to": "e10",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e9",
+      "to": "e12",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e9",
+      "to": "e13",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e9",
+      "to": "e15",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e9",
+      "to": "e16",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e9",
+      "to": "e18",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e9",
+      "to": "e19",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e10",
+      "to": "e13",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e10",
+      "to": "e16",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e10",
+      "to": "e19",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e12",
+      "to": "e13",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e12",
+      "to": "e15",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e12",
+      "to": "e16",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e12",
+      "to": "e18",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e12",
+      "to": "e19",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e13",
+      "to": "e16",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e13",
+      "to": "e19",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e15",
+      "to": "e16",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e15",
+      "to": "e18",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e15",
+      "to": "e19",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e16",
+      "to": "e19",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e18",
+      "to": "e19",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 42,
+     "process_order": 36,
+     "receive_count": 15,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": [
+    {
+     "code": "requeue_loop",
+     "queue": "orders",
+     "vhost": "/",
+     "requeues": 5,
+     "message": "Requeued 5 times on orders with basic.nack (requeue = true). On a quorum queue since RabbitMQ 4.3, basic.nack does not count toward x-delivery-limit, so the queue never dead-letters the message for it, and a consumer that keeps failing receives it again and again. To end the loop after some attempts, refuse it with requeue = false (it goes to the dead-letter exchange, if there is one), or use basic.reject, which counts toward the limit."
+    }
+   ]
+  },
+  {
+   "message_id": "~rabbitmq~m-noroute",
+   "system": "rabbitmq",
+   "state": "not_deleted",
+   "source_queue": "amq.default",
+   "current_queue": "amq.default",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "publishes": 1,
+   "deliveries": 0,
+   "successful_deliveries": 0,
+   "copies": [],
+   "first_seen": "2025-11-24T10:26:40.074000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.074000Z",
+   "concurrent_groups": 0,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": null,
+     "end": "2025-11-24T10:26:40.070000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-24T10:26:40.071000Z",
+     "end": "2025-11-24T10:26:40.074000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "returned",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.070000Z",
+     "time_unix_nano": "1763980000070000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.070000Z",
+     "end_unix_nano": "1763980000070000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "amq.default",
+     "consumer": {
+      "service_name": "checkout-api",
+      "client_id": "f84db1cd-771e-51b8-8c3a-01223349332f",
+      "source": "client",
+      "pid": 4101
+     },
+     "span": {
+      "trace_id": "c32367b4113fb0e7cb3ad701f6858fd6",
+      "span_id": "62621d4068322659"
+     },
+     "process_order": {
+      "scope": "f7cfd764-0e14-5c8e-8d0b-5fd5b8469abe",
+      "issued": null,
+      "returned": 17
+     },
+     "exchange": "amq.default",
+     "operation": "basic.return",
+     "reply_code": 312,
+     "routing_key": "nobody",
+     "reply_text": "NO_ROUTE",
+     "reason": "Unroutable: exchange amq.default has no queue for this message with routing key nobody, so the broker returned it to the publisher with basic.return (312 NO_ROUTE) and enqueued nothing.",
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "sent",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.074000Z",
+     "time_unix_nano": "1763980000074000000",
+     "start": "2025-11-24T10:26:40.071000Z",
+     "start_unix_nano": "1763980000071000000",
+     "end": "2025-11-24T10:26:40.074000Z",
+     "end_unix_nano": "1763980000074000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "amq.default",
+     "consumer": {
+      "service_name": "checkout-api",
+      "client_id": "f84db1cd-771e-51b8-8c3a-01223349332f",
+      "source": "client",
+      "pid": 4101
+     },
+     "span": {
+      "trace_id": "d340e269e7396e562bceb72b6253b5a6",
+      "span_id": "cebb3d567533d932"
+     },
+     "process_order": {
+      "scope": "f7cfd764-0e14-5c8e-8d0b-5fd5b8469abe",
+      "issued": 18,
+      "returned": 19
+     },
+     "exchange": "amq.default",
+     "operation": "basic.publish",
+     "result": "ok",
+     "confirmed": true,
+     "mandatory": true,
+     "publish": 1,
+     "routing_key": "nobody",
+     "after": [
+      {
+       "event": "e1",
+       "type": "returned",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "The return ended (2025-11-24T10:26:40.070000Z) before this started (2025-11-24T10:26:40.071000Z), on the hosts' clocks. Same process: the return returned before this call was issued."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 1,
+     "process_order": 1,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": []
+  },
+  {
+   "message_id": "~rabbitmq~m-reject",
+   "system": "rabbitmq",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders.dlq",
+   "in_dead_letter_queue": true,
+   "dead_letter_queue_move": "observed",
+   "send_observed": true,
+   "publishes": 1,
+   "deliveries": 2,
+   "successful_deliveries": 1,
+   "copies": [
+    {
+     "queue": "orders",
+     "vhost": "/",
+     "deliveries": 1,
+     "ended": "moved"
+    },
+    {
+     "queue": "orders.dlq",
+     "vhost": "/",
+     "deliveries": 1,
+     "ended": "acked"
+    }
+   ],
+   "first_seen": "2025-11-24T10:26:40.045000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.049000Z",
+   "concurrent_groups": 1,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": true,
+     "label": "concurrent, order unknown",
+     "observed_events": 5,
+     "inferred_events": 1,
+     "ordered_inside": 4,
+     "start": null,
+     "end": "2025-11-24T10:26:40.048000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-24T10:26:40.049000Z",
+     "end": "2025-11-24T10:26:40.049000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.045000Z",
+     "time_unix_nano": "1763980000045000000",
+     "start": "2025-11-24T10:26:40.042000Z",
+     "start_unix_nano": "1763980000042000000",
+     "end": "2025-11-24T10:26:40.045000Z",
+     "end_unix_nano": "1763980000045000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "amq.default",
+     "consumer": {
+      "service_name": "checkout-api",
+      "client_id": "f84db1cd-771e-51b8-8c3a-01223349332f",
+      "source": "client",
+      "pid": 4101
+     },
+     "span": {
+      "trace_id": "1145780566b519b7d5f95b2ec7b3b152",
+      "span_id": "80ba390a9785dee1"
+     },
+     "process_order": {
+      "scope": "f7cfd764-0e14-5c8e-8d0b-5fd5b8469abe",
+      "issued": 9,
+      "returned": 10
+     },
+     "exchange": "amq.default",
+     "operation": "basic.publish",
+     "result": "ok",
+     "confirmed": true,
+     "mandatory": false,
+     "publish": 1,
+     "routing_key": "orders",
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "routed",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": "2025-11-24T10:26:40.042000Z",
+      "to": "2025-11-24T10:26:40.046000Z"
+     },
+     "reason": "Exchange amq.default routed this message to 1 queue: orders. Counted from the queues it was delivered on, so it is a lower bound: a queue that no consumer with Trailbeam reads is not seen. Each queue holds its own copy, which is not a duplicate.",
+     "exchange": "amq.default",
+     "queues": [
+      "orders"
+     ],
+     "count": 1,
+     "lower_bound": true,
+     "group": 0,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from the publish: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e3",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from delivery 1: it came before it."
+     }
+    },
+    {
+     "id": "e3",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.046000Z",
+     "time_unix_nano": "1763980000046000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.046000Z",
+     "end_unix_nano": "1763980000046000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "63a20737cfc26e7c4f509685700b9a63",
+      "span_id": "ef3b69d60c4567dd"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 34
+     },
+     "delivery": 1,
+     "receive_count": 1,
+     "operation": "basic.deliver",
+     "redelivered": false,
+     "receive_count_source": "first_delivery",
+     "consumer_tag": "ctag-1",
+     "exchange": "amq.default",
+     "routing_key": "orders",
+     "after": []
+    },
+    {
+     "id": "e4",
+     "type": "rejected",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.047000Z",
+     "time_unix_nano": "1763980000047000000",
+     "start": "2025-11-24T10:26:40.047000Z",
+     "start_unix_nano": "1763980000047000000",
+     "end": "2025-11-24T10:26:40.047000Z",
+     "end_unix_nano": "1763980000047000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "f7bb30584211f6ef5be0fbe65a3b5242",
+      "span_id": "89fe1ff28e7615a1"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": 35,
+      "returned": 36
+     },
+     "delivery": 1,
+     "operation": "basic.reject",
+     "result": "ok",
+     "requeue": false,
+     "reason": "Refused by the consumer with basic.reject (requeue = false). RabbitMQ dead-letters the message if its queue has a dead-letter exchange, and drops it otherwise.",
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "The publish ended (2025-11-24T10:26:40.045000Z) before this started (2025-11-24T10:26:40.047000Z), on the hosts' clocks."
+      },
+      {
+       "event": "e3",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Delivery 1 ended (2025-11-24T10:26:40.046000Z) before this started (2025-11-24T10:26:40.047000Z), on the hosts' clocks. Same process: delivery 1 returned before this call was issued."
+      }
+     ]
+    },
+    {
+     "id": "e5",
+     "type": "moved_to_dead_letter_queue",
+     "inferred": false,
+     "source": "amqp_x_death",
+     "time": null,
+     "window": {
+      "from": null,
+      "to": "2025-11-24T10:26:40.048000Z"
+     },
+     "reported_by": "reported by RabbitMQ (the x-death header on the delivery from the dead-letter queue)",
+     "reported_on_delivery": 2,
+     "from_queue": "orders",
+     "to_queue": "orders.dlq",
+     "dead_letter_reason": "rejected",
+     "dead_letter_count": 1,
+     "first_dead_lettered": "2025-11-24T10:26:40.000000Z",
+     "first_dead_lettered_ms": 1763980000000,
+     "reason": "RabbitMQ reported this move: the delivery on orders.dlq carries an x-death header naming orders, with reason rejected (a consumer refused it with basic.reject or basic.nack with requeue = false). x-death says it was first dead-lettered from orders for this reason at 2025-11-24T10:26:40.000000Z, to the second, on the broker's clock. It happened after the last delivery on orders and before that delivery.",
+     "group": 0,
+     "after": [
+      {
+       "event": "e3",
+       "type": "received",
+       "sources": [
+        "amqp_x_death"
+       ],
+       "source": "amqp_x_death",
+       "why": "RabbitMQ dead-letters a message off orders only after its deliveries there, and reported the move later, so it came after delivery 1."
+      }
+     ],
+     "before": {
+      "event": "e6",
+      "type": "received",
+      "sources": [
+       "amqp_x_death"
+      ],
+      "source": "amqp_x_death",
+      "why": "RabbitMQ reported the move on delivery 2: its x-death header names orders."
+     }
+    },
+    {
+     "id": "e6",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.048000Z",
+     "time_unix_nano": "1763980000048000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.048000Z",
+     "end_unix_nano": "1763980000048000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders.dlq",
+     "consumer": {
+      "service_name": "dlq-worker",
+      "client_id": "be2a835c-27b6-5e50-af47-91cad45a07c9",
+      "source": "client",
+      "pid": 4303
+     },
+     "span": {
+      "trace_id": "dffd206713fe16edcf1f90427d7c7ff8",
+      "span_id": "1df2194a92c592ce"
+     },
+     "process_order": {
+      "scope": "ceb6d032-4606-56bb-a7de-1dddb6c3b9da",
+      "issued": null,
+      "returned": 4
+     },
+     "delivery": 2,
+     "receive_count": 2,
+     "operation": "basic.deliver",
+     "redelivered": false,
+     "receive_count_source": "x-acquired-count",
+     "consumer_tag": "ctag-dlq",
+     "exchange": "dlx",
+     "routing_key": "orders",
+     "x_delivery_count": 1,
+     "x_acquired_count": 1,
+     "dead_letter": {
+      "source_queue": "orders",
+      "reason": "rejected",
+      "count": 1,
+      "time_ms": 1763980000000,
+      "exchange": "amq.default",
+      "first_queue": "orders",
+      "first_reason": "rejected"
+     },
+     "after": []
+    },
+    {
+     "id": "e7",
+     "type": "acked",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.049000Z",
+     "time_unix_nano": "1763980000049000000",
+     "start": "2025-11-24T10:26:40.049000Z",
+     "start_unix_nano": "1763980000049000000",
+     "end": "2025-11-24T10:26:40.049000Z",
+     "end_unix_nano": "1763980000049000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "orders.dlq",
+     "consumer": {
+      "service_name": "dlq-worker",
+      "client_id": "be2a835c-27b6-5e50-af47-91cad45a07c9",
+      "source": "client",
+      "pid": 4303
+     },
+     "span": {
+      "trace_id": "468ba4a0e650ad5dca60b7d2e35cb79f",
+      "span_id": "6d35a0b632e7e042"
+     },
+     "process_order": {
+      "scope": "ceb6d032-4606-56bb-a7de-1dddb6c3b9da",
+      "issued": 5,
+      "returned": 6
+     },
+     "delivery": 2,
+     "operation": "basic.ack",
+     "result": "ok",
+     "multiple": false,
+     "status": "final",
+     "after": [
+      {
+       "event": "e4",
+       "type": "rejected",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "The refusal of delivery 1 ended (2025-11-24T10:26:40.047000Z) before this started (2025-11-24T10:26:40.049000Z), on the hosts' clocks."
+      },
+      {
+       "event": "e6",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Delivery 2 ended (2025-11-24T10:26:40.048000Z) before this started (2025-11-24T10:26:40.049000Z), on the hosts' clocks. Same process: delivery 2 returned before this call was issued."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e4",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e7",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e4",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e7",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e4",
+      "to": "e7",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e6",
+      "to": "e7",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 6,
+     "process_order": 2,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": []
+  },
+  {
+   "message_id": "~rabbitmq~m-requeue",
+   "system": "rabbitmq",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "publishes": 1,
+   "deliveries": 2,
+   "successful_deliveries": 1,
+   "copies": [
+    {
+     "queue": "orders",
+     "vhost": "/",
+     "deliveries": 2,
+     "ended": "acked"
+    }
+   ],
+   "first_seen": "2025-11-24T10:26:40.009000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.013000Z",
+   "concurrent_groups": 1,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": true,
+     "label": "concurrent, order unknown",
+     "observed_events": 4,
+     "inferred_events": 2,
+     "ordered_inside": 5,
+     "start": null,
+     "end": "2025-11-24T10:26:40.012000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-24T10:26:40.013000Z",
+     "end": "2025-11-24T10:26:40.013000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.009000Z",
+     "time_unix_nano": "1763980000009000000",
+     "start": "2025-11-24T10:26:40.006000Z",
+     "start_unix_nano": "1763980000006000000",
+     "end": "2025-11-24T10:26:40.009000Z",
+     "end_unix_nano": "1763980000009000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "amq.default",
+     "consumer": {
+      "service_name": "checkout-api",
+      "client_id": "f84db1cd-771e-51b8-8c3a-01223349332f",
+      "source": "client",
+      "pid": 4101
+     },
+     "span": {
+      "trace_id": "7a0cc5ca80c5fc0cb7a30db023e8afdf",
+      "span_id": "e3d0221c87bc2e4d"
+     },
+     "process_order": {
+      "scope": "f7cfd764-0e14-5c8e-8d0b-5fd5b8469abe",
+      "issued": 3,
+      "returned": 4
+     },
+     "exchange": "amq.default",
+     "operation": "basic.publish",
+     "result": "ok",
+     "confirmed": true,
+     "mandatory": false,
+     "publish": 1,
+     "routing_key": "orders",
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "routed",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": "2025-11-24T10:26:40.006000Z",
+      "to": "2025-11-24T10:26:40.010000Z"
+     },
+     "reason": "Exchange amq.default routed this message to 1 queue: orders. Counted from the queues it was delivered on, so it is a lower bound: a queue that no consumer with Trailbeam reads is not seen. Each queue holds its own copy, which is not a duplicate.",
+     "exchange": "amq.default",
+     "queues": [
+      "orders"
+     ],
+     "count": 1,
+     "lower_bound": true,
+     "group": 0,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from the publish: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e3",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from delivery 1: it came before it."
+     }
+    },
+    {
+     "id": "e3",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.010000Z",
+     "time_unix_nano": "1763980000010000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.010000Z",
+     "end_unix_nano": "1763980000010000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "304ef423e8329c963472403ab2b7c504",
+      "span_id": "463f43d5d4c418c5"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 4
+     },
+     "delivery": 1,
+     "receive_count": 1,
+     "operation": "basic.deliver",
+     "redelivered": false,
+     "receive_count_source": "first_delivery",
+     "consumer_tag": "ctag-1",
+     "exchange": "amq.default",
+     "routing_key": "orders",
+     "after": []
+    },
+    {
+     "id": "e4",
+     "type": "requeued",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.011000Z",
+     "time_unix_nano": "1763980000011000000",
+     "start": "2025-11-24T10:26:40.011000Z",
+     "start_unix_nano": "1763980000011000000",
+     "end": "2025-11-24T10:26:40.011000Z",
+     "end_unix_nano": "1763980000011000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "a6c2e9c4ef5ca8a73c4c595fae25a10c",
+      "span_id": "469ca4e020bf35f9"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": 5,
+      "returned": 6
+     },
+     "delivery": 1,
+     "operation": "basic.nack",
+     "result": "ok",
+     "multiple": false,
+     "requeue": true,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "The publish ended (2025-11-24T10:26:40.009000Z) before this started (2025-11-24T10:26:40.011000Z), on the hosts' clocks."
+      },
+      {
+       "event": "e3",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Delivery 1 ended (2025-11-24T10:26:40.010000Z) before this started (2025-11-24T10:26:40.011000Z), on the hosts' clocks. Same process: delivery 1 returned before this call was issued."
+      }
+     ]
+    },
+    {
+     "id": "e5",
+     "type": "returned_to_queue",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": "2025-11-24T10:26:40.011000Z",
+      "to": "2025-11-24T10:26:40.012000Z"
+     },
+     "reason": "The consumer requeued the message with basic.nack (requeue = true), so RabbitMQ put it back in the queue at once.",
+     "queue": "orders",
+     "cause": "requeued",
+     "cause_observed": true,
+     "after_delivery": 1,
+     "before_delivery": 2,
+     "group": 0,
+     "after": [
+      {
+       "event": "e4",
+       "type": "requeued",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from the requeue of delivery 1: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e6",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from delivery 2: it came before it."
+     }
+    },
+    {
+     "id": "e6",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.012000Z",
+     "time_unix_nano": "1763980000012000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.012000Z",
+     "end_unix_nano": "1763980000012000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "d635ce3643ba84a34a363387bc3e41d7",
+      "span_id": "1dfac0c23a4842a2"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 7
+     },
+     "delivery": 2,
+     "receive_count": 2,
+     "operation": "basic.deliver",
+     "redelivered": true,
+     "receive_count_source": "x-acquired-count",
+     "consumer_tag": "ctag-1",
+     "exchange": "amq.default",
+     "routing_key": "orders",
+     "x_acquired_count": 1,
+     "after": [
+      {
+       "event": "e3",
+       "type": "received",
+       "sources": [
+        "receive_count"
+       ],
+       "source": "receive_count",
+       "why": "The receive counts RabbitMQ gave (redelivered = false and the x-acquired-count header) show delivery 1 (receive count 1) came before this one (receive count 2)."
+      }
+     ]
+    },
+    {
+     "id": "e7",
+     "type": "acked",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.013000Z",
+     "time_unix_nano": "1763980000013000000",
+     "start": "2025-11-24T10:26:40.013000Z",
+     "start_unix_nano": "1763980000013000000",
+     "end": "2025-11-24T10:26:40.013000Z",
+     "end_unix_nano": "1763980000013000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "c5800d47ce0292e417542a35d2e6ed0a",
+      "span_id": "9d835a8bf93cb7e3"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": 8,
+      "returned": 9
+     },
+     "delivery": 2,
+     "operation": "basic.ack",
+     "result": "ok",
+     "multiple": false,
+     "status": "final",
+     "after": [
+      {
+       "event": "e4",
+       "type": "requeued",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "The requeue of delivery 1 ended (2025-11-24T10:26:40.011000Z) before this started (2025-11-24T10:26:40.013000Z), on the hosts' clocks. Same process: the requeue of delivery 1 returned before this call was issued."
+      },
+      {
+       "event": "e6",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Delivery 2 ended (2025-11-24T10:26:40.012000Z) before this started (2025-11-24T10:26:40.013000Z), on the hosts' clocks. Same process: delivery 2 returned before this call was issued."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e4",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e7",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e4",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e6",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e7",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e4",
+      "to": "e7",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e6",
+      "to": "e7",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 6,
+     "process_order": 4,
+     "receive_count": 1,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": []
+  },
+  {
+   "message_id": "~rabbitmq~m-retry",
+   "system": "rabbitmq",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "publishes": 2,
+   "deliveries": 2,
+   "successful_deliveries": 2,
+   "copies": [
+    {
+     "queue": "orders",
+     "vhost": "/",
+     "deliveries": 2,
+     "ended": "acked"
+    }
+   ],
+   "first_seen": "2025-11-24T10:26:40.061000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.069000Z",
+   "concurrent_groups": 1,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": true,
+     "label": "concurrent, order unknown",
+     "observed_events": 5,
+     "inferred_events": 1,
+     "ordered_inside": 4,
+     "start": null,
+     "end": "2025-11-24T10:26:40.068000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-24T10:26:40.069000Z",
+     "end": "2025-11-24T10:26:40.069000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.061000Z",
+     "time_unix_nano": "1763980000061000000",
+     "start": "2025-11-24T10:26:40.058000Z",
+     "start_unix_nano": "1763980000058000000",
+     "end": "2025-11-24T10:26:40.061000Z",
+     "end_unix_nano": "1763980000061000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "amq.default",
+     "consumer": {
+      "service_name": "checkout-api",
+      "client_id": "f84db1cd-771e-51b8-8c3a-01223349332f",
+      "source": "client",
+      "pid": 4101
+     },
+     "span": {
+      "trace_id": "f8478da94a7eeb7efcf55ba8066480f6",
+      "span_id": "0bc45feefabedda8"
+     },
+     "process_order": {
+      "scope": "f7cfd764-0e14-5c8e-8d0b-5fd5b8469abe",
+      "issued": 13,
+      "returned": 14
+     },
+     "exchange": "amq.default",
+     "operation": "basic.publish",
+     "result": "ok",
+     "confirmed": true,
+     "mandatory": false,
+     "publish": 1,
+     "routing_key": "orders",
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "sent",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.065000Z",
+     "time_unix_nano": "1763980000065000000",
+     "start": "2025-11-24T10:26:40.062000Z",
+     "start_unix_nano": "1763980000062000000",
+     "end": "2025-11-24T10:26:40.065000Z",
+     "end_unix_nano": "1763980000065000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "amq.default",
+     "consumer": {
+      "service_name": "checkout-api",
+      "client_id": "f84db1cd-771e-51b8-8c3a-01223349332f",
+      "source": "client",
+      "pid": 4101
+     },
+     "span": {
+      "trace_id": "9ed0ebc04ab922e39aa8e3b02311f749",
+      "span_id": "5a9d003d0c09e543"
+     },
+     "process_order": {
+      "scope": "f7cfd764-0e14-5c8e-8d0b-5fd5b8469abe",
+      "issued": 15,
+      "returned": 16
+     },
+     "exchange": "amq.default",
+     "operation": "basic.publish",
+     "result": "ok",
+     "confirmed": true,
+     "mandatory": false,
+     "publish": 2,
+     "routing_key": "orders",
+     "published_again": true,
+     "reason": "Published again with the same message_id (publish 2). RabbitMQ does not deduplicate, so this is a second message in the queue under the same ID, most likely a publisher retry.",
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "The publish ended (2025-11-24T10:26:40.061000Z) before this started (2025-11-24T10:26:40.062000Z), on the hosts' clocks. Same process: the publish returned before this call was issued."
+      }
+     ]
+    },
+    {
+     "id": "e3",
+     "type": "routed",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": "2025-11-24T10:26:40.058000Z",
+      "to": "2025-11-24T10:26:40.066000Z"
+     },
+     "reason": "Exchange amq.default routed this message to 1 queue: orders. Counted from the queues it was delivered on, so it is a lower bound: a queue that no consumer with Trailbeam reads is not seen. Each queue holds its own copy, which is not a duplicate.",
+     "exchange": "amq.default",
+     "queues": [
+      "orders"
+     ],
+     "count": 1,
+     "lower_bound": true,
+     "group": 0,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from the publish: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e4",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from delivery 1: it came before it."
+     }
+    },
+    {
+     "id": "e4",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.066000Z",
+     "time_unix_nano": "1763980000066000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.066000Z",
+     "end_unix_nano": "1763980000066000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "2b455183d52add19626544ad79d39c1f",
+      "span_id": "cf780a573a082269"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 43
+     },
+     "delivery": 1,
+     "receive_count": 1,
+     "operation": "basic.deliver",
+     "redelivered": false,
+     "receive_count_source": "first_delivery",
+     "consumer_tag": "ctag-1",
+     "exchange": "amq.default",
+     "routing_key": "orders",
+     "after": []
+    },
+    {
+     "id": "e5",
+     "type": "acked",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.067000Z",
+     "time_unix_nano": "1763980000067000000",
+     "start": "2025-11-24T10:26:40.067000Z",
+     "start_unix_nano": "1763980000067000000",
+     "end": "2025-11-24T10:26:40.067000Z",
+     "end_unix_nano": "1763980000067000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "b6f73d9f9c67f622170d7eee064835ce",
+      "span_id": "a84d64314bee44b6"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": 44,
+      "returned": 45
+     },
+     "delivery": 1,
+     "operation": "basic.ack",
+     "result": "ok",
+     "multiple": false,
+     "status": "stale_handle",
+     "after": [
+      {
+       "event": "e2",
+       "type": "sent",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "Publish 2 ended (2025-11-24T10:26:40.065000Z) before this started (2025-11-24T10:26:40.067000Z), on the hosts' clocks."
+      },
+      {
+       "event": "e4",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Delivery 1 ended (2025-11-24T10:26:40.066000Z) before this started (2025-11-24T10:26:40.067000Z), on the hosts' clocks. Same process: delivery 1 returned before this call was issued."
+      }
+     ]
+    },
+    {
+     "id": "e6",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.068000Z",
+     "time_unix_nano": "1763980000068000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.068000Z",
+     "end_unix_nano": "1763980000068000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "a6c48494f99245be76afd5f803cd9191",
+      "span_id": "30e0bbc7b2d36bee"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 46
+     },
+     "delivery": 2,
+     "receive_count": 1,
+     "operation": "basic.deliver",
+     "redelivered": false,
+     "receive_count_source": "first_delivery",
+     "consumer_tag": "ctag-1",
+     "exchange": "amq.default",
+     "routing_key": "orders",
+     "after": []
+    },
+    {
+     "id": "e7",
+     "type": "acked",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.069000Z",
+     "time_unix_nano": "1763980000069000000",
+     "start": "2025-11-24T10:26:40.069000Z",
+     "start_unix_nano": "1763980000069000000",
+     "end": "2025-11-24T10:26:40.069000Z",
+     "end_unix_nano": "1763980000069000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "dd10555ea091b6c118e09aa95a17b209",
+      "span_id": "4ebff3fcbfbe1dfe"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": 47,
+      "returned": 48
+     },
+     "delivery": 2,
+     "operation": "basic.ack",
+     "result": "ok",
+     "multiple": false,
+     "status": "final",
+     "after": [
+      {
+       "event": "e5",
+       "type": "acked",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "The ack of delivery 1 ended (2025-11-24T10:26:40.067000Z) before this started (2025-11-24T10:26:40.069000Z), on the hosts' clocks. Same process: the ack of delivery 1 returned before this call was issued."
+      },
+      {
+       "event": "e6",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Delivery 2 ended (2025-11-24T10:26:40.068000Z) before this started (2025-11-24T10:26:40.069000Z), on the hosts' clocks. Same process: delivery 2 returned before this call was issued."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e2",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e5",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e1",
+      "to": "e7",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e2",
+      "to": "e5",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e2",
+      "to": "e7",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e4",
+      "to": "e5",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e4",
+      "to": "e7",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e5",
+      "to": "e7",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e6",
+      "to": "e7",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 9,
+     "process_order": 5,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": [
+    {
+     "code": "published_twice",
+     "message": "Published 2 times with the same message_id. RabbitMQ does not deduplicate: each publish is its own message in the queue, so the work can be done once per publish. This is most often a publisher retry after a lost confirm."
+    }
+   ]
+  },
+  {
+   "message_id": "~rabbitmq~m-stuck",
+   "system": "rabbitmq",
+   "state": "not_deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "publishes": 1,
+   "deliveries": 1,
+   "successful_deliveries": 0,
+   "copies": [
+    {
+     "queue": "orders",
+     "vhost": "/",
+     "deliveries": 1,
+     "ended": null
+    }
+   ],
+   "first_seen": "2025-11-24T10:26:40.100000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.101000Z",
+   "concurrent_groups": 1,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": true,
+     "label": "concurrent, order unknown",
+     "observed_events": 2,
+     "inferred_events": 1,
+     "ordered_inside": 1,
+     "start": null,
+     "end": "2025-11-24T10:26:40.101000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.100000Z",
+     "time_unix_nano": "1763980000100000000",
+     "start": "2025-11-24T10:26:40.097000Z",
+     "start_unix_nano": "1763980000097000000",
+     "end": "2025-11-24T10:26:40.100000Z",
+     "end_unix_nano": "1763980000100000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "amq.default",
+     "consumer": {
+      "service_name": "checkout-api",
+      "client_id": "f84db1cd-771e-51b8-8c3a-01223349332f",
+      "source": "client",
+      "pid": 4101
+     },
+     "span": {
+      "trace_id": "65aac4bc90469840ec5730c7fdb4c138",
+      "span_id": "2d2afdf3b0b84f33"
+     },
+     "process_order": {
+      "scope": "f7cfd764-0e14-5c8e-8d0b-5fd5b8469abe",
+      "issued": 26,
+      "returned": 27
+     },
+     "exchange": "amq.default",
+     "operation": "basic.publish",
+     "result": "ok",
+     "confirmed": true,
+     "mandatory": false,
+     "publish": 1,
+     "routing_key": "orders",
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "routed",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": "2025-11-24T10:26:40.097000Z",
+      "to": "2025-11-24T10:26:40.101000Z"
+     },
+     "reason": "Exchange amq.default routed this message to 1 queue: orders. Counted from the queues it was delivered on, so it is a lower bound: a queue that no consumer with Trailbeam reads is not seen. Each queue holds its own copy, which is not a duplicate.",
+     "exchange": "amq.default",
+     "queues": [
+      "orders"
+     ],
+     "count": 1,
+     "lower_bound": true,
+     "group": 0,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from the publish: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e3",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from delivery 1: it came before it."
+     }
+    },
+    {
+     "id": "e3",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.101000Z",
+     "time_unix_nano": "1763980000101000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.101000Z",
+     "end_unix_nano": "1763980000101000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "e6ff941ae57136afc24ff4ddc8bb74ba",
+      "span_id": "8337d52f116e0919"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 63
+     },
+     "delivery": 1,
+     "receive_count": 1,
+     "operation": "basic.deliver",
+     "redelivered": false,
+     "receive_count_source": "first_delivery",
+     "consumer_tag": "ctag-1",
+     "exchange": "amq.default",
+     "routing_key": "orders",
+     "after": []
+    }
+   ],
+   "order": {
+    "edges": [],
+    "edges_by_source": {
+     "clock": 0,
+     "process_order": 0,
+     "receive_count": 0,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": []
+  },
+  {
+   "message_id": "~rabbitmq~m-timeout",
+   "system": "rabbitmq",
+   "state": "deleted",
+   "source_queue": "orders",
+   "current_queue": "orders",
+   "in_dead_letter_queue": false,
+   "dead_letter_queue_move": null,
+   "send_observed": true,
+   "publishes": 1,
+   "deliveries": 2,
+   "successful_deliveries": 1,
+   "copies": [
+    {
+     "queue": "orders",
+     "vhost": "/",
+     "deliveries": 2,
+     "ended": "acked"
+    }
+   ],
+   "first_seen": "2025-11-24T10:26:40.092000Z",
+   "first_seen_clock": "host",
+   "last_seen": "2025-11-24T10:26:40.096000Z",
+   "concurrent_groups": 1,
+   "groups": [
+    {
+     "group": 0,
+     "concurrent": true,
+     "label": "concurrent, order unknown",
+     "observed_events": 3,
+     "inferred_events": 2,
+     "ordered_inside": 3,
+     "start": null,
+     "end": "2025-11-24T10:26:40.095000Z"
+    },
+    {
+     "group": 1,
+     "concurrent": false,
+     "label": null,
+     "observed_events": 1,
+     "inferred_events": 0,
+     "ordered_inside": 0,
+     "start": "2025-11-24T10:26:40.096000Z",
+     "end": "2025-11-24T10:26:40.096000Z"
+    }
+   ],
+   "events": [
+    {
+     "id": "e1",
+     "type": "sent",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.092000Z",
+     "time_unix_nano": "1763980000092000000",
+     "start": "2025-11-24T10:26:40.089000Z",
+     "start_unix_nano": "1763980000089000000",
+     "end": "2025-11-24T10:26:40.092000Z",
+     "end_unix_nano": "1763980000092000000",
+     "start_observed": true,
+     "group": 0,
+     "queue": "amq.default",
+     "consumer": {
+      "service_name": "checkout-api",
+      "client_id": "f84db1cd-771e-51b8-8c3a-01223349332f",
+      "source": "client",
+      "pid": 4101
+     },
+     "span": {
+      "trace_id": "08d47293de9746379f1bd6df35496f8e",
+      "span_id": "1f13d86904417d19"
+     },
+     "process_order": {
+      "scope": "f7cfd764-0e14-5c8e-8d0b-5fd5b8469abe",
+      "issued": 24,
+      "returned": 25
+     },
+     "exchange": "amq.default",
+     "operation": "basic.publish",
+     "result": "ok",
+     "confirmed": true,
+     "mandatory": false,
+     "publish": 1,
+     "routing_key": "orders",
+     "after": []
+    },
+    {
+     "id": "e2",
+     "type": "routed",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": "2025-11-24T10:26:40.089000Z",
+      "to": "2025-11-24T10:26:40.093000Z"
+     },
+     "reason": "Exchange amq.default routed this message to 1 queue: orders. Counted from the queues it was delivered on, so it is a lower bound: a queue that no consumer with Trailbeam reads is not seen. Each queue holds its own copy, which is not a duplicate.",
+     "exchange": "amq.default",
+     "queues": [
+      "orders"
+     ],
+     "count": 1,
+     "lower_bound": true,
+     "group": 0,
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from the publish: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e3",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from delivery 1: it came before it."
+     }
+    },
+    {
+     "id": "e3",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.093000Z",
+     "time_unix_nano": "1763980000093000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.093000Z",
+     "end_unix_nano": "1763980000093000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "aa250d0f2cb06bd3d270640bd97312a5",
+      "span_id": "5650402480a18418"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 58
+     },
+     "delivery": 1,
+     "receive_count": 1,
+     "operation": "basic.deliver",
+     "redelivered": false,
+     "receive_count_source": "first_delivery",
+     "consumer_tag": "ctag-slow",
+     "exchange": "amq.default",
+     "routing_key": "orders",
+     "after": []
+    },
+    {
+     "id": "e4",
+     "type": "returned_to_queue",
+     "inferred": true,
+     "time": null,
+     "window": {
+      "from": null,
+      "to": "2025-11-24T10:26:40.095000Z"
+     },
+     "reason": "The broker cancelled the consumer that held this delivery (basic.cancel from the broker), with no ack before. On a quorum queue that is a consumer timeout (consumer_timeout) or a deleted queue; the cancel does not say which. RabbitMQ returned the unacked delivery to the queue.",
+     "queue": "orders",
+     "cause": "consumer_cancelled",
+     "cause_observed": true,
+     "after_delivery": 1,
+     "before_delivery": 2,
+     "group": 0,
+     "after": [
+      {
+       "event": "e3",
+       "type": "received",
+       "sources": [
+        "inferred_from"
+       ],
+       "source": "inferred_from",
+       "why": "Inferred from delivery 1: it came after it."
+      }
+     ],
+     "before": {
+      "event": "e5",
+      "type": "received",
+      "sources": [
+       "inferred_from"
+      ],
+      "source": "inferred_from",
+      "why": "Inferred from delivery 2: it came before it."
+     }
+    },
+    {
+     "id": "e5",
+     "type": "received",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.095000Z",
+     "time_unix_nano": "1763980000095000000",
+     "start": null,
+     "start_unix_nano": null,
+     "end": "2025-11-24T10:26:40.095000Z",
+     "end_unix_nano": "1763980000095000000",
+     "start_observed": false,
+     "group": 0,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "a8dc7e24361384652ee3ebecc0649f48",
+      "span_id": "75cc9037405abf70"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": null,
+      "returned": 60
+     },
+     "delivery": 2,
+     "receive_count": 2,
+     "operation": "basic.deliver",
+     "redelivered": true,
+     "receive_count_source": "x-acquired-count",
+     "consumer_tag": "ctag-1",
+     "exchange": "amq.default",
+     "routing_key": "orders",
+     "x_acquired_count": 1,
+     "after": [
+      {
+       "event": "e3",
+       "type": "received",
+       "sources": [
+        "receive_count"
+       ],
+       "source": "receive_count",
+       "why": "The receive counts RabbitMQ gave (redelivered = false and the x-acquired-count header) show delivery 1 (receive count 1) came before this one (receive count 2)."
+      }
+     ]
+    },
+    {
+     "id": "e6",
+     "type": "acked",
+     "inferred": false,
+     "time": "2025-11-24T10:26:40.096000Z",
+     "time_unix_nano": "1763980000096000000",
+     "start": "2025-11-24T10:26:40.096000Z",
+     "start_unix_nano": "1763980000096000000",
+     "end": "2025-11-24T10:26:40.096000Z",
+     "end_unix_nano": "1763980000096000000",
+     "start_observed": true,
+     "group": 1,
+     "queue": "orders",
+     "consumer": {
+      "service_name": "orders-worker",
+      "client_id": "c308b5d3-0914-55a1-b98b-f27ca89a5504",
+      "source": "client",
+      "pid": 4202
+     },
+     "span": {
+      "trace_id": "2a72906d8a67208bacea86fbc65316ca",
+      "span_id": "9c31269ceef3654b"
+     },
+     "process_order": {
+      "scope": "d44ec6e2-f5b8-5557-bf8f-877e290c1aba",
+      "issued": 61,
+      "returned": 62
+     },
+     "delivery": 2,
+     "operation": "basic.ack",
+     "result": "ok",
+     "multiple": false,
+     "status": "final",
+     "after": [
+      {
+       "event": "e1",
+       "type": "sent",
+       "sources": [
+        "clock"
+       ],
+       "source": "clock",
+       "why": "The publish ended (2025-11-24T10:26:40.092000Z) before this started (2025-11-24T10:26:40.096000Z), on the hosts' clocks."
+      },
+      {
+       "event": "e5",
+       "type": "received",
+       "sources": [
+        "clock",
+        "process_order"
+       ],
+       "source": "clock",
+       "why": "Delivery 2 ended (2025-11-24T10:26:40.095000Z) before this started (2025-11-24T10:26:40.096000Z), on the hosts' clocks. Same process: delivery 2 returned before this call was issued."
+      }
+     ]
+    }
+   ],
+   "order": {
+    "edges": [
+     {
+      "from": "e1",
+      "to": "e6",
+      "sources": [
+       "clock"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e5",
+      "sources": [
+       "receive_count"
+      ]
+     },
+     {
+      "from": "e3",
+      "to": "e6",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     },
+     {
+      "from": "e5",
+      "to": "e6",
+      "sources": [
+       "clock",
+       "process_order"
+      ]
+     }
+    ],
+    "edges_by_source": {
+     "clock": 3,
+     "process_order": 2,
+     "receive_count": 1,
+     "sqs_timestamps": 0
+    },
+    "conflicts": []
+   },
+   "notices": []
+  }
+ ],
+ "flows": [
+  {
+   "key": "amqp://rabbitmq/%2F/orders",
+   "queue": "orders",
+   "name": "orders",
+   "url": "amqp://rabbitmq/%2F/orders",
+   "account": null,
+   "region": null,
+   "lastSeen": 1763980000101,
+   "sent": 9,
+   "received": 18,
+   "deleted": 6,
+   "visibilityChanges": 0,
+   "producers": [
+    {
+     "name": "checkout-api",
+     "n": 9,
+     "lambda": false
+    }
+   ],
+   "consumers": [
+    {
+     "name": "orders-worker",
+     "n": 18,
+     "lambda": false
+    }
+   ],
+   "avgBytes": null,
+   "dlq": {
+    "name": "orders.dlq",
+    "received": 2
+   }
+  },
+  {
+   "key": "amqp://rabbitmq/%2F/classic",
+   "queue": "classic",
+   "name": "classic",
+   "url": "amqp://rabbitmq/%2F/classic",
+   "account": null,
+   "region": null,
+   "lastSeen": 1763980000082,
+   "sent": 1,
+   "received": 2,
+   "deleted": 1,
+   "visibilityChanges": 0,
+   "producers": [
+    {
+     "name": "checkout-api",
+     "n": 1,
+     "lambda": false
+    }
+   ],
+   "consumers": [
+    {
+     "name": "orders-worker",
+     "n": 2,
+     "lambda": false
+    }
+   ],
+   "avgBytes": null,
+   "dlq": null
+  },
+  {
+   "key": "amqp://rabbitmq/%2F/fan.a",
+   "queue": "fan.a",
+   "name": "fan.a",
+   "url": "amqp://rabbitmq/%2F/fan.a",
+   "account": null,
+   "region": null,
+   "lastSeen": 1763980000055,
+   "sent": 1,
+   "received": 1,
+   "deleted": 1,
+   "visibilityChanges": 0,
+   "producers": [
+    {
+     "name": "checkout-api",
+     "n": 1,
+     "lambda": false
+    }
+   ],
+   "consumers": [
+    {
+     "name": "orders-worker",
+     "n": 1,
+     "lambda": false
+    }
+   ],
+   "avgBytes": null,
+   "dlq": null
+  },
+  {
+   "key": "amqp://rabbitmq/%2F/fan.b",
+   "queue": "fan.b",
+   "name": "fan.b",
+   "url": "amqp://rabbitmq/%2F/fan.b",
+   "account": null,
+   "region": null,
+   "lastSeen": 1763980000057,
+   "sent": 1,
+   "received": 1,
+   "deleted": 1,
+   "visibilityChanges": 0,
+   "producers": [
+    {
+     "name": "checkout-api",
+     "n": 1,
+     "lambda": false
+    }
+   ],
+   "consumers": [
+    {
+     "name": "orders-worker",
+     "n": 1,
+     "lambda": false
+    }
+   ],
+   "avgBytes": null,
+   "dlq": null
+  },
+  {
+   "key": "amqp://rabbitmq/%2F/orders.dlq",
+   "queue": "orders.dlq",
+   "name": "orders.dlq",
+   "url": "amqp://rabbitmq/%2F/orders.dlq",
+   "account": null,
+   "region": null,
+   "lastSeen": 1763980000049,
+   "sent": 0,
+   "received": 2,
+   "deleted": 2,
+   "visibilityChanges": 0,
+   "producers": [],
+   "consumers": [
+    {
+     "name": "dlq-worker",
+     "n": 2,
+     "lambda": false
+    }
+   ],
+   "avgBytes": null,
+   "dlq": null
+  },
+  {
+   "key": "amqp://rabbitmq/%2F/exchange/amq.default",
+   "queue": "amq.default",
+   "name": "amq.default",
+   "url": "amqp://rabbitmq/%2F/exchange/amq.default",
+   "account": null,
+   "region": null,
+   "lastSeen": 1763980000074,
+   "sent": 1,
+   "received": 0,
+   "deleted": 0,
+   "visibilityChanges": 0,
+   "producers": [
+    {
+     "name": "checkout-api",
+     "n": 1,
+     "lambda": false
+    }
+   ],
+   "consumers": [],
+   "avgBytes": null,
+   "dlq": null
+  }
+ ]
+}

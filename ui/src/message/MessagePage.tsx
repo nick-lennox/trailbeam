@@ -21,6 +21,8 @@ import { UiLink, type LinkProps } from "../design/nav.tsx";
 import { Tooltip } from "../design/Tooltip.tsx";
 import { CopyText } from "../design/CopyText.tsx";
 import { StatePill } from "../design/pills.tsx";
+import { SystemBadge } from "../design/SystemBadge.tsx";
+import { shownId, systemOf } from "../systems.ts";
 import { Notices, TimelineView } from "../timeline/Timeline.tsx";
 import { answerFor, consumersOf } from "../summary.ts";
 import type { Notice, Timeline } from "../timeline/types.ts";
@@ -105,15 +107,17 @@ export function MessagePage(p: MessagePageProps) {
   const tabs = p.body !== undefined;
   const showBody = tabs && tab === "body";
   const notices = [...(p.notices ?? []), ...t.notices];
+  // a RabbitMQ message's key carries its system (~rabbitmq~<ID>); the page shows the ID its application set (QV-308)
+  const id = shownId(t.message_id);
   return (
     <>
       <TopBar search={p.search} fresh={p.fresh} />
       <div className="px-8 pt-6 pb-12">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <Crumbs href={href} queue={t.source_queue} id={t.message_id} Link={Link} />
+          <Crumbs href={href} queue={t.source_queue} id={id} Link={Link} />
           {/* the message page has no time range: its link is the message (and the tab open), the same for anyone who can see it */}
           <span className="ml-auto flex items-center gap-4 text-xs">
-            <CopyText value={t.message_id} label="Copy message ID" />
+            <CopyText value={id} label="Copy message ID" />
             {/* a string, not a function: a server component draws this page, and CopyText is a client module */}
             <CopyText path={href.tab(showBody ? "body" : "timeline")} icon="link" label="Copy link" />
           </span>
@@ -123,8 +127,9 @@ export function MessagePage(p: MessagePageProps) {
 
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-ink-2" data-message-facts="">
           <StatePill m={t} />
-          <span className="text-ink-3">Message <span className={`${mono} text-caption break-all text-ink-2`}>{t.message_id}</span></span>
-          {consumers.length > 0 && <span>Received by <span className={`${mono} text-caption text-ink`}>{consumers.join(", ")}</span></span>}
+          <SystemBadge system={systemOf(t.message_id)} />
+          <span className="text-ink-3">Message <span className={`${mono} text-caption break-all text-ink-2`}>{id}</span></span>
+          {consumers.length > 0 && <span>{systemOf(t.message_id) === "rabbitmq" ? "Delivered to" : "Received by"} <span className={`${mono} text-caption text-ink`}>{consumers.join(", ")}</span></span>}
           {p.tenant && (
             p.href.tenant
               ? <Link href={p.href.tenant(p.tenant)} className="rounded-full border border-line bg-surface px-2.5 py-0.5 hover:border-line-strong">Tenant <span className={`${mono} text-caption text-ink`}>{p.tenant}</span></Link>

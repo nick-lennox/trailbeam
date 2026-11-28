@@ -41,3 +41,47 @@ export function environment(endpoint: string, auth: "off" | "token"): string {
   if (auth === "token") lines.push('export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer%20<token>"');
   return lines.join("\n");
 }
+
+/* ── RabbitMQ (QV-308): the same three steps with the pika and amqplib hooks ─────────────────────────────────── */
+
+export const INSTALL_RABBITMQ: Record<Runtime, string> = { python: 'pip install "trailbeam[pika]"', node: "npm install trailbeam amqplib" };
+
+/** What each runtime needs, for RabbitMQ (python/README.md, node/README.md). */
+export const NEEDS_RABBITMQ: Record<Runtime, string> = {
+  python: "Python 3.10 or later, with pika 1.3 or later.",
+  node: "Node.js 20 or later, with amqplib 0.10.6 or later (older versions can't connect to RabbitMQ 4.1).",
+};
+
+/** The example that publishes one message. A message needs a message_id to get a timeline (contract A6). */
+export const EXAMPLE_RABBITMQ: Record<Runtime, { caption: string; code: string }> = {
+  python: {
+    caption: "publish_one.py",
+    code: `import pika
+import trailbeam.pika
+
+trailbeam.pika.install()  # once per process, before opening connections
+
+connection = pika.BlockingConnection(pika.URLParameters("amqp://<host>"))
+channel = connection.channel()
+channel.basic_publish(exchange="", routing_key="<queue>", body=b"hello from Trailbeam",
+                      properties=pika.BasicProperties(message_id="first-message"))
+connection.close()`,
+  },
+  node: {
+    caption: "publish-one.js",
+    code: `const amqp = require("amqplib");
+const trailbeam = require("trailbeam");
+
+const tracing = trailbeam.amqplib.install(); // once per process, before opening connections
+
+async function main() {
+  const connection = await amqp.connect("amqp://<host>");
+  const channel = await connection.createChannel();
+  channel.sendToQueue("<queue>", Buffer.from("hello from Trailbeam"), { messageId: "first-message" });
+  await channel.close();
+  await connection.close();
+  await tracing.forceFlush(); // a script that exits right away must flush, or its spans are lost
+}
+main();`,
+  },
+};

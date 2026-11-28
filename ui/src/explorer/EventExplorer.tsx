@@ -15,7 +15,8 @@ import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } f
 import { ChevronDown, ChevronRight, Clock, Search, X } from "lucide-react";
 import { SOURCE } from "../design/pills.tsx";
 import { Tooltip } from "../design/Tooltip.tsx";
-import { EVENT_NAME, fmtDate, type Ev } from "../model/events.ts";
+import { fmtDate, kindName, type Ev } from "../model/events.ts";
+import { SYSTEM_NAME, type MessagingSystem } from "../systems.ts";
 import { bodyPathsOf, has, GROUPS, type FieldDef, type Group, type QueryLanguage } from "../model/query.ts";
 import { bucket, custom, phrase, rangeLabel, type TimeRange } from "../model/timerange.ts";
 import { EventChart, type Seg } from "./EventChart.tsx";
@@ -110,6 +111,8 @@ export function EventExplorer({ query, setQuery, time, setTime, data, messageHre
   const { from, to } = time;
   const { span, n: bars, label: per } = bucket(time);
   const inRange = useMemo(() => events.filter((e) => e.ms >= from && e.ms < to), [events, from, to]);
+  /* the systems of the range's events: an event kind is named in their terms (QV-308) */
+  const systemsInView = useMemo(() => new Set<MessagingSystem | undefined>(inRange.map((e) => e.system)), [inRange]);
   const matched = useMemo(() => inRange.filter((e) => matches(e, terms)), [inRange, terms, matches]);
 
   /* The columns and filters some event in the range fills: the others are left out of the table, the column list and
@@ -266,7 +269,7 @@ export function EventExplorer({ query, setQuery, time, setTime, data, messageHre
                                 return (
                                   <label key={v} className="-mx-1.5 flex cursor-pointer items-center gap-2 rounded-[5px] px-1.5 py-[3px] hover:bg-sunken">
                                     <input type="checkbox" checked={ticked} onChange={() => { setOpen(null); setQuery(toggle(query, f.name, v)); }} className="size-3.5 shrink-0 accent-brand" />
-                                    <Tooltip className={`min-w-0 flex-1 truncate text-ink ${f.name === "event" || f.name === "source" || f.buckets ? "font-sans text-[13px]" : "font-mono text-caption"}`} content={f.name === "event" || f.buckets ? `${f.name}:${v}` : undefined}>{f.name === "source" ? SOURCE[v as Ev["source"]]?.label ?? v : f.name === "event" ? EVENT_NAME[v as Ev["event"]] ?? v : f.buckets ? ranges(f).find((r) => r.value === v)?.label ?? v : v}</Tooltip>
+                                    <Tooltip className={`min-w-0 flex-1 truncate text-ink ${f.name === "event" || f.name === "source" || f.buckets ? "font-sans text-[13px]" : "font-mono text-caption"}`} content={f.name === "event" || f.buckets ? `${f.name}:${v}` : undefined}>{f.name === "source" ? SOURCE[v as Ev["source"]]?.label ?? v : f.name === "event" ? kindName(v as Ev["event"], systemsInView) ?? v : f.name === "system" ? SYSTEM_NAME[v as MessagingSystem] ?? v : f.buckets ? ranges(f).find((r) => r.value === v)?.label ?? v : v}</Tooltip>
                                     <span className="font-mono text-micro tabular-nums text-ink-3">{n}</span>
                                   </label>
                                 );

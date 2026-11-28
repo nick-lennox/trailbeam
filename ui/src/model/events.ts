@@ -17,11 +17,20 @@
     filtered            CloudTrail: Lambda's trigger deleted the message without running the function, as its
                         event filter didn't match (an aws_step on the timeline, which only the hosted app adds)
 
-  Steps the engine infers about unobserved receives are not events here.
+  A RabbitMQ message's events (QV-308) are of the same kinds, so the chart, the filters and the dashboards count them
+  with SQS's, as dashboards_api.py does: a publish is a send and an unroutable one (basic.return) a failed send, a
+  delivery a receive, an ack a delete, a requeue, a refusal or a closed channel a processing error, a return to the
+  queue (inferred from the next delivery) the visibility_expired kind, and the move the x-death header reports a
+  dead_letter. Each is named by its AMQP method (`call`), or by EVENT_NAME_RABBITMQ, and carries `system`.
+
+  Steps the engine infers about unobserved receives are not events here, nor a RabbitMQ publish's routed step.
   Processing time is from the wrapper's receive to its outcome for Lambda (the outcome span is zero-length), and from
   the end of the receive to the start of its delete for other consumers (time spent between the two calls, an approximation).
   Pure: no server, no sample data.
 */
+
+import { RABBITMQ, isRabbitMq, type MessagingSystem } from "../systems.ts";
+import { RETURN_CAUSES } from "../timeline/words.ts";
 
 export type EventKind = "send" | "receive" | "delete" | "visibility_change" | "processing_error" | "visibility_expired" | "dead_letter" | "filtered";
 /** where an event is known from */
@@ -55,6 +64,8 @@ export type Ev = {
   body?: unknown;
   /* the call the event was, as its row names it (eventName): SendMessageBatch, a Lambda trigger's ReceiveMessage, an inferred delete */
   call?: string;
+  /* the messaging system, on a RabbitMQ message's events (QV-308); an SQS event leaves it out */
+  system?: "rabbitmq";
 };
 
 /* An event kind's name, for the Event filter and an event with no call: a kind covers several SQS calls (a receive is
@@ -71,6 +82,35 @@ export const EVENT_NAME: Record<EventKind, string> = {
   filtered: "Dropped by event filter",
 };
 
+/* A RabbitMQ event kind's name, in RabbitMQ's terms (QV-308): the kinds are SQS's, so that both count together. */
+export const EVENT_NAME_RABBITMQ: Record<EventKind, string> = {
+  send: "Publish",
+  receive: "Delivery",
+  delete: "Ack",
+  visibility_change: "Visibility change",
+  processing_error: "Requeued or refused",
+  visibility_expired: "Returned to the queue",
+  dead_letter: "Dead-lettered",
+  filtered: "Dropped by event filter",
+};
+
+/* A kind's name where SQS and RabbitMQ events are listed together. */
+const EVENT_NAME_BOTH: Record<EventKind, string> = {
+  ...EVENT_NAME,
+  send: "Send or publish",
+  receive: "Receive or delivery",
+  delete: "Delete or ack",
+  processing_error: "Processing failed, requeued or refused",
+  visibility_expired: "Visibility timeout expired or returned to the queue",
+};
+
+/** A kind's name for the events of these systems (`undefined` is SQS, as an event's `system`): SQS's, RabbitMQ's, or both. */
+export function kindName(kind: EventKind, systems: ReadonlySet<MessagingSystem | undefined>): string {
+  const rabbit = systems.has(RABBITMQ);
+  const sqs = !rabbit || [...systems].some((x) => x !== RABBITMQ);
+  return (!rabbit ? EVENT_NAME : sqs ? EVENT_NAME_BOTH : EVENT_NAME_RABBITMQ)[kind];
+}
+
 /* The calls Lambda's event source mapping makes for a function, which the function's own code never calls, and the
    delete Trailbeam infers from a successful handler, as an event row names them. */
 export const CALL = {
@@ -80,7 +120,7 @@ export const CALL = {
 } as const;
 
 /** An event's name in a row: the call it was, else its kind's name. */
-export const eventName = (e: Pick<Ev, "event" | "call">) => e.call ?? EVENT_NAME[e.event];
+export const eventName = (e: Pick<Ev, "event" | "call" | "system">) => e.call ?? (e.system === RABBITMQ ? EVENT_NAME_RABBITMQ : EVENT_NAME)[e.event];
 
 export const EVENT_COLOR: Record<EventKind, string> = {
   send: "var(--color-series-2)",
@@ -215,6 +255,7 @@ export function eventsOfTimeline(t: Doc, o: TimelineEventsOptions = {}): Ev[] {
   const spanMeta = new Map(metas.map((m) => [`${m.traceId}:${m.spanId}`, m]));
   const spanOf = (e: Doc) => { const sp = e.span as { trace_id?: string; span_id?: string } | undefined; return sp?.trace_id ? `${sp.trace_id}:${sp.span_id}` : ""; };
 
+  const amqp = isRabbitMq(t as { message_id?: string; system?: string });
   const out: Ev[] = [];
   const evSpan = new Map<Ev, string>();
   const push = (e: Doc, ev: EventKind, ms: number, fields: Partial<Ev> & { service: string; consumer: string }) => {
@@ -226,11 +267,12 @@ export function eventsOfTimeline(t: Doc, o: TimelineEventsOptions = {}): Ev[] {
     const made: Ev = {
       key: `${mid}:${e.id}`, ms, event: ev, status: error ? "error" : "ok", queue, messageId: mid, producer, detail: "",
       source: "package", hasPage: true, live: true,
+      ...(amqp ? { system: RABBITMQ as "rabbitmq" } : {}),
       ...(about.tenant ? { tenant: about.tenant } : {}),
       ...(ev === "send" && own?.bodySize !== null && own?.bodySize !== undefined ? { sizeBytes: own.bodySize } : {}),
       attrs: {
-        // SQS returns it on a receive, for that receive: on no other event
-        "message.ApproximateReceiveCount": ev === "receive" && Number(e.receive_count) > 0 ? Number(e.receive_count) : undefined,
+        // SQS returns it on a receive, for that receive: on no other event (a RabbitMQ delivery has receiveCount only)
+        "message.ApproximateReceiveCount": !amqp && ev === "receive" && Number(e.receive_count) > 0 ? Number(e.receive_count) : undefined,
         "message.tenant": about.tenant ?? undefined,
         "message.tenantSource": about.tenant ? about.tenantSource ?? undefined : undefined,
         "message.MessageGroupId": about.groupId ?? undefined,
@@ -256,9 +298,68 @@ export function eventsOfTimeline(t: Doc, o: TimelineEventsOptions = {}): Ev[] {
     push(e, "send", ctSend.timeMs, { service: producer, consumer: consumerOf(1), source: "cloudtrail", call: ctSend.call,
       detail: `Recorded by CloudTrail (whole seconds). Sent by ${ctSend.byService ? "the AWS service " : ""}${producer}` });
   }
+  /* a RabbitMQ step's event (QV-308), named by its AMQP method. A count the step has none of is left out, as the port does. */
+  const count = (v: unknown) => (v === null || v === undefined ? undefined : Number(v));
+  const amqpEvent = (e: Doc, end: number, start: number | null) => {
+    const op = typeof e.operation === "string" && e.operation ? e.operation : undefined;
+    const failed = e.result !== undefined && e.result !== null && e.result !== "ok";
+    const code = e.error_code ? `: ${e.error_code}` : "";
+    const settle = () => {
+      const r = receiveOf(e.delivery);
+      return { service: svc(e), consumer: svc(e), receiveCount: r ? count(r.receive_count) : undefined,
+        durationMs: r && start !== null ? Math.max(0, start - msOf(r.end_unix_nano)) : undefined };
+    };
+    switch (e.type) {
+      case "sent":
+        push(e, "send", end, { service: svc(e), consumer: consumerOf(1), call: op ?? "basic.publish", status: failed ? "error" : "ok",
+          detail: failed ? `${op ?? "basic.publish"} failed${code}` : e.published_again ? String(e.reason ?? "") : "" });
+        break;
+      case "returned":
+        push(e, "send", end, { service: svc(e), consumer: "", call: op ?? "basic.return", status: "error",
+          detail: `Unroutable: no queue took it, so the broker returned it to the publisher${e.reply_code !== undefined && e.reply_code !== null ? ` (${e.reply_code}${e.reply_text ? ` ${e.reply_text}` : ""})` : ""}` });
+        break;
+      case "received": {
+        const sentAt = firstSend;
+        const wait = e.delivery === 1 && Number(e.receive_count) === 1 && sentAt !== null ? Math.max(0, end - sentAt) : undefined;
+        push(e, "receive", end, { service: svc(e), consumer: svc(e), receiveCount: count(e.receive_count), waitMs: wait, call: op ?? "basic.deliver",
+          detail: e.dead_letter ? "Delivered from the dead-letter queue" : "" });
+        break;
+      }
+      case "acked":
+        push(e, "delete", end, { ...settle(), call: op ?? "basic.ack", status: failed ? "error" : "ok",
+          detail: failed ? `${op ?? "basic.ack"} failed${code}` : e.status === "stale_handle" ? "Acked a delivery that was not its copy's latest"
+            : e.status === "unmatched_handle" ? "No observed delivery matches this ack" : "" });
+        break;
+      case "requeued":
+        push(e, "processing_error", end, { ...settle(), call: op ?? "basic.nack", detail: failed ? `${op ?? "basic.nack"} failed${code}` : "Requeued by the consumer (requeue = true)" });
+        break;
+      case "rejected":
+        push(e, "processing_error", end, { ...settle(), call: op ?? "basic.reject",
+          detail: failed ? `${op ?? "basic.reject"} failed${code}` : "Refused by the consumer (requeue = false): dead-lettered if the queue has a dead-letter exchange, dropped otherwise" });
+        break;
+      case "channel_closed":
+        push(e, "processing_error", end, { ...settle(), call: op ?? "channel.close", detail: String(e.reason ?? "") });
+        break;
+      case "returned_to_queue": {
+        const before = receiveOf(e.after_delivery);
+        push(e, "visibility_expired", isoMs((e.window as Doc).to), { service: "rabbitmq", consumer: before ? svc(before) : "",
+          receiveCount: before ? count(before.receive_count) : undefined, source: "inferred",
+          detail: `Delivery ${e.after_delivery} went back to the queue: ${RETURN_CAUSES[String(e.cause)] ?? String(e.cause)}. Inferred from the next delivery` });
+        break;
+      }
+      case "moved_to_dead_letter_queue": {
+        const dlqReceive = receiveOf(e.reported_on_delivery);
+        push(e, "dead_letter", isoMs((e.window as Doc).to), { queue: String(e.from_queue), service: "rabbitmq", consumer: consumerOf(Number(e.reported_on_delivery) - 1),
+          receiveCount: dlqReceive ? count(dlqReceive.receive_count) : undefined,
+          detail: `Dead-lettered from ${e.from_queue} to ${e.to_queue}${e.dead_letter_reason ? ` (${e.dead_letter_reason})` : ""}. RabbitMQ reported it in the x-death header on the delivery from ${e.to_queue}` });
+        break;
+      }
+    }
+  };
   for (const e of evs) {
     const end = e.end_unix_nano ? msOf(e.end_unix_nano) : NaN;
     const start = e.start_unix_nano ? msOf(e.start_unix_nano) : null;
+    if (amqp) { amqpEvent(e, end, start); continue; }
     switch (e.type) {
       case "sent":
         push(e, "send", end, { service: svc(e), consumer: consumerOf(1), call: e.batch_entry_id ? "SendMessageBatch" : "SendMessage",

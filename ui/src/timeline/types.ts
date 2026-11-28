@@ -11,7 +11,7 @@
 export type OrderSource = "clock" | "process_order" | "receive_count" | "sqs_timestamps";
 /** How a step without a time of its own is placed: by its anchors (inferred), by SQS's DLQ report, or by the SNS
  *  envelope on a receive (contract 3.4). */
-export type PlacementSource = "inferred_from" | "sqs_dlq_source" | "sns_envelope";
+export type PlacementSource = "inferred_from" | "sqs_dlq_source" | "sns_envelope" | "amqp_x_death";
 
 export type Consumer = {
   service_name?: string;
@@ -50,7 +50,9 @@ type Observed = {
 };
 
 /** ``deduplicated``: a FIFO send SQS answered with an earlier send's MessageId; it enqueued nothing (QV-246). */
-export type SentEvent = Observed & { type: "sent"; batch_entry_id?: string; deduplicated?: true; reason?: string };
+export type SentEvent = Observed & {
+  type: "sent"; batch_entry_id?: string; deduplicated?: true; reason?: string;
+} & Partial<AmqpPublishFields>;
 export type ReceivedEvent = Observed & {
   type: "received";
   delivery: number;
@@ -58,7 +60,7 @@ export type ReceivedEvent = Observed & {
   sent_timestamp?: string;
   first_receive_timestamp?: string;
   dlq_source_arn?: string;
-};
+} & Partial<AmqpDeliveryFields>;
 export type DeletedEvent = Observed & {
   type: "deleted";
   delivery: number | null;
@@ -130,12 +132,19 @@ export type Purge = {
 export type DlqMoveEvent = Windowed & {
   inferred: false;
   type: "moved_to_dead_letter_queue";
-  source: "sqs_dlq_source";
+  /** sqs_dlq_source: SQS's DeadLetterQueueSourceArn; amqp_x_death: RabbitMQ's x-death header (contract A8) */
+  source: "sqs_dlq_source" | "amqp_x_death";
   reported_by: string;
-  source_arn: string;
+  /** SQS only */
+  source_arn?: string;
   reported_on_delivery: number;
   from_queue: string;
   to_queue: string;
+  /** RabbitMQ only (x-death): why the queue dead-lettered it, how many times, and when it first did (broker clock) */
+  dead_letter_reason?: "rejected" | "expired" | "maxlen" | "delivery_limit" | string;
+  dead_letter_count?: number;
+  first_dead_lettered?: string;
+  first_dead_lettered_ms?: number;
 };
 
 /** An SNS Publish (or one message of a PublishBatch) that this message's receives join (contract 3.4, section 21).
@@ -252,6 +261,98 @@ export type S3Event = Windowed & {
   delivery_ms?: number;
 };
 
+/* ───────────────────────── RabbitMQ (contract 4.0, span-contract-amqp.md; QV-307) ───────────────────────── */
+
+/** What a RabbitMQ publish adds to the send step. `queue` is the exchange's name (amq.default for the default exchange). */
+export type AmqpPublishFields = {
+  exchange: string;
+  /** the AMQP method: basic.publish */
+  operation: string | null;
+  result: "ok" | "failed" | "error" | string;
+  /** published on a channel with publisher confirms, and confirmed */
+  confirmed: boolean;
+  mandatory: boolean;
+  /** which publish of this message ID this is, from 1 */
+  publish: number;
+  published_again?: true;
+  routing_key?: string;
+  /** the routing key's keyed hash, when the package did not export the key (body capture off) */
+  routing_key_hmac?: string;
+  error_code?: string;
+  message_id_source?: "package";
+};
+
+/** What a RabbitMQ delivery adds to the received step. `receive_count` is the count Trailbeam reads (A7). */
+export type AmqpDeliveryFields = {
+  /** basic.deliver (a consumer) or basic.get */
+  operation: string | null;
+  redelivered: boolean;
+  /** where receive_count came from: first_delivery, x-acquired-count, x-delivery-count, redelivered */
+  receive_count_source: string;
+  consumer_tag: string;
+  exchange: string;
+  routing_key: string;
+  routing_key_hmac: string;
+  x_delivery_count: number;
+  x_acquired_count: number;
+  /** the x-death entry this delivery carries, when it came from a dead-letter queue */
+  dead_letter: Record<string, unknown>;
+};
+
+/** A settle of one delivery: basic.ack (acked), basic.nack or basic.reject with requeue = true (requeued) or false (rejected). */
+type AmqpSettle = Observed & {
+  delivery: number | null;
+  operation: string | null;
+  result: "ok" | "failed" | "error" | string;
+  error_code?: string;
+  multiple?: boolean;
+};
+export type AckedEvent = AmqpSettle & { type: "acked"; status: "final" | "stale_handle" | "failed" | "unmatched_handle" };
+export type RequeuedEvent = AmqpSettle & { type: "requeued"; requeue: true };
+export type RejectedEvent = AmqpSettle & { type: "rejected"; requeue: false; reason: string };
+/** The channel closed while the delivery was not settled: RabbitMQ returns its unacked deliveries to the queue. */
+export type ChannelClosedEvent = AmqpSettle & {
+  type: "channel_closed";
+  initiator: "client" | "broker" | "network" | string | null;
+  reply_code?: number;
+  reply_text?: string;
+  consumer_timeout?: true;
+  reason: string;
+};
+/** basic.return: a mandatory publish no queue took; the broker returned it to the publisher. `queue` is the exchange. */
+export type ReturnedEvent = Observed & {
+  type: "returned";
+  exchange: string;
+  operation: string | null;
+  reply_code: number | null;
+  reply_text?: string;
+  routing_key?: string;
+  routing_key_hmac?: string;
+  reason: string;
+};
+/** Inferred: the exchange routed the publish to these queues, counted from the queues it was delivered on (a lower bound). */
+export type RoutedEvent = Omit<Windowed, "queue"> & {
+  inferred: true;
+  type: "routed";
+  exchange: string;
+  queues: string[];
+  count: number;
+  lower_bound: boolean;
+};
+/** Inferred from the next delivery: the message went back to its queue, with the cause the spans show (A10). */
+export type ReturnedToQueueEvent = Windowed & {
+  inferred: true;
+  type: "returned_to_queue";
+  cause: "requeued" | "channel_closed" | "consumer_timeout" | "consumer_cancelled" | "not_observed";
+  cause_observed: boolean;
+  after_delivery: number;
+  before_delivery: number;
+};
+/** One queue's copy of a RabbitMQ message (A6): a queue is (virtual host, queue). `ended`: how the copy left the queue. */
+export type QueueCopy = { queue: string; vhost: string; deliveries: number; ended: "acked" | "rejected" | "moved" | string | null };
+
+export type AmqpEvent = AckedEvent | RequeuedEvent | RejectedEvent | ChannelClosedEvent | ReturnedEvent | RoutedEvent | ReturnedToQueueEvent;
+
 export type Group = {
   group: number;
   concurrent: boolean;
@@ -285,6 +386,12 @@ export type Timeline = {
   events: TimelineEvent[];
   order: { edges: { from: string; to: string; sources: string[] }[]; edges_by_source: Record<string, number>; conflicts: unknown[] };
   notices: Notice[];
+  /** the messaging system, on a RabbitMQ message's timeline (an SQS timeline leaves it out); see ../systems.ts */
+  system?: "rabbitmq";
+  /** RabbitMQ: the publishes of its message ID (more than one is a publisher retry) */
+  publishes?: number;
+  /** RabbitMQ: one copy per queue the message was delivered on (A6); a fanout to two queues has two */
+  copies?: QueueCopy[];
   /** PROPOSED (paid): which workspace scope this message belongs to. */
   scope?: Scope;
 };
@@ -326,7 +433,7 @@ export type AwsEvent = {
   after: AfterEntry[];
 };
 
-export type TimelineEvent = SentEvent | ReceivedEvent | DeletedEvent | VisibilityChangedEvent | LambdaOutcomeEvent | QueuePurgedEvent | PublishedEvent | PutEventStep | InferredEvent | DlqMoveEvent | ArrivedViaSnsEvent | ArrivedViaEventBridgeEvent | S3Event | AwsEvent;
+export type TimelineEvent = SentEvent | ReceivedEvent | DeletedEvent | VisibilityChangedEvent | LambdaOutcomeEvent | QueuePurgedEvent | PublishedEvent | PutEventStep | InferredEvent | DlqMoveEvent | ArrivedViaSnsEvent | ArrivedViaEventBridgeEvent | S3Event | AwsEvent | AmqpEvent;
 
 /** PROPOSED (paid): where a message lives in a multi-account workspace. */
 export type Scope = { account: string; account_name: string; region: string; environment: string; tenant?: string; demo?: boolean };

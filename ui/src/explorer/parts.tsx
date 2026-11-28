@@ -9,6 +9,8 @@
 import { cloneElement, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { Columns3, Download, Pause, Play, Search, X } from "lucide-react";
 import { SourceTag } from "../design/pills.tsx";
+import { SystemBadge } from "../design/SystemBadge.tsx";
+import { SQS, SYSTEM_NAME, shownId } from "../systems.ts";
 import { Tooltip } from "../design/Tooltip.tsx";
 import { fmtDate, eventName, type Ev } from "../model/events.ts";
 import type { Field, QueryLanguage, Term } from "../model/query.ts";
@@ -36,11 +38,13 @@ function cellOf(c: string, e: Ev, cell: string, sel: boolean, lang: QueryLanguag
     return (
       <td key={c} className={cell}>
         <span className="font-sans text-[13px] font-medium text-ink">{eventName(e)}</span>
+        {e.system && <SystemBadge system={e.system} className="ml-2" />}
       </td>
     );
   if (c === "detail") return <td key={c} className={cell}><span className="font-sans text-[13px]">{e.detail}</span></td>;
   if (c === "source") return <td key={c} className={cell}><SourceTag source={e.source} /></td>;
-  if (c === "message_id") return <td key={c} className={`${cell} text-ink`}>{e.messageId.slice(0, 8)}</td>;
+  if (c === "message_id") return <td key={c} className={`${cell} text-ink`}>{shownId(e.messageId).slice(0, 8)}</td>;
+  if (c === "system") return <td key={c} className={cell}><span className="font-sans text-[13px]">{SYSTEM_NAME[e.system ?? SQS]}</span></td>;
   const f = lang.def(c);
   if (!f) return <td key={c} className={cell} />;
   const v = f.get(e);

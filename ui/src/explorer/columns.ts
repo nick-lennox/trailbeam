@@ -8,6 +8,7 @@
 import { fmtBytes, fmtMs } from "../model/format.ts";
 import { GROUPS, queryLanguage, type FieldDef, type Group, type QueryLanguage } from "../model/query.ts";
 import { eventName, fmtDate, type Ev } from "../model/events.ts";
+import { SQS, SYSTEM_NAME } from "../systems.ts";
 
 /** The query language over what events recorded (Ev.attrs, Ev.body): the default for every part here. */
 export const RECORDED_LANGUAGE: QueryLanguage = queryLanguage();
@@ -38,6 +39,7 @@ export function cellText(c: string, e: Ev, lang: QueryLanguage = RECORDED_LANGUA
   if (c === "detail") return e.detail;
   if (c === "source") return sourceLabel(e.source);
   if (c === "message_id") return e.messageId;
+  if (c === "system") return SYSTEM_NAME[e.system ?? SQS];
   const f = lang.def(c);
   const v = f?.get(e);
   return f && v !== undefined ? String(show(f, v)) : "";
@@ -54,6 +56,8 @@ export function filledColumns(ids: Iterable<string>, events: readonly Ev[], lang
   for (const id of ids) {
     if (id === "date" || id === "event" || id === "message_id" || id === "source") { out.add(id); continue; }
     if (id === "detail") { if (events.some((e) => e.detail)) out.add(id); continue; }
+    // every event has a system, SQS by default: the filter and column are there once another system's events are
+    if (id === "system") { if (events.some((e) => e.system)) out.add(id); continue; }
     const f = lang.def(id);
     if (f && events.some((e) => f.get(e) !== undefined && f.get(e) !== "")) out.add(id);
   }

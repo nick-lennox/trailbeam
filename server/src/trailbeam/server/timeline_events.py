@@ -39,7 +39,7 @@ from datetime import datetime, timezone
 from typing import Iterable, Optional
 from urllib.parse import unquote, urlsplit
 
-from . import bodies, queries
+from . import bodies, queries, systems
 from . import queues as queues_mod
 
 NS_PER_MS = 1_000_000
@@ -56,6 +56,16 @@ EVENT_KINDS = ("send", "receive", "delete", "visibility_change", "processing_err
 CALL_LAMBDA_RECEIVE = "ReceiveMessage (Lambda trigger)"
 CALL_LAMBDA_DELETE = "DeleteMessageBatch (Lambda trigger)"
 CALL_INFERRED_DELETE = "Delete (inferred)"
+
+# What caused a RabbitMQ message's return to its queue (contract A10), as RETURN_CAUSES in @trailbeam/ui
+# (ui/src/timeline/words.ts) words it
+RETURN_CAUSES = {
+    "requeued": "requeued by the consumer",
+    "channel_closed": "its channel closed before an ack",
+    "consumer_timeout": "consumer timeout (consumer_timeout)",
+    "consumer_cancelled": "the broker cancelled the consumer",
+    "not_observed": "cause not observed",
+}
 
 OUTCOME_WORDS = {
     "failed_exception": "The handler threw",
@@ -225,6 +235,8 @@ def events_of_timeline(t: dict, *, urls: Optional[dict] = None, places: Optional
         sp = e.get("span") or {}
         return f"{sp['trace_id']}:{sp.get('span_id')}" if sp.get("trace_id") else ""
 
+    # a RabbitMQ message's events (QV-308): the same kinds, named by their AMQP method, with ``system``
+    amqp = t.get("system") == systems.RABBITMQ or systems.system_of(mid) == systems.RABBITMQ
     out: list[dict] = []
     ev_span: list[str] = []
 
@@ -236,7 +248,7 @@ def events_of_timeline(t: dict, *, urls: Optional[dict] = None, places: Optional
         error = ev in ("processing_error", "dead_letter") or fields.get("status") == "error"
         own = span_meta.get(span_of(e))
         attrs = {
-            "message.ApproximateReceiveCount": int(e["receive_count"]) if ev == "receive" and _num(e.get("receive_count")) and e["receive_count"] > 0 else None,
+            "message.ApproximateReceiveCount": int(e["receive_count"]) if not amqp and ev == "receive" and _num(e.get("receive_count")) and e["receive_count"] > 0 else None,
             "message.tenant": about["tenant"],
             "message.tenantSource": about["tenantSource"] if about["tenant"] else None,
             "message.MessageGroupId": about["groupId"],
@@ -252,6 +264,7 @@ def events_of_timeline(t: dict, *, urls: Optional[dict] = None, places: Optional
         made = {
             "key": f"{mid}:{e.get('id')}", "ms": ms, "event": ev, "status": "error" if error else "ok", "queue": queue,
             "messageId": mid, "producer": producer, "detail": "", "source": "package", "hasPage": True, "live": True,
+            **({"system": systems.RABBITMQ} if amqp else {}),
             **({"tenant": about["tenant"]} if about["tenant"] else {}),
             **({"sizeBytes": own["bodySize"]} if ev == "send" and own and own["bodySize"] is not None else {}),
             "attrs": {k: v for k, v in attrs.items() if v is not None},
@@ -274,10 +287,75 @@ def events_of_timeline(t: dict, *, urls: Optional[dict] = None, places: Optional
              consumer=consumer_of(1), source="cloudtrail", call=ct_send.get("call"),
              detail=f"Recorded by CloudTrail (whole seconds). Sent by {by}{producer}")
 
+    def amqp_event(e, end, start) -> None:
+        """A RabbitMQ step's event: amqpEvent in eventsOfTimeline."""
+        typ = e.get("type")
+        op = e["operation"] if isinstance(e.get("operation"), str) and e["operation"] else None
+        failed = e.get("result") is not None and e.get("result") != "ok"
+        code = f": {e['error_code']}" if e.get("error_code") else ""
+
+        def settle() -> dict:
+            r = receive_of(e.get("delivery"))
+            return {"service": svc(e), "consumer": svc(e), "receiveCount": count(r),
+                    "durationMs": max(0, start - _ms(r["end_unix_nano"])) if r and start is not None else None}
+
+        if typ == "sent":
+            call = op or "basic.publish"
+            push(e, "send", end, service=svc(e), consumer=consumer_of(1), call=call, status="error" if failed else "ok",
+                 detail=f"{call} failed{code}" if failed else
+                 (_js_str(e.get("reason")) if e.get("reason") is not None else "") if e.get("published_again") else "")
+        elif typ == "returned":
+            rc = e.get("reply_code")
+            reply = f" ({_js_str(rc)}{' ' + e['reply_text'] if e.get('reply_text') else ''})" if rc is not None else ""
+            push(e, "send", end, service=svc(e), consumer="", call=op or "basic.return", status="error",
+                 detail=f"Unroutable: no queue took it, so the broker returned it to the publisher{reply}")
+        elif typ == "received":
+            wait = max(0, end - first_send) if (e.get("delivery") == 1 and e.get("receive_count") == 1
+                                                and first_send is not None and end is not None) else None
+            push(e, "receive", end, service=svc(e), consumer=svc(e), receiveCount=_int_or_none(e.get("receive_count")),
+                 waitMs=wait, call=op or "basic.deliver",
+                 detail="Delivered from the dead-letter queue" if e.get("dead_letter") else "")
+        elif typ == "acked":
+            call = op or "basic.ack"
+            detail = (f"{call} failed{code}" if failed
+                      else "Acked a delivery that was not its copy's latest" if e.get("status") == "stale_handle"
+                      else "No observed delivery matches this ack" if e.get("status") == "unmatched_handle" else "")
+            push(e, "delete", end, **settle(), call=call, status="error" if failed else "ok", detail=detail)
+        elif typ == "requeued":
+            call = op or "basic.nack"
+            push(e, "processing_error", end, **settle(), call=call,
+                 detail=f"{call} failed{code}" if failed else "Requeued by the consumer (requeue = true)")
+        elif typ == "rejected":
+            call = op or "basic.reject"
+            push(e, "processing_error", end, **settle(), call=call,
+                 detail=f"{call} failed{code}" if failed else
+                 "Refused by the consumer (requeue = false): dead-lettered if the queue has a dead-letter exchange, "
+                 "dropped otherwise")
+        elif typ == "channel_closed":
+            push(e, "processing_error", end, **settle(), call=op or "channel.close",
+                 detail=_js_str(e.get("reason")) if e.get("reason") is not None else "")
+        elif typ == "returned_to_queue":
+            before = receive_of(e.get("after_delivery"))
+            cause = _js_str(e.get("cause"))
+            push(e, "visibility_expired", _iso_ms(e["window"]["to"]), service=systems.RABBITMQ,
+                 consumer=svc(before) if before else "", receiveCount=count(before), source="inferred",
+                 detail=f"Delivery {_js_str(e.get('after_delivery'))} went back to the queue: "
+                        f"{RETURN_CAUSES.get(cause, cause)}. Inferred from the next delivery")
+        elif typ == "moved_to_dead_letter_queue":
+            dlq_receive = receive_of(e.get("reported_on_delivery"))
+            why = f" ({e['dead_letter_reason']})" if e.get("dead_letter_reason") else ""
+            push(e, "dead_letter", _iso_ms(e["window"]["to"]), queue=_js_str(e.get("from_queue")), service=systems.RABBITMQ,
+                 consumer=consumer_of(int(e["reported_on_delivery"]) - 1), receiveCount=count(dlq_receive),
+                 detail=f"Dead-lettered from {e.get('from_queue')} to {e.get('to_queue')}{why}. RabbitMQ reported it "
+                        f"in the x-death header on the delivery from {e.get('to_queue')}")
+
     for e in evs:
         end = _ms(e["end_unix_nano"]) if e.get("end_unix_nano") else None
         start = _ms(e["start_unix_nano"]) if e.get("start_unix_nano") else None
         typ = e.get("type")
+        if amqp:
+            amqp_event(e, end, start)
+            continue
         if typ == "sent":
             extra = {"deduplicated": True, "detail": _js_str(e.get("reason")) if e.get("reason") is not None else ""} \
                 if e.get("deduplicated") else {}
