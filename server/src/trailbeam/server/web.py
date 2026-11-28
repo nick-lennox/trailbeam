@@ -1027,7 +1027,8 @@ def password_page(code: str = "", notice: Optional[str] = None, message: str = "
     (people_api.py). The code travels in the URL fragment, as on /setup."""
     text = message or PASSWORD_NOTICES.get(notice or "", "")
     body = ("<h1>Choose your password</h1><p>Choose the password you sign in to this Trailbeam with. If you "
-            "had one, it stops working, and so do your other sign-ins.</p>"
+            "had one, it stops working, and so do your other sign-ins and your passkeys: add a passkey again on "
+            "the Account page if you want one.</p>"
             + (f'<p class="notice">{escape(text.format(minutes=_minutes(retry_after_s)))}</p>' if text else "")
             + '<form method="post" action="/set-password">'
             f'<p id="code-row"><label>Link code <input type="text" id="code" name="code" value="{escape(code)}" '

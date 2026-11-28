@@ -28,8 +28,21 @@ the server sends email (``sends_email``), for the People page.
 
 **Your passkeys** (``/api/me/passkeys``, QV-665, passkeys.py; anyone signed in as a person): list, add (``POST
 .../options`` for the browser's ``navigator.credentials.create``, then ``POST`` with its answer and a name),
-remove. ``passkeys`` in the list says whether the server has them on; with them off, the other three are 409.
+remove. ``on`` in the list says whether the server has them on; with them off, the other three are 409.
 Removing a passkey doesn't end sessions it started: sign out there, or reset the password, for that.
+
+**Who can add a passkey** (QV-695): only someone signed in in a browser (a session, ``Who.via == "session"``),
+since a browser makes passkeys anyway. A personal API token, or a sign-in through the proxy, gets 403
+(``reason`` ``needs_a_session``): otherwise a short-lived CI token, or a request the proxy lets in, could add a
+passkey a script controls (the ``none``-attestation answer is plain JSON), and that passkey would sign in long after
+the token is revoked or the proxy link removed. ``can_add`` in the list says whether this request could. Each
+passkey added is logged at warning level with the client's address, so it shows when an account is looked over.
+
+**Someone else's passkeys** (admins, QV-695): ``GET /api/users/{id}/passkeys`` lists them, ``DELETE
+/api/users/{id}/passkeys`` removes them all (the person's sessions stay; a reset link ends those and removes the
+passkeys too). The People list says how many each person has (``passkeys``). A reset or invite link, and
+``trailbeam users reset-password``, remove the person's passkeys along with ending their sessions: they are how an
+account someone else got into is taken back.
 
 **Requests that change something** go through csrf.check (server.py) and must send ``Content-Type:
 application/json`` when they have a body, which a form on another site can't send without a preflight this server
@@ -58,8 +71,13 @@ CLOSES_INGEST = ("this is the first ingest token, and this server has no TRAILBE
                  "spans are lost. Send \"close_open_ingest\": true to create it anyway")
 PASSKEYS_OFF = ("passkeys are off on this server: they need its public URL (TRAILBEAM_PUBLIC_URL) and "
                 'pip install "trailbeam[server,passkeys]"')
+NEEDS_A_SESSION = ("add a passkey from the Account page, signed in in your browser: a personal API token or a "
+                   "sign-in through the proxy can't add one")
 NEEDS_A_PERSON = ("personal API tokens belong to a person: sign in, or send your personal API token "
                   "(this request was let in without one)")
+
+
+_LOGS_CLIENT = frozenset({"add_my_passkey"})
 
 
 class ApiProblem(Exception):
@@ -105,13 +123,14 @@ def _status(u: dict, now_ms: int) -> str:
     return "active"
 
 
-def user_view(u: dict, now_ms: int, me: Optional[int], single_sign_on: bool) -> dict:
+def user_view(u: dict, now_ms: int, me: Optional[int], single_sign_on: bool, passkeys: int = 0) -> dict:
     """``single_sign_on``: the person has an identity provider account (``oidc_identities``). Removing them then
-    doesn't keep them out: their next single sign-on creates them again, as a new person with the default role."""
+    doesn't keep them out: their next single sign-on creates them again, as a new person with the default role.
+    ``passkeys``: how many they have (QV-695), so an admin sees one they didn't expect."""
     return {"id": int(u["id"]), "email": u["email"], "name": u["name"], "role": u["role"],
             "status": _status(u, now_ms), "created_at_ms": u["created_at_ms"],
             "last_sign_in_ms": u["last_sign_in_ms"], "you": me is not None and int(u["id"]) == me,
-            "single_sign_on": single_sign_on}
+            "single_sign_on": single_sign_on, "passkeys": passkeys}
 
 
 def _token_status(t: dict, now_ms: int) -> str:
@@ -147,10 +166,11 @@ class PeopleApi:
         return self.app.accounts
 
     def call(self, handler: str, rid: Optional[int], body: Optional[dict], who, base_url: str,
-             now_ms: int) -> tuple[int, dict]:
-        """(status, JSON body). Raises ApiProblem."""
+             now_ms: int, client: str = "") -> tuple[int, dict]:
+        """(status, JSON body). ``client``: the request's address, for the handlers that log it. Raises ApiProblem."""
         acc = self.acc
-        return getattr(self, handler)(acc, rid, body or {}, who, base_url, now_ms)
+        kw = {"client": client} if handler in _LOGS_CLIENT else {}
+        return getattr(self, handler)(acc, rid, body or {}, who, base_url, now_ms, **kw)
 
     # ---- people ---------------------------------------------------------------------------------------
 
@@ -168,11 +188,14 @@ class PeopleApi:
             self.app.tokens.forget_user(uid)
 
     def _view(self, acc, u: dict, now_ms: int, who) -> dict:
-        return user_view(u, now_ms, who.user_id, bool(acc.oidc_identities(int(u["id"]))))
+        uid = int(u["id"])
+        return user_view(u, now_ms, who.user_id, bool(acc.oidc_identities(uid)), len(acc.passkeys(uid)))
 
     def list_users(self, acc, rid, body, who, base_url, now_ms):
         sso = {int(i["user_id"]) for i in acc.oidc_identities()}
-        return 200, {"users": [user_view(u, now_ms, who.user_id, int(u["id"]) in sso) for u in acc.users()],
+        keys = acc.passkey_counts()
+        return 200, {"users": [user_view(u, now_ms, who.user_id, int(u["id"]) in sso, keys.get(int(u["id"]), 0))
+                               for u in acc.users()],
                      "sends_email": self.mailer is not None}
 
     @property
@@ -274,6 +297,18 @@ class PeopleApi:
         sent = self._email_link(u, link, who, base_url) if send else None
         return 201, {"user": self._view(acc, u, now_ms, who), "link": link, "email": sent}
 
+    def list_user_passkeys(self, acc, rid, body, who, base_url, now_ms):
+        self._user(acc, rid)
+        return 200, {"passkeys": [passkeys_mod.passkey_view(p) for p in acc.passkeys(rid)],
+                     "on": self.app.passkeys is not None}
+
+    def remove_user_passkeys(self, acc, rid, body, who, base_url, now_ms):
+        u = self._user(acc, rid)
+        n = acc.remove_passkeys(rid)
+        log.warning("user %s removed %d passkey%s of %s (user %d)", who.user_id, n, "" if n == 1 else "s",
+                    u["email"], rid)
+        return 200, {"removed": {"id": rid, "passkeys": n}}
+
     def _link(self, acc, uid: int, kind: str, base_url: str, now_ms: int) -> dict:
         code = first_admin.new_code()
         expires = now_ms + (INVITE_MS if kind == INVITE else RESET_MS)
@@ -355,16 +390,24 @@ class PeopleApi:
     def list_my_passkeys(self, acc, rid, body, who, base_url, now_ms):
         uid = self._me(who)
         return 200, {"passkeys": [passkeys_mod.passkey_view(p) for p in acc.passkeys(uid)],
-                     "on": self.app.passkeys is not None}
+                     "on": self.app.passkeys is not None, "can_add": who.via == "session"}
+
+    @staticmethod
+    def _in_a_browser(who) -> int:
+        """Adding a passkey: only a browser session, never a personal token or the proxy (QV-695)."""
+        uid = PeopleApi._me(who)
+        if who.via != "session":
+            raise ApiProblem(403, NEEDS_A_SESSION, "needs_a_session")
+        return uid
 
     def passkey_options(self, acc, rid, body, who, base_url, now_ms):
-        uid = self._me(who)
-        pk = self._passkeys()
+        pk = self._passkeys()  # off is said first: it is the server's, whoever asks
+        uid = self._in_a_browser(who)
         return 200, {"options": pk.register_options(self._user(acc, uid))}
 
-    def add_my_passkey(self, acc, rid, body, who, base_url, now_ms):
-        uid = self._me(who)
-        pk = self._passkeys()
+    def add_my_passkey(self, acc, rid, body, who, base_url, now_ms, client=""):
+        pk = self._passkeys()  # off is said first: it is the server's, whoever asks
+        uid = self._in_a_browser(who)
         credential = body.get("credential")
         if not isinstance(credential, dict):
             raise ApiProblem(400, "credential is required: the browser's answer to navigator.credentials.create")
@@ -377,7 +420,8 @@ class PeopleApi:
             raise ApiProblem(409, str(e), "passkey_taken") from None
         except AccountError as e:
             raise ApiProblem(400, str(e)) from None
-        log.info("user %d added passkey %d", uid, view["id"])
+        # warning, not info: a passkey signs in on its own, so one that wasn't the person's must stand out (QV-695)
+        log.warning("user %d added passkey %d (%r) from %s", uid, view["id"], view["name"], client or "?")
         return 201, {"passkey": view}
 
     def remove_my_passkey(self, acc, rid, body, who, base_url, now_ms):

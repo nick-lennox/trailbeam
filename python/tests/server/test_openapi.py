@@ -717,6 +717,8 @@ def _people_and_tokens(db):
         assert r("PATCH", f"/api/users/{cy}", body({"disabled": True}), {**j, **a})[0] == 200
         assert r("POST", f"/api/users/{cy}/link", b"{}", {**j, **a})[0] == 409
         assert r("DELETE", f"/api/users/{cy}", None, a)[0] == 200
+        assert r("GET", f"/api/users/{member}/passkeys", None, a)[0] == 200
+        assert r("DELETE", f"/api/users/{member}/passkeys", None, a)[0] == 200
         # ingest tokens
         assert r("GET", "/api/tokens/ingest", None, a)[0] == 200
         st, _, out = r("POST", "/api/tokens/ingest", body({"name": "orders"}), {**j, **a})
@@ -730,12 +732,15 @@ def _people_and_tokens(db):
         # your passkeys (passkeys.py), on a server with them on: a software authenticator's
         from webauthn_fake import Authenticator
 
-        with serve(server.App(db, ui_dir=None, public_url="https://trailbeam.example.com")) as on:
-            st, _, out = request(on, "POST", "/api/me/passkeys/options", b"{}", {**j, **m})
+        on_app = server.App(db, ui_dir=None, public_url="https://trailbeam.example.com")
+        ms = {"Cookie": "trailbeam_sid=" + on_app.sessions.start(member)[0]}  # adding one needs a browser session
+        with serve(on_app) as on:
+            assert request(on, "POST", "/api/me/passkeys/options", b"{}", {**j, **m})[0] == 403  # a token can't
+            st, _, out = request(on, "POST", "/api/me/passkeys/options", b"{}", {**j, **ms})
             assert st == 200, out
             made = Authenticator("https://trailbeam.example.com").create(json.loads(out)["options"])
             st, _, out = request(on, "POST", "/api/me/passkeys", body({"name": "phone", "credential": made}),
-                                 {**j, **m})
+                                 {**j, **ms})
             assert st == 201, out
             st, _, out = request(on, "DELETE", f"/api/me/passkeys/{json.loads(out)['passkey']['id']}", None, m)
             assert st == 200, out

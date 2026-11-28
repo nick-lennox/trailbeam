@@ -390,8 +390,9 @@ def users_set_role(a, acc: Accounts, where: str) -> int:
 def users_reset_password(a, acc: Accounts, where: str) -> int:
     u = _user(acc, a.user)
     pw = _password(a.password_file)
-    acc.set_password(u["id"], passwords.Hasher().hash(pw), _now_ms())
-    _say(f"New password set for {u['email']}; their sessions have ended, and a sign-in lock is cleared. {SEEN_SOON}")
+    acc.set_password(u["id"], passwords.Hasher().hash(pw), _now_ms(), remove_passkeys=True)
+    _say(f"New password set for {u['email']}; their sessions have ended, their passkeys are removed, and a sign-in "
+         f"lock is cleared. {SEEN_SOON}")
     return 0
 
 

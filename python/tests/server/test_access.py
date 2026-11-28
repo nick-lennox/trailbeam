@@ -620,6 +620,7 @@ def test_every_route_has_a_level():
     assert {(m, t): lvl for m, t, lvl, _ in access.API_ROUTES} == {
         ("GET", "/api/users"): ADMIN, ("POST", "/api/users"): ADMIN, ("PATCH", "/api/users/{id}"): ADMIN,
         ("DELETE", "/api/users/{id}"): ADMIN, ("POST", "/api/users/{id}/link"): ADMIN,
+        ("GET", "/api/users/{id}/passkeys"): ADMIN, ("DELETE", "/api/users/{id}/passkeys"): ADMIN,
         ("GET", "/api/tokens/ingest"): ADMIN, ("POST", "/api/tokens/ingest"): ADMIN,
         ("DELETE", "/api/tokens/ingest/{id}"): ADMIN, ("GET", "/api/me/tokens"): MEMBER,
         ("POST", "/api/me/tokens"): MEMBER, ("DELETE", "/api/me/tokens/{id}"): MEMBER,
