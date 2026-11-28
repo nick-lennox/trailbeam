@@ -7,6 +7,7 @@ import { LEVEL_COLOR, TD, TH, colLabel, level } from "../explorer/columns.ts";
 import { eventCell } from "../explorer/parts.tsx";
 import { Bars, CAT, Heatmap, OTHER, Spark, TimeSeries, useSize, type Line } from "../charts/index.ts";
 import { UiLink, useNav } from "../design/nav.tsx";
+import { Tooltip } from "../design/Tooltip.tsx";
 import { effectiveFilter, fmt, noDepth, queuesFor, toneOf, TONE_WORD, type DashboardMeasures, type EventData, type Measure, type Tone } from "./measures.ts";
 import { EVENT_COLUMNS, TABLE_COLUMNS, type Variable, type Widget } from "./types.ts";
 import type { SampleFlow } from "./env.tsx";
@@ -33,9 +34,11 @@ function NoDepth({ data }: { data: EventData }) {
   const qs = Object.values(data.queueLive ?? {});
   const short = qs.some((q) => q.status === "ok") ? "Not reported for these queues" : qs.some((q) => q.status === "failed") ? "Reading AWS failed" : qs.some((q) => q.status === "not_configured") ? "AWS is not read on this server" : "Connect the queue's AWS account";
   return (
-    <div className="grid flex-1 place-content-center px-3 text-center" title={noDepth(data)}>
-      <span className="text-[13px] text-ink-2">No data</span>
-      <span className="mt-0.5 text-xs text-ink-3">{short}</span>
+    <div className="grid flex-1 place-content-center px-3 text-center">
+      <Tooltip content={noDepth(data)} className="grid" tabIndex={0}>
+        <span className="text-[13px] text-ink-2">No data</span>
+        <span className="mt-0.5 text-xs text-ink-3">{short}</span>
+      </Tooltip>
     </div>
   );
 }
@@ -48,8 +51,10 @@ function QueueOnly({ w, ctx }: { w: Widget; ctx: Ctx }) {
   const terms = ctx.E.queueOnlyTerms(effectiveFilter(w, ctx.vars));
   if (!terms.length) return null;
   return (
-    <p className="mt-1 shrink-0 truncate text-xs text-ink-3" title="CloudWatch's SQS metrics and a queue's settings are per queue. Only queue: terms apply to them.">
-      Queue measures are per queue: {terms.map((t, i) => <span key={t}>{i ? ", " : ""}<code className="font-mono">{t}</code></span>)} {terms.length === 1 ? "does" : "do"} not apply.
+    <p className="mt-1 shrink-0 truncate text-xs text-ink-3">
+      <Tooltip content="CloudWatch's SQS metrics and a queue's settings are per queue. Only queue: terms apply to them." tabIndex={0}>
+        Queue measures are per queue: {terms.map((t, i) => <span key={t}>{i ? ", " : ""}<code className="font-mono">{t}</code></span>)} {terms.length === 1 ? "does" : "do"} not apply.
+      </Tooltip>
     </p>
   );
 }
@@ -164,12 +169,14 @@ function TopListBody({ w, ctx }: { w: Widget; ctx: Ctx }) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       {rows.map((r, i) => (
-        <button key={r.name} type="button" disabled={!canPick} onClick={() => ctx.setVar(by, r.name)} title={canPick ? `Show only ${r.name} on this dashboard` : undefined} className="group relative flex h-8 w-full items-center gap-2.5 border-b border-line text-left font-mono text-caption text-ink">
+        <Tooltip key={r.name} content={canPick ? `Show only ${r.name} on this dashboard` : undefined} className="block">
+        <button type="button" disabled={!canPick} onClick={() => ctx.setVar(by, r.name)} className="group relative flex h-8 w-full items-center gap-2.5 border-b border-line text-left font-mono text-caption text-ink">
           <span className="w-3.5 shrink-0 text-ink-3">{i + 1}</span>
           <span className={`min-w-0 flex-1 truncate ${canPick ? "group-hover:underline" : ""}`}>{r.name}</span>
           <b className="shrink-0 font-medium">{fmt(r.now, m.unit)}</b>
           {max > 0 && <span aria-hidden className="absolute -bottom-px left-0 h-0.5 bg-series-1" style={{ width: `${(100 * (Number.isFinite(r.now) ? r.now : max)) / max}%` }} />}
         </button>
+        </Tooltip>
       ))}
     </div>
   );
@@ -196,7 +203,7 @@ function QueueTableBody({ w, ctx }: { w: Widget; ctx: Ctx }) {
     <div className="min-h-0 flex-1 overflow-auto">
       <table className="w-full border-collapse font-mono text-caption">
         <thead className="sticky top-0 bg-surface">
-          <tr><th className={`${TH} pl-3`}>Queue</th>{cols.map((m) => <th key={m!.id} className={`${TH} text-right`} title={m!.label}>{m!.col ?? m!.label}</th>)}</tr>
+          <tr><th className={`${TH} pl-3`}>Queue</th>{cols.map((m) => <th key={m!.id} className={`${TH} text-right`} ><Tooltip content={m!.col ? m!.label : undefined}>{m!.col ?? m!.label}</Tooltip></th>)}</tr>
         </thead>
         <tbody>
           {names.map((q) => (
@@ -210,9 +217,9 @@ function QueueTableBody({ w, ctx }: { w: Widget; ctx: Ctx }) {
                 const v = valueOf(m, q);
                 const trend = w.trend && m === cols[0] && v !== null && !ctx.E.noHistory(m, ctx.data, time) ? ctx.E.seriesFor(m, `queue:"${q}"`, undefined, time, 24, ctx.data)[0]?.points : undefined;
                 return (
-                  <td key={m.id} className={`${TD} text-right text-ink tabular-nums group-hover:bg-sunken`} title={v === null ? noDepth(ctx.data) : undefined}>
+                  <td key={m.id} className={`${TD} text-right text-ink tabular-nums group-hover:bg-sunken`}>
                     {trend && <Trend points={trend} />}
-                    {v === null ? <span className="text-ink-3">No data</span> : fmt(v, m.unit)}
+                    {v === null ? <Tooltip content={noDepth(ctx.data)} className="text-ink-3" tabIndex={0}>No data</Tooltip> : fmt(v, m.unit)}
                   </td>
                 );
               })}
@@ -260,7 +267,11 @@ function StatusGridBody({ w, ctx }: { w: Widget; ctx: Ctx }) {
       {bw > 0 && !labeled && (
         <div className="h-full overflow-y-auto">
           <div className="flex flex-wrap gap-1">
-            {tones.map(({ q, tone }) => <UiLink key={q} href={ctx.ws(`/messages?queue=${q}`)} title={`${q}, ${word(tone)}`} className="size-6 rounded-[4px]" style={{ background: quiet(tone) ? "var(--color-sunken)" : TONE_VAR[tone as Tone] }} />)}
+            {tones.map(({ q, tone }) => (
+              <Tooltip key={q} content={`${q}, ${word(tone)}`} className="flex">
+                <UiLink href={ctx.ws(`/messages?queue=${q}`)} aria-label={`${q}, ${word(tone)}`} className="size-6 rounded-[4px]" style={{ background: quiet(tone) ? "var(--color-sunken)" : TONE_VAR[tone as Tone] }} />
+              </Tooltip>
+            ))}
           </div>
           <div className="mt-2.5 grid gap-1 text-xs">
             {tones.filter((x) => !quiet(x.tone)).map(({ q, tone }) => (

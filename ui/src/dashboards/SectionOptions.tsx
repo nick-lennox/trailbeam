@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { SECTION_COLORS, type Section, type SectionColor } from "./types.ts";
 import { FIELD } from "./ui.tsx";
+import { Tooltip } from "../design/Tooltip.tsx";
 
 /*
   How a section can be made to look, and the panel that sets it. Every choice is
@@ -44,14 +45,14 @@ function Swatches({ value, onChange, label, soft = false }: { value?: string; on
   const ring = "ring-2 ring-ink ring-offset-2 ring-offset-surface";
   return (
     <span className="flex flex-wrap items-center gap-1.5">
-      <button type="button" aria-pressed={!value} aria-label={`No ${label}`} title="None" onClick={() => onChange(undefined)} className={`grid size-7 place-items-center rounded-md border text-ink-3 ${!value ? "border-ink ring-1 ring-ink" : "border-line-strong"}`}><X size={13} /></button>
+      <Tooltip content="None" className="inline-flex"><button type="button" aria-pressed={!value} aria-label={`No ${label}`} onClick={() => onChange(undefined)} className={`grid size-7 place-items-center rounded-md border text-ink-3 ${!value ? "border-ink ring-1 ring-ink" : "border-line-strong"}`}><X size={13} /></button></Tooltip>
       {SECTION_COLORS.map((c) => (
-        <button key={c} type="button" aria-pressed={value === c} aria-label={`${c} ${label}`} title={c[0].toUpperCase() + c.slice(1)} onClick={() => onChange(c)} className={`size-7 rounded-md ${value === c ? ring : ""} ${c === "gray" || soft ? "border border-line-strong" : ""}`} style={{ background: soft && c !== "gray" ? `color-mix(in srgb, ${PALETTE[c]} 16%, var(--color-canvas))` : PALETTE[c] }} />
+        <Tooltip key={c} content={c[0].toUpperCase() + c.slice(1)} className="inline-flex"><button type="button" aria-pressed={value === c} aria-label={`${c} ${label}`} onClick={() => onChange(c)} className={`size-7 rounded-md ${value === c ? ring : ""} ${c === "gray" || soft ? "border border-line-strong" : ""}`} style={{ background: soft && c !== "gray" ? `color-mix(in srgb, ${PALETTE[c]} 16%, var(--color-canvas))` : PALETTE[c] }} /></Tooltip>
       ))}
-      <label title="Any color" className={`relative grid size-7 cursor-pointer place-items-center overflow-hidden rounded-md border border-line-strong text-ink-3 ${isHex(value) ? ring : ""}`} style={{ background: isHex(value) ? value : undefined }}>
+      <Tooltip content="Any color" className="inline-flex"><label className={`relative grid size-7 cursor-pointer place-items-center overflow-hidden rounded-md border border-line-strong text-ink-3 ${isHex(value) ? ring : ""}`} style={{ background: isHex(value) ? value : undefined }}>
         {!isHex(value) && <Plus size={13} />}
         <input type="color" aria-label={`Any ${label}`} value={isHex(value) ? value : "#5a9cf0"} onChange={(e) => onChange(e.target.value)} className="absolute inset-0 cursor-pointer opacity-0" />
-      </label>
+      </label></Tooltip>
     </span>
   );
 }

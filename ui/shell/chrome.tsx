@@ -1,6 +1,7 @@
 /* What every shell page shares: the header, the page frame, and reading Trailbeam's API on the same origin. */
 import { useEffect, useState, type ReactNode } from "react";
 import { TenantSearch, type Health, type SignInIdentity } from "../src/index.ts";
+import { Tooltip } from "../src/design/Tooltip.tsx";
 
 /** A tenant's messages: the Messages list, filtered (contract/tenants.md, "Tenant filter"). */
 export const tenantHref = (t: string) => `/?tenant=${encodeURIComponent(t)}`;
@@ -122,9 +123,11 @@ export function Account({ me }: { me: Me | null }) {
   return (
     <div className="flex items-center gap-3 text-sm text-sky-ink-2">
       {me.user && (
-        <a href="/account" title={`${me.user.email} (${me.user.role})`} className="max-w-48 truncate hover:text-sky-ink">
-          {me.user.name}{me.user.role === "admin" && <span className="ml-1 text-caption text-sky-ink-3">admin</span>}
-        </a>
+        <Tooltip content={`${me.user.email} (${me.user.role})`} className="max-w-48 truncate">
+          <a href="/account" className="hover:text-sky-ink">
+            {me.user.name}{me.user.role === "admin" && <span className="ml-1 text-caption text-sky-ink-3">admin</span>}
+          </a>
+        </Tooltip>
       )}
       {signOut && <a href="/logout" className="hover:text-sky-ink">Sign out</a>}
     </div>
