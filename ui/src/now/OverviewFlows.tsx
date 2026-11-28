@@ -12,7 +12,8 @@ import { OUTCOME_FILL, OUTCOME_LABEL, OUTCOME_TEXT, type Cause, type CauseOutcom
 import type { Edge, OverviewData, Queue } from "../model/overview.ts";
 import type { QueueLive } from "../model/queue-live.ts";
 import type { InQueueView } from "../model/in-queue.ts";
-import { stamp } from "../model/timerange.ts";
+import { phrase, stamp, type TimeRange } from "../model/timerange.ts";
+import { TimePicker } from "../explorer/TimePicker.tsx";
 import { SPAN_HEALTH_NOTE } from "../queue/model.ts";
 import type { Trigger } from "../queue/types.ts";
 import { QueueNowLive } from "./QueueNowLive.tsx";
@@ -75,6 +76,12 @@ export type OverviewFlowsSlots = {
   sampleNow?: (queue: string) => ReactNode;
   /** under a selected producer, consumer or dead-letter queue: the messages behind it (PartMessages), or nothing */
   partMessages?: (o: PartMessagesAt) => ReactNode;
+  /** in the top bar, on recorded data, before the range: the host's own controls (open source: Copy link) */
+  actions?: ReactNode;
+  /** in the queue's card, above its link, on recorded data: the host's own figures for it (open source: the range's totals from spans) */
+  queueFacts?: (queue: string) => ReactNode;
+  /** under the page, on recorded data: where the figures come from, and the same data as JSON */
+  foot?: ReactNode;
 };
 /** Which messages a part of the flow map stands for, for slots.partMessages. */
 export type PartMessagesAt = {
@@ -100,6 +107,17 @@ export type OverviewFlowsHrefs = {
   message: (id: string) => string;
 };
 const NO_SAMPLE: OverviewSample = { queues: [], causes: [], sends: [], receives: [], consumers: [], producerPlatform: {}, settings: {}, stats: {}, consumerStats: {}, avgBytes: {}, rangeScale: {} };
+
+/** The list's heading, in counts that agree with their nouns: "The queue is healthy", not "All 1 queues are healthy". */
+export function healthHeading(queues: number, judged: number, troubled: number): string {
+  const unjudged = queues - judged;
+  if (troubled) {
+    const head = queues === 1 ? "The queue needs attention" : `${fmtNum(troubled)} of ${fmtNum(queues)} queues ${troubled === 1 ? "needs" : "need"} attention`;
+    return unjudged ? `${head}; ${fmtNum(unjudged)} ${unjudged === 1 ? "has" : "have"} no health data` : head;
+  }
+  if (judged === queues) return queues === 1 ? "The queue is healthy" : queues === 2 ? "Both queues are healthy" : `All ${fmtNum(queues)} queues are healthy`;
+  return judged === 1 ? `1 of ${fmtNum(queues)} queues has health data, and it is healthy` : `${fmtNum(judged)} of ${fmtNum(queues)} queues have health data, and they are healthy`;
+}
 
 const NoData = () => <span className="font-sans font-normal text-ink-3">No data</span>;
 /* A figure only CloudWatch has, for a queue CloudWatch has not published yet. */
@@ -188,9 +206,17 @@ const Fact = ({ k, children }: { k: string; children: ReactNode }) => (
 
 export type OverviewFlowsProps = {
   data?: OverviewFlowsData; sample?: OverviewSample; flow?: string; copy: OverviewCopy; slots?: OverviewFlowsSlots; hrefs: OverviewFlowsHrefs;
+  /** told when another flow is selected, so a host can keep it in the page's URL */
+  onFlow?: (queue: string) => void;
+  /**
+   * On recorded data, the page's one time range, chosen with the Event explorer's TimePicker in place of the three
+   * range buttons: any preset, a typed range or exact times. `now` is where a range that ends now ends. Without it the
+   * page offers 15 min, 1 hour and 24 hours (hrefs.range), as the sample, sized for those three, always does.
+   */
+  time?: { range: TimeRange; now: number; onChange: (t: TimeRange) => void };
 };
 
-export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, copy, slots = {}, hrefs }: OverviewFlowsProps) {
+export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, copy, slots = {}, hrefs, onFlow, time: timeProp }: OverviewFlowsProps) {
   const router = useNav();
   const real = Boolean(data);
   const queues: Queue[] = data?.queues ?? sample.queues;
@@ -205,7 +231,10 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
   /* a workspace's figures are counted on the server for the range in the URL */
   const rangeId = data ? ((RANGES.find((r) => r.id === data.range)?.id ?? "1h") as OverviewRangeId) : picked;
   const chooseRange = (id: OverviewRangeId) => (data ? router.push(hrefs.range(id)) : setRangeId(id));
-  const range = RANGES.find((r) => r.id === rangeId)!;
+  const preset = RANGES.find((r) => r.id === rangeId)!;
+  const time = real ? timeProp : undefined;
+  /* the range in a sentence: "the last hour", or the picker's "the past 7 days" and "this time range" */
+  const range = time ? { id: preset.id, label: phrase(time.range), long: phrase(time.range) } : preset;
   const scale = sample.rangeScale[range.id] ?? { k: 1, c: 1 };
   const rate = (n: number) => (real ? n : Math.round(n * scale.k));
   const count = (n: number) => (real ? n : Math.round(n * scale.c));
@@ -223,7 +252,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
 
   const [name, setName] = useState(flows.find((f) => f.q.name === initialFlow)?.q.name ?? flows[0]?.q.name ?? "");
   const [part, setPart] = useState<Part>({ kind: "queue" });
-  const pick = (n: string) => { setName(n); setPart({ kind: "queue" }); };
+  const pick = (n: string) => { setName(n); setPart({ kind: "queue" }); onFlow?.(n); };
   const seg = (active: boolean) => `rounded-md px-3 py-1 ${active ? "bg-sunken font-medium text-ink" : "text-ink-2 hover:text-ink"}`;
 
   /* a workspace nothing has reported to: one message, with its two ways forward. No empty flows
@@ -328,9 +357,12 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
         actions={
           <>
             {real && slots.sampleSwitch}
-            <div role="group" aria-label="Time range" className="inline-flex rounded-lg border border-line bg-surface p-0.5 text-sm">
-              {RANGES.map((r) => <button key={r.id} aria-pressed={r.id === rangeId} onClick={() => chooseRange(r.id)} className={seg(r.id === rangeId)}>{r.label}</button>)}
-            </div>
+            {real && slots.actions}
+            {time
+              ? <TimePicker time={time.range} setTime={time.onChange} now={time.now} />
+              : <div role="group" aria-label="Time range" className="inline-flex rounded-lg border border-line bg-surface p-0.5 text-sm">
+                  {RANGES.map((r) => <button key={r.id} aria-pressed={r.id === rangeId} onClick={() => chooseRange(r.id)} className={seg(r.id === rangeId)}>{r.label}</button>)}
+                </div>}
           </>
         }
       />
@@ -341,7 +373,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
             <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-3">
               {real && !judged.length && <span aria-hidden className="size-2 shrink-0 rounded-[2px] bg-good" />}
               {(!real || judged.length > 0) && <Verdict size={17} className={`shrink-0 ${troubled.length ? "text-critical" : "text-good"}`} aria-hidden />}
-              <h2 className="text-sm font-medium text-ink">{real && !judged.length ? copy.noHealth(queues.length) : troubled.length ? `${troubled.length} of ${queues.length} queues need attention${judged.length < queues.length ? `; ${queues.length - judged.length} ${queues.length - judged.length === 1 ? "has" : "have"} no health data` : ""}` : judged.length === queues.length ? `All ${queues.length} queues are healthy` : `${judged.length} of ${queues.length} queues have health data, and they are healthy`}{fromSpans && copy.spansOnly}</h2>
+              <h2 className="text-sm font-medium text-ink">{real && !judged.length ? copy.noHealth(queues.length) : healthHeading(queues.length, judged.length, troubled.length)}{fromSpans && copy.spansOnly}</h2>
             </div>
             <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_4.75rem_1rem] gap-x-3 border-y border-line bg-sunken/50 px-4 py-1.5 text-xs font-medium text-ink-3">
               <span>Queue</span><span className="text-right">Sent/min</span><span className="text-right">Not finished</span><span />
@@ -473,6 +505,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
                       </div>
                     </div>
                   )}
+                  {real && slots.queueFacts?.(q.name)}
                   <div className="border-t border-line px-4 py-2.5 text-right">
                     <UiLink href={queuePage} onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline">Queue page</UiLink>
                   </div>
@@ -625,6 +658,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
             <QueueNowLive key={q.name} queue={q.name} view={info?.inQueue ?? null} live={lv ?? null} heldTotal={info?.heldTotal ?? 0} consumer={conList.length === 1 ? found[0]?.name ?? "" : ""} fifo={q.type === "FIFO"} triggers={info?.triggers ?? null} hrefs={hrefs} />
           </div>
         ) : slots.sampleNow ? <div className="min-w-0 min-[1480px]:col-span-2">{slots.sampleNow(q.name)}</div> : null)}
+        {real && slots.foot && <footer className="min-w-0 text-xs leading-relaxed text-ink-3 min-[1480px]:col-span-2">{slots.foot}</footer>}
       </div>
     </>
   );
