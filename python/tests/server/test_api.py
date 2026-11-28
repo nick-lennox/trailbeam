@@ -120,10 +120,16 @@ def test_unknown_endpoints(server, path):
 
 
 def test_health_shows_configuration(server):
+    from trailbeam.server.aws_settings import boto3_installed
+
     assert get(server, "/api/health")[1]["config"] == {"auth": "off", "ingest_auth": "open", "stuck_after_s": 300, "lambda_timeout_s": 900,
                                                          "max_receive_counts": {}, "store_bodies": [], "retention": None,
                                                          "trace_link": None, "proxy_auth": False,
-                                                         "passkeys": False}
+                                                         "passkeys": False,
+                                                         # AWS reads off (QV-589): nothing looked up
+                                                         "aws": {"on": False, "queues": 0, "boto3": boto3_installed(),
+                                                                 "credentials": None, "region": None,
+                                                                 "problem": None}}
 
 
 def test_ready_when_the_store_answers(server):

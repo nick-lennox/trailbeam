@@ -327,7 +327,32 @@ def run(t: Target, now_ns: Optional[int] = None) -> list[Result]:
             pass
         results.append(_last_span(health, now_ns, probe_ok=results[-1].status == OK, t=t,
                                   probe_rejected=probe_rejected))
+
+    # 6. AWS reads (QV-589): off by default, and fine so; on, they need boto3 and credentials on the server
+    results.append(aws_reads(health if token_ok else None))
     return results
+
+
+def aws_reads(health: Optional[dict]) -> Result:
+    """The server's AWS reads, from /api/health's config.aws. What is checked is the server's, not this machine's:
+    the server is what calls AWS, with its own credentials."""
+    name = "AWS reads"
+    if not isinstance(health, dict):
+        return Result(name, SKIP, "needs the checks above")
+    aws = (health.get("config") or {}).get("aws")
+    if not isinstance(aws, dict):
+        return Result(name, SKIP, "this server is an older Trailbeam, without AWS reads")
+    if not aws.get("on"):
+        return Result(name, OK, "off: the server makes no AWS calls, and the queue pages show what spans show")
+    n = aws.get("queues") or 0
+    named = f"{n} queue name{'' if n == 1 else 's'}"
+    if aws.get("problem"):
+        fix = ('pip install "trailbeam[aws]" where the server runs, and restart it' if aws.get("boto3") is False
+               else "give the server AWS credentials (environment variables, a profile, or an instance or task "
+                    "role) with sqs:GetQueueAttributes, cloudwatch:GetMetricData and lambda:ListEventSourceMappings")
+        return Result(name, FAIL, f"on for {named}, but they can't work", aws["problem"], fix)
+    where = f" in {aws['region']}" if aws.get("region") else ""
+    return Result(name, OK, f"on for {named}{where}, with credentials from {aws.get('credentials') or 'boto3'}")
 
 
 def _probe(t: Target) -> Result:

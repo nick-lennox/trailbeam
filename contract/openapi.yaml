@@ -94,6 +94,9 @@ tags:
     description: |
       Dashboards, their widgets, and what each widget draws over a time range (the hosted app's dashboards). A
       preview: answered only while `TRAILBEAM_DASHBOARDS` is on (1, true, yes or on); off, every route is a `404`.
+  - name: Settings
+    description: |
+      The server's settings. Admins only (anyone, before accounts exist).
   - name: Ingest
     description: Where the packages and the OpenTelemetry Collector send spans. Not part of the API.
 security:
@@ -2153,6 +2156,69 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/IngestStatus'}
               example: {"code": 14, "message": "Trailbeam can't reach its store (the database is down or unreachable). Nothing in this export was stored. Retry after 1 s."}
+  /api/settings/aws:
+    get:
+      operationId: get-aws-settings
+      x-example-request: /api/settings/aws
+      tags: [Settings]
+      summary: Read the AWS settings
+      description: |
+        Whether the server reads what AWS says about its queues (their settings, CloudWatch depth and age,
+        Lambda triggers), which queues, and whether the reads can work. Off by default: with reads off the
+        server makes no AWS call of any kind. The credentials are boto3's own (environment variables, a
+        profile, an instance or task role) and are never kept by Trailbeam; the reads need only
+        `sqs:GetQueueAttributes`, `cloudwatch:GetMetricData` and `lambda:ListEventSourceMappings`. Needs an
+        admin.
+      responses:
+        '200':
+          description: The settings and what the reads can do.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AwsSettingsView'}
+              example: {"settings": {"enabled": false, "queues": [], "region": null, "accountId": null, "updatedAt": null, "updatedBy": null}, "status": {"on": false, "queues": 0, "boto3": true, "credentials": null, "region": null, "problem": null}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    patch:
+      operationId: change-aws-settings
+      tags: [Settings]
+      summary: Change the AWS settings
+      description: |
+        Sets the fields given and keeps the others. `queues` is a list of names, or one text with a name per
+        line; names are trimmed, and empty lines and repeats dropped. An empty `region` or `accountId` clears
+        it. Reads are on once `enabled` is true and at least one queue is named. Every AWS read kept from
+        before the change is dropped. Needs an admin.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                enabled: {type: boolean}
+                queues:
+                  oneOf: [{type: array, items: {type: string}}, {type: string}]
+                region: {type: [string, 'null']}
+                accountId: {type: [string, 'null']}
+            example: {"enabled": true, "queues": ["orders", "billing-*"], "region": "eu-west-1"}
+      responses:
+        '200':
+          description: The settings after the change.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AwsSettingsView'}
+        '400':
+          description: A field has a value the settings do not take. `error` says which, as a sentence.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+              example: {"error": "orders queue is not a queue name. A queue name has up to 80 letters, digits, hyphens and underscores, and a FIFO queue's ends in .fifo. Use * to match any part of a name, as in orders-*."}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/dashboards:
     get:
       operationId: list-dashboards
@@ -4766,6 +4832,52 @@ components:
               description: |
                 The URL template of `--trace-link` (`TRAILBEAM_TRACE_LINK`) that each step's `span.trace_url` is
                 made from, null when none is set. Added in 0.5.
+            aws:
+              oneOf: [{$ref: '#/components/schemas/AwsStatus'}, {type: 'null'}]
+              description: |
+                Whether the server reads what AWS says about its queues, and whether those reads can work (see
+                `get-aws-settings`). `on` is false until an admin turns them on. Added in 0.5.
+    AwsStatus:
+      type: object
+      description: |
+        What the server's AWS reads can do. With them off nothing is looked up, so `credentials` is null and
+        `problem` is null.
+      additionalProperties: false
+      required: ['on', queues, boto3, credentials, region, problem]
+      properties:
+        'on': {type: boolean, description: 'Reads are on: switched on, with at least one queue named.'}
+        queues: {type: integer, minimum: 0, description: How many queue names or patterns the settings have.}
+        boto3: {type: [boolean, 'null'], description: 'Whether boto3 (`pip install "trailbeam[aws]"`) is installed; null when the settings could not be read.'}
+        credentials:
+          type: [string, 'null']
+          description: |
+            Where boto3 found credentials (`env`, `shared-credentials-file`, `iam-role`, `container-role`, ...),
+            null when it found none or was not asked because reads are off.
+        region: {type: [string, 'null'], description: 'The region for queues whose spans don''t say theirs: the settings'', else boto3''s own.'}
+        problem: {type: [string, 'null'], description: 'Why reads that are on can''t work, as a sentence, else null.'}
+    AwsSettings:
+      type: object
+      additionalProperties: false
+      required: [enabled, queues, region, accountId, updatedAt, updatedBy]
+      properties:
+        enabled: {type: boolean, description: The switch. Off keeps the list of queues.}
+        queues:
+          type: array
+          description: |
+            The queues to read, by exact name or a pattern with `*` (such as `orders-*`). A queue none of them
+            names is never read.
+          items: {type: string}
+        region: {type: [string, 'null'], description: 'For a queue whose spans don''t say its region. A queue''s own region, from its URL, always wins.'}
+        accountId: {type: [string, 'null'], description: 'Optional. A queue whose spans name another account is not read; a queue whose spans carry no URL gets one built from it.'}
+        updatedAt: {type: [integer, 'null'], description: 'When they were last changed, Unix milliseconds; null if never.'}
+        updatedBy: {type: [string, 'null'], description: 'Who changed them last; null if never.'}
+    AwsSettingsView:
+      type: object
+      additionalProperties: false
+      required: [settings, status]
+      properties:
+        settings: {$ref: '#/components/schemas/AwsSettings'}
+        status: {$ref: '#/components/schemas/AwsStatus'}
     Probe:
       type: object
       additionalProperties: false

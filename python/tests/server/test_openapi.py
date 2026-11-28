@@ -19,6 +19,7 @@ import contextlib
 import http.client
 import json
 import re
+import types
 import threading
 import sys
 from pathlib import Path
@@ -29,7 +30,7 @@ from openapi_spec_validator import validate as validate_openapi
 
 from openapi_contract import Contract, contract, pointer
 from spans import SEC, T0, Consumer, to_json, to_proto
-from trailbeam.server import auth as auth_mod, doctor, proxy_auth, server
+from trailbeam.server import auth as auth_mod, aws_api, doctor, proxy_auth, server
 from trailbeam.server.backpressure import IngestGate
 from trailbeam.server.proxy import TrustedProxies, parse_networks
 from trailbeam.server.store import StoreUnavailable, WriterBusy
@@ -233,6 +234,7 @@ def _concrete(template):
 
 
 PEOPLE_TAGS = {"People", "Tokens", "Account"}  # need an admin or a person: test_people_api.py, and _people_and_tokens below
+SETTINGS_TAGS = {"Settings"}  # need an admin and a JSON body: test_aws_api.py, and _aws_settings below
 
 
 def _people_op(op) -> bool:
@@ -250,7 +252,7 @@ def _off_op(op) -> bool:
 def test_every_route_in_the_file_is_served(fixture_server):
     """Each operation, with the fixture's message for a path parameter, answers 200."""
     for op in contract().ops:
-        if _people_op(op) or _off_op(op):
+        if _people_op(op) or _off_op(op) or (SETTINGS_TAGS & set(op.op.get("tags", [])) and op.method != "GET"):
             continue
         path = _concrete(op.template)
         if op.method == "GET":
@@ -264,12 +266,14 @@ def test_every_route_in_the_file_is_served(fixture_server):
 
 def _server_paths(app):
     """Candidate paths, from the server's own routes: ``app.routes``, every "/api/..." or "/v1/..." literal in
-    server.py (/api/ready and /api/health are matched there, before App.api), and each of those with one or
+    server.py and aws_api.py (/api/ready and /api/health are matched there, before App.api), and each of those with one or
     two more segments, a message ID or a word, as a handler that reads ``rest`` would take."""
     source = Path(server.__file__).read_text()
     firsts = set(app.routes) | {
         m.split("/")[2] for m in re.findall(r'"(/api/[a-z_]+)', source)}
     roots = {f"/api/{k}" for k in firsts} | set(re.findall(r'"(/v1/[a-z_/]+)"', source))
+    # the mounted APIs that match their whole path in their own module (aws_api.PATH)
+    roots |= set(re.findall(r'"(/api/[a-z_/]+)"', Path(aws_api.__file__).read_text()))
     extra = [MID, "body", "search", "series", "now", "x", "1", "ingest", "tokens", "link", "passkeys", "options"]
     out = set(roots)
     for r in roots:
@@ -644,6 +648,7 @@ def test_every_status_the_file_lists_is_answered_and_matches_it(db, record_api_r
                                                   "Authorization": "Bearer wrong"})
 
     _people_and_tokens(db)  # it creates an admin, which changes what the token above opens; before the proxy block, which adds one too
+    _aws_settings(db)  # after the admin above, for its 403
 
     # 403: signed in through a proxy (proxy_auth.py) as someone who may not be: last, as it adds an admin to the store
     proxied = server.App(db, ui_dir=None, trusted_proxies=TrustedProxies(parse_networks("127.0.0.1")),
@@ -661,6 +666,39 @@ def test_every_status_the_file_lists_is_answered_and_matches_it(db, record_api_r
     never = [f"{op.key} {status}" for op in ops if not _off_op(op) for status in op.op["responses"]
              if (op.key, int(status)) not in answered]
     assert not never, "the file lists these statuses, the server never gave them:\n" + "\n".join(never)
+
+
+def _aws_settings(db):
+    """Every status of /api/settings/aws (aws_api.py): on a server without accounts, then a member's 403, a token's
+    401, and a 500 from a broken settings table. Needs an admin in the store (_people_and_tokens)."""
+    from trailbeam.server.accounts import Accounts
+    from trailbeam.server.tokens import Tokens
+
+    j = {"Content-Type": "application/json"}
+    path = "/api/settings/aws"
+    acc = Accounts(db)
+    member = acc.create_user("fay@example.com", "Fay", "member", "x", 1)
+    admin = acc.create_user("gus@example.com", "Gus", "admin", "x", 1)
+    t = Tokens(acc)
+    m = {"Authorization": "Bearer " + t.create_personal(member, "m")[1]}
+    a = {"Authorization": "Bearer " + t.create_personal(admin, "a")[1]}
+    with serve(server.App(db, ui_dir=None)) as base:
+        assert request(base, "GET", path, headers=a)[0] == 200
+        assert request(base, "PATCH", path, json.dumps({"enabled": True, "queues": ["orders"]}).encode(),
+                       {**j, **a})[0] == 200
+        assert request(base, "PATCH", path, json.dumps({"enabled": False}).encode(), {**j, **a})[0] == 200
+        assert request(base, "PATCH", path, json.dumps({"queues": ["not a queue"]}).encode(), {**j, **a})[0] == 400
+        assert request(base, "PATCH", path, b"enabled", {"Content-Type": "text/plain", **a})[0] == 415
+        assert request(base, "PATCH", path, None, {"Content-Length": "999999", **j, **a})[0] == 413
+        assert request(base, "GET", path, headers=m)[0] == 403
+        assert request(base, "PATCH", path, b"{}", {**j, **m})[0] == 403
+        assert request(base, "GET", path)[0] == 401
+        assert request(base, "PATCH", path, b"{}", j)[0] == 401
+    broken = server.App(db, ui_dir=None)
+    broken.aws.settings.table = types.SimpleNamespace(get=_raise, put=_raise)
+    with serve(broken) as base:
+        assert request(base, "GET", path, headers=a)[0] == 500
+        assert request(base, "PATCH", path, b"{}", {**j, **a})[0] == 500
 
 
 def _people_and_tokens(db):
