@@ -22,6 +22,12 @@ from . import aws_figures as af, aws_reader
 PAGE_WINDOW = "page"
 #: the Overview's (queue-data.ts overviewWindows)
 OVERVIEW_WINDOW = "recent"
+#: the CloudWatch metrics the Overview's health uses (@trailbeam/ui's queue-live.ts health): the age of the oldest
+#: message, and sends and deletes for whether the backlog drains. Its depth and messages in flight are SQS's own
+#: counts (GetQueueAttributes, not billed per metric), so CloudWatch's are not asked for (QV-743)
+OVERVIEW_METRICS = ("oldestS", "sent", "deleted")
+#: the most queues one /api/queues/now asks for; the Overview asks in groups of fewer (flows-data.ts NOW_BATCH)
+NOW_BATCH_MAX = 100
 _DAY_MS = 86_400_000
 
 
@@ -75,12 +81,12 @@ def build(reader: Optional[aws_reader.AwsReader], refs: list, windows: list, now
           in_queue: Callable[[dict, Optional[dict], Optional[dict]], Optional[dict]], *, known,
           want: Optional[Callable[[dict, dict], bool]] = None, triggers: bool = True,
           metrics: Optional[list] = None, dlq_depth: str = "cloudwatch",
-          attrs_ttl_ms: Optional[float] = None) -> dict:
+          attrs_ttl_ms: Optional[float] = None, caller: Optional[str] = None) -> dict:
     """``{key: {"aws", "live", "inQueue"}}`` for the queues ``refs`` (ref_of) over ``windows``. ``in_queue(ref,
     settings, totals)``: the queue's InQueueView (queue_now.view), worked out for the queues ``want(ref, aws)`` says
     (all when None). ``known``: the store's queue keys (read). The other options are the reader's."""
     aws = read(reader, refs, windows, now_ms, known=known, triggers=triggers, metrics=metrics, dlq_depth=dlq_depth,
-               attrs_ttl_ms=attrs_ttl_ms)
+               attrs_ttl_ms=attrs_ttl_ms, caller=caller)
     first = windows[0]["id"] if windows else ""
     out: dict = {}
     for q in refs:

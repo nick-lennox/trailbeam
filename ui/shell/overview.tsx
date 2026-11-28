@@ -1,8 +1,8 @@
 /*
   The Overview at /overview, drawn with the shared OverviewFlows (@trailbeam/ui/design), the hosted app's Overview, in
   the shell's frame (frame.tsx). It reads GET /api/flows for the range, GET /api/causes for why messages didn't
-  finish in it, and GET /api/queues/{queue}/now?minutes= for each queue's messages now and what AWS says about it
-  (overview/flows-data.ts). AWS reads are off by default (QV-589): then health is from the spans alone (spanHealth).
+  finish in it, and GET /api/queues/now?keys=&minutes= for its queues' messages now and what AWS says about them, in
+  one request for up to 50 queues (overview/flows-data.ts), so the server reads AWS for them together (QV-743). AWS reads are off by default (QV-589): then health is from the spans alone (spanHealth).
   A queue named in the AWS settings has its depth, age, settings and health from SQS and CloudWatch, as in the hosted
   app. Either way the card's figures include the range's totals from spans: Sends, Receives and Deletes, visibility
   changes, the average body and receives on the dead-letter queue.
@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   LAMBDA_DELETES_HINT, REFRESH_S, flowsHref, flowsWindow, fmtBytes, lambdaDeletes, overviewRangeOf, pinnedFlowsHref, queueQuery, queueRangeOf,
-  readFlowsUrl, selfHostedFlowsData, timeKey, storeIsEmpty, overviewNowPath, anyAwsRead, type CausePage, type Flow, type FlowsResponse, type FlowsUrl, type QueueNowResponse,
+  readFlowsUrl, selfHostedFlowsData, timeKey, storeIsEmpty, overviewNowPaths, anyAwsRead, type CausePage, type Flow, type FlowsResponse, type FlowsUrl, type QueuesNowResponse,
   type QueueNowAnswer,
 } from "../src/index.ts";
 import { fmtNum, partMessagesOf, phrase, preset, type Ev, type QueueLive, type TimeRange } from "../src/model/index.ts";
@@ -52,9 +52,13 @@ type State =
   | { kind: "unsupported" }
   | { kind: "error"; message: string };
 
-/** One flow's "In ‹queue› now" and AWS parts over the past `minutes`, or null when it couldn't be read: the rest of the page still draws. */
-const nowOf = (f: Flow, minutes: number) =>
-  getJSON<QueueNowResponse>(overviewNowPath(f.key, minutes)).then((r): [string, QueueNowAnswer | null] => [f.key, r], () => [f.key, null]);
+/** Each flow's "In ‹queue› now" and AWS parts over the past `minutes`, by its key, or null when it couldn't be read: the rest of the page still draws. */
+async function nowOf(flows: Flow[], minutes: number): Promise<Record<string, QueueNowAnswer | null>> {
+  const got: Record<string, QueueNowAnswer | null> = Object.fromEntries(flows.map((f) => [f.key, null]));
+  await Promise.all(overviewNowPaths(flows.map((f) => f.key), minutes).map((p) =>
+    getJSON<QueuesNowResponse>(p).then((r) => { for (const [k, v] of Object.entries(r.queues)) if (k in got) got[k] = v; }, () => undefined)));
+  return got;
+}
 
 /** The range's totals for one queue, from its spans: what the open-source Overview's table showed. */
 function QueueTotals({ f, range }: { f: Flow; range: string }) {
@@ -151,7 +155,7 @@ export function OverviewPage() {
       getJSON<FlowsResponse>(`/api/flows?${win}`),
       getJSON<CausePage>(`/api/causes?${win}&limit=1`).catch(() => null),
     ]).then(async ([r, causes]) => {
-      const now = Object.fromEntries(await Promise.all(r.flows.map((f) => nowOf(f, w.minutes))));
+      const now = await nowOf(r.flows, w.minutes);
       if (!live) return;
       const data = selfHostedFlowsData({ range: overviewRangeOf(u.time), window: w, flows: r.flows, causes, now, causeHref: (id) => overviewIssuesHref(u.time, null, id) });
       setState({ kind: "ok", at, got: { flows: r.flows, data, window: w, aws: anyAwsRead(now) } });

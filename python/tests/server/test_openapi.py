@@ -623,6 +623,7 @@ def test_every_status_the_file_lists_is_answered_and_matches_it(db, record_api_r
         request(base, "GET", "/api/flows")
         request(base, "GET", "/api/queues/orders/series")
         request(base, "GET", "/api/queues/orders/now")
+        request(base, "GET", "/api/queues/now?keys=orders")
 
     # 503: the writer is behind (backpressure.py)
     with pytest.MonkeyPatch.context() as mp, serve(server.App(db, ui_dir=None)) as base:

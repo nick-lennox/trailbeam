@@ -9,7 +9,8 @@ import pytest
 from spans import SEC, T0, Consumer
 from test_aws_reader import Stubs as _Stubs, never
 from trailbeam.server import aws_api, aws_reader, aws_settings, dashboards_api, queue_data
-from trailbeam.server.server import App
+from trailbeam.server.access import Who
+from trailbeam.server.server import ApiError, App
 
 MS = T0 // 1_000_000
 ACCOUNT = "000000000000"  # the spans' queue URL: http://localhost:9324/000000000000/orders
@@ -155,6 +156,62 @@ def test_series_carries_cloudwatch_over_the_pages_range_at_its_step(db, ingest):
     w = a["series"][queue_data.PAGE_WINDOW]
     assert w["periodS"] == 300 and w["fromMs"] % 300_000 == 0
     assert a["triggers"] and stubs.lam.calls
+
+
+# ── the Overview's one request, and what a person can make the server read (QV-743) ─────────────────────────────
+
+def test_the_overview_asks_for_its_queues_at_once_and_viewers_share_the_read(db, ingest):
+    sent_and_received(ingest)
+    stubs = Stubs(attrs={"orders": ORDERS})
+    app = app_of(db, T0 + 12 * SEC, server_aws(stubs))
+    one = app.api("queues/orders/now", {"minutes": "60"})
+    stubs.cw.calls.clear()
+    app.aws.reader.cache.clear()
+    d = app.api("queues/now", {"keys": "orders,never-seen", "minutes": "60"}, Who("session", "member", 7))
+    assert d["minutes"] == 60 and d["errors"] == {} and set(d["queues"]) == {"orders", "never-seen"}
+    o = d["queues"]["orders"]
+    # the same answer as /now's, but CloudWatch only for what the Overview's health uses, and the DLQ's depth
+    assert o["queue"] == one["queue"] and o["totals"] == one["totals"] and o["held"] == one["held"]
+    assert o["live"]["visible"] == 7 and o["live"]["oldestS"] == 3.0 and o["live"]["dlq"] == "orders-dlq"
+    assert len(stubs.cw.calls) == 1 and stubs.cw.calls[0][2] == len(queue_data.OVERVIEW_METRICS) + 1
+    assert d["queues"]["never-seen"]["aws"]["detail"] == aws_reader.NOT_SEEN
+    # another viewer within the minute: the kept read
+    app.api("queues/now", {"keys": "never-seen,orders", "minutes": "60"}, Who("session", "member", 8))
+    assert len(stubs.cw.calls) == 1
+
+
+def test_the_batch_has_a_limit_and_no_keys_is_no_queues(db, ingest):
+    sent_and_received(ingest)
+    app = app_of(db, T0 + 12 * SEC, server_aws(Stubs(attrs={"orders": ORDERS})))
+    assert app.api("queues/now", {"keys": " , "}) == {"minutes": None, "queues": {}, "errors": {}}
+    many = ",".join(f"q{i}" for i in range(queue_data.NOW_BATCH_MAX + 1))
+    with pytest.raises(ApiError) as e:
+        app.api("queues/now", {"keys": many})
+    assert e.value.status == 400 and str(queue_data.NOW_BATCH_MAX) in e.value.message
+    d = app.api("queues/now", {"keys": "orders"})
+    assert d["minutes"] is None and d["queues"]["orders"]["live"]["windows"] == []
+
+
+def test_a_member_varying_the_series_range_is_stopped_at_the_budget(db, ingest):
+    """The report's second finding: every range is a new billed read, so a member could spend without limit."""
+    sent_and_received(ingest)
+    stubs = Stubs(attrs={"orders": ORDERS})
+    app = app_of(db, T0 + 12 * SEC, server_aws(stubs))
+    app.aws.reader.budget = aws_reader.Budget(limit=20)  # 6 metrics a read: three reads
+    member = Who("session", "member", 7)
+
+    def series(i, who=member):
+        return app.api("queues/orders/series", {"from_ms": str(MS - 3_600_000 - i * 60_000), "to_ms": str(MS)},
+                       who)["aws"]
+
+    assert [series(i)["errors"] for i in range(3)] == [[], [], []]
+    over = series(3)
+    assert over["status"] == "ok" and over["settings"] is not None and over["series"] == {}
+    assert len(over["errors"]) == 1 and "new CloudWatch metrics" in over["errors"][0]
+    assert len(stubs.cw.calls) == 3
+    assert series(3, Who("session", "member", 8))["errors"] == []  # someone else's budget
+    assert series(4, Who("shared_token"))["errors"] == []  # the shared token: one budget for all who use it
+    assert len(stubs.cw.calls) == 5
 
 
 def test_a_failed_read_is_said_and_now_falls_back_to_spans(db, ingest):

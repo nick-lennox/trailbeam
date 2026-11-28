@@ -371,7 +371,7 @@ class App:
         if not parts or parts[0] not in self.routes:
             raise ApiError(404, f"no such endpoint: /api/{'/'.join(parts)}")
         try:
-            if parts[0] in ("me", "health"):
+            if parts[0] in ("me", "health", "queues"):  # queues: who asked, for the CloudWatch budget (QV-743)
                 return self.routes[parts[0]](query, parts[1:], who)
             return self.routes[parts[0]](query, parts[1:])
         except queries.CursorError as e:
@@ -636,14 +636,17 @@ class App:
         # the server's Lambda timeout, not a lambda_timeout_s parameter: it doesn't change what the page counts
         return queries.tenants(self.db, now, self.lambda_timeout_s, from_ms, to_ms, self.max_receive_counts)
 
-    def queues(self, q: dict, rest: list[str]) -> dict:
+    def queues(self, q: dict, rest: list[str], who: access_mod.Who = access_mod.NOBODY) -> dict:
         """``/api/queues/{queue}/series``: the queue page's charts (QV-360 design 4.3, 9), per bucket of ``step_s``
         over [from_ms, to_ms] (default: the last day, and the page's step for the range). ``{queue}`` is a queue key
-        (queues.key, URL-encoded) or a queue's name, when one queue has it. queues.py says what each figure counts."""
+        (queues.key, URL-encoded) or a queue's name, when one queue has it. queues.py says what each figure counts.
+        ``who``: who asked, whose budget the AWS reads count against (aws_reader.Budget)."""
+        if rest == ["now"]:
+            return self.queues_now(q, who)
         if len(rest) != 2 or rest[1] not in ("series", "now"):
             raise ApiError(404, "no such endpoint")
         if rest[1] == "now":
-            return self.queue_now(q, rest[0])
+            return self.queue_now(q, rest[0], who)
         from_ms, to_ms = self._window(q)
         # only when given: the default is the page's rule for the window (queues.default_step)
         step = (_int(q, "step_s", -1, queues_mod.STEPS_S[0], queues_mod.STEPS_S[-1]) if "step_s" in q
@@ -664,7 +667,8 @@ class App:
         # what AWS says about the queue over the page's range (queue_data.py); no AWS call while reads are off
         ref = queue_data.ref_of(want[0], place, _url_of(want[0]))
         aws = queue_data.read(self.aws.reader if self.aws is not None else None, [ref],
-                              queue_data.page_window(from_ms, to_ms, step, now_ms), now_ms, known=keys)[ref["key"]]
+                              queue_data.page_window(from_ms, to_ms, step, now_ms), now_ms, known=keys,
+                              caller=_caller(who))[ref["key"]]
         s = aws.get("settings")
         # the queue's own redrive policy, when read, over the server's --max-receive-count
         mrc = s.get("maxReceiveCount") if s is not None else self.max_receive_counts.get(place.name)
@@ -677,7 +681,7 @@ class App:
                 "versions": queues_mod.versions(rows),
                 "aws": aws}
 
-    def queue_now(self, q: dict, asked: str) -> dict:
+    def queue_now(self, q: dict, asked: str, who: access_mod.Who = access_mod.NOBODY) -> dict:
         """``/api/queues/{queue}/now``: "In ‹queue› now" (queue_now.py), the hosted app's ``InQueueView``, with
         ``aws`` (what AWS says about the queue: its settings, CloudWatch over the Overview's past ``minutes`` when
         asked, and its Lambda triggers) and ``live`` (its QueueLive). With AWS reads off, ``aws`` is
@@ -687,23 +691,61 @@ class App:
             keys = self.db.queue_keys()
         except NotImplementedError as e:
             raise ApiError(501, str(e)) from None
-        want, place = self._queue_keys(asked, keys)
+        got = self._now_of(q, {asked: self._queue_keys(asked, keys)}, keys, None, who)
+        return got[asked]
+
+    def queues_now(self, q: dict, who: access_mod.Who = access_mod.NOBODY) -> dict:
+        """``/api/queues/now?keys=``: ``/api/queues/{queue}/now`` for several queues at once (QV-743), the Overview's
+        one request for its queues. ``keys``: the queues' keys or names, comma-separated (no SQS queue name, account
+        or region has a comma), NOW_BATCH_MAX at most; none answers no queues. Their AWS reads are made together: one
+        GetMetricData per window for every queue of a region, and the same queues asked again in that minute, by
+        anyone, are the kept read.
+        Only the CloudWatch metrics the Overview's health uses are read (queue_data.OVERVIEW_METRICS). Answers
+        ``{"minutes", "queues": {key: as /now}, "errors": {key: why it was not read}}``."""
+        asked = list(dict.fromkeys(k.strip() for k in q.get("keys", "").split(",") if k.strip()))
+        if len(asked) > queue_data.NOW_BATCH_MAX:
+            raise ApiError(400, f"keys names {len(asked)} queues; ask for {queue_data.NOW_BATCH_MAX} at most at once")
+        try:
+            keys = self.db.queue_keys()
+        except NotImplementedError as e:
+            raise ApiError(501, str(e)) from None
+        found: dict = {}
+        errors: dict = {}
+        for a in asked:
+            try:
+                found[a] = queues_mod.resolve(a, keys)
+            except ValueError as e:
+                errors[a] = str(e)
+        got = self._now_of(q, found, keys, list(queue_data.OVERVIEW_METRICS), who) if found else {}
+        return {"minutes": _int(q, "minutes", 60, 1, 400 * 1440) if "minutes" in q else None,
+                "queues": got, "errors": errors}
+
+    def _now_of(self, q: dict, found: dict, keys: list, metrics: Optional[list], who: access_mod.Who) -> dict:
+        """``/now``'s answer for each asked queue (``found``: asked -> (its keys, its place), queues.resolve), with
+        the AWS reads of all of them made together."""
         now_ns = self.now()
         now_ms = now_ns // 1_000_000
         windows = queue_data.overview_windows(now_ms, _int(q, "minutes", 60, 1, 400 * 1440)) if "minutes" in q else []
         lambda_s = self._lambda_timeout(q)
         limit = _int(q, "limit", queue_now_mod.LIST_LIMIT, 1, queue_now_mod.LIST_LIMIT)
+        refs: dict = {}  # by the queue's own key: two names for one queue are read once
+        for want, place in found.values():
+            refs.setdefault(want[0], (queue_data.ref_of(want[0], place, _url_of(want[0])), want, place))
 
         def in_queue(ref: dict, settings, totals) -> dict:
+            _, want, place = refs[ref["key"]]
             return queue_now_mod.view(self.db, want, place, now_ns, lambda_s, self.max_receive_counts, limit=limit,
                                       settings=settings, totals=totals)
 
-        ref = queue_data.ref_of(want[0], place, _url_of(want[0]))
-        d = queue_data.build(self.aws.reader if self.aws is not None else None, [ref], windows, now_ms,
-                             in_queue, known=keys)[ref["key"]]
-        return {"queue": {"key": want[0], "name": place.name, "account": place.account, "region": place.region,
-                          "fifo": place.name.endswith(".fifo")},
-                **d["inQueue"], "aws": d["aws"], "live": d["live"]}
+        d = queue_data.build(self.aws.reader if self.aws is not None else None, [r for r, _, _ in refs.values()],
+                             windows, now_ms, in_queue, known=keys, metrics=metrics, caller=_caller(who))
+        out: dict = {}
+        for a, (want, place) in found.items():
+            x = d[want[0]]
+            out[a] = {"queue": {"key": want[0], "name": place.name, "account": place.account, "region": place.region,
+                                "fifo": place.name.endswith(".fifo")},
+                      **x["inQueue"], "aws": x["aws"], "live": x["live"]}
+        return out
 
     def flows(self, q: dict, rest: list[str]) -> dict:
         """``/api/flows``: the overview's flows over [from_ms, to_ms] (default: the last day): per queue, who sends to
@@ -743,6 +785,14 @@ class App:
         if frm is not None and to is not None and frm > to:
             raise ApiError(400, "from_ms must not be after to_ms")
         return (None if frm is None else frm * 1_000_000), (None if to is None else (to + 1) * 1_000_000)
+
+
+def _caller(who: access_mod.Who) -> str:
+    """Whose budget a request's AWS reads count against (aws_reader.Budget): the person's, or, without one (the
+    shared token, or no token while the server has none), one budget for everyone asking that way."""
+    if who.user_id is not None:
+        return f"user:{who.user_id}"
+    return f"email:{who.email}" if who.email else f"via:{who.via}"
 
 
 def _url_of(key: str) -> Optional[str]:

@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { anyAwsRead, overviewNowPath, selfHostedFlowsData, type QueueNowAnswer } from "../src/overview/flows-data.ts";
+import { NOW_BATCH, anyAwsRead, overviewNowPath, overviewNowPaths, selfHostedFlowsData, type QueueNowAnswer } from "../src/overview/flows-data.ts";
 import { fromSelfHosted, PAGE_WINDOW, type Flow, type SeriesResponse } from "../src/queue/selfhosted.ts";
 import { emptyAws, liveOf, type AwsTrigger, type QueueAws } from "../src/model/aws.ts";
 import type { InQueueView } from "../src/model/in-queue.ts";
@@ -60,6 +60,16 @@ test("the Overview asks /now for CloudWatch over its whole minutes", () => {
   assert.equal(overviewNowPath("a/b", 60), "/api/queues/a%2Fb/now?minutes=60");
   assert.equal(overviewNowPath("orders", 14.6), "/api/queues/orders/now?minutes=15");
   assert.equal(overviewNowPath("orders", 0.2), "/api/queues/orders/now?minutes=1");
+});
+
+test("the Overview asks for its queues together, the same requests for every viewer of them (QV-743)", () => {
+  assert.deepEqual(overviewNowPaths(["orders", "a/b", "orders"], 14.6), ["/api/queues/now?keys=a%2Fb,orders&minutes=15"]);
+  assert.deepEqual(overviewNowPaths([], 60), []);
+  const keys = Array.from({ length: NOW_BATCH + 1 }, (_, i) => `q${String(i).padStart(3, "0")}`);
+  const paths = overviewNowPaths([...keys].reverse(), 60);
+  assert.equal(paths.length, 2);
+  assert.deepEqual(paths, overviewNowPaths(keys, 60));
+  assert.ok(paths[1].startsWith(`/api/queues/now?keys=${keys[NOW_BATCH]}&`));
 });
 
 test("a queue the server read: its QueueLive, triggers and a verdict from SQS and CloudWatch", () => {

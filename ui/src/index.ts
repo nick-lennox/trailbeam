@@ -85,7 +85,7 @@ export {
 } from "./overview/derive.ts";
 export { overviewHref, overviewQuery, overviewWindow, pinnedOverview, readOverviewUrl, selfHostedHrefs, widerPresets, type OverviewUrl } from "./overview/selfhosted.ts";
 export {
-  flowOfGroup, flowsHref, flowsWindow, overviewRangeOf, pinnedFlowsHref, queueRangeOf, readFlowsUrl, selfHostedFlowsData, spanOnlyLive, timeKey, overviewNowPath, anyAwsRead, type FlowsUrl, type QueueNowResponse, type QueueNowAnswer, type SelfHostedFlowsInput,
+  flowOfGroup, flowsHref, flowsWindow, overviewRangeOf, pinnedFlowsHref, queueRangeOf, readFlowsUrl, selfHostedFlowsData, spanOnlyLive, timeKey, overviewNowPath, overviewNowPaths, NOW_BATCH, anyAwsRead, type FlowsUrl, type QueueNowResponse, type QueuesNowResponse, type QueueNowAnswer, type SelfHostedFlowsInput,
 } from "./overview/flows-data.ts";
 // redrive (QV-590): the words, the shapes, and the views on the message page and Stuck (Issues in the hosted app)
 export {
