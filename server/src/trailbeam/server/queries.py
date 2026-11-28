@@ -15,7 +15,7 @@ import math
 from datetime import datetime, timedelta, timezone
 from typing import NamedTuple, Optional
 
-from . import bodies, eventbridge, rabbitmq, rollup, s3, sns, summary, timeline
+from . import bodies, eventbridge, purge, queues, rabbitmq, rollup, s3, sns, summary, timeline
 from .store import Store
 from .summary import message_tenant, span_tenant  # noqa: F401  (part of this module's interface)
 
@@ -33,7 +33,9 @@ def message(db: Store, message_id: str, now_ns: int, lambda_timeout_s: int,
         times = [r["time_ns"] for r in rows]
         cancels = db.consumer_cancels({r["queue"] for r in rows if r["kind"] == "receive"}, min(times), max(times))
         return timeline.build(rows, now_ns, lambda_timeout_s, max_receive_counts, cancels=cancels)
-    return timeline.build(rows, now_ns, lambda_timeout_s, max_receive_counts, db.purges({r["queue"] for r in rows}),
+    purges = purge.read(db, {r["queue"] for r in rows},
+                        {queues.key(r["queue"], r["queue_url"]) for r in rows if r["kind"] in ("send", "receive")})
+    return timeline.build(rows, now_ns, lambda_timeout_s, max_receive_counts, purges,
                           sns_publishes(db, rows), put_events=put_events(db, rows), s3_uploads=s3_uploads(db, rows))
 
 
@@ -140,7 +142,8 @@ def decode_cursor(text: Optional[str]) -> Optional[tuple]:
 
 def _purges(db: Store, sums) -> list:
     """The purges (contract section 18) of the queues these summaries' messages are on: one read per page."""
-    return db.purges({s["current_queue"] for s in sums})
+    sums = list(sums)
+    return purge.read(db, {s["current_queue"] for s in sums}, {s["current_key"] for s in sums})
 
 
 def _items(db: Store, mids: list, now_ns: int, lambda_timeout_s: int, mrc: Optional[dict]) -> list[dict]:

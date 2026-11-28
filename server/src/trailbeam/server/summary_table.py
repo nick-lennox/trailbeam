@@ -66,9 +66,10 @@ CREATE TABLE IF NOT EXISTS messages (
     tenants_json TEXT NOT NULL,          -- JSON {tenant: named_ns}: its message_tenants rows
     events_json TEXT NOT NULL,           -- JSON [[at_ms, kind, wait_ms], ...]: its tenant_events rows, seq = index
     rows_json TEXT NOT NULL,             -- JSON [row, ...]: its spans (spans.row, ascending)
-    qevents_json TEXT NOT NULL DEFAULT '[]'  -- JSON [[at_ms, kind, queue_key, service, lambda, value, peer, version],
+    qevents_json TEXT NOT NULL DEFAULT '[]', -- JSON [[at_ms, kind, queue_key, service, lambda, value, peer, version],
                                          -- ...]: its
                                          -- queue_events rows, seq = index (schema 17)
+    current_key TEXT NOT NULL DEFAULT '' -- the queue key of current_queue (queues.key), purges match by (schema 32)
 );
 CREATE INDEX IF NOT EXISTS messages_last ON messages (last_ns DESC, mid);
 CREATE INDEX IF NOT EXISTS messages_duplicates ON messages (last_ns DESC, mid) WHERE dup_received OR dup_succeeded;
@@ -461,6 +462,28 @@ def rebuild_queue_events(conn: sqlite3.Connection, chunk: int = 5000) -> int:
             conn.executemany(_ADD_QEVENT, _qevents(mid, ev))
             _qroll(conn, ev)
             last = rowid
+        n += len(batch)
+
+
+def rebuild_current_keys(conn: sqlite3.Connection, chunk: int = 5000) -> int:
+    """messages.current_key from every message's spans (migration 32, QV-725). Returns the messages."""
+    from . import timeline
+    cur = conn.cursor()
+    cur.row_factory = sqlite3.Row
+    n, last = 0, -1
+    while True:
+        batch = conn.execute("SELECT rowid, rows_json FROM messages WHERE rowid > ? ORDER BY rowid LIMIT ?",
+                             (last, chunk)).fetchall()
+        if not batch:
+            return n
+        put = []
+        for rowid, rows_json in batch:
+            spans = sorted(cur.execute(_ROWS, (rows_json,)).fetchall(), key=lambda r: (r["time_ns"], r["row"]))
+            if spans:
+                put.append((timeline.current_key_of([r for r in spans if r["kind"] == "send"],
+                                                    [r for r in spans if r["kind"] == "receive"], spans), rowid))
+            last = rowid
+        conn.executemany("UPDATE messages SET current_key = ? WHERE rowid = ?", put)
         n += len(batch)
 
 
