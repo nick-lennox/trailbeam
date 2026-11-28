@@ -23,7 +23,7 @@ from . import queues as queues_mod
 from . import queue_now as queue_now_mod
 from . import alerts_api, aws_api, redrive_api, queue_data, dashboards_api, access as access_mod, auth as auth_mod, causes as causes_mod, proxy_auth as proxy_auth_mod, bodies, csrf, first_admin, \
     metrics, oidc as oidc_mod, passkeys as passkeys_mod, passwords, people_api, queries, \
-    sessions as sessions_mod, trace_links, ui_files, web
+    sessions as sessions_mod, sky, trace_links, ui_files, web
 from .accounts import AccountError, Accounts, AdminExists, BadSetupCode, check_email, check_name
 from .backpressure import GRPC_RESOURCE_EXHAUSTED, GRPC_UNAVAILABLE, IngestGate, Rejected, status_body
 from .sessions import Sessions
@@ -1053,6 +1053,9 @@ def make_handler(app: App):
             if path in (github_mod.START_PATH, github_mod.CALLBACK_PATH):
                 self._sso(github_mod, app.github, "GitHub sign-in", path, q)
                 return
+            if ui_files.is_font(path):  # the sign-in pages' fonts, before anyone is signed in (sky.py)
+                self._page(path, q)
+                return
             if path == people_api.LINK_PATH:
                 self._send_page(web.password_page() if app.accounts is not None else
                                 (404, {"Content-Type": "text/plain"}, b"not found"))
@@ -1501,7 +1504,7 @@ def make_handler(app: App):
             self._send(303, "text/plain", b"", {"Location": "/", "Referrer-Policy": "no-referrer", **cookie})
 
         def _send_page(self, r):
-            status, headers, body = r
+            status, headers, body = sky.with_fonts(r, app.ui_dir)
             headers = dict(headers)
             ctype = headers.pop("Content-Type", "text/plain")
             self._send(status, ctype, body, headers)

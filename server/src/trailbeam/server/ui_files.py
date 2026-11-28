@@ -8,6 +8,9 @@ page), ``/alerts`` (alert rules and channels, QV-592; it says how to turn the al
 ``/people`` (admins only, access.py), ``/tokens`` and ``/account`` are the shell's page, which draws them from the JSON API in the
 browser, and ``/ui/...`` serves its files. When it is not (an editable install from a clone that
 was never built), these return None and the server-rendered HTML pages answer instead.
+
+The font files (``is_font``) answer without sign-in: the sign-in pages use them too (sky.py). They are the
+design system's published fonts, the same for every Trailbeam.
 """
 from __future__ import annotations
 
@@ -22,6 +25,11 @@ SHELL_PAGES = ("/", "/overview", "/duplicates", "/issues", "/stuck", "/message",
                "/people", "/tokens", "/account", "/alerts", "/settings")
 _TYPES = {".js": "text/javascript", ".css": "text/css", ".woff2": "font/woff2", ".woff": "font/woff",
           ".html": "text/html; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json"}
+
+
+def is_font(path: str) -> bool:
+    """Whether ``path`` is one of the shell's font files, which anyone may load (the sign-in pages use them)."""
+    return path.startswith("/ui/assets/") and path.endswith((".woff2", ".woff")) and "/" not in path[len("/ui/assets/"):]
 
 
 def install_problems(ui_dir: Optional[Path] = DEFAULT_UI_DIR) -> list[str]:
