@@ -98,3 +98,15 @@ and new channels (kind, name, tone, target), each with what is stored or the err
 Checked by `python/tests/server/test_alerts_api.py`, which also fails if the file is not what the script writes. The
 hosted app's `checkForm` and `muteRule` (`lib/alerts/rules.ts`) and `addChannel` (`lib/alerts/channels.ts`) give the
 same results on every case; `@trailbeam/ui` does not ship this file yet.
+
+## `triage-parity.json`
+
+The triage rules' shared cases (QV-593): the state a stored triage row is in now (`triageOf`: an ignore until a time
+or until N more messages that has ended, a regression after a resolve, "resolved in a new version", late exports and
+spans with no arrival time), the failures after a resolve or ignore (`newSince`), which row a cause shows across the
+merge and split of error texts (`rowFor`, `sameCause`), the list's filters (`inFilter`, `filterOf`) and what a note may
+hold (`noteProblem`). It is written by `make-triage-parity.py` from the open-source rules
+(`server/src/trailbeam/server/triage.py`); don't edit it by hand. Checked by `python/tests/server/test_triage.py`, which
+also fails if the file is not what the script writes, by `ui/test/triage.test.ts` against `@trailbeam/ui/model`'s
+`triage.ts` and `arrivals.ts`, and by the hosted app's test. `@trailbeam/ui` ships it as
+`@trailbeam/ui/fixtures/triage-parity.json`.
