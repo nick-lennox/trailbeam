@@ -146,7 +146,7 @@ def test_the_fixture_is_a_schema_5_file():
 def test_a_file_from_main_upgrades_in_place_and_keeps_every_span(from_main):
     before = raw(from_main)
     db = Database(from_main, store_bodies=frozenset({"orders"}))
-    assert db.migrated == [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]
+    assert db.migrated == [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]
     db.close()
     assert raw(from_main) == before  # every row, every column, same row IDs
     assert meta_version(from_main) == str(LATEST)
@@ -169,7 +169,9 @@ def test_a_file_from_main_upgrades_in_place_and_keeps_every_span(from_main):
                                        (24, "S3 upload indexes", True),
                                        (25, "S3 receives by decoded object key", True),
                                        (26, "alert rules, channels, state and checks", True),
-                                       (27, "dashboards and their widgets", True)]
+                                       (27, "dashboards and their widgets", True),
+
+                                       (28, "passkeys and their challenges", True)]
     assert schema(from_main) == schema_new_file(from_main + ".new")
 
 
@@ -224,12 +226,12 @@ def test_schema_25_lists_the_s3_receives_stored_before_it(tmp_path):
     assert want == [("sqs-a+dir%2Fred.jpg", et)]
     c = sqlite3.connect(path, isolation_level=None)  # back to 24, as 24 left it
     c.executescript(f"""DROP TABLE s3_receives; {migrations.S3_INDEXES}
-                        UPDATE schema_version SET version = 24 WHERE version = 27;
+                        UPDATE schema_version SET version = 24 WHERE version = {migrations.LATEST};
                         UPDATE meta SET value = '24' WHERE key = 'schema_version';""")
     c.close()
     db = Database(path, store_bodies=frozenset({"orders"}))
     try:
-        assert db.migrated == [25, 26, 27]
+        assert db.migrated == list(range(25, migrations.LATEST + 1))
         assert [(r["mid"], r["event_time_ms"]) for r in db.s3_receivers("photos", "a dir/red.jpg", 0, 2 ** 62)] == want
         assert db.query("SELECT COUNT(*) AS n FROM s3_receives")[0]["n"] == 2
     finally:

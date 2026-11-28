@@ -5,15 +5,16 @@ is ``MEMBER``, so a page or file added later is never open by mistake):
 
 - ``OPEN``: ``/api/ready``, ``/api/health`` (which says only ``status`` and ``version`` to a request that isn't let
   in at ``MEMBER``), the sign-in page and its form, the first admin's setup form (``/setup``, first_admin.py),
-  which needs its one-time code instead, and single sign-on's two steps (``/login/oidc``, oidc.py),
-  and GitHub's (``/login/github``, github.py).
+  which needs its one-time code instead, single sign-on's two steps (``/login/oidc``, oidc.py), GitHub's
+  (``/login/github``, github.py), and signing in with a passkey (``/login/passkey``, passkeys.py).
 - ``INGEST``: ``POST /v1/traces``.
 - ``METRICS``: ``GET /metrics``.
 - ``MEMBER``: the API and the web screen, message bodies included (an admin or a member, proposal section 2).
 - ``ADMIN``: managing people and ingest tokens: ``/api/users`` and ``/api/tokens/ingest`` (``API_ROUTES``,
   people_api.py), the People page (``/people``), and ``trailbeam users`` / ``trailbeam tokens`` (cli.py). A person's
-  own personal API tokens (``/api/me/tokens``) are ``MEMBER``, and need a person; so are the Tokens page
-  (``/tokens``), which shows the ingest tokens only to an admin, and the Account page (``/account``).
+  own personal API tokens (``/api/me/tokens``) and passkeys (``/api/me/passkeys``) are ``MEMBER``, and need a
+  person; so are the Tokens page (``/tokens``), which shows the ingest tokens only to an admin, and the Account
+  page (``/account``).
 
 **Two modes, switched by the store, not by a setting.** ``State`` asks the store whether an admin exists at most
 every ``STATE_TTL_S`` (5 s), on every replica, so when the first admin is created every replica switches within
@@ -64,13 +65,15 @@ ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/login/oidc/callback"): OPEN,  # and back; its state and the browser's cookie are the credential
     ("GET", "/login/github"): OPEN,           # sign in with GitHub (github.py), the same way
     ("GET", "/login/github/callback"): OPEN,
+    ("POST", "/login/passkey/options"): OPEN,  # passkeys (passkeys.py): a challenge to sign
+    ("POST", "/login/passkey"): OPEN,          # and the signed answer, which is the credential
     ("POST", "/v1/traces"): INGEST,
     ("GET", "/metrics"): METRICS,
     ("GET", "/set-password"): OPEN,  # invite and reset links (people_api.py); the code in it is the credential
     ("POST", "/set-password"): OPEN,
     ("GET", "/people"): ADMIN,  # the People page; its data is /api/users, ADMIN too
     ("GET", "/tokens"): MEMBER,  # the Tokens page: /api/me/tokens for everyone, /api/tokens/ingest (ADMIN) for admins
-    ("GET", "/account"): MEMBER,  # the Account page: who you are and how you sign in (/api/me)
+    ("GET", "/account"): MEMBER,  # the Account page: who you are and how you sign in (/api/me), and your passkeys
 }
 
 # The routes that manage people and tokens (people_api.py): (method, path template, level, handler name).
@@ -87,6 +90,10 @@ API_ROUTES: tuple[tuple[str, str, str, str], ...] = (
     ("GET", "/api/me/tokens", MEMBER, "list_my_tokens"),
     ("POST", "/api/me/tokens", MEMBER, "create_my_token"),
     ("DELETE", "/api/me/tokens/{id}", MEMBER, "revoke_my_token"),
+    ("GET", "/api/me/passkeys", MEMBER, "list_my_passkeys"),
+    ("POST", "/api/me/passkeys/options", MEMBER, "passkey_options"),
+    ("POST", "/api/me/passkeys", MEMBER, "add_my_passkey"),
+    ("DELETE", "/api/me/passkeys/{id}", MEMBER, "remove_my_passkey"),
 )
 _API_RX = tuple((m, re.compile("^" + re.escape(t).replace(re.escape("{id}"), "([1-9][0-9]{0,17})") + "$"), lvl, h)
                 for m, t, lvl, h in API_ROUTES)

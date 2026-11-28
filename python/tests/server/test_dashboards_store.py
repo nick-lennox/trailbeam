@@ -9,7 +9,7 @@ import threading
 from pathlib import Path
 
 import pytest
-from trailbeam.server import dashboards_store
+from trailbeam.server import dashboards_store, migrations, pg_schema
 from trailbeam.server.dashboards_store import DashboardTables, MemoryDashboards
 from trailbeam.server.db import Database
 
@@ -195,13 +195,13 @@ def test_a_sqlite_file_at_26_gets_the_dashboard_tables_a_new_one_has(tmp_path):
 
     c = sqlite3.connect(path, isolation_level=None)
     new = cols(c)
-    c.executescript("""DROP TABLE dashboards; DROP TABLE dashboard_widgets;
-                       UPDATE schema_version SET version = 26 WHERE version = 27;
+    c.executescript(f"""DROP TABLE dashboards; DROP TABLE dashboard_widgets;
+                       UPDATE schema_version SET version = 26 WHERE version = {migrations.LATEST};
                        UPDATE meta SET value = '26' WHERE key = 'schema_version';""")
     c.close()
     db = Database(path)
     try:
-        assert db.migrated == [27]
+        assert db.migrated == list(range(27, migrations.LATEST + 1))  # 28 on: later tables, already there
         assert DashboardTables(db).add_dashboard(WS, dash("a1"))
     finally:
         db.close()
@@ -230,7 +230,7 @@ def test_a_postgres_database_at_20_gets_the_dashboard_tables_a_new_one_has():
             c.execute("UPDATE schema_version SET version = 20")
         again = PostgresStore(s.url)
         try:
-            assert again.migrated == [21]
+            assert again.migrated == list(range(21, pg_schema.LATEST + 1))
             with again.ingest.connection() as c:
                 assert cols(c) == new and all(new.values())
             assert DashboardTables(again).add_dashboard(WS, dash("a1"))

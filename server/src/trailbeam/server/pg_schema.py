@@ -478,7 +478,7 @@ CREATE TABLE IF NOT EXISTS hash_places (
     bucket BIGINT NOT NULL,
     PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
 ) PARTITION BY RANGE (rclass, bucket);
-""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + QUEUE_CREATE + SNS + account_tables.PG_OIDC + STEP_CREATE + EVENTBRIDGE + S3 + S3_IDS + alerts_store.PG_CREATE + dashboards_store.PG_CREATE + """
+""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + QUEUE_CREATE + SNS + account_tables.PG_OIDC + STEP_CREATE + EVENTBRIDGE + S3 + S3_IDS + alerts_store.PG_CREATE + dashboards_store.PG_CREATE + account_tables.PG_PASSKEYS + """
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
@@ -880,8 +880,10 @@ MIGRATIONS: tuple = (
     # Version 21 (QV-652): the dashboard tables (dashboards_store.py: dashboards and their widgets), new and empty.
     # Not partitioned, for the same reason.
     Migration(21, "dashboards and their widgets (QV-652)", tuple(statements(dashboards_store.PG_CREATE))),
+    # Version 22 (QV-665): passkeys and their challenges (account_tables.py), new and empty.
+    Migration(22, "passkeys and their challenges (QV-665)", tuple(statements(account_tables.PG_PASSKEYS))),
 )
-LATEST = 21
+LATEST = 22
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 

@@ -841,6 +841,38 @@ sign-in, so a provider that is down doesn't stop Trailbeam starting. Calls to th
 10 seconds. The issuer must be `https`, except on `localhost`. SAML and SCIM (automatic user sync) are not
 supported.
 
+### Passkeys
+
+People can sign in with a passkey instead of a password: Face ID, Touch ID, Windows Hello, a phone or a security
+key. It is free and in this package, as an optional extra that brings the `webauthn` library, and it is on once the
+server has its public URL:
+
+```sh norun="starts a server that keeps running; python/tests/server/test_passkeys.py tests it"
+pip install "trailbeam[server,passkeys]"   # in Docker: docker build --build-arg TRAILBEAM_EXTRAS=server,passkeys .
+trailbeam --accounts --public-url https://trailbeam.example.com
+```
+
+- **Adding one.** Anyone signed in opens **Account** (their name at the top of the page) and chooses **Add a
+  passkey**; the browser asks for a fingerprint, face or PIN and makes it. The list there shows each passkey, when
+  it was added and last used, and whether it is synced (by a password manager or a cloud keychain); **Remove** takes
+  one off. The API is `/api/me/passkeys` ([reference](contract/openapi.yaml), tag Account).
+- **Signing in.** The sign-in page has **Sign in with a passkey**. No email is needed: the browser offers the
+  passkeys it has for this site. The password, single sign-on and passkeys all start the same 30-day session.
+- **Why the public URL.** A passkey belongs to one site, named by the host name of `--public-url`
+  (`TRAILBEAM_PUBLIC_URL`), and the browser signs which address it is on, which must be that URL. The request's
+  `Host` header can't stand in for it. Changing the public URL's host later makes the passkeys made before stop
+  working; people add new ones. Browsers offer passkeys only over HTTPS, and over plain HTTP only at `localhost`;
+  the server warns at start about an `http://` public URL elsewhere.
+- **Off** without the public URL or without the extra (the server says so once at start). The Account page then
+  still lists the passkeys saved before, and says that passkeys are off; they can't sign anyone in until they are
+  on again.
+- **What is checked.** Each passkey must check the person (user verification), so it can stand in for a password
+  on its own. A challenge works once, for 5 minutes, on any replica. An authenticator whose signature counter goes
+  back (a copied passkey) is refused. Failed passkey sign-ins count against the address's sign-in limit like wrong
+  passwords. Disabling a person stops their passkeys too; removing them removes their passkeys. Removing a passkey
+  doesn't end the sessions it started. Attestation isn't asked for, so any authenticator works. Each person can have
+  up to 20.
+
 ### Sign in with GitHub
 
 People can also sign in with their GitHub account, on github.com or GitHub Enterprise Server. GitHub isn't an

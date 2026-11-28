@@ -179,7 +179,7 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/plain" && "$RUNNER_TEMP/plain"/bin/pip install -q '.[server]' ../server
           ! "$RUNNER_TEMP/plain"/bin/pip show psycopg psycopg-binary psycopg-pool 2>/dev/null | grep -q '^Name'
-          "$RUNNER_TEMP/plain"/bin/python -c "import sys, trailbeam.server.__main__; assert not any(m.startswith(('psycopg', 'jwt', 'cryptography')) for m in sys.modules)"
+          "$RUNNER_TEMP/plain"/bin/python -c "import sys, trailbeam.server.__main__; assert not any(m.startswith(('psycopg', 'jwt', 'cryptography', 'webauthn')) for m in sys.modules)"
       - name: Without the sso extra, single sign-on says which extra it needs
         run: >-
           "$RUNNER_TEMP/plain"/bin/trailbeam --db "$RUNNER_TEMP/sso.sqlite" --oidc-issuer https://id.example.com

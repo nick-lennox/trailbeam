@@ -51,6 +51,10 @@ class BadSetupCode(AccountError):
     """The setup code is unknown, used, or out of date."""
 
 
+class PasskeyTaken(AccountError):
+    """A passkey that can't be added: saved already, or the person has the most they may have (409)."""
+
+
 class SsoRefused(AccountError):
     """A single sign-on that the rules refuse (oidc_sign_in); ``reason`` says which rule, the message says why."""
 
@@ -366,6 +370,74 @@ class Accounts:
                    (now_ms, email, issuer, subject))
         return user, how
     # ---- invite and reset links ------------------------------------------------------------------------
+
+    # ---- passkeys (passkeys.py) -----------------------------------------------------------------------
+
+    def create_passkey_challenge(self, challenge_sha256: str, kind: str, user_id: Optional[int], now_ms: int,
+                                 expires_at_ms: int) -> None:
+        """Also deletes the challenges that ran out, so the table holds only those still in use."""
+        with self._write() as tx:
+            tx.run("DELETE FROM passkey_challenges WHERE expires_at_ms <= ?", (now_ms,))
+            tx.run("INSERT INTO passkey_challenges (challenge_sha256, kind, user_id, created_at_ms, expires_at_ms) "
+                   "VALUES (?, ?, ?, ?, ?)", (challenge_sha256, kind, user_id, now_ms, expires_at_ms))
+
+    def take_passkey_challenge(self, challenge_sha256: str, now_ms: int) -> Optional[dict]:
+        """The challenge (``kind``, ``user_id``), deleted in the same transaction so it works once; None if unknown,
+        used or out of date."""
+        with self._write() as tx:
+            row = tx.one("SELECT kind, user_id, expires_at_ms FROM passkey_challenges WHERE challenge_sha256 = ?",
+                         (challenge_sha256,))
+            if row is None or not tx.run("DELETE FROM passkey_challenges WHERE challenge_sha256 = ?",
+                                         (challenge_sha256,)):
+                return None
+        return row if row["expires_at_ms"] > now_ms else None
+
+    _PASSKEY_SELECT = ("SELECT id, user_id, credential_id, public_key, sign_count, name, transports, backed_up, "
+                       "created_at_ms, last_used_ms FROM passkeys")
+
+    def passkeys(self, user_id: int) -> list[dict]:
+        return self._read(self._PASSKEY_SELECT + " WHERE user_id = ? ORDER BY id", (user_id,))
+
+    def passkey_by_credential(self, credential_id: str) -> Optional[dict]:
+        """The passkey and its owner's ``disabled_at_ms``, or None."""
+        rows = self._read("SELECT p.id, p.user_id, p.credential_id, p.public_key, p.sign_count, u.disabled_at_ms "
+                          "FROM passkeys p JOIN users u ON u.id = p.user_id WHERE p.credential_id = ?",
+                          (credential_id,))
+        return rows[0] if rows else None
+
+    def add_passkey(self, user_id: int, credential_id: str, public_key: str, sign_count: int, name: str,
+                    transports: str, backed_up: bool, now_ms: int, max_per_person: int) -> int:
+        """Raises AccountError: no such person, ``max_per_person`` passkeys already, or the credential is
+        already saved (for anyone)."""
+        name = check_name(name)
+        with self._write() as tx:
+            if tx.one("SELECT id FROM users WHERE id = ?", (user_id,)) is None:
+                raise AccountError(f"no person with ID {user_id}")
+            n = tx.one("SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ?", (user_id,))["n"]
+            if n >= max_per_person:
+                raise PasskeyTaken(f"you have {max_per_person} passkeys, the most one person can have: remove one "
+                                   "first")
+            if tx.one("SELECT id FROM passkeys WHERE credential_id = ?", (credential_id,)) is not None:
+                raise PasskeyTaken("this passkey is saved already")
+            return tx.insert_id("INSERT INTO passkeys (user_id, credential_id, public_key, sign_count, name, "
+                                "transports, backed_up, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                                (user_id, credential_id, public_key, sign_count, name, transports,
+                                 1 if backed_up else 0, now_ms))
+
+    def passkey_used(self, passkey_id: int, sign_count: int, now_ms: int) -> None:
+        """A sign-in with it worked: its counter as the authenticator now says, the person's sign-in time, and
+        their failed-sign-in count started again (as sign_in_ok)."""
+        with self._write() as tx:
+            row = tx.one("SELECT user_id FROM passkeys WHERE id = ?", (passkey_id,))
+            tx.run("UPDATE passkeys SET sign_count = ?, last_used_ms = ? WHERE id = ?", (sign_count, now_ms, passkey_id))
+            if row is not None:
+                tx.run("UPDATE users SET failed_count = 0, locked_until_ms = NULL, last_sign_in_ms = ? WHERE id = ?",
+                       (now_ms, row["user_id"]))
+
+    def remove_passkey(self, passkey_id: int, user_id: int) -> bool:
+        """False: no such passkey of this person."""
+        with self._write() as tx:
+            return bool(tx.run("DELETE FROM passkeys WHERE id = ? AND user_id = ?", (passkey_id, user_id)))
 
     def create_user_code(self, user_id: int, kind: str, code_sha256: str, now_ms: int, expires_at_ms: int) -> bool:
         """A person's invite or reset code. It replaces every earlier code of theirs, so only the newest link works.
