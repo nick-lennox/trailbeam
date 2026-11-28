@@ -115,7 +115,8 @@ def test_every_example_request_answers_on_a_server_with_an_admin(srv):
     ing = srv("POST", "/api/tokens/ingest", {"name": "orders"}, srv.admin)[2]["token"]["id"]
     mine = srv("POST", "/api/me/tokens", {"name": "x"}, srv.admin)[2]["token"]["id"]
     asked = 0
-    for op in sorted(contract().ops, key=lambda o: o.method == "DELETE"):  # remove Ben last
+    for op in sorted(contract().ops, key=lambda o: (o.method == "DELETE", o.key == "DELETE /api/users/{user_id}")):
+        # remove Ben last
         if not {"People", "Tokens"} & set(op.op.get("tags", [])):
             continue
         path = op.op.get("x-example-request", op.template)
@@ -127,7 +128,7 @@ def test_every_example_request_answers_on_a_server_with_an_admin(srv):
         status, _, out = srv(op.method, path, None if op.method in ("GET", "DELETE") else body, srv.admin)
         assert status in (200, 201), (op.key, status, out)
         asked += 1
-    assert asked == 11
+    assert asked == 13
 
 
 # ---- who may ------------------------------------------------------------------------------------------------

@@ -155,7 +155,7 @@ paths:
                     description: |
                       The server has a mail server set up (`TRAILBEAM_SMTP_HOST`), so adding a person and making
                       a link email the link to them. Added in 0.5.
-              example: {"sends_email": false, "users": [{"id": 1, "email": "ada@example.com", "name": "Ada", "role": "admin", "status": "active", "created_at_ms": 1795400000000, "last_sign_in_ms": 1795480000000, "you": true, "single_sign_on": false}, {"id": 2, "email": "ben@example.com", "name": "Ben", "role": "member", "status": "invited", "created_at_ms": 1795410000000, "last_sign_in_ms": null, "you": false, "single_sign_on": true}]}
+              example: {"sends_email": false, "users": [{"id": 1, "email": "ada@example.com", "name": "Ada", "role": "admin", "status": "active", "created_at_ms": 1795400000000, "last_sign_in_ms": 1795480000000, "you": true, "single_sign_on": false, "passkeys": 1}, {"id": 2, "email": "ben@example.com", "name": "Ben", "role": "member", "status": "invited", "created_at_ms": 1795410000000, "last_sign_in_ms": null, "you": false, "single_sign_on": true, "passkeys": 0}]}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
@@ -189,7 +189,7 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/UserWithLink'}
-              example: {"user": {"id": 2, "email": "ben@example.com", "name": "Ben", "role": "member", "status": "invited", "created_at_ms": 1795410000000, "last_sign_in_ms": null, "you": false, "single_sign_on": false}, "link": {"kind": "invite", "url": "http://127.0.0.1:4318/set-password#code=8bV1q0Jm0h6rWw2y7mM5c3xQKk0p0b2N7Hn8yZtq1sE", "expires_at_ms": 1796014800000}, "email": null}
+              example: {"user": {"id": 2, "email": "ben@example.com", "name": "Ben", "role": "member", "status": "invited", "created_at_ms": 1795410000000, "last_sign_in_ms": null, "you": false, "single_sign_on": false, "passkeys": 0}, "link": {"kind": "invite", "url": "http://127.0.0.1:4318/set-password#code=8bV1q0Jm0h6rWw2y7mM5c3xQKk0p0b2N7Hn8yZtq1sE", "expires_at_ms": 1796014800000}, "email": null}
         '400': {$ref: '#/components/responses/BadBody'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
@@ -246,7 +246,7 @@ paths:
       tags: [People]
       summary: Remove a person
       description: |
-        Removes the person with their sessions, personal API tokens and links. The last admin who can sign
+        Removes the person with their sessions, personal API tokens, passkeys and links. The last admin who can sign
         in can't be removed (`409`, `reason` `last_admin`). Needs an admin. Added in 0.5.
       parameters: [{$ref: '#/components/parameters/user_id'}]
       responses:
@@ -281,9 +281,9 @@ paths:
       description: |
         A new one-time link for the person: an invite (`kind` `invite`, 7 days) if they have no password
         yet, else a password reset (`kind` `reset`, 24 hours). It replaces their earlier link. Opening it
-        and choosing a password ends their other sessions. A disabled person gets a `409`. With a mail
-        server set up, the link is emailed to them as when adding a person (`send_email`). Send `{}` as the
-        body. Needs an admin. Added in 0.5.
+        and choosing a password ends their other sessions and removes their passkeys. A disabled person
+        gets a `409`. With a mail server set up, the link is emailed to them as when adding a person
+        (`send_email`). Send `{}` as the body. Needs an admin. Added in 0.5.
       parameters: [{$ref: '#/components/parameters/user_id'}]
       requestBody:
         content:
@@ -307,6 +307,64 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
         '413': {$ref: '#/components/responses/BodyTooLarge'}
         '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+  /api/users/{user_id}/passkeys:
+    get:
+      operationId: list-user-passkeys
+      x-example-request: /api/users/2/passkeys
+      tags: [People]
+      summary: List a person's passkeys
+      description: |
+        The passkeys that can sign the person in, as their own Account page lists them, so an admin can see
+        one the person didn't add. `on` says whether this server has passkeys on. Needs an admin. Added in 0.5.
+      parameters: [{$ref: '#/components/parameters/user_id'}]
+      responses:
+        '200':
+          description: Their passkeys, oldest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [passkeys, 'on']
+                properties:
+                  passkeys: {type: array, items: {$ref: '#/components/schemas/Passkey'}}
+                  'on': {type: boolean}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NoSuchThing'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    delete:
+      operationId: remove-user-passkeys
+      x-example-request: /api/users/2/passkeys
+      tags: [People]
+      summary: Remove all of a person's passkeys
+      description: |
+        None of them can sign the person in any more. Their sessions stay: a password reset link
+        (`POST /api/users/{user_id}/link`) ends those and removes the passkeys too, once the person uses it.
+        `passkeys` says how many were removed. Needs an admin. Added in 0.5.
+      parameters: [{$ref: '#/components/parameters/user_id'}]
+      responses:
+        '200':
+          description: Removed.
+          headers: {Cache-Control: {$ref: '#/components/headers/NoStore'}}
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [removed]
+                properties:
+                  removed:
+                    type: object
+                    additionalProperties: false
+                    required: [id, passkeys]
+                    properties: {id: {type: integer}, passkeys: {type: integer, minimum: 0}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NoSuchThing'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
         '500': {$ref: '#/components/responses/InternalError'}
         '503': {$ref: '#/components/responses/StoreUnreachable'}
   /api/tokens/ingest:
@@ -489,7 +547,9 @@ paths:
         The passkeys that can sign you in (WebAuthn: Face ID, Touch ID, Windows Hello, a phone or a security
         key). `on` says whether this server has passkeys on: they need `--public-url` (`TRAILBEAM_PUBLIC_URL`)
         and `pip install "trailbeam[server,passkeys]"`. With them off the list still answers, and the passkeys
-        in it can't sign anyone in until they are on again. Needs a person: otherwise `403`. Added in 0.5.
+        in it can't sign anyone in until they are on again. `can_add` says whether this request may add one:
+        only when signed in in a browser, not with a personal API token or through the proxy. Needs a person:
+        otherwise `403`. Added in 0.5.
       responses:
         '200':
           description: Your passkeys, oldest first.
@@ -498,10 +558,11 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [passkeys, 'on']
+                required: [passkeys, 'on', can_add]
                 properties:
                   passkeys: {type: array, items: {$ref: '#/components/schemas/Passkey'}}
                   'on': {type: boolean}
+                  can_add: {type: boolean}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
@@ -515,7 +576,10 @@ paths:
         base64url (the shape of `PublicKeyCredential.toJSON()`). The challenge in it works once, for 5 minutes.
         The passkey must check the person (user verification). `400`: the answer doesn't check out, or its
         challenge ran out or was used. `409`: passkeys are off (`reason` `passkeys_off`), or the passkey is saved
-        already or you have 20, the most one person can have (`passkey_taken`). Needs a person. Added in 0.5.
+        already or you have 20, the most one person can have (`passkey_taken`). Needs a browser session: a
+        personal API token or a sign-in through the proxy gets `403` (`reason` `needs_a_session`), so a token
+        can't add a passkey that outlives it. Each passkey added is logged with the client's address. Added in
+        0.5.
       requestBody:
         required: true
         content:
@@ -557,7 +621,8 @@ paths:
         `publicKey` options as JSON, binary fields in base64url, with a new challenge that works once, for 5
         minutes. The relying party is the host name of `--public-url`; your passkeys are left out
         (`excludeCredentials`), so an authenticator doesn't make a second one. Send `{}`. `409` while passkeys
-        are off (`reason` `passkeys_off`). Needs a person. Added in 0.5.
+        are off (`reason` `passkeys_off`). Needs a browser session, as adding one does (`403`, `reason`
+        `needs_a_session`). Added in 0.5.
       requestBody:
         required: false
         content:
@@ -2968,12 +3033,12 @@ components:
         error: {type: string, description: What was wrong with the request.}
         reason:
           type: string
-          enum: [last_admin, email_taken, disabled, closes_open_ingest, csrf, no_mail_server, passkeys_off, passkey_taken]
+          enum: [last_admin, email_taken, disabled, closes_open_ingest, csrf, no_mail_server, passkeys_off, passkey_taken, needs_a_session]
           description: On some `403` and `409` answers of the people and token routes, a word for the cause.
     User:
       type: object
       additionalProperties: false
-      required: [id, email, name, role, status, created_at_ms, last_sign_in_ms, you, single_sign_on]
+      required: [id, email, name, role, status, created_at_ms, last_sign_in_ms, you, single_sign_on, passkeys]
       properties:
         id: {type: integer}
         email: {type: string}
@@ -2993,6 +3058,12 @@ components:
           description: |
             The person has signed in with single sign-on (OIDC). Removing them doesn't keep them out: their next
             single sign-on creates them again, as a new person with the default role. Disable them instead.
+        passkeys:
+          type: integer
+          minimum: 0
+          description: |
+            How many passkeys can sign the person in. `GET /api/users/{user_id}/passkeys` lists them and
+            `DELETE` removes them. Added in 0.5.
     UserLink:
       type: object
       additionalProperties: false

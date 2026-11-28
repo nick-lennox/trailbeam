@@ -4,14 +4,16 @@ webauthn library checks for real. SQLite here, and Postgres with TRAILBEAM_TEST_
 from __future__ import annotations
 
 import json
+import logging
 import time
+import urllib.parse
 
 import pytest
 
 pytest.importorskip("webauthn")
 
 from test_openapi import request  # noqa: E402
-from test_people_api import PW, QUICK, Server, store  # noqa: E402,F401  (store: the fixture)
+from test_people_api import PW, QUICK, Server, _code, set_password, store  # noqa: E402,F401  (store: the fixture)
 from webauthn_fake import Authenticator, b64  # noqa: E402
 
 from trailbeam.server import passkeys as passkeys_mod, web  # noqa: E402
@@ -20,9 +22,22 @@ PUBLIC = "https://trailbeam.example.com"
 J = {"Content-Type": "application/json"}
 
 
+def browser(s, email):
+    """A session cookie for this person, signed in with their password as in a browser: only a session adds a
+    passkey (QV-695)."""
+    form = urllib.parse.urlencode({"email": email, "password": PW, "next": "/"}).encode()
+    st, hdrs, _ = request(s.url, "POST", "/login", form, {"Content-Type": "application/x-www-form-urlencoded"})
+    assert st == 303, st
+    return _cookie(hdrs)
+
+
 @pytest.fixture
 def srv(store):  # noqa: F811
+    """Ada (admin) and Ben (member) signed in in a browser (``admin``, ``member``), and their personal API tokens
+    (``admin_token``, ``member_token``)."""
     s = Server(store, None, public_url=PUBLIC)
+    s.admin_token, s.member_token = s.admin, s.member
+    s.admin, s.member = browser(s, "ada@example.com"), browser(s, "ben@example.com")
     yield s
     s.close()
 
@@ -59,7 +74,7 @@ def test_add_a_passkey_then_sign_in_with_it(srv):
     pk = out["passkey"]
     assert pk["name"] == "Chrome on Mac" and pk["synced"] is True and pk["last_used_ms"] is None
     st, _, listed = srv("GET", "/api/me/passkeys", None, srv.admin)
-    assert st == 200 and listed == {"passkeys": [pk], "on": True}
+    assert st == 200 and listed == {"passkeys": [pk], "on": True, "can_add": True}
 
     (st, hdrs, out), _ = sign_in(srv, a)
     assert st == 200, out
@@ -267,6 +282,90 @@ def test_removing_the_person_removes_their_passkeys(srv):
     assert sign_in(srv, a)[0][0] == 401
 
 
+# ---- a credential that outlives a compromise (QV-695) -------------------------------------------------------
+
+def test_a_personal_token_cant_add_a_passkey(srv):
+    """A short-lived CI token, or one copied for a while, must not leave behind a passkey that outlives it."""
+    a = Authenticator(PUBLIC)
+    st, _, out = srv("POST", "/api/me/passkeys/options", {}, srv.admin_token)
+    assert st == 403 and out["reason"] == "needs_a_session" and "browser" in out["error"]
+    # nor with options a session got: the answer is plain JSON a script could send with the token
+    opts = srv("POST", "/api/me/passkeys/options", {}, srv.admin)[2]["options"]
+    st, _, out = srv("POST", "/api/me/passkeys", {"name": "x", "credential": a.create(opts)}, srv.admin_token)
+    assert st == 403 and out["reason"] == "needs_a_session"
+    assert srv.acc.passkeys(srv.ada) == []
+    # the token still lists and removes them
+    listed = srv("GET", "/api/me/passkeys", None, srv.admin_token)[2]
+    assert listed == {"passkeys": [], "on": True, "can_add": False}
+    pid = add(srv, srv.admin, a)[2]["passkey"]["id"]
+    assert srv("DELETE", f"/api/me/passkeys/{pid}", None, srv.admin_token)[0] == 200
+
+
+def test_a_sign_in_through_the_proxy_cant_add_a_passkey(srv):
+    """A passkey added through the proxy would sign the person in after the proxy link is removed."""
+    from trailbeam.server.access import Who
+    from trailbeam.server.people_api import ApiProblem
+
+    proxy = Who("proxy", "admin", srv.ada, "ada@example.com", "Ada")
+    for handler in ("passkey_options", "add_my_passkey"):
+        with pytest.raises(ApiProblem) as e:
+            srv.app.people.call(handler, None, {"name": "x", "credential": {}}, proxy, PUBLIC, 0)
+        assert e.value.status == 403 and e.value.reason == "needs_a_session"
+    assert srv.app.people.call("list_my_passkeys", None, None, proxy, PUBLIC, 0)[1]["can_add"] is False
+
+
+def test_adding_a_passkey_is_logged_as_a_warning_with_the_address(srv, caplog):
+    with caplog.at_level(logging.WARNING, logger="trailbeam.server"):
+        pid = add(srv, srv.member, Authenticator(PUBLIC), name="Ben's key")[2]["passkey"]["id"]
+    assert any(r.levelno == logging.WARNING and f"user {srv.ben} added passkey {pid} (\"Ben's key\") from 127.0.0.1"
+               in r.getMessage() for r in caplog.records), [r.getMessage() for r in caplog.records]
+
+
+def test_a_reset_link_removes_the_passkeys(srv):
+    """A reset is how an admin takes an account back: a passkey someone else added must stop signing in."""
+    a, other = Authenticator(PUBLIC), Authenticator(PUBLIC)
+    add(srv, srv.member, a)
+    add(srv, srv.admin, other)
+    link = srv("POST", f"/api/users/{srv.ben}/link", {}, srv.admin_token)[2]["link"]
+    st, _, body = request(srv.url, "GET", "/set-password")
+    assert b"your passkeys" in body
+    st, hdrs, _ = set_password(srv, _code(link["url"]), pw="a new password 123")
+    assert st == 303
+    assert srv.acc.passkeys(srv.ben) == []
+    assert sign_in(srv, a)[0][0] == 401
+    assert srv("GET", "/api/me", None, srv.member)[0] == 401  # and the session ended, as before
+    assert sign_in(srv, other)[0][0] == 200  # Ada's stay
+
+
+def test_the_command_line_reset_removes_the_passkeys(srv):
+    add(srv, srv.member, Authenticator(PUBLIC))
+    assert srv.acc.set_password(srv.ben, QUICK.hash("another one 123"), 1) is True
+    assert len(srv.acc.passkeys(srv.ben)) == 1  # a plain password change keeps them
+    assert srv.acc.set_password(srv.ben, QUICK.hash("another one 123"), 1, remove_passkeys=True) is True
+    assert srv.acc.passkeys(srv.ben) == []
+
+
+def test_an_admin_sees_and_removes_someone_elses_passkeys(srv):
+    a = Authenticator(PUBLIC)
+    pk = add(srv, srv.member, a, name="Not Ben's")[2]["passkey"]
+    add(srv, srv.member, Authenticator(PUBLIC))
+    users = {u["id"]: u for u in srv("GET", "/api/users", None, srv.admin_token)[2]["users"]}
+    assert users[srv.ben]["passkeys"] == 2 and users[srv.ada]["passkeys"] == 0
+    st, _, out = srv("GET", f"/api/users/{srv.ben}/passkeys", None, srv.admin_token)
+    assert st == 200 and out["on"] is True and out["passkeys"][0] == pk and len(out["passkeys"]) == 2
+    # a member can't, not even their own this way
+    assert srv("GET", f"/api/users/{srv.ben}/passkeys", None, srv.member)[0] == 403
+    assert srv("DELETE", f"/api/users/{srv.ben}/passkeys", None, srv.member)[0] == 403
+    assert srv("GET", "/api/users/999/passkeys", None, srv.admin_token)[0] == 404
+    assert srv("DELETE", "/api/users/999/passkeys", None, srv.admin_token)[0] == 404
+    st, _, out = srv("DELETE", f"/api/users/{srv.ben}/passkeys", None, srv.admin)
+    assert st == 200 and out == {"removed": {"id": srv.ben, "passkeys": 2}}
+    assert sign_in(srv, a)[0][0] == 401
+    assert srv("GET", f"/api/users/{srv.ben}", None, srv.admin_token)[0] in (404, 405)  # no such route: unchanged
+    assert srv("GET", "/api/me", None, srv.member)[0] == 200  # sessions stay: a reset link ends those
+    assert srv("DELETE", f"/api/users/{srv.ben}/passkeys", None, srv.admin)[2]["removed"]["passkeys"] == 0
+
+
 def test_the_shared_token_has_no_passkeys(store):  # noqa: F811
     s = Server(store, "shared-token-0123456789abcdef", public_url=PUBLIC)
     try:
@@ -282,7 +381,7 @@ def test_off_without_the_public_url(store):  # noqa: F811
     s = Server(store, None)
     try:
         assert s.app.passkeys is None
-        assert s("GET", "/api/me/passkeys", None, s.admin)[2] == {"passkeys": [], "on": False}
+        assert s("GET", "/api/me/passkeys", None, s.admin)[2] == {"passkeys": [], "on": False, "can_add": False}
         st, _, out = s("POST", "/api/me/passkeys/options", {}, s.admin)
         assert st == 409 and out["reason"] == "passkeys_off" and "TRAILBEAM_PUBLIC_URL" in out["error"]
         assert s("POST", "/api/me/passkeys", {"name": "x", "credential": {}}, s.admin)[0] == 409

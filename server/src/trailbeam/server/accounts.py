@@ -176,14 +176,18 @@ class Accounts:
     def users(self) -> list[dict]:
         return self._read(_USER_SELECT + " ORDER BY id")
 
-    def set_password(self, user_id: int, password_hash: str, now_ms: int, *, keep_session: Optional[str] = None) -> bool:
+    def set_password(self, user_id: int, password_hash: str, now_ms: int, *, keep_session: Optional[str] = None,
+                     remove_passkeys: bool = False) -> bool:
         """A new password hash. Ends the person's sessions, all but ``keep_session`` (the hash of the session
-        that changed it), in the same transaction. False: no such person. Also clears a sign-in lock."""
+        that changed it), in the same transaction; with ``remove_passkeys`` (a reset by an admin, QV-695) their
+        passkeys go too. False: no such person. Also clears a sign-in lock."""
         with self._write() as tx:
             if not tx.run("UPDATE users SET password_hash = ?, updated_at_ms = ?, failed_count = 0, "
                           "locked_until_ms = NULL WHERE id = ?", (password_hash, now_ms, user_id)):
                 return False
             tx.run("DELETE FROM sessions WHERE user_id = ? AND id_sha256 <> ?", (user_id, keep_session or ""))
+            if remove_passkeys:
+                tx.run("DELETE FROM passkeys WHERE user_id = ?", (user_id,))
         return True
 
     def rehash_password(self, user_id: int, old_hash: str, new_hash: str) -> bool:
@@ -439,6 +443,16 @@ class Accounts:
         with self._write() as tx:
             return bool(tx.run("DELETE FROM passkeys WHERE id = ? AND user_id = ?", (passkey_id, user_id)))
 
+    def remove_passkeys(self, user_id: int) -> int:
+        """Every passkey of this person (an admin cleaning up an account, QV-695): how many there were."""
+        with self._write() as tx:
+            return tx.run("DELETE FROM passkeys WHERE user_id = ?", (user_id,))
+
+    def passkey_counts(self) -> dict[int, int]:
+        """How many passkeys each person has, for the People list; people with none are left out."""
+        return {int(r["user_id"]): int(r["n"]) for r in
+                self._read("SELECT user_id, COUNT(*) AS n FROM passkeys GROUP BY user_id")}
+
     def create_user_code(self, user_id: int, kind: str, code_sha256: str, now_ms: int, expires_at_ms: int) -> bool:
         """A person's invite or reset code. It replaces every earlier code of theirs, so only the newest link works.
         False: no such person."""
@@ -463,7 +477,9 @@ class Accounts:
 
     def use_user_code(self, code_sha256: str, password_hash: str, now_ms: int) -> int:
         """Use up an invite or reset code and set its person's password, in one transaction, so a code works once
-        even with several replicas. Ends the person's sessions and clears a sign-in lock. Their ID; raises
+        even with several replicas. Ends the person's sessions, removes their passkeys (a reset link is how an
+        account that someone else got into is taken back, and a passkey they added would still sign them in;
+        QV-695) and clears a sign-in lock. Their ID; raises
         BadSetupCode when the code is unknown, used, out of date, or its person is disabled."""
         with self._write() as tx:
             r = tx.one("SELECT c.user_id FROM setup_codes c JOIN users u ON u.id = c.user_id "
@@ -476,6 +492,7 @@ class Accounts:
             tx.run("UPDATE users SET password_hash = ?, updated_at_ms = ?, failed_count = 0, locked_until_ms = NULL "
                    "WHERE id = ?", (password_hash, now_ms, uid))
             tx.run("DELETE FROM sessions WHERE user_id = ?", (uid,))
+            tx.run("DELETE FROM passkeys WHERE user_id = ?", (uid,))
             tx.run("DELETE FROM setup_codes WHERE user_id = ? AND used_at_ms IS NULL", (uid,))
         return uid
 

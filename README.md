@@ -666,7 +666,8 @@ trailbeam tokens revoke 3                            # --personal for a personal
 - **Removing someone who signs in with single sign-on doesn't keep them out.** At their next sign-in the provider
   lets them in again, as a new person with the default role (`trailbeam users remove` says so first). To keep them
   out, disable them instead.
-- Changing someone's role or password, or disabling or removing them, ends their sessions. Running servers see it
+- Changing someone's role or password, or disabling or removing them, ends their sessions (a new password also
+  removes their passkeys). Running servers see it
   within 20 seconds, a revoked token within 30 seconds, and a new admin or a first ingest token within 5 seconds.
 - The commands never create or upgrade a store: they refuse a file that doesn't exist, a store at an older or
   newer schema version (start the new server once first), and `--db :memory:`, which only the server can reach.
@@ -737,7 +738,7 @@ curl -H "$ADMIN" -H 'Content-Type: application/json' -d '{"name": "orders-api pr
 - Adding a person gives no password: the answer holds a one-time **invite link**
   (`/set-password#code=...`, 7 days) for them to choose one. `POST /api/users/{id}/link` makes a new one, or for
   someone who has a password a **reset link** (24 hours). Choosing a password from a link ends the person's other
-  sessions. Each new link replaces the last, and the store keeps only its hash. Without a mail server, Trailbeam
+  sessions and removes their passkeys. Each new link replaces the last, and the store keeps only its hash. Without a mail server, Trailbeam
   sends no email: pass the link on privately, because until it is used it opens that person's account. With one,
   both routes email the link to the person (send `"send_email": false` not to), and the answer's `email` says
   whether it was sent; once it was, the answer leaves out the link's `url`.
@@ -872,6 +873,15 @@ trailbeam --accounts --public-url https://trailbeam.example.com
   passwords. Disabling a person stops their passkeys too; removing them removes their passkeys. Removing a passkey
   doesn't end the sessions it started. Attestation isn't asked for, so any authenticator works. Each person can have
   up to 20.
+- **Only in a browser.** Adding a passkey needs someone signed in in a browser. A personal API token, or a sign-in
+  through a proxy, gets `403`: otherwise a token made for CI, or a request the proxy let in, could leave behind a
+  passkey that keeps signing in after the token is revoked or the proxy link removed. Each passkey added is logged
+  at warning level with the client's address.
+- **Taking an account back.** A password reset link (the People page, or `POST /api/users/{id}/link`) removes the
+  person's passkeys when they choose the new password, along with ending their sessions; so does
+  `trailbeam users reset-password`. They add their passkeys again afterwards. The People list says how many passkeys
+  each person has; `GET /api/users/{id}/passkeys` lists them and `DELETE /api/users/{id}/passkeys` removes them all
+  without a reset (their sessions stay). Personal API tokens still survive a reset: revoke them on the Tokens page.
 
 ### Sign in with GitHub
 

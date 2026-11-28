@@ -13,8 +13,9 @@ is ``MEMBER``, so a page or file added later is never open by mistake):
 - ``ADMIN``: managing people and ingest tokens: ``/api/users`` and ``/api/tokens/ingest`` (``API_ROUTES``,
   people_api.py), the People page (``/people``), and ``trailbeam users`` / ``trailbeam tokens`` (cli.py). A person's
   own personal API tokens (``/api/me/tokens``) and passkeys (``/api/me/passkeys``) are ``MEMBER``, and need a
-  person; so are the Tokens page (``/tokens``), which shows the ingest tokens only to an admin, and the Account
-  page (``/account``).
+  person (adding a passkey needs a browser session, people_api.py); so are the Tokens page (``/tokens``), which
+  shows the ingest tokens only to an admin, and the Account page (``/account``). Someone else's passkeys
+  (``/api/users/{id}/passkeys``) are ``ADMIN``.
 
 **Two modes, switched by the store, not by a setting.** ``State`` asks the store whether an admin exists at most
 every ``STATE_TTL_S`` (5 s), on every replica, so when the first admin is created every replica switches within
@@ -84,6 +85,8 @@ API_ROUTES: tuple[tuple[str, str, str, str], ...] = (
     ("PATCH", "/api/users/{id}", ADMIN, "change_user"),
     ("DELETE", "/api/users/{id}", ADMIN, "remove_user"),
     ("POST", "/api/users/{id}/link", ADMIN, "user_link"),
+    ("GET", "/api/users/{id}/passkeys", ADMIN, "list_user_passkeys"),
+    ("DELETE", "/api/users/{id}/passkeys", ADMIN, "remove_user_passkeys"),
     ("GET", "/api/tokens/ingest", ADMIN, "list_ingest_tokens"),
     ("POST", "/api/tokens/ingest", ADMIN, "create_ingest_token"),
     ("DELETE", "/api/tokens/ingest/{id}", ADMIN, "revoke_ingest_token"),
