@@ -1485,6 +1485,9 @@ can't run on the upgraded database either: to go back, restore a backup taken be
 checks the version when it starts. So when a release changes the Postgres schema, stop every replica before you
 start the new version, unless that release's notes say a rolling upgrade is safe ([CHANGELOG](CHANGELOG.md)
 says which releases change it). An older replica still running would store spans the new schema doesn't index.
+0.5.0 upgrades a 0.4.0 database from Postgres schema 6 to 23: stop every 0.4.0 replica first. With the Helm
+chart, upgrade with `--set strategy.type=Recreate`: its default rolling update runs old and new pods together,
+and the spans the old pods store then never reach the queue pages, flows and `/api/events` (QV-720).
 0.4.0 upgrades a 0.3.0 (or 0.2.0) database to Postgres schema 6: stop every older replica first. Schema 5
 partitions the two lookup tables, one day at a time: 8 s for a database of 1M spans on our test machine, and
 about as long again per further million (an estimate). The first retention pass after it then seals the older
@@ -1842,10 +1845,12 @@ message, list and tenant count reads the same as before
   Once it has, **0.4.0 and 0.3.0 can't open it again**: they stop at start with `the database is at schema
   version 16, written by a newer Trailbeam ... Refusing to start, so nothing is lost`. To go back, restore the
   backup you took first.
-- **Postgres.** Stop every replica before you start the new version. It moves the database to schema 10 (from
-  0.3.0's 4, about 8 s per 1M spans, see the [changelog](CHANGELOG.md)). Once it has, 0.4.0 and 0.3.0 stop at
-  start with `the database is at Postgres schema version 10, written by a newer Trailbeam ... Refusing to
-  start, so nothing is lost`. To go back, restore the backup you took first.
+- **Postgres.** Stop every replica before you start the new version. A 0.4.0 replica left running keeps storing
+  spans that never reach the queue pages, flows and `/api/events`, and nothing adds them later (QV-720). With the
+  Helm chart, upgrade with `--set strategy.type=Recreate` ([Upgrades](#upgrades)). The new version moves the
+  database to schema 23 (from 0.4.0's 6, or 0.3.0's 4, see the [changelog](CHANGELOG.md)). Once it has, 0.4.0
+  and 0.3.0 stop at start with `the database is at Postgres schema version 23, written by a newer Trailbeam ...
+  Refusing to start, so nothing is lost`. To go back, restore the backup you took first.
 - **Accounts stay off** unless every replica runs with `--accounts` (`TRAILBEAM_ACCOUNTS=1`), a preview in this
   release, and then until you create the first admin. Upgrade every replica first: a replica still on 0.4.0
   or 0.3.0 keeps letting `TRAILBEAM_TOKEN` into the web screen and the API after the others have switched.
