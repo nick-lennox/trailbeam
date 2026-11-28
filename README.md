@@ -44,10 +44,10 @@ answers a narrower question: where did this one message go?
   empty receives and moves back from a dead-letter queue are not recorded
   ([what is not recorded](https://docs.trailbeam.app/concepts/what-is-recorded#what-is-not-recorded)).
 - **Purges.** A `PurgeQueue` call is recorded for the queue. A message whose last step ended before the
-  purge started reads "purged (observed: PurgeQueue at …)" and leaves Stuck. One whose last step ended
-  during the purge or within 60 s after it stays on Stuck, marked "possibly purged": SQS may or may not
+  purge started reads "purged (observed: PurgeQueue at …)" and leaves Issues. One whose last step ended
+  during the purge or within 60 s after it stays on Issues, marked "possibly purged": SQS may or may not
   have deleted it. A message that SQS drops when its retention period ends can't be seen, so it stays on
-  Stuck until Trailbeam's own retention removes it.
+  Issues until Trailbeam's own retention removes it.
 - **SNS fan-out.** A message that reached SQS through an SNS topic starts at its publish: the timeline
   shows "Published to topic …", the process that published, the other SQS messages the publish reached,
   and, with raw delivery off, the SNS delivery time. If the publisher runs no Trailbeam package, the
@@ -1179,13 +1179,13 @@ installed and credentials were found. For an SQS emulator, set `AWS_ENDPOINT_URL
 With AWS reads on, Trailbeam can also redrive a dead-letter queue: move every message in it back to the queue it
 came from, with SQS's own message move task (`StartMessageMoveTask`). It is the one thing Trailbeam does that changes
 a queue, so it is off until an admin names, in **Settings** under AWS, the dead-letter queues it may redrive (exact
-names such as `orders-dlq`, or patterns such as `*-dlq`). Then admins get **Redrive whole DLQ** on Stuck, for the
+names such as `orders-dlq`, or patterns such as `*-dlq`). Then admins get **Redrive whole DLQ** on Issues, for the
 dead-letter queues they tick, and on the page of a message in a dead-letter queue. Members see the log but can't
 redrive.
 
 Pressing it shows how many messages the queue holds and asks to confirm. SQS moves the whole queue, oldest first,
 not only the messages you picked, and each message moved gets a new message ID. A move already running is not
-started twice. Every request is kept in the redrive log on Stuck, with who asked and when, and the log follows the
+started twice. Every request is kept in the redrive log on Issues, with who asked and when, and the log follows the
 move: SQS can report a move finished before it has moved everything, so it says Done only once the dead-letter
 queue is seen empty a minute later. A running move can be cancelled there; SQS can keep moving for a while after.
 The log is in the server's database (SQLite or Postgres) and is never deleted by retention. The same is at
@@ -1235,7 +1235,7 @@ Alerts send a message to Slack, a webhook or email when a cause of stuck message
 
 Turn them on with `TRAILBEAM_ALERT_CHECK` where the server runs: a number of minutes from 1 to 1440, or `on` for
 every 5. In the team install, set it in `.env`; in the Helm chart, add it to `extraEnv`. Restart the server, and
-**Alerts** is in the sidebar and each cause on **Stuck** has **Alert me**. A value the server can't read stops it at
+**Alerts** is in the sidebar and each cause on **Issues** has **Alert me**. A value the server can't read stops it at
 start with the reason.
 
 ```sh norun="starts a server that keeps running; test_alerts_api.py tests the settings"
@@ -1252,7 +1252,7 @@ trailbeam
      you add the channel).
    - Email: up to 10 addresses. Needs the mail server in the table below.
 2. Press **Send test** on the channel. The page shows whether the channel took it.
-3. On **Stuck**, press **Alert me** on a cause, pick the channels, and pick when to send: at every check that
+3. On **Issues**, press **Alert me** on a cause, pick the channels, and pick when to send: at every check that
    finds new messages, or once, then again only after a quiet period. Any member can make, mute and delete rules.
 
 The check runs inside the server, one at a time. Replicas on one Postgres share rules and channels, and a lease
@@ -2109,7 +2109,7 @@ longer overloads, send through a Collector with a sending queue ([`collector/`](
 The list endpoints (`/api/messages`, `/api/duplicates`, `/api/stuck`) return at most `limit` messages
 (default 100, at most 1,000) and a `next_cursor`: pass it back as `cursor` for the next page, `null`
 on the last one. `from_ms`/`to_ms` (milliseconds since the epoch, both included) keep messages last
-seen in that range (Stuck: `from_ms`, first seen). Lists read a per-message summary the server keeps
+seen in that range (`/api/stuck`: `from_ms`, first seen). Lists read a per-message summary the server keeps
 up to date as spans arrive, so a page costs about the same however much history is stored.
 
 ### Metrics: `GET /metrics`

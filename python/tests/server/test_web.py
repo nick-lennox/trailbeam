@@ -198,6 +198,8 @@ def test_stuck_page(site):
     assert f'href="{page(MID)}"' not in html  # deleted, so not stuck
     assert 'name="older_than_s" value="60"' in html and "days" in html
     assert "(DLQ, from orders)" in html
+    # the page is Issues since QV-708: the header names it so, and its filters stay on /issues (QV-804)
+    assert '<a href="/issues">Issues</a>' in html and ">Stuck</a>" not in html and 'action="/issues"' in html
 
 
 def test_queue_filter_and_empty_lists(site):

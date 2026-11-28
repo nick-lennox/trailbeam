@@ -18,7 +18,8 @@ Pages:
   exchange, routed, delivered, acked, requeued, refused, returned to the queue with its cause, and a move to a
   dead-letter queue reported by RabbitMQ's ``x-death`` header (``_amqp``).
 - ``/duplicates``: duplicates (messages received or handled more than once).
-- ``/stuck``: stuck messages. ``/issues`` is the same page without the shared UI's build (with it, Issues: QV-708).
+- ``/issues``, and ``/stuck``, its old address: stuck messages. With the shared UI's build this is the Issues page
+  (QV-708), and ``/stuck`` redirects to it.
 - ``/tenants``: per tenant, sends, share, p95 time in queue and dead-lettered messages (contract/tenants.md).
   ``/?tenant=...`` lists one tenant's messages.
 
@@ -238,7 +239,7 @@ def handle(api: Callable[[str, dict], object], api_error: type, path: str, query
         from .ui_files import is_issue_page
         if is_issue_page(path):
             return _shell_only("Issue", "<code>/api/causes?cause=</code> with the issue's ID, and the "
-                               '<a href="/stuck">stuck messages</a> page')
+                               '<a href="/issues">Issues</a> page')
         return None
     try:
         return page(api, query)
@@ -426,12 +427,12 @@ def _stuck(api, q: dict) -> Response:
             f'<p class="muted">Messages first seen more than {_threshold(int(data["older_than_s"]))} ago that no '
             "consumer has deleted yet, oldest first. Change the age with Older than, or the server default with "
             "<code>--stuck-after</code> (<code>TRAILBEAM_STUCK_AFTER_S</code>).</p>"
-            + _filters("/stuck", {**q, "older_than_s": str(data["older_than_s"])},
+            + _filters("/issues", {**q, "older_than_s": str(data["older_than_s"])},
                        [("older_than_s", "Older than (s)", "number"), ("queue", "Queue", "text"),
                         ("limit", "Limit", "number")])
             + _summary_table(data["messages"], extra=("Age", _stuck_age),
                              empty=NO_SPANS if not data["messages"] and _store_empty(api) else "No stuck messages.")
-            + _next("/stuck", q, data)
+            + _next("/issues", q, data)
             + f'<p class="muted">{STUCK_LEAVES_SQS_NOTE}</p>'
             + f'<p class="muted">{AMQP_STUCK_NOTE}</p>'
             + '<p class="muted">Times are in UTC. Age is this server\'s clock now minus the send\'s time on the '
@@ -900,7 +901,7 @@ def _page(status: int, title: str, body: str) -> Response:
             "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
             f"<title>{escape(title)} - Trailbeam</title><style>{CSS}</style></head><body>"
             '<header><a class="brand" href="/">Trailbeam</a><a href="/">Messages</a>'
-            '<a href="/duplicates">Duplicates</a><a href="/stuck">Stuck</a><a href="/tenants">Tenants</a>'
+            '<a href="/duplicates">Duplicates</a><a href="/issues">Issues</a><a href="/tenants">Tenants</a>'
             '<form method="get" action="/message"><input type="text" name="id" placeholder="Message ID">'
             "<button>Go</button></form></header>"
             f"<main>{body}</main><footer>Trailbeam {escape(__version__)} · "
