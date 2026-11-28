@@ -21,7 +21,7 @@ from . import __version__
 from . import github as github_mod
 from . import queues as queues_mod
 from . import queue_now as queue_now_mod
-from . import alerts_api, dashboards_api, access as access_mod, auth as auth_mod, causes as causes_mod, proxy_auth as proxy_auth_mod, bodies, csrf, first_admin, \
+from . import alerts_api, aws_api, dashboards_api, access as access_mod, auth as auth_mod, causes as causes_mod, proxy_auth as proxy_auth_mod, bodies, csrf, first_admin, \
     metrics, oidc as oidc_mod, passkeys as passkeys_mod, passwords, people_api, queries, \
     sessions as sessions_mod, trace_links, ui_files, web
 from .accounts import AccountError, Accounts, AdminExists, BadSetupCode, check_email, check_name
@@ -76,7 +76,7 @@ class App:
                  oidc: Optional[oidc_mod.Settings] = None, oidc_provider=None,
                  github: Optional[github_mod.Settings] = None, github_provider=None, alerts="auto",
                  public_url: Optional[str] = None, mailer=None, dashboards="auto",
-                 passkeys="auto", alert_check=None):
+                 passkeys="auto", alert_check=None, aws="auto"):
         self.db = db
         # --public-url: where links in emails and invites point (else the request's address); None: not set
         self.public_url = public_url.rstrip("/") if public_url else None
@@ -148,6 +148,9 @@ class App:
         # TRAILBEAM_DASHBOARDS is off
         self.dashboards: dashboards_api.DashboardsApi | None = \
             dashboards_api.for_app(self) if dashboards == "auto" else dashboards
+        # /api/settings/aws and the AWS reads (aws_api.py, QV-589): always mounted; reads off until an admin names
+        # queues, and with them off no AWS call is made
+        self.aws: aws_api.ServerAws = aws_api.for_app(self) if aws == "auto" else aws
         self._init_metrics()
 
     # ---- /metrics -------------------------------------------------------------------------
@@ -371,13 +374,15 @@ class App:
         except queries.CursorError as e:
             raise ApiError(400, str(e)) from None
 
-    def mounted(self, path: str):
-        """The JSON API mounted at this request path (alerts_api.py or dashboards_api.py), when it is on, or None.
-        Both answer ``call(method, path, body, who, base)`` and raise alerts_api.ApiProblem."""
+    def mounted(self, path: str, method: str = "GET"):
+        """The JSON API mounted at this request path (alerts_api.py, dashboards_api.py or aws_api.py), when it is on,
+        or None. Each answers ``call(method, path, body, who, base)`` and raise alerts_api.ApiProblem."""
         if self.alerts is not None and alerts_api.is_alerts_path(path):
             return self.alerts
         if self.dashboards is not None and dashboards_api.is_dashboards_path(path):
             return self.dashboards
+        if self.aws is not None and aws_api.is_aws_path(path) and method in aws_api.METHODS:
+            return self.aws
         return None
 
     def _not_a_route(self, query: dict, rest: list[str]) -> dict:
@@ -409,6 +414,8 @@ class App:
                            "store_bodies": sorted(self.db.store_bodies), "trace_link": self.trace_link,
                            "proxy_auth": self.proxy_signin is not None,
                            "passkeys": self.passkeys is not None,
+                           # AWS reads (aws_api.py): {"on": False, ...} until an admin turns them on
+                           "aws": self.aws.health() if self.aws is not None else None,
                            "retention": self.purger.status() if self.purger else None}}
 
     def _mode(self) -> str:
@@ -921,12 +928,13 @@ def make_handler(app: App):
             """POST, PATCH and DELETE on the people-and-tokens routes (people_api.py), after csrf.check. The route
             and the person are checked before the body is read."""
             r = access_mod.api_route(method, path)
-            mounted = app.mounted(path) if r is None else None
+            mounted = app.mounted(path, method) if r is None else None
             if r is None and mounted is None:
                 self.close_connection = True
                 self._json(404, {"error": f"no such endpoint: {method} {path}"})
                 return
-            # /api/alerts and /api/dashboards: let in at MEMBER; what needs an admin is checked by the handler
+            # /api/alerts, /api/dashboards and /api/settings/aws: let in at MEMBER; what needs an admin is checked by the
+            # handler
             level, handler, rid = r if r is not None else (access_mod.MEMBER, "", None)
             try:
                 d = app.access.check(self.headers, level, self._scheme(), peer=self._peer())

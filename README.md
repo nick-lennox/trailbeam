@@ -370,6 +370,8 @@ one line each:
    never shows as a message or in any count;
 5. **Last real span**: when the newest span from your services was stored. If none was, it says whether spans
    arrived that are not Trailbeam's (the hooks are not installed) or broke the span contract.
+6. **AWS reads**: off unless an admin turned them on (Settings, AWS). When they are on, it checks that the server
+   has boto3 (`pip install "trailbeam[aws]"`) and finds AWS credentials.
 
 ```console norun="sample output: the hidden steps after it run trailbeam doctor and check these lines"
 $ trailbeam doctor
@@ -382,8 +384,9 @@ trailbeam doctor: server http://127.0.0.1:4318, ingest http://127.0.0.1:4318/v1/
   FAIL  Last real span: no span stored yet
         Likely cause: Trailbeam works (the test span went through), so your services are not sending to it: ...
         Fix: in each service, call trailbeam.boto.install() (Python), ... and set TRAILBEAM_OTLP_TRACES_ENDPOINT=...
+  ok    AWS reads: off: the server makes no AWS calls, and the queue pages show what spans show
 
-1 of 5 checks failed.
+1 of 6 checks failed.
 ```
 
 <!-- doc-test variant=start
@@ -396,7 +399,8 @@ ok    Ingest port accepts connections: 127.0.0.1:4318 accepts connections (http:
 ok    Token accepted: the API and ingest accept the token from OTEL_EXPORTER_OTLP_HEADERS
 ok    Test span stored and read back
 FAIL  Last real span: no span stored yet
-1 of 5 checks failed.
+ok    AWS reads: off: the server makes no AWS calls, and the queue pages show what spans show
+1 of 6 checks failed.
 -->
 
 Each failed check says the likely cause and the fix ([every failure](https://docs.trailbeam.app/reference/troubleshooting#no-data-arrives)). A check that needs an earlier one that failed is skipped.

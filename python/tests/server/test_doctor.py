@@ -77,7 +77,7 @@ def test_a_working_server_with_a_token_passes_every_check(with_token):
         results = doctor.run(target(base, TOKEN), now_ns=NOW)
         out = io.StringIO()
         code = doctor.report(target(base, TOKEN), results, out)
-    assert statuses(results) == ["ok"] * 5, out.getvalue()
+    assert statuses(results) == ["ok"] * 6, out.getvalue()
     assert code == 0 and "All checks passed." in out.getvalue()
     r = by_name(results)
     assert "accept the token" in r["Token accepted"].detail
@@ -89,7 +89,7 @@ def test_a_server_without_a_token_passes(app):
     with serve(app) as base:
         send_real_span(base)
         results = doctor.run(target(base), now_ns=NOW)
-    assert statuses(results) == ["ok"] * 5
+    assert statuses(results) == ["ok"] * 6
     assert "no access token" in by_name(results)["Token accepted"].detail
 
 
@@ -117,12 +117,12 @@ def test_probes_older_than_a_day_are_deleted_when_one_is_stored(db):
 def test_nothing_listening_fails_the_server_and_ingest_and_skips_the_rest():
     base = f"http://127.0.0.1:{free_port()}"
     results = doctor.run(target(base), now_ns=NOW)
-    assert statuses(results) == ["FAIL", "FAIL", "skip", "skip", "skip"]
+    assert statuses(results) == ["FAIL", "FAIL", "skip", "skip", "skip", "skip"]
     r = by_name(results)["Server reachable"]
     assert "nothing is listening" in r.detail and "trailbeam start" in r.fix
     out = io.StringIO()
     assert doctor.report(target(base), results, out) == 1
-    assert "Likely cause:" in out.getvalue() and "Fix:" in out.getvalue() and "2 of 5 checks failed" in out.getvalue()
+    assert "Likely cause:" in out.getvalue() and "Fix:" in out.getvalue() and "2 of 6 checks failed" in out.getvalue()
 
 
 def test_a_host_that_does_not_resolve():
@@ -167,7 +167,7 @@ def test_a_closed_ingest_port_fails_and_names_the_variable_services_read(app):
     r = by_name(results)["Ingest port accepts connections"]
     assert r.status == "FAIL" and "nothing is listening" in r.detail
     assert f"TRAILBEAM_OTLP_TRACES_ENDPOINT={ingest}" in r.fix
-    assert statuses(results)[2:] == ["skip"] * 3
+    assert statuses(results)[2:] == ["skip"] * 4
 
 
 def test_a_wrong_ingest_path_fails(app):
@@ -184,7 +184,7 @@ def test_no_token_given_to_a_server_that_has_one(with_token):
         results = doctor.run(target(base), now_ns=NOW)
     r = by_name(results)["Token accepted"]
     assert r.status == "FAIL" and "missing" in r.detail and "--token-file" in r.fix
-    assert statuses(results)[3:] == ["skip", "skip"]
+    assert statuses(results)[3:] == ["skip", "skip", "skip"]
 
 
 def test_the_wrong_token(with_token):
@@ -338,7 +338,7 @@ def test_no_span_yet_says_the_services_are_not_sending(app):
     r = by_name(results)["Last real span"]
     assert r.status == "FAIL" and r.detail == "no span stored yet"
     assert "the test span went through" in r.cause and "trailbeam.boto.install()" in r.fix
-    assert statuses(results) == ["ok", "ok", "ok", "ok", "FAIL"]
+    assert statuses(results) == ["ok", "ok", "ok", "ok", "FAIL", "ok"]
 
 
 def test_no_span_yet_but_other_traces_arrive(app):
