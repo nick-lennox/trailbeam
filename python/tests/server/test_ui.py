@@ -49,7 +49,7 @@ def test_message_page_is_the_shell_when_built(db, built):
         # and Dashboards (QV-591)
         for path in ("/", "/?queue=orders", "/duplicates", "/stuck?older_than_s=60", "/queues", "/overview?range=24h", "/queue?name=orders&range=4h",
                      "/events", "/events?q=kind%3Adelete&range=7d",
-                     "/dashboards", "/dashboards?id=a1b2c3d4&range=4h"):
+                     "/dashboards", "/dashboards?id=a1b2c3d4&range=4h", "/alerts"):
             status, _, page = get(base + path)
             assert (status, page) == (200, tenants), path
         # People is the shell too, but only for an admin: with no admin yet, nobody gets it (test_people_api.py)

@@ -3,7 +3,7 @@
   dead-letter queues holding them, from GET /api/causes. The views are the shared Needs attention ones
   (../src/causes), the same as the hosted app's. ?cause=<id> narrows the messages to one cause; the URL is the
   page's state, as on the other lists. Redrive is not here: it needs AWS's redrive permissions, which this
-  server doesn't have.
+  server doesn't have. Each cause has the shared "Alert me" (alerts.tsx) while the scheduled alert check is on.
 */
 import { useEffect, useState, type ReactNode } from "react";
 import {
@@ -12,7 +12,9 @@ import {
   type CauseGroup, type CausePage, type TimeRange,
 } from "../src/index.ts";
 import { CopyLink, Frame, Json, getHealth, getJSON, messageHref } from "./chrome.tsx";
+import { AlertMe } from "../src/design/index.ts";
 import { Filters, clock, pick, qs, useRefresh, withQuery } from "./lists.tsx";
+import { SHELL_ALERT_HREFS, useAlerts } from "./alerts.tsx";
 
 type State = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ok"; page: CausePage; storeEmpty: boolean; at: number; asked: string };
 
@@ -59,6 +61,14 @@ export function StuckPage() {
   const causeHref = (g: CauseGroup) => withQuery("/stuck", { ...filters, ...keep, cause: g.id });
   const everyCause = withQuery("/stuck", { ...filters, ...keep });
   const picked = page && wanted ? page.groups.find((g) => g.id === wanted) ?? null : null;
+  // "Alert me" on each cause, while the scheduled check is on (the alert routes are 404 otherwise)
+  const alerts = useAlerts();
+  const ad = alerts.state.kind === "ok" ? alerts.state.data : null;
+  const ruleOf = (g: CauseGroup) => ad?.view.rules.find((x) => x.causeId === g.id) ?? null;
+  const alertMe = ad ? (g: CauseGroup) => (
+    <AlertMe cause={{ id: g.id, label: g.label, queue: g.queue ?? "" }} rule={ruleOf(g)} view={ad.view} canManage={ad.canManage}
+      actions={alerts.rules} hrefs={SHELL_ALERT_HREFS} changed={() => { void alerts.load(); }} />
+  ) : undefined;
   const values = Object.fromEntries(Object.entries(own).filter(([k]) => !(RANGE_PARAMS as readonly string[]).includes(k) && k !== "cause"));
 
   return (
@@ -98,7 +108,8 @@ export function StuckPage() {
               <H2 id="causes-h">Why they didn&rsquo;t finish</H2>
               <Note>{causesNote({ capped: page!.capped, readLimit: page!.read_limit })} This server has spans only, so causes from CloudTrail and Lambda&rsquo;s logs aren&rsquo;t here, and a queue&rsquo;s visibility timeout is taken to be SQS&rsquo;s default of 30 s.</Note>
               <div className={card}>
-                <CauseList groups={page!.groups} nowMs={state.at} picked={picked?.id} href={causeHref} messageHref={messageHref} />
+                <CauseList groups={page!.groups} nowMs={state.at} picked={picked?.id} href={causeHref} messageHref={messageHref}
+                  actions={alertMe} firing={ad ? (g) => ruleOf(g)?.firingSince != null : undefined} />
               </div>
             </section>
 

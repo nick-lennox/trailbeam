@@ -14,7 +14,7 @@ import threading
 import time
 
 from . import __version__
-from . import access, auth, config, first_admin, github, mail, oidc, passkeys, proxy_auth as proxy_auth_mod, trace_links
+from . import access, alerts_api, auth, config, first_admin, github, mail, oidc, passkeys, proxy_auth as proxy_auth_mod, trace_links
 from .accounts import Accounts
 from .backpressure import DEFAULT_MAX_PENDING, DEFAULT_MAX_WAIT_S, IngestGate
 from .db import SqliteStore, parse_queue_list
@@ -482,6 +482,8 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
     try:
         logging.getLogger("trailbeam.server").info("retention %s", retention.config())
         purger.start()
+        # the scheduled alert check (TRAILBEAM_ALERT_CHECK), on a thread of its own; for /api/health
+        httpd.app.alert_check = alerts_api.start_check(httpd.app)
         if on_listening:
             on_listening(a.host, httpd.server_address[1], token, httpd.app)
         httpd.serve_forever()
@@ -489,6 +491,8 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
         pass
     finally:
         purger.stop()
+        if httpd.app.alert_check is not None:  # before the store closes: what a cut-off check held stays held
+            httpd.app.alert_check.stop()
         httpd.server_close()
         db.close()
 

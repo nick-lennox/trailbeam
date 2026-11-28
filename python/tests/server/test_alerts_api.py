@@ -277,6 +277,7 @@ def test_editing_muting_and_deleting_a_rule():
     _, listed = a("GET", "/api/alerts/rules")
     assert listed["rules"][0]["state"]["tone"] == "critical"
     assert listed["checkEvery"] == "every 5 minutes" and listed["quietChoices"][0] == 1800
+    assert listed["everyMin"] == 5  # the shell's "checks are late" note (ui/src/alerts checkStatus)
     assert listed["snoozes"] == [3600, 14400, 86400] and listed["max"] == 100
     assert a("DELETE", f"/api/alerts/rules/{rid}") == (200, {"removed": True})
     assert a.store.alert_states("local") == [] and a("GET", "/api/alerts/rules")[1]["rules"] == []
@@ -292,7 +293,7 @@ def _state(rid, **o):
 def test_the_state_lists_every_rule_and_the_last_check():
     a = Api()
     _, out = a("GET", "/api/alerts/state")
-    assert out == {"alerts": [], "checkedAt": None, "hasChannel": False, "checkEvery": "every 5 minutes"}
+    assert out == {"alerts": [], "checkedAt": None, "hasChannel": False, "checkEvery": "every 5 minutes", "everyMin": 5}
     a.channel()
     dash = {"dashboardId": "d1", "widgetId": "w1", "dashboardName": "Orders", "title": "Depth", "tone": "warning",
             "value": "12", "limit": "above 10", "queue": "orders", "since": T, "checkedAt": T}
@@ -563,3 +564,62 @@ def test_health_shows_the_alert_check_and_a_late_one(monkeypatch):
         assert h["status"] == "late" and h["last_done_at_ms"] == 1_000_000 and h["every_s"] == 300
     finally:
         db.close()
+
+
+# ── the scheduled check in the server (QV-592) ───────────────────────────────────────────────────────────────────
+
+def _post_failure(url, mid, at_ns, text):
+    from spans import SEC, Consumer, to_proto
+    p, w = Consumer("producer"), Consumer("worker", source="lambda")
+    failed = w.outcome(at_ns + 2 * SEC, mid, "failed_exception", f"inv-{mid}", error_type="TimeoutError")
+    failed.attrs["trailbeam.error_message"] = text
+    spans = [p.send(at_ns, mid), w.receive(at_ns + SEC, mid, f"rh-{mid}", lambda_inv=f"inv-{mid}"), failed]
+    status, _h, _b = request(url, "POST", "/v1/traces", to_proto(spans, service="orders-worker").SerializeToString(),
+                             {"Content-Type": "application/x-protobuf"})
+    assert status == 200
+
+
+def test_the_check_in_the_server_reads_stuck_causes_and_sends_to_the_channels(monkeypatch):
+    """check_deps: an "Alert me" rule on one of Stuck's causes fires at the check after a new message hits it, and
+    its change goes to the rule's channel, its outcome noted there (here: no mail server)."""
+    from spans import SEC
+    s = Server(monkeypatch, accounts=False)
+    try:
+        ten_min_ago = time.time_ns() - 600 * SEC
+        _post_failure(s.url, "m-1", ten_min_ago, "Stripe timed out after 10000 ms")
+        cause = s("GET", "/api/causes")[1]["groups"][0]
+        ch = s("POST", "/api/alerts/channels", {"kind": "email", "name": "Ops", "target": "ops@example.com"})[1]["channel"]
+        status, made = s("POST", "/api/alerts/rules", {"causeId": cause["id"], "channels": [ch["id"]], "mode": "every", "quietS": 0})
+        assert status == 201
+        deps = api.check_deps(s.app, s.app.alerts)
+        assert run.has_rules(deps) and deps.channels() == {"local"}
+        first = run.run_alerts(deps)
+        assert (first["workspaces"], first["changes"], first["failed"]) == (1, 0, [])
+        state = s("GET", "/api/alerts/rules")[1]["rules"][0]["state"]
+        assert state["tone"] == "good"  # what was there when the rule was made is not news
+        _post_failure(s.url, "m-2", ten_min_ago + 5 * SEC, "Stripe timed out after 10077 ms")
+        deps.store.checked("local", 0, None)  # as if the last check were long ago, so this one isn't skipped
+        second = run.run_alerts(deps)
+        assert (second["changes"], second["failed"]) == (1, [])
+        assert s("GET", "/api/alerts/rules")[1]["rules"][0]["state"]["tone"] == "critical"
+        noted = s("GET", "/api/alerts/channels")[1]["channels"][0]
+        assert noted["lastOk"] is False and noted["lastDetail"] == "No mail server is set up for alert emails."
+    finally:
+        s.close()
+
+
+def test_the_check_starts_with_the_server_only_when_it_is_on(monkeypatch):
+    off = Server(monkeypatch, check=None, accounts=False)
+    try:
+        assert api.start_check(off.app) is None
+    finally:
+        off.close()
+    on = Server(monkeypatch, check="7", accounts=False)
+    try:
+        sched = api.start_check(on.app)
+        try:
+            assert sched is not None and sched.every_s == 7 * 60
+        finally:
+            assert sched.stop()
+    finally:
+        on.close()
