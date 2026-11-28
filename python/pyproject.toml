@@ -40,6 +40,10 @@ sso = [
 passkeys = [
     "trailbeam-server[passkeys]==0.4.0",
 ]
+# AWS-connected figures (queue settings, CloudWatch depth and age, Lambda triggers): pip install "trailbeam[server,aws]".
+aws = [
+    "trailbeam-server[aws]==0.4.0",
+]
 test = [
     "opentelemetry-proto>=1.28",
     "tomli>=1.1; python_version < '3.11'",

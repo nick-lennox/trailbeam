@@ -1,0 +1,3747 @@
+{
+ "settingsFrom": [
+  {
+   "name": "every attribute Trailbeam uses",
+   "attributes": {
+    "QueueArn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "VisibilityTimeout": "30",
+    "MessageRetentionPeriod": "345600",
+    "DelaySeconds": "0",
+    "RedrivePolicy": "{\"deadLetterTargetArn\": \"arn:aws:sqs:eu-west-1:123456789012:orders-dlq\", \"maxReceiveCount\": 5}",
+    "ApproximateNumberOfMessages": "12",
+    "ApproximateNumberOfMessagesNotVisible": "3",
+    "ApproximateNumberOfMessagesDelayed": "0"
+   },
+   "expected": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlqArn": "arn:aws:sqs:eu-west-1:123456789012:orders-dlq",
+    "dlqName": "orders-dlq",
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   }
+  },
+  {
+   "name": "a FIFO queue",
+   "attributes": {
+    "QueueArn": "arn:aws:sqs:eu-west-1:123456789012:orders.fifo",
+    "VisibilityTimeout": "30",
+    "MessageRetentionPeriod": "345600",
+    "DelaySeconds": "0",
+    "RedrivePolicy": "{\"deadLetterTargetArn\": \"arn:aws:sqs:eu-west-1:123456789012:orders-dlq\", \"maxReceiveCount\": 5}",
+    "ApproximateNumberOfMessages": "12",
+    "ApproximateNumberOfMessagesNotVisible": "3",
+    "ApproximateNumberOfMessagesDelayed": "0",
+    "FifoQueue": "true"
+   },
+   "expected": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders.fifo",
+    "fifo": true,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlqArn": "arn:aws:sqs:eu-west-1:123456789012:orders-dlq",
+    "dlqName": "orders-dlq",
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   }
+  },
+  {
+   "name": "FifoQueue false",
+   "attributes": {
+    "QueueArn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "VisibilityTimeout": "30",
+    "MessageRetentionPeriod": "345600",
+    "DelaySeconds": "0",
+    "RedrivePolicy": "{\"deadLetterTargetArn\": \"arn:aws:sqs:eu-west-1:123456789012:orders-dlq\", \"maxReceiveCount\": 5}",
+    "ApproximateNumberOfMessages": "12",
+    "ApproximateNumberOfMessagesNotVisible": "3",
+    "ApproximateNumberOfMessagesDelayed": "0",
+    "FifoQueue": "false"
+   },
+   "expected": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlqArn": "arn:aws:sqs:eu-west-1:123456789012:orders-dlq",
+    "dlqName": "orders-dlq",
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   }
+  },
+  {
+   "name": "no redrive policy",
+   "attributes": {
+    "QueueArn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "VisibilityTimeout": "30",
+    "MessageRetentionPeriod": "345600",
+    "DelaySeconds": "0",
+    "ApproximateNumberOfMessages": "12",
+    "ApproximateNumberOfMessagesNotVisible": "3",
+    "ApproximateNumberOfMessagesDelayed": "0"
+   },
+   "expected": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": null,
+    "dlqArn": null,
+    "dlqName": null,
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   }
+  },
+  {
+   "name": "maxReceiveCount as a string",
+   "attributes": {
+    "QueueArn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "VisibilityTimeout": "30",
+    "MessageRetentionPeriod": "345600",
+    "DelaySeconds": "0",
+    "RedrivePolicy": "{\"deadLetterTargetArn\": \"arn:aws:sqs:eu-west-1:123456789012:orders-dlq\", \"maxReceiveCount\": \"3\"}",
+    "ApproximateNumberOfMessages": "12",
+    "ApproximateNumberOfMessagesNotVisible": "3",
+    "ApproximateNumberOfMessagesDelayed": "0"
+   },
+   "expected": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 3,
+    "dlqArn": "arn:aws:sqs:eu-west-1:123456789012:orders-dlq",
+    "dlqName": "orders-dlq",
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   }
+  },
+  {
+   "name": "a redrive policy that is not JSON",
+   "attributes": {
+    "QueueArn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "VisibilityTimeout": "30",
+    "MessageRetentionPeriod": "345600",
+    "DelaySeconds": "0",
+    "RedrivePolicy": "{not json",
+    "ApproximateNumberOfMessages": "12",
+    "ApproximateNumberOfMessagesNotVisible": "3",
+    "ApproximateNumberOfMessagesDelayed": "0"
+   },
+   "expected": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": null,
+    "dlqArn": null,
+    "dlqName": null,
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   }
+  },
+  {
+   "name": "a redrive policy of null",
+   "attributes": {
+    "QueueArn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "VisibilityTimeout": "30",
+    "MessageRetentionPeriod": "345600",
+    "DelaySeconds": "0",
+    "RedrivePolicy": "null",
+    "ApproximateNumberOfMessages": "12",
+    "ApproximateNumberOfMessagesNotVisible": "3",
+    "ApproximateNumberOfMessagesDelayed": "0"
+   },
+   "expected": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": null,
+    "dlqArn": null,
+    "dlqName": null,
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   }
+  },
+  {
+   "name": "a redrive policy with no target",
+   "attributes": {
+    "QueueArn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "VisibilityTimeout": "30",
+    "MessageRetentionPeriod": "345600",
+    "DelaySeconds": "0",
+    "RedrivePolicy": "{\"maxReceiveCount\": 2}",
+    "ApproximateNumberOfMessages": "12",
+    "ApproximateNumberOfMessagesNotVisible": "3",
+    "ApproximateNumberOfMessagesDelayed": "0"
+   },
+   "expected": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 2,
+    "dlqArn": null,
+    "dlqName": null,
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   }
+  },
+  {
+   "name": "a target that is not a queue ARN",
+   "attributes": {
+    "QueueArn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "VisibilityTimeout": "30",
+    "MessageRetentionPeriod": "345600",
+    "DelaySeconds": "0",
+    "RedrivePolicy": "{\"deadLetterTargetArn\": \"orders-dlq\", \"maxReceiveCount\": 2}",
+    "ApproximateNumberOfMessages": "12",
+    "ApproximateNumberOfMessagesNotVisible": "3",
+    "ApproximateNumberOfMessagesDelayed": "0"
+   },
+   "expected": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 2,
+    "dlqArn": "orders-dlq",
+    "dlqName": null,
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   }
+  },
+  {
+   "name": "a target that is not a string",
+   "attributes": {
+    "QueueArn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "VisibilityTimeout": "30",
+    "MessageRetentionPeriod": "345600",
+    "DelaySeconds": "0",
+    "RedrivePolicy": "{\"deadLetterTargetArn\": 7, \"maxReceiveCount\": 2}",
+    "ApproximateNumberOfMessages": "12",
+    "ApproximateNumberOfMessagesNotVisible": "3",
+    "ApproximateNumberOfMessagesDelayed": "0"
+   },
+   "expected": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 2,
+    "dlqArn": null,
+    "dlqName": null,
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   }
+  },
+  {
+   "name": "empty values",
+   "attributes": {
+    "QueueArn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "VisibilityTimeout": "",
+    "MessageRetentionPeriod": "345600",
+    "DelaySeconds": "0",
+    "RedrivePolicy": "{\"deadLetterTargetArn\": \"arn:aws:sqs:eu-west-1:123456789012:orders-dlq\", \"maxReceiveCount\": 5}",
+    "ApproximateNumberOfMessages": "",
+    "ApproximateNumberOfMessagesNotVisible": "3",
+    "ApproximateNumberOfMessagesDelayed": "0"
+   },
+   "expected": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": null,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlqArn": "arn:aws:sqs:eu-west-1:123456789012:orders-dlq",
+    "dlqName": "orders-dlq",
+    "visible": null,
+    "inFlight": 3,
+    "delayed": 0
+   }
+  },
+  {
+   "name": "values that are not numbers",
+   "attributes": {
+    "QueueArn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "VisibilityTimeout": "thirty",
+    "MessageRetentionPeriod": "Infinity",
+    "DelaySeconds": "NaN",
+    "RedrivePolicy": "{\"deadLetterTargetArn\": \"arn:aws:sqs:eu-west-1:123456789012:orders-dlq\", \"maxReceiveCount\": 5}",
+    "ApproximateNumberOfMessages": "12",
+    "ApproximateNumberOfMessagesNotVisible": "3",
+    "ApproximateNumberOfMessagesDelayed": "0"
+   },
+   "expected": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": null,
+    "retentionS": null,
+    "delayS": null,
+    "maxReceiveCount": 5,
+    "dlqArn": "arn:aws:sqs:eu-west-1:123456789012:orders-dlq",
+    "dlqName": "orders-dlq",
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   }
+  },
+  {
+   "name": "a fraction and spaces",
+   "attributes": {
+    "QueueArn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "VisibilityTimeout": " 42 ",
+    "MessageRetentionPeriod": "345600",
+    "DelaySeconds": "1.5",
+    "RedrivePolicy": "{\"deadLetterTargetArn\": \"arn:aws:sqs:eu-west-1:123456789012:orders-dlq\", \"maxReceiveCount\": 5}",
+    "ApproximateNumberOfMessages": "12",
+    "ApproximateNumberOfMessagesNotVisible": "3",
+    "ApproximateNumberOfMessagesDelayed": "0"
+   },
+   "expected": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": 42,
+    "retentionS": 345600,
+    "delayS": 1.5,
+    "maxReceiveCount": 5,
+    "dlqArn": "arn:aws:sqs:eu-west-1:123456789012:orders-dlq",
+    "dlqName": "orders-dlq",
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   }
+  },
+  {
+   "name": "nothing",
+   "attributes": {},
+   "expected": {
+    "arn": null,
+    "fifo": false,
+    "visibilityTimeoutS": null,
+    "retentionS": null,
+    "delayS": null,
+    "maxReceiveCount": null,
+    "dlqArn": null,
+    "dlqName": null,
+    "visible": null,
+    "inFlight": null,
+    "delayed": null
+   }
+  }
+ ],
+ "parseQueueArn": [
+  {
+   "arn": "arn:aws:sqs:eu-west-1:123456789012:orders-dlq",
+   "expected": {
+    "name": "orders-dlq",
+    "account": "123456789012",
+    "region": "eu-west-1"
+   }
+  },
+  {
+   "arn": "arn:aws-cn:sqs:cn-north-1:123456789012:a.fifo",
+   "expected": {
+    "name": "a.fifo",
+    "account": "123456789012",
+    "region": "cn-north-1"
+   }
+  },
+  {
+   "arn": "arn:aws:sqs:::bare",
+   "expected": {
+    "name": "bare",
+    "account": null,
+    "region": null
+   }
+  },
+  {
+   "arn": "arn:aws:sqs:eu-west-1:1:with:colon",
+   "expected": {
+    "name": "with:colon",
+    "account": "1",
+    "region": "eu-west-1"
+   }
+  },
+  {
+   "arn": "arn:aws:sns:eu-west-1:1:topic",
+   "expected": null
+  },
+  {
+   "arn": "orders",
+   "expected": null
+  },
+  {
+   "arn": "",
+   "expected": null
+  },
+  {
+   "arn": null,
+   "expected": null
+  }
+ ],
+ "periodFor": [
+  {
+   "name": "the past hour",
+   "fromMs": 1763996400000,
+   "toMs": 1764000000000,
+   "nowMs": 1764000000000,
+   "maxPoints": null,
+   "expected": 60
+  },
+  {
+   "name": "the past day",
+   "fromMs": 1763913600000,
+   "toMs": 1764000000000,
+   "nowMs": 1764000000000,
+   "maxPoints": null,
+   "expected": 60
+  },
+  {
+   "name": "the past 30 days",
+   "fromMs": 1761408000000,
+   "toMs": 1764000000000,
+   "nowMs": 1764000000000,
+   "maxPoints": null,
+   "expected": 1800
+  },
+  {
+   "name": "a day 20 days ago",
+   "fromMs": 1762272000000,
+   "toMs": 1762358400000,
+   "nowMs": 1764000000000,
+   "maxPoints": null,
+   "expected": 300
+  },
+  {
+   "name": "a day 70 days ago",
+   "fromMs": 1757952000000,
+   "toMs": 1758038400000,
+   "nowMs": 1764000000000,
+   "maxPoints": null,
+   "expected": 3600
+  },
+  {
+   "name": "an hour 15 days ago, at the edge",
+   "fromMs": 1762704000000,
+   "toMs": 1762707600000,
+   "nowMs": 1764000000000,
+   "maxPoints": null,
+   "expected": 60
+  },
+  {
+   "name": "a week",
+   "fromMs": 1763395200000,
+   "toMs": 1764000000000,
+   "nowMs": 1764000000000,
+   "maxPoints": null,
+   "expected": 420
+  },
+  {
+   "name": "a minute",
+   "fromMs": 1763999940000,
+   "toMs": 1764000000000,
+   "nowMs": 1764000000000,
+   "maxPoints": null,
+   "expected": 60
+  },
+  {
+   "name": "a day with at most 100 points",
+   "fromMs": 1763913600000,
+   "toMs": 1764000000000,
+   "nowMs": 1764000000000,
+   "maxPoints": 100,
+   "expected": 900
+  }
+ ],
+ "nameMatches": [
+  {
+   "pattern": "orders",
+   "name": "orders",
+   "expected": true
+  },
+  {
+   "pattern": "orders",
+   "name": "orders-dlq",
+   "expected": false
+  },
+  {
+   "pattern": "orders*",
+   "name": "orders-dlq",
+   "expected": true
+  },
+  {
+   "pattern": "*",
+   "name": "anything",
+   "expected": true
+  },
+  {
+   "pattern": "*-dlq",
+   "name": "orders-dlq",
+   "expected": true
+  },
+  {
+   "pattern": "*-dlq",
+   "name": "orders",
+   "expected": false
+  },
+  {
+   "pattern": "orders.fifo",
+   "name": "orders.fifo",
+   "expected": true
+  },
+  {
+   "pattern": "orders.fifo",
+   "name": "ordersXfifo",
+   "expected": false
+  },
+  {
+   "pattern": "a*b*c",
+   "name": "a-b-c",
+   "expected": true
+  },
+  {
+   "pattern": "a*b*c",
+   "name": "a-c",
+   "expected": false
+  },
+  {
+   "pattern": "(x)+",
+   "name": "(x)+",
+   "expected": true
+  },
+  {
+   "pattern": "(x)+",
+   "name": "xx",
+   "expected": false
+  },
+  {
+   "pattern": "",
+   "name": "",
+   "expected": true
+  },
+  {
+   "pattern": "",
+   "name": "orders",
+   "expected": false
+  }
+ ],
+ "aws": {
+  "read, with SQS's counts": {
+   "status": "ok",
+   "detail": null,
+   "accountId": "123456789012",
+   "region": "eu-west-1",
+   "readAt": 1764000000000,
+   "settings": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlqArn": "arn:aws:sqs:eu-west-1:123456789012:orders-dlq",
+    "dlqName": "orders-dlq",
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   },
+   "series": {
+    "recent": {
+     "periodS": 60,
+     "fromMs": 1763996400000,
+     "toMs": 1764000000000,
+     "queue": {
+      "visible": [
+       [
+        1763996400000,
+        4
+       ],
+       [
+        1763996460000,
+        6
+       ],
+       [
+        1763996520000,
+        9
+       ]
+      ],
+      "inFlight": [
+       [
+        1763996400000,
+        1
+       ],
+       [
+        1763996460000,
+        2
+       ],
+       [
+        1763996520000,
+        2
+       ]
+      ],
+      "oldestS": [
+       [
+        1763996400000,
+        30
+       ],
+       [
+        1763996460000,
+        90
+       ],
+       [
+        1763996520000,
+        150
+       ]
+      ],
+      "sent": [
+       [
+        1763996400000,
+        10
+       ],
+       [
+        1763996460000,
+        12
+       ],
+       [
+        1763996520000,
+        9
+       ]
+      ],
+      "deleted": [
+       [
+        1763996400000,
+        8
+       ],
+       [
+        1763996460000,
+        11
+       ],
+       [
+        1763996520000,
+        12
+       ]
+      ]
+     },
+     "dlq": [
+      [
+       1763996400000,
+       0
+      ],
+      [
+       1763996460000,
+       1
+      ],
+      [
+       1763996520000,
+       3
+      ]
+     ]
+    }
+   },
+   "triggers": null,
+   "errors": []
+  },
+  "read, without SQS's counts": {
+   "status": "ok",
+   "detail": null,
+   "accountId": "123456789012",
+   "region": "eu-west-1",
+   "readAt": 1764000000000,
+   "settings": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlqArn": "arn:aws:sqs:eu-west-1:123456789012:orders-dlq",
+    "dlqName": "orders-dlq",
+    "visible": null,
+    "inFlight": null,
+    "delayed": null
+   },
+   "series": {
+    "recent": {
+     "periodS": 60,
+     "fromMs": 1763996400000,
+     "toMs": 1764000000000,
+     "queue": {
+      "visible": [
+       [
+        1763996400000,
+        4
+       ],
+       [
+        1763996460000,
+        6
+       ],
+       [
+        1763996520000,
+        9
+       ]
+      ],
+      "inFlight": [
+       [
+        1763996400000,
+        1
+       ],
+       [
+        1763996460000,
+        2
+       ],
+       [
+        1763996520000,
+        2
+       ]
+      ],
+      "oldestS": [
+       [
+        1763996400000,
+        30
+       ],
+       [
+        1763996460000,
+        90
+       ],
+       [
+        1763996520000,
+        150
+       ]
+      ],
+      "sent": [
+       [
+        1763996400000,
+        10
+       ],
+       [
+        1763996460000,
+        12
+       ],
+       [
+        1763996520000,
+        9
+       ]
+      ],
+      "deleted": [
+       [
+        1763996400000,
+        8
+       ],
+       [
+        1763996460000,
+        11
+       ],
+       [
+        1763996520000,
+        12
+       ]
+      ]
+     },
+     "dlq": [
+      [
+       1763996400000,
+       0
+      ],
+      [
+       1763996460000,
+       1
+      ],
+      [
+       1763996520000,
+       3
+      ]
+     ]
+    }
+   },
+   "triggers": null,
+   "errors": []
+  },
+  "read, with the DLQ's own count": {
+   "status": "ok",
+   "detail": null,
+   "accountId": "123456789012",
+   "region": "eu-west-1",
+   "readAt": 1764000000000,
+   "settings": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlqArn": "arn:aws:sqs:eu-west-1:123456789012:orders-dlq",
+    "dlqName": "orders-dlq",
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   },
+   "series": {
+    "recent": {
+     "periodS": 60,
+     "fromMs": 1763996400000,
+     "toMs": 1764000000000,
+     "queue": {
+      "visible": [
+       [
+        1763996400000,
+        4
+       ],
+       [
+        1763996460000,
+        6
+       ],
+       [
+        1763996520000,
+        9
+       ]
+      ],
+      "inFlight": [
+       [
+        1763996400000,
+        1
+       ],
+       [
+        1763996460000,
+        2
+       ],
+       [
+        1763996520000,
+        2
+       ]
+      ],
+      "oldestS": [
+       [
+        1763996400000,
+        30
+       ],
+       [
+        1763996460000,
+        90
+       ],
+       [
+        1763996520000,
+        150
+       ]
+      ],
+      "sent": [
+       [
+        1763996400000,
+        10
+       ],
+       [
+        1763996460000,
+        12
+       ],
+       [
+        1763996520000,
+        9
+       ]
+      ],
+      "deleted": [
+       [
+        1763996400000,
+        8
+       ],
+       [
+        1763996460000,
+        11
+       ],
+       [
+        1763996520000,
+        12
+       ]
+      ]
+     },
+     "dlq": [
+      [
+       1763996400000,
+       0
+      ],
+      [
+       1763996460000,
+       1
+      ],
+      [
+       1763996520000,
+       3
+      ]
+     ]
+    }
+   },
+   "triggers": null,
+   "errors": [],
+   "dlqNow": {
+    "visible": 7,
+    "at": 1763999995000
+   }
+  },
+  "read, no dead-letter queue": {
+   "status": "ok",
+   "detail": null,
+   "accountId": "123456789012",
+   "region": "eu-west-1",
+   "readAt": 1764000000000,
+   "settings": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": null,
+    "dlqArn": null,
+    "dlqName": null,
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   },
+   "series": {
+    "recent": {
+     "periodS": 60,
+     "fromMs": 1763996400000,
+     "toMs": 1764000000000,
+     "queue": {
+      "visible": [
+       [
+        1763996400000,
+        4
+       ],
+       [
+        1763996460000,
+        6
+       ],
+       [
+        1763996520000,
+        9
+       ]
+      ],
+      "inFlight": [
+       [
+        1763996400000,
+        1
+       ],
+       [
+        1763996460000,
+        2
+       ],
+       [
+        1763996520000,
+        2
+       ]
+      ],
+      "oldestS": [
+       [
+        1763996400000,
+        30
+       ],
+       [
+        1763996460000,
+        90
+       ],
+       [
+        1763996520000,
+        150
+       ]
+      ],
+      "sent": [
+       [
+        1763996400000,
+        10
+       ],
+       [
+        1763996460000,
+        12
+       ],
+       [
+        1763996520000,
+        9
+       ]
+      ],
+      "deleted": [
+       [
+        1763996400000,
+        8
+       ],
+       [
+        1763996460000,
+        11
+       ],
+       [
+        1763996520000,
+        12
+       ]
+      ]
+     },
+     "dlq": [
+      [
+       1763996400000,
+       0
+      ],
+      [
+       1763996460000,
+       1
+      ],
+      [
+       1763996520000,
+       3
+      ]
+     ]
+    }
+   },
+   "triggers": null,
+   "errors": []
+  },
+  "read, CloudWatch returned nothing": {
+   "status": "ok",
+   "detail": null,
+   "accountId": "123456789012",
+   "region": "eu-west-1",
+   "readAt": 1764000000000,
+   "settings": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlqArn": "arn:aws:sqs:eu-west-1:123456789012:orders-dlq",
+    "dlqName": "orders-dlq",
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   },
+   "series": {
+    "recent": {
+     "periodS": 60,
+     "fromMs": 1763996400000,
+     "toMs": 1764000000000,
+     "queue": {
+      "visible": [],
+      "inFlight": [],
+      "oldestS": [],
+      "sent": [],
+      "deleted": []
+     },
+     "dlq": []
+    }
+   },
+   "triggers": null,
+   "errors": []
+  },
+  "read, CloudWatch has no DLQ point": {
+   "status": "ok",
+   "detail": null,
+   "accountId": "123456789012",
+   "region": "eu-west-1",
+   "readAt": 1764000000000,
+   "settings": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlqArn": "arn:aws:sqs:eu-west-1:123456789012:orders-dlq",
+    "dlqName": "orders-dlq",
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   },
+   "series": {
+    "recent": {
+     "periodS": 60,
+     "fromMs": 1763996400000,
+     "toMs": 1764000000000,
+     "queue": {
+      "visible": [
+       [
+        1763996400000,
+        0
+       ]
+      ],
+      "inFlight": [],
+      "oldestS": [
+       [
+        1763996400000,
+        0
+       ]
+      ],
+      "sent": [],
+      "deleted": []
+     },
+     "dlq": []
+    }
+   },
+   "triggers": null,
+   "errors": []
+  },
+  "read, no CloudWatch window": {
+   "status": "ok",
+   "detail": null,
+   "accountId": "123456789012",
+   "region": "eu-west-1",
+   "readAt": 1764000000000,
+   "settings": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlqArn": "arn:aws:sqs:eu-west-1:123456789012:orders-dlq",
+    "dlqName": "orders-dlq",
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   },
+   "series": {},
+   "triggers": null,
+   "errors": []
+  },
+  "read, CloudWatch failed": {
+   "status": "ok",
+   "detail": null,
+   "accountId": "123456789012",
+   "region": "eu-west-1",
+   "readAt": 1764000000000,
+   "settings": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlqArn": "arn:aws:sqs:eu-west-1:123456789012:orders-dlq",
+    "dlqName": "orders-dlq",
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   },
+   "series": {},
+   "triggers": null,
+   "errors": [
+    "cloudwatch:GetMetricData failed with AccessDenied."
+   ]
+  },
+  "read, two failures": {
+   "status": "ok",
+   "detail": null,
+   "accountId": "123456789012",
+   "region": "eu-west-1",
+   "readAt": 1764000000000,
+   "settings": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlqArn": "arn:aws:sqs:eu-west-1:123456789012:orders-dlq",
+    "dlqName": "orders-dlq",
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   },
+   "series": {},
+   "triggers": null,
+   "errors": [
+    "cloudwatch:GetMetricData failed with AccessDenied.",
+    "lambda:ListEventSourceMappings failed with AccessDenied."
+   ]
+  },
+  "read, day and month": {
+   "status": "ok",
+   "detail": null,
+   "accountId": "123456789012",
+   "region": "eu-west-1",
+   "readAt": 1764000000000,
+   "settings": {
+    "arn": "arn:aws:sqs:eu-west-1:123456789012:orders",
+    "fifo": false,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlqArn": "arn:aws:sqs:eu-west-1:123456789012:orders-dlq",
+    "dlqName": "orders-dlq",
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0
+   },
+   "series": {
+    "month": {
+     "periodS": 3600,
+     "fromMs": 1761408000000,
+     "toMs": 1764000000000,
+     "queue": {
+      "visible": [
+       [
+        1761408000000,
+        1
+       ],
+       [
+        1761411600000,
+        2
+       ],
+       [
+        1761415200000,
+        3
+       ]
+      ],
+      "inFlight": [],
+      "oldestS": [],
+      "sent": [],
+      "deleted": []
+     },
+     "dlq": []
+    },
+    "day": {
+     "periodS": 60,
+     "fromMs": 1763913600000,
+     "toMs": 1764000000000,
+     "queue": {
+      "visible": [
+       [
+        1763913600000,
+        5
+       ],
+       [
+        1763913660000,
+        7
+       ]
+      ],
+      "inFlight": [],
+      "oldestS": [],
+      "sent": [],
+      "deleted": []
+     },
+     "dlq": [
+      [
+       1763913600000,
+       2
+      ]
+     ]
+    }
+   },
+   "triggers": null,
+   "errors": []
+  },
+  "no account names it": {
+   "status": "no_account",
+   "detail": "No queue named in AWS settings matches this one.",
+   "accountId": null,
+   "region": null,
+   "readAt": null,
+   "settings": null,
+   "series": {},
+   "triggers": null,
+   "errors": []
+  },
+  "AWS is off": {
+   "status": "not_configured",
+   "detail": "AWS is off on this server.",
+   "accountId": null,
+   "region": null,
+   "readAt": null,
+   "settings": null,
+   "series": {},
+   "triggers": null,
+   "errors": []
+  },
+  "the read failed": {
+   "status": "failed",
+   "detail": "sqs:GetQueueAttributes failed on orders with AccessDenied.",
+   "accountId": "123456789012",
+   "region": "eu-west-1",
+   "readAt": null,
+   "settings": null,
+   "series": {},
+   "triggers": null,
+   "errors": []
+  }
+ },
+ "nowFigures": [
+  {
+   "aws": "read, with SQS's counts",
+   "windowId": "recent",
+   "expected": {
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0,
+    "oldestS": 150,
+    "oldestAt": 1763996520000,
+    "dlqDepth": 3,
+    "dlqAt": 1763996520000,
+    "dlqFromSqs": false,
+    "dlqChange": 3
+   }
+  },
+  {
+   "aws": "read, with SQS's counts",
+   "windowId": "day",
+   "expected": {
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "read, without SQS's counts",
+   "windowId": "recent",
+   "expected": {
+    "visible": 9,
+    "inFlight": 2,
+    "delayed": null,
+    "oldestS": 150,
+    "oldestAt": 1763996520000,
+    "dlqDepth": 3,
+    "dlqAt": 1763996520000,
+    "dlqFromSqs": false,
+    "dlqChange": 3
+   }
+  },
+  {
+   "aws": "read, without SQS's counts",
+   "windowId": "day",
+   "expected": {
+    "visible": null,
+    "inFlight": null,
+    "delayed": null,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "read, with the DLQ's own count",
+   "windowId": "recent",
+   "expected": {
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0,
+    "oldestS": 150,
+    "oldestAt": 1763996520000,
+    "dlqDepth": 7,
+    "dlqAt": 1763999995000,
+    "dlqFromSqs": true,
+    "dlqChange": 3
+   }
+  },
+  {
+   "aws": "read, with the DLQ's own count",
+   "windowId": "day",
+   "expected": {
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": 7,
+    "dlqAt": 1763999995000,
+    "dlqFromSqs": true,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "read, no dead-letter queue",
+   "windowId": "recent",
+   "expected": {
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0,
+    "oldestS": 150,
+    "oldestAt": 1763996520000,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "read, no dead-letter queue",
+   "windowId": "day",
+   "expected": {
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "read, CloudWatch returned nothing",
+   "windowId": "recent",
+   "expected": {
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "read, CloudWatch returned nothing",
+   "windowId": "day",
+   "expected": {
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "read, CloudWatch has no DLQ point",
+   "windowId": "recent",
+   "expected": {
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0,
+    "oldestS": 0,
+    "oldestAt": 1763996400000,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "read, CloudWatch has no DLQ point",
+   "windowId": "day",
+   "expected": {
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "read, no CloudWatch window",
+   "windowId": "recent",
+   "expected": {
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "read, no CloudWatch window",
+   "windowId": "day",
+   "expected": {
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "read, CloudWatch failed",
+   "windowId": "recent",
+   "expected": {
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "read, CloudWatch failed",
+   "windowId": "day",
+   "expected": {
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "read, two failures",
+   "windowId": "recent",
+   "expected": {
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "read, two failures",
+   "windowId": "day",
+   "expected": {
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "read, day and month",
+   "windowId": "recent",
+   "expected": {
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "read, day and month",
+   "windowId": "day",
+   "expected": {
+    "visible": 12,
+    "inFlight": 3,
+    "delayed": 0,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": 2,
+    "dlqAt": 1763913600000,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "no account names it",
+   "windowId": "recent",
+   "expected": {
+    "visible": null,
+    "inFlight": null,
+    "delayed": null,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "no account names it",
+   "windowId": "day",
+   "expected": {
+    "visible": null,
+    "inFlight": null,
+    "delayed": null,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "AWS is off",
+   "windowId": "recent",
+   "expected": {
+    "visible": null,
+    "inFlight": null,
+    "delayed": null,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "AWS is off",
+   "windowId": "day",
+   "expected": {
+    "visible": null,
+    "inFlight": null,
+    "delayed": null,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "the read failed",
+   "windowId": "recent",
+   "expected": {
+    "visible": null,
+    "inFlight": null,
+    "delayed": null,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": "the read failed",
+   "windowId": "day",
+   "expected": {
+    "visible": null,
+    "inFlight": null,
+    "delayed": null,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": null,
+   "windowId": "recent",
+   "expected": {
+    "visible": null,
+    "inFlight": null,
+    "delayed": null,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  },
+  {
+   "aws": null,
+   "windowId": "day",
+   "expected": {
+    "visible": null,
+    "inFlight": null,
+    "delayed": null,
+    "oldestS": null,
+    "oldestAt": null,
+    "dlqDepth": null,
+    "dlqAt": null,
+    "dlqFromSqs": false,
+    "dlqChange": null
+   }
+  }
+ ],
+ "liveOf": [
+  {
+   "name": "read, with In ‹queue› now",
+   "aws": "read, with SQS's counts",
+   "view": "VIEW",
+   "windows": [
+    {
+     "id": "recent",
+     "fromMs": 1763996400000,
+     "toMs": 1764000000000,
+     "periodS": 60
+    }
+   ],
+   "now": 1764000000000,
+   "spans": null,
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlq": "orders-dlq",
+    "fifo": false,
+    "visible": 12,
+    "inFlight": 3,
+    "oldestS": 150,
+    "dlqDepth": 3,
+    "oldestAsOf": 1763996580000,
+    "dlqAsOf": 1763996580000,
+    "oldestUnpublished": false,
+    "dlqUnpublished": false,
+    "windows": [
+     {
+      "periodS": 60,
+      "fromMs": 1763996400000,
+      "toMs": 1764000000000,
+      "visible": [
+       [
+        1763996400000,
+        4
+       ],
+       [
+        1763996460000,
+        6
+       ],
+       [
+        1763996520000,
+        9
+       ]
+      ],
+      "inFlight": [
+       [
+        1763996400000,
+        1
+       ],
+       [
+        1763996460000,
+        2
+       ],
+       [
+        1763996520000,
+        2
+       ]
+      ],
+      "oldestS": [
+       [
+        1763996400000,
+        30
+       ],
+       [
+        1763996460000,
+        90
+       ],
+       [
+        1763996520000,
+        150
+       ]
+      ],
+      "sent": [
+       [
+        1763996400000,
+        10
+       ],
+       [
+        1763996460000,
+        12
+       ],
+       [
+        1763996520000,
+        9
+       ]
+      ],
+      "deleted": [
+       [
+        1763996400000,
+        8
+       ],
+       [
+        1763996460000,
+        11
+       ],
+       [
+        1763996520000,
+        12
+       ]
+      ],
+      "dlq": [
+       [
+        1763996400000,
+        0
+       ],
+       [
+        1763996460000,
+        1
+       ],
+       [
+        1763996520000,
+        3
+       ]
+      ]
+     }
+    ],
+    "stuck": 1,
+    "nearDlq": {
+     "count": 2,
+     "inFlight": 3
+    }
+   }
+  },
+  {
+   "name": "read, no view",
+   "aws": "read, with SQS's counts",
+   "view": null,
+   "windows": [
+    {
+     "id": "recent",
+     "fromMs": 1763996400000,
+     "toMs": 1764000000000,
+     "periodS": 60
+    }
+   ],
+   "now": 1764000000000,
+   "spans": null,
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlq": "orders-dlq",
+    "fifo": false,
+    "visible": 12,
+    "inFlight": 3,
+    "oldestS": 150,
+    "dlqDepth": 3,
+    "oldestAsOf": 1763996580000,
+    "dlqAsOf": 1763996580000,
+    "oldestUnpublished": false,
+    "dlqUnpublished": false,
+    "windows": [
+     {
+      "periodS": 60,
+      "fromMs": 1763996400000,
+      "toMs": 1764000000000,
+      "visible": [
+       [
+        1763996400000,
+        4
+       ],
+       [
+        1763996460000,
+        6
+       ],
+       [
+        1763996520000,
+        9
+       ]
+      ],
+      "inFlight": [
+       [
+        1763996400000,
+        1
+       ],
+       [
+        1763996460000,
+        2
+       ],
+       [
+        1763996520000,
+        2
+       ]
+      ],
+      "oldestS": [
+       [
+        1763996400000,
+        30
+       ],
+       [
+        1763996460000,
+        90
+       ],
+       [
+        1763996520000,
+        150
+       ]
+      ],
+      "sent": [
+       [
+        1763996400000,
+        10
+       ],
+       [
+        1763996460000,
+        12
+       ],
+       [
+        1763996520000,
+        9
+       ]
+      ],
+      "deleted": [
+       [
+        1763996400000,
+        8
+       ],
+       [
+        1763996460000,
+        11
+       ],
+       [
+        1763996520000,
+        12
+       ]
+      ],
+      "dlq": [
+       [
+        1763996400000,
+        0
+       ],
+       [
+        1763996460000,
+        1
+       ],
+       [
+        1763996520000,
+        3
+       ]
+      ]
+     }
+    ],
+    "stuck": null,
+    "nearDlq": null
+   }
+  },
+  {
+   "name": "read, an empty view",
+   "aws": "read, with SQS's counts",
+   "view": "EMPTY_VIEW",
+   "windows": [
+    {
+     "id": "recent",
+     "fromMs": 1763996400000,
+     "toMs": 1764000000000,
+     "periodS": 60
+    }
+   ],
+   "now": 1764000000000,
+   "spans": null,
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlq": "orders-dlq",
+    "fifo": false,
+    "visible": 12,
+    "inFlight": 3,
+    "oldestS": 150,
+    "dlqDepth": 3,
+    "oldestAsOf": 1763996580000,
+    "dlqAsOf": 1763996580000,
+    "oldestUnpublished": false,
+    "dlqUnpublished": false,
+    "windows": [
+     {
+      "periodS": 60,
+      "fromMs": 1763996400000,
+      "toMs": 1764000000000,
+      "visible": [
+       [
+        1763996400000,
+        4
+       ],
+       [
+        1763996460000,
+        6
+       ],
+       [
+        1763996520000,
+        9
+       ]
+      ],
+      "inFlight": [
+       [
+        1763996400000,
+        1
+       ],
+       [
+        1763996460000,
+        2
+       ],
+       [
+        1763996520000,
+        2
+       ]
+      ],
+      "oldestS": [
+       [
+        1763996400000,
+        30
+       ],
+       [
+        1763996460000,
+        90
+       ],
+       [
+        1763996520000,
+        150
+       ]
+      ],
+      "sent": [
+       [
+        1763996400000,
+        10
+       ],
+       [
+        1763996460000,
+        12
+       ],
+       [
+        1763996520000,
+        9
+       ]
+      ],
+      "deleted": [
+       [
+        1763996400000,
+        8
+       ],
+       [
+        1763996460000,
+        11
+       ],
+       [
+        1763996520000,
+        12
+       ]
+      ],
+      "dlq": [
+       [
+        1763996400000,
+        0
+       ],
+       [
+        1763996460000,
+        1
+       ],
+       [
+        1763996520000,
+        3
+       ]
+      ]
+     }
+    ],
+    "stuck": 0,
+    "nearDlq": {
+     "count": 0,
+     "inFlight": 0
+    }
+   }
+  },
+  {
+   "name": "no maxReceiveCount",
+   "aws": "read, no dead-letter queue",
+   "view": "VIEW",
+   "windows": [
+    {
+     "id": "recent",
+     "fromMs": 1763996400000,
+     "toMs": 1764000000000,
+     "periodS": 60
+    }
+   ],
+   "now": 1764000000000,
+   "spans": null,
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": null,
+    "dlq": null,
+    "fifo": false,
+    "visible": 12,
+    "inFlight": 3,
+    "oldestS": 150,
+    "dlqDepth": null,
+    "oldestAsOf": 1763996580000,
+    "dlqAsOf": null,
+    "oldestUnpublished": false,
+    "dlqUnpublished": false,
+    "windows": [
+     {
+      "periodS": 60,
+      "fromMs": 1763996400000,
+      "toMs": 1764000000000,
+      "visible": [
+       [
+        1763996400000,
+        4
+       ],
+       [
+        1763996460000,
+        6
+       ],
+       [
+        1763996520000,
+        9
+       ]
+      ],
+      "inFlight": [
+       [
+        1763996400000,
+        1
+       ],
+       [
+        1763996460000,
+        2
+       ],
+       [
+        1763996520000,
+        2
+       ]
+      ],
+      "oldestS": [
+       [
+        1763996400000,
+        30
+       ],
+       [
+        1763996460000,
+        90
+       ],
+       [
+        1763996520000,
+        150
+       ]
+      ],
+      "sent": [
+       [
+        1763996400000,
+        10
+       ],
+       [
+        1763996460000,
+        12
+       ],
+       [
+        1763996520000,
+        9
+       ]
+      ],
+      "deleted": [
+       [
+        1763996400000,
+        8
+       ],
+       [
+        1763996460000,
+        11
+       ],
+       [
+        1763996520000,
+        12
+       ]
+      ],
+      "dlq": [
+       [
+        1763996400000,
+        0
+       ],
+       [
+        1763996460000,
+        1
+       ],
+       [
+        1763996520000,
+        3
+       ]
+      ]
+     }
+    ],
+    "stuck": 1,
+    "nearDlq": null
+   }
+  },
+  {
+   "name": "the DLQ's own count",
+   "aws": "read, with the DLQ's own count",
+   "view": "VIEW",
+   "windows": [
+    {
+     "id": "recent",
+     "fromMs": 1763996400000,
+     "toMs": 1764000000000,
+     "periodS": 60
+    }
+   ],
+   "now": 1764000000000,
+   "spans": null,
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlq": "orders-dlq",
+    "fifo": false,
+    "visible": 12,
+    "inFlight": 3,
+    "oldestS": 150,
+    "dlqDepth": 7,
+    "oldestAsOf": 1763996580000,
+    "dlqAsOf": 1763999995000,
+    "oldestUnpublished": false,
+    "dlqUnpublished": false,
+    "windows": [
+     {
+      "periodS": 60,
+      "fromMs": 1763996400000,
+      "toMs": 1764000000000,
+      "visible": [
+       [
+        1763996400000,
+        4
+       ],
+       [
+        1763996460000,
+        6
+       ],
+       [
+        1763996520000,
+        9
+       ]
+      ],
+      "inFlight": [
+       [
+        1763996400000,
+        1
+       ],
+       [
+        1763996460000,
+        2
+       ],
+       [
+        1763996520000,
+        2
+       ]
+      ],
+      "oldestS": [
+       [
+        1763996400000,
+        30
+       ],
+       [
+        1763996460000,
+        90
+       ],
+       [
+        1763996520000,
+        150
+       ]
+      ],
+      "sent": [
+       [
+        1763996400000,
+        10
+       ],
+       [
+        1763996460000,
+        12
+       ],
+       [
+        1763996520000,
+        9
+       ]
+      ],
+      "deleted": [
+       [
+        1763996400000,
+        8
+       ],
+       [
+        1763996460000,
+        11
+       ],
+       [
+        1763996520000,
+        12
+       ]
+      ],
+      "dlq": [
+       [
+        1763996400000,
+        0
+       ],
+       [
+        1763996460000,
+        1
+       ],
+       [
+        1763996520000,
+        3
+       ]
+      ]
+     }
+    ],
+    "stuck": 1,
+    "nearDlq": {
+     "count": 2,
+     "inFlight": 3
+    }
+   }
+  },
+  {
+   "name": "not published",
+   "aws": "read, CloudWatch returned nothing",
+   "view": "VIEW",
+   "windows": [
+    {
+     "id": "recent",
+     "fromMs": 1763996400000,
+     "toMs": 1764000000000,
+     "periodS": 60
+    }
+   ],
+   "now": 1764000000000,
+   "spans": null,
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlq": "orders-dlq",
+    "fifo": false,
+    "visible": 12,
+    "inFlight": 3,
+    "oldestS": null,
+    "dlqDepth": null,
+    "oldestAsOf": null,
+    "dlqAsOf": null,
+    "oldestUnpublished": true,
+    "dlqUnpublished": true,
+    "windows": [
+     {
+      "periodS": 60,
+      "fromMs": 1763996400000,
+      "toMs": 1764000000000,
+      "visible": [],
+      "inFlight": [],
+      "oldestS": [],
+      "sent": [],
+      "deleted": [],
+      "dlq": []
+     }
+    ],
+    "stuck": 1,
+    "nearDlq": {
+     "count": 2,
+     "inFlight": 3
+    }
+   }
+  },
+  {
+   "name": "no DLQ point",
+   "aws": "read, CloudWatch has no DLQ point",
+   "view": null,
+   "windows": [
+    {
+     "id": "recent",
+     "fromMs": 1763996400000,
+     "toMs": 1764000000000,
+     "periodS": 60
+    }
+   ],
+   "now": 1764000000000,
+   "spans": null,
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlq": "orders-dlq",
+    "fifo": false,
+    "visible": 12,
+    "inFlight": 3,
+    "oldestS": 0,
+    "dlqDepth": null,
+    "oldestAsOf": 1763996460000,
+    "dlqAsOf": null,
+    "oldestUnpublished": false,
+    "dlqUnpublished": true,
+    "windows": [
+     {
+      "periodS": 60,
+      "fromMs": 1763996400000,
+      "toMs": 1764000000000,
+      "visible": [
+       [
+        1763996400000,
+        0
+       ]
+      ],
+      "inFlight": [],
+      "oldestS": [
+       [
+        1763996400000,
+        0
+       ]
+      ],
+      "sent": [],
+      "deleted": [],
+      "dlq": []
+     }
+    ],
+    "stuck": null,
+    "nearDlq": null
+   }
+  },
+  {
+   "name": "no window read",
+   "aws": "read, no CloudWatch window",
+   "view": null,
+   "windows": [
+    {
+     "id": "recent",
+     "fromMs": 1763996400000,
+     "toMs": 1764000000000,
+     "periodS": 60
+    }
+   ],
+   "now": 1764000000000,
+   "spans": null,
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlq": "orders-dlq",
+    "fifo": false,
+    "visible": 12,
+    "inFlight": 3,
+    "oldestS": null,
+    "dlqDepth": null,
+    "oldestAsOf": null,
+    "dlqAsOf": null,
+    "oldestUnpublished": false,
+    "dlqUnpublished": false,
+    "windows": [],
+    "stuck": null,
+    "nearDlq": null
+   }
+  },
+  {
+   "name": "failures as the detail",
+   "aws": "read, two failures",
+   "view": null,
+   "windows": [
+    {
+     "id": "recent",
+     "fromMs": 1763996400000,
+     "toMs": 1764000000000,
+     "periodS": 60
+    }
+   ],
+   "now": 1764000000000,
+   "spans": null,
+   "expected": {
+    "status": "ok",
+    "detail": "cloudwatch:GetMetricData failed with AccessDenied. lambda:ListEventSourceMappings failed with AccessDenied.",
+    "readAt": 1764000000000,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlq": "orders-dlq",
+    "fifo": false,
+    "visible": 12,
+    "inFlight": 3,
+    "oldestS": null,
+    "dlqDepth": null,
+    "oldestAsOf": null,
+    "dlqAsOf": null,
+    "oldestUnpublished": false,
+    "dlqUnpublished": false,
+    "windows": [],
+    "stuck": null,
+    "nearDlq": null
+   }
+  },
+  {
+   "name": "dashboards, with the span history",
+   "aws": "read, day and month",
+   "view": "VIEW",
+   "windows": [
+    {
+     "id": "day",
+     "fromMs": 1763913600000,
+     "toMs": 1764000000000,
+     "periodS": 60
+    },
+    {
+     "id": "month",
+     "fromMs": 1761408000000,
+     "toMs": 1764000000000,
+     "periodS": 3600
+    }
+   ],
+   "now": 1764000000000,
+   "spans": "SPANS",
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlq": "orders-dlq",
+    "fifo": false,
+    "visible": 12,
+    "inFlight": 3,
+    "oldestS": null,
+    "dlqDepth": 2,
+    "oldestAsOf": null,
+    "dlqAsOf": 1763913660000,
+    "oldestUnpublished": true,
+    "dlqUnpublished": false,
+    "windows": [
+     {
+      "periodS": 60,
+      "fromMs": 1763913600000,
+      "toMs": 1764000000000,
+      "visible": [
+       [
+        1763913600000,
+        5
+       ],
+       [
+        1763913660000,
+        7
+       ]
+      ],
+      "inFlight": [],
+      "oldestS": [],
+      "sent": [],
+      "deleted": [],
+      "dlq": [
+       [
+        1763913600000,
+        2
+       ]
+      ],
+      "stuck": [
+       [
+        1763913600000,
+        0
+       ],
+       [
+        1763913660000,
+        1
+       ]
+      ],
+      "nearDlq": [
+       [
+        1763913600000,
+        0
+       ],
+       [
+        1763913660000,
+        50
+       ]
+      ]
+     },
+     {
+      "periodS": 3600,
+      "fromMs": 1761408000000,
+      "toMs": 1764000000000,
+      "visible": [
+       [
+        1761408000000,
+        1
+       ],
+       [
+        1761411600000,
+        2
+       ],
+       [
+        1761415200000,
+        3
+       ]
+      ],
+      "inFlight": [],
+      "oldestS": [],
+      "sent": [],
+      "deleted": [],
+      "dlq": []
+     }
+    ],
+    "stuck": 1,
+    "nearDlq": {
+     "count": 2,
+     "inFlight": 3
+    }
+   }
+  },
+  {
+   "name": "dashboards, no near-DLQ history",
+   "aws": "read, day and month",
+   "view": "VIEW",
+   "windows": [
+    {
+     "id": "day",
+     "fromMs": 1763913600000,
+     "toMs": 1764000000000,
+     "periodS": 60
+    },
+    {
+     "id": "month",
+     "fromMs": 1761408000000,
+     "toMs": 1764000000000,
+     "periodS": 3600
+    }
+   ],
+   "now": 1764000000000,
+   "spans": "SPANS_NO_NEAR",
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlq": "orders-dlq",
+    "fifo": false,
+    "visible": 12,
+    "inFlight": 3,
+    "oldestS": null,
+    "dlqDepth": 2,
+    "oldestAsOf": null,
+    "dlqAsOf": 1763913660000,
+    "oldestUnpublished": true,
+    "dlqUnpublished": false,
+    "windows": [
+     {
+      "periodS": 60,
+      "fromMs": 1763913600000,
+      "toMs": 1764000000000,
+      "visible": [
+       [
+        1763913600000,
+        5
+       ],
+       [
+        1763913660000,
+        7
+       ]
+      ],
+      "inFlight": [],
+      "oldestS": [],
+      "sent": [],
+      "deleted": [],
+      "dlq": [
+       [
+        1763913600000,
+        2
+       ]
+      ],
+      "stuck": [
+       [
+        1763913600000,
+        2
+       ]
+      ]
+     },
+     {
+      "periodS": 3600,
+      "fromMs": 1761408000000,
+      "toMs": 1764000000000,
+      "visible": [
+       [
+        1761408000000,
+        1
+       ],
+       [
+        1761411600000,
+        2
+       ],
+       [
+        1761415200000,
+        3
+       ]
+      ],
+      "inFlight": [],
+      "oldestS": [],
+      "sent": [],
+      "deleted": [],
+      "dlq": []
+     }
+    ],
+    "stuck": 1,
+    "nearDlq": {
+     "count": 2,
+     "inFlight": 3
+    }
+   }
+  },
+  {
+   "name": "windows asked for coarsest first",
+   "aws": "read, day and month",
+   "view": null,
+   "windows": [
+    {
+     "id": "month",
+     "fromMs": 1761408000000,
+     "toMs": 1764000000000,
+     "periodS": 3600
+    },
+    {
+     "id": "day",
+     "fromMs": 1763913600000,
+     "toMs": 1764000000000,
+     "periodS": 60
+    }
+   ],
+   "now": 1764000000000,
+   "spans": "SPANS",
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlq": "orders-dlq",
+    "fifo": false,
+    "visible": 12,
+    "inFlight": 3,
+    "oldestS": null,
+    "dlqDepth": null,
+    "oldestAsOf": null,
+    "dlqAsOf": null,
+    "oldestUnpublished": true,
+    "dlqUnpublished": true,
+    "windows": [
+     {
+      "periodS": 60,
+      "fromMs": 1763913600000,
+      "toMs": 1764000000000,
+      "visible": [
+       [
+        1763913600000,
+        5
+       ],
+       [
+        1763913660000,
+        7
+       ]
+      ],
+      "inFlight": [],
+      "oldestS": [],
+      "sent": [],
+      "deleted": [],
+      "dlq": [
+       [
+        1763913600000,
+        2
+       ]
+      ],
+      "stuck": [
+       [
+        1763913600000,
+        0
+       ],
+       [
+        1763913660000,
+        1
+       ]
+      ],
+      "nearDlq": [
+       [
+        1763913600000,
+        0
+       ],
+       [
+        1763913660000,
+        50
+       ]
+      ]
+     },
+     {
+      "periodS": 3600,
+      "fromMs": 1761408000000,
+      "toMs": 1764000000000,
+      "visible": [
+       [
+        1761408000000,
+        1
+       ],
+       [
+        1761411600000,
+        2
+       ],
+       [
+        1761415200000,
+        3
+       ]
+      ],
+      "inFlight": [],
+      "oldestS": [],
+      "sent": [],
+      "deleted": [],
+      "dlq": []
+     }
+    ],
+    "stuck": null,
+    "nearDlq": null
+   }
+  },
+  {
+   "name": "no windows asked for",
+   "aws": "read, with SQS's counts",
+   "view": null,
+   "windows": [],
+   "now": 1764000000000,
+   "spans": null,
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "visibilityTimeoutS": 30,
+    "retentionS": 345600,
+    "delayS": 0,
+    "maxReceiveCount": 5,
+    "dlq": "orders-dlq",
+    "fifo": false,
+    "visible": 12,
+    "inFlight": 3,
+    "oldestS": null,
+    "dlqDepth": null,
+    "oldestAsOf": null,
+    "dlqAsOf": null,
+    "oldestUnpublished": false,
+    "dlqUnpublished": false,
+    "windows": [],
+    "stuck": null,
+    "nearDlq": null
+   }
+  },
+  {
+   "name": "no account",
+   "aws": "no account names it",
+   "view": "VIEW",
+   "windows": [
+    {
+     "id": "recent",
+     "fromMs": 1763996400000,
+     "toMs": 1764000000000,
+     "periodS": 60
+    }
+   ],
+   "now": 1764000000000,
+   "spans": null,
+   "expected": {
+    "status": "no_account",
+    "detail": "No queue named in AWS settings matches this one.",
+    "readAt": null,
+    "visibilityTimeoutS": null,
+    "retentionS": null,
+    "delayS": null,
+    "maxReceiveCount": null,
+    "dlq": null,
+    "fifo": null,
+    "visible": null,
+    "inFlight": null,
+    "oldestS": null,
+    "dlqDepth": null,
+    "oldestAsOf": null,
+    "dlqAsOf": null,
+    "oldestUnpublished": false,
+    "dlqUnpublished": false,
+    "windows": [],
+    "stuck": 1,
+    "nearDlq": null
+   }
+  },
+  {
+   "name": "off",
+   "aws": "AWS is off",
+   "view": null,
+   "windows": [
+    {
+     "id": "day",
+     "fromMs": 1763913600000,
+     "toMs": 1764000000000,
+     "periodS": 60
+    },
+    {
+     "id": "month",
+     "fromMs": 1761408000000,
+     "toMs": 1764000000000,
+     "periodS": 3600
+    }
+   ],
+   "now": 1764000000000,
+   "spans": null,
+   "expected": {
+    "status": "not_configured",
+    "detail": "AWS is off on this server.",
+    "readAt": null,
+    "visibilityTimeoutS": null,
+    "retentionS": null,
+    "delayS": null,
+    "maxReceiveCount": null,
+    "dlq": null,
+    "fifo": null,
+    "visible": null,
+    "inFlight": null,
+    "oldestS": null,
+    "dlqDepth": null,
+    "oldestAsOf": null,
+    "dlqAsOf": null,
+    "oldestUnpublished": false,
+    "dlqUnpublished": false,
+    "windows": [],
+    "stuck": null,
+    "nearDlq": null
+   }
+  },
+  {
+   "name": "failed",
+   "aws": "the read failed",
+   "view": "VIEW",
+   "windows": [
+    {
+     "id": "recent",
+     "fromMs": 1763996400000,
+     "toMs": 1764000000000,
+     "periodS": 60
+    }
+   ],
+   "now": 1764000000000,
+   "spans": null,
+   "expected": {
+    "status": "failed",
+    "detail": "sqs:GetQueueAttributes failed on orders with AccessDenied.",
+    "readAt": null,
+    "visibilityTimeoutS": null,
+    "retentionS": null,
+    "delayS": null,
+    "maxReceiveCount": null,
+    "dlq": null,
+    "fifo": null,
+    "visible": null,
+    "inFlight": null,
+    "oldestS": null,
+    "dlqDepth": null,
+    "oldestAsOf": null,
+    "dlqAsOf": null,
+    "oldestUnpublished": false,
+    "dlqUnpublished": false,
+    "windows": [],
+    "stuck": 1,
+    "nearDlq": null
+   }
+  }
+ ],
+ "queueAwsView": [
+  {
+   "aws": "read, with SQS's counts",
+   "windowId": "recent",
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "settings": {
+     "fifo": false,
+     "visibilityTimeoutS": 30,
+     "retentionS": 345600,
+     "delayS": 0,
+     "maxReceiveCount": 5,
+     "dlqName": "orders-dlq",
+     "visible": 12,
+     "inFlight": 3
+    },
+    "series": {
+     "visible": [
+      [
+       1763996400000,
+       4
+      ],
+      [
+       1763996460000,
+       6
+      ],
+      [
+       1763996520000,
+       9
+      ]
+     ],
+     "inFlight": [
+      [
+       1763996400000,
+       1
+      ],
+      [
+       1763996460000,
+       2
+      ],
+      [
+       1763996520000,
+       2
+      ]
+     ],
+     "oldestS": [
+      [
+       1763996400000,
+       30
+      ],
+      [
+       1763996460000,
+       90
+      ],
+      [
+       1763996520000,
+       150
+      ]
+     ],
+     "sent": [
+      [
+       1763996400000,
+       10
+      ],
+      [
+       1763996460000,
+       12
+      ],
+      [
+       1763996520000,
+       9
+      ]
+     ],
+     "dlq": [
+      [
+       1763996400000,
+       0
+      ],
+      [
+       1763996460000,
+       1
+      ],
+      [
+       1763996520000,
+       3
+      ]
+     ]
+    },
+    "now": {
+     "visible": 12,
+     "inFlight": 3,
+     "oldestS": 150,
+     "oldestAt": 1763996520000,
+     "dlqDepth": 3,
+     "dlqAt": 1763996520000,
+     "dlqChange": 3
+    },
+    "errors": []
+   }
+  },
+  {
+   "aws": "read, without SQS's counts",
+   "windowId": "recent",
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "settings": {
+     "fifo": false,
+     "visibilityTimeoutS": 30,
+     "retentionS": 345600,
+     "delayS": 0,
+     "maxReceiveCount": 5,
+     "dlqName": "orders-dlq",
+     "visible": null,
+     "inFlight": null
+    },
+    "series": {
+     "visible": [
+      [
+       1763996400000,
+       4
+      ],
+      [
+       1763996460000,
+       6
+      ],
+      [
+       1763996520000,
+       9
+      ]
+     ],
+     "inFlight": [
+      [
+       1763996400000,
+       1
+      ],
+      [
+       1763996460000,
+       2
+      ],
+      [
+       1763996520000,
+       2
+      ]
+     ],
+     "oldestS": [
+      [
+       1763996400000,
+       30
+      ],
+      [
+       1763996460000,
+       90
+      ],
+      [
+       1763996520000,
+       150
+      ]
+     ],
+     "sent": [
+      [
+       1763996400000,
+       10
+      ],
+      [
+       1763996460000,
+       12
+      ],
+      [
+       1763996520000,
+       9
+      ]
+     ],
+     "dlq": [
+      [
+       1763996400000,
+       0
+      ],
+      [
+       1763996460000,
+       1
+      ],
+      [
+       1763996520000,
+       3
+      ]
+     ]
+    },
+    "now": {
+     "visible": 9,
+     "inFlight": 2,
+     "oldestS": 150,
+     "oldestAt": 1763996520000,
+     "dlqDepth": 3,
+     "dlqAt": 1763996520000,
+     "dlqChange": 3
+    },
+    "errors": []
+   }
+  },
+  {
+   "aws": "read, with the DLQ's own count",
+   "windowId": "recent",
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "settings": {
+     "fifo": false,
+     "visibilityTimeoutS": 30,
+     "retentionS": 345600,
+     "delayS": 0,
+     "maxReceiveCount": 5,
+     "dlqName": "orders-dlq",
+     "visible": 12,
+     "inFlight": 3
+    },
+    "series": {
+     "visible": [
+      [
+       1763996400000,
+       4
+      ],
+      [
+       1763996460000,
+       6
+      ],
+      [
+       1763996520000,
+       9
+      ]
+     ],
+     "inFlight": [
+      [
+       1763996400000,
+       1
+      ],
+      [
+       1763996460000,
+       2
+      ],
+      [
+       1763996520000,
+       2
+      ]
+     ],
+     "oldestS": [
+      [
+       1763996400000,
+       30
+      ],
+      [
+       1763996460000,
+       90
+      ],
+      [
+       1763996520000,
+       150
+      ]
+     ],
+     "sent": [
+      [
+       1763996400000,
+       10
+      ],
+      [
+       1763996460000,
+       12
+      ],
+      [
+       1763996520000,
+       9
+      ]
+     ],
+     "dlq": [
+      [
+       1763996400000,
+       0
+      ],
+      [
+       1763996460000,
+       1
+      ],
+      [
+       1763996520000,
+       3
+      ]
+     ]
+    },
+    "now": {
+     "visible": 12,
+     "inFlight": 3,
+     "oldestS": 150,
+     "oldestAt": 1763996520000,
+     "dlqDepth": 7,
+     "dlqAt": 1763999995000,
+     "dlqChange": 3
+    },
+    "errors": []
+   }
+  },
+  {
+   "aws": "read, no dead-letter queue",
+   "windowId": "recent",
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "settings": {
+     "fifo": false,
+     "visibilityTimeoutS": 30,
+     "retentionS": 345600,
+     "delayS": 0,
+     "maxReceiveCount": null,
+     "dlqName": null,
+     "visible": 12,
+     "inFlight": 3
+    },
+    "series": {
+     "visible": [
+      [
+       1763996400000,
+       4
+      ],
+      [
+       1763996460000,
+       6
+      ],
+      [
+       1763996520000,
+       9
+      ]
+     ],
+     "inFlight": [
+      [
+       1763996400000,
+       1
+      ],
+      [
+       1763996460000,
+       2
+      ],
+      [
+       1763996520000,
+       2
+      ]
+     ],
+     "oldestS": [
+      [
+       1763996400000,
+       30
+      ],
+      [
+       1763996460000,
+       90
+      ],
+      [
+       1763996520000,
+       150
+      ]
+     ],
+     "sent": [
+      [
+       1763996400000,
+       10
+      ],
+      [
+       1763996460000,
+       12
+      ],
+      [
+       1763996520000,
+       9
+      ]
+     ],
+     "dlq": [
+      [
+       1763996400000,
+       0
+      ],
+      [
+       1763996460000,
+       1
+      ],
+      [
+       1763996520000,
+       3
+      ]
+     ]
+    },
+    "now": {
+     "visible": 12,
+     "inFlight": 3,
+     "oldestS": 150,
+     "oldestAt": 1763996520000,
+     "dlqDepth": null,
+     "dlqAt": null,
+     "dlqChange": null
+    },
+    "errors": []
+   }
+  },
+  {
+   "aws": "read, CloudWatch returned nothing",
+   "windowId": "recent",
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "settings": {
+     "fifo": false,
+     "visibilityTimeoutS": 30,
+     "retentionS": 345600,
+     "delayS": 0,
+     "maxReceiveCount": 5,
+     "dlqName": "orders-dlq",
+     "visible": 12,
+     "inFlight": 3
+    },
+    "series": {
+     "visible": [],
+     "inFlight": [],
+     "oldestS": [],
+     "sent": [],
+     "dlq": []
+    },
+    "now": {
+     "visible": 12,
+     "inFlight": 3,
+     "oldestS": null,
+     "oldestAt": null,
+     "dlqDepth": null,
+     "dlqAt": null,
+     "dlqChange": null
+    },
+    "errors": []
+   }
+  },
+  {
+   "aws": "read, CloudWatch has no DLQ point",
+   "windowId": "recent",
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "settings": {
+     "fifo": false,
+     "visibilityTimeoutS": 30,
+     "retentionS": 345600,
+     "delayS": 0,
+     "maxReceiveCount": 5,
+     "dlqName": "orders-dlq",
+     "visible": 12,
+     "inFlight": 3
+    },
+    "series": {
+     "visible": [
+      [
+       1763996400000,
+       0
+      ]
+     ],
+     "inFlight": [],
+     "oldestS": [
+      [
+       1763996400000,
+       0
+      ]
+     ],
+     "sent": [],
+     "dlq": []
+    },
+    "now": {
+     "visible": 12,
+     "inFlight": 3,
+     "oldestS": 0,
+     "oldestAt": 1763996400000,
+     "dlqDepth": null,
+     "dlqAt": null,
+     "dlqChange": null
+    },
+    "errors": []
+   }
+  },
+  {
+   "aws": "read, no CloudWatch window",
+   "windowId": "recent",
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "settings": {
+     "fifo": false,
+     "visibilityTimeoutS": 30,
+     "retentionS": 345600,
+     "delayS": 0,
+     "maxReceiveCount": 5,
+     "dlqName": "orders-dlq",
+     "visible": 12,
+     "inFlight": 3
+    },
+    "series": null,
+    "now": {
+     "visible": 12,
+     "inFlight": 3,
+     "oldestS": null,
+     "oldestAt": null,
+     "dlqDepth": null,
+     "dlqAt": null,
+     "dlqChange": null
+    },
+    "errors": []
+   }
+  },
+  {
+   "aws": "read, CloudWatch failed",
+   "windowId": "recent",
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "settings": {
+     "fifo": false,
+     "visibilityTimeoutS": 30,
+     "retentionS": 345600,
+     "delayS": 0,
+     "maxReceiveCount": 5,
+     "dlqName": "orders-dlq",
+     "visible": 12,
+     "inFlight": 3
+    },
+    "series": null,
+    "now": {
+     "visible": 12,
+     "inFlight": 3,
+     "oldestS": null,
+     "oldestAt": null,
+     "dlqDepth": null,
+     "dlqAt": null,
+     "dlqChange": null
+    },
+    "errors": [
+     "cloudwatch:GetMetricData failed with AccessDenied."
+    ]
+   }
+  },
+  {
+   "aws": "read, two failures",
+   "windowId": "recent",
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "settings": {
+     "fifo": false,
+     "visibilityTimeoutS": 30,
+     "retentionS": 345600,
+     "delayS": 0,
+     "maxReceiveCount": 5,
+     "dlqName": "orders-dlq",
+     "visible": 12,
+     "inFlight": 3
+    },
+    "series": null,
+    "now": {
+     "visible": 12,
+     "inFlight": 3,
+     "oldestS": null,
+     "oldestAt": null,
+     "dlqDepth": null,
+     "dlqAt": null,
+     "dlqChange": null
+    },
+    "errors": [
+     "cloudwatch:GetMetricData failed with AccessDenied.",
+     "lambda:ListEventSourceMappings failed with AccessDenied."
+    ]
+   }
+  },
+  {
+   "aws": "read, day and month",
+   "windowId": "recent",
+   "expected": {
+    "status": "ok",
+    "detail": null,
+    "readAt": 1764000000000,
+    "settings": {
+     "fifo": false,
+     "visibilityTimeoutS": 30,
+     "retentionS": 345600,
+     "delayS": 0,
+     "maxReceiveCount": 5,
+     "dlqName": "orders-dlq",
+     "visible": 12,
+     "inFlight": 3
+    },
+    "series": null,
+    "now": {
+     "visible": 12,
+     "inFlight": 3,
+     "oldestS": null,
+     "oldestAt": null,
+     "dlqDepth": null,
+     "dlqAt": null,
+     "dlqChange": null
+    },
+    "errors": []
+   }
+  },
+  {
+   "aws": "no account names it",
+   "windowId": "recent",
+   "expected": {
+    "status": "no_account",
+    "detail": "No queue named in AWS settings matches this one.",
+    "readAt": null,
+    "settings": null,
+    "series": null,
+    "now": null,
+    "errors": []
+   }
+  },
+  {
+   "aws": "AWS is off",
+   "windowId": "recent",
+   "expected": {
+    "status": "not_configured",
+    "detail": "AWS is off on this server.",
+    "readAt": null,
+    "settings": null,
+    "series": null,
+    "now": null,
+    "errors": []
+   }
+  },
+  {
+   "aws": "the read failed",
+   "windowId": "recent",
+   "expected": {
+    "status": "failed",
+    "detail": "sqs:GetQueueAttributes failed on orders with AccessDenied.",
+    "readAt": null,
+    "settings": null,
+    "series": null,
+    "now": null,
+    "errors": []
+   }
+  }
+ ],
+ "views": {
+  "VIEW": {
+   "held": [
+    {
+     "id": "m5in_flight1763999400000",
+     "state": "in_flight",
+     "receiveCount": 5,
+     "sentMs": 1763999400000
+    },
+    {
+     "id": "m2in_flight1763999940000",
+     "state": "in_flight",
+     "receiveCount": 2,
+     "sentMs": 1763999940000
+    },
+    {
+     "id": "m5visible1763999880000",
+     "state": "visible",
+     "receiveCount": 5,
+     "sentMs": 1763999880000
+    },
+    {
+     "id": "m6in_flight1763999970000",
+     "state": "in_flight",
+     "receiveCount": 6,
+     "sentMs": 1763999970000
+    }
+   ],
+   "instrumented": {
+    "inFlight": 3,
+    "visible": 1
+   }
+  },
+  "EMPTY_VIEW": {
+   "held": [],
+   "instrumented": {
+    "inFlight": 0,
+    "visible": 0
+   }
+  }
+ },
+ "spans": {
+  "SPANS": {
+   "stuck": [
+    [
+     1763913600000,
+     0
+    ],
+    [
+     1763913660000,
+     1
+    ]
+   ],
+   "nearDlq": [
+    [
+     1763913600000,
+     0
+    ],
+    [
+     1763913660000,
+     50
+    ]
+   ]
+  },
+  "SPANS_NO_NEAR": {
+   "stuck": [
+    [
+     1763913600000,
+     2
+    ]
+   ],
+   "nearDlq": null
+  }
+ }
+}

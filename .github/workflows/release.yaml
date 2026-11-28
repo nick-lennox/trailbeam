@@ -38,7 +38,7 @@ jobs:
           grep -qx "__version__ = \"$v\"" python/src/trailbeam/__init__.py || { echo "trailbeam.__version__ is not $v"; exit 1; }
           grep -qx "version = \"$v\"" server/pyproject.toml || { echo "server/pyproject.toml is not $v"; exit 1; }
           grep -qx "__version__ = \"$v\"" server/src/trailbeam/server/__init__.py || { echo "trailbeam.server.__version__ is not $v"; exit 1; }
-          for pin in "trailbeam-server==$v" "trailbeam-server[postgres]==$v" "trailbeam-server[sso]==$v" "trailbeam-server[passkeys]==$v"; do
+          for pin in "trailbeam-server==$v" "trailbeam-server[postgres]==$v" "trailbeam-server[sso]==$v" "trailbeam-server[passkeys]==$v" "trailbeam-server[aws]==$v"; do
             grep -qxF "    \"$pin\"," python/pyproject.toml || { echo "python/pyproject.toml's extras don't pin $pin"; exit 1; }
           done
           grep -qxF "    \"trailbeam==$v\"," server/pyproject.toml || { echo "server/pyproject.toml doesn't depend on trailbeam==$v"; exit 1; }
