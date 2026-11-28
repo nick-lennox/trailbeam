@@ -371,8 +371,8 @@ class App:
         if not parts or parts[0] not in self.routes:
             raise ApiError(404, f"no such endpoint: /api/{'/'.join(parts)}")
         try:
-            if parts[0] == "me":
-                return self.routes["me"](query, parts[1:], who)
+            if parts[0] in ("me", "health"):
+                return self.routes[parts[0]](query, parts[1:], who)
             return self.routes[parts[0]](query, parts[1:])
         except queries.CursorError as e:
             raise ApiError(400, str(e)) from None
@@ -394,7 +394,7 @@ class App:
         """/api/users and /api/tokens paths that aren't one of access.API_ROUTES (matched in api)."""
         raise ApiError(404, "no such endpoint")
 
-    def health(self, query: dict, rest: list[str]) -> dict:
+    def health(self, query: dict, rest: list[str], who: access_mod.Who = access_mod.NOBODY) -> dict:
         """Cheap at any size: the ingest counters since start, the configuration, and one indexed read on a
         read connection (``last_row``), so it answers while an export is being written. The exact counts,
         which read the whole table, are ``/api/stats``."""
@@ -419,8 +419,9 @@ class App:
                            "store_bodies": sorted(self.db.store_bodies), "trace_link": self.trace_link,
                            "proxy_auth": self.proxy_signin is not None,
                            "passkeys": self.passkeys is not None,
-                           # AWS reads (aws_api.py): {"on": False, ...} until an admin turns them on
-                           "aws": self.aws.health() if self.aws is not None else None,
+                           # AWS reads (aws_api.py): {"on": False, ...} until an admin turns them on; the details
+                           # (where the credentials come from, the region) only to an admin (QV-744)
+                           "aws": self.aws.health(who) if self.aws is not None else None,
                            "retention": self.purger.status() if self.purger else None}}
 
     def _mode(self) -> str:
