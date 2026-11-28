@@ -25,7 +25,13 @@ row; on SQLite the writer runs one transaction at a time.
 or a dashboard ID in a path can hold one. So every string that goes in, as a value or in a WHERE, has NUL stored as
 U+FFFF and every string that comes out has it turned back, as alerts_store does (QV-658): a dashboard named with a
 NUL reads back as given, and a path ID holding one is a dashboard not found, on SQLite and on Postgres alike
-(QV-686). The JSON columns never hold a NUL: ``json.dumps`` writes it as ``\\u0000``.
+(QV-686). The mapping is for the text columns only, never the JSON ones (``variables_json``, ``sections_json``,
+``def_json``): those are written ASCII-only (``json.dumps`` with ``ensure_ascii``), so a NUL in them is ``\\u0000``
+and a U+FFFF is ``\\uffff``, and they are read as stored. A widget title or a variable's value holding U+FFFF reads
+back as given; before QV-756 it was written raw and read back as a NUL, which ``json.loads`` refused, so the
+dashboard's reads and every list of its workspace were a 500. A row written that way still reads as given (a JSON
+column never held a raw NUL). In a text column U+FFFF still reads back as NUL on SQLite and Postgres, as in the
+alert tables; the memory store keeps it.
 
 Times are milliseconds since the epoch. Nothing here holds spans: retention, ``--vacuum`` and the page queries never
 touch these tables, and a ``--db :memory:`` store loses them on every restart.
@@ -39,7 +45,18 @@ import threading
 from collections.abc import Iterator
 from typing import Any, Literal, Protocol
 
-from .alerts_store import _in, _out
+from .alerts_store import _in
+from .alerts_store import _out as _out_text
+
+#: the columns that hold JSON: written ASCII-only, so read as stored (no U+FFFF in them means NUL; QV-756)
+_JSON_COLS = frozenset({"variables_json", "sections_json", "def_json", "widget_json"})
+
+
+def _out(row) -> dict:
+    """A row as read: its text columns as they were given (alerts_store._out), its JSON columns as stored."""
+    d = dict(row)
+    kept = {k: d[k] for k in _JSON_COLS.intersection(d)}
+    return {**_out_text(d), **kept}
 
 TABLES = ("dashboards", "dashboard_widgets")
 
@@ -222,7 +239,9 @@ def _records(rows: list[dict]) -> list[tuple[str, dict]]:
 
 
 def _json(v: Any) -> str:
-    return json.dumps(v, ensure_ascii=False, separators=(",", ":"))
+    """``v`` as stored: ASCII only, so no NUL (Postgres refuses it) and no U+FFFF (the text columns' NUL) is
+    ever in a JSON column, and a lone surrogate is escaped too (QV-756)."""
+    return json.dumps(v, separators=(",", ":"))
 
 
 class DashboardTables:
