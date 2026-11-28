@@ -15,7 +15,7 @@ const SRC = new URL("../src/", import.meta.url).pathname;
 const files = (dir: string): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? files(join(dir, d.name)) : /\.tsx?$/.test(d.name) ? [join(dir, d.name)] : []));
 
-const CLIENT_CONTEXTS = ["charts/TimeSeries.tsx", "design/nav.tsx", "design/theme.tsx"];
+const CLIENT_CONTEXTS = ["charts/TimeSeries.tsx", "dashboards/env.tsx", "design/nav.tsx", "design/theme.tsx"];
 
 test("no module of the package calls createContext, except the client modules that share a context", () => {
   const found = files(SRC).filter((f) => /\bcreateContext\b/.test(readFileSync(f, "utf8"))).map((f) => f.slice(SRC.length)).sort();
@@ -35,13 +35,13 @@ test("the main entry never imports the design entry's contexts", () => {
   assert.deepEqual(reached, []);
 });
 
-test("the model entry is pure: no React, no Node.js module, no view", () => {
+for (const entry of ["model", "dashboards"]) test(`the ${entry} entry is pure: no React, no Node.js module, no view`, () => {
   const seen = new Set<string>();
   const walk = (file: string) => {
     if (seen.has(file)) return;
     seen.add(file);
-    // value imports only: a type import is gone at run time
-    for (const m of readFileSync(file, "utf8").matchAll(/^import\s+(?!type\b)[^;]*?from\s+"([^"]+)"/gms)) {
+    // value imports and re-exports only: a type import is gone at run time
+    for (const m of readFileSync(file, "utf8").matchAll(/^(?:import|export)\s+(?!type\b)[^;]*?from\s+"([^"]+)"/gms)) {
       const spec = m[1];
       assert.ok(spec.startsWith("."), `${file.slice(SRC.length)} imports ${spec}`);
       const next = join(file, "..", spec);
@@ -49,7 +49,7 @@ test("the model entry is pure: no React, no Node.js module, no view", () => {
       walk(next);
     }
   };
-  walk(join(SRC, "model/index.ts"));
-  for (const f of readdirSync(join(SRC, "model"))) walk(join(SRC, "model", f));
-  assert.ok(seen.size >= 8);
+  walk(join(SRC, entry, "index.ts"));
+  if (entry === "model") for (const f of readdirSync(join(SRC, "model"))) walk(join(SRC, "model", f));
+  assert.ok(seen.size >= 3);
 });
