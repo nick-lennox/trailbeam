@@ -9,8 +9,9 @@ pip install "trailbeam[server]"            # or: pip install trailbeam-server
 trailbeam start
 ```
 
-Add `postgres` for a Postgres store, `sso` for single sign-on and `passkeys` for signing in with passkeys:
-`pip install "trailbeam[server,postgres,sso,passkeys]"`.
+Add `postgres` for a Postgres store, `sso` for single sign-on, `passkeys` for signing in with passkeys and `aws` for
+AWS reads:
+`pip install "trailbeam[server,postgres,sso,passkeys,aws]"`.
 
 The client library, with the hooks for boto3, AWS Lambda and pika, is the `trailbeam` distribution
 (`pip install trailbeam`). Until 0.4.0 both were one distribution; from 0.5.0 the server is this one, at the same
