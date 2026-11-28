@@ -187,6 +187,8 @@ def route_label(path: str, api_routes: Optional[Iterable[str]] = None) -> str:
         return f"/api/{parts[0]}" + ("/other" if len(parts) > 1 else "")
     if path.startswith("/ui/"):
         return "/ui/{file}"
-    if path in ("/", "/message", "/duplicates", "/stuck", "/tenants", "/people", "/tokens", "/alerts", "/settings", "/metrics", "/login", "/logout"):
+    if path.startswith("/issues/"):
+        return "/issues/{id}"
+    if path in ("/", "/message", "/duplicates", "/issues", "/stuck", "/tenants", "/people", "/tokens", "/alerts", "/settings", "/metrics", "/login", "/logout"):
         return path
     return "other"

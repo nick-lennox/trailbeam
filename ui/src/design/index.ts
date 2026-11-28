@@ -54,7 +54,7 @@ export {
 export { Menu, MenuItem } from "./Menu.tsx";
 export { AWS_FAMILY, PlatformIcon, ServiceIcon } from "./icons.tsx";
 // the Overview's views (QV-579): the flows page, "In ‹queue› now", the queue lane, a message's sequence, the messages behind a part of the flow map, and "nothing yet"
-export { Watching } from "../now/Watching.tsx";
+export { NothingReporting, Watching } from "../now/Watching.tsx";
 export { QueueLane, type LaneMessage } from "../now/QueueLane.tsx";
 export {
   MessageSequence, Rows as SequenceRows, barsOf, sequenceOf, hash as sequenceHash, recorded as recordedBy, ORD as RECEIVE_ORDINALS, PLATFORM_ICON, SQS_ICON,

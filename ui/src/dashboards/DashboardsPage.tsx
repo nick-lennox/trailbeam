@@ -7,7 +7,7 @@ import { UiLink, useNav } from "../design/nav.tsx";
 import { TH } from "../explorer/columns.ts";
 import { useDashboardsEnv } from "./env.tsx";
 import { fmtLimit, TONE_WORD, type Alert, type Tone } from "./measures.ts";
-import { STARTERS, type Dashboard, type Widget } from "./types.ts";
+import { makeStarter, STARTERS, type Dashboard, type Widget } from "./types.ts";
 import { Mini } from "./Mini.tsx";
 import { FIELD, IconBtn, Labeled, Menu, MenuItem, Modal, StateMark, TONE_TEXT, TONE_VAR } from "./ui.tsx";
 
@@ -212,7 +212,8 @@ export function DashboardsPage({ dashboards, server }: { dashboards: Dashboard[]
 }
 
 function StarterMini({ id }: { id: string }) {
-  const def = useMemo(() => STARTERS.find((s) => s.id === id)!.make(), [id]);
+  const { aws } = useDashboardsEnv();
+  const def = useMemo(() => makeStarter(id, { aws })!, [id, aws]);
   return <Mini def={def} rows={10} />;
 }
 

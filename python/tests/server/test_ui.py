@@ -47,7 +47,8 @@ def test_message_page_is_the_shell_when_built(db, built):
         # Messages (with the first-run screen), Duplicates and Stuck are the same shell, with or without a query
         # ... and so are the queue list and a queue's page (QV-364), the Overview (QV-398), the Event explorer (QV-399)
         # Dashboards (QV-591) and Settings (QV-589)
-        for path in ("/", "/?queue=orders", "/duplicates", "/stuck?older_than_s=60", "/queues", "/overview?range=24h", "/queue?name=orders&range=4h",
+        for path in ("/", "/?queue=orders", "/duplicates", "/stuck?older_than_s=60", "/issues", "/issues?queue=orders&age=15m",
+                     "/issues/3f2a9c1d7e4b", "/issues/3f2a9c1d7e4b?age=1h", "/queues", "/overview?range=24h", "/queue?name=orders&range=4h",
                      "/events", "/events?q=kind%3Adelete&range=7d",
                      "/dashboards", "/dashboards?id=a1b2c3d4&range=4h", "/alerts", "/settings"):
             status, _, page = get(base + path)
@@ -77,7 +78,7 @@ def test_without_a_build_the_message_page_is_html(db, tmp_path):
         status, _, body = get(f"{base}/tenants")
         assert status == 200 and b"<h1>Tenants</h1>" in body
         for path, h1 in (("/", b"<h1>Look up a message</h1>"), ("/duplicates", b"<h1>Duplicates</h1>"),
-                         ("/stuck", b"<h1>Stuck messages</h1>")):
+                         ("/stuck", b"<h1>Stuck messages</h1>"), ("/issues", b"<h1>Stuck messages</h1>")):
             status, _, body = get(base + path)
             assert status == 200 and h1 in body, path
         assert get(f"{base}/ui/assets/app.js")[0] == 404
@@ -89,7 +90,7 @@ def test_without_a_build_every_shell_only_page_says_how_to_build_it(db, tmp_path
     """QV-769: /overview, /events, /dashboards, /alerts, /settings, /queues and /queue have no HTML page; without the
     build each says so, as /people does, instead of a bare 404."""
     from trailbeam.server import ui_files, web
-    html_pages = {"/", "/duplicates", "/stuck", "/message", "/tenants", "/people", "/tokens", "/account"}
+    html_pages = {"/", "/duplicates", "/issues", "/stuck", "/message", "/tenants", "/people", "/tokens", "/account"}
     assert set(ui_files.SHELL_PAGES) == html_pages | set(web.SHELL_ONLY)  # a new shell page gets an answer here
     httpd, base = serve(db, tmp_path / "not-built")
     try:
@@ -97,7 +98,11 @@ def test_without_a_build_every_shell_only_page_says_how_to_build_it(db, tmp_path
             status, _, body = get(base + path)
             assert status == 200 and f"<h1>{title}</h1>".encode() in body, path
             assert b"npm run build" in body and b"/api/" in body, path
+        # one issue's page (QV-708) has no HTML version either
+        status, _, body = get(f"{base}/issues/3f2a9c1d7e4b")
+        assert status == 200 and b"<h1>Issue</h1>" in body and b"/api/causes?cause=" in body
         assert get(f"{base}/nope")[0] == 404
+        assert get(f"{base}/issues/a/b")[0] == 404
     finally:
         httpd.shutdown(); httpd.server_close()
 

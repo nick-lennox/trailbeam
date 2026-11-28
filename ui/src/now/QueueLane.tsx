@@ -55,7 +55,7 @@ type Place = { key: string; x: number; y: number; w?: number; h?: number; bg: st
 type Bar = { state: Live["state"]; x: number; w: number; n: number };
 
 export function QueueLane({
-  live, gone, consumer, dlq, max, fifo, visible, inFlight, flow, windowS, exact, t, dead, deadNote = "Since this opened.", avgBytes, selected, onSelect, onGroup,
+  live, gone, consumer, dlq, max, fifo, visible, inFlight, flow, windowS, exact, t, dead, deadNote = "Since this opened.", noDlq = "No dead-letter queue", avgBytes, selected, onSelect, onGroup,
 }: {
   live: Live[]; gone: Live[]; consumer: string; dlq: string | null; max: number | null; fifo: boolean;
   visible: number; inFlight: number;
@@ -63,6 +63,8 @@ export function QueueLane({
   windowS: number; exact: boolean; t: number; dead: number;
   /* what the dead-lettered count covers */
   deadNote?: string;
+  /* what the last part says when there is no dlq: none in the redrive policy read, or the policy was not read */
+  noDlq?: string;
   avgBytes?: number; // average message body size on this queue, in bytes, when it is known
   selected: string | null; onSelect: (id: string) => void; onGroup: (state: Live["state"]) => void;
 }) {
@@ -177,7 +179,7 @@ export function QueueLane({
           {stat(0, a - PAD, "Visible", visible)}
           {stat(a + PAD, b - a - PAD * 2, `In flight with ${consumer}`, inFlight)}
           {stat(b + PAD, c - b - PAD * 2, `Deleted in the last ${words(windowS)}`, flow)}
-          {stat(c + PAD, w - c - PAD, dlq ? "Dead-lettered" : "No dead-letter queue", dlq ? dead : null, dead ? "text-critical-text" : "text-ink")}
+          {stat(c + PAD, w - c - PAD, dlq ? "Dead-lettered" : noDlq, dlq ? dead : null, dead ? "text-critical-text" : "text-ink")}
 
           <div className="absolute inset-x-0 top-[60px] h-[46px]">
             {idle && <p className="absolute top-0.5 left-0 text-[13px] text-ink-2" style={{ width: a - PAD }}>The queue is empty.{latest ? ` The last message left it ${ago(t - latest.since)}.` : ""}</p>}

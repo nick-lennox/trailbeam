@@ -18,7 +18,7 @@ Pages:
   exchange, routed, delivered, acked, requeued, refused, returned to the queue with its cause, and a move to a
   dead-letter queue reported by RabbitMQ's ``x-death`` header (``_amqp``).
 - ``/duplicates``: duplicates (messages received or handled more than once).
-- ``/stuck``: stuck messages.
+- ``/stuck``: stuck messages. ``/issues`` is the same page without the shared UI's build (with it, Issues: QV-708).
 - ``/tenants``: per tenant, sends, share, p95 time in queue and dead-lettered messages (contract/tenants.md).
   ``/?tenant=...`` lists one tenant's messages.
 
@@ -229,12 +229,16 @@ footer{color:#6b7385;font-size:.8em;padding:1rem 1.2rem}
 
 def handle(api: Callable[[str, dict], object], api_error: type, path: str, query: dict) -> Optional[Response]:
     """Render the page for ``path``; None if ``path`` is not a page. ``api`` is ``App.api``."""
-    pages = {"/": _index, "/message": _message, "/duplicates": _duplicates, "/stuck": _stuck, "/tenants": _tenants,
+    pages = {"/": _index, "/message": _message, "/duplicates": _duplicates, "/stuck": _stuck, "/issues": _stuck, "/tenants": _tenants,
              "/people": _people, "/tokens": _tokens, "/account": _account}
     page = pages.get(path)
     if page is None:
         if path in SHELL_ONLY:
             return _shell_only(*SHELL_ONLY[path])
+        from .ui_files import is_issue_page
+        if is_issue_page(path):
+            return _shell_only("Issue", "<code>/api/causes?cause=</code> with the issue's ID, and the "
+                               '<a href="/stuck">stuck messages</a> page')
         return None
     try:
         return page(api, query)

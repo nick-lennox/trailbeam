@@ -34,7 +34,7 @@ test("the chart keeps no range of its own: no from-to chip, no clear button, no 
 
 test("the queue page's range is the time picker's: its presets end now, anything else is a fixed from and to", () => {
   assert.deepEqual(queueTime({ kind: "preset", preset: "4h" }, NOW), preset("4h", NOW));
-  assert.deepEqual(queueTime({ kind: "fixed", fromMs: NOW - 60 * MIN, toMs: NOW }), custom(NOW - 60 * MIN, NOW));
+  assert.deepEqual(queueTime({ kind: "fixed", fromMs: NOW - 60 * MIN, toMs: NOW }, NOW), custom(NOW - 60 * MIN, NOW));
   assert.deepEqual(queueRangeOfTime(preset("7d", NOW)), { kind: "preset", preset: "7d" });
   assert.deepEqual(queueRangeOfTime(custom(NOW - 60 * MIN, NOW)), { kind: "fixed", fromMs: NOW - 60 * MIN, toMs: NOW });
   // a typed 45m is not one of the page's presets: it is the 45 minutes it covers now

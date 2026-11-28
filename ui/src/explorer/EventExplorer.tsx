@@ -147,7 +147,9 @@ export function EventExplorer({ query, setQuery, time, setTime, data, messageHre
         const order = f.buckets ? ranges(f).map((r) => r.value) : null;
         const values = [...counts].sort((a, b) => (order ? order.indexOf(a[0]) - order.indexOf(b[0]) : numeric ? parseFloat(a[0]) - parseFloat(b[0]) : b[1] - a[1]));
         return { ...f, values, active: terms.filter((t) => !t.neg && t.field === f.name && t.value).length };
-      }),
+      })
+      /* a facet with no value to tick is not drawn, nor a group with none (QV-777); one the query names still is */
+      .filter((f) => f.values.length > 0 || terms.some((t) => t.field === f.name)),
     [inRange, terms, live, lang, filled],
   );
   const activeTotal = terms.filter((t) => (t.field || t.value) && !t.error).length;

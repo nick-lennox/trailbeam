@@ -6,6 +6,7 @@
 import { queueQuery, type QueueRange } from "../queue/model.ts";
 import { readRange, rangeText, rangeWindow, RANGE_PRESETS, type RangePreset, type TimeRange } from "../messages/range.ts";
 import type { OverviewHrefs, QueueRef } from "./FlowDrawing.tsx";
+import { custom, rangeParams } from "../model/timerange.ts";
 
 export type OverviewUrl = {
   range: Extract<TimeRange, { kind: "preset" | "custom" }>;
@@ -76,18 +77,18 @@ function queueRange(u: OverviewUrl, nowMs: number): QueueRange {
 /** at=<account>:<region>, only when the label had to tell two same-named queues apart */
 const atOf = (q: QueueRef) => (q.queue !== q.name && q.account ? `${q.account}:${q.region ?? ""}` : null);
 
-/** The Overview's links in self-hosted Trailbeam: /queue?name=…, /stuck?queue=…, both at the page's range. */
+/** The Overview's links in self-hosted Trailbeam: /queue?name=…, /issues?queue=…, both at the page's range. */
 export function selfHostedHrefs(u: OverviewUrl, nowMs: number): OverviewHrefs {
   return {
     queue: (q, part) => `/queue?${queueQuery({ name: q.name, at: atOf(q), range: queueRange(u, nowMs) })}${part ? `#${part}` : ""}`,
+    // the Issues list's range in its own terms (QV-708): 24h is its 1d, a fixed range is from= and to= in UTC
     stuck: (q) => {
       const p = new URLSearchParams({ queue: q.name });
-      if (u.range.kind === "preset") p.set("range", u.range.preset);
-      else {
-        if (u.range.from_ms !== undefined) p.set("from_ms", String(u.range.from_ms));
-        if (u.range.to_ms !== undefined) p.set("to_ms", String(u.range.to_ms));
+      if (u.range.kind === "preset") p.set("range", u.range.preset === "24h" ? "1d" : u.range.preset);
+      else if (u.range.kind === "custom" && u.range.from_ms !== undefined) {
+        for (const [k, v] of rangeParams(custom(u.range.from_ms, u.range.to_ms ?? nowMs))) p.set(k, v);
       }
-      return `/stuck?${p}`;
+      return `/issues?${p}`;
     },
     setUp: "/",
   };
