@@ -37,7 +37,8 @@ without either, the dashboard's ``time``, else the past hour. A widget with its 
 hosted dashboard. ``?n=`` the buckets of a series (60, the hosted dashboard's; 1 to 200). ``?data=1`` adds the
 EventData the figures were worked out from. The EventData is read from the store (``event_data``): the events of
 the messages with spans in the range, the most recently active first, up to EVENT_MESSAGES of them, each message's
-rows through the timeline (timeline.py), as the hosted app's lib/app/live-events.ts does. Self-hosted Trailbeam
+rows through the timeline (timeline.py), as the hosted app's lib/app/live-events.ts does. A range that ends before
+now is read on its own, up to its end, so the messages since do not crowd it out (QV-685). Self-hosted Trailbeam
 does not read AWS, so ``queueLive`` gives every queue ``status: "not_configured"``: queue measures (depth, age,
 headroom) have no figures and say why (measures.no_depth). Infinity and NaN are the strings "Infinity", "-Infinity"
 and "NaN", as in contract/fixtures/measures-parity.json, because JSON has no such numbers.
@@ -78,6 +79,12 @@ MAX_IMPORT_CHARS = 4 * M.MAX_DEF_BYTES
 EVENT_MESSAGES = 2000
 #: the longest range a measures read covers: spans are kept 30 days (the hosted app's EVENT_DAYS)
 MAX_RANGE_MS = 30 * M.DAY
+#: a range that ends before now also reads the messages whose newest span is up to this long after its end, so a
+#: message still being worked at the end (a receive just before, its delete just after) keeps its events in the
+#: range: the store orders and bounds messages by their newest span only. Read only with what EVENT_MESSAGES
+#: leaves after the range's own messages, newest first, so when more than that were active in this time after
+#: the end, the ones read are the newest of them, not the straddlers, and the answer says ``capped`` (QV-685)
+STRADDLE_MS = 15 * M.MIN
 #: the events a widget's answer carries at most (event lists, distributions, heatmaps)
 MAX_EVENTS = 500
 N_DEFAULT = 60
@@ -291,19 +298,30 @@ def events_of(rows: list, now_ns: int, lambda_timeout_s: int = timeline.DEFAULT_
 
 
 def event_data(db, now_ms: int, since_ms: int, lambda_timeout_s: int = timeline.DEFAULT_LAMBDA_TIMEOUT_S,
-               max_receive_counts: dict | None = None, max_messages: int = EVENT_MESSAGES) -> dict:
-    """The measures engine's EventData from a store: the events in [since_ms, now_ms] of the messages with spans in
+               max_receive_counts: dict | None = None, max_messages: int = EVENT_MESSAGES,
+               to_ms: int | None = None) -> dict:
+    """The measures engine's EventData from a store: the events in [since_ms, end) of the messages with spans in
     that range, the most recently active first, up to ``max_messages`` (``capped`` when more had), newest event
-    first (live-events.ts loadEvents). ``queueLive``: every queue "not_configured" (the module's docstring)."""
+    first (live-events.ts loadEvents). ``end``: ``to_ms`` (excluded) if it is given and before now, else just after
+    ``now_ms``. A range that ends before now reads its own messages first and then, with what the cap leaves, the
+    ones last active up to STRADDLE_MS after it (QV-685): so a past day is not crowded out by the messages since.
+    ``queueLive``: every queue "not_configured" (the module's docstring)."""
     now_ns = now_ms * _NS
-    mids = db.recent_messages(max_messages + 1, from_ns=since_ms * _NS, to_ns=(now_ms + 1) * _NS)
+    end_ms = now_ms + 1 if to_ms is None else min(to_ms, now_ms + 1)
+    mids = db.recent_messages(max_messages + 1, from_ns=since_ms * _NS, to_ns=end_ms * _NS)
     capped = len(mids) > max_messages
     mids = mids[:max_messages]
+    if not capped and end_ms <= now_ms:  # and the messages still at work at its end, newest span soon after it
+        left = max_messages - len(mids)
+        after = db.recent_messages(left + 1, from_ns=end_ms * _NS,
+                                   to_ns=min(end_ms + STRADDLE_MS, now_ms + 1) * _NS)
+        capped = len(after) > left
+        mids = after[:left] + mids  # most recently active first
     rows = db.messages_rows(mids)
     found: list[tuple[dict, int]] = []
     for mid in mids:
         for e in events_of(rows.get(mid) or [], now_ns, lambda_timeout_s, max_receive_counts):
-            if since_ms <= e["ms"] <= now_ms:
+            if since_ms <= e["ms"] < end_ms:
                 found.append((e, len(found)))
     found.sort(key=lambda x: (-x[0]["ms"], -x[1]))
     events = [e for e, _ in found]
@@ -482,12 +500,13 @@ def _checked(raw: Any) -> dict:
 class DashboardsApi:
     """The handlers over one store, for one workspace (self-hosted Trailbeam has one).
 
-    ``data(since_ms, now_ms)``: the EventData the measures read (event_data on the server's store). ``can_unlock``:
+    ``data(since_ms, now_ms, to_ms)``: the EventData the measures read (event_data on the server's store); ``to_ms``
+    None for a range that ends now. ``can_unlock``:
     whether a request's Who may lift someone else's lock (an admin, or anyone before accounts exist); the default
     lets anyone. ``now``: ms. ``no_depth_text``: why queue measures have no figures, when the data never has any
     (widget_measures)."""
 
-    def __init__(self, store: DashboardStore, workspace: str, data: Callable[[int, int], dict],
+    def __init__(self, store: DashboardStore, workspace: str, data: Callable[[int, int, int | None], dict],
                  can_unlock: Callable[[Any], bool] = lambda who: True,
                  now: Callable[[], int] = lambda: _time.time_ns() // _NS, no_depth_text: str | None = None):
         self.store, self.ws, self.data, self.can_unlock, self.now = store, workspace, data, can_unlock, now
@@ -706,19 +725,25 @@ class DashboardsApi:
         widgets = widgets[:MAX_WIDGETS]
         now = self.now()
         t = self.time_of(q, d, now)
-        # read once, from the earliest range a widget draws
-        since = min([t["from"]] + [M.preset(w["time"], now)["from"] for w in widgets if w.get("time")])
-        data = self.data(int(since), now)
+        # the ranges that end now (presets, a widget's own time) are read once, from the earliest; a range that
+        # ends before now is read on its own, up to its end, so the messages since do not crowd it out (QV-685)
+        past = t["to"] < now
+        own = [M.preset(w["time"], now)["from"] for w in widgets if w.get("time")]
+        live_from = min(own + ([] if past else [t["from"]]), default=None)
+        live = None if live_from is None else self.data(int(live_from), now, None)
+        data = self.data(int(t["from"]), now, int(t["to"])) if past else live
         start, size, done = self.clock(), 0, []
         for w in widgets:
             if done and (size >= MEASURES_BYTES or self.clock() - start >= MEASURES_SECONDS):
                 done.append({"id": w.get("id"), "type": w.get("type"), "title": w.get("title"),
                              "skipped": SKIPPED.format(id=d["id"], wid=w.get("id"))})
                 continue
-            wm = plain(widget_measures(w, d["def"]["variables"], t, data, n, self.no_depth_text))
+            wm = plain(widget_measures(w, d["def"]["variables"], t, live if w.get("time") else data, n,
+                                       self.no_depth_text))
             size += len(json.dumps(wm, separators=(",", ":")))
             done.append(wm)
-        out: dict = {"dashboard": d["id"], "time": t, "now": data["now"], "capped": data.get("capped", False),
+        capped = any(x.get("capped", False) for x in (data, live) if x is not None)
+        out: dict = {"dashboard": d["id"], "time": t, "now": data["now"], "capped": capped,
                      "skipped": sum(1 for w in done if "skipped" in w), "widgets": done}
         if _one(q, "data") in ("1", "true"):
             out["data"] = data
@@ -747,8 +772,8 @@ def for_app(app, env=None) -> DashboardsApi | None:
     def can_unlock(who) -> bool:
         return app.access.mode() != "accounts" or getattr(who, "role", None) == "admin"
 
-    def data(since_ms: int, now_ms: int) -> dict:
-        return event_data(app.db, now_ms, since_ms, app.lambda_timeout_s, app.max_receive_counts)
+    def data(since_ms: int, now_ms: int, to_ms: int | None) -> dict:
+        return event_data(app.db, now_ms, since_ms, app.lambda_timeout_s, app.max_receive_counts, to_ms=to_ms)
 
     return DashboardsApi(store, WORKSPACE, data, can_unlock=can_unlock, now=lambda: app.now() // _NS,
                          no_depth_text=NOT_QUEUE_LIVE)
