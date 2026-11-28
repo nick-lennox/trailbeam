@@ -51,6 +51,10 @@ STARTS_WINDOW_S = 600.0
 MAX_PER_PERSON = 20
 MAX_NAME = 100
 MAX_ANSWER = 16 * 1024  # bytes of JSON a browser sends back
+# WebAuthn Level 3, 7.1 (registering, the credentialId step): a credential ID over 1023 bytes aborts the ceremony.
+MAX_CREDENTIAL_ID = 1023
+MAX_CREDENTIAL_ID_B64 = -(-MAX_CREDENTIAL_ID * 4 // 3)  # 1364 base64url characters, unpadded
+MAX_PUBLIC_KEY = 2048  # bytes of COSE key; an RSA-4096 one is about 550
 RP_NAME = "Trailbeam"
 REFUSED = "That passkey didn't work. Try another way to sign in."
 
@@ -178,6 +182,14 @@ class Passkeys:
         except Exception as e:  # noqa: BLE001 - the library's InvalidRegistrationResponse, or a malformed answer
             raise PasskeyError(400, "The passkey wasn't saved: your browser's answer didn't check out. Try again.",
                                f"registration refused: {e}") from None
+        if len(v.credential_id) > MAX_CREDENTIAL_ID or len(v.credential_public_key) > MAX_PUBLIC_KEY:
+            raise PasskeyError(400, "The passkey wasn't saved: your browser's answer didn't check out. Try again.",
+                               f"registration refused: a {len(v.credential_id)}-byte credential ID or a "
+                               f"{len(v.credential_public_key)}-byte public key (at most {MAX_CREDENTIAL_ID} "
+                               f"and {MAX_PUBLIC_KEY})")
+        if _safe_unb64(credential.get("rawId")) != v.credential_id:
+            raise PasskeyError(400, "The passkey wasn't saved: your browser's answer didn't check out. Try again.",
+                               "registration refused: rawId is not the attested credential ID")
         transports = credential.get("response", {}).get("transports") or []
         if not isinstance(transports, list) or not all(isinstance(t, str) for t in transports):
             transports = []
@@ -199,7 +211,7 @@ class Passkeys:
         """(user ID, session ID, its expiry). Raises PasskeyError."""
         challenge = self._take(credential, "sign_in", None)
         cid = credential.get("rawId") or credential.get("id")
-        found = self.accounts.passkey_by_credential(cid) if isinstance(cid, str) and len(cid) <= 1400 else None
+        found = self.accounts.passkey_by_credential(cid) if isinstance(cid, str) and len(cid) <= MAX_CREDENTIAL_ID_B64 else None
         if found is None:
             raise PasskeyError(401, REFUSED, "no saved passkey has this credential ID")
         if found["disabled_at_ms"] is not None:
