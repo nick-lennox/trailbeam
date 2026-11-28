@@ -66,3 +66,26 @@ test("the server's recorded answer, drawn by the shared explorer: inferred event
   assert.match(head, />Tenant</);
   assert.match(head, />Body size</);
 });
+
+test("QV-777: a server that has never stored a span shows the Overview's first-run state, not an explorer of zeros", async () => {
+  const { EventsFirstRun } = await import("../shell/events.tsx");
+  const html = renderToStaticMarkup(h(EventsFirstRun));
+  assert.ok(html.includes("Waiting to observe your first message"));
+  assert.ok(html.includes("Nothing is reporting to this workspace."));
+  assert.ok(html.includes("lists every event of every message"));
+  assert.match(html, /href="\/"[^>]*>See how to connect a service</);
+});
+
+test("QV-777: facets with no values, and their groups, are not drawn; one the query names still is", () => {
+  const empty = explorerData({ from_ms: NOW - 24 * H, to_ms: NOW, events: [], messages: 0, capped: false, bodies_capped: false }, NOW);
+  // the filter sidebar only: the table has a Source column of its own
+  const draw = (query: string) => /<aside[\s\S]*?<\/aside>/.exec(renderToStaticMarkup(h(EventExplorer, {
+    query, setQuery: () => {}, time: preset("1d", NOW), data: empty, messageHref: (id: string) => `/message?id=${id}`, page: true,
+  })))?.[0] ?? "";
+  const none = draw("");
+  assert.ok(none.includes("Find a filter"));
+  assert.doesNotMatch(none, /font-semibold text-ink">Event</);
+  assert.doesNotMatch(none, />Source</);
+  const named = draw("source:sdk");
+  assert.match(named, /font-semibold text-ink">Event</);
+});
