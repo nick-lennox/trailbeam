@@ -24,6 +24,10 @@ export type ChartLine = {
 };
 /** A DLQ move along the bottom edge: seen (filled diamond, recorded) or worked out (hollow dashed, inferred). */
 export type ChartMark = { i: number; kind: "seen" | "inferred"; n: number };
+/* A rule's label in words with its figures in mono: "visibility timeout 30 s", "90% of retention". */
+const FIGURE = /(\d[\d.,]*%?(?:\s(?:ms|s|min|h|d)\b)?)/;
+const ruleText = (label: string) => label.split(FIGURE).map((part, i) => (part ? <tspan key={i} className={i % 2 ? "font-mono" : undefined}>{part}</tspan> : null));
+
 /** A horizontal rule at a value, e.g. the visibility timeout. */
 export type ChartRule = { value: number; label: string };
 /** A vertical hairline at a time, e.g. a deploy. */
@@ -242,7 +246,7 @@ export function Chart(p: ChartProps) {
             {onScale.map((r) => (
               <g key={r.label}>
                 <line x1={pad.l} x2={W - pad.r} y1={y(r.value)} y2={y(r.value)} strokeWidth="1.2" style={{ stroke: "var(--color-line-strong)" }} />
-                <text x={W - pad.r} y={y(r.value) - 4} textAnchor="end" fontSize="10" className="font-mono" style={{ fill: "var(--color-ink-3)" }}>{r.label}</text>
+                <text x={W - pad.r} y={y(r.value) - 4} textAnchor="end" fontSize="10" className="font-sans" style={{ fill: "var(--color-ink-3)" }}>{ruleText(r.label)}</text>
               </g>
             ))}
             {(p.markers ?? []).map((m) => (

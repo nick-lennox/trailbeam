@@ -142,6 +142,6 @@ test("the page on the sample: the host's simulated queue and search come through
   assert.ok(out.includes("The queue is healthy"));
   assert.ok(out.includes(">30.0<"), "the sample's rate times its range scale, to one decimal");
   assert.ok(out.includes("orders-dlq"));
-  assert.ok(out.includes("1m 15s"));
+  assert.ok(out.includes("1 min 15 s"), "the oldest message's age as the queue page writes it");
   assert.equal(asked.length, 0, "the queue is the part selected, so no part's messages are asked for");
 });

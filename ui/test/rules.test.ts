@@ -1,6 +1,6 @@
 /*
   The design rules every screen keeps, checked on the source of the shared views (src) and the open-source shell
-  (shell). Hover notes are the app's Tooltip on the specific mark, never the browser's native `title`
+  (shell), and the words-versus-values split of the mono font. Hover notes are the app's Tooltip on the specific mark, never the browser's native `title`
   (QV-588): a `title` attribute on a DOM element, or on a component that passes it through to one, fails here.
   A `title` prop of our own components (Panel, PageHeader, Chart, ...) is a heading, and `<title>` in an SVG is
   its accessible name; both stay.
@@ -11,6 +11,9 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import ts from "typescript";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Rows } from "../src/now/MessageSequence.tsx";
 
 const UI = new URL("../", import.meta.url).pathname;
 /* our components that hand `title` on to the DOM element they draw */
@@ -63,4 +66,10 @@ const PROBE = `export const Probe = () => (
 
 test("the native title check finds a title on a DOM element and on a pass-through link, and nowhere else", () => {
   assert.deepEqual(nativeTitles(join(UI, "probe.tsx"), PROBE), ["probe.tsx:3 <span>", "probe.tsx:6 <button>", "probe.tsx:8 <UiLink>"]);
+});
+
+test("in a list of attributes, an attribute's own name is in mono and a label in words is not (QV-588)", () => {
+  const out = renderToStaticMarkup(createElement(Rows, { mono: true, rows: [["MessageId", "m-1"], ["Body size", "12 B"], ["RedrivePolicy dead-letter queue", "orders-dlq"], ["Tenant", "acme"]] }));
+  const dts = [...out.matchAll(/<dt class="([^"]*)">([^<]*)<\/dt>/g)].map((m) => [m[2], m[1].includes("font-mono")]);
+  assert.deepEqual(dts, [["MessageId", true], ["Body size", false], ["RedrivePolicy dead-letter queue", false], ["Tenant", false]]);
 });

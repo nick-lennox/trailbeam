@@ -342,7 +342,7 @@ export function MessageSequence({ event, history, sequence, payload, stacked = f
                     className={`qs-arrow ${s.draw.b > s.draw.a ? "ltr" : "rtl"} ${s.draw.inferred ? "inferred" : ""}`}
                     style={{ left: Math.min(X(s.draw.a), X(s.draw.b)) + 9, width: Math.abs(X(s.draw.b) - X(s.draw.a)) - 18 }}
                   >
-                    <span>{s.draw.call}</span>
+                    <span className={/\s/.test(s.draw.call) ? "prose" : undefined}>{s.draw.call}</span>
                   </span>
                 ) : (
                   <>
@@ -431,13 +431,17 @@ export function MessageSequence({ event, history, sequence, payload, stacked = f
   );
 }
 
-/* A two-column list with a hairline between rows, so each fact reads as its own line. */
+/* An attribute's own name (MessageId, RedrivePolicy.maxReceiveCount) rather than a label in words (Body size). */
+const attrName = (k: string) => !/\s/.test(k) && /[a-z][A-Z]/.test(k);
+
+/* A two-column list with a hairline between rows, so each fact reads as its own line. With `mono`, the keys that are
+   attribute names are in mono; labels in words stay sans. */
 export function Rows({ rows, mono = false }: { rows: Fact[]; mono?: boolean }) {
   return (
     <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 text-[13px]">
       {rows.map(([k, v]) => (
         <div key={k} className="col-span-2 grid grid-cols-subgrid border-t border-line py-[5px] first:border-t-0">
-          <dt className={mono ? "font-mono text-caption leading-[1.55] text-ink-3" : "leading-[1.55] text-ink-3"}>{k}</dt>
+          <dt className={mono && attrName(k) ? "font-mono text-caption leading-[1.55] text-ink-3" : "leading-[1.55] text-ink-3"}>{k}</dt>
           <dd className="font-mono text-caption leading-[1.55] text-ink [overflow-wrap:anywhere]">{v}</dd>
         </div>
       ))}

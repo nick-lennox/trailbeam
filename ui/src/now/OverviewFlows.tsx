@@ -15,7 +15,7 @@ import type { QueueLive } from "../model/queue-live.ts";
 import type { InQueueView } from "../model/in-queue.ts";
 import { phrase, stamp, type TimeRange } from "../model/timerange.ts";
 import { TimePicker } from "../explorer/TimePicker.tsx";
-import { SPAN_HEALTH_NOTE } from "../queue/model.ts";
+import { SPAN_HEALTH_NOTE, fmtMs as fmtDuration } from "../queue/model.ts";
 import type { Trigger } from "../queue/types.ts";
 import { QueueNowLive } from "./QueueNowLive.tsx";
 import { Watching } from "./Watching.tsx";
@@ -132,6 +132,8 @@ export function dlqNodeCount(o: { real: boolean; queue: string; dlq: string; dep
 }
 
 const NoData = () => <span className="font-sans font-normal text-ink-3">No data</span>;
+/* A word where a figure would be ("None", "Default"), in a mono cell: words are in sans. */
+const Word = ({ children }: { children: ReactNode }) => <span className="font-sans">{children}</span>;
 /* A figure only CloudWatch has, for a queue CloudWatch has not published yet. */
 const NotPublished = ({ what }: { what: string }) => (
   <Tooltip content={`CloudWatch has not published ${what} yet. It starts a few minutes after a queue is created or first used, and does not fill in the minutes before.`} className="font-sans font-normal text-ink-3">Not in CloudWatch yet</Tooltip>
@@ -509,8 +511,8 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
                   {st ? (
                   <dl className="mt-4 grid grid-cols-2 gap-x-5 gap-y-2 whitespace-nowrap border-t border-line px-4 py-3.5 text-xs">
                     {([["Visible", st.visible === null ? <NoData /> : fmtNum(st.visible)], ["In flight", st.notVisible === null ? <NoData /> : fmtNum(st.notVisible)],
-                      ["Oldest message", st.oldestS === null ? (aws && lv!.oldestUnpublished ? <NotPublished what="this queue's ApproximateAgeOfOldestMessage" /> : <NoData />) : <>{st.oldestS < 60 ? `${st.oldestS} s` : `${Math.floor(st.oldestS / 60)}m ${st.oldestS % 60}s`}{aws && <AsOf ms={lv!.oldestAsOf} />}</>],
-                      ["Visibility timeout", cfg.visibilityTimeoutS === null ? <NoData /> : `${cfg.visibilityTimeoutS} s`], ["maxReceiveCount", cfg.maxReceiveCount ?? "None"],
+                      ["Oldest message", st.oldestS === null ? (aws && lv!.oldestUnpublished ? <NotPublished what="this queue's ApproximateAgeOfOldestMessage" /> : <NoData />) : <>{st.oldestS < 60 ? `${st.oldestS} s` : fmtDuration(st.oldestS * 1000)}{aws && <AsOf ms={lv!.oldestAsOf} />}</>],
+                      ["Visibility timeout", cfg.visibilityTimeoutS === null ? <NoData /> : `${cfg.visibilityTimeoutS} s`], ["maxReceiveCount", cfg.maxReceiveCount ?? <Word>None</Word>],
                       real ? ["Retention", cfg.retentionDays === null ? <NoData /> : `${cfg.retentionDays} ${cfg.retentionDays === 1 ? "day" : "days"}`] : ["Type", q.type]] as [string, ReactNode][]).map(([k, v]) => (
                       <div key={k} className="flex items-baseline justify-between gap-3">
                         <dt className="text-ink-3">{k}</dt>
@@ -580,7 +582,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
                       </Tooltip>
                     : <NoData />}</Fact>
                   <Fact k="Timed out">{cs ? fmtNum(count(cs.timeouts)) : ends ? <Tooltip content="From the function's own log: REPORT lines that say the invocation timed out or ran out of memory">{fmtNum(ends.timeouts)}{ends.oom > 0 && <span className="text-ink-3">, {fmtNum(ends.oom)} out of memory</span>}</Tooltip> : <NoData />}</Fact>
-                  <Fact k="Runs on">{(con as { runsOn?: string }).runsOn || con.runtime || (mine ? "Lambda" : real ? <NoData /> : "Unknown")}</Fact>
+                  <Fact k="Runs on">{(con as { runsOn?: string }).runsOn || con.runtime || (mine ? <Word>Lambda</Word> : real ? <NoData /> : <Word>Unknown</Word>)}</Fact>
                 </dl>
                 {real && triggers && triggers.length > 0 && (
                   <div className="mt-5">
@@ -592,11 +594,11 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
                           <tr key={t.uuid ?? t.functionName} className={t.functionName === con.name ? "bg-sunken/60" : ""}>
                             <td className="border-b border-line py-1.5 pr-4">{t.functionName}</td>
                             <td className="border-b border-line py-1.5 pr-4 font-sans">{t.state ?? "Unknown"}</td>
-                            <td className="border-b border-line py-1.5 pr-4">{t.batchSize ?? "Default"}</td>
-                            <td className="border-b border-line py-1.5 pr-4">{t.batchingWindowS ? `${t.batchingWindowS} s` : "None"}</td>
+                            <td className="border-b border-line py-1.5 pr-4">{t.batchSize ?? <Word>Default</Word>}</td>
+                            <td className="border-b border-line py-1.5 pr-4">{t.batchingWindowS ? `${t.batchingWindowS} s` : <Word>None</Word>}</td>
                             <td className="border-b border-line py-1.5 pr-4 font-sans">{t.reportBatchItemFailures ? "Reported per message" : "Whole batch received again"}</td>
-                            <td className="border-b border-line py-1.5 pr-4">{t.maxConcurrency ?? "Not set"}</td>
-                            <td className="border-b border-line py-1.5 pr-4">{t.filters || "None"}</td>
+                            <td className="border-b border-line py-1.5 pr-4">{t.maxConcurrency ?? <Word>Not set</Word>}</td>
+                            <td className="border-b border-line py-1.5 pr-4">{t.filters || <Word>None</Word>}</td>
                           </tr>
                         ))}
                       </tbody>

@@ -76,7 +76,7 @@ export function TenantSearch({ suggest, href, defaultValue = "", placeholder = "
     <form role="search" className={className} onSubmit={(e) => { e.preventDefault(); const t = text.trim(); if (t) location.assign(href(t)); }}>
       <label className="sr-only" htmlFor={`${id}-q`}>Tenant</label>
       <input id={`${id}-q`} name="tenant" list={`${id}-list`} value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder} autoComplete="off"
-        className="w-full rounded-full border border-line bg-surface px-4 py-1.5 font-mono text-caption text-ink placeholder:text-ink-3" />
+        className="w-full rounded-full border border-line bg-surface px-4 py-1.5 font-mono text-caption text-ink placeholder:font-sans placeholder:text-ink-3" />
       <datalist id={`${id}-list`}>{options.map((o) => <option key={o} value={o} />)}</datalist>
     </form>
   );
