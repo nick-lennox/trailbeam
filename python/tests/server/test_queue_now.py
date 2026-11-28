@@ -146,6 +146,18 @@ def test_the_other_queues_steps_do_not_take_this_ones_places_in_the_limit(db, in
     assert [r["time_ns"] for r in got] == [T0 + SEC + 1, T0 + 1]
 
 
+def test_the_other_queues_messages_do_not_cap_this_ones_list(db, ingest):
+    here, there = Consumer("a"), Consumer("b")
+    theirs = [there.send(T0 + i, f"y{i}") for i in range(5)]  # older than this queue's, so read first
+    for s in theirs:
+        s.attrs["aws.sqs.queue.url"] = ELSEWHERE
+    ingest(*theirs, *[here.send(T0 + SEC + i, f"x{i}") for i in range(2)])
+    d = now_of(db, T0 + 10 * SEC, limit=2, path="queues/000000000000%2F%2Forders/now")
+    assert [m["id"] for m in d["held"]] == ["x0", "x1"] and d["capped"] is False
+    there_now = now_of(db, T0 + 10 * SEC, limit=2, path="queues/123456789012%2Feu-west-1%2Forders/now")
+    assert [m["id"] for m in there_now["held"]] == ["y0", "y1"] and there_now["capped"] is True
+
+
 def test_the_list_is_capped(db, ingest):
     w = Consumer("w")
     ingest(*[w.send(T0 + i * SEC, f"m{i}") for i in range(5)])

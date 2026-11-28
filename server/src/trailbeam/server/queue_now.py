@@ -158,6 +158,30 @@ def summarize(held: list, not_seen: list, *, now_ms: int, config: dict, capped: 
     }
 
 
+def _held_of(db, keys: set, name: str, cutoff_ns: int, from_ns: int, limit: int) -> list:
+    """The oldest ``limit`` of the Stuck list's candidates first seen in [from_ns, cutoff_ns) that are on the queue
+    whose stored keys are ``keys``, as (message ID, its rows), oldest first. The store filters by name only, so a
+    queue of this name in another account or region is skipped here, a page at a time, and its messages don't take
+    this queue's places in the limit (nor turn ``capped`` on). RabbitMQ messages are skipped the same way."""
+    out: list = []
+    after = None
+    while len(out) < limit:
+        page = db.stuck_messages(cutoff_ns, limit, name, from_ns=from_ns, after=after)
+        rows_of = db.messages_rows([c.message_id for c in page])
+        for c in page:
+            rows = rows_of.get(c.message_id)
+            if not rows or rabbitmq.is_rabbitmq(rows):
+                continue
+            # a queue of this name in another account or region is another queue
+            if any(queues_mod.key(r["queue"], r["queue_url"]) in keys for r in rows
+                   if r["queue"] == name and r["kind"] in ("send", "receive")):
+                out.append((c.message_id, rows))
+        if len(page) < limit:
+            break
+        after = (page[-1].first_ns, page[-1].message_id)
+    return out[:limit]
+
+
 def _steps_of(db, keys: set, name: str, from_ns: int, to_ns: int, limit: int = DELETED_LIMIT) -> list:
     """The newest ``limit`` deletes and Lambda outcomes in [from_ns, to_ns) on the queue whose stored keys are
     ``keys``, newest first. The store filters by name only, so the steps of a queue of this name in another account
@@ -199,19 +223,10 @@ def view(db, want: list, place, now_ns: int, lambda_timeout_s: int, max_receive_
     retention_s = min(config["retentionS"] if config["retentionS"] is not None else SQS_MAX_RETENTION_S,
                       SQS_MAX_RETENTION_S)
     since_ns = now_ns - retention_s * 1_000_000_000
-    found = db.stuck_messages(now_ns + 1, limit + 1, name, from_ns=since_ns)
+    found = _held_of(db, keys, name, now_ns + 1, since_ns, limit + 1)
     capped = len(found) > limit
-    mids = [r.message_id for r in found[:limit]]
-    rows_of = db.messages_rows(mids)
     held, not_seen = [], []
-    for mid in mids:
-        rows = rows_of.get(mid)
-        if not rows or rabbitmq.is_rabbitmq(rows):
-            continue
-        # a queue of this name in another account or region is another queue
-        if not any(queues_mod.key(r["queue"], r["queue_url"]) in keys for r in rows
-                   if r["queue"] == name and r["kind"] in ("send", "receive")):
-            continue
+    for mid, rows in found[:limit]:
         t = queries.message(db, mid, now_ns, lambda_timeout_s, max_receive_counts, rows=rows)
         if t is None:
             continue
