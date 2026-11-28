@@ -21,6 +21,12 @@ the caller read, when it says so) and the widgets' replacement in the same trans
 it took effect, so of two changes made from the same read exactly one is stored. On Postgres the UPDATE locks the
 row; on SQLite the writer runs one transaction at a time.
 
+**NUL.** Postgres text columns refuse the NUL character (0x00), and a name, a widget's ID, a person's display name
+or a dashboard ID in a path can hold one. So every string that goes in, as a value or in a WHERE, has NUL stored as
+U+FFFF and every string that comes out has it turned back, as alerts_store does (QV-658): a dashboard named with a
+NUL reads back as given, and a path ID holding one is a dashboard not found, on SQLite and on Postgres alike
+(QV-686). The JSON columns never hold a NUL: ``json.dumps`` writes it as ``\\u0000``.
+
 Times are milliseconds since the epoch. Nothing here holds spans: retention, ``--vacuum`` and the page queries never
 touch these tables, and a ``--db :memory:`` store loses them on every restart.
 """
@@ -32,6 +38,8 @@ import json
 import threading
 from collections.abc import Iterator
 from typing import Any, Literal, Protocol
+
+from .alerts_store import _in, _out
 
 TABLES = ("dashboards", "dashboard_widgets")
 
@@ -229,9 +237,9 @@ class DashboardTables:
     def _read(self, q: str, args: tuple = ()) -> list[dict]:
         if self.postgres:
             with self.store.reads.connection() as c:
-                return [dict(r) for r in c.execute(q.replace("?", "%s"), args).fetchall()]
+                return [_out(r) for r in c.execute(q.replace("?", "%s"), _in(args)).fetchall()]
         with self.store.reader() as c:
-            return [dict(r) for r in c.execute(q, args).fetchall()]
+            return [_out(r) for r in c.execute(q, _in(args)).fetchall()]
 
     @contextlib.contextmanager
     def _write(self) -> Iterator[_Tx]:
@@ -349,8 +357,8 @@ class _Tx:
 
     def run(self, q: str, args: tuple = ()) -> int:
         """Rows changed."""
-        return self.c.execute(self._q(q), args).rowcount
+        return self.c.execute(self._q(q), _in(args)).rowcount
 
     def one(self, q: str, args: tuple = ()) -> dict | None:
-        r = self.c.execute(self._q(q), args).fetchone()
-        return None if r is None else dict(r)
+        r = self.c.execute(self._q(q), _in(args)).fetchone()
+        return None if r is None else _out(r)
