@@ -262,3 +262,22 @@ def test_bad_requests(db):
     with pytest.raises(ApiError) as e:
         app.api("timeline-events", {"queue": ",".join(f"q{i}" for i in range(te.MAX_QUEUES + 1))})
     assert e.value.status == 400
+
+
+def _amqp_maker():
+    spec = importlib.util.spec_from_file_location("make_amqp_fixture", ROOT / "ui" / "test" / "make-amqp-fixture.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_the_recorded_rabbitmq_answer_is_the_servers():
+    """QV-308: a RabbitMQ message's events, named by their AMQP methods, as ui/test/rabbitmq.test.ts checks the
+    TypeScript makes of the same inputs (ui/test/fixtures/amqp-timeline-events-parity.json)."""
+    mk = _amqp_maker()
+    timelines, parity = mk.record()
+    assert json.loads(json.dumps(parity)) == json.loads(mk.PARITY.read_text())
+    assert json.loads(json.dumps(timelines)) == json.loads(mk.TIMELINES.read_text())
+    events = parity["answer"]["events"]
+    assert {e["system"] for e in events} == {"rabbitmq"}
+    assert not any(w in e.get("call", "") + e["detail"] for e in events for w in ("SQS", "Message", "visibility"))

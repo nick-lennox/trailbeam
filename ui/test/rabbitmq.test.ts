@@ -12,6 +12,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MessagePage, StatePill, SystemBadge, TimelineView } from "../src/design/index.ts";
 import { ORDER_SOURCE, answerFor, isRabbitMq, shownId, splitKey, systemOf, type MessageHrefs, type Timeline } from "../src/index.ts";
 import { ORDER_SOURCE_RABBITMQ } from "../src/timeline/words.ts";
+import { eventName, eventsOfTimeline, kindName, queryLanguage, type Ev, type SpanMeta } from "../src/model/index.ts";
+import { cellText, filledColumns } from "../src/explorer/columns.ts";
+import { EventExplorer } from "../src/explorer/index.ts";
 
 const load = (f: string) => JSON.parse(readFileSync(new URL(`./fixtures/${f}`, import.meta.url), "utf8")) as { timelines: Timeline[]; items?: Record<string, unknown>[] };
 const amqp = load("amqp-timelines.json");
@@ -103,4 +106,76 @@ test("an SQS message's page has no system badge, no queue copies and no RabbitMQ
     assert.doesNotMatch(html, /data-system=|data-copies=/, t.message_id);
     assert.doesNotMatch(text(html), /RabbitMQ|basic\.|Acked|Delivered on|queue cop/, t.message_id);
   }
+});
+
+/* ── the Event explorer ─────────────────────────────────────────────── */
+
+type Input = { timeline: Record<string, unknown>; urls: Record<string, string>; metas: SpanMeta[]; body: { value: unknown; traceId: string; spanId: string } | null };
+const parity = JSON.parse(readFileSync(new URL("./fixtures/amqp-timeline-events-parity.json", import.meta.url), "utf8")) as {
+  fromMs: number; toMs: number; inputs: Input[]; answer: { events: Ev[]; messages: number } };
+const plain = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
+
+test("eventsOfTimeline makes the server's events of the same RabbitMQ timelines, newest first (timeline_events.py)", () => {
+  const found: { e: Ev; i: number }[] = [];
+  for (const m of parity.inputs)
+    for (const e of eventsOfTimeline(m.timeline, { urls: m.urls, metas: m.metas, body: m.body ?? undefined }))
+      if (e.ms >= parity.fromMs && e.ms <= parity.toMs) found.push({ e, i: found.length });
+  assert.deepEqual(plain(found.sort((a, b) => b.e.ms - a.e.ms || b.i - a.i).map((x) => x.e)), parity.answer.events);
+  assert.equal(parity.answer.messages, 11);
+});
+
+test("a RabbitMQ event is named by its AMQP method and carries its system; SQS's names never show", () => {
+  const evs = parity.answer.events;
+  assert.ok(evs.every((e) => e.system === "rabbitmq"));
+  assert.deepEqual([...new Set(evs.map(eventName))].sort(),
+    ["Dead-lettered", "Returned to the queue", "basic.ack", "basic.deliver", "basic.nack", "basic.publish", "basic.reject", "basic.return", "connection.lost"]);
+  for (const e of evs) assert.doesNotMatch(`${eventName(e)} ${e.detail}`, /SQS|SendMessage|ReceiveMessage|DeleteMessage|visibility|receipt/i, e.key);
+  assert.ok(evs.every((e) => e.attrs?.["message.ApproximateReceiveCount"] === undefined), "SQS's attribute is SQS's only");
+  // the fanout: one publish to exchange fan, then a delivery and an ack on each queue's copy
+  const fan = evs.filter((e) => e.messageId === "~rabbitmq~m-fan").reverse();
+  assert.deepEqual(fan.map((e) => `${eventName(e)} ${e.queue}`), ["basic.publish fan", "basic.deliver fan.a", "basic.ack fan.a", "basic.deliver fan.b", "basic.ack fan.b"]);
+  const noroute = evs.find((e) => e.call === "basic.return")!;
+  assert.equal(noroute.status, "error");
+  assert.match(noroute.detail, /^Unroutable: no queue took it, so the broker returned it to the publisher \(312 NO_ROUTE\)$/);
+  assert.match(evs.find((e) => e.event === "dead_letter" && e.messageId.endsWith("m-reject"))!.detail, /x-death header/);
+});
+
+test("an event kind is named for the systems in view: SQS's, RabbitMQ's, or both", () => {
+  assert.equal(kindName("delete", new Set([undefined])), "Delete");
+  assert.equal(kindName("delete", new Set(["rabbitmq"])), "Ack");
+  assert.equal(kindName("delete", new Set(["rabbitmq", undefined])), "Delete or ack");
+  assert.equal(kindName("dead_letter", new Set(["rabbitmq", undefined])), "Moved to dead-letter queue");
+  assert.equal(kindName("dead_letter", new Set(["rabbitmq"])), "Dead-lettered");
+  assert.equal(eventName({ event: "visibility_expired", system: "rabbitmq" }), "Returned to the queue");
+  assert.equal(eventName({ event: "visibility_expired" }), "Visibility timeout expired");
+});
+
+test("the System filter and column are offered once a RabbitMQ event is in range, never on SQS's alone", () => {
+  const rabbit = parity.answer.events;
+  const sqsEvents = rabbit.map(({ system: _s, ...e }) => e as Ev);
+  assert.ok(filledColumns(["system"], rabbit).has("system"));
+  assert.ok(!filledColumns(["system"], sqsEvents).has("system"));
+  assert.equal(cellText("system", rabbit[0]), "RabbitMQ");
+  assert.equal(cellText("system", sqsEvents[0]), "Amazon SQS");
+  const lang = queryLanguage();
+  assert.equal(rabbit.filter((e) => lang.matches(e, lang.parse("system:rabbitmq"))).length, rabbit.length);
+  assert.equal(sqsEvents.filter((e) => lang.matches(e, lang.parse("system:rabbitmq"))).length, 0);
+});
+
+test("the Event explorer lists RabbitMQ events with their badge, methods and kind names, and keeps the copy rules", () => {
+  const now = parity.toMs;
+  const html = renderToStaticMarkup(h(EventExplorer, {
+    query: "", setQuery: () => {}, time: { from: parity.fromMs, to: now + 1, label: "the fixture's window" }, page: true,
+    data: { events: parity.answer.events, now, live: true, capped: false }, messageHref: (id: string) => `/message?id=${id}`,
+  }));
+  const words = text(html);
+  assert.match(html, /data-system="rabbitmq"[^>]*>RabbitMQ</, "the row's badge");
+  assert.match(words, /basic\.publish/);
+  assert.match(words, /\bm-fan\b/, "the ID as the application set it");
+  assert.doesNotMatch(words, /~rabbitm/);
+  assert.match(words, /System/, "the System filter");
+  assert.match(words, / Ack /, "an event kind in RabbitMQ's words, as the filter lists it");
+  assert.doesNotMatch(words, /ReceiveMessage|DeleteMessage|SendMessage|Visibility timeout expired/);
+  assert.doesNotMatch(html, / title="|[→←↗↑×]|uppercase|tracking-/);
+  assert.doesNotMatch(words, / · |—| – /);
 });

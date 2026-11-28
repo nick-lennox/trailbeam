@@ -70,6 +70,8 @@ export function queryLanguage(look: QueryLookups = RECORDED) {
   const FIELD_DEFS: FieldDef[] = [
     { name: "status", label: "Status", group: "Event", kind: "text", facet: true, get: (e) => e.status },
     { name: "event", label: "Event", group: "Event", kind: "text", facet: true, get: (e) => e.event },
+    /* the messaging system (QV-308): aws.sqs or rabbitmq; offered only when some event in range is not SQS's (filledColumns) */
+    { name: "system", label: "System", group: "Event", kind: "text", facet: true, get: (e) => e.system ?? "aws.sqs" },
     { name: "queue", label: "Queue", group: "Event", kind: "text", facet: true, get: (e) => e.queue },
     { name: "service", label: "Service", group: "Event", kind: "text", facet: true, get: (e) => e.service },
     { name: "producer", label: "Producer", group: "Event", kind: "text", facet: true, get: (e) => e.producer },

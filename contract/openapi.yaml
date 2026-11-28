@@ -4279,7 +4279,16 @@ components:
           description: 'What the spans said about the message and its queue, by the query language''s field names (`message.ApproximateReceiveCount`, `message.tenant`, `queue.region` and others).'
           additionalProperties: {type: [string, number]}
         body: {description: 'The message''s stored body, parsed when it is JSON, on the event whose span carried it.'}
-        call: {type: string, description: 'The call the event was: `SendMessage`, `SendMessageBatch`, `ReceiveMessage`, `DeleteMessage`, the Lambda trigger''s calls, or `Delete (inferred)`.'}
+        call: {type: string, description: 'The call the event was: `SendMessage`, `SendMessageBatch`, `ReceiveMessage`, `DeleteMessage`, the Lambda trigger''s calls, or `Delete (inferred)`. On a RabbitMQ message, its AMQP method: `basic.publish`, `basic.return`, `basic.deliver`, `basic.ack`, `basic.nack`, `basic.reject`, or how its channel closed.'}
+        system:
+          type: string
+          enum: [rabbitmq]
+          description: |
+            On a RabbitMQ message's events only; an SQS event leaves it out. Its kinds are SQS's, so both count
+            together: a publish is a `send` (an unroutable one, `basic.return`, a failed `send`), a delivery a
+            `receive`, an ack a `delete`, a requeue, a refusal or a closed channel a `processing_error`, a return to
+            the queue (inferred from the next delivery) a `visibility_expired`, and the move the `x-death` header
+            reports a `dead_letter`. `service` is `rabbitmq` for what the broker did.
     Histogram:
       type: object
       additionalProperties: false

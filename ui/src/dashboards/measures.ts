@@ -399,7 +399,8 @@ export function dashboardMeasures(o: { language?: QueryLanguage; sample?: Sample
   }
 
   /* The fields a widget may group by or count by: the Event explorer's own list. */
-  const GROUP_FIELDS = FIELD_DEFS.filter((f) => f.facet && f.kind === "text" && f.group === "Event").map((f) => ({ id: f.name, label: f.label }));
+  // not by system yet (QV-308): the engine's field list (measures.py, contract/fixtures/measures-parity.json) has none
+  const GROUP_FIELDS = FIELD_DEFS.filter((f) => f.facet && f.kind === "text" && f.group === "Event" && f.name !== "system").map((f) => ({ id: f.name, label: f.label }));
   const NUMBER_FIELDS = FIELD_DEFS.filter((f) => f.kind !== "text" && f.group === "Event").map((f) => ({ id: f.name, label: f.label }));
 
   /* A widget definition's mistakes, in plain words, or null. */

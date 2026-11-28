@@ -3,6 +3,8 @@
 import type { ReactNode } from "react";
 import { UiLink } from "../design/nav.tsx";
 import { SourceTag } from "../design/pills.tsx";
+import { SystemBadge } from "../design/SystemBadge.tsx";
+import { shownId } from "../systems.ts";
 import { fmtMs } from "../model/format.ts";
 import { fmtDate, eventName, type Ev } from "../model/events.ts";
 
@@ -34,6 +36,7 @@ export function EventDetail({ event: e, messageHref }: { event: Ev; messageHref:
     <div className="grid max-w-3xl gap-3 font-sans text-[13px]" data-event-detail>
       <p className="text-ink">
         <b className="font-medium">{eventName(e)}</b>
+        {e.system && <> <SystemBadge system={e.system} /></>}
         {e.detail ? <span className="text-ink-2">. {e.detail}</span> : null}
       </p>
       <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-1">
@@ -45,7 +48,7 @@ export function EventDetail({ event: e, messageHref }: { event: Ev; messageHref:
         ))}
       </dl>
       <UiLink href={messageHref(e.messageId)} className="inline-flex items-center gap-1 text-brand hover:underline">
-        Open message <span className="font-mono text-caption">{e.messageId}</span>
+        Open message <span className="font-mono text-caption">{shownId(e.messageId)}</span>
       </UiLink>
     </div>
   );
