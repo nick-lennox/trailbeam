@@ -676,7 +676,7 @@ def test_an_edge_to_an_event_that_is_not_an_observed_step_fails():
     assert not r["edges_verified"]
 
 
-SLOW_TRUTH = [  # a slow consumer: its delete of delivery 1 comes after the redelivery (a stale handle)
+SLOW_TRUTH = [  # a slow consumer: its delete of receive 1 comes after the redelivery (a stale handle)
     rec("send", 10, t_start_ns=10, t_end_ns=11),
     rec("receive", 20, rh="a", rc=1, t_start_ns=5, t_end_ns=20),
     rec("receive", 40, rh="b", rc=2, t_start_ns=30, t_end_ns=40),
@@ -693,9 +693,9 @@ def slow_timeline():
 
 
 def test_an_implied_order_that_contradicts_the_truth_fails():
-    """No cause/effect pair joins the stale delete of delivery 1 and receive 2, so the pair checks can't see
+    """No cause/effect pair joins the stale delete of receive 1 and receive 2, so the pair checks can't see
     this. Trailbeam's facts are made up to agree with each other (ticks in one scope), but the truth shows
-    receive 2 returned before the delete of delivery 1 was made, so 'delete 1 -> receive 2' is false, and
+    receive 2 returned before the delete of receive 1 was made, so 'delete 1 -> receive 2' is false, and
     so is everything it implies."""
     tl = slow_timeline()
     obs = [e for e in tl["events"] if not e["inferred"]]
