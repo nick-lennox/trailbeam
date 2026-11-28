@@ -112,7 +112,7 @@ export { POSSIBLY_PURGED_TITLE };
 export function StatePill({ m }: { m: StateOf }) {
   const { label, icon: Icon, cls } = stateLook(m);
   const purge = purgeText(m);
-  const look = `inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${cls}`;
+  const look = `inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 font-sans text-xs font-medium ring-1 ring-inset ${cls}`;
   const inner = <><Icon size={12} strokeWidth={2.25} aria-hidden />{label}</>;
   const pill = m.purge?.status === "purged"
     ? <Tooltip content={purge} tabIndex={0} className={look}>{inner}</Tooltip>
@@ -121,7 +121,7 @@ export function StatePill({ m }: { m: StateOf }) {
   return (
     <span className="inline-flex flex-wrap items-center gap-x-1.5">
       {pill}
-      <Tooltip content={POSSIBLY_PURGED_TITLE} tabIndex={0} className="whitespace-nowrap text-xs text-ink-3" data-purge="possibly_purged">{purge}</Tooltip>
+      <Tooltip content={POSSIBLY_PURGED_TITLE} tabIndex={0} className="whitespace-nowrap font-sans text-xs text-ink-3" data-purge="possibly_purged">{purge}</Tooltip>
     </span>
   );
 }

@@ -12,6 +12,7 @@ import {
   DEFAULT_EXPIRY, EXPIRY, OPEN_INGEST_CONFIRM, revokeSentence, secretSentence, sharedSentence, shownPrefix,
 } from "../src/tokens/Tokens.tsx";
 import type { IngestToken, PersonalToken, SharedToken } from "../src/tokens/types.ts";
+import { CodeText, codeParts } from "../src/design/CodeText.tsx";
 
 const ingest = (id: number, over: Partial<IngestToken> = {}): IngestToken => ({
   id, name: `svc-${id}`, prefix: `tbi_ab${id}x`, status: "active", created_at_ms: 1795400000000, created_by: "ada@example.com",
@@ -101,4 +102,13 @@ test("the tokens views follow the design rules: no native title, sans labels, mo
   for (const label of html.matchAll(/<label[^>]*>/g)) assert.doesNotMatch(label[0], /font-mono/, label[0]);
   assert.match(row(html, 1), /font-mono[^"]*">tbp_cd1y</, "the prefix is a value");
   assert.match(row(html, 1), /<span class="text-sm text-ink-3">never<\/span>/, "never is a word, not a value");
+});
+
+test("the sentences' code values are set in mono and the words around them aren't (QV-737)", () => {
+  const html = renderToStaticMarkup(createElement(CodeText, { text: secretSentence("ingest", "orders") }));
+  assert.match(html, /<code class="font-mono[^"]*">OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20&lt;token&gt;<\/code>\./);
+  assert.match(html, /^The ingest token "orders"|^The ingest token &quot;orders&quot;/);
+  const shared = codeParts(sharedSentence(SHARED)).filter((p) => p.code).map((p) => p.text);
+  assert.deepEqual(shared, ["/metrics", "TRAILBEAM_TOKEN", "--token-file"]);
+  assert.deepEqual(codeParts(secretSentence("personal", "laptop")).filter((p) => p.code).map((p) => p.text), ["Authorization: Bearer <token>"]);
 });

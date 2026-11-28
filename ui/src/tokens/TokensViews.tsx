@@ -12,6 +12,7 @@ import { useId, useState, type FormEvent } from "react";
 import { useCopy } from "../copy.ts";
 import { Button } from "../design/Button.tsx";
 import { Card } from "../design/Card.tsx";
+import { CodeText } from "../design/CodeText.tsx";
 import { Field, FormError, INPUT, OneTimeBox, SelectField, StateMark, type StateTone } from "../design/Settings.tsx";
 import { fmtWhen } from "../people/People.tsx";
 import {
@@ -65,7 +66,7 @@ export function TokensTable({ kind, tokens, shared, pending = null, onRevoke }: 
               <td className={`${TD} pl-5 text-ink`}>{shared.label}</td>
               <td className={`${TD} text-ink-3`}>not shown</td>
               <td className={TD}><StateMark tone="good">Active</StateMark></td>
-              <td className={`${TD} max-w-[44ch] text-ink-3`} colSpan={cols - 3}>{sharedSentence(shared)}</td>
+              <td className={`${TD} max-w-[44ch] text-ink-3`} colSpan={cols - 3}><CodeText text={sharedSentence(shared)} /></td>
             </tr>
           )}
           {tokens.length === 0 && (
@@ -172,7 +173,7 @@ export function OneTimeToken({ kind, name, secret, onDismiss }: OneTimeTokenProp
   const [copied, copy] = useCopy(secret);
   return (
     <OneTimeBox>
-      <p className="max-w-[80ch]">{secretSentence(kind, name)}</p>
+      <p className="max-w-[80ch]"><CodeText text={secretSentence(kind, name)} /></p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <input readOnly value={secret} aria-label="New token" onFocus={(e) => e.currentTarget.select()} autoFocus={copied === "select"}
           className={`${INPUT} flex-1 basis-96 font-mono text-caption`} />
