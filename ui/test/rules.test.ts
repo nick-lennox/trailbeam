@@ -18,10 +18,9 @@ import { Rows } from "../src/now/MessageSequence.tsx";
 const UI = new URL("../", import.meta.url).pathname;
 /* our components that hand `title` on to the DOM element they draw */
 const PASS_THROUGH = new Set(["UiLink"]);
-/* not fixed here: views being deleted by their own issue, the legacy Overview drawing (QV-710) and the old Needs
-   attention page behind /stuck (QV-708); and MessagesTable, which neither product draws and which is in the main
-   entry, so it cannot import the design entry's Tooltip (test/server-import.test.ts) */
-const RETIRING = new Set(["src/overview/Overview.tsx", "src/overview/FlowDrawing.tsx", "src/causes/NeedsAttention.tsx", "src/messages/Messages.tsx"]);
+/* not fixed here: a view being deleted by its own issue, the old Needs attention page behind /stuck (QV-708); and
+   MessagesTable, which neither product draws and which is in the main entry, so it cannot import the design entry's Tooltip (test/server-import.test.ts) */
+const RETIRING = new Set(["src/causes/NeedsAttention.tsx", "src/messages/Messages.tsx"]);
 
 function tsxFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((f) => {
