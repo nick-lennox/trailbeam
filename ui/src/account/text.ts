@@ -22,7 +22,7 @@ export function withoutPerson(f: { via: string; accounts: boolean }): { signedIn
   const create = "trailbeam users create --accounts --email <email> --role admin";
   const accounts = f.accounts
     ? `Personal accounts are on, but this server has no admin yet. An operator creates the first one with ${create}.`
-    : `Personal accounts are a preview, off on this server. To turn them on, an operator starts the server with TRAILBEAM_ACCOUNTS=1, then creates the first admin with ${create}.`;
+    : `Personal accounts are a preview, off on this server. To turn them on, an operator starts the server with TRAILBEAM_ACCOUNTS=1 and, if it has no admin yet, creates one with ${create}.`;
   return { signedIn, accounts };
 }
 

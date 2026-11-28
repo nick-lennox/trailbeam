@@ -46,9 +46,11 @@ info:
 
     Accounts are a preview: the server ignores them unless it runs with `--accounts`
     (`TRAILBEAM_ACCOUNTS=1`). Off, the rules without an admin apply, whatever the store holds, and
-    `/api/users`, `/api/tokens/ingest` and `/api/me/tokens` behave as on a store without accounts.
+    `/api/users` and `/api/tokens/ingest` behave as on a store without accounts, and `/api/me/tokens` and
+    `/api/me/passkeys` answer 403 (users and roles are off). An admin made earlier is kept, and works again
+    once the server runs with them on.
 
-    **People and tokens.** The first admin is made with `trailbeam users create --role admin`, with
+    **People and tokens.** The first admin is made with `trailbeam users create --accounts --role admin`, with
     `TRAILBEAM_ADMIN_EMAIL` and `TRAILBEAM_ADMIN_PASSWORD_FILE`, or with the one-time link
     `trailbeam start` prints (`/setup#code=...`). After that, admins manage people and ingest tokens with
     `/api/users` and `/api/tokens/ingest` (the web screen's People and Tokens pages) or with
@@ -3525,7 +3527,8 @@ components:
     Forbidden:
       description: |
         Signed in, but not allowed: the route needs an admin, or a person (`/api/me/tokens` with the shared
-        token), or the server has no admin yet (with `TRAILBEAM_TOKEN` set, only once the request has it).
+        token), or the server has no admin yet (with `TRAILBEAM_TOKEN` set, only once the request has it), or
+        users and roles are off on this server (`/api/me/tokens` and `/api/me/passkeys` without `--accounts`).
         Also a request that changes something sent by another site's page (`reason` `csrf`).
       content:
         application/json:

@@ -229,9 +229,10 @@ NEEDS_SHARED = "this server needs Authorization: Bearer <TRAILBEAM_TOKEN>"
 NEEDS_ADMIN = "this needs an admin"
 NO_ADMIN_YET = ("this needs an admin, and this server has none yet: create one with trailbeam users create --accounts "
                 "--email <email> --role admin")
-# with users and roles off (the default), an admin made with users create is ignored, so say how to turn them on
+# with users and roles off (the default), an admin made with users create is ignored, so say how to turn them on;
+# one may already exist (made with them on), so don't send the caller to make another (QV-791)
 ACCOUNTS_OFF = ("this needs an admin, and personal accounts are off on this server (a preview, off by default): to "
-                "use them, start the server with TRAILBEAM_ACCOUNTS=1, then create the first admin with trailbeam "
+                "use them, start the server with TRAILBEAM_ACCOUNTS=1; if it has no admin yet, create one with trailbeam "
                 "users create --accounts --email <email> --role admin")
 NEEDS_INGEST_KEY = ("this server needs an ingest token: x-trailbeam-key: <token> or Authorization: Bearer <token> "
                     "(an ingest token, tbi_..., or TRAILBEAM_TOKEN)")

@@ -90,6 +90,9 @@ class App:
         # people and tokens in the store (accounts.py); None on a store without the account tables
         self.accounts = Accounts(db) if accounts == "auto" and has_account_tables(db) else (
             None if accounts == "auto" else accounts)
+        # a SQLite or Postgres store with users and roles switched off (TRAILBEAM_ACCOUNTS): the person routes say
+        # so (403), not that the store has no accounts (QV-791)
+        self.accounts_off = self.accounts is None and accounts != "auto" and has_account_tables(db)
         self.sessions = Sessions(self.accounts) if self.accounts else None
         self.tokens = Tokens(self.accounts) if self.accounts else None
         self.signin = SignIn(self.accounts, self.sessions) if self.accounts else None
