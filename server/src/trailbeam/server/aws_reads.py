@@ -30,6 +30,14 @@ from . import aws_figures as af
 #: GetMetricData takes at most 500 queries in a call
 MAX_QUERIES = 500
 
+#: every AWS call gives up after a few seconds (QV-742): they run inside a page's request, and botocore's own defaults
+#: (60 s to connect, 60 s to read, 3 attempts) would hold it for minutes when AWS or the network is slow or drops packets.
+#: botocore's ``retries`` ``max_attempts`` counts retries only (it becomes ``total_max_attempts`` + 1), so the total,
+#: the first attempt and one retry, is given as ``total_max_attempts``.
+CONNECT_TIMEOUT_S = 3
+READ_TIMEOUT_S = 5
+MAX_ATTEMPTS = 2
+
 INSTALL_HINT = 'AWS reads need boto3: pip install "trailbeam[aws]"'
 
 
@@ -57,16 +65,22 @@ def sqs_endpoint() -> Optional[str]:
 
 
 def clients(region: Optional[str] = None, profile: Optional[str] = None) -> dict:
-    """SQS, CloudWatch and Lambda clients with boto3's usual credentials (the environment, a profile, the instance or
-    task role), in the region given or boto3's own default."""
+    """SQS, CloudWatch, Lambda and STS clients with boto3's usual credentials (the environment, a profile, the instance
+    or task role), in the region given or boto3's own default, each giving up after CONNECT_TIMEOUT_S to connect,
+    READ_TIMEOUT_S to read and MAX_ATTEMPTS attempts."""
     try:
         import boto3
+        from botocore.config import Config
     except ImportError as e:  # pragma: no cover - the [aws] extra is installed in the tests
         raise AwsUnavailable(INSTALL_HINT) from e
+    config = Config(connect_timeout=CONNECT_TIMEOUT_S, read_timeout=READ_TIMEOUT_S,
+                    retries={"total_max_attempts": MAX_ATTEMPTS, "mode": "standard"})
     session = boto3.session.Session(profile_name=profile or None, region_name=region or None)
     sqs_kw = {"endpoint_url": sqs_endpoint()} if sqs_endpoint() else {}
-    return {"sqs": session.client("sqs", **sqs_kw), "cloudwatch": session.client("cloudwatch"),
-            "lambda": session.client("lambda"), "sts": session.client("sts"), "region": session.region_name}
+    return {"sqs": session.client("sqs", config=config, **sqs_kw),
+            "cloudwatch": session.client("cloudwatch", config=config),
+            "lambda": session.client("lambda", config=config),
+            "sts": session.client("sts", config=config), "region": session.region_name}
 
 
 def caller_account(sts: Any) -> str:
