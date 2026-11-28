@@ -48,7 +48,7 @@ export {
 } from "./pills.tsx";
 export { Menu, MenuItem } from "./Menu.tsx";
 export { AWS_FAMILY, PlatformIcon, ServiceIcon } from "./icons.tsx";
-// the Overview's views (QV-579): the queue lane, a message's sequence, the messages behind a part of the flow map, and "nothing yet"
+// the Overview's views (QV-579): the flows page, "In ‹queue› now", the queue lane, a message's sequence, the messages behind a part of the flow map, and "nothing yet"
 export { Watching } from "../now/Watching.tsx";
 export { QueueLane, type LaneMessage } from "../now/QueueLane.tsx";
 export {
@@ -57,3 +57,8 @@ export {
   type SequenceStep, type SequenceTrigger,
 } from "../now/MessageSequence.tsx";
 export { PartMessages, type PartMessage, type PartMessagesProps } from "../now/PartMessages.tsx";
+export { QueueNowLive, type QueueNowHrefs, type QueueNowLiveProps } from "../now/QueueNowLive.tsx";
+export {
+  OverviewFlows, type OverviewCopy, type OverviewFlowsData, type OverviewFlowsHrefs, type OverviewFlowsProps, type OverviewFlowsSlots,
+  type OverviewSample, type OverviewTrigger, type PartMessagesAt,
+} from "../now/OverviewFlows.tsx";
