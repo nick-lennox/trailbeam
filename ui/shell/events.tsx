@@ -11,11 +11,12 @@
 */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play } from "lucide-react";
-import { Tooltip } from "../src/design/index.ts";
+import { NothingReporting, Tooltip, TopBar } from "../src/design/index.ts";
 import { EventExplorer, stepChart, stepChartQuery, TimePicker, type ExplorerData, type StepChartDoc } from "../src/explorer/index.ts";
 import { follow, pinned, rangeFromParams, withRange, type Ev, type TimeRange } from "../src/model/index.ts";
-import { ApiError, CopyLink, getJSON, messageHref } from "./chrome.tsx";
-import { ShellFrame } from "./frame.tsx";
+import { storeIsEmpty } from "../src/firstrun/status.ts";
+import { ApiError, CopyLink, getHealth, getJSON, messageHref } from "./chrome.tsx";
+import { ShellFrame, ShellSearch } from "./frame.tsx";
 import { qs, useRefresh } from "./lists.tsx";
 
 /** The range a page opens on when its URL names none: a day, as this page always has. */
@@ -53,6 +54,20 @@ export function explorerData(page: TimelineEventPage, now: number): ExplorerData
 
 type State = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ok"; data: ExplorerData };
 
+/** What /events shows while the server has never stored a span: the Overview's first-run state, not an explorer of zeros. */
+export function EventsFirstRun() {
+  return (
+    <>
+      <TopBar title="Event explorer" pad="px-6" plain search={<ShellSearch />} />
+      <div className="px-6 pt-5 pb-10">
+        <NothingReporting actions={<a className="rounded-control border border-line bg-surface px-3 py-1.5 text-sm text-ink hover:border-line-strong" href="/">See how to connect a service</a>}>
+          This page lists every event of every message, from its send to its delete, once a service of yours is connected.
+        </NothingReporting>
+      </div>
+    </>
+  );
+}
+
 const BUTTON = "inline-flex h-10 items-center rounded-lg border border-line-strong bg-surface px-3 text-[13px] text-ink-2 hover:text-ink";
 const loadSteps = (from: number, to: number) => getJSON<StepChartDoc>(`/api/events?${qs(stepChartQuery(from, to))}`).then(stepChart);
 
@@ -63,7 +78,16 @@ export function EventsPage() {
   const [live, setLive, tick] = useRefresh(new URLSearchParams(location.search).get("refresh") !== "0");
   const following = live && !!time.preset;
   const [state, setState] = useState<State>({ kind: "loading" });
+  // a server that has never stored a span shows the first-run state; checked again on each refresh, so the
+  // explorer comes once the first span is in
+  const [empty, setEmpty] = useState(false);
   useEffect(() => { document.title = "Event explorer, Trailbeam"; }, []);
+  useEffect(() => {
+    if (state.kind !== "ok" || state.data.events.length > 0) { setEmpty(false); return; }
+    let on = true;
+    getHealth(5000).then((h) => on && setEmpty(storeIsEmpty(h)), () => on && setEmpty(false));
+    return () => { on = false; };
+  }, [state]);
 
   // each refresh moves a range that ends now up to the clock
   useEffect(() => { if (tick && following) setTime((t) => follow(t, Date.now())); }, [tick]);
@@ -113,8 +137,10 @@ export function EventsPage() {
   return (
     <ShellFrame path="/events">
       <div className="flex h-screen flex-col">
-        <h1 className="sr-only">Event explorer</h1>
-        {state.kind === "ok" ? (
+        {!empty && <h1 className="sr-only">Event explorer</h1>}
+        {empty ? (
+          <EventsFirstRun />
+        ) : state.kind === "ok" ? (
           <EventExplorer page query={query} setQuery={setQuery} time={time} data={state.data} messageHref={messageHref}
             controls={controls} loadStepChart={loadSteps} />
         ) : (
@@ -125,10 +151,10 @@ export function EventsPage() {
             {controls}
           </div>
         )}
-        <p className="shrink-0 border-t border-line px-5 py-2 text-xs text-ink-3">
+        {!empty && <p className="shrink-0 border-t border-line px-5 py-2 text-xs text-ink-3">
           Times are in UTC, as of {new Date(now).toISOString().slice(11, 19)}. The same data as JSON:{" "}
           <a className="font-mono text-brand hover:underline" href={json}>/api/timeline-events</a>
-        </p>
+        </p>}
       </div>
     </ShellFrame>
   );

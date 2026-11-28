@@ -18,7 +18,7 @@ import { TimePicker } from "../explorer/TimePicker.tsx";
 import { SPAN_HEALTH_NOTE, fmtMs as fmtDuration } from "../queue/model.ts";
 import type { Trigger } from "../queue/types.ts";
 import { QueueNowLive } from "./QueueNowLive.tsx";
-import { Watching } from "./Watching.tsx";
+import { NothingReporting } from "./Watching.tsx";
 
 /* The Overview, one flow at a time. A flow is a queue with the services that send to it
    and the consumer that receives from it. The list on the left is every flow, worst
@@ -284,18 +284,9 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
       <>
         <TopBar title="Overview" pad="px-6" plain />
         <div className="px-6 pt-5 pb-10">
-          <section
-            aria-label="No data"
-            className="rounded-card border border-line bg-canvas/60"
-            style={{ backgroundImage: "radial-gradient(color-mix(in srgb, var(--color-ink-3) 26%, transparent) 1px, transparent 1px)", backgroundSize: "16px 16px", backgroundPosition: "8px 8px" }}
-          >
-            <div className="mx-auto flex min-h-[400px] max-w-lg flex-col items-center justify-center px-6 py-12 text-center">
-              <Watching title="Waiting to observe your first message">
-                No data yet. Nothing is reporting to {data?.workspace ?? "this workspace"}. This page draws each queue with the services that send to it and receive from it, once a service of yours is connected.
-              </Watching>
-              {slots.emptyActions && <div className="mt-5 flex flex-wrap justify-center gap-3">{slots.emptyActions}</div>}
-            </div>
-          </section>
+          <NothingReporting to={data?.workspace} actions={slots.emptyActions}>
+            This page draws each queue with the services that send to it and receive from it, once a service of yours is connected.
+          </NothingReporting>
         </div>
       </>
     );
