@@ -34,6 +34,28 @@ export type QueueNowAnswer = InQueueView & { aws?: QueueAws; live?: QueueLive };
 export const overviewNowPath = (key: string, minutes: number) =>
   `/api/queues/${encodeURIComponent(key)}/now?minutes=${Math.max(1, Math.round(minutes))}`;
 
+/**
+ * GET /api/queues/now?keys=: /now for several queues at once (QV-743), by the key asked. The server reads their AWS
+ * figures together, one CloudWatch call per region, and keeps that read a minute for every viewer.
+ */
+export type QueuesNowResponse = { minutes: number | null; queues: Record<string, QueueNowResponse>; errors: Record<string, string> };
+
+/** The most queues the Overview asks for in one request: the server takes 100 (queue_data.NOW_BATCH_MAX), and this keeps the URL short. */
+export const NOW_BATCH = 50;
+
+/**
+ * The Overview's requests for its queues' "In ‹queue› now" and AWS figures over the past `minutes`: the keys sorted and
+ * in groups of NOW_BATCH, so every viewer of the same queues makes the same requests, and the server's kept read answers them.
+ */
+export function overviewNowPaths(keys: string[], minutes: number): string[] {
+  const sorted = [...new Set(keys)].sort();
+  const out: string[] = [];
+  for (let i = 0; i < sorted.length; i += NOW_BATCH) {
+    out.push(`/api/queues/now?keys=${sorted.slice(i, i + NOW_BATCH).map(encodeURIComponent).join(",")}&minutes=${Math.max(1, Math.round(minutes))}`);
+  }
+  return out;
+}
+
 /** Whether any queue on the page was read from AWS: the page then says where its depth and age come from. */
 export const anyAwsRead = (now: Record<string, QueueNowAnswer | null>) => Object.values(now).some((v) => v?.aws?.status === "ok");
 

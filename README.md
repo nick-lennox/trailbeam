@@ -1138,6 +1138,28 @@ in the credentials' own account:
 
 Include the dead-letter queues: Trailbeam reads their depth too.
 
+**What it costs.** SQS requests (`GetQueueAttributes`) and Lambda's `ListEventSourceMappings` cost little or nothing.
+CloudWatch's `GetMetricData` is billed for every metric it reads, not for every call, and is never in the free tier
+([CloudWatch pricing](https://aws.amazon.com/cloudwatch/pricing/)). Trailbeam keeps each CloudWatch read for a
+minute (its SQS metrics change once a minute), and everyone who asks for the same figures in that minute gets the
+kept read. What it reads:
+
+- **The Overview**, while a tab shows it: 3 metrics a minute for each queue on it (the age of the oldest message,
+  messages sent and deleted), and 1 more for its dead-letter queue's depth. The depth and messages in flight are
+  SQS's own counts. All the page's queues in a region are read together, and a hidden tab reads nothing.
+- **A queue's page**: 5 metrics, and 1 for the dead-letter queue, each minute it is open and each time its range
+  changes.
+- **Dashboards and alerts** read the metrics their measures use.
+
+So an Overview of 200 queues, each with a dead-letter queue, open all day reads about 800 metrics a minute, or
+1.15 million a day. At $0.01 per 1,000 metrics, the price we have seen quoted for most regions (check the pricing
+page for yours), that is about $11.50 a day. Ten people watching the same Overview cost the same as one.
+
+Each person may have at most 3,000 metrics a minute read that Trailbeam had not kept. Everyone using the shared
+token, or no token on a server without one, counts as one person. Past that, a page says CloudWatch was not read
+this time and shows the rest, so nobody can run up the bill by asking for range after range. The server's own
+reads for the alert check don't count.
+
 **Installing.** AWS reads need boto3, an optional extra:
 
 ```sh norun="starts a server that keeps running; python/tests/server/test_aws_settings.py tests the settings"

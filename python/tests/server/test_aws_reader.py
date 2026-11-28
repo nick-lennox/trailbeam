@@ -402,6 +402,50 @@ def test_a_failed_read_is_not_kept():
     assert a["errors"] == [] and len(st.cw.calls) == 2
 
 
+def test_every_queue_of_a_region_is_one_getmetricdata_per_window():
+    """QV-743: the queues asked together are read in one call per window, whatever their number."""
+    st = Stubs()
+    names = ["orders", *(f"billing-{i}" for i in range(40))]
+    got = reader(stubs=st).read([ref(n) for n in names], [window()], T0, metrics=["oldestS", "sent", "deleted"],
+                                triggers=False)
+    assert all(got[n]["series"]["1h"]["queue"]["oldestS"] == [[T0, 3.0]] for n in names)
+    assert len(st.cw.calls) == 1 and st.cw.calls[0][2] == 3 * len(names)
+
+
+def test_a_callers_new_cloudwatch_reads_are_capped_a_minute():
+    """QV-743: each read the cache doesn't have counts its metrics against the caller; past the budget nothing is
+    read for them, and the page says why. Kept reads, another caller and the server's own reads are not held."""
+    st = Stubs()
+    r = AwsReader(lambda: ON, clients_for=st, installed=lambda: True, budget=aws_reader.Budget(limit=12))
+    q = [ref("orders")]
+
+    def ranged(i, at=T0, caller="user:7"):  # a page whose range moves by a minute each time: a new read each time
+        return r.read(q, [window(to=T0 - i * MIN)], at, triggers=False, caller=caller)["orders"]
+
+    assert ranged(0)["errors"] == [] and ranged(1)["errors"] == []  # 5 metrics each: 10 of 12
+    a = ranged(2)
+    assert a["status"] == "ok" and a["settings"] is not None and a["series"] == {}
+    assert a["errors"] == [aws_reader.over_budget(aws_reader.OverBudget(15, 12))]
+    assert "15 new CloudWatch metrics" in a["errors"][0] and "12" in a["errors"][0]
+    assert len(st.cw.calls) == 2
+    assert ranged(0)["errors"] == []  # kept: no new read, nothing counted
+    assert ranged(2, caller="user:8")["errors"] == []  # another person has their own budget
+    assert ranged(3, caller=None)["errors"] == []  # the server's own reads (the alert check) have none
+    assert ranged(4, at=T0 + MIN)["errors"] == []  # a minute later the budget is whole again
+    assert len(st.cw.calls) == 5
+
+
+def test_the_budget_counts_nothing_it_refuses():
+    b = aws_reader.Budget(limit=10)
+    b.take("a", 6, T0)
+    with pytest.raises(aws_reader.OverBudget):
+        b.take("a", 5, T0)
+    b.take("a", 4, T0)  # the refused 5 were not counted
+    with pytest.raises(aws_reader.OverBudget):
+        b.take("a", 1, T0 + 1)
+    b.take(None, 10 ** 9, T0)
+
+
 def test_two_pages_that_miss_together_make_one_read():
     c = Cache()
     started, go = threading.Event(), threading.Event()

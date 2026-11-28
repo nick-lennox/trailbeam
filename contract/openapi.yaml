@@ -1552,6 +1552,98 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
+  /api/queues/now:
+    get:
+      operationId: get-queues-now
+      x-example-request: /api/queues/now?keys=billing
+      tags: [Queues]
+      summary: Get what is in several queues now
+      description: |
+        `/api/queues/{queue}/now` for several queues in one request: what the Overview asks for its queues. Each
+        queue's answer is the one `/api/queues/{queue}/now` gives, by the key or name it was asked by.
+
+        With AWS reads on, the queues are read from AWS together: one CloudWatch GetMetricData per region for all
+        of them, kept a minute, so every viewer who asks for the same queues that minute gets the kept read. Only
+        the CloudWatch metrics the Overview's health uses are read: the age of the oldest message, messages sent
+        and deleted, and the dead-letter queue's depth. The queue's depth and messages in flight are SQS's own
+        counts, from GetQueueAttributes. CloudWatch bills each metric read, so a person's requests may have at most
+        3,000 metrics read that the server had not kept, a minute (everyone using the shared token, or no token,
+        counts as one). Past that, a queue's `aws.errors` says CloudWatch was not read this time.
+      parameters:
+        - name: keys
+          in: query
+          description: The queues' keys or names, comma-separated, 100 at most. Left out, no queue is answered.
+          schema: {type: string}
+        - name: limit
+          in: query
+          description: The most messages to read for each queue, oldest first (default and maximum 1000).
+          schema: {type: integer, minimum: 1, maximum: 1000, default: 1000}
+        - name: minutes
+          in: query
+          description: As for `/api/queues/{queue}/now`.
+          schema: {type: integer, minimum: 1, maximum: 576000}
+        - $ref: '#/components/parameters/lambda_timeout_s'
+      responses:
+        '200':
+          description: Each queue's messages now, by the key or name asked.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [minutes, queues, errors]
+                additionalProperties: false
+                properties:
+                  minutes:
+                    type: [integer, 'null']
+                    description: The `minutes` asked, or null when none was.
+                  queues:
+                    type: object
+                    description: Each queue's answer, as `/api/queues/{queue}/now` gives it, by the key or name asked.
+                    additionalProperties: {$ref: '#/components/schemas/QueueNow'}
+                  errors:
+                    type: object
+                    description: Why a key or name was not read (a name more than one queue has), by the key or name.
+                    additionalProperties: {type: string}
+              example:
+                minutes: null
+                errors: {}
+                queues:
+                  billing:
+                    queue: {key: 123456789012/eu-west-1/billing, name: billing, account: '123456789012', region: eu-west-1,
+                            fifo: false}
+                    nowMs: 1794855600000
+                    config: {visibilityTimeoutS: null, retentionS: null, maxReceiveCount: 5, dlq: null, arn: null,
+                             lambdaTimeoutS: 900, visibilityKnown: false}
+                    held:
+                    - id: 7c0e5a52-1b2f-4f0e-9a51-3d1f0b6a9e10
+                      producer: billing-api
+                      consumer: billing-worker
+                      sentMs: 1794855580000
+                      receiveCount: 1
+                      state: in_flight
+                      lastReceiveMs: 1794855590000
+                      untilMs: 1794855620000
+                      leftS: 20
+                      used: 0.3333333333333333
+                      timeoutS: 30
+                      events: []
+                    capped: false
+                    instrumented: {visible: 0, inFlight: 1}
+                    totals: null
+                    uninstrumented: null
+                    notSeenOnDlq: []
+                    seenOnDlq: 0
+                    deleted:
+                    - {id: 0b9e7d3c-55a4-4c47-8f0e-2a6d1c9e8b71, atMs: 1794855571000}
+                    producers:
+                    - {name: billing-api, n: 1}
+                    aws: {status: not_configured, detail: 'AWS reads are off on this server, so the queue''s settings and depth are not read. An admin turns them on in Settings, under AWS.', accountId: null, region: null, readAt: null, settings: null, series: {}, triggers: null, errors: []}
+                    live: {status: not_configured, detail: 'AWS reads are off on this server, so the queue''s settings and depth are not read. An admin turns them on in Settings, under AWS.', readAt: null, visibilityTimeoutS: null, retentionS: null, delayS: null, maxReceiveCount: null, dlq: null, fifo: null, visible: null, inFlight: null, oldestS: null, dlqDepth: null, oldestAsOf: null, dlqAsOf: null, oldestUnpublished: false, dlqUnpublished: false, windows: [], stuck: 1, nearDlq: null}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/queues/{queue}/series:
     get:
       operationId: get-queue-series

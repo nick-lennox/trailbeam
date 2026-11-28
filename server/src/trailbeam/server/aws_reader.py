@@ -39,6 +39,14 @@ minute, and every GetMetricData call is billed to the AWS account (about $0.01 p
 https://aws.amazon.com/cloudwatch/pricing/), so a page that refreshes every few seconds must not read them every time.
 Two requests that miss the cache together make one read, and a failed read is not kept. ``read`` never raises.
 
+**What a person can make the server read (QV-743).** CloudWatch bills each metric a GetMetricData asks for, not
+each call, so batching queues into one call (one per window per region, below) saves calls but not money. What
+bounds the bill is the cache and the budget: every new CloudWatch read a request makes is counted against its
+caller (``read``'s ``caller``: a person, or everyone using the shared token or no token at all), at most
+BUDGET_METRICS a minute. Without it, a member could vary a page's range (each range is a new read) and spend
+without limit. A read over the budget is not made, and the queue's ``errors`` say so. Reads the server makes for
+itself (the alert check) have no caller and no budget.
+
 **Reads give up in seconds (QV-742).** They run inside a page's request. Every AWS call gives up after a few seconds
 (aws_reads.clients), and a request waiting on a read another one started waits WAIT_S at most, so a slow or
 unreachable AWS makes the page say so instead of holding it, and every other viewer's, for minutes. Clients are made
@@ -65,6 +73,9 @@ WORKERS = 8
 #: (aws_reads: 2 attempts of 3 s to connect and 5 s to read, and the retry's back-off), so a waiter normally gets that
 #: read's answer, but a read that hangs anyway can't hold every viewer's request with it (QV-742)
 WAIT_S = 2 * (aws_reads.CONNECT_TIMEOUT_S + aws_reads.READ_TIMEOUT_S) + 4
+#: the CloudWatch metrics one caller's requests may ask for a minute, in reads the cache did not have (QV-743).
+#: An Overview of 200 queues asks for about 1,000 a minute (aws_figures.OVERVIEW_METRICS and a DLQ's depth each)
+BUDGET_METRICS = 3000
 
 OFF = "AWS reads are off on this server, so the queue's settings and depth are not read. An admin turns them on in " \
       "Settings, under AWS."
@@ -111,7 +122,15 @@ def no_caller_account(e: BaseException) -> str:
             "read. Set the AWS account ID in Settings, under AWS.")
 
 
+def over_budget(e: "OverBudget") -> str:
+    return (f"CloudWatch was not read this time: these pages asked for {e.used:,} new CloudWatch metrics within a "
+            f"minute, and one person may ask for {e.limit:,} (each metric read is billed to the AWS account). It is "
+            "read again within a minute.")
+
+
 def failed_text(call: str, name: Optional[str], e: BaseException) -> str:
+    if isinstance(e, OverBudget):
+        return over_budget(e)
     if isinstance(e, WaitTimeout):
         on = f" on {name}" if name else ""
         return f"{call}{on} did not answer within {e.wait_s:g} s, so nothing is shown from it this time."
@@ -129,6 +148,41 @@ class WaitTimeout(TimeoutError):
     def __init__(self, key: str, wait_s: float):
         super().__init__(f"{key} was still being read after {wait_s:g} s")
         self.wait_s = wait_s
+
+
+class OverBudget(Exception):
+    """A caller's new CloudWatch reads this minute would pass its budget (Budget.take)."""
+
+    def __init__(self, used: int, limit: int):
+        super().__init__(f"{used} metrics asked for this minute, over {limit}")
+        self.used, self.limit = used, limit
+
+
+class Budget:
+    """How many CloudWatch metrics each caller has had read this minute (a minute of the caller's clock, in ms).
+    ``take`` counts a read's metrics, or raises OverBudget and counts nothing when they would pass ``limit``."""
+
+    def __init__(self, limit: int = BUDGET_METRICS):
+        self.limit = limit
+        self._used: dict[str, tuple[int, int]] = {}
+        self._lock = threading.Lock()
+
+    def take(self, caller: Optional[str], n: int, now: float) -> None:
+        if caller is None:
+            return
+        minute = int(now // 60_000)
+        with self._lock:
+            if len(self._used) > MAX_ENTRIES:
+                self._used = {k: v for k, v in self._used.items() if v[0] == minute}
+            at, used = self._used.get(caller, (minute, 0))
+            used = used if at == minute else 0
+            if used + n > self.limit:
+                raise OverBudget(used + n, self.limit)
+            self._used[caller] = (minute, used + n)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._used.clear()
 
 
 class _Entry:
@@ -199,11 +253,13 @@ class AwsReader:
     and clients from ``clients_for(region)`` (aws_reads.clients by default: boto3's credentials)."""
 
     def __init__(self, settings: Callable[[], dict], clients_for: Optional[Callable[[Optional[str]], dict]] = None,
-                 installed: Callable[[], bool] = aws_settings.boto3_installed, cache: Optional[Cache] = None):
+                 installed: Callable[[], bool] = aws_settings.boto3_installed, cache: Optional[Cache] = None,
+                 budget: Optional[Budget] = None):
         self.settings = settings
         self.clients_for = clients_for or (lambda region: aws_reads.clients(region))
         self.installed = installed
         self.cache = cache if cache is not None else Cache()  # an empty Cache is falsy (__len__)
+        self.budget = budget if budget is not None else Budget()
 
     def clear(self, *_: Any) -> None:
         """Drops every kept read and client (the settings changed)."""
@@ -218,13 +274,14 @@ class AwsReader:
 
     def read(self, queues: list, windows: list, now: float, *, triggers: bool = True,
              metrics: Optional[list] = None, dlq_depth: str = "cloudwatch",
-             attrs_ttl_ms: Optional[float] = None) -> dict:
+             attrs_ttl_ms: Optional[float] = None, caller: Optional[str] = None) -> dict:
         """What AWS says about each queue, by its key. ``queues``: ``{key, name, account, region, url}`` (account,
         region and url from its spans; None when not known; the url is never sent to AWS). ``windows``: ``{id,
         fromMs, toMs, periodS}``. ``metrics``: the CloudWatch metrics to read for the queues (af.METRIC_NAMES), all
         when None. ``dlq_depth``: "cloudwatch" (with history), or "sqs" (the dead-letter queue's own
         GetQueueAttributes, falling back to CloudWatch). ``attrs_ttl_ms``: how long a queue's GetQueueAttributes is
-        kept, ATTRS_TTL_MS by default. Never raises."""
+        kept, ATTRS_TTL_MS by default. ``caller``: who asked, for the budget of new CloudWatch reads (Budget); None
+        for the server's own reads, which have none. Never raises."""
         out: dict = {}
         try:
             s = self.settings()
@@ -269,13 +326,15 @@ class AwsReader:
             return out
         with cf.ThreadPoolExecutor(WORKERS, thread_name_prefix="trailbeam-aws") as pool:
             for region, qs in by_region.items():
-                self._region(pool, out, s, region, qs, windows, now, triggers, metrics, dlq_depth, attrs_ttl_ms)
+                self._region(pool, out, s, region, qs, windows, now, triggers, metrics, dlq_depth, attrs_ttl_ms,
+                             caller)
         return out
 
     def _clients(self, region: Optional[str], now: float) -> dict:
         return self.cache.get(f"clients|{region or ''}", CLIENTS_TTL_MS, now, lambda: self.clients_for(region))
 
-    def _region(self, pool, out, s, region, qs, windows, now, triggers, metrics, dlq_depth, attrs_ttl_ms) -> None:
+    def _region(self, pool, out, s, region, qs, windows, now, triggers, metrics, dlq_depth, attrs_ttl_ms,
+                caller) -> None:
         def place(q: dict, r: Optional[str]) -> dict:
             return {"accountId": q.get("account") or s.get("accountId"), "region": r}
 
@@ -312,12 +371,12 @@ class AwsReader:
         # that can't reach STS doesn't wait on it at every page load.
         cw_off: Optional[str] = None
         if s.get("accountId"):
-            def caller() -> dict:
+            def credentials_account() -> dict:
                 try:
                     return {"account": aws_reads.caller_account(clients["sts"])}
                 except Exception as e:  # noqa: BLE001
                     return {"error": e}
-            c = self.cache.get("caller", METRICS_TTL_MS, now, caller)
+            c = self.cache.get("caller", METRICS_TTL_MS, now, credentials_account)
             if c.get("error") is not None:
                 cw_off = metrics_unconfirmed(c["error"])
             elif c["account"] != account:
@@ -398,9 +457,16 @@ class AwsReader:
             to_ms = -((-w["toMs"]) // step) * step
             key = (f"metrics|{account}|{base}|{w['periodS']}|{from_ms}|{to_ms}|{','.join(names)}|{','.join(dlqs)}|"
                    f"{','.join(ms) if ms is not None else 'all'}")
+            # what the read asks for, and is billed: each queue's metrics and each dead-letter queue's depth
+            n = len(names) * (len(ms) if ms is not None else len(af.METRIC_NAMES)) + len(dlqs)
+
+            def make() -> dict:
+                self.budget.take(caller, n, now)  # only a read the cache doesn't have counts
+                return aws_reads.read_queue_metrics(clients["cloudwatch"], names, dlqs, from_ms, to_ms, w["periodS"],
+                                                    ms)
+
             try:
-                r = self.cache.get(key, METRICS_TTL_MS, now, lambda: aws_reads.read_queue_metrics(
-                    clients["cloudwatch"], names, dlqs, from_ms, to_ms, w["periodS"], ms))
+                r = self.cache.get(key, METRICS_TTL_MS, now, make)
             except Exception as e:  # noqa: BLE001
                 for q in ok:
                     out[q["key"]]["errors"].append(failed_text("cloudwatch:GetMetricData", None, e))
