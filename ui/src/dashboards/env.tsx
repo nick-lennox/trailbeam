@@ -46,6 +46,8 @@ export type DashboardsEnv = {
   bodyPaths?: string[];
   /** on the hosted app's sample data, a sample queue's flow */
   sampleFlow?: (queue: string) => SampleFlow | undefined;
+  /** false on a server that does not read AWS: the starters are then built from the spans alone (makeStarter) */
+  aws?: boolean;
   /** drawn while a dashboard follows the present on live data: what reloads the events (the hosted app's LiveRefresh) */
   liveRefresh?: ReactNode;
 };
