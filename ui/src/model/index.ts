@@ -10,6 +10,8 @@
     queue-live.ts  a queue's figures, and its health from them
     timerange.ts   one configurable time range per page: presets, typed ranges, ranges in links
     query.ts       the Event explorer's query language
+    triage.ts      triage on a cause: the state a stored row is in now, which row a cause shows, filters, words
+    arrivals.ts    when a cause's failures reached Trailbeam, for regression and "ignore until N more"
     format.ts      durations, counts, sizes, platform names and the Overview's ranges
 
   fixtures/viewmodel-parity.json: recorded answers from both backends for the same spans, and what these functions
@@ -24,3 +26,5 @@ export * from "./queue-live.ts";
 export * from "./timerange.ts";
 export * from "./query.ts";
 export * from "./format.ts";
+export * from "./arrivals.ts";
+export * from "./triage.ts";

@@ -1,0 +1,4146 @@
+{
+ "triageOf": [
+  {
+   "name": "no row, a cause now: open, nobody",
+   "row": null,
+   "group": {
+    "id": "c1",
+    "arrivals": []
+   },
+   "now": 1764000000000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "no row, no cause now: open and gone",
+   "row": null,
+   "group": null,
+   "now": 1764000000000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": true
+   }
+  },
+  {
+   "name": "open with an assignee and notes",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "open",
+    "resolveMode": null,
+    "resolveVersions": [],
+    "sinceSeq": null,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": "sam",
+    "assignedBy": "ana",
+    "assignedAt": 1764000000000,
+    "statusBy": null,
+    "statusAt": null,
+    "noteCount": 3,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1763996400000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": []
+   },
+   "now": 1764000000000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "sam",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 3,
+    "gone": false
+   }
+  },
+  {
+   "name": "resolved, nothing since",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "resolved",
+    "resolveMode": "now",
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": []
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "resolved",
+    "mode": "now",
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "resolved, no cause now",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "resolved",
+    "resolveMode": "now",
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": null,
+   "now": 1764003600000,
+   "expected": {
+    "status": "resolved",
+    "mode": "now",
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": true
+   }
+  },
+  {
+   "name": "resolved with no mode stored reads as now",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "resolved",
+    "resolveMode": null,
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": []
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "resolved",
+    "mode": "now",
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "resolved, a failure from before the resolve",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "resolved",
+    "resolveMode": "now",
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1763999700000001,
+      "ms": 1763999700000,
+      "version": null
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "resolved",
+    "mode": "now",
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "resolved, one failure after: regressed",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "resolved",
+    "resolveMode": "now",
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000300000001,
+      "ms": 1764000300000,
+      "version": "1.4.4"
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": true,
+    "regressedAt": 1764000300000,
+    "regressedVersion": "1.4.4",
+    "regressedCount": 1,
+    "regression": {
+     "at": 1764000300000,
+     "version": "1.4.4",
+     "count": 1
+    },
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "resolved, three failures after: count 3, first's version",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "resolved",
+    "resolveMode": "now",
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m3",
+      "seq": 1764000540000001,
+      "ms": 1764000540000,
+      "version": "1.4.5"
+     },
+     {
+      "mid": "m1",
+      "seq": 1764000120000001,
+      "ms": 1764000120000,
+      "version": "1.4.4"
+     },
+     {
+      "mid": "m2",
+      "seq": 1764000240000001,
+      "ms": 1764000240000,
+      "version": null
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": true,
+    "regressedAt": 1764000120000,
+    "regressedVersion": "1.4.4",
+    "regressedCount": 3,
+    "regression": {
+     "at": 1764000120000,
+     "version": "1.4.4",
+     "count": 3
+    },
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "resolved, a failure with no seq never counts",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "resolved",
+    "resolveMode": "now",
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": null,
+      "ms": 1764000300000,
+      "version": null
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "resolved",
+    "mode": "now",
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "resolved, a late export (own time 11 min before): not counted",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "resolved",
+    "resolveMode": "now",
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000300000001,
+      "ms": 1763999340000,
+      "version": null
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "resolved",
+    "mode": "now",
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "resolved, own time 9 min before: counted",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "resolved",
+    "resolveMode": "now",
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000300000001,
+      "ms": 1763999460000,
+      "version": null
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": true,
+    "regressedAt": 1764000300000,
+    "regressedVersion": null,
+    "regressedCount": 1,
+    "regression": {
+     "at": 1764000300000,
+     "version": null,
+     "count": 1
+    },
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "resolved, own time exactly 10 min before: counted",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "resolved",
+    "resolveMode": "now",
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000300000001,
+      "ms": 1763999400000,
+      "version": null
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": true,
+    "regressedAt": 1764000300000,
+    "regressedVersion": null,
+    "regressedCount": 1,
+    "regression": {
+     "at": 1764000300000,
+     "version": null,
+     "count": 1
+    },
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "resolved, no evidence time: counted",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "resolved",
+    "resolveMode": "now",
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000000001000,
+      "ms": null,
+      "version": null
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": true,
+    "regressedAt": 1764000000001,
+    "regressedVersion": null,
+    "regressedCount": 1,
+    "regression": {
+     "at": 1764000000001,
+     "version": null,
+     "count": 1
+    },
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "resolved, arrival at the watermark exactly: not after",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "resolved",
+    "resolveMode": "now",
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000000000000,
+      "ms": 1764000000000,
+      "version": null
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "resolved",
+    "mode": "now",
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "resolved in a new version: failures on the old versions don't count",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "resolved",
+    "resolveMode": "next_version",
+    "resolveVersions": [
+     "1.4.3",
+     "1.4.4"
+    ],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000300000001,
+      "ms": 1764000300000,
+      "version": "1.4.3"
+     },
+     {
+      "mid": "m2",
+      "seq": 1764000360000001,
+      "ms": 1764000360000,
+      "version": "1.4.4"
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "resolved",
+    "mode": "next_version",
+    "versions": [
+     "1.4.3",
+     "1.4.4"
+    ],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "resolved in a new version: a failure on a new version regresses it",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "resolved",
+    "resolveMode": "next_version",
+    "resolveVersions": [
+     "1.4.3"
+    ],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000300000001,
+      "ms": 1764000300000,
+      "version": "1.4.3"
+     },
+     {
+      "mid": "m2",
+      "seq": 1764000360000001,
+      "ms": 1764000360000,
+      "version": "1.4.5"
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": true,
+    "regressedAt": 1764000360000,
+    "regressedVersion": "1.4.5",
+    "regressedCount": 1,
+    "regression": {
+     "at": 1764000360000,
+     "version": "1.4.5",
+     "count": 1
+    },
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "resolved in a new version: a failure with no version counts",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "resolved",
+    "resolveMode": "next_version",
+    "resolveVersions": [
+     "1.4.3"
+    ],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000300000001,
+      "ms": 1764000300000,
+      "version": null
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": true,
+    "regressedAt": 1764000300000,
+    "regressedVersion": null,
+    "regressedCount": 1,
+    "regression": {
+     "at": 1764000300000,
+     "version": null,
+     "count": 1
+    },
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "regression at: never before the resolve",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "resolved",
+    "resolveMode": "now",
+    "resolveVersions": [],
+    "sinceSeq": 1764000002000000,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000002000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000002000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000002001001,
+      "ms": 1764000000000,
+      "version": null
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": true,
+    "regressedAt": 1764000002001,
+    "regressedVersion": null,
+    "regressedCount": 1,
+    "regression": {
+     "at": 1764000002001,
+     "version": null,
+     "count": 1
+    },
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000002000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "already regressed: the count grows",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "open",
+    "resolveMode": "now",
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": 1764000300000,
+    "regressedVersion": "1.4.4",
+    "regressedCount": 1,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000300000001,
+      "ms": 1764000300000,
+      "version": null
+     },
+     {
+      "mid": "m2",
+      "seq": 1764000420000001,
+      "ms": 1764000420000,
+      "version": null
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": true,
+    "regressedAt": 1764000300000,
+    "regressedVersion": "1.4.4",
+    "regressedCount": 2,
+    "regression": null,
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "already regressed: the count never goes down",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "open",
+    "resolveMode": "now",
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": 1764000300000,
+    "regressedVersion": null,
+    "regressedCount": 4,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000300000001,
+      "ms": 1764000300000,
+      "version": null
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": true,
+    "regressedAt": 1764000300000,
+    "regressedVersion": null,
+    "regressedCount": 4,
+    "regression": null,
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "already regressed: no cause now",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "open",
+    "resolveMode": "now",
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": 1764000300000,
+    "regressedVersion": null,
+    "regressedCount": 2,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": null,
+   "now": 1764003600000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": true,
+    "regressedAt": 1764000300000,
+    "regressedVersion": null,
+    "regressedCount": 2,
+    "regression": null,
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": true
+   }
+  },
+  {
+   "name": "ignored with no end",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "ignored",
+    "resolveMode": null,
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000300000001,
+      "ms": 1764000300000,
+      "version": null
+     }
+    ]
+   },
+   "now": 1766592000000,
+   "expected": {
+    "status": "ignored",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "ignored for 1 h, before it ends",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "ignored",
+    "resolveMode": null,
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": 1764003600000,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": []
+   },
+   "now": 1764003599999,
+   "expected": {
+    "status": "ignored",
+    "mode": null,
+    "versions": [],
+    "until": 1764003600000,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "ignored for 1 h, at the end: open again",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "ignored",
+    "resolveMode": null,
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": 1764003600000,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": []
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": {
+     "why": "time",
+     "at": 1764003600000,
+     "by": "ana"
+    },
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": 1764003600000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "ignored for 1 h, after the end, no cause now",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "ignored",
+    "resolveMode": null,
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": 1764003600000,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": null,
+   "now": 1764007200000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": {
+     "why": "time",
+     "at": 1764003600000,
+     "by": "ana"
+    },
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": 1764003600000,
+    "notes": 0,
+    "gone": true
+   }
+  },
+  {
+   "name": "ignored until 10 more, none yet",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "ignored",
+    "resolveMode": null,
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": 10,
+    "ignoreSeen": 0,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": []
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "ignored",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": 10,
+    "seen": 0,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "ignored until 10 more, 3 so far",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "ignored",
+    "resolveMode": null,
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": 10,
+    "ignoreSeen": 0,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000060000001,
+      "ms": 1764000060000,
+      "version": null
+     },
+     {
+      "mid": "m2",
+      "seq": 1764000120000001,
+      "ms": 1764000120000,
+      "version": null
+     },
+     {
+      "mid": "m3",
+      "seq": 1764000180000001,
+      "ms": 1764000180000,
+      "version": null
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "ignored",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": 10,
+    "seen": 3,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "ignored until 10 more, a read counted 6 before: never fewer",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "ignored",
+    "resolveMode": null,
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": 10,
+    "ignoreSeen": 6,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000060000001,
+      "ms": 1764000060000,
+      "version": null
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "ignored",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": 10,
+    "seen": 6,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "ignored until 10 more, no seen stored",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "ignored",
+    "resolveMode": null,
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": 10,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": []
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "ignored",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": 10,
+    "seen": 0,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "ignored until 10 more, the 10th arrives: open, ended at its arrival",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "ignored",
+    "resolveMode": null,
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": 10,
+    "ignoreSeen": 4,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000060000001,
+      "ms": 1764000060000,
+      "version": null
+     },
+     {
+      "mid": "m2",
+      "seq": 1764000120000001,
+      "ms": 1764000120000,
+      "version": null
+     },
+     {
+      "mid": "m3",
+      "seq": 1764000180000001,
+      "ms": 1764000180000,
+      "version": null
+     },
+     {
+      "mid": "m4",
+      "seq": 1764000240000001,
+      "ms": 1764000240000,
+      "version": null
+     },
+     {
+      "mid": "m5",
+      "seq": 1764000300000001,
+      "ms": 1764000300000,
+      "version": null
+     },
+     {
+      "mid": "m6",
+      "seq": 1764000360000001,
+      "ms": 1764000360000,
+      "version": null
+     },
+     {
+      "mid": "m7",
+      "seq": 1764000420000001,
+      "ms": 1764000420000,
+      "version": null
+     },
+     {
+      "mid": "m8",
+      "seq": 1764000480000001,
+      "ms": 1764000480000,
+      "version": null
+     },
+     {
+      "mid": "m9",
+      "seq": 1764000540000001,
+      "ms": 1764000540000,
+      "version": null
+     },
+     {
+      "mid": "m10",
+      "seq": 1764000600000001,
+      "ms": 1764000600000,
+      "version": null
+     },
+     {
+      "mid": "m11",
+      "seq": 1764000660000001,
+      "ms": 1764000660000,
+      "version": null
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": {
+     "why": "count",
+     "at": 1764000600000,
+     "more": 10,
+     "by": "ana"
+    },
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": 1764000600000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "ignored until 10 more, counted 10 before, the messages have finished since: ended now",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "ignored",
+    "resolveMode": null,
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": 10,
+    "ignoreSeen": 10,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000060000001,
+      "ms": 1764000060000,
+      "version": null
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": {
+     "why": "count",
+     "at": 1764003600000,
+     "more": 10,
+     "by": "ana"
+    },
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": 1764003600000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "ignored until 10 more: excused versions still count while ignored",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "ignored",
+    "resolveMode": "next_version",
+    "resolveVersions": [
+     "1.4.3"
+    ],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": 10,
+    "ignoreSeen": 0,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000060000001,
+      "ms": 1764000060000,
+      "version": "1.4.3"
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "ignored",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": 10,
+    "seen": 1,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "ignored until 10 more: late exports don't count",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "ignored",
+    "resolveMode": null,
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": null,
+    "ignoreMore": 10,
+    "ignoreSeen": 0,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000060000001,
+      "ms": 1763998800000,
+      "version": null
+     },
+     {
+      "mid": "m2",
+      "seq": 1764000120000001,
+      "ms": 1764000120000,
+      "version": null
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "ignored",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": 10,
+    "seen": 1,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "ignored for a time and its time is up before the count",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "ignored",
+    "resolveMode": null,
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": 1764003600000,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": "ana",
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000060000001,
+      "ms": 1764000060000,
+      "version": null
+     },
+     {
+      "mid": "m2",
+      "seq": 1764000120000001,
+      "ms": 1764000120000,
+      "version": null
+     }
+    ]
+   },
+   "now": 1764007200000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": {
+     "why": "time",
+     "at": 1764003600000,
+     "by": "ana"
+    },
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": 1764003600000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "ignored, set by Trailbeam (no one)",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "ignored",
+    "resolveMode": null,
+    "resolveVersions": [],
+    "sinceSeq": 1764000000000000,
+    "ignoreUntil": 1764003600000,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": null,
+    "statusAt": 1764000000000,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1764000000000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": []
+   },
+   "now": 1764007200000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": {
+     "why": "time",
+     "at": 1764003600000,
+     "by": null
+    },
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": 1764003600000,
+    "notes": 0,
+    "gone": false
+   }
+  },
+  {
+   "name": "open with no since: arrivals don't matter",
+   "row": {
+    "causeKey": "v1|orders|billing|exc:TimeoutError:ab12",
+    "causeId": "c1",
+    "label": "billing timed out",
+    "queue": "orders",
+    "status": "open",
+    "resolveMode": null,
+    "resolveVersions": [],
+    "sinceSeq": null,
+    "ignoreUntil": null,
+    "ignoreMore": null,
+    "ignoreSeen": null,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "assignee": null,
+    "assignedBy": null,
+    "assignedAt": null,
+    "statusBy": null,
+    "statusAt": null,
+    "noteCount": 0,
+    "heldRule": 0,
+    "createdAt": 1763996400000,
+    "updatedAt": 1763996400000
+   },
+   "group": {
+    "id": "c1",
+    "arrivals": [
+     {
+      "mid": "m1",
+      "seq": 1764000060000001,
+      "ms": 1764000060000,
+      "version": null
+     }
+    ]
+   },
+   "now": 1764003600000,
+   "expected": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   }
+  }
+ ],
+ "newSince": [
+  {
+   "name": "nothing",
+   "arrivals": [],
+   "sinceSeq": 1764000000000000,
+   "atMs": 1764000000000,
+   "except": null,
+   "expected": []
+  },
+  {
+   "name": "sorted by arrival",
+   "arrivals": [
+    {
+     "mid": "b",
+     "seq": 1764000180000001,
+     "ms": 1764000180000,
+     "version": null
+    },
+    {
+     "mid": "a",
+     "seq": 1764000060000001,
+     "ms": 1764000060000,
+     "version": null
+    },
+    {
+     "mid": "c",
+     "seq": 1764000120000001,
+     "ms": 1764000120000,
+     "version": null
+    }
+   ],
+   "sinceSeq": 1764000000000000,
+   "atMs": 1764000000000,
+   "except": null,
+   "expected": [
+    "a",
+    "c",
+    "b"
+   ]
+  },
+  {
+   "name": "excepted versions",
+   "arrivals": [
+    {
+     "mid": "a",
+     "seq": 1764000060000001,
+     "ms": 1764000060000,
+     "version": "1"
+    },
+    {
+     "mid": "b",
+     "seq": 1764000120000001,
+     "ms": 1764000120000,
+     "version": "2"
+    },
+    {
+     "mid": "c",
+     "seq": 1764000180000001,
+     "ms": 1764000180000,
+     "version": null
+    }
+   ],
+   "sinceSeq": 1764000000000000,
+   "atMs": 1764000000000,
+   "except": [
+    "1"
+   ],
+   "expected": [
+    "b",
+    "c"
+   ]
+  },
+  {
+   "name": "before the watermark",
+   "arrivals": [
+    {
+     "mid": "a",
+     "seq": 1763999940000001,
+     "ms": 1763999940000,
+     "version": null
+    },
+    {
+     "mid": "b",
+     "seq": 1764000060000001,
+     "ms": 1764000060000,
+     "version": null
+    }
+   ],
+   "sinceSeq": 1764000000000000,
+   "atMs": 1764000000000,
+   "except": null,
+   "expected": [
+    "b"
+   ]
+  },
+  {
+   "name": "late exports",
+   "arrivals": [
+    {
+     "mid": "a",
+     "seq": 1764000060000001,
+     "ms": 1763999399999,
+     "version": null
+    },
+    {
+     "mid": "b",
+     "seq": 1764000060000001,
+     "ms": 1763999400000,
+     "version": null
+    }
+   ],
+   "sinceSeq": 1764000000000000,
+   "atMs": 1764000000000,
+   "except": null,
+   "expected": [
+    "b"
+   ]
+  },
+  {
+   "name": "no seq",
+   "arrivals": [
+    {
+     "mid": "a",
+     "seq": null,
+     "ms": 1764000060000,
+     "version": null
+    }
+   ],
+   "sinceSeq": 1764000000000000,
+   "atMs": 1764000000000,
+   "except": null,
+   "expected": []
+  }
+ ],
+ "rowFor": [
+  {
+   "name": "no rows",
+   "rows": [],
+   "key": "v1|orders|billing|exc:TimeoutError:aa",
+   "expected": null
+  },
+  {
+   "name": "its own row",
+   "rows": [
+    {
+     "causeKey": "v1|orders|billing|exc:TimeoutError:aa",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1763996400000
+    },
+    {
+     "causeKey": "v1|orders|billing|exc:KeyError:cc",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1764000000000
+    }
+   ],
+   "key": "v1|orders|billing|exc:TimeoutError:aa",
+   "expected": "v1|orders|billing|exc:TimeoutError:aa"
+  },
+  {
+   "name": "a split cause with no row: its class's merged row",
+   "rows": [
+    {
+     "causeKey": "v1|orders|billing|exc:TimeoutError:*",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "resolved",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1763996400000
+    }
+   ],
+   "key": "v1|orders|billing|exc:TimeoutError:aa",
+   "expected": "v1|orders|billing|exc:TimeoutError:*"
+  },
+  {
+   "name": "a split cause: the merged row changed later wins",
+   "rows": [
+    {
+     "causeKey": "v1|orders|billing|exc:TimeoutError:aa",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1764000000000
+    },
+    {
+     "causeKey": "v1|orders|billing|exc:TimeoutError:*",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1764000000001
+    }
+   ],
+   "key": "v1|orders|billing|exc:TimeoutError:aa",
+   "expected": "v1|orders|billing|exc:TimeoutError:*"
+  },
+  {
+   "name": "a split cause: its own row changed later wins",
+   "rows": [
+    {
+     "causeKey": "v1|orders|billing|exc:TimeoutError:aa",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1764000000001
+    },
+    {
+     "causeKey": "v1|orders|billing|exc:TimeoutError:*",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1764000000000
+    }
+   ],
+   "key": "v1|orders|billing|exc:TimeoutError:aa",
+   "expected": "v1|orders|billing|exc:TimeoutError:aa"
+  },
+  {
+   "name": "a split cause: same time, its own row",
+   "rows": [
+    {
+     "causeKey": "v1|orders|billing|exc:TimeoutError:aa",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1764000000000
+    },
+    {
+     "causeKey": "v1|orders|billing|exc:TimeoutError:*",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1764000000000
+    }
+   ],
+   "key": "v1|orders|billing|exc:TimeoutError:aa",
+   "expected": "v1|orders|billing|exc:TimeoutError:aa"
+  },
+  {
+   "name": "a merged cause: its own row",
+   "rows": [
+    {
+     "causeKey": "v1|orders|billing|exc:TimeoutError:*",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1764000000000
+    },
+    {
+     "causeKey": "v1|orders|billing|exc:TimeoutError:aa",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1764000000005
+    }
+   ],
+   "key": "v1|orders|billing|exc:TimeoutError:*",
+   "expected": "v1|orders|billing|exc:TimeoutError:*"
+  },
+  {
+   "name": "a merged cause with no row: the newest of its texts",
+   "rows": [
+    {
+     "causeKey": "v1|orders|billing|exc:TimeoutError:aa",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1764000000000
+    },
+    {
+     "causeKey": "v1|orders|billing|exc:TimeoutError:bb",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1764000000005
+    }
+   ],
+   "key": "v1|orders|billing|exc:TimeoutError:*",
+   "expected": "v1|orders|billing|exc:TimeoutError:bb"
+  },
+  {
+   "name": "a merged cause with no row: a tie goes to the first key",
+   "rows": [
+    {
+     "causeKey": "v1|orders|billing|exc:TimeoutError:bb",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1764000000000
+    },
+    {
+     "causeKey": "v1|orders|billing|exc:TimeoutError:aa",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1764000000000
+    }
+   ],
+   "key": "v1|orders|billing|exc:TimeoutError:*",
+   "expected": "v1|orders|billing|exc:TimeoutError:aa"
+  },
+  {
+   "name": "a merged cause: another class's rows don't count",
+   "rows": [
+    {
+     "causeKey": "v1|orders|billing|exc:KeyError:cc",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1764000000000
+    }
+   ],
+   "key": "v1|orders|billing|exc:TimeoutError:*",
+   "expected": null
+  },
+  {
+   "name": "another consumer's merged row doesn't count",
+   "rows": [
+    {
+     "causeKey": "v1|orders|mailer|exc:TimeoutError:*",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1763996400000
+    }
+   ],
+   "key": "v1|orders|billing|exc:TimeoutError:aa",
+   "expected": null
+  },
+  {
+   "name": "a key that only shares a prefix",
+   "rows": [
+    {
+     "causeKey": "v1|orders|billing|exc:Timeout:*",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1763996400000
+    }
+   ],
+   "key": "v1|orders|billing|exc:TimeoutError:aa",
+   "expected": null
+  }
+ ],
+ "sameCause": [
+  {
+   "r": "v1|orders|billing|exc:TimeoutError:aa",
+   "g": "v1|orders|billing|exc:TimeoutError:aa",
+   "expected": true
+  },
+  {
+   "r": "v1|orders|billing|exc:TimeoutError:aa",
+   "g": "v1|orders|billing|exc:TimeoutError:bb",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:TimeoutError:aa",
+   "g": "v1|orders|billing|exc:TimeoutError:*",
+   "expected": true
+  },
+  {
+   "r": "v1|orders|billing|exc:TimeoutError:aa",
+   "g": "v1|orders|billing|exc:KeyError:cc",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:TimeoutError:aa",
+   "g": "v1|orders|billing|exc:TimeoutError",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:TimeoutError:*",
+   "g": "v1|orders|billing|exc:TimeoutError:aa",
+   "expected": true
+  },
+  {
+   "r": "v1|orders|billing|exc:TimeoutError:*",
+   "g": "v1|orders|billing|exc:TimeoutError:bb",
+   "expected": true
+  },
+  {
+   "r": "v1|orders|billing|exc:TimeoutError:*",
+   "g": "v1|orders|billing|exc:TimeoutError:*",
+   "expected": true
+  },
+  {
+   "r": "v1|orders|billing|exc:TimeoutError:*",
+   "g": "v1|orders|billing|exc:KeyError:cc",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:TimeoutError:*",
+   "g": "v1|orders|billing|exc:TimeoutError",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:KeyError:cc",
+   "g": "v1|orders|billing|exc:TimeoutError:aa",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:KeyError:cc",
+   "g": "v1|orders|billing|exc:TimeoutError:bb",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:KeyError:cc",
+   "g": "v1|orders|billing|exc:TimeoutError:*",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:KeyError:cc",
+   "g": "v1|orders|billing|exc:KeyError:cc",
+   "expected": true
+  },
+  {
+   "r": "v1|orders|billing|exc:KeyError:cc",
+   "g": "v1|orders|billing|exc:TimeoutError",
+   "expected": false
+  }
+ ],
+ "inFilter": [
+  {
+   "name": "open, nobody",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "open",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": true
+  },
+  {
+   "name": "open, nobody",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "mine",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "open, nobody",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "unassigned",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": true
+  },
+  {
+   "name": "open, nobody",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "resolved",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "open, nobody",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "ignored",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "open, nobody",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "all",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": true
+  },
+  {
+   "name": "open, mine",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "me",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "open",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": true
+  },
+  {
+   "name": "open, mine",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "me",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "mine",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": true
+  },
+  {
+   "name": "open, mine",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "me",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "unassigned",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "open, mine",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "me",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "resolved",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "open, mine",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "me",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "ignored",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "open, mine",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "me",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "all",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": true
+  },
+  {
+   "name": "open, Sam",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "sam",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "open",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": true
+  },
+  {
+   "name": "open, Sam",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "sam",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "mine",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "open, Sam",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "sam",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "unassigned",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "open, Sam",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "sam",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "resolved",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "open, Sam",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "sam",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "ignored",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "open, Sam",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "sam",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "all",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": true
+  },
+  {
+   "name": "open, someone who left",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "gone",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "open",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": true
+  },
+  {
+   "name": "open, someone who left",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "gone",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "mine",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "open, someone who left",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "gone",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "unassigned",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": true
+  },
+  {
+   "name": "open, someone who left",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "gone",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "resolved",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "open, someone who left",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "gone",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "ignored",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "open, someone who left",
+   "triage": {
+    "status": "open",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "gone",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "all",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": true
+  },
+  {
+   "name": "resolved, mine",
+   "triage": {
+    "status": "resolved",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "me",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "open",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "resolved, mine",
+   "triage": {
+    "status": "resolved",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "me",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "mine",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "resolved, mine",
+   "triage": {
+    "status": "resolved",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "me",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "unassigned",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "resolved, mine",
+   "triage": {
+    "status": "resolved",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "me",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "resolved",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": true
+  },
+  {
+   "name": "resolved, mine",
+   "triage": {
+    "status": "resolved",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "me",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "ignored",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "resolved, mine",
+   "triage": {
+    "status": "resolved",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": "me",
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "all",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": true
+  },
+  {
+   "name": "ignored, nobody",
+   "triage": {
+    "status": "ignored",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "open",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "ignored, nobody",
+   "triage": {
+    "status": "ignored",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "mine",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "ignored, nobody",
+   "triage": {
+    "status": "ignored",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "unassigned",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "ignored, nobody",
+   "triage": {
+    "status": "ignored",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "resolved",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": false
+  },
+  {
+   "name": "ignored, nobody",
+   "triage": {
+    "status": "ignored",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "ignored",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": true
+  },
+  {
+   "name": "ignored, nobody",
+   "triage": {
+    "status": "ignored",
+    "mode": null,
+    "versions": [],
+    "until": null,
+    "more": null,
+    "seen": null,
+    "ended": null,
+    "regressed": false,
+    "regressedAt": null,
+    "regressedVersion": null,
+    "regressedCount": null,
+    "regression": null,
+    "assignee": null,
+    "statusBy": null,
+    "statusAt": null,
+    "notes": 0,
+    "gone": false
+   },
+   "filter": "all",
+   "me": "me",
+   "members": [
+    "me",
+    "sam"
+   ],
+   "expected": true
+  }
+ ],
+ "filterOf": [
+  {
+   "raw": "open",
+   "expected": "open"
+  },
+  {
+   "raw": "mine",
+   "expected": "mine"
+  },
+  {
+   "raw": "unassigned",
+   "expected": "unassigned"
+  },
+  {
+   "raw": "resolved",
+   "expected": "resolved"
+  },
+  {
+   "raw": "ignored",
+   "expected": "ignored"
+  },
+  {
+   "raw": "all",
+   "expected": "all"
+  },
+  {
+   "raw": "",
+   "expected": "open"
+  },
+  {
+   "raw": null,
+   "expected": "open"
+  },
+  {
+   "raw": "OPEN",
+   "expected": "open"
+  },
+  {
+   "raw": "closed",
+   "expected": "open"
+  }
+ ],
+ "noteProblem": [
+  {
+   "name": "plain",
+   "body": "Retried after the Stripe outage.",
+   "expected": null
+  },
+  {
+   "name": "empty",
+   "body": "",
+   "expected": "Write the note first."
+  },
+  {
+   "name": "spaces and newlines",
+   "body": "  \n\t ",
+   "expected": "Write the note first."
+  },
+  {
+   "name": "zero-width spaces and a BOM",
+   "body": "\u200b\u200c\u200d\ufeff",
+   "expected": "Write the note first."
+  },
+  {
+   "name": "blank fillers",
+   "body": "\u3164\u2800\u115f",
+   "expected": "Write the note first."
+  },
+  {
+   "name": "ideographic space",
+   "body": "\u3000",
+   "expected": "Write the note first."
+  },
+  {
+   "name": "a variation selector only",
+   "body": "\ufe0f",
+   "expected": "Write the note first."
+  },
+  {
+   "name": "tab and newline are fine",
+   "body": "line one\n\tline two",
+   "expected": null
+  },
+  {
+   "name": "NUL",
+   "body": "a\u0000b",
+   "expected": "The note has hidden characters that can't be saved (control characters or text-direction marks), often from pasted text. Retype the pasted part and try again."
+  },
+  {
+   "name": "ESC",
+   "body": "\u001b[31mred",
+   "expected": "The note has hidden characters that can't be saved (control characters or text-direction marks), often from pasted text. Retype the pasted part and try again."
+  },
+  {
+   "name": "a C1 control",
+   "body": "a\u0085b",
+   "expected": "The note has hidden characters that can't be saved (control characters or text-direction marks), often from pasted text. Retype the pasted part and try again."
+  },
+  {
+   "name": "a bidi override",
+   "body": "file\u202egnp.exe",
+   "expected": "The note has hidden characters that can't be saved (control characters or text-direction marks), often from pasted text. Retype the pasted part and try again."
+  },
+  {
+   "name": "a bidi isolate",
+   "body": "a\u2066b",
+   "expected": "The note has hidden characters that can't be saved (control characters or text-direction marks), often from pasted text. Retype the pasted part and try again."
+  },
+  {
+   "name": "2,000 characters",
+   "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "expected": null
+  },
+  {
+   "name": "2,001 characters",
+   "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "expected": "Notes can be up to 2,000 characters."
+  },
+  {
+   "name": "1,000 emoji: 2,000 UTF-16 units",
+   "body": "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00",
+   "expected": null
+  },
+  {
+   "name": "1,001 emoji: over",
+   "body": "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00",
+   "expected": "Notes can be up to 2,000 characters."
+  },
+  {
+   "name": "an emoji with a variation selector",
+   "body": "\u2764\ufe0f",
+   "expected": null
+  }
+ ]
+}
