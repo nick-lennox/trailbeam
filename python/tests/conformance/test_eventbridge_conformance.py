@@ -37,6 +37,10 @@ def types(t):
     return [e["type"] for e in t["events"]]
 
 
+def codes(t):
+    return [n["code"] for n in t["notices"]]
+
+
 def fanout(s):
     """One PutEvents entry that two rules send to two queues."""
     put(s, P.put_event(T0 + SEC, EID, bus="orders-bus", start=T0),
@@ -60,6 +64,7 @@ def test_both_queues_join_the_one_entry(new_store):
     b = queries.message(s, "sqs-b", NOW, LT)
     # the joined entry replaces the inferred "Arrived via an EventBridge rule" (section 23.3)
     assert types(a) == ["put_event", "received"] and types(b) == ["put_event", "received"]
+    assert codes(a) == codes(b) == []  # QV-728: no send_not_observed under a joined entry
     ea, eb = a["events"][0], b["events"][0]
     assert ea["span"] == eb["span"]
     assert ea["inferred"] is False and ea["source"] == "eventbridge_put_events" and ea["joined_by"] == "event_id"
@@ -78,9 +83,12 @@ def test_both_queues_join_the_one_entry(new_store):
 def test_the_entry_may_arrive_after_the_receive(new_store):
     s = new_store()
     put(s, C.eb_receive(T0 + 3 * SEC, "sqs-a", "rh-a", EID, start=T0 + 2 * SEC))
-    assert types(queries.message(s, "sqs-a", NOW, LT)) == ["arrived_via_eventbridge", "received"]
+    t = queries.message(s, "sqs-a", NOW, LT)
+    assert types(t) == ["arrived_via_eventbridge", "received"] and "send_not_observed" in codes(t)
     put(s, P.put_event(T0 + SEC, EID, start=T0))
-    assert types(queries.message(s, "sqs-a", NOW, LT)) == ["put_event", "received"]
+    t = queries.message(s, "sqs-a", NOW, LT)
+    # QV-728: the PutEvents caller is instrumented and on the page; the SQS send was EventBridge's own
+    assert types(t) == ["put_event", "received"] and "send_not_observed" not in codes(t)
 
 
 def test_a_failed_entry_or_another_event_joins_nothing(new_store):
