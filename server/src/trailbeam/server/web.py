@@ -32,7 +32,7 @@ from html import escape
 from typing import Callable, Iterable, Optional
 from urllib.parse import quote, urlencode
 
-from . import __version__, systems
+from . import __version__, sky, systems
 from .rabbitmq import DEAD_LETTER_REASONS, DLQ_SOURCE as AMQP_DLQ_SOURCE
 from .timeline import DLQ_SOURCE, SNS_ENVELOPE_SOURCE, iso
 
@@ -885,19 +885,32 @@ def _sso_button(next_path: str, sso) -> str:
         return ""
     if isinstance(sso, str):
         sso = [("/login/oidc", sso)]
-    return "".join(f'<p><a class="button" href="{escape(path + "?" + urlencode({"next": next_path}))}">'
-                   f"Sign in with {escape(label)}</a></p>" for path, label in sso)
+    return "".join(f'<p><a class="quiet" href="{escape(path + "?" + urlencode({"next": next_path}))}">'
+                   + (sky.GITHUB_MARK if path == "/login/github" else "")
+                   + f"Sign in with {escape(label)}</a></p>" for path, label in sso)
+
+
+def _ways(next_path: str, sso, passkey: bool) -> str:
+    """The buttons above the form, as the hosted sign-in has them: single sign-on, GitHub and a passkey."""
+    inner = _sso_button(next_path, sso) + (_passkey_button(next_path) if passkey else "")
+    return f'<div class="ways">{inner}</div>' if inner else ""
+
+
+def _hidden(name: str, value: str) -> str:
+    return f'<input type="hidden" name="{name}" value="{escape(value)}">'
 
 
 def login_page(next_path: str, error: bool = False, status: int = 401, sso=None) -> Response:
     """The page a browser gets without the session cookie when the server has a token and no admin (auth.py)."""
-    body = ("<h1>Sign in</h1>" + _sso_button(next_path, sso)
-            + "<p>This Trailbeam server needs its access token (<code>TRAILBEAM_TOKEN</code>).</p>"
-            + ('<p class="notice">That is not the token.</p>' if error else "")
-            + '<form method="post" action="/login"><input type="password" name="token" placeholder="Token" '
-            'autocomplete="current-password" required autofocus>'
-            f'<input type="hidden" name="next" value="{escape(next_path)}"> <button>Sign in</button></form>')
-    return _page(status, "Sign in", body)
+    body = ("<h1>Sign in</h1>"
+            + '<p class="lead">This Trailbeam server needs its access token (<code>TRAILBEAM_TOKEN</code>).</p>'
+            + (sky.notice("That is not the token.") if error else "")
+            + _ways(next_path, sso, False) + ('<p class="divider">or with the token</p>' if sso else "")
+            + f'<form class="auth-form{"" if sso else " spaced"}" method="post" action="/login">'
+            + sky.field("Access token", '<input type="password" id="f-token" name="token" class="mono" '
+                        'autocomplete="current-password" required autofocus>')
+            + _hidden("next", next_path) + '<div class="actions"><button class="btn">Sign in</button></div></form>')
+    return sky.page(status, "Sign in", body)
 
 
 SIGN_IN_NOTICES = {
@@ -942,8 +955,9 @@ _PASSKEY_SCRIPT = (
 
 
 def _passkey_button(next_path: str) -> str:
-    return (f'<p hidden><button type="button" id="passkey" data-next="{escape(next_path)}">Sign in with a passkey'
-            '</button></p><p class="notice" id="passkey-note" role="alert" hidden></p>' + _PASSKEY_SCRIPT)
+    return (f'<p hidden><button type="button" class="quiet" id="passkey" data-next="{escape(next_path)}">'
+            f'{sky.KEY_ICON}Sign in with a passkey</button></p>' + sky.notice("", "passkey-note", hidden=True)
+            + _PASSKEY_SCRIPT)
 
 
 def sign_in_page(next_path: str, email: str = "", outcome: Optional[str] = None, retry_after_s: Optional[int] = None,
@@ -952,19 +966,19 @@ def sign_in_page(next_path: str, email: str = "", outcome: Optional[str] = None,
     the single sign-on and GitHub buttons when they are on (``sso``, as _sso_button). ``password=False``: those buttons
     only (no admin yet). ``passkey``: passkeys are on (passkeys.py), so it has Sign in with a passkey too."""
     notice = SIGN_IN_NOTICES.get(outcome or "")
-    head = ("<h1>Sign in</h1>" + (f'<p class="notice">{escape(notice.format(minutes=_minutes(retry_after_s)))}</p>'
-                                  if notice else "") + _sso_button(next_path, sso)
-            + (_passkey_button(next_path) if passkey and password else ""))
+    head = ("<h1>Sign in</h1>" + (sky.notice(notice.format(minutes=_minutes(retry_after_s))) if notice else "")
+            + _ways(next_path, sso, passkey and password))
     if not password:
-        return _page(status, "Sign in", head)
-    body = (head + ("<p>Or sign in with your Trailbeam email and password.</p>" if sso or passkey
-                    else "<p>Sign in with your Trailbeam account.</p>")
-            + '<form method="post" action="/login">'
-            f'<input type="email" name="email" placeholder="Email" value="{escape(email)}" autocomplete="username" '
-            'required autofocus> <input type="password" name="password" placeholder="Password" '
-            'autocomplete="current-password" required>'
-            f'<input type="hidden" name="next" value="{escape(next_path)}"> <button>Sign in</button></form>')
-    return _page(status, "Sign in", body)
+        return sky.page(status, "Sign in", head)
+    body = (head + ('<p class="divider">Or sign in with your Trailbeam email and password.</p>' if sso or passkey
+                    else '<p class="lead">Sign in with your Trailbeam account.</p>')
+            + f'<form class="auth-form{"" if sso or passkey else " spaced"}" method="post" action="/login">'
+            + sky.field("Email", f'<input type="email" id="f-email" name="email" value="{escape(email)}" '
+                        'placeholder="you@example.com" autocomplete="username" required autofocus>')
+            + sky.field("Password", '<input type="password" id="f-password" name="password" '
+                        'autocomplete="current-password" required>')
+            + _hidden("next", next_path) + '<div class="actions"><button class="btn">Sign in</button></div></form>')
+    return sky.page(status, "Sign in", body)
 
 
 SETUP_NOTICES = {
@@ -982,33 +996,42 @@ _SETUP_SCRIPT = (
     "if(location.hash){history.replaceState(null,'',location.pathname);}})();</script>")
 
 
+def _new_password_fields(autofocus: bool) -> str:
+    return (sky.field("Password", '<input type="password" id="f-password" name="password" autocomplete="new-password" '
+                      f'minlength="10" required{" autofocus" if autofocus else ""}>', hint="At least 10 characters.")
+            + sky.field("Password again", '<input type="password" id="f-password2" name="password2" '
+                        'autocomplete="new-password" minlength="10" required>'))
+
+
+def _code_field(label: str, code: str) -> str:
+    # id="code" and the row's id="code-row" are _SETUP_SCRIPT's: it fills the field from the link and hides the row
+    return sky.field(label, f'<input type="text" id="code" name="code" class="mono" value="{escape(code)}" '
+                     'autocomplete="off" required>', row_id="code-row")
+
+
 def setup_page(code: str = "", email: str = "", name: str = "", notice: Optional[str] = None, message: str = "",
                retry_after_s: Optional[int] = None, status: int = 200) -> Response:
     """``/setup``: the first admin's form, opened from the link trailbeam start prints (first_admin.py)."""
     text = message or SETUP_NOTICES.get(notice or "", "")
-    body = ("<h1>Create your admin account</h1><p>This account manages the people and tokens of this Trailbeam. "
-            "It becomes the first admin, and you are signed in with it.</p>"
-            + (f'<p class="notice">{escape(text.format(minutes=_minutes(retry_after_s)))}</p>' if text else "")
-            + '<form method="post" action="/setup">'
-            f'<p id="code-row"><label>Setup code <input type="text" id="code" name="code" value="{escape(code)}" '
-            'autocomplete="off" required></label></p>'
-            f'<p><label>Email <input type="email" name="email" value="{escape(email)}" autocomplete="username" '
-            'required autofocus></label></p>'
-            f'<p><label>Name <input type="text" name="name" value="{escape(name)}" autocomplete="name" required>'
-            "</label></p>"
-            '<p><label>Password <input type="password" name="password" autocomplete="new-password" minlength="10" '
-            'required></label> (at least 10 characters)</p>'
-            '<p><label>Password again <input type="password" name="password2" autocomplete="new-password" '
-            'minlength="10" required></label></p>'
-            "<p><button>Create admin account</button></p></form>" + _SETUP_SCRIPT)
-    st, headers, html = _page(status, "Create your admin account", body)
+    body = ("<h1>Create your admin account</h1><p class=\"lead\">This account manages the people and tokens of this "
+            "Trailbeam. It becomes the first admin, and you are signed in with it.</p>"
+            + (sky.notice(text.format(minutes=_minutes(retry_after_s))) if text else "")
+            + '<form class="auth-form spaced" method="post" action="/setup">'
+            + _code_field("Setup code", code)
+            + sky.field("Email", f'<input type="email" id="f-email" name="email" value="{escape(email)}" '
+                        'autocomplete="username" required autofocus>')
+            + sky.field("Name", f'<input type="text" id="f-name" name="name" value="{escape(name)}" autocomplete="name" '
+                        "required>")
+            + _new_password_fields(False)
+            + '<div class="actions"><button class="btn">Create admin account</button></div></form>' + _SETUP_SCRIPT)
+    st, headers, html = sky.page(status, "Create your admin account", body)
     return st, {**headers, "Referrer-Policy": "no-referrer", "Cache-Control": "no-store"}, html
 
 
 def sso_error_page(message: str, status: int = 400) -> Response:
     """Single sign-on didn't work (oidc.OidcError): why, in words for the person, and a way back."""
-    st, headers, html = _page(status, "Sign-in failed", f"<h1>Sign-in failed</h1><p>{escape(message)}</p>"
-                              '<p><a href="/login">Back to sign in</a></p>')
+    st, headers, html = sky.page(status, "Sign-in failed", f'<h1>Sign-in failed</h1><p class="lead">{escape(message)}</p>'
+                                 '<p class="links"><a href="/login">Back to sign in</a></p>')
     return st, {**headers, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}, html
 
 
@@ -1026,26 +1049,24 @@ def password_page(code: str = "", notice: Optional[str] = None, message: str = "
     """``/set-password``: choose a password, from an invite or reset link an admin made on the People page
     (people_api.py). The code travels in the URL fragment, as on /setup."""
     text = message or PASSWORD_NOTICES.get(notice or "", "")
-    body = ("<h1>Choose your password</h1><p>Choose the password you sign in to this Trailbeam with. If you "
-            "had one, it stops working, and so do your other sign-ins and your passkeys: add a passkey again on "
+    body = ("<h1>Choose your password</h1><p class=\"lead\">Choose the password you sign in to this Trailbeam with. If "
+            "you had one, it stops working, and so do your other sign-ins and your passkeys: add a passkey again on "
             "the Account page if you want one.</p>"
-            + (f'<p class="notice">{escape(text.format(minutes=_minutes(retry_after_s)))}</p>' if text else "")
-            + '<form method="post" action="/set-password">'
-            f'<p id="code-row"><label>Link code <input type="text" id="code" name="code" value="{escape(code)}" '
-            'autocomplete="off" required></label></p>'
+            + (sky.notice(text.format(minutes=_minutes(retry_after_s))) if text else "")
+            + '<form class="auth-form spaced" method="post" action="/set-password">'
+            + _code_field("Link code", code)
             + (f'<input type="hidden" name="email" value="{escape(email)}" autocomplete="username">' if email else "")
-            + '<p><label>Password <input type="password" name="password" autocomplete="new-password" minlength="10" '
-            'required autofocus></label> (at least 10 characters)</p>'
-            '<p><label>Password again <input type="password" name="password2" autocomplete="new-password" '
-            'minlength="10" required></label></p>'
-            "<p><button>Set password and sign in</button></p></form>" + _SETUP_SCRIPT)
-    st, headers, html = _page(status, "Choose your password", body)
+            + _new_password_fields(True)
+            + '<div class="actions"><button class="btn">Set password and sign in</button></div></form>' + _SETUP_SCRIPT)
+    st, headers, html = sky.page(status, "Choose your password", body)
     return st, {**headers, "Referrer-Policy": "no-referrer", "Cache-Control": "no-store"}, html
 
 
 def forbidden_page(message: str) -> Response:
-    return _page(403, "Not allowed", f'<h1>Not allowed</h1><p>{escape(message)}.</p>'
-                 '<p><a href="/logout">Sign out</a></p>')
+    """Signed in, but this page needs more (an admin's, say): why, and the ways on, which the old page's header had."""
+    return sky.page(403, "Not allowed", f'<h1>Not allowed</h1><p class="lead">{escape(message)}.</p>'
+                    '<p class="links"><a href="/">Messages</a><a href="/account">Your account</a>'
+                    '<a href="/logout">Sign out</a></p>')
 
 
 def _dd(name: str, value: str) -> str:
