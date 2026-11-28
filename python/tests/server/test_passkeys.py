@@ -160,6 +160,52 @@ def test_a_counter_that_goes_back_is_refused(srv):
     assert st == 401
 
 
+def test_a_counter_saved_meanwhile_by_another_sign_in_is_not_overwritten(srv):
+    """QV-696: the counter is checked again when it is saved, so a lower one can't overwrite a higher one."""
+    a = Authenticator(PUBLIC)
+    add(srv, srv.admin, a)
+    pid = int(srv.acc.passkeys(srv.ada)[0]["id"])
+    assert srv.acc.passkey_used(pid, 11, 1) is True
+    assert srv.acc.passkey_used(pid, 10, 2) is False  # the slower of two sign-ins at once
+    assert srv.acc.passkey_used(pid, 11, 3) is False  # a replayed 11
+    assert srv.acc.passkey_used(pid, 0, 4) is False  # a counter can't go back to none
+    p = srv.acc.passkeys(srv.ada)[0]
+    assert (p["sign_count"], p["last_used_ms"]) == (11, 1)
+    assert srv.acc.passkey_used(pid + 1000, 12, 5) is False  # removed meanwhile
+
+
+def test_a_sign_in_that_loses_the_race_gets_no_session(srv, monkeypatch):
+    """Two sign-ins at once read the same saved counter (9), both pass the library's check, and the one with the
+    lower counter (10) saves second: it is refused, after the 11, before a session starts."""
+    a = Authenticator(PUBLIC)
+    add(srv, srv.admin, a)
+    pid = int(srv.acc.passkeys(srv.ada)[0]["id"])
+    srv.acc.passkey_used(pid, 9, 1)
+    real = srv.acc.passkey_by_credential
+
+    def read_then_the_other_saves(cid):
+        found = real(cid)  # it read 9
+        srv.acc.passkey_used(pid, 11, 2)  # the other sign-in, with 11, saves first
+        return found
+
+    monkeypatch.setattr(srv.acc, "passkey_by_credential", read_then_the_other_saves)
+    (st, hdrs, out), _ = sign_in(srv, a, count=10)
+    assert st == 401 and out == {"error": passkeys_mod.REFUSED}
+    assert "Set-Cookie" not in hdrs
+    assert srv.acc.passkeys(srv.ada)[0]["sign_count"] == 11
+
+
+def test_an_answer_from_a_frame_inside_another_site_is_refused(srv):
+    """clientDataJSON's crossOrigin: true means the page asking was framed by another site's."""
+    a = Authenticator(PUBLIC)
+    st, _, out = add(srv, srv.admin, a, cross_origin=True)
+    assert st == 400 and "wasn't saved" in out["error"]
+    assert add(srv, srv.admin, a)[0] == 201
+    (st, hdrs, out), _ = sign_in(srv, a, cross_origin=True)
+    assert st == 401 and out == {"error": passkeys_mod.REFUSED} and "Set-Cookie" not in hdrs
+    assert sign_in(srv, a)[0][0] == 200
+
+
 def test_an_unknown_passkey_a_disabled_person_and_a_wrong_owner_are_refused(srv):
     stranger = Authenticator(PUBLIC)
     stranger.user_handle = str(srv.ada).encode()
