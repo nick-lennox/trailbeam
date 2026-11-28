@@ -120,6 +120,15 @@ class Api:
                                                   "quietS": o.get("quietS", 3600)})
 
 
+def test_a_lone_surrogate_in_a_body_is_a_400():
+    """QV-687: neither database can store half of a UTF-16 pair, in a value or a key."""
+    a = Api()
+    assert a.fails("POST", "/api/alerts/channels", {"kind": "webhook", "name": "Ops \ud83d", "target": HOOK}) \
+        == (400, api.HIDDEN_CHARACTERS)
+    assert a.fails("POST", "/api/alerts/rules", {"causeId": "c1", "channels": [], "\udc00": 1}) == (400, api.HIDDEN_CHARACTERS)
+    assert a.store.list_channels("local") == [] and a("GET", "/api/alerts/rules")[1]["rules"] == []
+
+
 def test_a_webhook_channel_shows_its_secret_once_and_never_its_target():
     a = Api()
     status, out = a("POST", "/api/alerts/channels", {"kind": "webhook", "name": " Ops ", "target": HOOK,

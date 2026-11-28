@@ -350,6 +350,29 @@ class ApiProblem(Exception):
         self.status, self.message = status, message
 
 
+#: half of a UTF-16 pair, as a truncated emoji leaves: JSON can carry one ("\\ud800") but neither database can store
+#: it, nor can it be written as UTF-8. JSON joins a whole pair into one character, so any surrogate in a str is lone.
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
+HIDDEN_CHARACTERS = ("The request has text that can't be saved (half of an emoji or another broken character), often "
+                     "from pasted text. Retype the pasted part and try again.")
+
+
+def check_text(v: Any) -> None:
+    """Raises ApiProblem(400) when a JSON value has a lone surrogate in any string, a key or a value, at any depth
+    (QV-687); before, the store's UTF-8 encode raised and the request was a 500."""
+    stack = [v]
+    while stack:
+        x = stack.pop()
+        if isinstance(x, str):
+            if _LONE_SURROGATE.search(x):
+                raise ApiProblem(400, HIDDEN_CHARACTERS)
+        elif isinstance(x, dict):
+            stack.extend(x.keys())
+            stack.extend(x.values())
+        elif isinstance(x, list):
+            stack.extend(x)
+
+
 #: (method, path template, handler, who may: "member" or "manager"). ``{id}`` is a rule's or channel's ID.
 ROUTES: tuple[tuple[str, str, str, str], ...] = (
     ("GET", "/api/alerts/rules", "list_rules", "member"),
@@ -422,6 +445,7 @@ class AlertsApi:
         r = route(method, path)
         if r is None:
             raise ApiProblem(404, f"no such endpoint: {method} {path}")
+        check_text(body)
         handler, rid, needs = r
         if needs == "manager" and not self.is_manager(who):
             raise ApiProblem(403, "this needs an admin")

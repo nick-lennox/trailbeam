@@ -20,7 +20,7 @@ from trailbeam.server import access as access_mod
 from trailbeam.server import dashboards_api as api
 from trailbeam.server import measures as M
 from trailbeam.server import proxy_auth, server
-from trailbeam.server.alerts_api import ApiProblem
+from trailbeam.server.alerts_api import HIDDEN_CHARACTERS, ApiProblem
 from trailbeam.server.dashboards_store import DashboardTables, MemoryDashboards
 from trailbeam.server.db import Database
 from trailbeam.server.passwords import Hasher
@@ -557,6 +557,37 @@ def test_on_the_servers_tables_members_make_and_admins_unlock(monkeypatch, tmp_p
             assert st == 200 and json.loads(out)["widgets"][0]["noDepth"] == api.NOT_QUEUE_LIVE
         # stored in the file: a new server reads it back
         assert DashboardTables(db).get_dashboard("local", d["id"])["name"] == "Orders"
+    finally:
+        db.close()
+
+
+def test_a_lone_surrogate_anywhere_is_a_400_not_a_500(monkeypatch, tmp_path):
+    """QV-687: half of a UTF-16 pair ("\\ud800", as a truncated emoji leaves) in a name, a key, a nested widget title
+    or the imported text is refused; SQLite can't store it, and the UTF-8 encode in check_def raised before."""
+    monkeypatch.setenv(api.ENV, "1")
+    db = Database(str(tmp_path / "t.sqlite"))
+    try:
+        _, member = _people(db)
+        app = server.App(db, ui_dir=None)
+        app.access.state.ttl_s = 0.0
+        h = {**J, **member}
+        with serve(app) as base:
+            st, _, out = request(base, "POST", "/api/dashboards", _body({"name": "Orders"}), h)
+            did = json.loads(out)["dashboard"]["id"]
+            for method, path, body in [
+                ("POST", "/api/dashboards", {"name": "a\ud800b"}),
+                ("POST", "/api/dashboards", {"name": "s", "def": {"widgets": [widget(title="\udc00")]}}),
+                ("POST", "/api/dashboards", {"name": "s", "def": {"widgets": [], "\ud83d": 1}}),
+                ("POST", "/api/dashboards", {"name": "s", "imported": json.dumps({"widgets": [widget(title="\ud83d")]})}),
+                ("PATCH", f"/api/dashboards/{did}", {"name": "\ud83d"}),
+                ("POST", f"/api/dashboards/{did}/widgets", {"widget": widget("w9", title="x\udfff")}),
+            ]:
+                st, _, out = request(base, method, path, _body(body), h)
+                assert (st, json.loads(out)) == (400, {"error": HIDDEN_CHARACTERS}), (method, path, body)
+            # a whole pair is one character, and kept
+            st, _, out = request(base, "POST", "/api/dashboards", _body({"name": "Orders \U0001f600"}), h)
+            assert st == 201 and json.loads(out)["dashboard"]["name"] == "Orders \U0001f600"
+        assert [d["name"] for d in DashboardTables(db).list_dashboards("local")] == ["Orders \U0001f600", "Orders"]
     finally:
         db.close()
 

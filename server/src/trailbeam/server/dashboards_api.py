@@ -65,7 +65,7 @@ from typing import Any
 
 from . import measures as M
 from . import timeline
-from .alerts_api import ApiProblem
+from .alerts_api import ApiProblem, check_text
 from .dashboards_store import DashboardStore, DashboardTables, MemoryDashboards
 from .queues import _body_size, place_of_key
 
@@ -529,6 +529,7 @@ class DashboardsApi:
         if r is None:
             raise ApiProblem(404, f"no such endpoint: {method} {path}")
         handler, ids, _ = r
+        check_text(body)
         status, obj = getattr(self, handler)(*ids, body if isinstance(body, dict) else {}, who)
         return status, plain(obj)
 
@@ -570,6 +571,7 @@ class DashboardsApi:
                 raw = json.loads(imported)
             except ValueError:
                 raise ApiProblem(400, NOT_JSON) from None
+            check_text(raw)  # "\\ud800" in the imported text is a lone surrogate only once parsed
             def_ = _checked(raw)
         elif body.get("def") is not None:
             def_ = _checked(body["def"])
