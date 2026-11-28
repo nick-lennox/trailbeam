@@ -131,6 +131,48 @@ def test_whoever_locked_it_or_an_admin_unlocks_it():
     assert refused(a.call, "POST", f"/api/dashboards/{did}/lock", {"lock": "yes"}, ADA)[0] == 400
 
 
+def test_an_unlock_never_lifts_a_lock_someone_else_took_after_the_check():
+    """QV-689: Ben checks his own lock; before his write an admin unlocks it and Cy locks it. Ben's write must not
+    lift Cy's lock: it is written only at the version checked, then checked again, which Cy's lock now fails."""
+    store = MemoryDashboards()
+    a = make(store=store)
+    cy = Who(3, "Cy", "member")
+    did = a.call("POST", "/api/dashboards", {"name": "Orders"}, BEN)[1]["dashboard"]["id"]
+    a.call("POST", f"/api/dashboards/{did}/lock", {"lock": True}, BEN)
+    real, calls = store.update_dashboard, []
+
+    def racing(ws, d, fields, **kw):
+        calls.append(kw.get("version"))
+        if len(calls) == 1:  # between Ben's check and Ben's write
+            real(ws, d, {"lockedBy": None, "lockedById": None})  # an admin unlocks it
+            store.lock_dashboard(ws, d, "Cy", "3", 0)  # and Cy locks it
+        return real(ws, d, fields, **kw)
+
+    store.update_dashboard = racing
+    assert refused(a.call, "POST", f"/api/dashboards/{did}/lock", {"lock": False}, BEN) == \
+        (403, "Cy locked this dashboard. They, or an admin, can unlock it.")
+    assert calls == [2] and store.get_dashboard("local", did)["lockedById"] == "3"
+    # a race that leaves the lock his (someone stars it) is tried again and unlocks
+    store.update_dashboard = real
+    a.call("POST", f"/api/dashboards/{did}/lock", {"lock": False}, cy)
+    a.call("POST", f"/api/dashboards/{did}/lock", {"lock": True}, BEN)
+    calls.clear()
+
+    def starring(ws, d, fields, **kw):
+        calls.append(kw.get("version"))
+        if len(calls) == 1:
+            real(ws, d, {"starred": True})
+        return real(ws, d, fields, **kw)
+
+    store.update_dashboard = starring
+    out = a.call("POST", f"/api/dashboards/{did}/lock", {"lock": False}, BEN)[1]["dashboard"]
+    assert len(calls) == 2 and calls[1] == calls[0] + 1 and out["lockedBy"] is None and out["starred"] is True
+    # a race on every try: 409
+    store.update_dashboard = lambda *a_, **k: ("conflict", None)
+    a.call("POST", f"/api/dashboards/{did}/lock", {"lock": True}, BEN)
+    assert refused(a.call, "POST", f"/api/dashboards/{did}/lock", {"lock": False}, BEN) == (409, api.BUSY)
+
+
 def test_save_duplicate_and_delete():
     a = make()
     did = a.call("POST", "/api/dashboards", {"name": "Orders", "def": {"widgets": [widget()]}}, ADA)[1]["dashboard"]["id"]
@@ -664,6 +706,7 @@ def test_every_dashboards_route_and_status_the_file_lists_is_answered(monkeypatc
                 for m, p in (("POST", "/api/dashboards/a1b2c3d4/widgets"), ("PATCH", "/api/dashboards/a1b2c3d4/widgets/w1")):
                     assert r(m, p, _body({"widget": widget()}), {**J, **member}) == 409
                 assert r("DELETE", "/api/dashboards/a1b2c3d4/widgets/w1", None, member) == 409
+                assert r("POST", "/api/dashboards/a1b2c3d4/lock", _body({"lock": False}), {**J, **member}) == 409
 
             # 500: the store fails; 503: the access check can't reach it
             def boom(*a, **k):
