@@ -433,6 +433,54 @@ def test_waiters_on_a_failed_read_get_its_error_and_the_cache_stays_small():
     assert len(c) <= 3
 
 
+
+def test_a_waiter_gives_up_on_a_read_that_hangs():
+    # QV-742: one slow read must not hold every other viewer's request with it
+    c = Cache(wait_s=0.2)
+    started, go = threading.Event(), threading.Event()
+    got = []
+
+    def slow():
+        started.set()
+        go.wait(5)
+        return "v"
+
+    t = threading.Thread(target=lambda: got.append(c.get("k", 1000, 0, slow)))
+    t.start()
+    started.wait(5)
+    with pytest.raises(aws_reader.WaitTimeout) as e:
+        c.get("k", 1000, 1, lambda: "w")
+    assert e.value.wait_s == 0.2
+    go.set()
+    t.join(5)
+    assert got == ["v"] and c.get("k", 1000, 2, lambda: "w") == "v"
+
+
+def test_a_page_waiting_on_a_hung_read_says_aws_did_not_answer():
+    st = Stubs()
+    started, go = threading.Event(), threading.Event()
+    plain = st.sqs.get_queue_attributes
+
+    def hang(QueueUrl, AttributeNames):
+        started.set()
+        go.wait(5)
+        return plain(QueueUrl, AttributeNames)
+
+    st.sqs.get_queue_attributes = hang
+    r = AwsReader(lambda: ON, clients_for=st, installed=lambda: True, cache=Cache(wait_s=0.2))
+    first = []
+    t = threading.Thread(target=lambda: first.append(r.read([ref("orders")], [], T0)))
+    t.start()
+    started.wait(5)
+    a = r.read([ref("orders")], [], T0 + 1)["orders"]
+    assert a["status"] == "failed"
+    assert a["detail"] == "sqs:GetQueueAttributes on orders did not answer within 0.2 s, so nothing is shown from it " \
+                          "this time."
+    go.set()
+    t.join(5)
+    assert first[0]["orders"]["status"] == "ok"
+
+
 # ── the status ───────────────────────────────────────────────────────────────────────────────────────────────────
 
 def test_the_status_looks_for_credentials_only_with_reads_on():

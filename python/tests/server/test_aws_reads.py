@@ -48,6 +48,14 @@ def test_clients_use_the_region_and_the_sqs_emulator(monkeypatch, aws):
     assert aws_reads.sqs_endpoint() == "http://emulator:9324"
 
 
+def test_clients_give_up_in_seconds(aws):
+    # QV-742: botocore's defaults (60 s to connect, 60 s to read, 3 attempts) would hold a page for minutes
+    for name in ("sqs", "cloudwatch", "lambda", "sts"):
+        cfg = aws[name].meta.config
+        assert (cfg.connect_timeout, cfg.read_timeout) == (3, 5), name
+        assert cfg.retries == {"total_max_attempts": 2, "mode": "standard"}, name
+
+
 def test_queue_settings(aws):
     url, dlq_arn = make_queues(aws["sqs"])
     aws["sqs"].send_message(QueueUrl=url, MessageBody="a")

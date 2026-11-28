@@ -38,6 +38,11 @@ Results are kept in memory for a short while, with the hosted app's lifetimes: C
 minute, and every GetMetricData call is billed to the AWS account (about $0.01 per 1,000 metrics requested,
 https://aws.amazon.com/cloudwatch/pricing/), so a page that refreshes every few seconds must not read them every time.
 Two requests that miss the cache together make one read, and a failed read is not kept. ``read`` never raises.
+
+**Reads give up in seconds (QV-742).** They run inside a page's request. Every AWS call gives up after a few seconds
+(aws_reads.clients), and a request waiting on a read another one started waits WAIT_S at most, so a slow or
+unreachable AWS makes the page say so instead of holding it, and every other viewer's, for minutes. Clients are made
+only for the regions the settings allow (QV-740), so a page's URL can't make the server build more.
 """
 from __future__ import annotations
 
@@ -56,6 +61,10 @@ CLIENTS_TTL_MS = 10 * 60_000
 MAX_ENTRIES = 5000
 #: reads made at once, per page
 WORKERS = 8
+#: how long a page waits on a read another page started before giving up on it: longer than one AWS call can take
+#: (aws_reads: 2 attempts of 3 s to connect and 5 s to read, and the retry's back-off), so a waiter normally gets that
+#: read's answer, but a read that hangs anyway can't hold every viewer's request with it (QV-742)
+WAIT_S = 2 * (aws_reads.CONNECT_TIMEOUT_S + aws_reads.READ_TIMEOUT_S) + 4
 
 OFF = "AWS reads are off on this server, so the queue's settings and depth are not read. An admin turns them on in " \
       "Settings, under AWS."
@@ -103,6 +112,9 @@ def no_caller_account(e: BaseException) -> str:
 
 
 def failed_text(call: str, name: Optional[str], e: BaseException) -> str:
+    if isinstance(e, WaitTimeout):
+        on = f" on {name}" if name else ""
+        return f"{call}{on} did not answer within {e.wait_s:g} s, so nothing is shown from it this time."
     n = aws_reads.error_name(e)
     if n in ("NoCredentialsError", "PartialCredentialsError", "CredentialRetrievalError"):
         return NO_CREDENTIALS
@@ -110,6 +122,14 @@ def failed_text(call: str, name: Optional[str], e: BaseException) -> str:
 
 
 # ── the short-lived cache ────────────────────────────────────────────────────────────────────────────────────────
+
+class WaitTimeout(TimeoutError):
+    """A read another request started did not finish within the wait (Cache.get's ``wait_s``)."""
+
+    def __init__(self, key: str, wait_s: float):
+        super().__init__(f"{key} was still being read after {wait_s:g} s")
+        self.wait_s = wait_s
+
 
 class _Entry:
     def __init__(self, until: float):
@@ -121,10 +141,12 @@ class _Entry:
 
 class Cache:
     """Values by key until a time (ms, the caller's clock). A miss is read once: callers asking for the same key
-    meanwhile wait for that read. A failed read is not kept, and every caller waiting on it gets its error."""
+    meanwhile wait for that read, ``wait_s`` at most, then raise WaitTimeout. A failed read is not kept, and every
+    caller waiting on it gets its error."""
 
-    def __init__(self, max_entries: int = MAX_ENTRIES):
+    def __init__(self, max_entries: int = MAX_ENTRIES, wait_s: float = WAIT_S):
         self.max_entries = max_entries
+        self.wait_s = wait_s
         self._d: dict[str, _Entry] = {}
         self._lock = threading.Lock()
 
@@ -138,7 +160,8 @@ class Cache:
                     for k in [k for k, x in self._d.items() if x.until <= now]:
                         del self._d[k]
         if not mine:
-            e.done.wait()
+            if not e.done.wait(self.wait_s):
+                raise WaitTimeout(key, self.wait_s)
             if e.error is not None:
                 raise e.error
             return e.value
@@ -180,7 +203,7 @@ class AwsReader:
         self.settings = settings
         self.clients_for = clients_for or (lambda region: aws_reads.clients(region))
         self.installed = installed
-        self.cache = cache or Cache()
+        self.cache = cache if cache is not None else Cache()  # an empty Cache is falsy (__len__)
 
     def clear(self, *_: Any) -> None:
         """Drops every kept read and client (the settings changed)."""
