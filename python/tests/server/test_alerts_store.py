@@ -569,3 +569,103 @@ def test_the_outbox_round_trips_on_every_store(store):
     b2 = store.held(WS)[1]
     assert b2 == {"id": "b2", "changes": changes, "heldAt": T + 1, "tries": 2}
     assert store.sent(WS, "b2") and not store.sent(WS, "b2")
+
+
+# ── a store write of the "Alert me" rules failing after record() (QV-757) ────────────────────────────────────────
+
+K2 = "v1|orders|worker|exc:KeyError"
+
+
+class _Failing:
+    """A store whose named writes raise, as a busy SQLite file or a Postgres blip does, until ``fixed``."""
+
+    def __init__(self, t, *names, error: BaseException | None = None):
+        self.t, self.names, self.error = t, set(names), error or RuntimeError("database is locked")
+
+    def __getattr__(self, name):
+        if name in self.names:
+            def fail(*a):
+                raise self.error
+            return fail
+        return getattr(self.t, name)
+
+
+def _two_rules(store):
+    """r1 on KEY, which m2 makes fire; r2 on K2, whose cause has regressed since its rule was made."""
+    add(store, WS, MAKE.rule("r1"), MAKE.memory())
+    add(store, WS, MAKE.rule("r2", causeKey=K2, causeId="c2", createdAt=T - 2 * MAKE.D, updatedAt=T - 2 * MAKE.D),
+        MAKE.memory(seen=["m9"]))
+
+
+def _two_deps(store, deliver, at):
+    read = {"groups": [MAKE.group(2), {**MAKE.group(1, "c2", K2), "label": "KeyError: 'id'"}],
+            "causeOf": {"m1": "c1", "m2": "c1", "m9": "c2"}, "capped": False}
+    reg = {"status": "open", "regressed": True, "regressedAt": T - MAKE.MIN, "regressedCount": 2,
+           "regressedVersion": "1.4.2", "statusAt": T - MAKE.H}
+    triage = {K2: {"triage": reg, "ignoredHow": None, "info": {"status": "open", "regressed": True, "assignee": None,
+                                                                "notes": 0, "resolvedBy": "Sam"}}}
+    return run.Deps(store=store, dashboards=lambda only: {}, data=lambda ws, boards: {}, causes=lambda ws: read,
+                    triage=lambda ws, keys, r, at_: triage, deliver=deliver, now=lambda: at, owner="me")
+
+
+def _sent(delivered):
+    return [(c["alert"]["widgetId"], c["kind"], "regressed" in c["alert"]["rule"]) for cs in delivered for c in cs]
+
+
+def test_a_regression_that_cannot_be_noted_still_sends_what_record_won_and_is_sent_next_time(store):
+    _two_rules(store)
+    delivered: list = []
+    r = run.run_alerts(_two_deps(_Failing(store, "set_regressed_seen"), lambda ws, ch: delivered.append(ch), T))
+    assert r["failed"] == [{"ws": WS, "error": "database is locked"}]
+    assert _sent(delivered) == [("r1", "fired", False)] and r["changes"] == 1, "r1's alert goes out"
+    assert store.held(WS) == []
+    assert store.rules_with_memory(WS)[1]["memory"]["regressedSeen"] is None
+    delivered.clear()
+    r = run.run_alerts(_two_deps(store, lambda ws, ch: delivered.append(ch), T + run.MIN_GAP_MS))
+    assert r["failed"] == [] and _sent(delivered) == [("r2", "fired", True)], "the regression, once"
+    delivered.clear()
+    run.run_alerts(_two_deps(store, lambda ws, ch: delivered.append(ch), T + 2 * run.MIN_GAP_MS))
+    assert delivered == []
+
+
+def test_a_check_killed_after_record_leaves_its_changes_held_with_the_regression(store):
+    _two_rules(store)
+    with pytest.raises(Killed):
+        run.run_alerts(_two_deps(_Failing(store, "remember", error=Killed()), _kill, T))
+    [held] = store.held(WS)  # one batch: the first, held before settle(), was replaced by the one with Regressed
+    assert sorted(_sent([held["changes"]])) == [("r1", "fired", False), ("r2", "fired", True)]
+    assert {s["widgetId"]: s["tone"] for s in store.alert_states(WS)}["r1"] == "critical"
+    delivered: list = []
+    r = run.run_alerts(_two_deps(store, lambda ws, ch: delivered.append(ch), T + run.LEASE_MS + 1))
+    assert r["resent"] == 2 and sorted(_sent(delivered)) == [("r1", "fired", False), ("r2", "fired", True)]
+    assert store.held(WS) == []
+
+
+def test_a_check_killed_in_settle_leaves_what_record_won_held(store):
+    _two_rules(store)
+    with pytest.raises(Killed):
+        run.run_alerts(_two_deps(_Failing(store, "set_regressed_seen", error=Killed()), _kill, T))
+    [held] = store.held(WS)
+    assert _sent([held["changes"]]) == [("r1", "fired", False)]
+    delivered: list = []
+    r = run.run_alerts(_two_deps(store, lambda ws, ch: delivered.append(ch), T + run.LEASE_MS + 1))
+    assert sorted(_sent(delivered)) == [("r1", "fired", False), ("r2", "fired", True)] and r["resent"] == 1
+
+
+def test_a_still_firing_that_cannot_be_cleared_is_sent_by_the_next_check(store):
+    # a snooze that ended on a rule still firing: its last new message was 20 min ago
+    add(store, WS, MAKE.rule(mutedUntil=T - MAKE.MIN, mutedBy="u2", mutedAt=T - MAKE.H),
+        MAKE.memory(lastNewAt=T - 20 * MAKE.MIN, wasMuted=True))
+    assert store.write_state(WS, MAKE.firing(), None)
+    delivered: list = []
+    deps = _deps(_Failing(store, "clear_was_muted"), lambda ws, ch: delivered.append(ch), T)
+    deps.causes = lambda ws: MAKE.read("m1")
+    r = run.run_alerts(deps)
+    assert r["failed"] == [{"ws": WS, "error": "database is locked"}] and delivered == []
+    assert store.rules_with_memory(WS)[0]["memory"]["wasMuted"], "kept, for the next check"
+    deps = _deps(store, lambda ws, ch: delivered.append(ch), T + run.MIN_GAP_MS)
+    deps.causes = lambda ws: MAKE.read("m1")
+    r = run.run_alerts(deps)
+    [[x]] = delivered
+    assert r["failed"] == [] and x["kind"] == "fired" and x["alert"]["rule"]["afterSnooze"]
+    assert not store.rules_with_memory(WS)[0]["memory"]["wasMuted"] and store.held(WS) == []

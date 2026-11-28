@@ -14,15 +14,22 @@ It runs every few minutes (alerts_scheduler.py), so:
 - the workspaces checked longest ago go first, and no new one starts once ``budget_ms`` has passed. The rest wait for
   the next check, which starts with them.
 
-**An interrupted check (QV-674).** record() writes the new state before the changes are delivered, and a later check
-does not send a change again once its state is written. So the changes are put in an outbox (``AlertStore.hold``)
-just before delivery and taken out (``sent``) once ``deliver`` returns. A check stopped in between (a shutdown, a
-crash, the process killed, ``deliver`` raising) leaves them there, and the next check of the workspace, under its
-lease, sends them first. That makes delivery at least once: a check stopped after some channels were sent to sends to
-them again. A held batch is tried MAX_TRIES times, and one held longer than MAX_HELD_MS is not sent any more; either is
-logged as an error and counted in the result's ``dropped``. What is still unguarded is the moment between record()
-returning and hold() taking effect (no network call, only the store's own writes); a hold() that fails is logged and
-the changes are delivered anyway.
+**An interrupted check (QV-674, QV-757).** record() writes the new state before the changes are delivered, and a
+later check does not send a change again once its state is written. So the changes are put in an outbox
+(``AlertStore.hold``) as soon as record() returns, before any other store write, and taken out (``sent``) once
+``deliver`` returns. A check stopped in between (a shutdown, a crash, the process killed, ``deliver`` raising, a store
+write of the "Alert me" rules failing) leaves them there, and the next check of the workspace, under its lease, sends
+them first. That makes delivery at least once: a check stopped after some channels were sent to sends to them again.
+A held batch is tried MAX_TRIES times, and one held longer than MAX_HELD_MS is not sent any more; either is logged as
+an error and counted in the result's ``dropped``.
+
+The "Alert me" rules' conditional writes come after the hold (_CauseRules.settle: "still firing", "Regressed"). When
+they add or change a message, the batch is held again with it and the first one taken out; a stop between those two
+sends the first batch's changes twice, not never. One of those writes that raises is logged, sends nothing at this
+check and fails the workspace once the rest is sent; since it did not take effect, the next check tries it again and
+sends its message then. What memory each rule keeps (``remember``) is written after the hold. Still unguarded: a stop
+inside record()'s own writes, or between record() returning and hold() taking effect, which runs no other code; a
+hold() that fails is logged and the changes are delivered anyway.
 
 A muted or snoozed "Alert me" rule's state is still recorded, but its changes are not sent; when it wakes up still
 firing, one "still firing" change is (``afterSnooze``). While a rule's cause is ignored in triage the rule is held:
@@ -442,10 +449,25 @@ def run_alerts(deps: Deps) -> dict:
             out["rules"] += len(seen)
             changes = record(store, ws, seen, at, rule_keys(dashboards))
             if ruled:
-                changes = ruled.settle(changes)
+                changes = ruled.quiet(changes)
+            # into the outbox before any other write: whatever fails or stops the check from here, the next one sends
+            # what record() won (QV-757)
+            held = _hold(store, ws, changes, at) if changes and deps.deliver else None
+            if ruled:
+                settled = ruled.settle(changes)
+                if settled != changes and deps.deliver:
+                    again = _hold(store, ws, settled, at)
+                    if again is not None:
+                        if held is not None:
+                            _take_out(store, ws, held, len(changes))
+                        held = again
+                changes = settled
+                ruled.keep()
             out["changes"] += len(changes)
             if changes and deps.deliver:
-                _deliver(deps, ws, changes, at)
+                deps.deliver(ws, changes)
+                if held is not None:
+                    _take_out(store, ws, held, len(changes))
             if ruled and ruled.failed:
                 # the changes went out; the workspace is still noted as failed, with the first error
                 raise ruled.failed[0]
@@ -464,24 +486,26 @@ def run_alerts(deps: Deps) -> dict:
     return out
 
 
-def _deliver(deps: Deps, ws: str, changes: list, at: int) -> None:
-    """Delivers the changes record() won, held in the outbox until ``deliver`` returns. If it raises, they stay
-    there for the next check, and the error fails the workspace."""
-    assert deps.deliver is not None
-    store, id_ = deps.store, str(uuid.uuid4())
+def _hold(store: AlertStore, ws: str, changes: list, at: int) -> str | None:
+    """Puts the changes this check won in the outbox until ``deliver`` returns, and returns the batch's ID. If they
+    can't be held, logs it and returns None: they are sent all the same, and only a stop before then loses them."""
+    id_ = str(uuid.uuid4())
     try:
         store.hold(ws, id_, changes, at)
-    except Exception:  # send them now all the same; only a stop before deliver returns loses them
+    except Exception:  # noqa: BLE001
         log.exception("alert check: could not hold %d change(s) of workspace %s before sending them; a stop now "
                       "would lose them", len(changes), ws)
-        deps.deliver(ws, changes)
-        return
-    deps.deliver(ws, changes)
+        return None
+    return id_
+
+
+def _take_out(store: AlertStore, ws: str, id_: str, n: int) -> None:
+    """Takes a batch out of the outbox: it was sent, or held again with more."""
     try:
         store.sent(ws, id_)
-    except Exception:  # the next check sends them again: twice rather than never
-        log.warning("alert check: could not take %d sent change(s) of workspace %s out of the outbox; the next "
-                    "check sends them again", len(changes), ws, exc_info=True)
+    except Exception:  # noqa: BLE001 - the next check sends them again: twice rather than never
+        log.warning("alert check: could not take %d change(s) of workspace %s out of the outbox; the next check "
+                    "sends them again", n, ws, exc_info=True)
 
 
 def _send_held(deps: Deps, ws: str, at: int, out: dict) -> None:
@@ -514,8 +538,9 @@ def has_rules(deps: Deps) -> bool:
 
 class _CauseRules:
     """The workspace's "Alert me" rules at this check: their figures (observed), to record with the dashboard
-    rules, and settle(), which takes the changes record() won and returns the ones to send. It leaves out a muted or
-    held rule's changes, adds a "still firing" change for a rule that woke up firing, and keeps what each rule saw."""
+    rules; quiet(), which leaves out a muted or held rule's changes from the ones record() won and writes nothing;
+    settle(), which adds a "still firing" change for a rule that woke up firing and a "Regressed" one; and keep(),
+    which writes what each rule saw. run_alerts holds the changes in the outbox between quiet() and settle()."""
 
     def __init__(self, deps: Deps, ws: str, at: int):
         assert deps.causes is not None
@@ -543,17 +568,37 @@ class _CauseRules:
                                                  "regressedSeen": memory.get("regressedSeen")}}
             self.checks.append({"rule": rule, "memory": memory, "t": t, "c": c})
         self.observed = [x["c"]["observed"] for x in self.checks]
-        #: the memory writes that failed in settle(); run_alerts raises the first after the changes are sent
+        #: the store writes that failed in settle() and keep(); run_alerts raises the first after the changes are sent
         self.failed: list[Exception] = []
+        #: the keys of the changes record() won, before quiet()
+        self.changed: set[str] = set()
 
-    def settle(self, changes: list[dict]) -> list[dict]:
-        store, ws, at, R = self.deps.store, self.ws, self.at, alerts.RULE_DASHBOARD
+    def quiet(self, changes: list[dict]) -> list[dict]:
+        """The changes record() won less a muted or held rule's. Writes nothing."""
+        R = alerts.RULE_DASHBOARD
+        self.changed = {alerts.key_of(x["alert"]) for x in changes}
         # muted or held: nothing is sent. Just woken and found quiet: it stopped while muted, so nothing is sent either
         muted = {x["rule"]["id"] for x in self.checks if x["c"]["muted"]}
         woken = {x["rule"]["id"] for x in self.checks if x["memory"].get("wasMuted") and not x["c"]["muted"]}
-        out = [x for x in changes if not (x["alert"]["dashboardId"] == R and (
+        return [x for x in changes if not (x["alert"]["dashboardId"] == R and (
             x["alert"]["widgetId"] in muted or (x["kind"] == "resolved" and x["alert"]["widgetId"] in woken)))]
-        changed = {alerts.key_of(x["alert"]) for x in changes}
+
+    def _try(self, what: str, rid: str, write: Callable[[], bool]) -> bool | None:
+        """A conditional write of settle(): whether it took effect. One that raises didn't: logged, None, and the
+        workspace fails once the changes are sent; the next check tries it again."""
+        try:
+            return write()
+        except Exception as e:  # noqa: BLE001
+            log.warning("alert check: could not %s for rule %s of workspace %s; the next check tries again", what,
+                        rid, self.ws, exc_info=True)
+            self.failed.append(e)
+            return None
+
+    def settle(self, changes: list[dict]) -> list[dict]:
+        """quiet()'s changes with the "still firing" and "Regressed" ones this check wins (conditional writes)."""
+        store, ws, at, R = self.deps.store, self.ws, self.at, alerts.RULE_DASHBOARD
+        out = list(changes)
+        changed = self.changed
         for x in self.checks:
             rule, memory, c, t = x["rule"], x["memory"], x["c"], x["t"]
             rid = rule["id"]
@@ -561,7 +606,12 @@ class _CauseRules:
             woke = p is not None and (memory.get("wasMuted") and not c["muted"] and p["tone"] == "critical"
                     and c["observed"]["tone"] == "critical" and f"{R}/{rid}" not in changed)
             # only the check that clears the flag sends it, so two overlapping checks send it once
-            if p is not None and woke and store.clear_was_muted(ws, rid):
+            cleared = self._try("clear wasMuted", rid, lambda: store.clear_was_muted(ws, rid)) if woke else False
+            if cleared is None:
+                # the write failed, so nothing is sent: the flag is kept, and the next check that finds the rule
+                # firing sends it
+                x["c"] = c = {**c, "memory": {**c["memory"], "wasMuted": True}}
+            elif p is not None and cleared:
                 back = ({"backFromIgnored": {"how": (t or {}).get("ignoredHow") or "ignored"}} if memory.get("wasHeld")
                         else {"afterSnooze": True})
                 out.append({"kind": "fired", "from": None, "alert": {
@@ -571,7 +621,8 @@ class _CauseRules:
             # send it late
             tr = (t or {}).get("triage") or {}
             reg = tr.get("regressedAt") if tr.get("regressed") and tr.get("status") == "open" else None
-            if (reg is not None and reg != memory.get("regressedSeen") and store.set_regressed_seen(ws, rid, reg)
+            if (reg is not None and reg != memory.get("regressedSeen")
+                    and self._try("note the regression", rid, lambda: store.set_regressed_seen(ws, rid, reg))
                     and not c["muted"] and reg >= rule["createdAt"]):
                 info = (t or {}).get("info") or {}
                 regressed = {"count": tr.get("regressedCount") or 1, "version": tr.get("regressedVersion"),
@@ -587,11 +638,16 @@ class _CauseRules:
                     out.append({"kind": "fired", "from": None, "alert": {
                         **c["observed"], "tone": "critical", "since": at, "checkedAt": at,
                         "rule": {**c["observed"]["rule"], "regressed": regressed}}})
-            # record() has already won these changes: a memory that can't be written must not stop them being sent,
-            # or every alert of the workspace stops while the rule's cause exists (QV-658)
+        return out
+
+    def keep(self) -> None:
+        """Writes what each rule saw. record() has already won the changes: a memory that can't be written must not
+        stop them being sent, or every alert of the workspace stops while the rule's cause exists (QV-658)."""
+        store, ws = self.deps.store, self.ws
+        for x in self.checks:
+            rid, c = x["rule"]["id"], x["c"]
             try:
                 store.remember(ws, rid, c["memory"], c["seenAs"])
-            except Exception as e:  # raised by run_alerts once the changes are sent
+            except Exception as e:  # noqa: BLE001 - raised by run_alerts once the changes are sent
                 log.warning("alert check: could not keep what rule %s of workspace %s saw", rid, ws, exc_info=True)
                 self.failed.append(e)
-        return out
