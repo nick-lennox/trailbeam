@@ -7,11 +7,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { flowOfGroup, flowsHref, flowsWindow, readFlowsUrl, selfHostedFlowsData, spanOnlyLive } from "../src/overview/flows-data.ts";
+import {
+  flowOfGroup, flowsHref, flowsWindow, overviewRangeOf, pinnedFlowsHref, queueRangeOf, readFlowsUrl, selfHostedFlowsData, spanOnlyLive,
+} from "../src/overview/flows-data.ts";
+import { custom, parseRange, preset } from "../src/model/timerange.ts";
 import type { Flow } from "../src/queue/selfhosted.ts";
 import type { CauseGroup, CausePage } from "../src/causes/types.ts";
 import type { InQueueView } from "../src/model/in-queue.ts";
-import { OverviewFlows, type OverviewFlowsHrefs } from "../src/now/OverviewFlows.tsx";
+import { OverviewFlows, healthHeading, type OverviewFlowsHrefs } from "../src/now/OverviewFlows.tsx";
 
 const NOW = Date.UTC(2026, 10, 27, 14, 0, 0);
 const flow = (queue: string, o: Partial<Flow> = {}): Flow => ({
@@ -39,19 +42,50 @@ const W = { fromMs: NOW - 3_600_000, toMs: NOW, minutes: 60 };
 const data = (flows: Flow[], causes: CausePage | null, now: Record<string, InQueueView | null> = {}) =>
   selfHostedFlowsData({ range: "1h", window: W, flows, causes, now, causeHref: (id) => `/stuck?cause=${id}` });
 
-test("the URL: range=15m|1h|24h and flow=, with the default range left out and an older link's range read as the default", () => {
-  assert.deepEqual(readFlowsUrl(new URLSearchParams("range=24h&flow=orders")), { range: "24h", flow: "orders" });
-  assert.deepEqual(readFlowsUrl(new URLSearchParams("range=7d")), { range: "1h", flow: undefined });
-  assert.equal(flowsHref({ range: "1h", flow: undefined }), "/overview");
-  assert.equal(flowsHref({ range: "15m", flow: "a b" }), "/overview?range=15m&flow=a+b");
+test("the URL: the explorer's range=<preset> or from=&to=, with the default range left out", () => {
+  const r = readFlowsUrl(new URLSearchParams("range=7d&flow=orders"), NOW);
+  assert.deepEqual(r, { time: preset("7d", NOW), flow: "orders" });
+  assert.deepEqual(readFlowsUrl(new URLSearchParams(""), NOW), { time: preset("1h", NOW), flow: undefined });
+  assert.equal(flowsHref({ time: preset("1h", NOW), flow: undefined }), "/overview");
+  assert.equal(flowsHref({ time: preset("15m", NOW), flow: "a b" }), "/overview?range=15m&flow=a+b");
+  assert.equal(flowsHref({ time: custom(NOW - 7_200_000, NOW), flow: undefined }), "/overview?from=2026-11-27T12%3A00%3A00Z&to=2026-11-27T14%3A00%3A00Z");
+  // a typed range ends now, and keeps its name in the link
+  assert.equal(flowsHref({ time: parseRange("45m", NOW)!, flow: undefined }), "/overview?range=45m");
 });
 
-test("the window is clipped to what the server keeps, and says so", () => {
-  assert.deepEqual(flowsWindow("24h", NOW, null), { fromMs: NOW - 86_400_000, toMs: NOW, minutes: 1440, clipped: false });
-  const w = flowsWindow("24h", NOW, 6 * 3_600_000);
-  assert.equal(w.fromMs, NOW - 6 * 3_600_000);
-  assert.equal(w.minutes, 360);
-  assert.equal(w.clipped, true);
+test("older links still open: range=24h is the past day, and the old page's from_ms=&to_ms= its exact window", () => {
+  assert.equal(readFlowsUrl(new URLSearchParams("range=24h"), NOW).time.preset, "1d");
+  const t = readFlowsUrl(new URLSearchParams(`from_ms=${NOW - 600_000}&to_ms=${NOW}`), NOW).time;
+  assert.deepEqual([t.from, t.to, t.preset], [NOW - 600_000, NOW, undefined]);
+  // a range that can't be read is the default
+  assert.equal(readFlowsUrl(new URLSearchParams("range=soon"), NOW).time.preset, "1h");
+});
+
+test("Copy link pins a range that ends now to the times it covers, and a fixed range stays as it is", () => {
+  const later = NOW + 5 * 60_000;
+  const href = pinnedFlowsHref({ time: preset("1h", NOW), flow: "orders" }, later);
+  const back = readFlowsUrl(new URLSearchParams(href.split("?")[1]), later + 86_400_000);
+  assert.deepEqual([back.time.from, back.time.to, back.time.preset, back.flow], [later - 3_600_000, later, undefined, "orders"]);
+  const fixed = custom(NOW - 600_000, NOW);
+  assert.equal(pinnedFlowsHref({ time: fixed, flow: undefined }, later), flowsHref({ time: fixed, flow: undefined }));
+});
+
+test("the window: a range that ends now moves up to now, a fixed one stays, and both are clipped to what the server keeps", () => {
+  assert.deepEqual(flowsWindow(preset("1d", NOW - 60_000), NOW, null), { fromMs: NOW - 86_400_000, toMs: NOW, minutes: 1440, clipped: false });
+  const w = flowsWindow(preset("1d", NOW), NOW, 6 * 3_600_000);
+  assert.deepEqual([w.fromMs, w.minutes, w.clipped], [NOW - 6 * 3_600_000, 360, true]);
+  const f = flowsWindow(custom(NOW - 7_200_000, NOW - 3_600_000), NOW + 60_000, null);
+  assert.deepEqual([f.fromMs, f.toMs, f.minutes], [NOW - 7_200_000, NOW - 3_600_000, 60]);
+  // a fixed range wholly before what's kept asks for nothing, not for a window that ends before it starts
+  const gone = flowsWindow(custom(NOW - 3 * 86_400_000, NOW - 2 * 86_400_000), NOW, 86_400_000);
+  assert.deepEqual([gone.minutes, gone.clipped], [0, true]);
+});
+
+test("a queue's page opens at the Overview's range: the same preset when it has one, else the window's exact times", () => {
+  assert.deepEqual(queueRangeOf(preset("1d", NOW), { fromMs: NOW - 86_400_000, toMs: NOW }), { kind: "preset", preset: "1d" });
+  assert.deepEqual(queueRangeOf(parseRange("45m", NOW)!, { fromMs: NOW - 2_700_000, toMs: NOW }), { kind: "fixed", fromMs: NOW - 2_700_000, toMs: NOW });
+  assert.equal(overviewRangeOf(preset("15m", NOW)), "15m");
+  assert.equal(overviewRangeOf(preset("7d", NOW)), "24h");
 });
 
 test("a cause group finds its flow by queue key, else by a name only one flow has", () => {
@@ -108,7 +142,7 @@ test("the open-source page draws its totals, Copy link and footnote in the view'
   assert.match(out, /Copy link/);
   assert.match(out, /Totals for orders/);
   assert.match(out, /<footer[^>]*><p>Counts are of the spans<\/p><\/footer>/);
-  assert.match(out, /All 1 queues are healthy. Health is from your services&#x27; spans only/);
+  assert.match(out, /The queue is healthy. Health is from your services&#x27; spans only/);
   assert.match(out, /Trailbeam makes no AWS calls\./);
 });
 
@@ -117,4 +151,27 @@ test("the sample draws none of the open-source slots", () => {
     copy, hrefs, slots: { actions: createElement("b", null, "Copy link"), foot: createElement("p", null, "Counts are of the spans") },
   }));
   assert.doesNotMatch(out, /Copy link|Counts are of the spans/);
+});
+
+test("given the page's range, the view draws the explorer's TimePicker and words the range from it; the sample keeps its three buttons", () => {
+  const d = data([flow("orders", { dlq: { name: "orders-dlq", received: 0 } })], page([]), { orders: view() });
+  const out = renderToStaticMarkup(createElement(OverviewFlows, {
+    data: d, copy, hrefs, time: { range: preset("7d", NOW), now: NOW, onChange: () => {} },
+  }));
+  assert.match(out, /aria-haspopup="dialog"/);
+  assert.match(out, /Past 7 days/);
+  assert.doesNotMatch(out, /aria-label="Time range"/);
+  const sample = renderToStaticMarkup(createElement(OverviewFlows, { copy, hrefs, time: { range: preset("7d", NOW), now: NOW, onChange: () => {} } }));
+  assert.doesNotMatch(sample, /Past 7 days/);
+});
+
+test("the heading's counts agree with their nouns", () => {
+  assert.equal(healthHeading(1, 1, 0), "The queue is healthy");
+  assert.equal(healthHeading(2, 2, 0), "Both queues are healthy");
+  assert.equal(healthHeading(12, 12, 0), "All 12 queues are healthy");
+  assert.equal(healthHeading(1, 1, 1), "The queue needs attention");
+  assert.equal(healthHeading(3, 2, 1), "1 of 3 queues needs attention; 1 has no health data");
+  assert.equal(healthHeading(4, 4, 2), "2 of 4 queues need attention");
+  assert.equal(healthHeading(3, 1, 0), "1 of 3 queues has health data, and it is healthy");
+  assert.equal(healthHeading(3, 2, 0), "2 of 3 queues have health data, and they are healthy");
 });

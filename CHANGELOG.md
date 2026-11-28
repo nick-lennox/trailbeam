@@ -8,8 +8,10 @@
   now" (from `/api/queues/{queue}/now`). Health is from your services' spans alone, and says so. The queue's card
   keeps the old table's totals for the range: Sends, Receives, Deletes, visibility changes, the average body and
   receives on its DLQ. Copy link, the `/api/flows` JSON link and the footnote that counts come from spans and
-  Trailbeam makes no AWS calls are kept. The range is 15 minutes, 1 hour or 24 hours (`range=15m|1h|24h`), and
-  the selected queue is in the URL (`flow=`).
+  Trailbeam makes no AWS calls are kept. The range is chosen with the Event explorer's picker: any preset up to
+  30 days, a typed range such as `45m` or `14:05 to 14:15`, or exact times (`range=<preset>` or `from=&to=`; the old
+  page's `from_ms=&to_ms=` links still open). Copy link pins the exact window, and a fixed range isn't refreshed. The
+  selected queue is in the URL (`flow=`), and the heading's counts agree with their nouns ("The queue is healthy").
 - **`npx trailbeam start` no longer leaves its output in Docker's log** (QV-409). It runs the container with
   `--log-driver none`, so the output still shows in the terminal but is not kept by `docker logs` or sent to a log
   service the Docker daemon is set up with (gelf, fluentd, awslogs, ...). That output holds the first run's token

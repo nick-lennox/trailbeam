@@ -2,13 +2,15 @@
   Self-hosted Trailbeam's data for the shared Overview (OverviewFlows, @trailbeam/ui/design), from its own API: GET /api/flows
   for the range, GET /api/causes for why messages didn't finish in it, and GET /api/queues/{queue}/now for each queue's
   messages now. Trailbeam makes no AWS calls, so every queue's figures are the spans' alone: its QueueLive says no
-  AWS read was made ("not_configured"), and its health is spanHealth's verdict. The URL is range=15m|1h|24h and flow=. Pure.
+  AWS read was made ("not_configured"), and its health is spanHealth's verdict. The URL is the Event explorer's range=<preset> or from=&to=, and flow=. Pure.
 */
 import { overviewData, type OverviewData } from "../model/overview.ts";
 import type { QueueLive } from "../model/queue-live.ts";
 import type { InQueueView } from "../model/in-queue.ts";
 import { toCause } from "../model/causes.ts";
-import { OVERVIEW_RANGES, type OverviewRangeId } from "../model/format.ts";
+import type { OverviewRangeId } from "../model/format.ts";
+import { follow, pinned, rangeFromParams, withRange, type TimeRange } from "../model/timerange.ts";
+import { QUEUE_PRESETS, type QueueRange } from "../queue/model.ts";
 import type { CauseGroup, CausePage } from "../causes/types.ts";
 import type { Flow } from "../queue/selfhosted.ts";
 import type { Trigger } from "../queue/types.ts";
@@ -16,35 +18,50 @@ import type { Trigger } from "../queue/types.ts";
 /** GET /api/queues/{queue}/now: the queue it read, and "In ‹queue› now" with no SQS totals. */
 export type QueueNowResponse = InQueueView & { queue: { key: string; name: string; account: string | null; region: string | null; fifo: boolean } };
 
-export type FlowsUrl = { range: OverviewRangeId; flow: string | undefined };
-const DEFAULT_RANGE: OverviewRangeId = "1h";
-
-/** The page's state from its search parameters. A range this page doesn't offer (an older link's 7d) is the default. */
-export function readFlowsUrl(p: URLSearchParams): FlowsUrl {
-  const r = p.get("range");
-  return { range: OVERVIEW_RANGES.find((x) => x.id === r)?.id ?? DEFAULT_RANGE, flow: p.get("flow") || undefined };
-}
-/** The URL for a state, with the default range left out. */
-export function flowsHref(u: FlowsUrl): string {
-  const p = new URLSearchParams();
-  if (u.range !== DEFAULT_RANGE) p.set("range", u.range);
-  if (u.flow) p.set("flow", u.flow);
-  return p.size ? `/overview?${p}` : "/overview";
-}
-/** The queue page's preset for an Overview range (its presets are queue/model.ts QUEUE_PRESETS). */
-export const QUEUE_PRESET_OF: Record<OverviewRangeId, "15m" | "1h" | "1d"> = { "15m": "15m", "1h": "1h", "24h": "1d" };
+export type FlowsUrl = { time: TimeRange; flow: string | undefined };
 
 /**
- * The window a range asks for at nowMs, clipped to what the server keeps (keptMs, null when forever or unknown).
- * `clipped`: its start was before the oldest kept span.
+ * The page's state from its search parameters, at nowMs: the Event explorer's range=<preset> or from=&to= (rangeFromParams),
+ * so a 7d, 4h or exact range opens as it was. The page before QV-579 wrote a fixed range as from_ms=&to_ms=, and its links
+ * still open on it. A range that can't be read is the default, the past hour.
  */
-export function flowsWindow(range: OverviewRangeId, nowMs: number, keptMs: number | null): { fromMs: number; toMs: number; minutes: number; clipped: boolean } {
-  const minutes = OVERVIEW_RANGES.find((r) => r.id === range)!.minutes;
-  const asked = nowMs - minutes * 60_000;
+export function readFlowsUrl(p: URLSearchParams, nowMs: number): FlowsUrl {
+  const fromMs = p.get("from_ms"), toMs = p.get("to_ms");
+  const get = (k: string) => (k === "from" && !p.get("from") ? fromMs : k === "to" && !p.get("to") ? toMs : p.get(k));
+  return { time: rangeFromParams(get, nowMs), flow: p.get("flow") || undefined };
+}
+/** The URL for a state, with the default range (the past hour) left out. */
+export function flowsHref(u: FlowsUrl): string {
+  const href = withRange("/overview", u.time);
+  if (!u.flow) return href;
+  return `${href}${href.includes("?") ? "&" : "?"}${new URLSearchParams({ flow: u.flow })}`;
+}
+/** The same page later: a range that ends now pinned to the times it covers now, for Copy link. */
+export const pinnedFlowsHref = (u: FlowsUrl, nowMs: number) => flowsHref({ ...u, time: pinned(follow(u.time, nowMs)) });
+/** A stable key for a range, so the page asks again when it changes. */
+export const timeKey = (t: TimeRange) => (t.preset ? t.preset : `${t.from}-${t.to}`);
+
+/**
+ * The window a range asks for at nowMs (a range that ends now moves up to nowMs, a fixed one stays), clipped to what
+ * the server keeps (keptMs, null when forever or unknown). `clipped`: its start was before the oldest kept span.
+ */
+export function flowsWindow(t: TimeRange, nowMs: number, keptMs: number | null): { fromMs: number; toMs: number; minutes: number; clipped: boolean } {
+  const r = follow(t, nowMs);
   const kept = keptMs === null ? null : nowMs - keptMs;
-  const clipped = kept !== null && asked < kept;
-  const fromMs = clipped ? kept : asked;
-  return { fromMs, toMs: nowMs, minutes: (nowMs - fromMs) / 60_000, clipped };
+  const clipped = kept !== null && r.from < kept;
+  const fromMs = clipped ? Math.min(kept, r.to) : r.from;
+  return { fromMs, toMs: r.to, minutes: Math.max(0, r.to - fromMs) / 60_000, clipped };
+}
+
+/** The Overview range nearest a time range (data.range, for the view's sample-sized wording): 15m, 1h or 24h. */
+export function overviewRangeOf(t: TimeRange): OverviewRangeId {
+  const minutes = (t.to - t.from) / 60_000;
+  return minutes <= 15 ? "15m" : minutes <= 60 ? "1h" : "24h";
+}
+/** A queue's page at the Overview's range: the same preset when the queue page has it, else the window's exact times. */
+export function queueRangeOf(t: TimeRange, w: { fromMs: number; toMs: number }): QueueRange {
+  const p = QUEUE_PRESETS.find(([k]) => k === t.preset);
+  return p ? { kind: "preset", preset: p[0] } : { kind: "fixed", fromMs: Math.floor(w.fromMs), toMs: Math.ceil(w.toMs) };
 }
 
 /** The flow a cause group is of: by queue key, else by name when one flow has it. */
@@ -72,7 +89,7 @@ export function spanOnlyLive(o: { view: InQueueView | null; fifo: boolean; dlq: 
 }
 
 export type SelfHostedFlowsInput = {
-  range: OverviewRangeId;
+  range: OverviewRangeId | string;
   window: { fromMs: number; toMs: number; minutes: number };
   flows: Flow[];
   /** GET /api/causes for the window, or null when it couldn't be read */

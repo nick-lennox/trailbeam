@@ -4,15 +4,16 @@
   finish in it, and GET /api/queues/{queue}/now for each queue's messages now (overview/flows-data.ts). Trailbeam makes
   no AWS calls, so health is from the spans alone (spanHealth), and the card's figures are the range's totals from
   spans: Sends, Receives and Deletes, visibility changes, the average body and receives on the dead-letter queue.
-  The URL is the page's state: range=15m|1h|24h and flow=. A refresh every 15 s while the tab is showing updates the
-  figures in place. /queues, the queue list QV-360 planned, is this page.
+  The URL is the page's state: the Event explorer's range=<preset> or from=&to= (the page before QV-579's from_ms=&to_ms=
+  still opens), and flow=. The range is chosen with the explorer's TimePicker. A range that ends now asks again every 15 s
+  while the tab is showing and updates the figures in place; a fixed range is read once. Copy link pins the exact window. /queues, the queue list QV-360 planned, is this page.
 */
 import { useEffect, useRef, useState } from "react";
 import {
-  LAMBDA_DELETES_HINT, QUEUE_PRESET_OF, REFRESH_S, flowsHref, flowsWindow, fmtBytes, lambdaDeletes, queueQuery, readFlowsUrl,
-  selfHostedFlowsData, storeIsEmpty, type CausePage, type Flow, type FlowsResponse, type FlowsUrl, type QueueNowResponse,
+  LAMBDA_DELETES_HINT, REFRESH_S, flowsHref, flowsWindow, fmtBytes, lambdaDeletes, overviewRangeOf, pinnedFlowsHref, queueQuery, queueRangeOf,
+  readFlowsUrl, selfHostedFlowsData, timeKey, storeIsEmpty, type CausePage, type Flow, type FlowsResponse, type FlowsUrl, type QueueNowResponse,
 } from "../src/index.ts";
-import { fmtNum, type InQueueView } from "../src/model/index.ts";
+import { fmtNum, phrase, preset, type InQueueView, type TimeRange } from "../src/model/index.ts";
 import { OverviewFlows, TopBar, Tooltip, UiLink, type OverviewCopy, type OverviewFlowsData, type OverviewFlowsHrefs } from "../src/design/index.ts";
 import { ApiError, CopyLink, getHealth, getJSON } from "./chrome.tsx";
 import { ShellFrame, ShellSearch } from "./frame.tsx";
@@ -75,7 +76,7 @@ function QueueTotals({ f, range }: { f: Flow; range: string }) {
 }
 
 export function OverviewPage() {
-  const [u, setU] = useState<FlowsUrl>(() => readFlowsUrl(new URLSearchParams(location.search)));
+  const [u, setU] = useState<FlowsUrl>(() => readFlowsUrl(new URLSearchParams(location.search), Date.now()));
   const [state, setState] = useState<State>({ kind: "loading" });
   const [keptMs, setKeptMs] = useState<number | null | undefined>(undefined);
   const [tick, setTick] = useState(0);
@@ -94,7 +95,7 @@ export function OverviewPage() {
     if (keptMs === undefined || last.current.kind === "empty-store") return;
     let live = true;
     const at = Date.now();
-    const w = flowsWindow(u.range, at, keptMs);
+    const w = flowsWindow(u.time, at, keptMs);
     const win = `from_ms=${Math.floor(w.fromMs)}&to_ms=${w.toMs}`;
     Promise.all([
       getJSON<FlowsResponse>(`/api/flows?${win}`),
@@ -102,7 +103,7 @@ export function OverviewPage() {
     ]).then(async ([r, causes]) => {
       const now = Object.fromEntries(await Promise.all(r.flows.map(nowOf)));
       if (!live) return;
-      const data = selfHostedFlowsData({ range: u.range, window: w, flows: r.flows, causes, now, causeHref: (id) => `/stuck?cause=${encodeURIComponent(id)}` });
+      const data = selfHostedFlowsData({ range: overviewRangeOf(u.time), window: w, flows: r.flows, causes, now, causeHref: (id) => `/stuck?cause=${encodeURIComponent(id)}` });
       setState({ kind: "ok", at, got: { flows: r.flows, data, window: w } });
     }, (e: Error) => {
       if (!live) return;
@@ -111,25 +112,40 @@ export function OverviewPage() {
       setState(prev.kind === "ok" ? { ...prev, stale: { message: e.message, at } } : { kind: "error", message: e.message });
     });
     return () => { live = false; };
-  }, [tick, keptMs, u.range]);
+  }, [tick, keptMs, timeKey(u.time)]);
 
-  // ask again every 15 s while the tab is showing, and on coming back to it
+  // a range that ends now asks again every 15 s while the tab is showing, and on coming back to it
+  const endsNow = !!u.time.preset;
   useEffect(() => {
+    if (!endsNow) return;
     const again = () => { if (!document.hidden) setTick((t) => t + 1); };
     const id = setInterval(again, REFRESH_S * 1000);
     document.addEventListener("visibilitychange", again);
     return () => { clearInterval(id); document.removeEventListener("visibilitychange", again); };
+  }, [endsNow]);
+
+  const setTime = (time: TimeRange) => {
+    const next = { ...u, time };
+    history.pushState(history.state, "", flowsHref(next));
+    setU(next);
+  };
+  // the browser's Back and Forward move between ranges chosen here
+  useEffect(() => {
+    const back = () => setU(readFlowsUrl(new URLSearchParams(location.search), Date.now()));
+    window.addEventListener("popstate", back);
+    return () => window.removeEventListener("popstate", back);
   }, []);
 
   const flows = state.kind === "ok" ? state.got.flows : [];
   const byLabel = new Map(flows.map((f) => [f.queue, f]));
   const nameOf = (label: string) => byLabel.get(label)?.name ?? label;
-  const range = { "15m": "the last 15 minutes", "1h": "the last hour", "24h": "the last 24 hours" }[u.range];
+  const range = phrase(u.time);
+  const asked = state.kind === "ok" ? state.got.window : { fromMs: u.time.from, toMs: u.time.to };
   const hrefs: OverviewFlowsHrefs = {
-    range: (id) => flowsHref({ ...u, range: id }),
+    range: (id) => flowsHref({ ...u, time: preset(id === "24h" ? "1d" : id, Date.now()) }),
     queue: ({ name }) => {
       const f = byLabel.get(name);
-      return `/queue?${queueQuery({ name: f?.name ?? name, at: f ? atOf(f) : null, range: { kind: "preset", preset: QUEUE_PRESET_OF[u.range] } })}`;
+      return `/queue?${queueQuery({ name: f?.name ?? name, at: f ? atOf(f) : null, range: queueRangeOf(u.time, asked) })}`;
     },
     issues: (queue) => `/stuck?queue=${encodeURIComponent(nameOf(queue))}`,
     cause: (c) => c.href ?? "/stuck",
@@ -164,7 +180,7 @@ export function OverviewPage() {
         <TopBar title="Overview" pad="px-6" plain search={<ShellSearch />} />
         <div className="px-6 pt-5 pb-10 text-sm text-ink-2">
           <p>No queue had a span from your services in {range}.</p>
-          {u.range !== "24h" && <p className="mt-2"><UiLink className="text-brand hover:underline" href={flowsHref({ ...u, range: "24h" })}>Show the last 24 hours</UiLink></p>}
+          {u.time.to - u.time.from < 86_400_000 && <p className="mt-2"><UiLink className="text-brand hover:underline" href={flowsHref({ ...u, time: preset("1d", Date.now()) })}>Show the past day</UiLink></p>}
         </div>
       </ShellFrame>
     );
@@ -173,8 +189,9 @@ export function OverviewPage() {
   return (
     <ShellFrame path="/overview" queues={sidebar}>
       <OverviewFlows
-        key={u.range}
-        data={got?.data ?? selfHostedFlowsData({ range: u.range, window: { fromMs: 0, toMs: 0, minutes: 1 }, flows: [], causes: null, now: {}, causeHref: () => "/stuck" })}
+        key={timeKey(u.time)}
+        time={{ range: u.time, now: state.kind === "ok" ? state.at : Date.now(), onChange: setTime }}
+        data={got?.data ?? selfHostedFlowsData({ range: overviewRangeOf(u.time), window: { fromMs: 0, toMs: 0, minutes: 1 }, flows: [], causes: null, now: {}, causeHref: () => "/stuck" })}
         flow={u.flow}
         onFlow={(flow) => { const next = { ...u, flow }; setU(next); history.replaceState(history.state, "", flowsHref(next)); }}
         copy={COPY}
@@ -182,7 +199,7 @@ export function OverviewPage() {
         slots={{
           search: <ShellSearch />,
           emptyActions: <a className="rounded-control border border-line bg-surface px-3 py-1.5 text-sm text-ink hover:border-line-strong" href="/">See how to connect a service</a>,
-          actions: <CopyLink design link={() => flowsHref(u)} />,
+          actions: <CopyLink design link={() => pinnedFlowsHref(u, state.kind === "ok" ? state.at : Date.now())} />,
           queueFacts: (label) => { const f = byLabel.get(label); return f ? <QueueTotals f={f} range={range} /> : null; },
           foot: got && <>
             <p>Counts are of the spans your services reported between {clock(got.window.fromMs)} and {clock(got.window.toMs)} UTC. Trailbeam makes no AWS calls, so it can&rsquo;t see queue depth or the oldest message: open a queue&rsquo;s page for what it can see, and the SQS console for the rest.</p>
@@ -199,8 +216,8 @@ export function OverviewPage() {
 /** /queues: the queue list QV-360 planned is the Overview, so it redirects there with the range kept when the Overview has it. */
 export function QueuesRedirect() {
   useEffect(() => {
-    const u = readFlowsUrl(new URLSearchParams(location.search));
-    location.replace(flowsHref({ range: u.range, flow: undefined }));
+    const u = readFlowsUrl(new URLSearchParams(location.search), Date.now());
+    location.replace(flowsHref({ time: u.time, flow: undefined }));
   }, []);
   return <ShellFrame path="/overview"><p className="px-6 pt-6 text-sm text-ink-2">The queue list is the <a className="text-brand hover:underline" href="/overview">Overview</a>.</p></ShellFrame>;
 }
