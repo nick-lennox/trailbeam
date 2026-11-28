@@ -21,3 +21,7 @@ Store: the trial Postgres {{ include "trailbeam.postgresName" . }} (one pod, no 
      kubectl -n {{ .Release.Namespace }} port-forward service/{{ include "trailbeam.fullname" . }} 4318:{{ .Values.service.port }}
      then open http://127.0.0.1:4318/ and sign in with the token.
 {{- end }}
+
+Upgrading: when a release upgrades the Postgres schema, stop every old pod before a new one starts, or the old
+pods keep storing spans the new schema doesn't index. 0.4.0 to 0.5.0 is such an upgrade (schema 6 to 23):
+     helm upgrade {{ .Release.Name }} <chart> -f <your values> --set strategy.type=Recreate
