@@ -53,6 +53,13 @@ test("no screen uses the browser's native title for a hover note", () => {
   assert.deepEqual(files.flatMap((p) => nativeTitles(p)), []);
 });
 
+test("no screen draws an arrow icon: a sort mark is a chevron, and a link says where it goes in words", () => {
+  const files = [...tsxFiles(join(UI, "src")), ...tsxFiles(join(UI, "shell"))].filter((p) => !RETIRING.has(relative(UI, p)));
+  const arrows = files.flatMap((p) => [...readFileSync(p, "utf8").matchAll(/import\s*\{([^}]*)\}\s*from\s*"lucide-react"/g)]
+    .flatMap((m) => m[1].split(",").map((n) => n.trim()).filter((n) => /^Arrow[A-Z]/.test(n)).map((n) => `${relative(UI, p)} ${n}`)));
+  assert.deepEqual(arrows, []);
+});
+
 const PROBE = `export const Probe = () => (
   <div>
     <span title="a native hover note">x</span>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { ArrowDown, Check, ChevronDown, ChevronRight, Search, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Search, X } from "lucide-react";
 import { TimePicker } from "../explorer/TimePicker.tsx";
 import { CAT, HoverCtx, OTHER, TimeSeries, type Line } from "../charts/TimeSeries.tsx";
 import { Menu, MenuItem } from "../design/Menu.tsx";
@@ -176,7 +176,7 @@ export function IssueList({ rows, now, filters, filterName, emptyText, tags = {}
   const cellLabel = (i: number) => `${clock(time.from + i * merge * b.span)} to ${clock(Math.min(time.to, time.from + (i + 1) * merge * b.span))}`;
   const th = (id: Sort, name: string, cls = "") => (
     <button type="button" onClick={() => setSort(sort === id ? "worst" : id)} aria-pressed={sort === id} className={`inline-flex cursor-pointer items-center gap-1 whitespace-nowrap hover:text-ink ${sort === id ? "text-ink" : ""} ${cls}`}>
-      {name}{sort === id && <ArrowDown size={12} aria-hidden />}
+      {name}{sort === id && <ChevronDown size={12} aria-hidden />}
     </button>
   );
 
