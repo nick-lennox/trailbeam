@@ -1,6 +1,7 @@
 /*
   The open-source shell's app frame (row 0c of the one-UI plan): the shared Sidebar (@trailbeam/ui/design) with
-  this server's pages as its items, inside the design system's theme. Each page moves into it from the header
+  this server's pages as its items, inside the design system's theme. Dashboards is one only while the server
+  answers /api/dashboards (TRAILBEAM_DASHBOARDS on). Each page moves into it from the header
   frame (chrome.tsx Frame) when it moves onto the design system, in rows 1 to 10; until then the pages keep
   the header, so nothing they show changes. The items are the header's: People only for admins, Tokens for
   anyone signed in. The account slot is the header's too: the name, a link to the Account page, and Sign out when
@@ -8,16 +9,18 @@
   ShellSearch is the top bar's search on this server: a message ID opens its timeline, tenant:<name> (or a
   suggested tenant) lists that tenant's messages, and suggestions come from /api/tenants/search.
 */
-import { useCallback, useRef, type ReactNode } from "react";
-import { CircleAlert, Copy, KeyRound, ListFilter, Search, Users, UserCog, Workflow } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { CircleAlert, Copy, KeyRound, LayoutDashboard, ListFilter, Search, Users, UserCog, Workflow } from "lucide-react";
 import { AppThemeProvider, MessageSearch, Sidebar, Tooltip, UiLink, tenantText, type SidebarItem, type SidebarQueue } from "../src/design/index.ts";
 import { messageHref, suggestTenants, tenantHref, useMe, useTenantSeen, type Me } from "./chrome.tsx";
 
-export function shellItems(me: Me | null, path: string): SidebarItem[][] {
+/** dashboards: the server answers /api/dashboards (TRAILBEAM_DASHBOARDS is on), so Dashboards is an item. */
+export function shellItems(me: Me | null, path: string, dashboards = false): SidebarItem[][] {
   const pages: SidebarItem[] = [
     // a queue's page is under the Overview, which lists the queues
     { href: "/overview", label: "Overview", icon: Workflow, on: path === "/overview" || path === "/queue" },
     { href: "/events", label: "Event explorer", icon: ListFilter },
+    ...(dashboards ? [{ href: "/dashboards", label: "Dashboards", icon: LayoutDashboard }] : []),
     { href: "/", label: "Messages", icon: Search, on: path === "/" || path === "/message" },
     { href: "/duplicates", label: "Duplicates", icon: Copy },
     { href: "/stuck", label: "Stuck", icon: CircleAlert },
@@ -28,6 +31,19 @@ export function shellItems(me: Me | null, path: string): SidebarItem[][] {
     ...(me?.user ? [{ href: "/tokens", label: "Tokens", icon: KeyRound }] : []),
   ];
   return manage.length ? [pages, manage] : [pages];
+}
+
+let dashboardsPromise: Promise<boolean> | null = null;
+/** Whether this server has dashboards on: asked once per page load, without the sign-in redirect a failed read makes. */
+const getDashboardsOn = () => (dashboardsPromise ??= fetch("/api/dashboards", { headers: { Accept: "application/json" } }).then((r) => r.ok, () => false));
+function useDashboardsOn(): boolean {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    let live = true;
+    getDashboardsOn().then((v) => { if (live) setOn(v); });
+    return () => { live = false; };
+  }, []);
+  return on;
 }
 
 export const shellQueueHref = (name: string) => `/queue?name=${encodeURIComponent(name)}`;
@@ -52,10 +68,12 @@ export function ShellAccount({ me }: { me: Me | null }) {
 
 export function ShellFrame({ path, queues, children }: { path: string; queues?: { name: string; health?: string | null }[]; children: ReactNode }) {
   const me = useMe();
+  // on the Dashboards page itself the item shows at once
+  const dashboards = useDashboardsOn() || path === "/dashboards";
   const list: SidebarQueue[] | undefined = queues?.map((q) => ({ ...q, href: shellQueueHref(q.name) }));
   return (
     <AppThemeProvider className="flex min-h-screen bg-canvas font-sans text-ink">
-      <Sidebar home="/overview" groups={shellItems(me, path)} queues={list} account={signedIn(me) ? <ShellAccount me={me} /> : undefined} />
+      <Sidebar home="/overview" groups={shellItems(me, path, dashboards)} queues={list} account={signedIn(me) ? <ShellAccount me={me} /> : undefined} />
       <main className="flex min-h-screen min-w-0 flex-1 flex-col">{children}</main>
     </AppThemeProvider>
   );

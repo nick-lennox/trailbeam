@@ -78,6 +78,8 @@ test("the shell's items are its header's: People for admins, Tokens for anyone s
   // a queue's page is under the Overview; a message's under Messages
   assert.equal(shellItems(null, "/queue")[0][0].on, true);
   assert.equal(shellItems(null, "/message")[0][2].on, true);
+  // Dashboards only on a server that has them on, after the Event explorer
+  assert.deepEqual(labels(shellItems(null, "/dashboards", true))[0].slice(0, 3), ["Overview", "Event explorer", "Dashboards"]);
 });
 
 test("no view imports a router: the package and the shell route through the Nav", () => {
