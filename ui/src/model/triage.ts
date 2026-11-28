@@ -382,8 +382,10 @@ export function noteParts(body: string): NotePart[] {
   QV-557: characters a note can't hold. C0 and C1 control characters other than tab and newline (NUL, which
   Postgres refuses outright; BEL; ESC, as in terminal colour codes) and the bidi embeddings, overrides and
   isolates, which can make a note read differently from what it says, a file name or URL shown reversed.
+  QV-701: and lone surrogates, half of a UTF-16 pair (a truncated emoji), which node-postgres would store as U+FFFD
+  and the self-hosted server can't store at all. With the u flag, the class matches only an unpaired surrogate.
 */
-const NOTE_BAD = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u;
+const NOTE_BAD = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069\ud800-\udfff]/u;
 /** What is left of a note that shows nothing: spaces, format characters such as zero-width spaces, and blank fillers. */
 const NOTE_INVISIBLE = /[\s\p{Cf}\p{Zs}\u034f\u115f\u1160\u17b4\u17b5\u180e\u2800\u3164\ufe00-\ufe0f\uffa0]/gu;
 

@@ -168,6 +168,12 @@ NOTES = [
     ("1,000 emoji: 2,000 UTF-16 units", "\U0001F600" * 1000),
     ("1,001 emoji: over", "\U0001F600" * 1001),
     ("an emoji with a variation selector", "❤️"),
+    ("a lone high surrogate (a truncated emoji)", "see \ud83d attached"),
+    ("a lone low surrogate", "see \ude00 attached"),
+    ("a lone surrogate at the end", "see \ud83d"),
+    ("a lone surrogate only", "\ud83d"),
+    ("a surrogate pair is one emoji: 2 units", "x" * 1998 + "\U0001F600"),
+    ("a surrogate pair at 2,001 units", "x" * 1999 + "\U0001F600"),
 ]
 
 RAW_FILTERS = ["open", "mine", "unassigned", "resolved", "ignored", "all", "", None, "OPEN", "closed"]
