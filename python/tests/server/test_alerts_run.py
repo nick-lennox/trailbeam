@@ -362,6 +362,29 @@ def test_a_check_longer_than_the_interval_is_followed_at_once_and_never_overlaps
     assert most[0] == 1
 
 
+
+def test_stopping_as_a_check_begins_does_not_wait_on_a_thread_not_yet_started(monkeypatch):
+    # QV-732: stop() landing between the check's thread being made and started joined an unstarted thread
+    about_to_start, go = threading.Event(), threading.Event()
+
+    class Held(threading.Thread):
+        def start(self):
+            if self.name == "trailbeam-alert-check-run":
+                about_to_start.set()
+                go.wait(5)
+            super().start()
+
+    monkeypatch.setattr(sched.threading, "Thread", Held)
+    s = sched.AlertScheduler(lambda: {}, 60).start()
+    assert about_to_start.wait(5)
+    stopped = []
+    t = threading.Thread(target=lambda: stopped.append(s.stop(5)))
+    t.start()
+    t.join(0.2)
+    go.set()
+    t.join(5)
+    assert stopped == [True]
+
 def _wait(cond, s=5.0):
     import time
     end = time.monotonic() + s
