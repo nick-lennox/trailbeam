@@ -52,6 +52,24 @@ def test_series(c):
     assert data == D[c["data"]], "series_for() changes nothing it is given"
 
 
+@pytest.mark.parametrize("top", [1, 3, 10])
+@pytest.mark.parametrize("c", [c for c in F["series"] if len(c["expected"]) > 1], ids=_ids("series"))
+def test_series_top_is_the_largest_lines_and_the_rest_as_one(c, top):
+    """series_for(top=k) (QV-684): the first k lines and the rest folded as the hosted dashboard folds them, the
+    same to the last bit as working out every line, though it never works out the rest's points one by one."""
+    m = M.measure(c["measure"])
+    full = M.series_for(m, c["filter"], c["groupBy"], c["time"], c["n"], D[c["data"]])
+    want = full if len(full) <= top else full[:top] + [M.other_line(m, full[top:], c["n"])]
+    assert plain(M.series_for(m, c["filter"], c["groupBy"], c["time"], c["n"], D[c["data"]], top=top)) == plain(want)
+
+
+def test_other_line_adds_up_or_takes_the_largest():
+    lines = [{"name": "a", "now": 3, "points": [1, 2]}, {"name": "b", "now": 5, "points": [4, 0]}]
+    assert M.other_line(M.measure("sent"), lines, 2) == {"name": "Other (2)", "now": 8, "points": [5, 2], "others": 2}
+    assert M.other_line(M.measure("processing_time"), lines, 2) == \
+        {"name": "Other (2)", "now": 5, "points": [4, 2], "others": 2}
+
+
 @pytest.mark.parametrize("c", F["queueValue"], ids=_ids("queueValue"))
 def test_queue_value(c):
     assert plain(M.queue_value(M.measure(c["measure"]), c["queue"], D[c["data"]], c["time"])) == c["expected"]
