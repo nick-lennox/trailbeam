@@ -37,14 +37,14 @@ export const HoverCtx = createContext<{ at: number | null; set: (f: number | nul
 export type Line = { name: string; color: string; points: number[]; hatch?: boolean };
 
 /* The top of the scale: a round number whose quarters are round too. */
-function niceMax(n: number) {
+export function niceMax(n: number) {
   if (!(n > 0)) return 4;
   const p = 10 ** Math.floor(Math.log10(n));
   return [1, 2, 4, 6, 8, 10].map((m) => m * p).find((v) => v >= n)!;
 }
 /* Time labels on round times: every 10 minutes for an hour, every 6 hours for two days, and so on. */
 const STEPS = [MIN, 2 * MIN, 5 * MIN, 10 * MIN, 15 * MIN, 30 * MIN, HOUR, 2 * HOUR, 4 * HOUR, 6 * HOUR, 12 * HOUR, DAY, 2 * DAY, 7 * DAY];
-function ticksX(from: number, to: number, n = 6) {
+export function ticksX(from: number, to: number, n = 6) {
   const step = STEPS.find((s) => (to - from) / s <= n) ?? STEPS[STEPS.length - 1];
   const out: { f: number; label: string }[] = [];
   for (let t = Math.ceil(from / step) * step; t < to; t += step) {
@@ -53,7 +53,7 @@ function ticksX(from: number, to: number, n = 6) {
   }
   return out;
 }
-const GRID = [0, 1, 2, 3, 4];
+export const GRID = [0, 1, 2, 3, 4];
 
 export function TimeSeries({ lines, from, to, unit, kind = "line", marker, legend = true, onZoom, onPick }: {
   lines: Line[];
