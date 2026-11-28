@@ -2222,6 +2222,10 @@ Run each line from the repository root:
 pytest demo/check/tests
 ```
 
+To run the server from a clone, build the web screen first and name both packages in one `pip install`
+(`pip install ./python ./server`): with `./server` alone, pip gets the client library `trailbeam` from PyPI, and
+0.4.0 there still carries its own copy of the server and an old web screen. `trailbeam start` warns about either.
+
 The Node.js tests that need an SQS emulator are skipped unless `TRAILBEAM_TEST_SQS_ENDPOINT` is set, for
 example to `http://localhost:9324`. [`.github/workflows/ci.yml`](.github/workflows/ci.yml) also runs
 the Collector tests, the container smoke test, the demo and the concurrency check.

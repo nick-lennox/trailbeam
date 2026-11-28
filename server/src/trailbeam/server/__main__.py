@@ -14,7 +14,7 @@ import threading
 import time
 
 from . import __version__
-from . import access, alerts_api, auth, config, first_admin, github, mail, oidc, passkeys, proxy_auth as proxy_auth_mod, trace_links
+from . import access, alerts_api, auth, config, first_admin, github, mail, oidc, passkeys, proxy_auth as proxy_auth_mod, trace_links, ui_files
 from .accounts import Accounts
 from .backpressure import DEFAULT_MAX_PENDING, DEFAULT_MAX_WAIT_S, IngestGate
 from .db import SqliteStore, parse_queue_list
@@ -472,6 +472,8 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
     logging.getLogger("trailbeam.server").info("listening on http://%s:%d (OTLP: /v1/traces, API: /api/, "
                                                "metrics: /metrics), db %s",
                                         a.host, httpd.server_address[1], where)
+    for problem in ui_files.install_problems(httpd.app.ui_dir):  # QV-769: an old web screen, or none
+        logging.getLogger("trailbeam.server").warning("%s", problem)
     for level, message in access_log(httpd.app, token is not None, a.host):  # after "listening on": scripts read it first
         logging.getLogger("trailbeam.server").log(level, message)
     # docker stop and systemd send SIGTERM; Python ignores it as PID 1 unless a handler is set. Stop serving,

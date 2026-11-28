@@ -23,6 +23,34 @@ _TYPES = {".js": "text/javascript", ".css": "text/css", ".woff2": "font/woff2", 
           ".html": "text/html; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json"}
 
 
+def install_problems(ui_dir: Optional[Path] = DEFAULT_UI_DIR) -> list[str]:
+    """What is wrong with how this server was installed, as warnings for the log at start (QV-769); [] if nothing.
+
+    - The client library's distribution (``trailbeam``) still holds ``trailbeam/server/``: it is 0.4.0 or older,
+      from before the split (QV-567). ``pip install ./server`` from a clone gets it from PyPI, because the server
+      depends on ``trailbeam`` at its own version and ``./python`` wasn't named, and its built UI is then served
+      against this server's API.
+    - No build of the web screen (``npm run build`` in ui/ was never run): the pages only it draws say so.
+    """
+    out = []
+    try:
+        from importlib import metadata
+        files = metadata.files("trailbeam") or []
+        stale = [f for f in files if str(f).replace("\\", "/").startswith("trailbeam/server/")]
+        version = metadata.version("trailbeam")
+    except Exception:  # noqa: BLE001 - not installed as a distribution (a source checkout on sys.path)
+        stale, version = [], None
+    if stale:
+        out.append(f"the installed trailbeam {version} (the client library) still holds trailbeam/server/ from before "
+                   "the split, with its own web screen; this server may be serving that old web screen. From a clone, "
+                   "install both packages: pip install ./python ./server")
+    if ui_dir is not None and not (ui_dir / "index.html").is_file():
+        out.append(f"the web screen isn't built ({ui_dir} has no index.html): only the server-rendered pages are "
+                   "served. Build it with npm ci && npm run build in ui/ (then pip install ./server again, unless "
+                   "it is an editable install)")
+    return out
+
+
 def handle(ui_dir: Optional[Path], path: str) -> Optional[Response]:
     """The response for ``path`` from the built shell, or None if it has no such file (or isn't built)."""
     if ui_dir is None:
