@@ -83,3 +83,43 @@ def test_without_a_build_the_message_page_is_html(db, tmp_path):
         assert get(f"{base}/ui/assets/app.js")[0] == 404
     finally:
         httpd.shutdown(); httpd.server_close()
+
+
+def test_without_a_build_every_shell_only_page_says_how_to_build_it(db, tmp_path):
+    """QV-769: /overview, /events, /dashboards, /alerts, /settings, /queues and /queue have no HTML page; without the
+    build each says so, as /people does, instead of a bare 404."""
+    from trailbeam.server import ui_files, web
+    html_pages = {"/", "/duplicates", "/stuck", "/message", "/tenants", "/people", "/tokens", "/account"}
+    assert set(ui_files.SHELL_PAGES) == html_pages | set(web.SHELL_ONLY)  # a new shell page gets an answer here
+    httpd, base = serve(db, tmp_path / "not-built")
+    try:
+        for path, (title, _) in web.SHELL_ONLY.items():
+            status, _, body = get(base + path)
+            assert status == 200 and f"<h1>{title}</h1>".encode() in body, path
+            assert b"npm run build" in body and b"/api/" in body, path
+        assert get(f"{base}/nope")[0] == 404
+    finally:
+        httpd.shutdown(); httpd.server_close()
+
+
+def test_install_problems(tmp_path, monkeypatch):
+    """QV-769: the warnings trailbeam start logs for an unbuilt web screen, and for a trailbeam library from before
+    the split that still carries trailbeam/server/ (pip install ./server from a clone fetches 0.4.0 from PyPI)."""
+    from importlib import metadata
+    from pathlib import PurePosixPath
+    from trailbeam.server import ui_files
+    (tmp_path / "index.html").write_text("<!doctype html>")
+    monkeypatch.setattr(metadata, "files", lambda name: [PurePosixPath("trailbeam/__init__.py")])
+    monkeypatch.setattr(metadata, "version", lambda name: "0.5.0")
+    assert ui_files.install_problems(tmp_path) == []
+    [unbuilt] = ui_files.install_problems(tmp_path / "not-built")
+    assert "isn't built" in unbuilt and "npm run build" in unbuilt
+    monkeypatch.setattr(metadata, "files", lambda name: [PurePosixPath("trailbeam/server/ui/index.html")])
+    monkeypatch.setattr(metadata, "version", lambda name: "0.4.0")
+    [stale] = ui_files.install_problems(tmp_path)
+    assert "trailbeam 0.4.0" in stale and "pip install ./python ./server" in stale
+
+    def missing(name):
+        raise metadata.PackageNotFoundError(name)
+    monkeypatch.setattr(metadata, "files", missing)
+    assert ui_files.install_problems(tmp_path) == []

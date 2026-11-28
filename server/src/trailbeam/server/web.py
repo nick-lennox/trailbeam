@@ -233,6 +233,8 @@ def handle(api: Callable[[str, dict], object], api_error: type, path: str, query
              "/people": _people, "/tokens": _tokens, "/account": _account}
     page = pages.get(path)
     if page is None:
+        if path in SHELL_ONLY:
+            return _shell_only(*SHELL_ONLY[path])
         return None
     try:
         return page(api, query)
@@ -245,11 +247,24 @@ def handle(api: Callable[[str, dict], object], api_error: type, path: str, query
 # ---- pages ------------------------------------------------------------------------------------
 
 
-def _account(api, q: dict) -> Response:
-    """``/account`` without the shared UI's build: as ``/people``, it says where the same facts are without it."""
-    return _page(200, "Account", "<h1>Account</h1><p>The Account page is part of the web screen's build, which this "
-                 "install doesn't have (build it with <code>npm run build</code> in <code>ui/</code>). Without it, "
-                 "<code>/api/me</code> says who you are signed in as and how you can sign in.</p>")
+# The shell's pages that have no server-rendered version (ui_files.SHELL_PAGES): without the shared UI's build, each
+# says so, as /people does, and where its data is in the API, instead of a bare 404 (QV-769).
+SHELL_ONLY = {
+    "/overview": ("Overview", "<code>/api/flows</code> and <code>/api/causes</code>"),
+    "/queues": ("Queues", "<code>/api/queues</code>"),
+    "/queue": ("Queue", "<code>/api/queues/{queue}/now</code> and <code>/api/queues/{queue}/series</code>"),
+    "/events": ("Events", "<code>/api/events</code>"),
+    "/dashboards": ("Dashboards", "<code>/api/dashboards</code>"),
+    "/alerts": ("Alerts", "<code>/api/alerts/rules</code> and <code>/api/alerts/channels</code>"),
+    "/settings": ("Settings", "<code>/api/settings/aws</code> (an admin can turn the AWS reads on there with a "
+                  "<code>PATCH</code>)"),
+}
+
+
+def _shell_only(title: str, api_hint: str) -> Response:
+    return _page(200, title, f"<h1>{escape(title)}</h1><p>The {escape(title)} page is part of the web screen's build, "
+                 "which this install doesn't have (build it with <code>npm run build</code> in <code>ui/</code>). "
+                 f"Without it, its data is in the API: {api_hint}.</p>")
 
 
 def _people(api, q: dict) -> Response:
