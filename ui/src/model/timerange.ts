@@ -25,8 +25,12 @@ export const preset = (id: string, now: number): TimeRange => {
   const p = PRESETS.find((x) => x.id === id) ?? PRESETS[2];
   return { from: now - p.ms, to: now, label: p.label, preset: p.id };
 };
-/* A range that ends now, moved up to a later now; a fixed range stays where it is. */
-export const follow = (t: TimeRange, now: number): TimeRange => (t.preset && t.to !== now ? { ...t, from: now - (t.to - t.from), to: now } : t);
+/* All history up to now: what a list with no time range shows (the Messages list opens on it). Its preset is "all". */
+export const ANY_TIME = "all";
+export const anyTime = (now: number): TimeRange => ({ from: 0, to: now, label: "Any time", preset: ANY_TIME });
+/* A range that ends now, moved up to a later now; a fixed range stays where it is. Any time keeps starting at 0. */
+export const follow = (t: TimeRange, now: number): TimeRange =>
+  (t.preset && t.to !== now ? { ...t, from: t.preset === ANY_TIME ? 0 : now - (t.to - t.from), to: now } : t);
 
 const p2 = (n: number) => String(n).padStart(2, "0");
 const parts = (ms: number) => {

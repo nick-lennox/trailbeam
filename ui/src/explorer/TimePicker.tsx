@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { Check, ChevronDown, Clock } from "lucide-react";
-import { PRESETS, preset, parseRange, custom, toInput, fromInput, type TimeRange } from "../model/timerange.ts";
+import { ANY_TIME, PRESETS, anyTime, preset, parseRange, custom, toInput, fromInput, type TimeRange } from "../model/timerange.ts";
 
 /* The time range, as a log explorer offers it: a button that names the range, opening a list of common ranges, a box
    to type one, and a from and to for an exact span. Every page with a time range uses this one picker. `now` is where a
-   range that ends now ends: the clock, or the end of the hosted sample hour. */
-export function TimePicker({ time, setTime, now }: { time: TimeRange; setTime: (t: TimeRange) => void; now: number }) {
+   range that ends now ends: the clock, or the end of the hosted sample hour. `any`: offer Any time first, for a list
+   that opens on all its history (Messages). */
+export function TimePicker({ time, setTime, now, any = false }: { time: TimeRange; setTime: (t: TimeRange) => void; now: number; any?: boolean }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [from, setFrom] = useState(toInput(time.from));
@@ -60,14 +61,14 @@ export function TimePicker({ time, setTime, now }: { time: TimeRange; setTime: (
               </p>
             </form>
             <ul className="border-b border-line p-1.5">
-              {PRESETS.map((p) => {
+              {[...(any ? [{ id: ANY_TIME, label: "Any time" }] : []), ...PRESETS].map((p) => {
                 const on = time.preset === p.id;
                 return (
                   <li key={p.id}>
-                    <button onClick={() => choose(preset(p.id, now))} aria-pressed={on} className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-sunken ${on ? "text-ink" : "text-ink-2"}`}>
+                    <button onClick={() => choose(p.id === ANY_TIME ? anyTime(now) : preset(p.id, now))} aria-pressed={on} className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-sunken ${on ? "text-ink" : "text-ink-2"}`}>
                       <span className="w-4">{on && <Check size={14} className="text-accent" />}</span>
                       <span className={`flex-1 ${on ? "font-medium" : ""}`}>{p.label}</span>
-                      <span className="font-mono text-micro text-ink-3">{p.id}</span>
+                      {p.id !== ANY_TIME && <span className="font-mono text-micro text-ink-3">{p.id}</span>}
                     </button>
                   </li>
                 );

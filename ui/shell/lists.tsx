@@ -1,11 +1,11 @@
 /*
-  The list pages: Messages (`/`, as a list) and Duplicates, drawn with the shared MessagesTable
-  (Stuck, grouped by cause, is stuck.tsx). Each is a plain GET form over its API, so the URL is the page's
+  Duplicates, drawn with the shared MessagesTable, and the list parts other pages use (the filter form, refresh).
+  Messages (`/`) is messages.tsx, on the shared MessagesView; Stuck, grouped by cause, is stuck.tsx. Each is a plain GET form over its API, so the URL is the page's
   state and Next page is a link, as on the HTML pages.
 */
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
-  DUPLICATE_REASONS, EmptyState, duplicateWhy, MessagesTable, duplicatesEmpty, messagesEmpty, parseBodyQuery, storeIsEmpty,
+  DUPLICATE_REASONS, EmptyState, duplicateWhy, MessagesTable, duplicatesEmpty, storeIsEmpty,
   RANGE_PARAMS, RANGE_PRESETS, REFRESH_S, apiQuery, formQuery, pinnedQuery, rangeText, rangeWindow, readRange, refreshOn, toInputUtc,
   type Column, type EmptyStateProps, type MessageSummary, type TimeRange,
 } from "../src/index.ts";
@@ -25,7 +25,6 @@ export type RangeOpt = { what: "last seen" | "first seen" | "cause seen"; upper:
 
 export const pick = (params: Record<string, string>, names: string[]) => Object.fromEntries(names.filter((n) => params[n]).map((n) => [n, params[n]]));
 export const qs = (p: Record<string, string>) => new URLSearchParams(Object.entries(p).filter(([, v]) => v !== "")).toString();
-const ms = (v: number | null) => (v === null ? "-" : new Date(v).toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC"));
 export const withQuery = (path: string, p: Record<string, string>) => { const q = qs(p); return q ? `${path}?${q}` : path; };
 const input = "rounded-full border border-sky-line bg-sky-2 px-3 py-1 font-mono text-caption text-sky-ink";
 
@@ -222,69 +221,6 @@ export function MessageList({ action, api, params, fields, defaults = {}, extra,
         </>}
       </div>
     </>
-  );
-}
-
-/** Inline `code` in a sentence: the words the parsers write (badBodyTerm in src/body/search.ts). */
-const withCode = (s: string) => s.split("`").map((part, i) => (i % 2 ? <code key={i} className="font-mono text-caption">{part}</code> : part));
-
-/** What ?body= can't read, said before any request: the same rules the server applies. */
-function bodyQueryProblem(body: string | undefined): ReactNode {
-  if (!body?.trim()) return null;
-  try { parseBodyQuery(body); return null; } catch (e) { return withCode((e as Error).message); }
-}
-
-const NoBodies = () => (
-  <p className="mt-3 max-w-[80ch] text-sm text-sky-ink-2">
-    This server keeps no message bodies, so there&rsquo;s nothing to search. To keep them, set <code className="font-mono text-caption">TRAILBEAM_STORE_BODIES</code> on the server and <code className="font-mono text-caption">TRAILBEAM_CAPTURE_BODY_QUEUES</code> in the package.{" "}
-    <a className="text-dawn hover:underline" href="https://github.com/nick-lennox/trailbeam#message-bodies">Message bodies</a>
-  </p>
-);
-
-const WINDOWS: [string, string][] = [["3600", "an hour"], ["86400", "a day"], ["604800", "a week"], ["2592000", "30 days"]];
-
-/** The Messages list: recent messages, filtered by queue or tenant, or with body= those whose kept body matches. */
-export function MessagesList({ params, heading = "h1" }: { params: Record<string, string>; heading?: "h1" | "h2" }) {
-  const searching = Boolean(params.body?.trim());
-  const H = heading;
-  // /api/health's store_bodies; [] when the server keeps none (without a session, health doesn't say: leave the field on)
-  const [noBodies, setNoBodies] = useState(false);
-  useEffect(() => {
-    let live = true;
-    getHealth(5000).then((h) => live && setNoBodies(Array.isArray(h.config?.store_bodies) && h.config.store_bodies.length === 0), () => {});
-    return () => { live = false; };
-  }, []);
-  const fields: Field[] = [{ name: "body", label: "Body", kind: "text", placeholder: "ord-1003 or body.order_id:ord-1003", disabled: noBodies }, { name: "queue", label: "Queue", kind: "text" }, { name: "tenant", label: "Tenant", kind: "text" }, { name: "limit", label: "Limit", kind: "number" }];
-  if (searching) fields.splice(2, 0, { name: "since_s", label: "Last seen within", kind: WINDOWS });
-  return (
-    <section>
-      <H className={heading === "h1" ? "text-[1.75rem] text-sky-ink" : "text-[1.25rem] text-sky-ink"}>{searching ? "Messages whose body matches" : "Recent messages"}</H>
-      <MessageList action="/" api="messages" fields={fields} defaults={searching ? { since_s: "86400" } : {}}
-        below={noBodies && <NoBodies />} invalid={bodyQueryProblem(params.body)}
-        params={pick(params, ["limit", "queue", "tenant", "body", "cursor", "refresh", "from_ms", "to_ms", ...(searching ? ["since_s"] : ["range"])])}
-        range={searching ? undefined : { what: "last seen", upper: true }}
-        pin={searching ? (p) => {
-          // a body search pins the window it read (the answer's from_ms/to_ms), whatever since_s said
-          const { since_s: _, refresh: __, range: ___, ...rest } = params;
-          return p.body_search ? { ...rest, from_ms: String(p.body_search.from_ms), to_ms: String(p.body_search.to_ms) } : rest;
-        } : undefined}
-        notes={(p) => p.body_search && (
-          <div className="mb-4 grid gap-2 text-[15px] leading-[1.5] text-sky-ink-2">
-            <p className="max-w-[80ch] text-sm text-sky-ink-3">Searches only the bodies this server keeps: those of queues in <code className="font-mono text-caption">TRAILBEAM_STORE_BODIES</code>, as the package redacted them. Anyone who can open this page can read them.</p>
-            {!p.body_search.stores_bodies ? (
-              !noBodies && <NoBodies />
-            ) : p.body_search.scanned > 0 && (
-              <p className="text-sm text-sky-ink-3">Read the bodies of <span className="font-mono">{p.body_search.scanned.toLocaleString("en-US")}</span> messages last seen between {ms(p.body_search.searched_from_ms)} and {ms(p.body_search.to_ms)}{p.body_search.complete ? "." : `; the next page reads older ones, back to ${ms(p.body_search.from_ms)}.`}</p>
-            )}
-          </div>
-        )}
-        empty={(p, storeEmpty) => messagesEmpty(params, { empty: storeEmpty, storesBodies: p.body_search?.stores_bodies })}
-        next={(p) => {
-          if (!p.body_search) return pick(params, ["limit", "queue", "tenant"]);
-          const { since_s: _, cursor: __, ...rest } = params;
-          return { ...rest, from_ms: String(p.body_search.from_ms), to_ms: String(p.body_search.to_ms) };
-        }} />
-    </section>
   );
 }
 

@@ -1,5 +1,5 @@
 /*
-  Self-hosted Trailbeam's pages drawn with the shared views (../src): Messages at / (the first-run screen while
+  Self-hosted Trailbeam's pages drawn with the shared views (../src): Messages at / (messages.tsx, the shared MessagesView; the first-run screen while
   no span is stored: home.tsx), Duplicates (lists.tsx), Stuck grouped by cause (stuck.tsx), the message page
   at /message?id=<message ID> (message.tsx, in the shared frame: the timeline, and with &tab=body the Body tab), the Tenants page at /tenants
   (tenants.tsx, in the shared frame),
