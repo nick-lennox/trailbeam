@@ -187,7 +187,7 @@ def test_duplicates_page(site):
     assert 'received <span class="mono">2</span> times' in html
     assert '<option value="succeeded_more_than_once">handled more than once</option>' in html
     _, _, html = get(site, "/duplicates?reason=succeeded_more_than_once")
-    assert "No duplicate deliveries." in html
+    assert "No duplicates." in html
     assert '<option value="succeeded_more_than_once" selected>' in html
 
 
@@ -442,7 +442,7 @@ def test_an_empty_store_says_nothing_is_connected_yet(server):
     for path in ("/", "/stuck", "/duplicates"):
         _, _, html = get(server, path)
         assert "No messages yet. No service has sent spans here" in html, path
-        assert "No stuck messages." not in html and "No duplicate deliveries." not in html, path
+        assert "No stuck messages." not in html and "No duplicates." not in html, path
     _, _, html = get(server, "/tenants")
     assert "No tenants yet" in html and "15.2" not in html and "revision 3.2" not in html
     post(server, [Consumer("producer").send(T0, "first-one")])
@@ -570,3 +570,16 @@ def test_eventbridge_and_s3_origins_are_inferred_first_steps(db, server):
     assert "S3 <code>ObjectCreated:Put</code>" in html and "key <code>red+flower.jpg</code>" in html
     _, _, html = get(server, page("s3-test"))
     assert "S3 test message" in html and "notification configuration on bucket uploads" in html
+
+
+def test_sqs_steps_use_sqs_words_and_rabbitmq_steps_keep_rabbitmq_words():
+    """QV-588: an SQS step is a receive ("Receives not observed", "the delete of receive 2"); RabbitMQ's own term
+    is a delivery, so its steps keep it, inferred gaps included (they carry no AMQP operation)."""
+    gap = {"type": "deliveries_not_observed", "inferred": True, "time": None, "count": 2,
+           "window": {"from": None, "to": None}, "reason": "r"}
+    assert web._label(gap) == "Receives not observed"
+    assert "Receives not observed" in web._event(gap, self_id="orders-1")
+    assert "Deliveries not observed" in web._event(gap, self_id="~rabbitmq~orders-1")
+    assert web._ref({"type": "deleted", "delivery": 2}) == "the delete of receive 2"
+    assert web._ref({"type": "lambda_outcome", "delivery": 1}) == "the Lambda outcome of receive 1"
+    assert web._ref({"type": "acked", "delivery": 2}) == "the ack of delivery 2"

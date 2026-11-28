@@ -76,7 +76,7 @@ def test_without_a_build_the_message_page_is_html(db, tmp_path):
         assert status == 404 and b"Message not found" in body  # the HTML page, for an unknown message
         status, _, body = get(f"{base}/tenants")
         assert status == 200 and b"<h1>Tenants</h1>" in body
-        for path, h1 in (("/", b"<h1>Look up a message</h1>"), ("/duplicates", b"<h1>Duplicate deliveries</h1>"),
+        for path, h1 in (("/", b"<h1>Look up a message</h1>"), ("/duplicates", b"<h1>Duplicates</h1>"),
                          ("/stuck", b"<h1>Stuck messages</h1>")):
             status, _, body = get(base + path)
             assert status == 200 and h1 in body, path
