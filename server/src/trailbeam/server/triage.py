@@ -11,8 +11,9 @@ they are. Times are milliseconds on the server's clock. ``seq`` is a span's arri
 counter); a span with no seq (``None``, stored before the server kept it) never counts as arriving after anything.
 
 contract/fixtures/triage-parity.json holds the cases both engines must agree on (make-triage-parity.py writes it from
-this module; python/tests/server/test_triage.py and @trailbeam/ui's test/triage.test.ts run it, and the hosted app's
-test reads it from @trailbeam/ui/fixtures).
+this module; python/tests/server/test_triage.py and @trailbeam/ui's test/triage.test.ts run it). The hosted app keeps
+its own copies of these rules and runs the same cases on them in its test/triage-parity.test.ts, from a copy of this
+file until the @trailbeam/ui it vendors ships it as @trailbeam/ui/fixtures/triage-parity.json.
 """
 from __future__ import annotations
 

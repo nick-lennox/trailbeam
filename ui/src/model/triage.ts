@@ -13,7 +13,8 @@
   after the resolve or ignore (arrivals.ts).
 
   fixtures/triage-parity.json: cases both engines must agree on (the server's trailbeam.server.triage runs them
-  too, and the hosted app's test reads the same file).
+  too). The hosted app doesn't import these rules yet: it keeps its own copies and runs the same cases on them in its
+  test/triage-parity.test.ts, from a copy of the file until the @trailbeam/ui it vendors ships it.
 */
 import { newSince, seqMs, type Arrival } from "./arrivals.ts";
 
