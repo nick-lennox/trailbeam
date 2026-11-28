@@ -5,7 +5,7 @@
   and their passkeys. It fetches nothing. The host passes the person and the ways (self-hosted Trailbeam: /api/me,
   through accountWays in text.ts), and, where it has passkeys, the list with an add and a remove it sends itself
   (the hosted app: its auth client; self-hosted: /api/me/passkeys). Without `passkeys` that part isn't drawn.
-  `action` is the card's corner (Sign out). Names in the UI face, emails and dates in mono.
+  Sign out is not on the card: it is the sidebar's, in both products (board, QV-588). Names in the UI face, emails and dates in mono.
   A client module, reached through @trailbeam/ui/design, never the main entry.
 */
 import type { ReactNode } from "react";
@@ -31,12 +31,11 @@ export type AccountCardProps = {
   user: { name: string; email: string; role?: string } | null;
   ways?: AccountWay[];
   passkeys?: AccountPasskeys;
-  action?: ReactNode;
 };
 
 const day = (d: Passkey["createdAt"]) => new Date(d).toISOString().slice(0, 10);
 
-export function AccountCard({ user, ways = [], passkeys, action }: AccountCardProps) {
+export function AccountCard({ user, ways = [], passkeys }: AccountCardProps) {
   return (
     <Card className="p-6">
       <div className="flex items-start gap-4">
@@ -51,7 +50,6 @@ export function AccountCard({ user, ways = [], passkeys, action }: AccountCardPr
                   : "Loading"}
               </p>
             </div>
-            {action && <div className="ml-auto flex items-center gap-2">{action}</div>}
           </div>
 
           {ways.length > 0 && (
