@@ -62,6 +62,17 @@ export const removeSentence = (p: Pick<Person, "name" | "email" | "you" | "singl
   p.you ? `Remove your own account? You are signed out${p.single_sign_on ? "." : ", and can't sign in again."}`
     : `Remove ${p.name || p.email}? Their sign-ins, personal API tokens and links stop working. This can't be undone.`;
 
+/** The confirmation before a disable (QV-739): it signs them out everywhere, as a remove does. */
+export const disableSentence = (p: Pick<Person, "name" | "email" | "you">) =>
+  p.you ? "Disable your own account? You are signed out everywhere within 20 seconds, and only another admin can enable you again."
+    : `Disable ${p.name || p.email}? They are signed out everywhere within 20 seconds and can't sign in until an admin enables them.`;
+
+/** The confirmation before you change your own role (QV-739), else null: only taking away your own admin needs one. */
+export const ownRoleSentence = (p: Pick<Person, "you" | "role">, role: Role): string | null =>
+  p.you && p.role === "admin" && role !== "admin"
+    ? "Make yourself a member? You stop being an admin at once and leave this page, and only another admin can make you an admin again."
+    : null;
+
 /**
  * The warning under the remove confirmation for someone who signs in with single sign-on, else null: removing them
  * deletes the link to their identity provider account, so their next sign-in makes a new person with the default

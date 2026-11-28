@@ -16,7 +16,7 @@ import { Button } from "../design/Button.tsx";
 import { Card } from "../design/Card.tsx";
 import { CopyText } from "../design/CopyText.tsx";
 import { UiLink, useNav } from "../design/nav.tsx";
-import { Field, FormError, SELECT, StateMark } from "../design/Settings.tsx";
+import { Confirm, Field, FormError, SELECT, StateMark } from "../design/Settings.tsx";
 import { Tooltip } from "../design/Tooltip.tsx";
 import {
   HINT, KIND, NAME_PLACEHOLDER, PLACEHOLDER, dashboardToneText, deliveredWhen, heldText, heldWord, hm, ruleState, sortRules, toneText, whenText,
@@ -117,6 +117,7 @@ export function RuleFormView({ cause, rule, view, actions, done, changed }: {
   const id = useId();
   const [channels, setChannels] = useState<string[]>(rule ? rule.channels : view.channels.slice(0, 1).map((c) => c.id));
   const [mode, setMode] = useState<RuleMode>(rule?.mode ?? "quiet");
+  const [deleting, setDeleting] = useState(false);
   const [quietS, setQuietS] = useState(rule && rule.mode === "quiet" && view.quiet.some((q) => q.s === rule.quietS) ? rule.quietS : view.defaultQuiet);
   const { error, setError, busy, run } = useChange(changed);
   const save = (e: FormEvent) => {
@@ -167,6 +168,10 @@ export function RuleFormView({ cause, rule, view, actions, done, changed }: {
       </fieldset>
 
       <FormError>{error}</FormError>
+      {rule && deleting ? (
+        <Confirm label="Delete this alert" action="Delete" disabled={busy} className="justify-start" onCancel={() => setDeleting(false)}
+          onConfirm={() => { setDeleting(false); run(() => actions.remove(rule.id), done); }}>Delete this alert? It stops at once.</Confirm>
+      ) : (
       <div className="flex flex-wrap items-center gap-2">
         {rule && !muted && (
           <select aria-label="Mute or snooze" className={SMALL_SELECT} value="" disabled={busy}
@@ -178,11 +183,12 @@ export function RuleFormView({ cause, rule, view, actions, done, changed }: {
             <option value="86400">Snooze 24 h</option>
           </select>
         )}
-        {rule && <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => { if (window.confirm("Delete this alert? It stops at once.")) run(() => actions.remove(rule.id), done); }}>Delete</Button>}
+        {rule && <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setDeleting(true)}>Delete</Button>}
         <span className="ml-auto" />
         {!rule && <Button type="button" size="sm" variant="ghost" onClick={done}>Cancel</Button>}
         <Button type="submit" size="sm" variant="primary" disabled={busy}>{rule ? "Save" : "Turn on alert"}</Button>
       </div>
+      )}
       {!rule && <p className="-mt-2 text-xs text-ink-3">Trailbeam works out whether it is firing at the next check.</p>}
     </form>
   );
@@ -276,10 +282,8 @@ export function AlertChannels({ channels, canManage, actions, empty, secretNote,
     setNote({ id, ok: r.ok, text: r.ok ? "Test sent." : r.error });
     (changed ?? nav.refresh)();
   });
-  const remove = (c: ChannelRow) => {
-    if (!window.confirm(`Remove ${c.name}? Alerts stop going to it at once.`)) return;
-    run(() => actions.remove(c.id));
-  };
+  const [removing, setRemoving] = useState<string | null>(null);
+  const remove = (c: ChannelRow) => { setRemoving(null); setNote(null); run(() => actions.remove(c.id)); };
   const off = busy || testing;
 
   return (
@@ -297,12 +301,15 @@ export function AlertChannels({ channels, canManage, actions, empty, secretNote,
                   <span className="flex-1" />
                   {c.lastAt === null ? <StateMark tone="idle">Nothing sent yet</StateMark>
                     : <StateMark tone={c.lastOk ? "good" : "critical"}><span suppressHydrationWarning>{c.lastOk ? "Delivered" : "Failed"} {deliveredWhen(c.lastAt)}</span></StateMark>}
-                  {canManage && (
+                  {canManage && (removing === c.id ? (
+                    <Confirm label={`Remove ${c.name}`} action="Remove" disabled={off} onCancel={() => setRemoving(null)}
+                      onConfirm={() => remove(c)}>{`Remove ${c.name}? Alerts stop going to it at once.`}</Confirm>
+                  ) : (
                     <span className="flex gap-1">
                       <Button size="sm" variant="ghost" disabled={off} onClick={() => test(c.id)}>Send test</Button>
-                      <Button size="sm" variant="ghost" disabled={off} onClick={() => remove(c)}>Remove</Button>
+                      <Button size="sm" variant="ghost" disabled={off} onClick={() => setRemoving(c.id)}>Remove</Button>
                     </span>
-                  )}
+                  ))}
                 </div>
                 <span className="truncate font-mono text-caption text-ink-2">{c.shown}</span>
                 {c.lastOk === false && c.lastDetail && <span className="text-xs text-critical-text">{c.lastDetail}</span>}

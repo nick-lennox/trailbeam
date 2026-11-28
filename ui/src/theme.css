@@ -36,6 +36,7 @@
   --color-lost: #ff7667;
   --color-dawn: #ff9d7a;
   --color-visible: #7fdcb0;
+  --color-scrim: rgb(5 6 20 / 0.6);  /* behind a modal, on the sky */
 
   /* the first-run screen's waiting dot: opacity 40% to 100% over 2.4 s (still under prefers-reduced-motion) */
   --animate-wait: tb-wait 2.4s ease-in-out infinite;

@@ -50,9 +50,9 @@ export {
   type FirstMessage, type FirstRunStatus, type Health,
 } from "./firstrun/status.ts";
 export {
-  MessagesTable, EmptyState, SET_UP, STATE_LABELS, RECEIVES_TITLE, HANDLED_TITLE, DUPLICATE_REASONS, duplicateWhy, duplicateWhyText, fmtAge, fmtThreshold, fmtTime, rowFacts, shortId,
+  EmptyState, SET_UP, STATE_LABELS, RECEIVES_TITLE, HANDLED_TITLE, DUPLICATE_REASONS, duplicateWhy, duplicateWhyText, fmtAge, fmtThreshold, fmtTime, shortId,
   stateText, POSSIBLY_PURGED_TITLE,
-  type Column, type EmptyStateProps, type MessageSummary, type MessagesTableProps,
+  type EmptyStateProps, type MessageSummary,
 } from "./messages/Messages.tsx";
 export {
   RANGE_PARAMS, RANGE_PRESETS, REFRESH_S, apiQuery, formQuery, fromInputUtc, pinnedQuery, rangeText, rangeWindow, readRange, refreshOn, toInputUtc,

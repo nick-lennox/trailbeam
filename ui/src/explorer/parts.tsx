@@ -7,7 +7,7 @@
   without one it is the language over what events recorded.
 */
 import { cloneElement, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
-import { Columns3, Download, Search, X } from "lucide-react";
+import { Columns3, Download, Pause, Play, Search, X } from "lucide-react";
 import { SourceTag } from "../design/pills.tsx";
 import { Tooltip } from "../design/Tooltip.tsx";
 import { fmtDate, eventName, type Ev } from "../model/events.ts";
@@ -260,5 +260,19 @@ export function QueryInput({ query, setQuery, values, right, note, vars = [], bo
       {error && <p className="mt-1.5 text-[13px] text-critical-text">{error}</p>}
       {!error && note}
     </div>
+  );
+}
+
+/* The Live and Paused button beside a page's time picker (the Event explorer, Messages, a dashboard): one part, so it
+   looks and says the same on each. `following` is whether the page is updating now; `note` is the Tooltip's line, the
+   page's own (what pausing stops, or why the button is off). */
+export function LiveButton({ following, onToggle, disabled = false, note }: { following: boolean; onToggle: () => void; disabled?: boolean; note: ReactNode }) {
+  return (
+    <Tooltip content={note} className="inline-flex">
+      <button type="button" onClick={onToggle} disabled={disabled} aria-pressed={following}
+        className="inline-flex h-10 w-[92px] items-center justify-center gap-2 rounded-lg border border-line-strong bg-surface text-[13px] text-ink-2 hover:text-ink disabled:opacity-50 disabled:hover:text-ink-2">
+        {following ? <><span className="live-dot size-1.5 rounded-full bg-good" /> Live <Pause size={13} className="text-ink-3" /></> : <>Paused <Play size={13} className="text-ink-3" /></>}
+      </button>
+    </Tooltip>
   );
 }

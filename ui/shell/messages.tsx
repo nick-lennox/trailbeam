@@ -16,13 +16,11 @@
   open the same rows they did on the list before.
 */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Pause, Play } from "lucide-react";
 import {
   EmptyState, duplicatesEmpty, listQuery, messageQueryLanguage, messagesEmpty, queryOfParams, storeIsEmpty,
   type EmptyStateProps, type ListField, type ListQuery, type MessageSummary,
 } from "../src/index.ts";
-import { Tooltip } from "../src/design/index.ts";
-import { MessagesView, TimePicker, WHY_COLUMN, type MessageColumn } from "../src/explorer/index.ts";
+import { LiveButton, MessagesView, TimePicker, WHY_COLUMN, type MessageColumn } from "../src/explorer/index.ts";
 import { ANY_TIME, anyTime, custom, follow, parseRange, pinned, preset, PRESETS, type TimeRange } from "../src/model/index.ts";
 import { CopyLink, getHealth, getJSON, messageHref } from "./chrome.tsx";
 import { ShellFrame } from "./frame.tsx";
@@ -137,7 +135,6 @@ export function bodyNote(b: NonNullable<MessagePage["body_search"]>, noBodies: b
 
 type State = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ok"; page: MessagePage; storeEmpty: boolean; at: number; asked: string };
 
-const BUTTON = "inline-flex h-10 items-center rounded-lg border border-line-strong bg-surface px-3 text-[13px] text-ink-2 hover:text-ink";
 
 /**
   The list: the whole page (`/`, or another page's list as `on` says: Duplicates), or `embedded` in a card under the
@@ -228,12 +225,8 @@ export function MessagesPanel({ embedded = false, on = MESSAGES_PAGE, header }: 
     <div className="flex h-10 shrink-0 items-center gap-2">
       <TimePicker any time={time} setTime={pickTime} now={Date.now()} />
       {ok && <CopyLink link={() => href(list, pinFor(ok.page, ok.at), { ...(limit && { limit }), ...(cursor && { cursor }) })} />}
-      <Tooltip content={!time.preset ? "A fixed range in the past does not update" : cursor ? "A later page does not update" : following ? "Stop asking for new messages" : "Ask for new messages every 15 s"} className="inline-flex">
-        <button type="button" onClick={() => setLive(!live)} disabled={!time.preset || !!cursor} aria-pressed={following}
-          className={`${BUTTON} w-[92px] justify-center gap-2 disabled:opacity-50 disabled:hover:text-ink-2`}>
-          {following ? <><span className="live-dot size-1.5 rounded-full bg-good" /> Live <Pause size={13} className="text-ink-3" /></> : <>Paused <Play size={13} className="text-ink-3" /></>}
-        </button>
-      </Tooltip>
+      <LiveButton following={following} onToggle={() => setLive(!live)} disabled={!time.preset || !!cursor}
+        note={!time.preset ? "A fixed range in the past does not update" : cursor ? "A later page does not update" : following ? "Stop asking for new messages" : "Ask for new messages every 15 s"} />
     </div>
   );
 

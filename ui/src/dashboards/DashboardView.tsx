@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Clock, Copy, GripVertical, Lock, Maximize, MoreHorizontal, Palette, Pause, Pin, Play, Plus, SquareArrowOutUpRight, Star, Undo2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Clock, Copy, GripVertical, Lock, Maximize, MoreHorizontal, Palette, Pin, Plus, SquareArrowOutUpRight, Star, Undo2, X } from "lucide-react";
 import { Button } from "../design/Button.tsx";
 import { CopyText } from "../design/CopyText.tsx";
 import { UiLink, useNav } from "../design/nav.tsx";
 import { Tooltip } from "../design/Tooltip.tsx";
+import { LiveButton } from "../explorer/parts.tsx";
 import { TimePicker } from "../explorer/TimePicker.tsx";
 import type { QueryLanguage } from "../model/query.ts";
 import { follow, pinned, PRESETS, rangeFromParams, stamp, withRange, type TimeRange } from "../model/timerange.ts";
@@ -16,7 +17,7 @@ import { HoverCtx } from "../charts/index.ts";
 import { Grid, firstFree, type Item } from "./Grid.tsx";
 import { WidgetEditor } from "./WidgetEditor.tsx";
 import { FLUSH, WidgetBody, exploreHref, type Ctx } from "./widgets.tsx";
-import { FIELD, IconBtn, Menu, MenuItem, Modal, TONE_TEXT } from "./ui.tsx";
+import { DeleteDashboard, FIELD, IconBtn, Menu, MenuItem, TONE_TEXT } from "./ui.tsx";
 import { SectionOptions, sectionLook } from "./SectionOptions.tsx";
 
 /*
@@ -150,7 +151,11 @@ export function DashboardView({ dashboard, range = {} }: { dashboard: Dashboard;
           {!locked && <GripVertical size={14} className="-mr-0.5 -ml-2 shrink-0 text-ink-3 opacity-0 group-hover/w:opacity-100" />}
           <h3 className="shrink-0 truncate text-[13px] font-semibold text-ink" style={{ maxWidth: "100%" }}>{w.title}</h3>
           {pinned && <Tooltip className={MARK} content="This widget does not follow the dashboard's variables" tabIndex={0}><Pin size={11} className="shrink-0" /><span className="truncate">Pinned</span></Tooltip>}
-          {w.time && <span className={MARK}><Clock size={11} className="shrink-0" /><span className="truncate text-ink-2">{PRESETS.find((p) => p.id === w.time)?.label ?? w.time}</span></span>}
+          {/* its own range is the exception to one range a page (QV-739), so the mark says so */}
+          {w.time && (() => { const range = PRESETS.find((p) => p.id === w.time)?.label ?? w.time; return (
+            <Tooltip className={`${MARK} font-sans`} content={`This widget shows the ${range.replace(/^Past/, "past")}, not the dashboard's range`} tabIndex={0}>
+              <Clock size={11} className="shrink-0" /><span className="truncate text-ink-2">{range}</span>
+            </Tooltip>); })()}
           {alert && alert.tone !== "good" && w.type !== "number" && <span className={`${MARK} ${TONE_TEXT[alert.tone]}`}>{TONE_WORD[alert.tone]}</span>}
           <span className="absolute top-[5px] right-1.5 flex gap-0.5 bg-surface pl-1.5 opacity-0 group-hover/w:opacity-100 focus-within:opacity-100">
             {w.type !== "note" && (
@@ -257,16 +262,8 @@ export function DashboardView({ dashboard, range = {} }: { dashboard: Dashboard;
           <CopyText path={() => withRange(ws(`/dashboards/${dashboard.id}`), pinned(time))} icon="link" label="Copy a link to this dashboard at this exact time range"
             className="h-10 rounded-lg border border-line-strong bg-surface px-3 text-[13px] text-ink-2">Copy link</CopyText>
           {data.live && following && env.liveRefresh}
-          <Tooltip content={!time.preset ? "A fixed range in the past does not update" : following ? `Updated ${stamp(data.now, { seconds: true })}. Pause updates` : "Resume updates"} className="inline-flex">
-          <button
-            onClick={() => setLive(!live)}
-            disabled={!time.preset}
-            aria-pressed={following}
-            className="inline-flex h-10 w-[92px] items-center justify-center gap-2 rounded-lg border border-line-strong bg-surface text-[13px] text-ink-2 hover:text-ink disabled:opacity-50 disabled:hover:text-ink-2"
-          >
-            {following ? (<><span className="live-dot size-1.5 rounded-full bg-good" /> Live <Pause size={13} className="text-ink-3" /></>) : (<>Paused <Play size={13} className="text-ink-3" /></>)}
-          </button>
-          </Tooltip>
+          <LiveButton following={following} onToggle={() => setLive(!live)} disabled={!time.preset}
+            note={!time.preset ? "A fixed range in the past does not update" : following ? `Updated ${stamp(data.now, { seconds: true })}. Pause updates` : "Resume updates"} />
         </div>
 
         <div className="mt-4">
@@ -275,11 +272,11 @@ export function DashboardView({ dashboard, range = {} }: { dashboard: Dashboard;
             const inside = itemsOf(g.id);
             const look = sectionLook(g);
             const boxed = !!look.bodyBg || !!g.border;
-            const tool = look.headerBg || look.text ? "hover:bg-black/10" : "text-ink-2 hover:bg-sunken hover:text-ink";
+            const tool = look.headerBg || look.text ? "hover:bg-[color-mix(in_srgb,currentColor_14%,transparent)]" : "text-ink-2 hover:bg-sunken hover:text-ink";
             return (
               <section key={g.id} className={`mt-5 first:mt-0 ${boxed ? "rounded-panel p-3" : ""} ${g.border ? "border border-line-strong" : ""}`} style={{ background: look.bodyBg }}>
                 <div className={`group/s relative flex items-center gap-2 text-ink ${SIZE[g.size ?? "md"].row} ${look.headerBg ? "rounded-lg px-2.5" : g.divider === false ? "" : "border-b border-line"}`} style={{ background: look.headerBg, color: look.text }}>
-                  <button type="button" onClick={() => patchSection(g.id, { collapsed: !g.collapsed })} aria-expanded={!g.collapsed} aria-label={g.collapsed ? `Open ${g.title}` : `Close ${g.title}`} className={`-ml-1 grid size-6 shrink-0 place-items-center rounded-md opacity-70 hover:opacity-100 ${look.headerBg || look.text ? "hover:bg-black/10" : "hover:bg-sunken"}`}>
+                  <button type="button" onClick={() => patchSection(g.id, { collapsed: !g.collapsed })} aria-expanded={!g.collapsed} aria-label={g.collapsed ? `Open ${g.title}` : `Close ${g.title}`} className={`-ml-1 grid size-6 shrink-0 place-items-center rounded-md opacity-70 hover:opacity-100 ${look.headerBg || look.text ? "hover:bg-[color-mix(in_srgb,currentColor_14%,transparent)]" : "hover:bg-sunken"}`}>
                     {g.collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
                   </button>
                   <div className={`min-w-0 ${g.align === "center" ? "flex-1 px-56 text-center" : ""}`}>
@@ -369,18 +366,8 @@ export function DashboardView({ dashboard, range = {} }: { dashboard: Dashboard;
         {editing && <WidgetEditor widget={editing.widget} isNew={editing.isNew} ctx={ctx} onSave={save} onClose={() => setEditing(null)} />}
 
         {confirm && (
-          <Modal
-            title={`Delete ${name}?`}
-            onClose={() => setConfirm(false)}
-            footer={
-              <>
-                <Button variant="secondary" size="sm" onClick={() => setConfirm(false)}>Cancel</Button>
-                <button type="button" className="inline-flex h-8 items-center rounded-control bg-critical px-3 text-small font-medium text-canvas" onClick={async () => { const r = await actions.remove(dashboard.id); if (r.ok) router.push(ws("/dashboards")); else { setConfirm(false); setNote(r.error); } }}>Delete dashboard</button>
-              </>
-            }
-          >
-            <p className="px-5 pt-3 pb-5 text-sm text-ink-2">This deletes the dashboard and its {def.widgets.length} {def.widgets.length === 1 ? "widget" : "widgets"} for everyone in this workspace. It cannot be undone. Nothing in your queues changes.</p>
-          </Modal>
+          <DeleteDashboard name={name} widgets={def.widgets.length} onCancel={() => setConfirm(false)}
+            onDelete={async () => { const r = await actions.remove(dashboard.id); if (r.ok) router.push(ws("/dashboards")); else { setConfirm(false); setNote(r.error); } }} />
         )}
       </div>
     </HoverCtx.Provider>

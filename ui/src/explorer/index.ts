@@ -10,7 +10,7 @@ export { EventChart, type Seg } from "./EventChart.tsx";
 export { EventDetail } from "./EventDetail.tsx";
 export { TimePicker } from "./TimePicker.tsx";
 export {
-  ColumnChoices, ColumnList, ColumnsButton, ColumnsPanel, ExportMenu, LevelMark, QueryInput, eventCell, type ColumnGroup, type QueryBarLanguage,
+  ColumnChoices, ColumnList, ColumnsButton, ColumnsPanel, ExportMenu, LevelMark, LiveButton, QueryInput, eventCell, type ColumnGroup, type QueryBarLanguage,
 } from "./parts.tsx";
 // the Messages list, built from these parts (row 4 of the one-UI plan)
 export { MessagesView, type MessagesViewProps } from "../messages/MessagesView.tsx";
