@@ -196,3 +196,36 @@ def test_health_tells_only_an_admin_where_the_credentials_come_from():
             assert app.api("health", {})["config"]["aws"] == {"on": True, "problem": aws_api.ADMIN_SEES_WHY}
     finally:
         db.close()
+
+
+def test_a_member_is_told_a_queue_is_not_read_but_not_why():
+    """QV-788, the report's step 3: a member's /now names neither the allowed regions nor the credentials' account,
+    and an admin's still does."""
+    db = Database(":memory:")
+    try:
+        acc = Accounts(db)
+        admin = acc.create_first_admin("ada@example.com", "Ada", "x", 1)
+        member = acc.create_user("ben@example.com", "Ben", "member", "x", 1)
+        t = Tokens(acc)
+        a = {"Authorization": "Bearer " + t.create_personal(admin, "a")[1]}
+        m = {"Authorization": "Bearer " + t.create_personal(member, "m")[1]}
+        app = server.App(db, ui_dir=None)
+        sts = type("Sts", (), {"get_caller_identity": lambda self: {"Account": "111111111111"}})()
+        app.aws.reader.clients_for = lambda region: {"sts": sts, "region": region or "eu-west-1"}
+        app.aws.reader.installed = lambda: True
+        keys = ["111111111111/zz-abc-1/regional", "999999999999/eu-west-1/billing-secrets"]
+        db.queue_keys = lambda: keys
+        with serve(app) as base:
+            assert call(base, "PATCH", body={"enabled": True, "queues": ["*"], "region": "eu-west-1",
+                                             "regions": ["us-west-2"]}, headers=a)[0] == 200
+            for k in keys:
+                path = "/api/queues/" + k.replace("/", "%2F") + "/now"
+                status, got = call(base, "GET", path, headers=m)
+                assert status == 200, got
+                assert got["aws"]["detail"] == aws_reader.MEMBER_NOT_READ and got["live"]["detail"] == \
+                    aws_reader.MEMBER_NOT_READ
+                assert not any(w in json.dumps(got) for w in ("us-west-2", "AWS settings")), got
+                assert "111111111111" not in json.dumps(got) or k.startswith("111111111111")
+                assert call(base, "GET", path, headers=a)[1]["aws"]["detail"] != aws_reader.MEMBER_NOT_READ
+    finally:
+        db.close()

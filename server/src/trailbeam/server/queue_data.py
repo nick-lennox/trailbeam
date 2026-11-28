@@ -81,12 +81,12 @@ def build(reader: Optional[aws_reader.AwsReader], refs: list, windows: list, now
           in_queue: Callable[[dict, Optional[dict], Optional[dict]], Optional[dict]], *, known,
           want: Optional[Callable[[dict, dict], bool]] = None, triggers: bool = True,
           metrics: Optional[list] = None, dlq_depth: str = "cloudwatch",
-          attrs_ttl_ms: Optional[float] = None, caller: Optional[str] = None) -> dict:
+          attrs_ttl_ms: Optional[float] = None, caller: Optional[str] = None, admin: bool = True) -> dict:
     """``{key: {"aws", "live", "inQueue"}}`` for the queues ``refs`` (ref_of) over ``windows``. ``in_queue(ref,
     settings, totals)``: the queue's InQueueView (queue_now.view), worked out for the queues ``want(ref, aws)`` says
     (all when None). ``known``: the store's queue keys (read). The other options are the reader's."""
     aws = read(reader, refs, windows, now_ms, known=known, triggers=triggers, metrics=metrics, dlq_depth=dlq_depth,
-               attrs_ttl_ms=attrs_ttl_ms, caller=caller)
+               attrs_ttl_ms=attrs_ttl_ms, caller=caller, admin=admin)
     first = windows[0]["id"] if windows else ""
     out: dict = {}
     for q in refs:
@@ -98,7 +98,8 @@ def build(reader: Optional[aws_reader.AwsReader], refs: list, windows: list, now
 
 def live_by_name(reader: Optional[aws_reader.AwsReader], db, names: list, now_ms: int, lambda_timeout_s: int,
                  max_receive_counts: Optional[dict] = None, *, windows: Optional[list] = None,
-                 metrics: Optional[list] = None, dlq_depth: str = "cloudwatch", in_queue: bool = True) -> dict:
+                 metrics: Optional[list] = None, dlq_depth: str = "cloudwatch", in_queue: bool = True,
+                 admin: bool = True) -> dict:
     """``{queue name: QueueLive}``, the ``queueLive`` of the measures engine's EventData (dashboards_api.event_data)
     and the alert check, over the dashboards' windows by default. A name is the stored queue's of that name that was
     active last when two share it, as the measures go by name. "In ‹queue› now" (for Stuck in flight and One receive
@@ -131,5 +132,5 @@ def live_by_name(reader: Optional[aws_reader.AwsReader], db, names: list, now_ms
 
     got = build(reader, refs, dashboard_windows(now_ms) if windows is None else windows, now_ms, view, known=keys,
                 want=lambda q, a: in_queue and a.get("status") == "ok", triggers=False, metrics=metrics,
-                dlq_depth=dlq_depth)
+                dlq_depth=dlq_depth, admin=admin)
     return {q["name"]: got[q["key"]]["live"] for q in refs}

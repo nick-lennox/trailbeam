@@ -2395,7 +2395,9 @@ paths:
         the place the gate used, to send with `preview-redrive` and `start-redrive`. `code`: `not_configured` (AWS is off, or boto3 is missing), `dlq_not_named` (the
         settings' `redrive` doesn't name it, or it is not an SQS queue name), `no_account` (its spans name another
         AWS account than the settings', or a region they don't allow) or `not_manager` (only an admin can
-        redrive). Makes no AWS call. With no account ID in the settings, `preview-redrive` and `start-redrive` then
+        redrive; someone who isn't one gets it for every queue as soon as AWS is on, before any other check, so the
+        answer doesn't say which names are on the redrive list or which account and regions are allowed). Makes no
+        AWS call. With no account ID in the settings, `preview-redrive` and `start-redrive` then
         ask AWS for the credentials' own (`sts:GetCallerIdentity`) and refuse a queue whose spans name another: a
         redrive goes only to the settings' account and regions, and its ARN is built from them, never taken from
         spans.

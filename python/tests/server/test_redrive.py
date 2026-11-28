@@ -100,6 +100,21 @@ def test_the_gate_opens_only_with_aws_on_the_queue_named_and_an_admin():
     assert "Settings, under AWS" in g(settings={**ON, "enabled": False})["reason"]
 
 
+def test_someone_who_cannot_manage_is_told_only_that_once_aws_is_on():
+    """QV-788: not_manager comes before the redrive list, the account and the regions, so a member learns none."""
+    def g(**kw):
+        return redrive.gate(kw.get("settings", ON), kw.get("dlq", DLQ), installed=kw.get("installed", True),
+                            can_manage=False)
+
+    no = {"ok": False, "code": "not_manager", "reason": redrive.NOT_MANAGER}
+    assert g(settings={**ON, "redrive": []}) == no
+    assert g(settings={**ON, "accountId": "999999999999"}) == no
+    assert g(dlq={**DLQ, "region": "ap-south-1"}) == no
+    assert g(dlq={**DLQ, "name": "a/b"}) == no
+    assert g(installed=False) == no
+    assert g(settings={**ON, "enabled": False})["code"] == "not_configured"
+
+
 def test_the_place_is_the_settings_account_or_the_credentials_and_an_allowed_region():
     """QV-740: SQS is called only in the settings' account (else the credentials' own) and allowed regions."""
     def p(settings=ON, dlq=DLQ, mine="123456789012", home=None):
@@ -387,6 +402,14 @@ def test_a_refused_or_failed_start_is_logged_with_why():
         r.call("POST", "/api/redrive/start", {"dlq": DLQ}, WHO)
     assert [e["outcome"] for e in r.log.list()] == ["failed", "refused", "started"]
     assert r.log.list()[1]["detail"] == "A redrive of orders-dlq is already running: 0 of 3 moved."
+
+
+def test_a_members_gates_say_not_manager_for_every_queue():
+    """The report's step 4: a member asks about a name on the redrive list, in a region not allowed, and one off it."""
+    r, _ = api(Sqs(), admin=False, settings={**ON, "redrive": ["orders-dlq"], "regions": ["us-west-2"]})
+    gates = r.call("POST", "/api/redrive/gates", {"dlqs": [{"name": "orders-dlq", "region": "ap-south-1"},
+                                                          {"name": "orders-dlq"}, {"name": "secret-dlq"}]}, WHO)[1]
+    assert [(g["code"], g["reason"]) for g in gates["gates"]] == [("not_manager", redrive.NOT_MANAGER)] * 3
 
 
 def test_the_gate_finds_a_messages_account_and_region_from_its_spans():

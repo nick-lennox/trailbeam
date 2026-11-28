@@ -862,7 +862,9 @@ def for_app(app, env=None) -> DashboardsApi | None:
         aws = getattr(app, "aws", None)
         if aws is None or not aws.on():  # off: no AWS call
             return None
-        return queue_data.live_by_name(aws.reader, app.db, names, now_ms, app.lambda_timeout_s, app.max_receive_counts)
+        # a dashboard is shared, so its sentences are a member's (QV-788)
+        return queue_data.live_by_name(aws.reader, app.db, names, now_ms, app.lambda_timeout_s, app.max_receive_counts,
+                                       admin=False)
 
     def data(since_ms: int, now_ms: int, to_ms: int | None) -> dict:
         return event_data(app.db, now_ms, since_ms, app.lambda_timeout_s, app.max_receive_counts, to_ms=to_ms,

@@ -158,13 +158,18 @@ def gate(settings: dict, dlq: dict, *, installed: bool, can_manage: bool) -> dic
     ``dlq``: ``{name, account, region}`` (account and region from its messages' spans, None when not known).
     ``{"ok": True, "account", "region"}`` (the settings' account and region; None when they name none), or ``{"ok":
     False, "code", "reason"}``. The codes: not_configured (AWS off, or no boto3), dlq_not_named, no_account,
-    not_manager. Before SQS is called, ``place`` checks the account and region against the credentials' own."""
+    not_manager. Someone who can't manage gets not_manager as soon as AWS is on, whatever the queue (QV-788).
+    Before SQS is called, ``place`` checks the account and region against the credentials' own."""
     def no(code: str, reason: str) -> dict:
         return {"ok": False, "code": code, "reason": reason}
 
     name = dlq.get("name") or ""
     if not aws_settings.is_on(settings):
         return no("not_configured", OFF)
+    # before anything that tells the server's setup: whether boto3 is there, the redrive list, the account and the
+    # regions the settings allow are for an admin (QV-788)
+    if not can_manage:
+        return no("not_manager", NOT_MANAGER)
     if not installed:
         return no("not_configured", NO_BOTO3)
     if not aws_settings.is_queue_name(name):
@@ -177,8 +182,6 @@ def gate(settings: dict, dlq: dict, *, installed: bool, can_manage: bool) -> dic
     region, home, others = dlq.get("region"), settings.get("region"), settings.get("regions") or []
     if region and home and region != home and region not in others:
         return no("no_account", other_region(name, region, [home, *others]))
-    if not can_manage:
-        return no("not_manager", NOT_MANAGER)
     return {"ok": True, "account": mine, "region": home}
 
 

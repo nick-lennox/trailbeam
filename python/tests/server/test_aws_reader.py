@@ -265,6 +265,68 @@ def test_a_dead_letter_queue_in_another_account_is_not_read():
     assert st.sqs.calls == [f"https://sqs.{REGION}.amazonaws.com/{ACCOUNT}/orders"]
 
 
+# ── what a member is told (QV-788) ─────────────────────────────────────────────────────────────────────────────
+
+def _says_nothing_of(a, *words):
+    text = json.dumps(a)
+    return not any(w in text for w in words)
+
+
+def test_a_member_is_not_told_the_allowed_regions_or_the_credentials_account():
+    """The report's steps: queues ["*"], home eu-west-1 and us-west-2, no account set, the credentials in
+    111111111111, and spans for a queue in zz-abc-1 and one in 999999999999."""
+    st = Stubs(account="111111111111")
+    s = {**ANY, "regions": ["us-west-2"]}
+    qs = [ref("regional", key="111111111111/zz-abc-1/regional", account="111111111111", region="zz-abc-1", url=False),
+          ref("billing-secrets", key="999999999999/eu-west-1/billing-secrets", account="999999999999", url=False)]
+    admin = reader(s, st).read(qs, [], T0)
+    assert admin[qs[0]["key"]]["detail"] == aws_reader.other_region("zz-abc-1", [REGION, "us-west-2"])
+    assert admin[qs[1]["key"]]["detail"] == aws_reader.other_account("999999999999", "111111111111")
+    member = reader(s, st).read(qs, [], T0, admin=False)
+    for q in qs:
+        a = member[q["key"]]
+        assert a["status"] == "no_account" and a["detail"] == aws_reader.MEMBER_NOT_READ
+        # only the account and region its own spans name
+        assert (a["accountId"], a["region"]) == (q["account"], q["region"])
+    assert _says_nothing_of(member[qs[0]["key"]], REGION, "us-west-2")
+    assert _says_nothing_of(member[qs[1]["key"]], "111111111111")
+
+
+def test_a_member_is_not_told_the_settings_account():
+    a = reader({**ON, "accountId": "222222222222"}, Stubs()).read([ref("orders", account="999999999999")], [], T0,
+                                                                  admin=False)["orders"]
+    assert a["detail"] == aws_reader.MEMBER_NOT_READ and _says_nothing_of(a, "222222222222")
+
+
+def test_a_member_is_not_told_why_cloudwatch_is_not_read():
+    st = Stubs(account="111111111111")
+    a = reader({**ON, "accountId": "222222222222"}, st).read([ref("orders", account="222222222222")], [window()], T0,
+                                                             admin=False)["orders"]
+    assert a["status"] == "ok" and a["errors"] == [aws_reader.MEMBER_NO_METRICS] and _says_nothing_of(a, "111111111111")
+    a = reader({**ON, "accountId": ACCOUNT}, Stubs(sts_fail=denied("GetCallerIdentity"))).read(
+        [ref("orders")], [window()], T0, admin=False)["orders"]
+    assert a["errors"] == [aws_reader.MEMBER_NO_METRICS]
+
+
+def test_a_member_is_not_told_what_the_server_lacks():
+    """No boto3, no credentials, no region: /api/health tells a member only that there is a problem (QV-744)."""
+    a = reader(stubs=Stubs(), installed=False).read([ref("orders")], [], T0, admin=False)["orders"]
+    assert a["status"] == "not_configured" and a["detail"] == aws_reader.MEMBER_NOT_READ
+    a = reader(ANY, Stubs(sts_fail=NoCredentialsError())).read([ref("orders", account=None)], [], T0,
+                                                               admin=False)["orders"]
+    assert a["status"] == "failed" and a["detail"] == aws_reader.MEMBER_NOT_READ and a["accountId"] is None
+
+    def no_region(region):
+        from botocore.exceptions import NoRegionError
+        raise NoRegionError()
+    a = reader({**ON, "region": None}, no_region).read([ref("orders", region=None)], [], T0, admin=False)["orders"]
+    assert a["detail"] == aws_reader.MEMBER_NOT_READ
+    # what a member is still told: the settings don't name the queue (an admin adds it), and reads are off
+    assert reader(stubs=Stubs()).read([ref("other")], [], T0, admin=False)["other"]["detail"] == aws_reader.NOT_NAMED
+    assert reader({**ON, "enabled": False}).read([ref("orders")], [], T0, admin=False)["orders"]["detail"] == \
+        aws_reader.OFF
+
+
 # ── CloudWatch is the credentials' account's (QV-741) ─────────────────────────────────────────────────────────────
 
 def test_a_queue_in_another_account_than_the_credentials_gets_no_cloudwatch_figures():

@@ -34,6 +34,10 @@ Its statuses mean:
 - ``failed``: a read failed; the sentence says what AWS answered.
 - ``ok``: read. A read that failed while others worked (a denied lambda:ListEventSourceMappings) is in ``errors``.
 
+**What a member is told (QV-788).** The sentences above name the settings' account, the credentials' own and the
+regions allowed. ``read``'s ``admin=False`` (anyone else let in, and the shared dashboards) gets MEMBER_NOT_READ or
+MEMBER_NO_METRICS instead, and a queue that is not read keeps only the account and region its own spans name.
+
 Results are kept in memory for a short while, with the hosted app's lifetimes: CloudWatch's SQS metrics change once a
 minute, and every GetMetricData call is billed to the AWS account (about $0.01 per 1,000 metrics requested,
 https://aws.amazon.com/cloudwatch/pricing/), so a page that refreshes every few seconds must not read them every time.
@@ -102,6 +106,12 @@ def metrics_unconfirmed(e: BaseException) -> str:
 
 
 NOT_SEEN = "Trailbeam has no spans for this queue, so AWS is not read for it."
+
+#: what someone who isn't an admin is told instead of a sentence about the server's AWS setup: the account the
+#: settings name or the credentials are in, the regions allowed, whether boto3 or credentials are there (QV-788), as
+#: /api/health tells them (aws_api.ADMIN_SEES_WHY)
+MEMBER_NOT_READ = "AWS is not read for this queue. An admin sees why on this queue's page."
+MEMBER_NO_METRICS = "CloudWatch is not read for this queue. An admin sees why on this queue's page."
 
 
 def other_account(queue_account: str, settings_account: str) -> str:
@@ -274,14 +284,27 @@ class AwsReader:
 
     def read(self, queues: list, windows: list, now: float, *, triggers: bool = True,
              metrics: Optional[list] = None, dlq_depth: str = "cloudwatch",
-             attrs_ttl_ms: Optional[float] = None, caller: Optional[str] = None) -> dict:
+             attrs_ttl_ms: Optional[float] = None, caller: Optional[str] = None, admin: bool = True) -> dict:
         """What AWS says about each queue, by its key. ``queues``: ``{key, name, account, region, url}`` (account,
         region and url from its spans; None when not known; the url is never sent to AWS). ``windows``: ``{id,
         fromMs, toMs, periodS}``. ``metrics``: the CloudWatch metrics to read for the queues (af.METRIC_NAMES), all
         when None. ``dlq_depth``: "cloudwatch" (with history), or "sqs" (the dead-letter queue's own
         GetQueueAttributes, falling back to CloudWatch). ``attrs_ttl_ms``: how long a queue's GetQueueAttributes is
         kept, ATTRS_TTL_MS by default. ``caller``: who asked, for the budget of new CloudWatch reads (Budget); None
-        for the server's own reads, which have none. Never raises."""
+        for the server's own reads, which have none. ``admin``: False for anyone else, who gets no sentence about the
+        server's AWS setup (QV-788). Never raises."""
+        out = self._read(queues, windows, now, triggers, metrics, dlq_depth, attrs_ttl_ms, caller, admin)
+        if not admin:
+            for q in queues:
+                a = out.get(q["key"])
+                if a is not None and a["status"] != "ok":  # an ok queue's ARN shows its account and region
+                    a["accountId"], a["region"] = q.get("account"), q.get("region")
+        return out
+
+    def _read(self, queues, windows, now, triggers, metrics, dlq_depth, attrs_ttl_ms, caller, admin) -> dict:
+        def why(text: str, member: str = MEMBER_NOT_READ) -> str:
+            return text if admin else member
+
         out: dict = {}
         try:
             s = self.settings()
@@ -302,9 +325,10 @@ class AwsReader:
             elif not any(af.name_matches(p, q["name"]) for p in s.get("queues") or []):
                 out[q["key"]] = af.empty_aws("no_account", NOT_NAMED, place)
             elif q.get("account") and s.get("accountId") and q["account"] != s["accountId"]:
-                out[q["key"]] = af.empty_aws("no_account", other_account(q["account"], s["accountId"]), place)
+                out[q["key"]] = af.empty_aws("no_account", why(other_account(q["account"], s["accountId"])),
+                                             place)
             elif not self.installed():
-                out[q["key"]] = af.empty_aws("not_configured", NO_BOTO3, place)
+                out[q["key"]] = af.empty_aws("not_configured", why(NO_BOTO3), place)
             else:
                 by_region.setdefault(place["region"], []).append(q)
         if not by_region:
@@ -320,21 +344,21 @@ class AwsReader:
             allowed = [home, *others] if home else others
         for region in [r for r in by_region if r is not None and r not in allowed]:
             for q in by_region.pop(region):
-                out[q["key"]] = af.empty_aws("no_account", other_region(region, allowed),
+                out[q["key"]] = af.empty_aws("no_account", why(other_region(region, allowed)),
                                              {"accountId": q.get("account") or s.get("accountId"), "region": region})
         if not by_region:
             return out
         with cf.ThreadPoolExecutor(WORKERS, thread_name_prefix="trailbeam-aws") as pool:
             for region, qs in by_region.items():
                 self._region(pool, out, s, region, qs, windows, now, triggers, metrics, dlq_depth, attrs_ttl_ms,
-                             caller)
+                             caller, why)
         return out
 
     def _clients(self, region: Optional[str], now: float) -> dict:
         return self.cache.get(f"clients|{region or ''}", CLIENTS_TTL_MS, now, lambda: self.clients_for(region))
 
     def _region(self, pool, out, s, region, qs, windows, now, triggers, metrics, dlq_depth, attrs_ttl_ms,
-                caller) -> None:
+                caller, why) -> None:
         def place(q: dict, r: Optional[str]) -> dict:
             return {"accountId": q.get("account") or s.get("accountId"), "region": r}
 
@@ -344,12 +368,12 @@ class AwsReader:
             text = NO_REGION if aws_reads.error_name(e) == "NoRegionError" else \
                 failed_text("Making the AWS clients", None, e)
             for q in qs:
-                out[q["key"]] = af.empty_aws("failed", text, place(q, region))
+                out[q["key"]] = af.empty_aws("failed", why(text), place(q, region))
             return
         region = clients.get("region") or region
         if not region:
             for q in qs:
-                out[q["key"]] = af.empty_aws("failed", NO_REGION, place(q, None))
+                out[q["key"]] = af.empty_aws("failed", why(NO_REGION), place(q, None))
             return
         base = region
 
@@ -361,7 +385,7 @@ class AwsReader:
                                          lambda: aws_reads.caller_account(clients["sts"]))
             except Exception as e:  # noqa: BLE001
                 for q in qs:
-                    out[q["key"]] = af.empty_aws("failed", no_caller_account(e), place(q, region))
+                    out[q["key"]] = af.empty_aws("failed", why(no_caller_account(e)), place(q, region))
                 return
 
         def place(q: dict, r: Optional[str]) -> dict:  # noqa: F811 - from here on the account is known
@@ -378,15 +402,15 @@ class AwsReader:
                     return {"error": e}
             c = self.cache.get("caller", METRICS_TTL_MS, now, credentials_account)
             if c.get("error") is not None:
-                cw_off = metrics_unconfirmed(c["error"])
+                cw_off = why(metrics_unconfirmed(c["error"]), MEMBER_NO_METRICS)
             elif c["account"] != account:
-                cw_off = other_account_metrics(account, c["account"])
+                cw_off = why(other_account_metrics(account, c["account"]), MEMBER_NO_METRICS)
 
         # settings first: the dead-letter queue's name, for its depth, is in the redrive policy
         urls: dict = {}
         for q in qs:
             if q.get("account") and q["account"] != account:
-                out[q["key"]] = af.empty_aws("no_account", other_account(q["account"], account),
+                out[q["key"]] = af.empty_aws("no_account", why(other_account(q["account"], account)),
                                              {"accountId": q["account"], "region": region})
             else:
                 urls[q["key"]] = queue_url(q["name"], region, account)
