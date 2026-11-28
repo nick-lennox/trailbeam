@@ -2,8 +2,8 @@
 
 The shared view-model functions (@trailbeam/ui/model) must make the same Event explorer events, Overview and cause
 rows of the server's answers and of the hosted app's for the same spans; ui/test/viewmodel.test.ts checks that on the
-recorded answers. This checks the recording: GET /api/messages/{id}, /api/flows and /api/causes for the contract 3.2
-spans still give answers.python. After a deliberate change, run ``python ui/test/make-viewmodel-fixture.py``, then
+recorded answers. This checks the recording: GET /api/messages/{id}, /api/flows, /api/causes and each queue's
+/api/queues/{queue}/now (QV-579) for the contract 3.2 spans still give answers.python. After a deliberate change, run ``python ui/test/make-viewmodel-fixture.py``, then
 ``node --import tsx test/make-viewmodel-expected.ts`` in ui/, and check the hosted app still matches.
 """
 import importlib.util

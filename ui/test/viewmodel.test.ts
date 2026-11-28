@@ -1,6 +1,6 @@
 /*
   QV-578 (One UI row 0d): the shared view-model functions (@trailbeam/ui/model) on fixtures/viewmodel-parity.json.
-  The same spans went through each backend's API; what eventsOfTimeline, overviewData, toCause and issuesOf make of either
+  The same spans went through each backend's API; what eventsOfTimeline, overviewData, toCause, issuesOf and heldAt make of either
   answer must be the same, and must be `expected`. The hosted app runs the same check on its live engine
   (test/viewmodel-parity.test.ts there). Run: npm test
 */
@@ -23,8 +23,27 @@ for (const backend of ["python", "hosted"] as const) {
     assert.deepEqual(got.overview, f.expected.overview);
     assert.deepEqual(got.causes, f.expected.causes);
     assert.deepEqual(got.issues, f.expected.issues);
+    assert.deepEqual(got.now, f.expected.now);
   });
 }
+
+test("\"In ‹queue› now\" (QV-579): the same messages, events and counts from GET /api/queues/{queue}/now and the hosted loadInQueue", () => {
+  const key = (n: { queue: string; nowMs: number }) => `${n.queue} ${n.nowMs}`;
+  assert.deepEqual(f.answers.hosted.queue_now.map(key), f.answers.python.queue_now.map(key), "both read the same queues at the same times");
+  const all = f.expected.now;
+  const held = all.flatMap((n) => n.view.held);
+  assert.deepEqual(new Set(held.map((m) => m.state)), new Set(["in_flight", "visible"]));
+  assert.ok(held.every((m) => m.events.length > 0), "each held message carries its events");
+  assert.ok(all.some((n) => n.view.notSeenOnDlq.length > 0), "at maxReceiveCount, not seen on the DLQ yet");
+  assert.ok(all.some((n) => n.view.deleted.length > 1), "the past minute's deletes");
+  assert.ok(all.some((n) => n.view.seenOnDlq > 0), "moves the DLQ's receives reported");
+  assert.ok(all.every((n) => n.view.totals === null && !n.view.config.visibilityKnown), "no AWS reads on either side");
+  // on the page's clock: 10 s later a timeout is counted down, 30 s later it has run out
+  const [soon, later] = [0, 1].map((i) => all.flatMap((n) => n.ticked[i]));
+  assert.ok(soon.some((m) => m.state === "in_flight" && m.leftS === 15));
+  assert.ok(later.some((m) => m.left === true), "at maxReceiveCount, it leaves for the DLQ");
+  assert.ok(later.some((m) => m.state === "visible" && m.lastError?.includes("on this page's clock")), "visible again, inferred");
+});
 
 test("the fixture covers inferred events, both cause outcomes and every flow", () => {
   const kinds = new Set(f.expected.events.map((e) => e.event));

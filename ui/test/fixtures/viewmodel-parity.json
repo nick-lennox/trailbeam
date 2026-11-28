@@ -2723,6 +2723,1369 @@
       }
      ]
     }
+   ],
+   "queue_now": [
+    {
+     "queue": "orders",
+     "nowMs": 1794852342716,
+     "maxReceiveCount": null,
+     "view": {
+      "queue": {
+       "key": "123456789012/us-east-1/orders",
+       "name": "orders",
+       "account": "123456789012",
+       "region": "us-east-1",
+       "fifo": false
+      },
+      "nowMs": 1794852342716,
+      "config": {
+       "visibilityTimeoutS": null,
+       "retentionS": null,
+       "maxReceiveCount": null,
+       "dlq": null,
+       "arn": null,
+       "lambdaTimeoutS": 900,
+       "visibilityKnown": false
+      },
+      "held": [],
+      "capped": false,
+      "instrumented": {
+       "visible": 0,
+       "inFlight": 0
+      },
+      "totals": null,
+      "uninstrumented": null,
+      "notSeenOnDlq": [],
+      "seenOnDlq": 0,
+      "deleted": [
+       {
+        "id": "m-orders-1",
+        "atMs": 1794852337041
+       },
+       {
+        "id": "m-orphan",
+        "atMs": 1794852337042
+       },
+       {
+        "id": "m-orders-2",
+        "atMs": 1794852337042
+       },
+       {
+        "id": "m-legacy",
+        "atMs": 1794852337716
+       }
+      ],
+      "producers": []
+     }
+    },
+    {
+     "queue": "payments",
+     "nowMs": 1794852342716,
+     "maxReceiveCount": null,
+     "view": {
+      "queue": {
+       "key": "123456789012/us-east-1/payments",
+       "name": "payments",
+       "account": "123456789012",
+       "region": "us-east-1",
+       "fifo": false
+      },
+      "nowMs": 1794852342716,
+      "config": {
+       "visibilityTimeoutS": null,
+       "retentionS": null,
+       "maxReceiveCount": null,
+       "dlq": null,
+       "arn": null,
+       "lambdaTimeoutS": 900,
+       "visibilityKnown": false
+      },
+      "held": [],
+      "capped": false,
+      "instrumented": {
+       "visible": 0,
+       "inFlight": 0
+      },
+      "totals": null,
+      "uninstrumented": null,
+      "notSeenOnDlq": [],
+      "seenOnDlq": 1,
+      "deleted": [
+       {
+        "id": "m-pay-1",
+        "atMs": 1794852337344
+       }
+      ],
+      "producers": []
+     }
+    },
+    {
+     "queue": "billing",
+     "nowMs": 1794852342716,
+     "maxReceiveCount": 3,
+     "view": {
+      "queue": {
+       "key": "123456789012/us-east-1/billing",
+       "name": "billing",
+       "account": "123456789012",
+       "region": "us-east-1",
+       "fifo": false
+      },
+      "nowMs": 1794852342716,
+      "config": {
+       "visibilityTimeoutS": null,
+       "retentionS": null,
+       "maxReceiveCount": 3,
+       "dlq": null,
+       "arn": null,
+       "lambdaTimeoutS": 900,
+       "visibilityKnown": false
+      },
+      "held": [
+       {
+        "id": "m-bill-1",
+        "producer": "",
+        "consumer": "billing-fn",
+        "sentMs": 1794852337429,
+        "events": [
+         {
+          "key": "m-bill-1:e1",
+          "ms": 1794852337459,
+          "event": "receive",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.ApproximateReceiveCount": 1,
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "message.SentTimestamp": 1794852337429,
+           "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+           "batch.size": 2,
+           "batch.index": 0,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 1,
+          "waitMs": 30,
+          "call": "ReceiveMessage (Lambda trigger)"
+         },
+         {
+          "key": "m-bill-1:e2",
+          "ms": 1794852337462,
+          "event": "processing_error",
+          "status": "error",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 1,
+          "durationMs": 3
+         },
+         {
+          "key": "m-bill-1:e3",
+          "ms": 1794852337493,
+          "event": "visibility_expired",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "Receive 1 was not deleted in time, so the message became visible again. Inferred from the next receive",
+          "source": "inferred",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "sqs",
+          "consumer": "billing-fn",
+          "receiveCount": 1
+         },
+         {
+          "key": "m-bill-1:e4",
+          "ms": 1794852337493,
+          "event": "receive",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.ApproximateReceiveCount": 2,
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "message.SentTimestamp": 1794852337429,
+           "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+           "batch.size": 1,
+           "batch.index": 0,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 2,
+          "call": "ReceiveMessage (Lambda trigger)"
+         },
+         {
+          "key": "m-bill-1:e5",
+          "ms": 1794852337495,
+          "event": "processing_error",
+          "status": "error",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "The handler threw: Error: Stripe timed out after 10000 ms",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 2,
+          "durationMs": 2
+         },
+         {
+          "key": "m-bill-1:e6",
+          "ms": 1794852337527,
+          "event": "visibility_expired",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "Receive 2 was not deleted in time, so the message became visible again. Inferred from the next receive",
+          "source": "inferred",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "sqs",
+          "consumer": "billing-fn",
+          "receiveCount": 2
+         },
+         {
+          "key": "m-bill-1:e7",
+          "ms": 1794852337527,
+          "event": "receive",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.ApproximateReceiveCount": 3,
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "message.SentTimestamp": 1794852337429,
+           "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+           "batch.size": 1,
+           "batch.index": 0,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 3,
+          "call": "ReceiveMessage (Lambda trigger)"
+         },
+         {
+          "key": "m-bill-1:e8",
+          "ms": 1794852337528,
+          "event": "processing_error",
+          "status": "error",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 3,
+          "durationMs": 1
+         }
+        ],
+        "receiveCount": 3,
+        "state": "in_flight",
+        "lastReceiveMs": 1794852337527,
+        "untilMs": 1794852367527,
+        "leftS": 25,
+        "used": 0.17296666666666666,
+        "timeoutS": 30,
+        "lastError": "The handler threw: TypeError"
+       },
+       {
+        "id": "m-bill-2",
+        "producer": "",
+        "consumer": "billing-fn",
+        "sentMs": 1794852337429,
+        "events": [
+         {
+          "key": "m-bill-2:e1",
+          "ms": 1794852337459,
+          "event": "receive",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-2",
+          "producer": "",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.ApproximateReceiveCount": 1,
+           "message.tenant": "globex",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 46,
+           "message.SentTimestamp": 1794852337429,
+           "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+           "batch.size": 2,
+           "batch.index": 1,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 1,
+          "waitMs": 30,
+          "call": "ReceiveMessage (Lambda trigger)"
+         },
+         {
+          "key": "m-bill-2:e2",
+          "ms": 1794852337462,
+          "event": "processing_error",
+          "status": "error",
+          "queue": "billing",
+          "messageId": "m-bill-2",
+          "producer": "",
+          "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.tenant": "globex",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 46,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 1,
+          "durationMs": 3
+         }
+        ],
+        "receiveCount": 1,
+        "state": "in_flight",
+        "lastReceiveMs": 1794852337459,
+        "untilMs": 1794852367459,
+        "leftS": 25,
+        "used": 0.17523333333333332,
+        "timeoutS": 30,
+        "lastError": "The handler threw: TypeError"
+       }
+      ],
+      "capped": false,
+      "instrumented": {
+       "visible": 0,
+       "inFlight": 2
+      },
+      "totals": null,
+      "uninstrumented": null,
+      "notSeenOnDlq": [],
+      "seenOnDlq": 0,
+      "deleted": [],
+      "producers": [
+       {
+        "name": "No send observed",
+        "n": 2
+       }
+      ]
+     }
+    },
+    {
+     "queue": "orders.fifo",
+     "nowMs": 1794852342716,
+     "maxReceiveCount": null,
+     "view": {
+      "queue": {
+       "key": "123456789012/us-east-1/orders.fifo",
+       "name": "orders.fifo",
+       "account": "123456789012",
+       "region": "us-east-1",
+       "fifo": true
+      },
+      "nowMs": 1794852342716,
+      "config": {
+       "visibilityTimeoutS": null,
+       "retentionS": null,
+       "maxReceiveCount": null,
+       "dlq": null,
+       "arn": null,
+       "lambdaTimeoutS": 900,
+       "visibilityKnown": false
+      },
+      "held": [],
+      "capped": false,
+      "instrumented": {
+       "visible": 0,
+       "inFlight": 0
+      },
+      "totals": null,
+      "uninstrumented": null,
+      "notSeenOnDlq": [],
+      "seenOnDlq": 0,
+      "deleted": [
+       {
+        "id": "m-fifo-1",
+        "atMs": 1794852337427
+       },
+       {
+        "id": "m-fifo-2",
+        "atMs": 1794852337427
+       }
+      ],
+      "producers": []
+     }
+    },
+    {
+     "queue": "payments-dlq",
+     "nowMs": 1794852342716,
+     "maxReceiveCount": null,
+     "view": {
+      "queue": {
+       "key": "123456789012/us-east-1/payments-dlq",
+       "name": "payments-dlq",
+       "account": "123456789012",
+       "region": "us-east-1",
+       "fifo": false
+      },
+      "nowMs": 1794852342716,
+      "config": {
+       "visibilityTimeoutS": null,
+       "retentionS": null,
+       "maxReceiveCount": null,
+       "dlq": null,
+       "arn": null,
+       "lambdaTimeoutS": 900,
+       "visibilityKnown": false
+      },
+      "held": [
+       {
+        "id": "m-pay-2",
+        "producer": "checkout-api",
+        "consumer": "orders-worker",
+        "sentMs": 1794852336914,
+        "events": [
+         {
+          "key": "m-pay-2:e1",
+          "ms": 1794852336914,
+          "event": "send",
+          "status": "ok",
+          "queue": "payments",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "sizeBytes": 40,
+          "attrs": {
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "checkout-api",
+          "consumer": "orders-worker",
+          "call": "SendMessage"
+         },
+         {
+          "key": "m-pay-2:e2",
+          "ms": 1794852337344,
+          "event": "receive",
+          "status": "ok",
+          "queue": "payments",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.ApproximateReceiveCount": 1,
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "message.SentTimestamp": 1794852336914,
+           "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "orders-worker",
+          "consumer": "orders-worker",
+          "receiveCount": 1,
+          "waitMs": 430,
+          "call": "ReceiveMessage"
+         },
+         {
+          "key": "m-pay-2:e3",
+          "ms": 1794852337385,
+          "event": "visibility_expired",
+          "status": "ok",
+          "queue": "payments",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "Receive 1 was not deleted in time, so the message became visible again. Inferred from the next receive",
+          "source": "inferred",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "sqs",
+          "consumer": "orders-worker",
+          "receiveCount": 1
+         },
+         {
+          "key": "m-pay-2:e4",
+          "ms": 1794852337385,
+          "event": "receive",
+          "status": "ok",
+          "queue": "payments",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.ApproximateReceiveCount": 2,
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "message.SentTimestamp": 1794852336914,
+           "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "orders-worker",
+          "consumer": "orders-worker",
+          "receiveCount": 2,
+          "call": "ReceiveMessage"
+         },
+         {
+          "key": "m-pay-2:e5",
+          "ms": 1794852337425,
+          "event": "dead_letter",
+          "status": "error",
+          "queue": "payments",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "Moved from payments to payments-dlq. SQS reported it on the receive from payments-dlq",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "sqs",
+          "consumer": "orders-worker",
+          "receiveCount": 3
+         },
+         {
+          "key": "m-pay-2:e6",
+          "ms": 1794852337425,
+          "event": "receive",
+          "status": "ok",
+          "queue": "payments-dlq",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "Received from the dead-letter queue",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.ApproximateReceiveCount": 3,
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "message.SentTimestamp": 1794852336914,
+           "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "orders-worker",
+          "consumer": "orders-worker",
+          "receiveCount": 3,
+          "call": "ReceiveMessage"
+         }
+        ],
+        "receiveCount": 3,
+        "state": "in_flight",
+        "lastReceiveMs": 1794852337425,
+        "untilMs": 1794852367425,
+        "leftS": 25,
+        "used": 0.17636666666666667,
+        "timeoutS": 30
+       }
+      ],
+      "capped": false,
+      "instrumented": {
+       "visible": 0,
+       "inFlight": 1
+      },
+      "totals": null,
+      "uninstrumented": null,
+      "notSeenOnDlq": [],
+      "seenOnDlq": 0,
+      "deleted": [],
+      "producers": [
+       {
+        "name": "checkout-api",
+        "n": 1
+       }
+      ]
+     }
+    },
+    {
+     "queue": "orders",
+     "nowMs": 1794855937716,
+     "maxReceiveCount": null,
+     "view": {
+      "queue": {
+       "key": "123456789012/us-east-1/orders",
+       "name": "orders",
+       "account": "123456789012",
+       "region": "us-east-1",
+       "fifo": false
+      },
+      "nowMs": 1794855937716,
+      "config": {
+       "visibilityTimeoutS": null,
+       "retentionS": null,
+       "maxReceiveCount": null,
+       "dlq": null,
+       "arn": null,
+       "lambdaTimeoutS": 900,
+       "visibilityKnown": false
+      },
+      "held": [],
+      "capped": false,
+      "instrumented": {
+       "visible": 0,
+       "inFlight": 0
+      },
+      "totals": null,
+      "uninstrumented": null,
+      "notSeenOnDlq": [],
+      "seenOnDlq": 0,
+      "deleted": [],
+      "producers": []
+     }
+    },
+    {
+     "queue": "payments",
+     "nowMs": 1794855937716,
+     "maxReceiveCount": null,
+     "view": {
+      "queue": {
+       "key": "123456789012/us-east-1/payments",
+       "name": "payments",
+       "account": "123456789012",
+       "region": "us-east-1",
+       "fifo": false
+      },
+      "nowMs": 1794855937716,
+      "config": {
+       "visibilityTimeoutS": null,
+       "retentionS": null,
+       "maxReceiveCount": null,
+       "dlq": null,
+       "arn": null,
+       "lambdaTimeoutS": 900,
+       "visibilityKnown": false
+      },
+      "held": [],
+      "capped": false,
+      "instrumented": {
+       "visible": 0,
+       "inFlight": 0
+      },
+      "totals": null,
+      "uninstrumented": null,
+      "notSeenOnDlq": [],
+      "seenOnDlq": 0,
+      "deleted": [],
+      "producers": []
+     }
+    },
+    {
+     "queue": "billing",
+     "nowMs": 1794855937716,
+     "maxReceiveCount": 3,
+     "view": {
+      "queue": {
+       "key": "123456789012/us-east-1/billing",
+       "name": "billing",
+       "account": "123456789012",
+       "region": "us-east-1",
+       "fifo": false
+      },
+      "nowMs": 1794855937716,
+      "config": {
+       "visibilityTimeoutS": null,
+       "retentionS": null,
+       "maxReceiveCount": 3,
+       "dlq": null,
+       "arn": null,
+       "lambdaTimeoutS": 900,
+       "visibilityKnown": false
+      },
+      "held": [
+       {
+        "id": "m-bill-2",
+        "producer": "",
+        "consumer": "billing-fn",
+        "sentMs": 1794852337429,
+        "events": [
+         {
+          "key": "m-bill-2:e1",
+          "ms": 1794852337459,
+          "event": "receive",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-2",
+          "producer": "",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.ApproximateReceiveCount": 1,
+           "message.tenant": "globex",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 46,
+           "message.SentTimestamp": 1794852337429,
+           "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+           "batch.size": 2,
+           "batch.index": 1,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 1,
+          "waitMs": 30,
+          "call": "ReceiveMessage (Lambda trigger)"
+         },
+         {
+          "key": "m-bill-2:e2",
+          "ms": 1794852337462,
+          "event": "processing_error",
+          "status": "error",
+          "queue": "billing",
+          "messageId": "m-bill-2",
+          "producer": "",
+          "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.tenant": "globex",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 46,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 1,
+          "durationMs": 3
+         }
+        ],
+        "receiveCount": 1,
+        "state": "visible",
+        "lastReceiveMs": 1794852337459,
+        "untilMs": null,
+        "leftS": 0,
+        "used": 0,
+        "timeoutS": 30,
+        "lastError": "The handler threw: TypeError"
+       }
+      ],
+      "capped": false,
+      "instrumented": {
+       "visible": 1,
+       "inFlight": 0
+      },
+      "totals": null,
+      "uninstrumented": null,
+      "notSeenOnDlq": [
+       {
+        "id": "m-bill-1",
+        "producer": "",
+        "consumer": "billing-fn",
+        "sentMs": 1794852337429,
+        "events": [
+         {
+          "key": "m-bill-1:e1",
+          "ms": 1794852337459,
+          "event": "receive",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.ApproximateReceiveCount": 1,
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "message.SentTimestamp": 1794852337429,
+           "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+           "batch.size": 2,
+           "batch.index": 0,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 1,
+          "waitMs": 30,
+          "call": "ReceiveMessage (Lambda trigger)"
+         },
+         {
+          "key": "m-bill-1:e2",
+          "ms": 1794852337462,
+          "event": "processing_error",
+          "status": "error",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 1,
+          "durationMs": 3
+         },
+         {
+          "key": "m-bill-1:e3",
+          "ms": 1794852337493,
+          "event": "visibility_expired",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "Receive 1 was not deleted in time, so the message became visible again. Inferred from the next receive",
+          "source": "inferred",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "sqs",
+          "consumer": "billing-fn",
+          "receiveCount": 1
+         },
+         {
+          "key": "m-bill-1:e4",
+          "ms": 1794852337493,
+          "event": "receive",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.ApproximateReceiveCount": 2,
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "message.SentTimestamp": 1794852337429,
+           "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+           "batch.size": 1,
+           "batch.index": 0,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 2,
+          "call": "ReceiveMessage (Lambda trigger)"
+         },
+         {
+          "key": "m-bill-1:e5",
+          "ms": 1794852337495,
+          "event": "processing_error",
+          "status": "error",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "The handler threw: Error: Stripe timed out after 10000 ms",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 2,
+          "durationMs": 2
+         },
+         {
+          "key": "m-bill-1:e6",
+          "ms": 1794852337527,
+          "event": "visibility_expired",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "Receive 2 was not deleted in time, so the message became visible again. Inferred from the next receive",
+          "source": "inferred",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "sqs",
+          "consumer": "billing-fn",
+          "receiveCount": 2
+         },
+         {
+          "key": "m-bill-1:e7",
+          "ms": 1794852337527,
+          "event": "receive",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.ApproximateReceiveCount": 3,
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "message.SentTimestamp": 1794852337429,
+           "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+           "batch.size": 1,
+           "batch.index": 0,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 3,
+          "call": "ReceiveMessage (Lambda trigger)"
+         },
+         {
+          "key": "m-bill-1:e8",
+          "ms": 1794852337528,
+          "event": "processing_error",
+          "status": "error",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 3,
+          "durationMs": 1
+         }
+        ],
+        "timedOutMs": 1794852367527,
+        "receiveCount": 3
+       }
+      ],
+      "seenOnDlq": 0,
+      "deleted": [],
+      "producers": [
+       {
+        "name": "No send observed",
+        "n": 1
+       }
+      ]
+     }
+    },
+    {
+     "queue": "orders.fifo",
+     "nowMs": 1794855937716,
+     "maxReceiveCount": null,
+     "view": {
+      "queue": {
+       "key": "123456789012/us-east-1/orders.fifo",
+       "name": "orders.fifo",
+       "account": "123456789012",
+       "region": "us-east-1",
+       "fifo": true
+      },
+      "nowMs": 1794855937716,
+      "config": {
+       "visibilityTimeoutS": null,
+       "retentionS": null,
+       "maxReceiveCount": null,
+       "dlq": null,
+       "arn": null,
+       "lambdaTimeoutS": 900,
+       "visibilityKnown": false
+      },
+      "held": [],
+      "capped": false,
+      "instrumented": {
+       "visible": 0,
+       "inFlight": 0
+      },
+      "totals": null,
+      "uninstrumented": null,
+      "notSeenOnDlq": [],
+      "seenOnDlq": 0,
+      "deleted": [],
+      "producers": []
+     }
+    },
+    {
+     "queue": "payments-dlq",
+     "nowMs": 1794855937716,
+     "maxReceiveCount": null,
+     "view": {
+      "queue": {
+       "key": "123456789012/us-east-1/payments-dlq",
+       "name": "payments-dlq",
+       "account": "123456789012",
+       "region": "us-east-1",
+       "fifo": false
+      },
+      "nowMs": 1794855937716,
+      "config": {
+       "visibilityTimeoutS": null,
+       "retentionS": null,
+       "maxReceiveCount": null,
+       "dlq": null,
+       "arn": null,
+       "lambdaTimeoutS": 900,
+       "visibilityKnown": false
+      },
+      "held": [
+       {
+        "id": "m-pay-2",
+        "producer": "checkout-api",
+        "consumer": "orders-worker",
+        "sentMs": 1794852336914,
+        "events": [
+         {
+          "key": "m-pay-2:e1",
+          "ms": 1794852336914,
+          "event": "send",
+          "status": "ok",
+          "queue": "payments",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "sizeBytes": 40,
+          "attrs": {
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "checkout-api",
+          "consumer": "orders-worker",
+          "call": "SendMessage"
+         },
+         {
+          "key": "m-pay-2:e2",
+          "ms": 1794852337344,
+          "event": "receive",
+          "status": "ok",
+          "queue": "payments",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.ApproximateReceiveCount": 1,
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "message.SentTimestamp": 1794852336914,
+           "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "orders-worker",
+          "consumer": "orders-worker",
+          "receiveCount": 1,
+          "waitMs": 430,
+          "call": "ReceiveMessage"
+         },
+         {
+          "key": "m-pay-2:e3",
+          "ms": 1794852337385,
+          "event": "visibility_expired",
+          "status": "ok",
+          "queue": "payments",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "Receive 1 was not deleted in time, so the message became visible again. Inferred from the next receive",
+          "source": "inferred",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "sqs",
+          "consumer": "orders-worker",
+          "receiveCount": 1
+         },
+         {
+          "key": "m-pay-2:e4",
+          "ms": 1794852337385,
+          "event": "receive",
+          "status": "ok",
+          "queue": "payments",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.ApproximateReceiveCount": 2,
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "message.SentTimestamp": 1794852336914,
+           "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "orders-worker",
+          "consumer": "orders-worker",
+          "receiveCount": 2,
+          "call": "ReceiveMessage"
+         },
+         {
+          "key": "m-pay-2:e5",
+          "ms": 1794852337425,
+          "event": "dead_letter",
+          "status": "error",
+          "queue": "payments",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "Moved from payments to payments-dlq. SQS reported it on the receive from payments-dlq",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "sqs",
+          "consumer": "orders-worker",
+          "receiveCount": 3
+         },
+         {
+          "key": "m-pay-2:e6",
+          "ms": 1794852337425,
+          "event": "receive",
+          "status": "ok",
+          "queue": "payments-dlq",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "Received from the dead-letter queue",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.ApproximateReceiveCount": 3,
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "message.SentTimestamp": 1794852336914,
+           "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "orders-worker",
+          "consumer": "orders-worker",
+          "receiveCount": 3,
+          "call": "ReceiveMessage"
+         }
+        ],
+        "receiveCount": 3,
+        "state": "visible",
+        "lastReceiveMs": 1794852337425,
+        "untilMs": null,
+        "leftS": 0,
+        "used": 0,
+        "timeoutS": 30,
+        "lastError": "Inferred: receive 3 was not deleted before its visibility timeout ran out (no delete of it was stored; the timeout used is SQS's default 30 s, as the queue's setting was not read)"
+       }
+      ],
+      "capped": false,
+      "instrumented": {
+       "visible": 1,
+       "inFlight": 0
+      },
+      "totals": null,
+      "uninstrumented": null,
+      "notSeenOnDlq": [],
+      "seenOnDlq": 0,
+      "deleted": [],
+      "producers": [
+       {
+        "name": "checkout-api",
+        "n": 1
+       }
+      ]
+     }
+    }
    ]
   },
   "hosted": {
@@ -5415,6 +6778,1299 @@
      ]
     }
    ],
+   "queue_now": [
+    {
+     "queue": "orders",
+     "nowMs": 1794852342716,
+     "maxReceiveCount": null,
+     "view": {
+      "nowMs": 1794852342716,
+      "config": {
+       "visibilityTimeoutS": null,
+       "retentionS": null,
+       "maxReceiveCount": null,
+       "dlq": null,
+       "arn": null,
+       "lambdaTimeoutS": 900,
+       "visibilityKnown": false
+      },
+      "held": [],
+      "capped": false,
+      "instrumented": {
+       "visible": 0,
+       "inFlight": 0
+      },
+      "totals": null,
+      "uninstrumented": null,
+      "notSeenOnDlq": [],
+      "seenOnDlq": 0,
+      "deleted": [
+       {
+        "id": "m-orders-1",
+        "atMs": 1794852337041
+       },
+       {
+        "id": "m-orphan",
+        "atMs": 1794852337042
+       },
+       {
+        "id": "m-orders-2",
+        "atMs": 1794852337042
+       },
+       {
+        "id": "m-legacy",
+        "atMs": 1794852337716
+       }
+      ],
+      "producers": []
+     }
+    },
+    {
+     "queue": "payments",
+     "nowMs": 1794852342716,
+     "maxReceiveCount": null,
+     "view": {
+      "nowMs": 1794852342716,
+      "config": {
+       "visibilityTimeoutS": null,
+       "retentionS": null,
+       "maxReceiveCount": null,
+       "dlq": null,
+       "arn": null,
+       "lambdaTimeoutS": 900,
+       "visibilityKnown": false
+      },
+      "held": [],
+      "capped": false,
+      "instrumented": {
+       "visible": 0,
+       "inFlight": 0
+      },
+      "totals": null,
+      "uninstrumented": null,
+      "notSeenOnDlq": [],
+      "seenOnDlq": 1,
+      "deleted": [
+       {
+        "id": "m-pay-1",
+        "atMs": 1794852337344
+       }
+      ],
+      "producers": []
+     }
+    },
+    {
+     "queue": "billing",
+     "nowMs": 1794852342716,
+     "maxReceiveCount": 3,
+     "view": {
+      "nowMs": 1794852342716,
+      "config": {
+       "visibilityTimeoutS": null,
+       "retentionS": null,
+       "maxReceiveCount": 3,
+       "dlq": null,
+       "arn": null,
+       "lambdaTimeoutS": 900,
+       "visibilityKnown": false
+      },
+      "held": [
+       {
+        "id": "m-bill-1",
+        "producer": "",
+        "consumer": "billing-fn",
+        "sentMs": 1794852337429,
+        "events": [
+         {
+          "key": "m-bill-1:e1",
+          "ms": 1794852337459,
+          "event": "receive",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.ApproximateReceiveCount": 1,
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "message.SentTimestamp": 1794852337429,
+           "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+           "batch.size": 2,
+           "batch.index": 0,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 1,
+          "waitMs": 30,
+          "call": "ReceiveMessage (Lambda trigger)"
+         },
+         {
+          "key": "m-bill-1:e2",
+          "ms": 1794852337462,
+          "event": "processing_error",
+          "status": "error",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 1,
+          "durationMs": 3
+         },
+         {
+          "key": "m-bill-1:e3",
+          "ms": 1794852337493,
+          "event": "visibility_expired",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "Receive 1 was not deleted in time, so the message became visible again. Inferred from the next receive",
+          "source": "inferred",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "sqs",
+          "consumer": "billing-fn",
+          "receiveCount": 1
+         },
+         {
+          "key": "m-bill-1:e4",
+          "ms": 1794852337493,
+          "event": "receive",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.ApproximateReceiveCount": 2,
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "message.SentTimestamp": 1794852337429,
+           "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+           "batch.size": 1,
+           "batch.index": 0,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 2,
+          "call": "ReceiveMessage (Lambda trigger)"
+         },
+         {
+          "key": "m-bill-1:e5",
+          "ms": 1794852337495,
+          "event": "processing_error",
+          "status": "error",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "The handler threw: Error: Stripe timed out after 10000 ms",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 2,
+          "durationMs": 2
+         },
+         {
+          "key": "m-bill-1:e6",
+          "ms": 1794852337527,
+          "event": "visibility_expired",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "Receive 2 was not deleted in time, so the message became visible again. Inferred from the next receive",
+          "source": "inferred",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "sqs",
+          "consumer": "billing-fn",
+          "receiveCount": 2
+         },
+         {
+          "key": "m-bill-1:e7",
+          "ms": 1794852337527,
+          "event": "receive",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.ApproximateReceiveCount": 3,
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "message.SentTimestamp": 1794852337429,
+           "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+           "batch.size": 1,
+           "batch.index": 0,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 3,
+          "call": "ReceiveMessage (Lambda trigger)"
+         },
+         {
+          "key": "m-bill-1:e8",
+          "ms": 1794852337528,
+          "event": "processing_error",
+          "status": "error",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 3,
+          "durationMs": 1
+         }
+        ],
+        "receiveCount": 3,
+        "state": "in_flight",
+        "lastReceiveMs": 1794852337527,
+        "untilMs": 1794852367527,
+        "leftS": 25,
+        "used": 0.17296666666666666,
+        "timeoutS": 30,
+        "lastError": "The handler threw: TypeError"
+       },
+       {
+        "id": "m-bill-2",
+        "producer": "",
+        "consumer": "billing-fn",
+        "sentMs": 1794852337429,
+        "events": [
+         {
+          "key": "m-bill-2:e1",
+          "ms": 1794852337459,
+          "event": "receive",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-2",
+          "producer": "",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.ApproximateReceiveCount": 1,
+           "message.tenant": "globex",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 46,
+           "message.SentTimestamp": 1794852337429,
+           "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+           "batch.size": 2,
+           "batch.index": 1,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 1,
+          "waitMs": 30,
+          "call": "ReceiveMessage (Lambda trigger)"
+         },
+         {
+          "key": "m-bill-2:e2",
+          "ms": 1794852337462,
+          "event": "processing_error",
+          "status": "error",
+          "queue": "billing",
+          "messageId": "m-bill-2",
+          "producer": "",
+          "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.tenant": "globex",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 46,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 1,
+          "durationMs": 3
+         }
+        ],
+        "receiveCount": 1,
+        "state": "in_flight",
+        "lastReceiveMs": 1794852337459,
+        "untilMs": 1794852367459,
+        "leftS": 25,
+        "used": 0.17523333333333332,
+        "timeoutS": 30,
+        "lastError": "The handler threw: TypeError"
+       }
+      ],
+      "capped": false,
+      "instrumented": {
+       "visible": 0,
+       "inFlight": 2
+      },
+      "totals": null,
+      "uninstrumented": null,
+      "notSeenOnDlq": [],
+      "seenOnDlq": 0,
+      "deleted": [],
+      "producers": [
+       {
+        "name": "No send observed",
+        "n": 2
+       }
+      ]
+     }
+    },
+    {
+     "queue": "orders.fifo",
+     "nowMs": 1794852342716,
+     "maxReceiveCount": null,
+     "view": {
+      "nowMs": 1794852342716,
+      "config": {
+       "visibilityTimeoutS": null,
+       "retentionS": null,
+       "maxReceiveCount": null,
+       "dlq": null,
+       "arn": null,
+       "lambdaTimeoutS": 900,
+       "visibilityKnown": false
+      },
+      "held": [],
+      "capped": false,
+      "instrumented": {
+       "visible": 0,
+       "inFlight": 0
+      },
+      "totals": null,
+      "uninstrumented": null,
+      "notSeenOnDlq": [],
+      "seenOnDlq": 0,
+      "deleted": [
+       {
+        "id": "m-fifo-1",
+        "atMs": 1794852337427
+       },
+       {
+        "id": "m-fifo-2",
+        "atMs": 1794852337427
+       }
+      ],
+      "producers": []
+     }
+    },
+    {
+     "queue": "payments-dlq",
+     "nowMs": 1794852342716,
+     "maxReceiveCount": null,
+     "view": {
+      "nowMs": 1794852342716,
+      "config": {
+       "visibilityTimeoutS": null,
+       "retentionS": null,
+       "maxReceiveCount": null,
+       "dlq": null,
+       "arn": null,
+       "lambdaTimeoutS": 900,
+       "visibilityKnown": false
+      },
+      "held": [
+       {
+        "id": "m-pay-2",
+        "producer": "checkout-api",
+        "consumer": "orders-worker",
+        "sentMs": 1794852336914,
+        "events": [
+         {
+          "key": "m-pay-2:e1",
+          "ms": 1794852336914,
+          "event": "send",
+          "status": "ok",
+          "queue": "payments",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "sizeBytes": 40,
+          "attrs": {
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "checkout-api",
+          "consumer": "orders-worker",
+          "call": "SendMessage"
+         },
+         {
+          "key": "m-pay-2:e2",
+          "ms": 1794852337344,
+          "event": "receive",
+          "status": "ok",
+          "queue": "payments",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.ApproximateReceiveCount": 1,
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "message.SentTimestamp": 1794852336914,
+           "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "orders-worker",
+          "consumer": "orders-worker",
+          "receiveCount": 1,
+          "waitMs": 430,
+          "call": "ReceiveMessage"
+         },
+         {
+          "key": "m-pay-2:e3",
+          "ms": 1794852337385,
+          "event": "visibility_expired",
+          "status": "ok",
+          "queue": "payments",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "Receive 1 was not deleted in time, so the message became visible again. Inferred from the next receive",
+          "source": "inferred",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "sqs",
+          "consumer": "orders-worker",
+          "receiveCount": 1
+         },
+         {
+          "key": "m-pay-2:e4",
+          "ms": 1794852337385,
+          "event": "receive",
+          "status": "ok",
+          "queue": "payments",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.ApproximateReceiveCount": 2,
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "message.SentTimestamp": 1794852336914,
+           "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "orders-worker",
+          "consumer": "orders-worker",
+          "receiveCount": 2,
+          "call": "ReceiveMessage"
+         },
+         {
+          "key": "m-pay-2:e5",
+          "ms": 1794852337425,
+          "event": "dead_letter",
+          "status": "error",
+          "queue": "payments",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "Moved from payments to payments-dlq. SQS reported it on the receive from payments-dlq",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "sqs",
+          "consumer": "orders-worker",
+          "receiveCount": 3
+         },
+         {
+          "key": "m-pay-2:e6",
+          "ms": 1794852337425,
+          "event": "receive",
+          "status": "ok",
+          "queue": "payments-dlq",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "Received from the dead-letter queue",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.ApproximateReceiveCount": 3,
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "message.SentTimestamp": 1794852336914,
+           "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "orders-worker",
+          "consumer": "orders-worker",
+          "receiveCount": 3,
+          "call": "ReceiveMessage"
+         }
+        ],
+        "receiveCount": 3,
+        "state": "in_flight",
+        "lastReceiveMs": 1794852337425,
+        "untilMs": 1794852367425,
+        "leftS": 25,
+        "used": 0.17636666666666667,
+        "timeoutS": 30
+       }
+      ],
+      "capped": false,
+      "instrumented": {
+       "visible": 0,
+       "inFlight": 1
+      },
+      "totals": null,
+      "uninstrumented": null,
+      "notSeenOnDlq": [],
+      "seenOnDlq": 0,
+      "deleted": [],
+      "producers": [
+       {
+        "name": "checkout-api",
+        "n": 1
+       }
+      ]
+     }
+    },
+    {
+     "queue": "orders",
+     "nowMs": 1794855937716,
+     "maxReceiveCount": null,
+     "view": {
+      "nowMs": 1794855937716,
+      "config": {
+       "visibilityTimeoutS": null,
+       "retentionS": null,
+       "maxReceiveCount": null,
+       "dlq": null,
+       "arn": null,
+       "lambdaTimeoutS": 900,
+       "visibilityKnown": false
+      },
+      "held": [],
+      "capped": false,
+      "instrumented": {
+       "visible": 0,
+       "inFlight": 0
+      },
+      "totals": null,
+      "uninstrumented": null,
+      "notSeenOnDlq": [],
+      "seenOnDlq": 0,
+      "deleted": [],
+      "producers": []
+     }
+    },
+    {
+     "queue": "payments",
+     "nowMs": 1794855937716,
+     "maxReceiveCount": null,
+     "view": {
+      "nowMs": 1794855937716,
+      "config": {
+       "visibilityTimeoutS": null,
+       "retentionS": null,
+       "maxReceiveCount": null,
+       "dlq": null,
+       "arn": null,
+       "lambdaTimeoutS": 900,
+       "visibilityKnown": false
+      },
+      "held": [],
+      "capped": false,
+      "instrumented": {
+       "visible": 0,
+       "inFlight": 0
+      },
+      "totals": null,
+      "uninstrumented": null,
+      "notSeenOnDlq": [],
+      "seenOnDlq": 0,
+      "deleted": [],
+      "producers": []
+     }
+    },
+    {
+     "queue": "billing",
+     "nowMs": 1794855937716,
+     "maxReceiveCount": 3,
+     "view": {
+      "nowMs": 1794855937716,
+      "config": {
+       "visibilityTimeoutS": null,
+       "retentionS": null,
+       "maxReceiveCount": 3,
+       "dlq": null,
+       "arn": null,
+       "lambdaTimeoutS": 900,
+       "visibilityKnown": false
+      },
+      "held": [
+       {
+        "id": "m-bill-2",
+        "producer": "",
+        "consumer": "billing-fn",
+        "sentMs": 1794852337429,
+        "events": [
+         {
+          "key": "m-bill-2:e1",
+          "ms": 1794852337459,
+          "event": "receive",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-2",
+          "producer": "",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.ApproximateReceiveCount": 1,
+           "message.tenant": "globex",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 46,
+           "message.SentTimestamp": 1794852337429,
+           "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+           "batch.size": 2,
+           "batch.index": 1,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 1,
+          "waitMs": 30,
+          "call": "ReceiveMessage (Lambda trigger)"
+         },
+         {
+          "key": "m-bill-2:e2",
+          "ms": 1794852337462,
+          "event": "processing_error",
+          "status": "error",
+          "queue": "billing",
+          "messageId": "m-bill-2",
+          "producer": "",
+          "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.tenant": "globex",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 46,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 1,
+          "durationMs": 3
+         }
+        ],
+        "receiveCount": 1,
+        "state": "visible",
+        "lastReceiveMs": 1794852337459,
+        "untilMs": null,
+        "leftS": 0,
+        "used": 0,
+        "timeoutS": 30,
+        "lastError": "The handler threw: TypeError"
+       }
+      ],
+      "capped": false,
+      "instrumented": {
+       "visible": 1,
+       "inFlight": 0
+      },
+      "totals": null,
+      "uninstrumented": null,
+      "notSeenOnDlq": [
+       {
+        "id": "m-bill-1",
+        "producer": "",
+        "consumer": "billing-fn",
+        "sentMs": 1794852337429,
+        "events": [
+         {
+          "key": "m-bill-1:e1",
+          "ms": 1794852337459,
+          "event": "receive",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.ApproximateReceiveCount": 1,
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "message.SentTimestamp": 1794852337429,
+           "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+           "batch.size": 2,
+           "batch.index": 0,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 1,
+          "waitMs": 30,
+          "call": "ReceiveMessage (Lambda trigger)"
+         },
+         {
+          "key": "m-bill-1:e2",
+          "ms": 1794852337462,
+          "event": "processing_error",
+          "status": "error",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 1,
+          "durationMs": 3
+         },
+         {
+          "key": "m-bill-1:e3",
+          "ms": 1794852337493,
+          "event": "visibility_expired",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "Receive 1 was not deleted in time, so the message became visible again. Inferred from the next receive",
+          "source": "inferred",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "sqs",
+          "consumer": "billing-fn",
+          "receiveCount": 1
+         },
+         {
+          "key": "m-bill-1:e4",
+          "ms": 1794852337493,
+          "event": "receive",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.ApproximateReceiveCount": 2,
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "message.SentTimestamp": 1794852337429,
+           "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+           "batch.size": 1,
+           "batch.index": 0,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 2,
+          "call": "ReceiveMessage (Lambda trigger)"
+         },
+         {
+          "key": "m-bill-1:e5",
+          "ms": 1794852337495,
+          "event": "processing_error",
+          "status": "error",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "The handler threw: Error: Stripe timed out after 10000 ms",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 2,
+          "durationMs": 2
+         },
+         {
+          "key": "m-bill-1:e6",
+          "ms": 1794852337527,
+          "event": "visibility_expired",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "Receive 2 was not deleted in time, so the message became visible again. Inferred from the next receive",
+          "source": "inferred",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "sqs",
+          "consumer": "billing-fn",
+          "receiveCount": 2
+         },
+         {
+          "key": "m-bill-1:e7",
+          "ms": 1794852337527,
+          "event": "receive",
+          "status": "ok",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.ApproximateReceiveCount": 3,
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "message.SentTimestamp": 1794852337429,
+           "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+           "batch.size": 1,
+           "batch.index": 0,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 3,
+          "call": "ReceiveMessage (Lambda trigger)"
+         },
+         {
+          "key": "m-bill-1:e8",
+          "ms": 1794852337528,
+          "event": "processing_error",
+          "status": "error",
+          "queue": "billing",
+          "messageId": "m-bill-1",
+          "producer": "",
+          "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "acme",
+          "attrs": {
+           "message.tenant": "acme",
+           "message.tenantSource": "body_path",
+           "message.BodySize": 44,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "billing-fn",
+          "consumer": "billing-fn",
+          "receiveCount": 3,
+          "durationMs": 1
+         }
+        ],
+        "timedOutMs": 1794852367527,
+        "receiveCount": 3
+       }
+      ],
+      "seenOnDlq": 0,
+      "deleted": [],
+      "producers": [
+       {
+        "name": "No send observed",
+        "n": 1
+       }
+      ]
+     }
+    },
+    {
+     "queue": "orders.fifo",
+     "nowMs": 1794855937716,
+     "maxReceiveCount": null,
+     "view": {
+      "nowMs": 1794855937716,
+      "config": {
+       "visibilityTimeoutS": null,
+       "retentionS": null,
+       "maxReceiveCount": null,
+       "dlq": null,
+       "arn": null,
+       "lambdaTimeoutS": 900,
+       "visibilityKnown": false
+      },
+      "held": [],
+      "capped": false,
+      "instrumented": {
+       "visible": 0,
+       "inFlight": 0
+      },
+      "totals": null,
+      "uninstrumented": null,
+      "notSeenOnDlq": [],
+      "seenOnDlq": 0,
+      "deleted": [],
+      "producers": []
+     }
+    },
+    {
+     "queue": "payments-dlq",
+     "nowMs": 1794855937716,
+     "maxReceiveCount": null,
+     "view": {
+      "nowMs": 1794855937716,
+      "config": {
+       "visibilityTimeoutS": null,
+       "retentionS": null,
+       "maxReceiveCount": null,
+       "dlq": null,
+       "arn": null,
+       "lambdaTimeoutS": 900,
+       "visibilityKnown": false
+      },
+      "held": [
+       {
+        "id": "m-pay-2",
+        "producer": "checkout-api",
+        "consumer": "orders-worker",
+        "sentMs": 1794852336914,
+        "events": [
+         {
+          "key": "m-pay-2:e1",
+          "ms": 1794852336914,
+          "event": "send",
+          "status": "ok",
+          "queue": "payments",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "sizeBytes": 40,
+          "attrs": {
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "checkout-api",
+          "consumer": "orders-worker",
+          "call": "SendMessage"
+         },
+         {
+          "key": "m-pay-2:e2",
+          "ms": 1794852337344,
+          "event": "receive",
+          "status": "ok",
+          "queue": "payments",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.ApproximateReceiveCount": 1,
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "message.SentTimestamp": 1794852336914,
+           "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "orders-worker",
+          "consumer": "orders-worker",
+          "receiveCount": 1,
+          "waitMs": 430,
+          "call": "ReceiveMessage"
+         },
+         {
+          "key": "m-pay-2:e3",
+          "ms": 1794852337385,
+          "event": "visibility_expired",
+          "status": "ok",
+          "queue": "payments",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "Receive 1 was not deleted in time, so the message became visible again. Inferred from the next receive",
+          "source": "inferred",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "sqs",
+          "consumer": "orders-worker",
+          "receiveCount": 1
+         },
+         {
+          "key": "m-pay-2:e4",
+          "ms": 1794852337385,
+          "event": "receive",
+          "status": "ok",
+          "queue": "payments",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.ApproximateReceiveCount": 2,
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "message.SentTimestamp": 1794852336914,
+           "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "orders-worker",
+          "consumer": "orders-worker",
+          "receiveCount": 2,
+          "call": "ReceiveMessage"
+         },
+         {
+          "key": "m-pay-2:e5",
+          "ms": 1794852337425,
+          "event": "dead_letter",
+          "status": "error",
+          "queue": "payments",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "Moved from payments to payments-dlq. SQS reported it on the receive from payments-dlq",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "sqs",
+          "consumer": "orders-worker",
+          "receiveCount": 3
+         },
+         {
+          "key": "m-pay-2:e6",
+          "ms": 1794852337425,
+          "event": "receive",
+          "status": "ok",
+          "queue": "payments-dlq",
+          "messageId": "m-pay-2",
+          "producer": "checkout-api",
+          "detail": "Received from the dead-letter queue",
+          "source": "package",
+          "hasPage": true,
+          "live": true,
+          "tenant": "globex",
+          "attrs": {
+           "message.ApproximateReceiveCount": 3,
+           "message.tenant": "globex",
+           "message.tenantSource": "message_attribute",
+           "message.BodySize": 40,
+           "message.SentTimestamp": 1794852336914,
+           "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+           "queue.account": "123456789012",
+           "queue.region": "us-east-1"
+          },
+          "service": "orders-worker",
+          "consumer": "orders-worker",
+          "receiveCount": 3,
+          "call": "ReceiveMessage"
+         }
+        ],
+        "receiveCount": 3,
+        "state": "visible",
+        "lastReceiveMs": 1794852337425,
+        "untilMs": null,
+        "leftS": 0,
+        "used": 0,
+        "timeoutS": 30,
+        "lastError": "Inferred: receive 3 was not deleted before its visibility timeout ran out (no delete of it was stored; the timeout used is SQS's default 30 s, as the queue's setting was not read)"
+       }
+      ],
+      "capped": false,
+      "instrumented": {
+       "visible": 1,
+       "inFlight": 0
+      },
+      "totals": null,
+      "uninstrumented": null,
+      "notSeenOnDlq": [],
+      "seenOnDlq": 0,
+      "deleted": [],
+      "producers": [
+       {
+        "name": "checkout-api",
+        "n": 1
+       }
+      ]
+     }
+    }
+   ],
    "cause_messages": [
     {
      "message_id": "m-pay-2",
@@ -6771,6 +9427,2781 @@
      "count": 0,
      "example": "m-bill-1"
     }
+   }
+  ],
+  "now": [
+   {
+    "queue": "orders",
+    "nowMs": 1794852342716,
+    "view": {
+     "nowMs": 1794852342716,
+     "config": {
+      "visibilityTimeoutS": null,
+      "retentionS": null,
+      "maxReceiveCount": null,
+      "dlq": null,
+      "arn": null,
+      "lambdaTimeoutS": 900,
+      "visibilityKnown": false
+     },
+     "held": [],
+     "capped": false,
+     "instrumented": {
+      "visible": 0,
+      "inFlight": 0
+     },
+     "totals": null,
+     "uninstrumented": null,
+     "notSeenOnDlq": [],
+     "seenOnDlq": 0,
+     "deleted": [
+      {
+       "id": "m-orders-1",
+       "atMs": 1794852337041
+      },
+      {
+       "id": "m-orphan",
+       "atMs": 1794852337042
+      },
+      {
+       "id": "m-orders-2",
+       "atMs": 1794852337042
+      },
+      {
+       "id": "m-legacy",
+       "atMs": 1794852337716
+      }
+     ],
+     "producers": []
+    },
+    "ticked": [
+     [],
+     []
+    ]
+   },
+   {
+    "queue": "payments",
+    "nowMs": 1794852342716,
+    "view": {
+     "nowMs": 1794852342716,
+     "config": {
+      "visibilityTimeoutS": null,
+      "retentionS": null,
+      "maxReceiveCount": null,
+      "dlq": null,
+      "arn": null,
+      "lambdaTimeoutS": 900,
+      "visibilityKnown": false
+     },
+     "held": [],
+     "capped": false,
+     "instrumented": {
+      "visible": 0,
+      "inFlight": 0
+     },
+     "totals": null,
+     "uninstrumented": null,
+     "notSeenOnDlq": [],
+     "seenOnDlq": 1,
+     "deleted": [
+      {
+       "id": "m-pay-1",
+       "atMs": 1794852337344
+      }
+     ],
+     "producers": []
+    },
+    "ticked": [
+     [],
+     []
+    ]
+   },
+   {
+    "queue": "billing",
+    "nowMs": 1794852342716,
+    "view": {
+     "nowMs": 1794852342716,
+     "config": {
+      "visibilityTimeoutS": null,
+      "retentionS": null,
+      "maxReceiveCount": 3,
+      "dlq": null,
+      "arn": null,
+      "lambdaTimeoutS": 900,
+      "visibilityKnown": false
+     },
+     "held": [
+      {
+       "id": "m-bill-1",
+       "producer": "",
+       "consumer": "billing-fn",
+       "sentMs": 1794852337429,
+       "events": [
+        {
+         "key": "m-bill-1:e1",
+         "ms": 1794852337459,
+         "event": "receive",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.ApproximateReceiveCount": 1,
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "message.SentTimestamp": 1794852337429,
+          "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+          "batch.size": 2,
+          "batch.index": 0,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 1,
+         "waitMs": 30,
+         "call": "ReceiveMessage (Lambda trigger)"
+        },
+        {
+         "key": "m-bill-1:e2",
+         "ms": 1794852337462,
+         "event": "processing_error",
+         "status": "error",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 1,
+         "durationMs": 3
+        },
+        {
+         "key": "m-bill-1:e3",
+         "ms": 1794852337493,
+         "event": "visibility_expired",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "Receive 1 was not deleted in time, so the message became visible again. Inferred from the next receive",
+         "source": "inferred",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "sqs",
+         "consumer": "billing-fn",
+         "receiveCount": 1
+        },
+        {
+         "key": "m-bill-1:e4",
+         "ms": 1794852337493,
+         "event": "receive",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.ApproximateReceiveCount": 2,
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "message.SentTimestamp": 1794852337429,
+          "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+          "batch.size": 1,
+          "batch.index": 0,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 2,
+         "call": "ReceiveMessage (Lambda trigger)"
+        },
+        {
+         "key": "m-bill-1:e5",
+         "ms": 1794852337495,
+         "event": "processing_error",
+         "status": "error",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "The handler threw: Error: Stripe timed out after 10000 ms",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 2,
+         "durationMs": 2
+        },
+        {
+         "key": "m-bill-1:e6",
+         "ms": 1794852337527,
+         "event": "visibility_expired",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "Receive 2 was not deleted in time, so the message became visible again. Inferred from the next receive",
+         "source": "inferred",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "sqs",
+         "consumer": "billing-fn",
+         "receiveCount": 2
+        },
+        {
+         "key": "m-bill-1:e7",
+         "ms": 1794852337527,
+         "event": "receive",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.ApproximateReceiveCount": 3,
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "message.SentTimestamp": 1794852337429,
+          "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+          "batch.size": 1,
+          "batch.index": 0,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 3,
+         "call": "ReceiveMessage (Lambda trigger)"
+        },
+        {
+         "key": "m-bill-1:e8",
+         "ms": 1794852337528,
+         "event": "processing_error",
+         "status": "error",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 3,
+         "durationMs": 1
+        }
+       ],
+       "receiveCount": 3,
+       "state": "in_flight",
+       "lastReceiveMs": 1794852337527,
+       "untilMs": 1794852367527,
+       "leftS": 25,
+       "used": 0.17296666666666666,
+       "timeoutS": 30,
+       "lastError": "The handler threw: TypeError"
+      },
+      {
+       "id": "m-bill-2",
+       "producer": "",
+       "consumer": "billing-fn",
+       "sentMs": 1794852337429,
+       "events": [
+        {
+         "key": "m-bill-2:e1",
+         "ms": 1794852337459,
+         "event": "receive",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-2",
+         "producer": "",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 1,
+          "message.tenant": "globex",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 46,
+          "message.SentTimestamp": 1794852337429,
+          "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+          "batch.size": 2,
+          "batch.index": 1,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 1,
+         "waitMs": 30,
+         "call": "ReceiveMessage (Lambda trigger)"
+        },
+        {
+         "key": "m-bill-2:e2",
+         "ms": 1794852337462,
+         "event": "processing_error",
+         "status": "error",
+         "queue": "billing",
+         "messageId": "m-bill-2",
+         "producer": "",
+         "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 46,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 1,
+         "durationMs": 3
+        }
+       ],
+       "receiveCount": 1,
+       "state": "in_flight",
+       "lastReceiveMs": 1794852337459,
+       "untilMs": 1794852367459,
+       "leftS": 25,
+       "used": 0.17523333333333332,
+       "timeoutS": 30,
+       "lastError": "The handler threw: TypeError"
+      }
+     ],
+     "capped": false,
+     "instrumented": {
+      "visible": 0,
+      "inFlight": 2
+     },
+     "totals": null,
+     "uninstrumented": null,
+     "notSeenOnDlq": [],
+     "seenOnDlq": 0,
+     "deleted": [],
+     "producers": [
+      {
+       "name": "No send observed",
+       "n": 2
+      }
+     ]
+    },
+    "ticked": [
+     [
+      {
+       "id": "m-bill-1",
+       "producer": "",
+       "consumer": "billing-fn",
+       "sentMs": 1794852337429,
+       "events": [
+        {
+         "key": "m-bill-1:e1",
+         "ms": 1794852337459,
+         "event": "receive",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.ApproximateReceiveCount": 1,
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "message.SentTimestamp": 1794852337429,
+          "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+          "batch.size": 2,
+          "batch.index": 0,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 1,
+         "waitMs": 30,
+         "call": "ReceiveMessage (Lambda trigger)"
+        },
+        {
+         "key": "m-bill-1:e2",
+         "ms": 1794852337462,
+         "event": "processing_error",
+         "status": "error",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 1,
+         "durationMs": 3
+        },
+        {
+         "key": "m-bill-1:e3",
+         "ms": 1794852337493,
+         "event": "visibility_expired",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "Receive 1 was not deleted in time, so the message became visible again. Inferred from the next receive",
+         "source": "inferred",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "sqs",
+         "consumer": "billing-fn",
+         "receiveCount": 1
+        },
+        {
+         "key": "m-bill-1:e4",
+         "ms": 1794852337493,
+         "event": "receive",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.ApproximateReceiveCount": 2,
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "message.SentTimestamp": 1794852337429,
+          "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+          "batch.size": 1,
+          "batch.index": 0,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 2,
+         "call": "ReceiveMessage (Lambda trigger)"
+        },
+        {
+         "key": "m-bill-1:e5",
+         "ms": 1794852337495,
+         "event": "processing_error",
+         "status": "error",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "The handler threw: Error: Stripe timed out after 10000 ms",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 2,
+         "durationMs": 2
+        },
+        {
+         "key": "m-bill-1:e6",
+         "ms": 1794852337527,
+         "event": "visibility_expired",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "Receive 2 was not deleted in time, so the message became visible again. Inferred from the next receive",
+         "source": "inferred",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "sqs",
+         "consumer": "billing-fn",
+         "receiveCount": 2
+        },
+        {
+         "key": "m-bill-1:e7",
+         "ms": 1794852337527,
+         "event": "receive",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.ApproximateReceiveCount": 3,
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "message.SentTimestamp": 1794852337429,
+          "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+          "batch.size": 1,
+          "batch.index": 0,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 3,
+         "call": "ReceiveMessage (Lambda trigger)"
+        },
+        {
+         "key": "m-bill-1:e8",
+         "ms": 1794852337528,
+         "event": "processing_error",
+         "status": "error",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 3,
+         "durationMs": 1
+        }
+       ],
+       "receiveCount": 3,
+       "state": "in_flight",
+       "lastReceiveMs": 1794852337527,
+       "untilMs": 1794852367527,
+       "leftS": 15,
+       "used": 0.5063,
+       "timeoutS": 30,
+       "lastError": "The handler threw: TypeError"
+      },
+      {
+       "id": "m-bill-2",
+       "producer": "",
+       "consumer": "billing-fn",
+       "sentMs": 1794852337429,
+       "events": [
+        {
+         "key": "m-bill-2:e1",
+         "ms": 1794852337459,
+         "event": "receive",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-2",
+         "producer": "",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 1,
+          "message.tenant": "globex",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 46,
+          "message.SentTimestamp": 1794852337429,
+          "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+          "batch.size": 2,
+          "batch.index": 1,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 1,
+         "waitMs": 30,
+         "call": "ReceiveMessage (Lambda trigger)"
+        },
+        {
+         "key": "m-bill-2:e2",
+         "ms": 1794852337462,
+         "event": "processing_error",
+         "status": "error",
+         "queue": "billing",
+         "messageId": "m-bill-2",
+         "producer": "",
+         "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 46,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 1,
+         "durationMs": 3
+        }
+       ],
+       "receiveCount": 1,
+       "state": "in_flight",
+       "lastReceiveMs": 1794852337459,
+       "untilMs": 1794852367459,
+       "leftS": 15,
+       "used": 0.5085666666666666,
+       "timeoutS": 30,
+       "lastError": "The handler threw: TypeError"
+      }
+     ],
+     [
+      {
+       "id": "m-bill-1",
+       "producer": "",
+       "consumer": "billing-fn",
+       "sentMs": 1794852337429,
+       "events": [
+        {
+         "key": "m-bill-1:e1",
+         "ms": 1794852337459,
+         "event": "receive",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.ApproximateReceiveCount": 1,
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "message.SentTimestamp": 1794852337429,
+          "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+          "batch.size": 2,
+          "batch.index": 0,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 1,
+         "waitMs": 30,
+         "call": "ReceiveMessage (Lambda trigger)"
+        },
+        {
+         "key": "m-bill-1:e2",
+         "ms": 1794852337462,
+         "event": "processing_error",
+         "status": "error",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 1,
+         "durationMs": 3
+        },
+        {
+         "key": "m-bill-1:e3",
+         "ms": 1794852337493,
+         "event": "visibility_expired",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "Receive 1 was not deleted in time, so the message became visible again. Inferred from the next receive",
+         "source": "inferred",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "sqs",
+         "consumer": "billing-fn",
+         "receiveCount": 1
+        },
+        {
+         "key": "m-bill-1:e4",
+         "ms": 1794852337493,
+         "event": "receive",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.ApproximateReceiveCount": 2,
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "message.SentTimestamp": 1794852337429,
+          "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+          "batch.size": 1,
+          "batch.index": 0,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 2,
+         "call": "ReceiveMessage (Lambda trigger)"
+        },
+        {
+         "key": "m-bill-1:e5",
+         "ms": 1794852337495,
+         "event": "processing_error",
+         "status": "error",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "The handler threw: Error: Stripe timed out after 10000 ms",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 2,
+         "durationMs": 2
+        },
+        {
+         "key": "m-bill-1:e6",
+         "ms": 1794852337527,
+         "event": "visibility_expired",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "Receive 2 was not deleted in time, so the message became visible again. Inferred from the next receive",
+         "source": "inferred",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "sqs",
+         "consumer": "billing-fn",
+         "receiveCount": 2
+        },
+        {
+         "key": "m-bill-1:e7",
+         "ms": 1794852337527,
+         "event": "receive",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.ApproximateReceiveCount": 3,
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "message.SentTimestamp": 1794852337429,
+          "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+          "batch.size": 1,
+          "batch.index": 0,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 3,
+         "call": "ReceiveMessage (Lambda trigger)"
+        },
+        {
+         "key": "m-bill-1:e8",
+         "ms": 1794852337528,
+         "event": "processing_error",
+         "status": "error",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 3,
+         "durationMs": 1
+        }
+       ],
+       "receiveCount": 3,
+       "state": "in_flight",
+       "lastReceiveMs": 1794852337527,
+       "untilMs": 1794852367527,
+       "leftS": 25,
+       "used": 0.17296666666666666,
+       "timeoutS": 30,
+       "lastError": "Inferred: receive count 3 reached maxReceiveCount 3, so SQS moves it on the next receive attempt; not seen on the DLQ yet",
+       "left": true
+      },
+      {
+       "id": "m-bill-2",
+       "producer": "",
+       "consumer": "billing-fn",
+       "sentMs": 1794852337429,
+       "events": [
+        {
+         "key": "m-bill-2:e1",
+         "ms": 1794852337459,
+         "event": "receive",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-2",
+         "producer": "",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 1,
+          "message.tenant": "globex",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 46,
+          "message.SentTimestamp": 1794852337429,
+          "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+          "batch.size": 2,
+          "batch.index": 1,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 1,
+         "waitMs": 30,
+         "call": "ReceiveMessage (Lambda trigger)"
+        },
+        {
+         "key": "m-bill-2:e2",
+         "ms": 1794852337462,
+         "event": "processing_error",
+         "status": "error",
+         "queue": "billing",
+         "messageId": "m-bill-2",
+         "producer": "",
+         "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 46,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 1,
+         "durationMs": 3
+        }
+       ],
+       "receiveCount": 1,
+       "state": "visible",
+       "lastReceiveMs": 1794852337459,
+       "untilMs": 1794852367459,
+       "leftS": 0,
+       "used": 0,
+       "timeoutS": 30,
+       "lastError": "The handler threw: TypeError"
+      }
+     ]
+    ]
+   },
+   {
+    "queue": "orders.fifo",
+    "nowMs": 1794852342716,
+    "view": {
+     "nowMs": 1794852342716,
+     "config": {
+      "visibilityTimeoutS": null,
+      "retentionS": null,
+      "maxReceiveCount": null,
+      "dlq": null,
+      "arn": null,
+      "lambdaTimeoutS": 900,
+      "visibilityKnown": false
+     },
+     "held": [],
+     "capped": false,
+     "instrumented": {
+      "visible": 0,
+      "inFlight": 0
+     },
+     "totals": null,
+     "uninstrumented": null,
+     "notSeenOnDlq": [],
+     "seenOnDlq": 0,
+     "deleted": [
+      {
+       "id": "m-fifo-1",
+       "atMs": 1794852337427
+      },
+      {
+       "id": "m-fifo-2",
+       "atMs": 1794852337427
+      }
+     ],
+     "producers": []
+    },
+    "ticked": [
+     [],
+     []
+    ]
+   },
+   {
+    "queue": "payments-dlq",
+    "nowMs": 1794852342716,
+    "view": {
+     "nowMs": 1794852342716,
+     "config": {
+      "visibilityTimeoutS": null,
+      "retentionS": null,
+      "maxReceiveCount": null,
+      "dlq": null,
+      "arn": null,
+      "lambdaTimeoutS": 900,
+      "visibilityKnown": false
+     },
+     "held": [
+      {
+       "id": "m-pay-2",
+       "producer": "checkout-api",
+       "consumer": "orders-worker",
+       "sentMs": 1794852336914,
+       "events": [
+        {
+         "key": "m-pay-2:e1",
+         "ms": 1794852336914,
+         "event": "send",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "sizeBytes": 40,
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "checkout-api",
+         "consumer": "orders-worker",
+         "call": "SendMessage"
+        },
+        {
+         "key": "m-pay-2:e2",
+         "ms": 1794852337344,
+         "event": "receive",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 1,
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "message.SentTimestamp": 1794852336914,
+          "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "orders-worker",
+         "consumer": "orders-worker",
+         "receiveCount": 1,
+         "waitMs": 430,
+         "call": "ReceiveMessage"
+        },
+        {
+         "key": "m-pay-2:e3",
+         "ms": 1794852337385,
+         "event": "visibility_expired",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "Receive 1 was not deleted in time, so the message became visible again. Inferred from the next receive",
+         "source": "inferred",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "sqs",
+         "consumer": "orders-worker",
+         "receiveCount": 1
+        },
+        {
+         "key": "m-pay-2:e4",
+         "ms": 1794852337385,
+         "event": "receive",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 2,
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "message.SentTimestamp": 1794852336914,
+          "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "orders-worker",
+         "consumer": "orders-worker",
+         "receiveCount": 2,
+         "call": "ReceiveMessage"
+        },
+        {
+         "key": "m-pay-2:e5",
+         "ms": 1794852337425,
+         "event": "dead_letter",
+         "status": "error",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "Moved from payments to payments-dlq. SQS reported it on the receive from payments-dlq",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "sqs",
+         "consumer": "orders-worker",
+         "receiveCount": 3
+        },
+        {
+         "key": "m-pay-2:e6",
+         "ms": 1794852337425,
+         "event": "receive",
+         "status": "ok",
+         "queue": "payments-dlq",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "Received from the dead-letter queue",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 3,
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "message.SentTimestamp": 1794852336914,
+          "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "orders-worker",
+         "consumer": "orders-worker",
+         "receiveCount": 3,
+         "call": "ReceiveMessage"
+        }
+       ],
+       "receiveCount": 3,
+       "state": "in_flight",
+       "lastReceiveMs": 1794852337425,
+       "untilMs": 1794852367425,
+       "leftS": 25,
+       "used": 0.17636666666666667,
+       "timeoutS": 30
+      }
+     ],
+     "capped": false,
+     "instrumented": {
+      "visible": 0,
+      "inFlight": 1
+     },
+     "totals": null,
+     "uninstrumented": null,
+     "notSeenOnDlq": [],
+     "seenOnDlq": 0,
+     "deleted": [],
+     "producers": [
+      {
+       "name": "checkout-api",
+       "n": 1
+      }
+     ]
+    },
+    "ticked": [
+     [
+      {
+       "id": "m-pay-2",
+       "producer": "checkout-api",
+       "consumer": "orders-worker",
+       "sentMs": 1794852336914,
+       "events": [
+        {
+         "key": "m-pay-2:e1",
+         "ms": 1794852336914,
+         "event": "send",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "sizeBytes": 40,
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "checkout-api",
+         "consumer": "orders-worker",
+         "call": "SendMessage"
+        },
+        {
+         "key": "m-pay-2:e2",
+         "ms": 1794852337344,
+         "event": "receive",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 1,
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "message.SentTimestamp": 1794852336914,
+          "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "orders-worker",
+         "consumer": "orders-worker",
+         "receiveCount": 1,
+         "waitMs": 430,
+         "call": "ReceiveMessage"
+        },
+        {
+         "key": "m-pay-2:e3",
+         "ms": 1794852337385,
+         "event": "visibility_expired",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "Receive 1 was not deleted in time, so the message became visible again. Inferred from the next receive",
+         "source": "inferred",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "sqs",
+         "consumer": "orders-worker",
+         "receiveCount": 1
+        },
+        {
+         "key": "m-pay-2:e4",
+         "ms": 1794852337385,
+         "event": "receive",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 2,
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "message.SentTimestamp": 1794852336914,
+          "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "orders-worker",
+         "consumer": "orders-worker",
+         "receiveCount": 2,
+         "call": "ReceiveMessage"
+        },
+        {
+         "key": "m-pay-2:e5",
+         "ms": 1794852337425,
+         "event": "dead_letter",
+         "status": "error",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "Moved from payments to payments-dlq. SQS reported it on the receive from payments-dlq",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "sqs",
+         "consumer": "orders-worker",
+         "receiveCount": 3
+        },
+        {
+         "key": "m-pay-2:e6",
+         "ms": 1794852337425,
+         "event": "receive",
+         "status": "ok",
+         "queue": "payments-dlq",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "Received from the dead-letter queue",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 3,
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "message.SentTimestamp": 1794852336914,
+          "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "orders-worker",
+         "consumer": "orders-worker",
+         "receiveCount": 3,
+         "call": "ReceiveMessage"
+        }
+       ],
+       "receiveCount": 3,
+       "state": "in_flight",
+       "lastReceiveMs": 1794852337425,
+       "untilMs": 1794852367425,
+       "leftS": 15,
+       "used": 0.5097,
+       "timeoutS": 30
+      }
+     ],
+     [
+      {
+       "id": "m-pay-2",
+       "producer": "checkout-api",
+       "consumer": "orders-worker",
+       "sentMs": 1794852336914,
+       "events": [
+        {
+         "key": "m-pay-2:e1",
+         "ms": 1794852336914,
+         "event": "send",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "sizeBytes": 40,
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "checkout-api",
+         "consumer": "orders-worker",
+         "call": "SendMessage"
+        },
+        {
+         "key": "m-pay-2:e2",
+         "ms": 1794852337344,
+         "event": "receive",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 1,
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "message.SentTimestamp": 1794852336914,
+          "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "orders-worker",
+         "consumer": "orders-worker",
+         "receiveCount": 1,
+         "waitMs": 430,
+         "call": "ReceiveMessage"
+        },
+        {
+         "key": "m-pay-2:e3",
+         "ms": 1794852337385,
+         "event": "visibility_expired",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "Receive 1 was not deleted in time, so the message became visible again. Inferred from the next receive",
+         "source": "inferred",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "sqs",
+         "consumer": "orders-worker",
+         "receiveCount": 1
+        },
+        {
+         "key": "m-pay-2:e4",
+         "ms": 1794852337385,
+         "event": "receive",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 2,
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "message.SentTimestamp": 1794852336914,
+          "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "orders-worker",
+         "consumer": "orders-worker",
+         "receiveCount": 2,
+         "call": "ReceiveMessage"
+        },
+        {
+         "key": "m-pay-2:e5",
+         "ms": 1794852337425,
+         "event": "dead_letter",
+         "status": "error",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "Moved from payments to payments-dlq. SQS reported it on the receive from payments-dlq",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "sqs",
+         "consumer": "orders-worker",
+         "receiveCount": 3
+        },
+        {
+         "key": "m-pay-2:e6",
+         "ms": 1794852337425,
+         "event": "receive",
+         "status": "ok",
+         "queue": "payments-dlq",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "Received from the dead-letter queue",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 3,
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "message.SentTimestamp": 1794852336914,
+          "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "orders-worker",
+         "consumer": "orders-worker",
+         "receiveCount": 3,
+         "call": "ReceiveMessage"
+        }
+       ],
+       "receiveCount": 3,
+       "state": "visible",
+       "lastReceiveMs": 1794852337425,
+       "untilMs": 1794852367425,
+       "leftS": 0,
+       "used": 0,
+       "timeoutS": 30,
+       "lastError": "Inferred: receive 3 was not deleted before its visibility timeout ran out (its timeout ran out on this page's clock, and no delete has reached the page; one may still arrive; the timeout used is SQS's default 30 s, as the queue's setting was not read)"
+      }
+     ]
+    ]
+   },
+   {
+    "queue": "orders",
+    "nowMs": 1794855937716,
+    "view": {
+     "nowMs": 1794855937716,
+     "config": {
+      "visibilityTimeoutS": null,
+      "retentionS": null,
+      "maxReceiveCount": null,
+      "dlq": null,
+      "arn": null,
+      "lambdaTimeoutS": 900,
+      "visibilityKnown": false
+     },
+     "held": [],
+     "capped": false,
+     "instrumented": {
+      "visible": 0,
+      "inFlight": 0
+     },
+     "totals": null,
+     "uninstrumented": null,
+     "notSeenOnDlq": [],
+     "seenOnDlq": 0,
+     "deleted": [],
+     "producers": []
+    },
+    "ticked": [
+     [],
+     []
+    ]
+   },
+   {
+    "queue": "payments",
+    "nowMs": 1794855937716,
+    "view": {
+     "nowMs": 1794855937716,
+     "config": {
+      "visibilityTimeoutS": null,
+      "retentionS": null,
+      "maxReceiveCount": null,
+      "dlq": null,
+      "arn": null,
+      "lambdaTimeoutS": 900,
+      "visibilityKnown": false
+     },
+     "held": [],
+     "capped": false,
+     "instrumented": {
+      "visible": 0,
+      "inFlight": 0
+     },
+     "totals": null,
+     "uninstrumented": null,
+     "notSeenOnDlq": [],
+     "seenOnDlq": 0,
+     "deleted": [],
+     "producers": []
+    },
+    "ticked": [
+     [],
+     []
+    ]
+   },
+   {
+    "queue": "billing",
+    "nowMs": 1794855937716,
+    "view": {
+     "nowMs": 1794855937716,
+     "config": {
+      "visibilityTimeoutS": null,
+      "retentionS": null,
+      "maxReceiveCount": 3,
+      "dlq": null,
+      "arn": null,
+      "lambdaTimeoutS": 900,
+      "visibilityKnown": false
+     },
+     "held": [
+      {
+       "id": "m-bill-2",
+       "producer": "",
+       "consumer": "billing-fn",
+       "sentMs": 1794852337429,
+       "events": [
+        {
+         "key": "m-bill-2:e1",
+         "ms": 1794852337459,
+         "event": "receive",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-2",
+         "producer": "",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 1,
+          "message.tenant": "globex",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 46,
+          "message.SentTimestamp": 1794852337429,
+          "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+          "batch.size": 2,
+          "batch.index": 1,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 1,
+         "waitMs": 30,
+         "call": "ReceiveMessage (Lambda trigger)"
+        },
+        {
+         "key": "m-bill-2:e2",
+         "ms": 1794852337462,
+         "event": "processing_error",
+         "status": "error",
+         "queue": "billing",
+         "messageId": "m-bill-2",
+         "producer": "",
+         "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 46,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 1,
+         "durationMs": 3
+        }
+       ],
+       "receiveCount": 1,
+       "state": "visible",
+       "lastReceiveMs": 1794852337459,
+       "untilMs": null,
+       "leftS": 0,
+       "used": 0,
+       "timeoutS": 30,
+       "lastError": "The handler threw: TypeError"
+      }
+     ],
+     "capped": false,
+     "instrumented": {
+      "visible": 1,
+      "inFlight": 0
+     },
+     "totals": null,
+     "uninstrumented": null,
+     "notSeenOnDlq": [
+      {
+       "id": "m-bill-1",
+       "producer": "",
+       "consumer": "billing-fn",
+       "sentMs": 1794852337429,
+       "events": [
+        {
+         "key": "m-bill-1:e1",
+         "ms": 1794852337459,
+         "event": "receive",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.ApproximateReceiveCount": 1,
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "message.SentTimestamp": 1794852337429,
+          "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+          "batch.size": 2,
+          "batch.index": 0,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 1,
+         "waitMs": 30,
+         "call": "ReceiveMessage (Lambda trigger)"
+        },
+        {
+         "key": "m-bill-1:e2",
+         "ms": 1794852337462,
+         "event": "processing_error",
+         "status": "error",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 1,
+         "durationMs": 3
+        },
+        {
+         "key": "m-bill-1:e3",
+         "ms": 1794852337493,
+         "event": "visibility_expired",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "Receive 1 was not deleted in time, so the message became visible again. Inferred from the next receive",
+         "source": "inferred",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "sqs",
+         "consumer": "billing-fn",
+         "receiveCount": 1
+        },
+        {
+         "key": "m-bill-1:e4",
+         "ms": 1794852337493,
+         "event": "receive",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.ApproximateReceiveCount": 2,
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "message.SentTimestamp": 1794852337429,
+          "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+          "batch.size": 1,
+          "batch.index": 0,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 2,
+         "call": "ReceiveMessage (Lambda trigger)"
+        },
+        {
+         "key": "m-bill-1:e5",
+         "ms": 1794852337495,
+         "event": "processing_error",
+         "status": "error",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "The handler threw: Error: Stripe timed out after 10000 ms",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 2,
+         "durationMs": 2
+        },
+        {
+         "key": "m-bill-1:e6",
+         "ms": 1794852337527,
+         "event": "visibility_expired",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "Receive 2 was not deleted in time, so the message became visible again. Inferred from the next receive",
+         "source": "inferred",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "sqs",
+         "consumer": "billing-fn",
+         "receiveCount": 2
+        },
+        {
+         "key": "m-bill-1:e7",
+         "ms": 1794852337527,
+         "event": "receive",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.ApproximateReceiveCount": 3,
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "message.SentTimestamp": 1794852337429,
+          "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+          "batch.size": 1,
+          "batch.index": 0,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 3,
+         "call": "ReceiveMessage (Lambda trigger)"
+        },
+        {
+         "key": "m-bill-1:e8",
+         "ms": 1794852337528,
+         "event": "processing_error",
+         "status": "error",
+         "queue": "billing",
+         "messageId": "m-bill-1",
+         "producer": "",
+         "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "acme",
+         "attrs": {
+          "message.tenant": "acme",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 44,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 3,
+         "durationMs": 1
+        }
+       ],
+       "timedOutMs": 1794852367527,
+       "receiveCount": 3
+      }
+     ],
+     "seenOnDlq": 0,
+     "deleted": [],
+     "producers": [
+      {
+       "name": "No send observed",
+       "n": 1
+      }
+     ]
+    },
+    "ticked": [
+     [
+      {
+       "id": "m-bill-2",
+       "producer": "",
+       "consumer": "billing-fn",
+       "sentMs": 1794852337429,
+       "events": [
+        {
+         "key": "m-bill-2:e1",
+         "ms": 1794852337459,
+         "event": "receive",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-2",
+         "producer": "",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 1,
+          "message.tenant": "globex",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 46,
+          "message.SentTimestamp": 1794852337429,
+          "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+          "batch.size": 2,
+          "batch.index": 1,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 1,
+         "waitMs": 30,
+         "call": "ReceiveMessage (Lambda trigger)"
+        },
+        {
+         "key": "m-bill-2:e2",
+         "ms": 1794852337462,
+         "event": "processing_error",
+         "status": "error",
+         "queue": "billing",
+         "messageId": "m-bill-2",
+         "producer": "",
+         "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 46,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 1,
+         "durationMs": 3
+        }
+       ],
+       "receiveCount": 1,
+       "state": "visible",
+       "lastReceiveMs": 1794852337459,
+       "untilMs": null,
+       "leftS": 0,
+       "used": 0,
+       "timeoutS": 30,
+       "lastError": "The handler threw: TypeError"
+      }
+     ],
+     [
+      {
+       "id": "m-bill-2",
+       "producer": "",
+       "consumer": "billing-fn",
+       "sentMs": 1794852337429,
+       "events": [
+        {
+         "key": "m-bill-2:e1",
+         "ms": 1794852337459,
+         "event": "receive",
+         "status": "ok",
+         "queue": "billing",
+         "messageId": "m-bill-2",
+         "producer": "",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 1,
+          "message.tenant": "globex",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 46,
+          "message.SentTimestamp": 1794852337429,
+          "message.ApproximateFirstReceiveTimestamp": 1794852337434,
+          "batch.size": 2,
+          "batch.index": 1,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 1,
+         "waitMs": 30,
+         "call": "ReceiveMessage (Lambda trigger)"
+        },
+        {
+         "key": "m-bill-2:e2",
+         "ms": 1794852337462,
+         "event": "processing_error",
+         "status": "error",
+         "queue": "billing",
+         "messageId": "m-bill-2",
+         "producer": "",
+         "detail": "The handler threw: TypeError: card declined for [REDACTED]",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "body_path",
+          "message.BodySize": 46,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "billing-fn",
+         "consumer": "billing-fn",
+         "receiveCount": 1,
+         "durationMs": 3
+        }
+       ],
+       "receiveCount": 1,
+       "state": "visible",
+       "lastReceiveMs": 1794852337459,
+       "untilMs": null,
+       "leftS": 0,
+       "used": 0,
+       "timeoutS": 30,
+       "lastError": "The handler threw: TypeError"
+      }
+     ]
+    ]
+   },
+   {
+    "queue": "orders.fifo",
+    "nowMs": 1794855937716,
+    "view": {
+     "nowMs": 1794855937716,
+     "config": {
+      "visibilityTimeoutS": null,
+      "retentionS": null,
+      "maxReceiveCount": null,
+      "dlq": null,
+      "arn": null,
+      "lambdaTimeoutS": 900,
+      "visibilityKnown": false
+     },
+     "held": [],
+     "capped": false,
+     "instrumented": {
+      "visible": 0,
+      "inFlight": 0
+     },
+     "totals": null,
+     "uninstrumented": null,
+     "notSeenOnDlq": [],
+     "seenOnDlq": 0,
+     "deleted": [],
+     "producers": []
+    },
+    "ticked": [
+     [],
+     []
+    ]
+   },
+   {
+    "queue": "payments-dlq",
+    "nowMs": 1794855937716,
+    "view": {
+     "nowMs": 1794855937716,
+     "config": {
+      "visibilityTimeoutS": null,
+      "retentionS": null,
+      "maxReceiveCount": null,
+      "dlq": null,
+      "arn": null,
+      "lambdaTimeoutS": 900,
+      "visibilityKnown": false
+     },
+     "held": [
+      {
+       "id": "m-pay-2",
+       "producer": "checkout-api",
+       "consumer": "orders-worker",
+       "sentMs": 1794852336914,
+       "events": [
+        {
+         "key": "m-pay-2:e1",
+         "ms": 1794852336914,
+         "event": "send",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "sizeBytes": 40,
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "checkout-api",
+         "consumer": "orders-worker",
+         "call": "SendMessage"
+        },
+        {
+         "key": "m-pay-2:e2",
+         "ms": 1794852337344,
+         "event": "receive",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 1,
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "message.SentTimestamp": 1794852336914,
+          "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "orders-worker",
+         "consumer": "orders-worker",
+         "receiveCount": 1,
+         "waitMs": 430,
+         "call": "ReceiveMessage"
+        },
+        {
+         "key": "m-pay-2:e3",
+         "ms": 1794852337385,
+         "event": "visibility_expired",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "Receive 1 was not deleted in time, so the message became visible again. Inferred from the next receive",
+         "source": "inferred",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "sqs",
+         "consumer": "orders-worker",
+         "receiveCount": 1
+        },
+        {
+         "key": "m-pay-2:e4",
+         "ms": 1794852337385,
+         "event": "receive",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 2,
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "message.SentTimestamp": 1794852336914,
+          "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "orders-worker",
+         "consumer": "orders-worker",
+         "receiveCount": 2,
+         "call": "ReceiveMessage"
+        },
+        {
+         "key": "m-pay-2:e5",
+         "ms": 1794852337425,
+         "event": "dead_letter",
+         "status": "error",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "Moved from payments to payments-dlq. SQS reported it on the receive from payments-dlq",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "sqs",
+         "consumer": "orders-worker",
+         "receiveCount": 3
+        },
+        {
+         "key": "m-pay-2:e6",
+         "ms": 1794852337425,
+         "event": "receive",
+         "status": "ok",
+         "queue": "payments-dlq",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "Received from the dead-letter queue",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 3,
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "message.SentTimestamp": 1794852336914,
+          "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "orders-worker",
+         "consumer": "orders-worker",
+         "receiveCount": 3,
+         "call": "ReceiveMessage"
+        }
+       ],
+       "receiveCount": 3,
+       "state": "visible",
+       "lastReceiveMs": 1794852337425,
+       "untilMs": null,
+       "leftS": 0,
+       "used": 0,
+       "timeoutS": 30,
+       "lastError": "Inferred: receive 3 was not deleted before its visibility timeout ran out (no delete of it was stored; the timeout used is SQS's default 30 s, as the queue's setting was not read)"
+      }
+     ],
+     "capped": false,
+     "instrumented": {
+      "visible": 1,
+      "inFlight": 0
+     },
+     "totals": null,
+     "uninstrumented": null,
+     "notSeenOnDlq": [],
+     "seenOnDlq": 0,
+     "deleted": [],
+     "producers": [
+      {
+       "name": "checkout-api",
+       "n": 1
+      }
+     ]
+    },
+    "ticked": [
+     [
+      {
+       "id": "m-pay-2",
+       "producer": "checkout-api",
+       "consumer": "orders-worker",
+       "sentMs": 1794852336914,
+       "events": [
+        {
+         "key": "m-pay-2:e1",
+         "ms": 1794852336914,
+         "event": "send",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "sizeBytes": 40,
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "checkout-api",
+         "consumer": "orders-worker",
+         "call": "SendMessage"
+        },
+        {
+         "key": "m-pay-2:e2",
+         "ms": 1794852337344,
+         "event": "receive",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 1,
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "message.SentTimestamp": 1794852336914,
+          "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "orders-worker",
+         "consumer": "orders-worker",
+         "receiveCount": 1,
+         "waitMs": 430,
+         "call": "ReceiveMessage"
+        },
+        {
+         "key": "m-pay-2:e3",
+         "ms": 1794852337385,
+         "event": "visibility_expired",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "Receive 1 was not deleted in time, so the message became visible again. Inferred from the next receive",
+         "source": "inferred",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "sqs",
+         "consumer": "orders-worker",
+         "receiveCount": 1
+        },
+        {
+         "key": "m-pay-2:e4",
+         "ms": 1794852337385,
+         "event": "receive",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 2,
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "message.SentTimestamp": 1794852336914,
+          "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "orders-worker",
+         "consumer": "orders-worker",
+         "receiveCount": 2,
+         "call": "ReceiveMessage"
+        },
+        {
+         "key": "m-pay-2:e5",
+         "ms": 1794852337425,
+         "event": "dead_letter",
+         "status": "error",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "Moved from payments to payments-dlq. SQS reported it on the receive from payments-dlq",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "sqs",
+         "consumer": "orders-worker",
+         "receiveCount": 3
+        },
+        {
+         "key": "m-pay-2:e6",
+         "ms": 1794852337425,
+         "event": "receive",
+         "status": "ok",
+         "queue": "payments-dlq",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "Received from the dead-letter queue",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 3,
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "message.SentTimestamp": 1794852336914,
+          "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "orders-worker",
+         "consumer": "orders-worker",
+         "receiveCount": 3,
+         "call": "ReceiveMessage"
+        }
+       ],
+       "receiveCount": 3,
+       "state": "visible",
+       "lastReceiveMs": 1794852337425,
+       "untilMs": null,
+       "leftS": 0,
+       "used": 0,
+       "timeoutS": 30,
+       "lastError": "Inferred: receive 3 was not deleted before its visibility timeout ran out (no delete of it was stored; the timeout used is SQS's default 30 s, as the queue's setting was not read)"
+      }
+     ],
+     [
+      {
+       "id": "m-pay-2",
+       "producer": "checkout-api",
+       "consumer": "orders-worker",
+       "sentMs": 1794852336914,
+       "events": [
+        {
+         "key": "m-pay-2:e1",
+         "ms": 1794852336914,
+         "event": "send",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "sizeBytes": 40,
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "checkout-api",
+         "consumer": "orders-worker",
+         "call": "SendMessage"
+        },
+        {
+         "key": "m-pay-2:e2",
+         "ms": 1794852337344,
+         "event": "receive",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 1,
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "message.SentTimestamp": 1794852336914,
+          "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "orders-worker",
+         "consumer": "orders-worker",
+         "receiveCount": 1,
+         "waitMs": 430,
+         "call": "ReceiveMessage"
+        },
+        {
+         "key": "m-pay-2:e3",
+         "ms": 1794852337385,
+         "event": "visibility_expired",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "Receive 1 was not deleted in time, so the message became visible again. Inferred from the next receive",
+         "source": "inferred",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "sqs",
+         "consumer": "orders-worker",
+         "receiveCount": 1
+        },
+        {
+         "key": "m-pay-2:e4",
+         "ms": 1794852337385,
+         "event": "receive",
+         "status": "ok",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 2,
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "message.SentTimestamp": 1794852336914,
+          "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "orders-worker",
+         "consumer": "orders-worker",
+         "receiveCount": 2,
+         "call": "ReceiveMessage"
+        },
+        {
+         "key": "m-pay-2:e5",
+         "ms": 1794852337425,
+         "event": "dead_letter",
+         "status": "error",
+         "queue": "payments",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "Moved from payments to payments-dlq. SQS reported it on the receive from payments-dlq",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "sqs",
+         "consumer": "orders-worker",
+         "receiveCount": 3
+        },
+        {
+         "key": "m-pay-2:e6",
+         "ms": 1794852337425,
+         "event": "receive",
+         "status": "ok",
+         "queue": "payments-dlq",
+         "messageId": "m-pay-2",
+         "producer": "checkout-api",
+         "detail": "Received from the dead-letter queue",
+         "source": "package",
+         "hasPage": true,
+         "live": true,
+         "tenant": "globex",
+         "attrs": {
+          "message.ApproximateReceiveCount": 3,
+          "message.tenant": "globex",
+          "message.tenantSource": "message_attribute",
+          "message.BodySize": 40,
+          "message.SentTimestamp": 1794852336914,
+          "message.ApproximateFirstReceiveTimestamp": 1794852336919,
+          "queue.account": "123456789012",
+          "queue.region": "us-east-1"
+         },
+         "service": "orders-worker",
+         "consumer": "orders-worker",
+         "receiveCount": 3,
+         "call": "ReceiveMessage"
+        }
+       ],
+       "receiveCount": 3,
+       "state": "visible",
+       "lastReceiveMs": 1794852337425,
+       "untilMs": null,
+       "leftS": 0,
+       "used": 0,
+       "timeoutS": 30,
+       "lastError": "Inferred: receive 3 was not deleted before its visibility timeout ran out (no delete of it was stored; the timeout used is SQS's default 30 s, as the queue's setting was not read)"
+      }
+     ]
+    ]
    }
   ]
  }
