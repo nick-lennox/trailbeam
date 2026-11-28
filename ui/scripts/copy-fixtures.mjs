@@ -17,12 +17,13 @@
   for the same spans, and what the shared view-model functions make of them, from test/make-viewmodel-fixture.py), and
   @trailbeam/ui/fixtures/timeline-events-parity.json (what the server's GET /api/timeline-events was given and answered, which
   eventsOfTimeline must match, from test/make-timeline-events-fixture.py), and @trailbeam/ui/fixtures/triage-parity.json (triage rule
-  cases and what both engines must make of them, from ../contract/fixtures/make-triage-parity.py).
+  cases and what both engines must make of them, from ../contract/fixtures/make-triage-parity.py), and @trailbeam/ui/fixtures/aws-figures-parity.json
+  (the figures from AWS reads both engines must agree on, from ../contract/fixtures/make-aws-figures-parity.py).
   Run by npm run build:lib.
 */
 import { copyFileSync, mkdirSync } from "node:fs";
 
 const out = new URL("../dist/fixtures/", import.meta.url);
 mkdirSync(out, { recursive: true });
-for (const f of ["contract-3.2-spans.json", "body-views.json", "alerts-parity.json", "measures-parity.json", "alerts-delivery.json", "triage-parity.json"]) copyFileSync(new URL(`../../contract/fixtures/${f}`, import.meta.url), new URL(f, out));
+for (const f of ["contract-3.2-spans.json", "body-views.json", "alerts-parity.json", "measures-parity.json", "alerts-delivery.json", "triage-parity.json", "aws-figures-parity.json"]) copyFileSync(new URL(`../../contract/fixtures/${f}`, import.meta.url), new URL(f, out));
 for (const f of ["contract-3.2-timelines.json", "purge-timelines.json", "sns-timelines.json", "causes-parity.json", "origin-timelines.json", "put-event-timelines.json", "viewmodel-parity.json", "timeline-events-parity.json"]) copyFileSync(new URL(`../test/fixtures/${f}`, import.meta.url), new URL(f, out));

@@ -39,6 +39,12 @@ passkeys = [
     "webauthn>=2.1,<4",
 ]
 
+# AWS-connected figures (QV-589): queue settings, CloudWatch depth and age, Lambda triggers. Off until an admin turns
+# it on; boto3 is imported only then, so a server without AWS doesn't need it.
+aws = [
+    "boto3>=1.34",
+]
+
 [project.scripts]
 trailbeam = "trailbeam.server.__main__:main"
 
