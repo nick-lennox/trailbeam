@@ -654,7 +654,7 @@ class App:
         # what AWS says about the queue over the page's range (queue_data.py); no AWS call while reads are off
         ref = queue_data.ref_of(want[0], place, _url_of(want[0]))
         aws = queue_data.read(self.aws.reader if self.aws is not None else None, [ref],
-                              queue_data.page_window(from_ms, to_ms, step, now_ms), now_ms)[ref["key"]]
+                              queue_data.page_window(from_ms, to_ms, step, now_ms), now_ms, known=keys)[ref["key"]]
         s = aws.get("settings")
         # the queue's own redrive policy, when read, over the server's --max-receive-count
         mrc = s.get("maxReceiveCount") if s is not None else self.max_receive_counts.get(place.name)
@@ -690,7 +690,7 @@ class App:
 
         ref = queue_data.ref_of(want[0], place, _url_of(want[0]))
         d = queue_data.build(self.aws.reader if self.aws is not None else None, [ref], windows, now_ms,
-                             in_queue)[ref["key"]]
+                             in_queue, known=keys)[ref["key"]]
         return {"queue": {"key": want[0], "name": place.name, "account": place.account, "region": place.region,
                           "fifo": place.name.endswith(".fifo")},
                 **d["inQueue"], "aws": d["aws"], "live": d["live"]}

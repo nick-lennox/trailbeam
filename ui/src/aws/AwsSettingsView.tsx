@@ -70,9 +70,11 @@ export function AwsSettingsView({ answer, onSave }: AwsSettingsViewProps) {
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Region" mono value={form.region} onChange={(e) => set({ region: e.target.value })} placeholder="us-east-1"
-              hint="For queues whose spans don't name a region. A queue's own URL always wins." />
+              hint="For queues whose spans don't name a region. Empty: the server's default region." />
+            <Field label="Other regions" mono value={form.regions} onChange={(e) => set({ regions: e.target.value })} placeholder="eu-west-1, us-west-2"
+              hint="Separated by commas. A queue in a region not named here or above is not read." />
             <Field label="AWS account ID" mono value={form.accountId} onChange={(e) => set({ accountId: e.target.value })} placeholder="123456789012" inputMode="numeric"
-              hint="Optional. When set, a queue in another account is not read." />
+              hint="Only queues in this account are read. Empty: the account of the server's credentials." />
           </div>
           <FormError>{problem}</FormError>
           <div className="flex items-center gap-3">
@@ -84,7 +86,8 @@ export function AwsSettingsView({ answer, onSave }: AwsSettingsViewProps) {
         <div className="grid gap-2 border-t border-line pt-4 text-sm leading-relaxed text-ink-2">
           <p>
             Trailbeam uses the server&rsquo;s own AWS credentials, found the usual way: environment variables, a profile, or an instance or task role.
-            It never stores them. They need only these read-only permissions:
+            It never stores them. They need only these read-only permissions, and the role&rsquo;s policy should name your queues&rsquo; ARNs as
+            the resources, not *, so the credentials can&rsquo;t read any other queue:
           </p>
           <ul className="grid gap-0.5 pl-1">{AWS_ACTIONS.map((a) => <li key={a} className="font-mono text-caption text-ink">{a}</li>)}</ul>
           <p>

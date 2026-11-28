@@ -11,9 +11,12 @@ task role), and they need only the three read-only calls aws_reads.py makes. Wha
 
 - ``enabled``: the switch. Switching off keeps the list, so switching back on needs no retyping.
 - ``queues``: the names or patterns. A queue that none of them names is never read (``no_account``, with a sentence).
-- ``region``: for a queue whose spans don't say its region. A queue's own region, from its URL, always wins.
-- ``accountId``: optional. When set, a queue whose spans name another account is not read, and a queue whose spans
-  carry no URL gets its URL built from it.
+- ``region``: the home region, for a queue whose spans don't say its region (boto3's own default when not set).
+- ``regions``: the other regions a queue may be read in. A queue in a region that is neither is never read: its
+  spans can name any region, and the server's credentials do the reading (QV-740).
+- ``accountId``: the one AWS account queues are read in. When not set, it is the credentials' own account
+  (sts:GetCallerIdentity, which needs no permission). A queue whose spans name another account is never read, and
+  every queue's URL is built from this account, its region and its name, never taken from its spans (QV-740).
 
 The table, ``server_settings``, is a small key-value table so later settings can go in it too: one row per key
 (``aws`` here), its JSON, and who changed it when. Postgres has no ``meta`` table for this, and SQLite's ``meta`` is
@@ -45,16 +48,20 @@ PG_CREATE = SQLITE_CREATE.replace(" INTEGER", " BIGINT")
 KEY = "aws"
 
 #: what a server has before anyone changes anything: off
-DEFAULT = {"enabled": False, "queues": [], "region": None, "accountId": None, "updatedAt": None, "updatedBy": None}
+DEFAULT = {"enabled": False, "queues": [], "region": None, "regions": [], "accountId": None, "updatedAt": None,
+           "updatedBy": None}
 
 #: the fields a change may set
-FIELDS = ("enabled", "queues", "region", "accountId")
+FIELDS = ("enabled", "queues", "region", "regions", "accountId")
 
 MAX_QUEUES = 200
+MAX_REGIONS = 40
 #: an SQS queue name (1 to 80 letters, digits, - and _, .fifo at the end of a FIFO queue), with * allowed in a pattern
 _QUEUE_PATTERN = re.compile(r"^[A-Za-z0-9_*-]{1,80}(\.fifo)?$")
 #: us-east-1, eu-central-2, us-gov-west-1, cn-north-1, ap-southeast-5, ...
 _REGION = re.compile(r"^[a-z]{2}(-[a-z]+)+-\d{1,2}$")
+#: a queue's name, as SQS allows it: 1 to 80 letters, digits, - and _, of which the last five may be .fifo
+_QUEUE_NAME = re.compile(r"^(?=.{1,80}$)[A-Za-z0-9_-]+(\.fifo)?$")
 _ACCOUNT = re.compile(r"^\d{12}$")
 
 
@@ -90,6 +97,21 @@ def check_change(body: Any) -> dict:
         if len(names) > MAX_QUEUES:
             raise SettingsProblem(f"Name at most {MAX_QUEUES} queues. Use * to match many with one pattern.")
         out["queues"] = names
+    if "regions" in body:
+        rs = body["regions"]
+        if rs is None:
+            rs = []
+        if isinstance(rs, str):  # one per line, or with commas, as typed
+            rs = rs.replace(",", "\n").splitlines()
+        if not isinstance(rs, list) or not all(isinstance(r, str) for r in rs):
+            raise SettingsProblem("regions is a list of AWS regions.")
+        regions = list(dict.fromkeys(r.strip() for r in rs if r.strip()))
+        bad = [r for r in regions if not _REGION.match(r)]
+        if bad:
+            raise SettingsProblem(f"{bad[0][:40]} is not an AWS region, such as eu-west-1.")
+        if len(regions) > MAX_REGIONS:
+            raise SettingsProblem(f"Name at most {MAX_REGIONS} regions.")
+        out["regions"] = regions
     for field, pattern, example in (("region", _REGION, "eu-west-1"), ("accountId", _ACCOUNT, "123456789012")):
         if field not in body:
             continue
@@ -107,6 +129,12 @@ def check_change(body: Any) -> dict:
 def is_on(s: dict) -> bool:
     """AWS reads are on: switched on, with at least one queue named."""
     return bool(s.get("enabled")) and bool(s.get("queues"))
+
+
+def is_queue_name(name: object) -> bool:
+    """A name SQS would take for a queue. A queue key from spans can carry anything, and a pattern's * matches any
+    character, so the reader checks this before reading (QV-740)."""
+    return isinstance(name, str) and _QUEUE_NAME.match(name) is not None
 
 
 def boto3_installed() -> bool:

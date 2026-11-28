@@ -51,7 +51,12 @@ def test_a_change_is_tidied():
     assert check_change({}) == {}
     # the record as read back may be sent back whole
     assert check_change({**aws_settings.DEFAULT, "updatedAt": 5, "updatedBy": "Ada"}) == {
-        "enabled": False, "queues": [], "region": None, "accountId": None}
+        "enabled": False, "queues": [], "region": None, "regions": [], "accountId": None}
+    # the other regions, as a list or typed one per line or with commas
+    assert check_change({"regions": [" us-east-1", "us-east-1", "", "ap-south-1"]}) == {
+        "regions": ["us-east-1", "ap-south-1"]}
+    assert check_change({"regions": "us-east-1, eu-west-2\n"}) == {"regions": ["us-east-1", "eu-west-2"]}
+    assert check_change({"regions": None}) == {"regions": []}
     for region in ("us-east-1", "us-gov-west-1", "cn-north-1", "ap-southeast-5", "eu-central-2"):
         assert check_change({"region": region}) == {"region": region}
     assert check_change({"queues": ["*"]}) == {"queues": ["*"]}
@@ -69,12 +74,23 @@ def test_a_change_is_tidied():
     ({"queues": [f"q{i}" for i in range(201)]}, "Name at most 200 queues."),
     ({"region": "Ireland"}, "Ireland is not an AWS region, such as eu-west-1."),
     ({"region": 7}, "7 is not an AWS region"),
+    ({"regions": ["Ireland"]}, "Ireland is not an AWS region, such as eu-west-1."),
+    ({"regions": [7]}, "regions is a list of AWS regions."),
+    ({"regions": [f"eu-west-{i}" for i in range(41)]}, "Name at most 40 regions."),
     ({"accountId": "1234"}, "1234 is not a 12-digit AWS account ID, such as 123456789012."),
 ])
 def test_a_change_the_settings_do_not_take_says_why(body, text):
     with pytest.raises(SettingsProblem) as e:
         check_change(body)
     assert text in str(e.value)
+
+
+def test_a_queue_name_is_one_sqs_takes():
+    for name in ("orders", "a", "a" * 80, "jobs.fifo", "a" * 75 + ".fifo", "Orders_EU-1"):
+        assert aws_settings.is_queue_name(name), name
+    for name in ("", "a" * 81, "a" * 76 + ".fifo", "a/b", "a?b", "a b", "orders.fifo.fifo", ".fifo", "a.b", "*",
+                 "https://sqs.eu-west-1.amazonaws.com/123456789012/orders", None, 7):
+        assert not aws_settings.is_queue_name(name), name
 
 
 def test_reads_are_on_only_switched_on_with_a_queue_named():
@@ -103,8 +119,8 @@ def test_off_until_saved_on_and_a_save_is_seen_at_once(table):
     seen = []
     s.on_change.append(seen.append)
     after = s.save({"enabled": True, "queues": ["orders"]}, "Ada", 1000)
-    assert after == {"enabled": True, "queues": ["orders"], "region": None, "accountId": None, "updatedAt": 1000,
-                     "updatedBy": "Ada"}
+    assert after == {"enabled": True, "queues": ["orders"], "region": None, "regions": [], "accountId": None,
+                     "updatedAt": 1000, "updatedBy": "Ada"}
     assert s.on() and s.current() == after and seen == [after]
     # a change keeps the fields it doesn't name
     s.save({"enabled": False}, "Ben", 2000)
