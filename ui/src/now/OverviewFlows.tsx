@@ -75,6 +75,12 @@ export type OverviewFlowsSlots = {
   sampleNow?: (queue: string) => ReactNode;
   /** under a selected producer, consumer or dead-letter queue: the messages behind it (PartMessages), or nothing */
   partMessages?: (o: PartMessagesAt) => ReactNode;
+  /** in the top bar, on recorded data, before the range: the host's own controls (open source: Copy link) */
+  actions?: ReactNode;
+  /** in the queue's card, above its link, on recorded data: the host's own figures for it (open source: the range's totals from spans) */
+  queueFacts?: (queue: string) => ReactNode;
+  /** under the page, on recorded data: where the figures come from, and the same data as JSON */
+  foot?: ReactNode;
 };
 /** Which messages a part of the flow map stands for, for slots.partMessages. */
 export type PartMessagesAt = {
@@ -188,9 +194,11 @@ const Fact = ({ k, children }: { k: string; children: ReactNode }) => (
 
 export type OverviewFlowsProps = {
   data?: OverviewFlowsData; sample?: OverviewSample; flow?: string; copy: OverviewCopy; slots?: OverviewFlowsSlots; hrefs: OverviewFlowsHrefs;
+  /** told when another flow is selected, so a host can keep it in the page's URL */
+  onFlow?: (queue: string) => void;
 };
 
-export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, copy, slots = {}, hrefs }: OverviewFlowsProps) {
+export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, copy, slots = {}, hrefs, onFlow }: OverviewFlowsProps) {
   const router = useNav();
   const real = Boolean(data);
   const queues: Queue[] = data?.queues ?? sample.queues;
@@ -223,7 +231,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
 
   const [name, setName] = useState(flows.find((f) => f.q.name === initialFlow)?.q.name ?? flows[0]?.q.name ?? "");
   const [part, setPart] = useState<Part>({ kind: "queue" });
-  const pick = (n: string) => { setName(n); setPart({ kind: "queue" }); };
+  const pick = (n: string) => { setName(n); setPart({ kind: "queue" }); onFlow?.(n); };
   const seg = (active: boolean) => `rounded-md px-3 py-1 ${active ? "bg-sunken font-medium text-ink" : "text-ink-2 hover:text-ink"}`;
 
   /* a workspace nothing has reported to: one message, with its two ways forward. No empty flows
@@ -328,6 +336,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
         actions={
           <>
             {real && slots.sampleSwitch}
+            {real && slots.actions}
             <div role="group" aria-label="Time range" className="inline-flex rounded-lg border border-line bg-surface p-0.5 text-sm">
               {RANGES.map((r) => <button key={r.id} aria-pressed={r.id === rangeId} onClick={() => chooseRange(r.id)} className={seg(r.id === rangeId)}>{r.label}</button>)}
             </div>
@@ -473,6 +482,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
                       </div>
                     </div>
                   )}
+                  {real && slots.queueFacts?.(q.name)}
                   <div className="border-t border-line px-4 py-2.5 text-right">
                     <UiLink href={queuePage} onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline">Queue page</UiLink>
                   </div>
@@ -625,6 +635,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
             <QueueNowLive key={q.name} queue={q.name} view={info?.inQueue ?? null} live={lv ?? null} heldTotal={info?.heldTotal ?? 0} consumer={conList.length === 1 ? found[0]?.name ?? "" : ""} fifo={q.type === "FIFO"} triggers={info?.triggers ?? null} hrefs={hrefs} />
           </div>
         ) : slots.sampleNow ? <div className="min-w-0 min-[1480px]:col-span-2">{slots.sampleNow(q.name)}</div> : null)}
+        {real && slots.foot && <footer className="min-w-0 text-xs leading-relaxed text-ink-3 min-[1480px]:col-span-2">{slots.foot}</footer>}
       </div>
     </>
   );
