@@ -17,9 +17,15 @@ Nothing is retried, as in the hosted app: the next change is sent as usual.
 Safety:
 - a target is checked again before each send (check_target), not only when the channel is saved: http or https only,
   no credentials before the host, a webhook on a public host, a Slack URL on hooks.slack.com. ``allow_local`` lets a
-  webhook or Slack URL be plain http on a private or local address (an internal endpoint, or the tests).
+  webhook or Slack URL be plain http on a private or local address (the tests, and the hosted app's development).
+- ``allow_private`` is self-hosted Trailbeam's switch for an endpoint on its own network (QV-764, the operator's
+  TRAILBEAM_ALERT_ALLOW_PRIVATE_WEBHOOKS): a webhook or a Slack stand-in may then be on a private or local address,
+  over https or plain http, but plain http only ever goes to private addresses, never across the internet.
+- cloud metadata addresses (link-local 169.254.0.0/16 and fe80::/10, AWS's fd00:ec2::254, Alibaba's 100.100.100.200,
+  Oracle's 192.0.0.192, and the same inside NAT64, 6to4 and IPv4-mapped forms) are refused whatever the switches say.
 - the addresses a webhook's host resolves to are checked too, before connecting (QV-672): if any is private the send
-  is refused with one message and nothing is connected to, unless ``allow_local``. The connection then goes to a
+  is refused with one message and nothing is connected to, unless ``allow_local`` or ``allow_private``; if any is a
+  metadata address it is refused always; with ``allow_private``, plain http is refused when any address is public. The connection then goes to a
   checked address (the host name stays for the Host header and TLS), so DNS can't change the answer in between.
 - redirects are never followed: a 3xx answer is a failure, so a webhook can't be bounced to another host.
 - every send has a deadline (``timeout_s``, 10 s as in the hosted app): the whole HTTP exchange, the DNS lookup
@@ -277,6 +283,34 @@ def _private_ip(a) -> bool:
     return a not in _V6_GLOBAL or any(a in n for n in _V6_REFUSED)
 
 
+_V4_METADATA = tuple(ipaddress.IPv4Network(n) for n in ("169.254.0.0/16", "100.100.100.200/32", "192.0.0.192/32"))
+_V6_METADATA = tuple(ipaddress.IPv6Network(n) for n in ("fe80::/10", "fd00:ec2::254/128", "64:ff9b:1::/48"))
+_V4_COMPAT = ipaddress.IPv6Network("::/96")
+
+
+def _metadata_ip(a) -> bool:
+    """A cloud metadata service's address, or one that reaches it (QV-764): never a webhook, even with
+    ``allow_private``. All of link-local is refused, as AWS, GCP and Azure answer on 169.254.169.254 and AWS also on
+    fd00:ec2::254; an IPv6 address carrying an IPv4 address (IPv4-mapped, IPv4-compatible, NAT64, 6to4) is checked on
+    that address, and the local-use NAT64 prefix, which may carry one anywhere, is refused outright."""
+    if isinstance(a, ipaddress.IPv4Address):
+        return any(a in n for n in _V4_METADATA)
+    if a.ipv4_mapped is not None:
+        return _metadata_ip(a.ipv4_mapped)
+    if a in _NAT64 or a in _V4_COMPAT:
+        return _metadata_ip(ipaddress.IPv4Address(a.packed[12:]))
+    if a in _6TO4:
+        return _metadata_ip(ipaddress.IPv4Address(a.packed[2:6]))
+    return any(a in n for n in _V6_METADATA)
+
+
+def _ip_of(host: str):
+    try:
+        return ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return None
+
+
 def private_host(host: str) -> bool:
     """A host a webhook may not point at in production: this machine, private networks and cloud metadata. Unlike the
     hosted app, a name's trailing dot ("localhost.") doesn't get it past the check."""
@@ -290,10 +324,16 @@ def private_host(host: str) -> bool:
         return False
 
 
-def check_target(kind: str, raw: str, allow_local: bool = False) -> dict:
+METADATA_HOST = "The webhook can't be a cloud metadata address."
+PLAIN_HTTP_PUBLIC = "Plain http is allowed only to a private address. Use https for a public host."
+
+
+def check_target(kind: str, raw: str, allow_local: bool = False, allow_private: bool = False) -> dict:
     """The target as stored, {"ok": True, "target"}, or what is wrong with it, {"ok": False, "error"}. In production a
     webhook must be https on a public host, and a Slack URL one of Slack's incoming webhooks; ``allow_local`` lets
-    either be plain http on this machine or a private network."""
+    either be plain http on this machine or a private network. ``allow_private`` (QV-764) lets either be https or
+    http on a private or local host, or http on a host name, whose addresses _resolve checks are all private before
+    sending; never on a metadata address, nor plain http on a public IP address."""
     text = raw.strip()
     if kind == "email":
         lst = list(dict.fromkeys(e.lower() for e in re.split(r"[\s,;]+", text) if e))
@@ -308,6 +348,8 @@ def check_target(kind: str, raw: str, allow_local: bool = False) -> dict:
         return {"ok": False, "error": "Enter the full URL, starting with https://."}
     if u.userinfo not in ("", ":"):
         return {"ok": False, "error": "Put credentials in the URL's path or query, not before the host."}
+    if allow_private and not allow_local:
+        return _check_private(kind, u)
     local = allow_local and u.scheme == "http" and private_host(u.host)
     if u.scheme != "https" and not local:
         return {"ok": False, "error": "The URL must start with https://."}
@@ -316,6 +358,23 @@ def check_target(kind: str, raw: str, allow_local: bool = False) -> dict:
             return {"ok": False, "error": "Use a Slack incoming webhook URL: https://hooks.slack.com/services/…"}
     elif not local and private_host(u.host):
         return {"ok": False, "error": "The webhook must be on a public host, not a private or local address."}
+    return {"ok": True, "target": str(u)}
+
+
+def _check_private(kind: str, u: "_Url") -> dict:
+    """check_target with ``allow_private``, once the URL parsed and has no credentials before the host."""
+    if u.scheme not in _DEFAULT_PORT or not u.host:
+        return {"ok": False, "error": "The URL must start with https:// or http://."}
+    ip = _ip_of(u.host)
+    if ip is not None and _metadata_ip(ip):
+        return {"ok": False, "error": METADATA_HOST}
+    private = private_host(u.host)
+    if u.scheme != "https" and ip is not None and not private:
+        return {"ok": False, "error": PLAIN_HTTP_PUBLIC}
+    if kind == "slack" and u.scheme == "https" and not private and (
+            u.host != "hooks.slack.com" or not u.path.startswith("/services/")):
+        # a Slack stand-in on this network is fine; a public https URL must still be Slack's own
+        return {"ok": False, "error": "Use a Slack incoming webhook URL: https://hooks.slack.com/services/…"}
     return {"ok": True, "target": str(u)}
 
 
@@ -362,6 +421,8 @@ class Delivery:
     smtp: Optional[SmtpConfig] = None
     timeout_s: float = TIMEOUT_S
     allow_local: bool = False
+    #: self-hosted Trailbeam's TRAILBEAM_ALERT_ALLOW_PRIVATE_WEBHOOKS (QV-764): endpoints on its own network
+    allow_private: bool = False
     now: Callable[[], int] = field(default=lambda: int(time.time() * 1000))
     #: the TLS settings for https and SMTP; the default checks certificates against the system's trust store
     ssl_context: Optional[ssl.SSLContext] = field(default=None, repr=False)
@@ -371,13 +432,16 @@ class Delivery:
 
 
 PRIVATE_HOST = "The webhook's host is a private or local address."
+METADATA_RESOLVED = "The webhook's host is a cloud metadata address."
 TIMED_OUT = "The endpoint did not answer in time."
 
 
-def _resolve(host: str, port: int, deadline: float, allow_local: bool) -> list:
+def _resolve(host: str, port: int, deadline: float, allow_local: bool, allow_private: bool = False,
+             plain: bool = False) -> list:
     """The addresses to connect to, as getaddrinfo gives them, each checked before any connection is opened: when any
-    address the name has is private, nothing is connected to (unless ``allow_local``), so the answer is the same
-    whatever is or isn't listening there. The lookup counts against the deadline: it runs in a thread (getaddrinfo
+    address the name has is private, nothing is connected to (unless ``allow_local`` or ``allow_private``), so the
+    answer is the same whatever is or isn't listening there. A metadata address is refused always; with
+    ``allow_private``, a ``plain`` (http) send is refused when any address is public. The lookup counts against the deadline: it runs in a thread (getaddrinfo
     can't be interrupted), and a lookup still going at the deadline is a timeout."""
     try:
         ipaddress.ip_address(host)
@@ -408,8 +472,13 @@ def _resolve(host: str, port: int, deadline: float, allow_local: bool) -> list:
         infos = box["infos"]
     if not infos:
         raise DeliveryError("The endpoint could not be reached: its host name was not found.")
-    if not allow_local and any(_private_ip(ipaddress.ip_address(str(i[4][0]).split("%")[0])) for i in infos):
+    addrs = [ipaddress.ip_address(str(i[4][0]).split("%")[0]) for i in infos]
+    if not (allow_local or allow_private) and any(_private_ip(a) for a in addrs):
         raise DeliveryError(PRIVATE_HOST)
+    if any(_metadata_ip(a) for a in addrs):
+        raise DeliveryError(METADATA_RESOLVED)
+    if allow_private and not allow_local and plain and not all(_private_ip(a) for a in addrs):
+        raise DeliveryError(PLAIN_HTTP_PUBLIC)
     return infos
 
 
@@ -417,12 +486,15 @@ class _Guarded:
     """http.client connections to addresses checked before connecting (see _resolve), cut off at the deadline. The
     connection keeps the URL's host name for the Host header and for TLS (SNI and the certificate check)."""
     allow_local = False
+    allow_private = False
+    plain = False
     aborted = False
     deadline = 0.0
 
     def _tcp(self):
         """Connects to the first checked address that answers, never to an address that wasn't checked."""
-        infos = _resolve(self.host, self.port, self.deadline, self.allow_local)  # type: ignore[attr-defined]
+        infos = _resolve(self.host, self.port, self.deadline, self.allow_local,  # type: ignore[attr-defined]
+                         self.allow_private, self.plain)
         err: Optional[OSError] = None
         for family, kind, proto, _, addr in infos:
             left = self.deadline - time.monotonic()
@@ -471,6 +543,8 @@ def _post(url: str, body: str, headers: dict, d: Delivery) -> None:
     else:
         conn = _Http(u.hostname, u.port, timeout=d.timeout_s)
     conn.allow_local = d.allow_local
+    conn.allow_private = d.allow_private
+    conn.plain = u.scheme != "https"
     conn.deadline = time.monotonic() + d.timeout_s
     timer = threading.Timer(d.timeout_s, conn.abort)
     timer.daemon = True
@@ -562,7 +636,7 @@ send_email = _email
 
 def send_to(c: dict, ws: dict, changes: list, d: Delivery) -> None:
     """Sends changes to one channel. Raises DeliveryError with a plain reason when it fails."""
-    t = check_target(c["kind"], c["target"], d.allow_local) if c["kind"] in CHANNEL_KINDS else {"ok": False, "error": "Unknown channel kind."}
+    t = check_target(c["kind"], c["target"], d.allow_local, d.allow_private) if c["kind"] in CHANNEL_KINDS else {"ok": False, "error": "Unknown channel kind."}
     if not t["ok"]:
         raise DeliveryError(t["error"])
     at = d.now()

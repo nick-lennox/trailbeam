@@ -608,3 +608,76 @@ def test_a_bug_in_one_channel_is_reported_by_type_only(hook, monkeypatch):
              webhook(hook.url())]
     out = d.deliver(chans, WS, [FIRED], local())
     assert [(o["ok"], o["detail"]) for o in out] == [(False, "Sending failed: RuntimeError."), (True, None)]
+
+
+# ── allow_private: an operator's own network (QV-764) ───────────────────────────────────────────────────────────
+
+def private(**kw):
+    return d.Delivery(base="https://tb.example.com", allow_private=True, now=lambda: AT, **kw)
+
+
+@pytest.mark.parametrize("kind,raw", [
+    ("webhook", "http://listener:8080/hook"),  # a service on the same Compose network
+    ("webhook", "http://127.0.0.1:9999/hook"),
+    ("webhook", "https://listener.internal/hook"),
+    ("webhook", "https://10.0.0.5/hook"),
+    ("webhook", "http://[fd00::1]:8080/hook"),
+    ("webhook", "https://hooks.example.com/hook"),  # public https still works
+    ("slack", "http://chat-relay:9000/slack"),
+    ("slack", "https://relay.internal/services/x"),
+    ("slack", "https://hooks.slack.com/services/T000/B000/XXXX"),
+])
+def test_allow_private_takes_targets_on_this_network(kind, raw):
+    assert d.check_target(kind, raw, allow_private=True)["ok"] is True
+    assert d.check_target(kind, raw)["ok"] is (raw.startswith("https://hooks."))  # off by default
+
+
+@pytest.mark.parametrize("kind,raw,error", [
+    ("webhook", "https://169.254.169.254/latest/meta-data", d.METADATA_HOST),
+    ("webhook", "http://169.254.170.2/v2/credentials", d.METADATA_HOST),
+    ("webhook", "http://[fe80::1]/", d.METADATA_HOST),
+    ("webhook", "http://[fd00:ec2::254]/", d.METADATA_HOST),
+    ("webhook", "http://100.100.100.200/", d.METADATA_HOST),
+    ("webhook", "http://192.0.0.192/", d.METADATA_HOST),
+    ("webhook", "http://[::ffff:169.254.169.254]/", d.METADATA_HOST),
+    ("webhook", "http://[64:ff9b::a9fe:a9fe]/", d.METADATA_HOST),
+    ("webhook", "http://[2002:a9fe:a9fe::1]/", d.METADATA_HOST),
+    ("slack", "http://169.254.169.254/", d.METADATA_HOST),
+    ("webhook", "http://93.184.216.34/hook", d.PLAIN_HTTP_PUBLIC),
+    ("webhook", "file:///etc/passwd", "The URL must start with https:// or http://."),
+    ("webhook", "https://user:pw@listener.internal/", "Put credentials in the URL's path or query, not before the host."),
+    ("slack", "https://hooks.example.com/services/x", "Use a Slack incoming webhook URL: https://hooks.slack.com/services/…"),
+])
+def test_allow_private_still_refuses_metadata_and_plain_http_to_a_public_address(kind, raw, error):
+    assert d.check_target(kind, raw, allow_private=True) == {"ok": False, "error": error}
+
+
+def test_allow_private_sends_to_a_private_endpoint(hook):
+    d.send_to(webhook(hook.url()), WS, [FIRED], private())
+    assert len(hook.requests) == 1 and hook.requests[0]["headers"]["x-trailbeam-signature"].startswith("sha256=")
+
+
+def test_allow_private_sends_plain_http_to_a_name_only_when_every_address_is_private(hook, monkeypatch):
+    fake_dns(monkeypatch, ["127.0.0.1"])
+    d.send_to(webhook(f"http://hooks.example.com:{hook.port}/hook"), WS, [FIRED], private())
+    assert len(hook.requests) == 1
+    for answers in (["93.184.216.34"], ["127.0.0.1", "93.184.216.34"]):
+        fake_dns(monkeypatch, answers)
+        fails(webhook(f"http://hooks.example.com:{hook.port}/hook"), private(), d.PLAIN_HTTP_PUBLIC)
+    assert len(hook.requests) == 1
+
+
+@pytest.mark.parametrize("answers", [["169.254.169.254"], ["10.0.0.5", "169.254.169.254"], ["fe80::1"],
+                                     ["fd00:ec2::254"], ["::ffff:169.254.169.254"], ["64:ff9b::a9fe:a9fe"]])
+def test_allow_private_refuses_a_name_resolving_to_metadata_before_connecting(monkeypatch, answers):
+    """As QV-672: checked on the resolved addresses, so a name such as metadata.google.internal can't get through."""
+    fake_dns(monkeypatch, answers)
+    for scheme in ("https", "http"):
+        fails(webhook(f"{scheme}://hooks.example.com/x"), private(), d.METADATA_RESOLVED)
+    fails(webhook("https://hooks.example.com/x"), local(), d.METADATA_RESOLVED)  # nor the tests' switch
+
+
+def test_allow_private_still_follows_no_redirect(hook):
+    hook.status, hook.location = 302, "http://127.0.0.1:1/elsewhere"
+    fails(webhook(hook.url()), private(), "The endpoint answered 302 Found.")
+    assert len(hook.requests) == 1

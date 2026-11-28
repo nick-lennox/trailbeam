@@ -623,3 +623,54 @@ def test_the_check_starts_with_the_server_only_when_it_is_on(monkeypatch):
             assert sched.stop()
     finally:
         on.close()
+
+
+# ── private webhooks (QV-764) ────────────────────────────────────────────────────────────────────────────────────
+
+def test_the_private_webhooks_switch_is_off_unless_turned_on():
+    on = api.PRIVATE_WEBHOOKS_ENV
+    assert api.allow_private_webhooks({}) is False
+    for v in ("", "0", "off", "false", "No"):
+        assert api.allow_private_webhooks({on: v}) is False
+    for v in ("1", "on", "true", " YES "):
+        assert api.allow_private_webhooks({on: v}) is True
+    with pytest.raises(ValueError, match=on):
+        api.allow_private_webhooks({on: "maybe"})
+
+
+def _app():
+    import types
+    return types.SimpleNamespace(access=types.SimpleNamespace(mode=lambda: "open"), causes=lambda *a: {"groups": []},
+                                 db=object(), public_url="https://tb.example.com", mailer=None)
+
+
+def test_for_app_reads_the_switch():
+    assert api.for_app(_app(), env={"TRAILBEAM_ALERT_CHECK": "on"}).delivery.allow_private is False
+    a = api.for_app(_app(), env={"TRAILBEAM_ALERT_CHECK": "on", api.PRIVATE_WEBHOOKS_ENV: "1"})
+    assert a.delivery.allow_private is True and a.delivery.allow_local is False
+    with pytest.raises(ValueError):
+        api.for_app(_app(), env={"TRAILBEAM_ALERT_CHECK": "on", api.PRIVATE_WEBHOOKS_ENV: "y"})
+
+
+def test_with_the_switch_on_a_channel_can_be_on_this_network():
+    """The QV-762 steps: each target was refused; with the switch on each is taken, a metadata address still isn't."""
+    a = Api(allow_private=True)
+    for t in ("http://listener:8080/hook", "http://127.0.0.1:9999/hook", "https://listener.internal/hook"):
+        assert a.channel(target=t)["channel"]["shown"].startswith(t.rsplit("/", 1)[0])
+    assert a.fails("POST", "/api/alerts/channels", {"kind": "webhook", "target": "http://169.254.169.254/"}) == (
+        400, "The webhook can't be a cloud metadata address.")
+    cid = a.store.list_channels("local")[0]["id"]
+    assert a.fails("PATCH", f"/api/alerts/channels/{cid}", {"target": "http://93.184.216.34/"}) == (
+        400, "Plain http is allowed only to a private address. Use https for a public host.")
+    assert a("PATCH", f"/api/alerts/channels/{cid}", {"target": "http://10.0.0.9/h"})[0] == 200
+
+
+def test_a_test_send_reaches_a_private_endpoint_with_the_switch_on():
+    hook = Hook()
+    try:
+        a = Api(allow_private=True)
+        cid = a.channel(target=hook.url)["channel"]["id"]
+        assert a("POST", f"/api/alerts/channels/{cid}/test", {}) == (200, {"ok": True})
+        assert len(hook.got) == 1
+    finally:
+        hook.close()

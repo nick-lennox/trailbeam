@@ -332,6 +332,7 @@ def serve(a: argparse.Namespace, on_listening=None) -> None:
         sys.exit(2)
     try:
         accounts_on = bool(a.accounts) or access.switch_on(os.environ)
+        alerts_api.allow_private_webhooks(os.environ)  # a typo stops the start, before anything is opened
     except ValueError as e:
         logging.getLogger("trailbeam.server").error("%s", e)
         sys.exit(2)
