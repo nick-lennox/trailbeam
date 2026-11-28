@@ -1,6 +1,6 @@
 "use client";
 
-import { Wires, type Line } from "../overview/FlowDrawing.tsx";
+import { Wires, type Line } from "./Wires.tsx";
 import { PlatformIcon } from "../design/icons.tsx";
 import { Tooltip } from "../design/Tooltip.tsx";
 import { STAGES, severity, type Issue } from "../model/issues.ts";
