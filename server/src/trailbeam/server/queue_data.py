@@ -4,8 +4,10 @@ dashboards' ``queueLive``.
 
 ``build`` reads AWS for the queues (aws_reader.AwsReader.read, which makes no AWS call while reads are off), works
 out "In ‹queue› now" for the ones asked, with the settings and SQS counts the reads returned (queue_now.view), and
-the queue's figures from both (aws_figures.live_of). Each queue's answer is ``{"aws", "live", "inQueue"}``: ``aws``
-in @trailbeam/ui/model's ``QueueAws`` shape, ``live`` its ``QueueLive``, ``inQueue`` its ``InQueueView`` or None.
+the queue's figures from both (aws_figures.live_of). Only queues the store has seen are read (``known``): a page's URL
+or a dashboard's measure can name any queue, and the server's credentials do the reading (QV-740). Each queue's
+answer is ``{"aws", "live", "inQueue"}``: ``aws`` in @trailbeam/ui/model's ``QueueAws`` shape, ``live`` its
+``QueueLive``, ``inQueue`` its ``InQueueView`` or None.
 
 The span-derived history the hosted dashboards draw (Stuck in flight and One receive from the DLQ over the day,
 lib/app/span-history.ts) is not worked out yet: those measures show their figure now.
@@ -54,22 +56,30 @@ def totals_of(aws: dict, window_id: str) -> Optional[dict]:
     return {"visible": f["visible"], "inFlight": f["inFlight"], "delayed": f["delayed"]}
 
 
-def read(reader: Optional[aws_reader.AwsReader], refs: list, windows: list, now_ms: int, **kw) -> dict:
-    """The reads by queue key; every queue ``not_configured`` when the server has no reader."""
+def read(reader: Optional[aws_reader.AwsReader], refs: list, windows: list, now_ms: int, *, known, **kw) -> dict:
+    """The reads by queue key; every queue ``not_configured`` when the server has no reader. ``known``: the store's
+    queue keys. A queue whose key is not one is not read (``no_account``, NOT_SEEN), whatever the settings say."""
     if reader is None:
         return {q["key"]: af.empty_aws("not_configured", aws_reader.OFF) for q in refs}
-    return reader.read(refs, windows, now_ms, **kw)
+    known = set(known)
+    seen = [q for q in refs if q["key"] in known]
+    out = reader.read(seen, windows, now_ms, **kw) if seen else {}
+    for q in refs:
+        if q["key"] not in known:
+            out[q["key"]] = af.empty_aws("not_configured", aws_reader.OFF) if not reader.on() else \
+                af.empty_aws("no_account", aws_reader.NOT_SEEN)
+    return out
 
 
 def build(reader: Optional[aws_reader.AwsReader], refs: list, windows: list, now_ms: int,
-          in_queue: Callable[[dict, Optional[dict], Optional[dict]], Optional[dict]], *,
+          in_queue: Callable[[dict, Optional[dict], Optional[dict]], Optional[dict]], *, known,
           want: Optional[Callable[[dict, dict], bool]] = None, triggers: bool = True,
           metrics: Optional[list] = None, dlq_depth: str = "cloudwatch",
           attrs_ttl_ms: Optional[float] = None) -> dict:
     """``{key: {"aws", "live", "inQueue"}}`` for the queues ``refs`` (ref_of) over ``windows``. ``in_queue(ref,
     settings, totals)``: the queue's InQueueView (queue_now.view), worked out for the queues ``want(ref, aws)`` says
-    (all when None). The other options are the reader's."""
-    aws = read(reader, refs, windows, now_ms, triggers=triggers, metrics=metrics, dlq_depth=dlq_depth,
+    (all when None). ``known``: the store's queue keys (read). The other options are the reader's."""
+    aws = read(reader, refs, windows, now_ms, known=known, triggers=triggers, metrics=metrics, dlq_depth=dlq_depth,
                attrs_ttl_ms=attrs_ttl_ms)
     first = windows[0]["id"] if windows else ""
     out: dict = {}
@@ -113,7 +123,7 @@ def live_by_name(reader: Optional[aws_reader.AwsReader], db, names: list, now_ms
         return queue_now.view(db, want, place, now_ns, lambda_timeout_s, max_receive_counts, settings=settings,
                               totals=totals)
 
-    got = build(reader, refs, dashboard_windows(now_ms) if windows is None else windows, now_ms, view,
+    got = build(reader, refs, dashboard_windows(now_ms) if windows is None else windows, now_ms, view, known=keys,
                 want=lambda q, a: in_queue and a.get("status") == "ok", triggers=False, metrics=metrics,
                 dlq_depth=dlq_depth)
     return {q["name"]: got[q["key"]]["live"] for q in refs}

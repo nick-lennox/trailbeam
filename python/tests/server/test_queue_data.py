@@ -23,7 +23,9 @@ def server_aws(stubs=None, queues=("orders",), enabled=True):
     a = aws_api.ServerAws(aws_settings.MemorySettings(), lambda who: True, now_ms=lambda: MS,
                           clients_for=stubs or never, installed=lambda: True, source=lambda r: ("env", r))
     if queues:
-        a.settings.save({"enabled": enabled, "queues": list(queues), "region": "eu-west-1"}, "test", MS)
+        # an emulator's account, as its queue URLs name it (QV-740: the credentials' own would be another)
+        a.settings.save({"enabled": enabled, "queues": list(queues), "region": "eu-west-1", "accountId": ACCOUNT},
+                        "test", MS)
     return a
 
 
@@ -62,6 +64,26 @@ def test_a_queue_the_settings_do_not_name_keeps_the_servers_settings(db, ingest)
     assert d["aws"]["status"] == "no_account" and d["aws"]["detail"] == aws_reader.NOT_NAMED
     assert d["totals"] is None and d["config"]["maxReceiveCount"] == 3
     assert stubs.regions == []  # nothing read
+
+
+# ── only queues the store has seen (QV-740) ──────────────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("asked", ["999999999999%2Fap-south-1%2Fbilling-secrets", "billing-secrets",
+                                   "https%3A%2F%2Fsqs.ap-south-1.amazonaws.com%2Fbilling-secrets"])
+def test_a_queue_the_store_has_not_seen_is_not_read_whatever_the_settings_name(db, ingest, asked):
+    """The report's step 2: any member can put any key in the page's URL. With every name allowed and no account
+    set, a key without spans is still not read with the server's credentials."""
+    sent_and_received(ingest)
+    stubs = Stubs(attrs={"orders": ORDERS})
+    app = app_of(db, T0 + 12 * SEC, server_aws(stubs, queues=("*",)))
+    for endpoint in ("now", "series"):
+        a = app.api(f"queues/{asked}/{endpoint}", {"minutes": "60"})["aws"]
+        assert a["status"] == "no_account" and a["detail"] == aws_reader.NOT_SEEN and a["settings"] is None
+    assert stubs.regions == [] and stubs.aws_calls() == 0 and stubs.sts.calls == 0
+    # a measure naming it is not read either
+    got = queue_data.live_by_name(app.aws.reader, db, ["billing-secrets", "orders"], MS + 12_000, 900, {})
+    assert got["billing-secrets"]["status"] == "no_account" and got["orders"]["status"] == "ok"
+    assert not any("billing-secrets" in u for u in stubs.sqs.calls)
 
 
 # ── reads on ─────────────────────────────────────────────────────────────────────────────────────────────────────

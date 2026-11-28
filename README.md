@@ -1072,15 +1072,60 @@ says what Trailbeam can't see there.
 
 To turn it on, open **Settings** (admins only, or anyone while the server has no accounts), switch on AWS reads,
 and name the queues to read, one per line: exact names such as `orders`, or patterns such as `payments-*`. A queue
-not named is not read. The region and account ID are optional: they are only needed for a queue whose spans
-don't name them. The same settings are at `GET` and `PATCH /api/settings/aws`.
+not named is not read. The same settings are at `GET` and `PATCH /api/settings/aws`.
+
+Only these settings decide where the server reads. A queue's name, account and region come from its spans and from
+the page's address, and anyone who can send spans or open a page chooses those. So a queue is read only when:
+
+- the store has spans for it, and its name is a valid SQS queue name that the list names;
+- it is in the **AWS account ID** set here. Left empty, that is the account of the server's credentials, which
+  Trailbeam asks AWS once with `sts:GetCallerIdentity` (it needs no permission and
+  [can't be denied](https://docs.aws.amazon.com/STS/latest/APIReference/API_GetCallerIdentity.html));
+- it is in the **Region** set here (left empty, boto3's default region) or one of the **Other regions**.
+
+Trailbeam builds each queue's URL from that account, region and name, and never sends AWS a URL taken from spans.
+For an SQS emulator such as ElasticMQ, set the account ID to the one in its queue URLs (`000000000000`).
 
 The server uses boto3's usual credentials: environment variables, a profile, or the instance or task role. It
-never stores them. They need these three read-only permissions, and Trailbeam makes no other AWS call:
+never stores them. They need these three read-only permissions, and apart from `sts:GetCallerIdentity`,
+Trailbeam makes no other AWS call:
 
 - `sqs:GetQueueAttributes`
 - `cloudwatch:GetMetricData`
 - `lambda:ListEventSourceMappings`
+
+Name your queues in the policy's `Resource` rather than `*`, and don't run the server with a role that can do
+more. The checks above are Trailbeam's, and the policy is AWS's: if the server has a bug, or someone gets around
+its settings, the credentials still can't read any other queue's settings, its dead-letter queue or its Lambda
+triggers. Only `sqs:GetQueueAttributes` takes a queue ARN. `cloudwatch:GetMetricData` reads classic metrics only
+with `"Resource": "*"`, and `lambda:ListEventSourceMappings` has no resource type at all
+([CloudWatch](https://docs.aws.amazon.com/service-authorization/latest/reference/list_amazoncloudwatch.html),
+[Lambda](https://docs.aws.amazon.com/service-authorization/latest/reference/list_awslambda.html)). Both read only
+in the credentials' own account:
+
+```json norun="an IAM policy, not a command"
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "sqs:GetQueueAttributes",
+      "Resource": [
+        "arn:aws:sqs:eu-west-1:123456789012:orders",
+        "arn:aws:sqs:eu-west-1:123456789012:orders-dlq",
+        "arn:aws:sqs:eu-west-1:123456789012:payments-*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["cloudwatch:GetMetricData", "lambda:ListEventSourceMappings"],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+Include the dead-letter queues: Trailbeam reads their depth too.
 
 **Installing.** AWS reads need boto3, an optional extra:
 

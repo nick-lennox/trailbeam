@@ -173,7 +173,7 @@ test("a queue read: its settings, CloudWatch, triggers on their rows and a verdi
 /* ── the Settings page's AWS section ─────────────────────────────────── */
 
 const settings = (o: Partial<AwsReadSettings> = {}): AwsReadSettings =>
-  ({ enabled: false, queues: [], region: null, accountId: null, updatedAt: null, updatedBy: null, ...o });
+  ({ enabled: false, queues: [], region: null, regions: [], accountId: null, updatedAt: null, updatedBy: null, ...o });
 const status = (o: Partial<AwsReadsStatus> = {}): AwsReadsStatus =>
   ({ on: false, queues: 0, boto3: null, credentials: null, region: null, problem: null, ...o });
 
@@ -181,12 +181,14 @@ test("the form: one name per line, tidied, and only a real change saves", () => 
   assert.deepEqual(queueList(" orders \n\npayments-*, orders\n"), ["orders", "payments-*"]);
   const s = settings({ enabled: true, queues: ["orders"], region: "eu-west-1" });
   const f = formOf(s);
-  assert.deepEqual(f, { enabled: true, queues: "orders", region: "eu-west-1", accountId: "" });
+  assert.deepEqual(f, { enabled: true, queues: "orders", region: "eu-west-1", regions: "", accountId: "" });
   assert.equal(changed(f, s), false);
   assert.equal(changed({ ...f, queues: "orders\n" }, s), false);
   assert.equal(changed({ ...f, queues: "orders\nbilling" }, s), true);
-  assert.deepEqual(changeOf({ enabled: false, queues: "a\nb", region: " ", accountId: " 123456789012 " }),
-    { enabled: false, queues: ["a", "b"], region: null, accountId: "123456789012" });
+  assert.deepEqual(changeOf({ enabled: false, queues: "a\nb", region: " ", regions: "us-east-1, ap-south-1,\nus-east-1", accountId: " 123456789012 " }),
+    { enabled: false, queues: ["a", "b"], region: null, regions: ["us-east-1", "ap-south-1"], accountId: "123456789012" });
+  // the other regions, as saved, shown with commas (QV-740)
+  assert.equal(formOf(settings({ regions: ["us-east-1", "ap-south-1"] })).regions, "us-east-1, ap-south-1");
 });
 
 test("what the screen says about the reads", () => {

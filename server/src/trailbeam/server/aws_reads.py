@@ -7,6 +7,9 @@ nothing else:
                                      dead-letter queue's depth, with history
     lambda:ListEventSourceMappings   the Lambda triggers on a queue and their batch settings
 
+and sts:GetCallerIdentity, which needs no permission and can't be denied, for the credentials' own account when the
+settings name none (``caller_account``): a queue outside that account is never read (QV-740).
+
 ReceiveMessage is never called: it would change the visibility of the messages it returned.
 
 This is the hosted app's lib/app/aws-reads.ts with boto3 instead of the AWS SDK for JavaScript. The functions take a
@@ -63,7 +66,12 @@ def clients(region: Optional[str] = None, profile: Optional[str] = None) -> dict
     session = boto3.session.Session(profile_name=profile or None, region_name=region or None)
     sqs_kw = {"endpoint_url": sqs_endpoint()} if sqs_endpoint() else {}
     return {"sqs": session.client("sqs", **sqs_kw), "cloudwatch": session.client("cloudwatch"),
-            "lambda": session.client("lambda"), "region": session.region_name}
+            "lambda": session.client("lambda"), "sts": session.client("sts"), "region": session.region_name}
+
+
+def caller_account(sts: Any) -> str:
+    """The AWS account of the credentials (sts:GetCallerIdentity)."""
+    return str(sts.get_caller_identity()["Account"])
 
 
 # ── GetQueueAttributes ───────────────────────────────────────────────────────────────────────────────────────────
