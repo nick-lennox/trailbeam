@@ -1322,6 +1322,18 @@ paths:
           in: query
           description: The largest number of messages to read. `capped` says when the window had more.
           schema: {type: integer, minimum: 1, maximum: 2000, default: 1000}
+        - name: queue
+          in: query
+          description: |
+            Only the messages with a span on these queues in the window, and only their events on
+            them: up to 10 queues, comma-separated, each a queue's key (`key` in `GET /api/flows`) or
+            its name. The limit is then of these queues' messages, so a busier queue doesn't take a
+            quieter one's places. A queue of the same name in another account or region is another
+            queue; a name that more than one queue has is a 400 that lists their keys. A move to the
+            dead-letter queue is on the queue the message left, and is found by asking for the
+            dead-letter queue too when its receive is the message's only span in the window.
+          schema: {type: string}
+          example: 123456789012/eu-west-1/orders
       responses:
         '200':
           description: The events of the window's messages, newest first.
@@ -1386,6 +1398,7 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/causes:
     get:
       operationId: list-causes
