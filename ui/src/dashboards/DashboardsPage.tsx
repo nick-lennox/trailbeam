@@ -23,8 +23,8 @@ import { FIELD, IconBtn, Labeled, Menu, MenuItem, Modal, StateMark, TONE_TEXT, T
 export type ServerAlerts = {
   states: { dashboardId: string; widgetId: string; title: string; tone: Tone; value: string; limit: string; queue: string; since: number }[];
   error: string | null;
-  /** when the check last ran and whether it is late, in a sentence (the hosted app's checkStatus) */
-  check: { text: string; late: boolean };
+  /** when the check last ran and whether it is late, in a sentence (the hosted app's checkStatus); none: nothing to say */
+  check?: { text: string; late: boolean };
 };
 type Shown = { widget: Widget; widgetId: string; title: string; tone: Tone; value: string; limit: string; queue: string };
 const fromRule = (a: Alert): Shown => ({ widget: a.widget, widgetId: a.widget.id, title: a.widget.title, tone: a.tone, value: a.value, limit: a.limit, queue: a.queue });
