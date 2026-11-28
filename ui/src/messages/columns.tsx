@@ -8,7 +8,7 @@ import type { ReactNode } from "react";
 import { StatePill, purgeText, stateLook } from "../design/pills.tsx";
 import { Tooltip } from "../design/Tooltip.tsx";
 import { fmtMs } from "../model/format.ts";
-import { RECEIVES_TITLE, fmtTime, shortId, type MessageSummary } from "./Messages.tsx";
+import { RECEIVES_TITLE, duplicateWhy, duplicateWhyText, fmtTime, shortId, type MessageSummary } from "./Messages.tsx";
 
 /** A row of the list: a list API's message, with the times the hosted list measures (lib/app/message-times.ts). */
 export type MessageRow = MessageSummary & {
@@ -99,6 +99,12 @@ export const MESSAGE_COLUMNS: MessageColumn[] = [
 ];
 
 export const DEFAULT_MESSAGE_COLUMNS = MESSAGE_COLUMNS.map((c) => c.id);
+
+/** Duplicates' own column: why each message is listed, with its count ("received 3 times, handled 2 times"). */
+export const WHY_COLUMN: MessageColumn = {
+  id: "why", label: "Why", cell: (m) => <span className="font-sans text-ink-2">{duplicateWhy(m)}</span>, text: duplicateWhyText,
+  fills: (m) => !!m.reasons?.length,
+};
 
 /* A row's level, on the bar at its left edge as in the Event explorer: red in a dead-letter queue, amber when received more
    than once or due on the DLQ. */

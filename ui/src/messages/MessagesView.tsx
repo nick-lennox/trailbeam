@@ -18,7 +18,7 @@ import { LEVEL_COLOR, TD, TH } from "../explorer/columns.ts";
 import { download as browserDownload, toCsv } from "../explorer/export.ts";
 import { ColumnList, ColumnsButton, ColumnsPanel, ExportMenu, QueryInput } from "../explorer/parts.tsx";
 import { DEFAULT_MESSAGE_COLUMNS, MESSAGE_COLUMNS, messageLevel, type MessageColumn, type MessageRow } from "./columns.tsx";
-import { LIST_STATES, type ListField, type MessageQueryLanguage } from "./listQuery.ts";
+import { LIST_REASONS, LIST_STATES, type ListField, type MessageQueryLanguage } from "./listQuery.ts";
 
 export type MessagesViewProps = {
   /** the page's rows, in the API's order */
@@ -62,6 +62,7 @@ export type MessagesViewProps = {
 };
 
 const PLACEHOLDER: Record<string, string> = {
+  reason: "Filter messages, for example queue:orders reason:received_more_than_once",
   body: "Filter messages, for example queue:orders body.order_id:ord-1003",
   state: "Filter messages, for example queue:orders state:dlq",
 };
@@ -109,7 +110,7 @@ export function MessagesView({ messages, query, onQuery, lang, values, bodyPaths
     if (!mistake) onQuery(draft.trim());
   };
   const suggest = (field: string): [string, number | null][] | undefined => {
-    const known = field === "state" ? LIST_STATES.map((s) => s.key) : values?.(field as ListField);
+    const known = field === "state" ? LIST_STATES.map((s) => s.key) : field === "reason" ? LIST_REASONS.map((r) => r.key) : values?.(field as ListField);
     return known?.map((v) => [v, null]);
   };
 
@@ -125,7 +126,7 @@ export function MessagesView({ messages, query, onQuery, lang, values, bodyPaths
         <div className="flex items-start gap-3">
           <form onSubmit={submit} className="min-w-0 flex-1" role="search">
             <QueryInput query={draft} setQuery={setDraft} lang={lang} values={suggest} bodyPaths={bodyPaths} label="Filter messages"
-              placeholder={PLACEHOLDER[lang.fields.includes("body") ? "body" : "state"]}
+              placeholder={PLACEHOLDER[lang.fields.includes("body") ? "body" : lang.fields.includes("reason") ? "reason" : "state"]}
               note={draft.trim() !== query.trim() && !mistake
                 ? <p className="mt-1.5 font-sans text-[13px] text-ink-3">Press Enter to filter the list.</p>
                 : queryNote} />

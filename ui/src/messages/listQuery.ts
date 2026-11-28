@@ -6,6 +6,7 @@
     queue:orders          one queue (queue=)
     tenant:acme           one tenant (tenant=)
     state:dlq             one state: open, processing, deleted or dlq (state=, the hosted list's state filter)
+    reason:received_more_than_once   a duplicate's reason: received_more_than_once or succeeded_more_than_once (reason=, Duplicates)
     version:1.4.3         messages a consumer on that service.version received (version=)
     trace:<trace ID>      messages with a span in that trace (trace=)
     body:text, body.<path>:value, -body...: the body search (body=, self-hosted Trailbeam), as ?body= takes it
@@ -18,7 +19,7 @@ import { isBodyField } from "../body/search.ts";
 import type { Term } from "../model/query.ts";
 
 /** A field the Messages list can filter on; each is a parameter of the same name, body is the body search's terms. */
-export type ListField = "queue" | "tenant" | "state" | "version" | "trace" | "body";
+export type ListField = "queue" | "tenant" | "state" | "reason" | "version" | "trace" | "body";
 
 /** What the list's state filter offers, as the hosted list's state filter (lib/app/message-list.ts LIST_STATES) names them. */
 export const LIST_STATES: { key: string; label: string }[] = [
@@ -26,6 +27,12 @@ export const LIST_STATES: { key: string; label: string }[] = [
   { key: "processing", label: "Being handled" },
   { key: "deleted", label: "Deleted" },
   { key: "dlq", label: "In the DLQ" },
+];
+
+/** What Duplicates' reason filter takes (GET /api/duplicates reason=), as DUPLICATE_REASONS names them. */
+export const LIST_REASONS: { key: string; label: string }[] = [
+  { key: "received_more_than_once", label: "received more than once" },
+  { key: "succeeded_more_than_once", label: "handled more than once" },
 ];
 
 /** The list API's parameters a query gives: one per field, and q for the words to look up. */
@@ -36,12 +43,13 @@ const INFO: Record<Exclude<ListField, "body">, FieldInfo> = {
   queue: { name: "queue", label: "Queue", group: "Message" },
   tenant: { name: "tenant", label: "Tenant", group: "Message" },
   state: { name: "state", label: "State", group: "Message" },
+  reason: { name: "reason", label: "Reason", group: "Message" },
   version: { name: "version", label: "Consumer version", group: "Consumer" },
   trace: { name: "trace", label: "Trace ID", group: "Trace" },
 };
 /* names the bar takes for a field, as the explorer and the hosted search write them */
 const ALIAS: Record<string, string> = { "service.version": "version", trace_id: "trace" };
-const ORDER: ListField[] = ["queue", "tenant", "state", "version", "trace", "body"];
+const ORDER: ListField[] = ["queue", "tenant", "state", "reason", "version", "trace", "body"];
 
 /*
   A trace ID as OpenTelemetry writes it, 32 hex digits in any case (not all zeros), or a W3C traceparent header
@@ -101,6 +109,8 @@ export function messageQueryLanguage(fields: readonly ListField[]) {
           else if (seen.has(f) && seen.get(f) !== t.value) t.error = `The list takes one ${f} at a time.`;
           else if (f === "state" && t.value && !LIST_STATES.some((s) => s.key === t.value.toLowerCase()))
             t.error = `state takes ${list(LIST_STATES.map((s) => s.key))}.`;
+          else if (f === "reason" && t.value && !LIST_REASONS.some((r) => r.key === t.value.toLowerCase()))
+            t.error = `reason takes ${list(LIST_REASONS.map((r) => r.key))}.`;
           else if (f === "trace" && t.value && !traceIdOf(t.value)) t.error = "trace takes a trace ID: 32 hex digits.";
           if (!t.error && t.value) seen.set(f, t.value);
         }
@@ -133,7 +143,7 @@ export function listQuery(q: string, lang: MessageQueryLanguage): { params: List
     if (t.field.startsWith("body")) { if (t.value) bodies.push(t.raw); continue; }
     if (!t.value) continue; // still being typed
     const f = t.field as ListField;
-    params[f] = f === "state" ? t.value.toLowerCase() : f === "trace" ? traceIdOf(t.value)! : t.value;
+    params[f] = f === "state" || f === "reason" ? t.value.toLowerCase() : f === "trace" ? traceIdOf(t.value)! : t.value;
   }
   if (words.length) params.q = words.join(" ");
   if (bodies.length) params.body = bodies.join(" ");

@@ -44,7 +44,7 @@ export {
   type FirstMessage, type FirstRunStatus, type Health,
 } from "./firstrun/status.ts";
 export {
-  MessagesTable, EmptyState, SET_UP, STATE_LABELS, RECEIVES_TITLE, DUPLICATE_REASONS, duplicateWhy, fmtAge, fmtThreshold, fmtTime, rowFacts, shortId,
+  MessagesTable, EmptyState, SET_UP, STATE_LABELS, RECEIVES_TITLE, DUPLICATE_REASONS, duplicateWhy, duplicateWhyText, fmtAge, fmtThreshold, fmtTime, rowFacts, shortId,
   stateText, POSSIBLY_PURGED_TITLE,
   type Column, type EmptyStateProps, type MessageSummary, type MessagesTableProps,
 } from "./messages/Messages.tsx";
@@ -59,7 +59,7 @@ export type * from "./causes/types.ts";
 export { duplicatesEmpty, lookupEmpty, messagesEmpty, stuckEmpty, tenantsEmpty, without } from "./messages/empty.tsx";
 // the Messages list's query (pure); the list itself, MessagesView, is a client module in @trailbeam/ui/explorer
 export {
-  LIST_STATES, listQuery, messageQueryLanguage, queryOfParams, traceIdOf, type ListField, type ListQuery, type MessageQueryLanguage,
+  LIST_REASONS, LIST_STATES, listQuery, messageQueryLanguage, queryOfParams, traceIdOf, type ListField, type ListQuery, type MessageQueryLanguage,
 } from "./messages/listQuery.ts";
 // the queue page itself is a client module, in @trailbeam/ui/design (QueuePage); its data and link types are here
 export { Chart, Legend, Tag, type ChartProps, type ChartLine, type LegendItem } from "./queue/Chart.tsx";

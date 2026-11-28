@@ -14,9 +14,9 @@ export {
 } from "./parts.tsx";
 // the Messages list, built from these parts (row 4 of the one-UI plan)
 export { MessagesView, type MessagesViewProps } from "../messages/MessagesView.tsx";
-export { DEFAULT_MESSAGE_COLUMNS, MESSAGE_COLUMNS, messageLevel, type MessageColumn, type MessageRow } from "../messages/columns.tsx";
+export { DEFAULT_MESSAGE_COLUMNS, MESSAGE_COLUMNS, WHY_COLUMN, messageLevel, type MessageColumn, type MessageRow } from "../messages/columns.tsx";
 export {
-  LIST_STATES, listQuery, messageQueryLanguage, queryOfParams, traceIdOf, type ListField, type ListQuery, type MessageQueryLanguage,
+  LIST_REASONS, LIST_STATES, listQuery, messageQueryLanguage, queryOfParams, traceIdOf, type ListField, type ListQuery, type MessageQueryLanguage,
 } from "../messages/listQuery.ts";
 export {
   DEFAULT_COLUMNS, LEVEL_COLOR, RECORDED_LANGUAGE, SPECIAL, TD, TH, cellText, colLabel, columnChoices, filledColumns, level, show, type Level,
