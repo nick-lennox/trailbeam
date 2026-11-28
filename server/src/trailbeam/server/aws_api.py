@@ -2,7 +2,9 @@
 
 - ``GET /api/settings/aws``: ``{"settings": …, "status": …}``. ``settings`` as aws_settings.py keeps them
   (``enabled``, ``queues``, ``region``, ``accountId``, ``updatedAt``, ``updatedBy``); ``status`` is
-  aws_reader.Status's (``on``, ``queues``, ``boto3``, ``credentials``, ``region``, ``problem``).
+  aws_reader.Status's (``on``, ``queues``, ``boto3``, ``credentials``, ``region``, ``problem``). /api/health's
+  ``config.aws`` is that status for an admin, and only ``on`` and whether there is a problem for anyone else
+  (``ServerAws.health``).
 - ``PATCH /api/settings/aws``: changes the fields given (aws_settings.FIELDS), checked by
   aws_settings.check_change; answers as the GET does. A change the checks refuse is a 400 with the sentence. Every
   read cached from before the change is dropped.
@@ -22,6 +24,8 @@ from . import aws_reader, aws_settings
 from .alerts_api import ApiProblem, check_text
 
 PATH = "/api/settings/aws"
+#: /api/health's ``config.aws.problem`` for someone who isn't an admin: there is a problem, and where to see it
+ADMIN_SEES_WHY = "AWS reads are on, but they can't work. An admin sees why in Settings, under AWS."
 #: the methods it answers; another is a 404 before the body is read (server.App.mounted)
 METHODS = ("GET", "PATCH")
 
@@ -50,9 +54,15 @@ class ServerAws:
     def on(self) -> bool:
         return self.settings.on()
 
-    def health(self) -> dict:
-        """For /api/health and trailbeam doctor: the status, never raising."""
-        return self.status.get(self.now_ms())
+    def health(self, who=None) -> dict:
+        """For /api/health and trailbeam doctor: the status, never raising. Only an admin (anyone, before accounts
+        exist) gets all of it; anyone else let in gets ``{"on", "problem"}``, with ``problem`` the sentence
+        ``ADMIN_SEES_WHY`` rather than the cause (QV-744): where the credentials come from (an instance role points
+        at the metadata address), the region and how many queues are named are for the settings screen's readers."""
+        s = self.status.get(self.now_ms())
+        if self.is_admin(who):
+            return s
+        return {"on": s["on"], "problem": ADMIN_SEES_WHY if s.get("problem") else None}
 
     def view(self) -> dict:
         return {"settings": self.settings.current(), "status": self.status.get(self.now_ms())}

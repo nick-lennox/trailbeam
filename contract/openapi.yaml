@@ -4892,10 +4892,11 @@ components:
                 The URL template of `--trace-link` (`TRAILBEAM_TRACE_LINK`) that each step's `span.trace_url` is
                 made from, null when none is set. Added in 0.5.
             aws:
-              oneOf: [{$ref: '#/components/schemas/AwsStatus'}, {type: 'null'}]
+              oneOf: [{$ref: '#/components/schemas/AwsStatus'}, {$ref: '#/components/schemas/AwsStatusShort'}, {type: 'null'}]
               description: |
                 Whether the server reads what AWS says about its queues, and whether those reads can work (see
-                `get-aws-settings`). `on` is false until an admin turns them on. Added in 0.5.
+                `get-aws-settings`). `on` is false until an admin turns them on. Added in 0.5. All of `AwsStatus`
+                only for an admin (anyone, before accounts exist); `AwsStatusShort` for anyone else (QV-744).
     AwsStatus:
       type: object
       description: |
@@ -4914,6 +4915,16 @@ components:
             null when it found none or was not asked because reads are off.
         region: {type: [string, 'null'], description: 'The region for queues whose spans don''t say theirs: the settings'', else boto3''s own.'}
         problem: {type: [string, 'null'], description: 'Why reads that are on can''t work, as a sentence, else null.'}
+    AwsStatusShort:
+      type: object
+      description: |
+        `/api/health`'s `config.aws` for someone who isn't an admin: whether reads are on, and whether they can work,
+        without where the credentials come from, the region or how many queues are named.
+      additionalProperties: false
+      required: ['on', problem]
+      properties:
+        'on': {type: boolean, description: 'Reads are on: switched on, with at least one queue named.'}
+        problem: {type: [string, 'null'], description: 'Null when reads are off or can work; else a sentence saying they can''t, and that an admin sees why in Settings, under AWS.'}
     AwsSettings:
       type: object
       additionalProperties: false

@@ -335,7 +335,8 @@ def run(t: Target, now_ns: Optional[int] = None) -> list[Result]:
 
 def aws_reads(health: Optional[dict]) -> Result:
     """The server's AWS reads, from /api/health's config.aws. What is checked is the server's, not this machine's:
-    the server is what calls AWS, with its own credentials."""
+    the server is what calls AWS, with its own credentials. The server tells only an admin's token why reads can't
+    work, and where the credentials come from (QV-744); for anyone else it says on, and whether there is a problem."""
     name = "AWS reads"
     if not isinstance(health, dict):
         return Result(name, SKIP, "needs the checks above")
@@ -344,6 +345,11 @@ def aws_reads(health: Optional[dict]) -> Result:
         return Result(name, SKIP, "this server is an older Trailbeam, without AWS reads")
     if not aws.get("on"):
         return Result(name, OK, "off: the server makes no AWS calls, and the queue pages show what spans show")
+    if "credentials" not in aws:  # the token is not an admin's: the server says only on, and whether it works
+        if aws.get("problem"):
+            return Result(name, FAIL, "on, but they can't work", aws["problem"],
+                          "an admin sees why in Settings, under AWS, or run trailbeam doctor with an admin's token.")
+        return Result(name, OK, "on (an admin's token shows where the server's credentials come from)")
     n = aws.get("queues") or 0
     named = f"{n} queue name{'' if n == 1 else 's'}"
     if aws.get("problem"):

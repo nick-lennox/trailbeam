@@ -159,3 +159,39 @@ def test_a_server_with_reads_off_never_imports_boto3(tmp_path):
     """)
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
     assert r.returncode == 0 and r.stdout.strip() == "ok", r.stderr
+
+
+def test_health_tells_only_an_admin_where_the_credentials_come_from():
+    """QV-744: /api/health is open, and says only status and version to a request that isn't let in; a member gets
+    config.aws's on and whether there is a problem, never the credentials' source, region or queue count."""
+    db = Database(":memory:")
+    try:
+        acc = Accounts(db)
+        admin = acc.create_first_admin("ada@example.com", "Ada", "x", 1)
+        member = acc.create_user("ben@example.com", "Ben", "member", "x", 1)
+        t = Tokens(acc)
+        a = {"Authorization": "Bearer " + t.create_personal(admin, "a")[1]}
+        m = {"Authorization": "Bearer " + t.create_personal(member, "m")[1]}
+        app = server.App(db, ui_dir=None)
+        app.aws.status.source = lambda region: ("iam-role", "eu-west-1")
+        with serve(app) as base:
+            assert call(base, "PATCH", body={"enabled": True, "queues": ["orders"]}, headers=a)[0] == 200
+            assert call(base, "GET", "/api/health")[1] == {"status": "ok", "version": server.__version__}
+            assert call(base, "GET", "/api/health", headers=m)[1]["config"]["aws"] == {"on": True, "problem": None}
+            line = doctor.aws_reads(call(base, "GET", "/api/health", headers=m)[1])
+            assert line.status == doctor.OK and "iam-role" not in line.detail
+            full = call(base, "GET", "/api/health", headers=a)[1]["config"]["aws"]
+            assert full["credentials"] == "iam-role" and full["region"] == "eu-west-1" and full["queues"] == 1
+
+            app.aws.status.clear()
+            app.aws.status.source = lambda region: (None, None)
+            got = call(base, "GET", "/api/health", headers=m)[1]["config"]["aws"]
+            assert got == {"on": True, "problem": aws_api.ADMIN_SEES_WHY}
+            line = doctor.aws_reads({"config": {"aws": got}})
+            assert line.status == doctor.FAIL and line.cause == aws_api.ADMIN_SEES_WHY and "admin" in line.fix
+            assert call(base, "GET", "/api/health", headers=a)[1]["config"]["aws"]["problem"] == \
+                aws_reader.NO_CREDENTIALS
+            # in process, as nobody: the short answer too
+            assert app.api("health", {})["config"]["aws"] == {"on": True, "problem": aws_api.ADMIN_SEES_WHY}
+    finally:
+        db.close()
