@@ -67,3 +67,4 @@ export {
   OverviewFlows, type OverviewCopy, type OverviewFlowsData, type OverviewFlowsHrefs, type OverviewFlowsProps, type OverviewFlowsSlots,
   type OverviewSample, type OverviewTrigger, type PartMessagesAt,
 } from "../now/OverviewFlows.tsx";
+export { AwsSettingsView, type AwsSettingsViewProps } from "../aws/AwsSettingsView.tsx";

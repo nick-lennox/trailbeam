@@ -1,9 +1,11 @@
 /*
   The Overview at /overview, drawn with the shared OverviewFlows (@trailbeam/ui/design), the hosted app's Overview, in
   the shell's frame (frame.tsx). It reads GET /api/flows for the range, GET /api/causes for why messages didn't
-  finish in it, and GET /api/queues/{queue}/now for each queue's messages now (overview/flows-data.ts). Trailbeam makes
-  no AWS calls, so health is from the spans alone (spanHealth), and the card's figures are the range's totals from
-  spans: Sends, Receives and Deletes, visibility changes, the average body and receives on the dead-letter queue.
+  finish in it, and GET /api/queues/{queue}/now?minutes= for each queue's messages now and what AWS says about it
+  (overview/flows-data.ts). AWS reads are off by default (QV-589): then health is from the spans alone (spanHealth).
+  A queue named in the AWS settings has its depth, age, settings and health from SQS and CloudWatch, as in the hosted
+  app. Either way the card's figures include the range's totals from spans: Sends, Receives and Deletes, visibility
+  changes, the average body and receives on the dead-letter queue.
   The URL is the page's state: the Event explorer's range=<preset> or from=&to= (the page before QV-579's from_ms=&to_ms=
   still opens), and flow=. The range is chosen with the explorer's TimePicker. A range that ends now asks again every 15 s
   while the tab is showing and updates the figures in place; a fixed range is read once. Copy link pins the exact window. /queues, the queue list QV-360 planned, is this page.
@@ -11,9 +13,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   LAMBDA_DELETES_HINT, REFRESH_S, flowsHref, flowsWindow, fmtBytes, lambdaDeletes, overviewRangeOf, pinnedFlowsHref, queueQuery, queueRangeOf,
-  readFlowsUrl, selfHostedFlowsData, timeKey, storeIsEmpty, type CausePage, type Flow, type FlowsResponse, type FlowsUrl, type QueueNowResponse,
+  readFlowsUrl, selfHostedFlowsData, timeKey, storeIsEmpty, overviewNowPath, anyAwsRead, type CausePage, type Flow, type FlowsResponse, type FlowsUrl, type QueueNowResponse,
+  type QueueNowAnswer,
 } from "../src/index.ts";
-import { fmtNum, partMessagesOf, phrase, preset, type Ev, type InQueueView, type QueueLive, type TimeRange } from "../src/model/index.ts";
+import { fmtNum, partMessagesOf, phrase, preset, type Ev, type QueueLive, type TimeRange } from "../src/model/index.ts";
 import {
   OverviewFlows, PartMessages, Since, TopBar, Tooltip, UiLink, type OverviewCopy, type OverviewFlowsData, type OverviewFlowsHrefs, type PartMessagesAt,
 } from "../src/design/index.ts";
@@ -36,10 +39,11 @@ function retentionMs(text: string | undefined): number | null {
 const COPY: OverviewCopy = {
   noHealth: (n) => (n === 1 ? "1 queue, with no data on its health" : `${fmtNum(n)} queues, with no data on their health`),
   spansOnly: ". Health is from your services' spans only",
-  noFigures: () => "Trailbeam makes no AWS calls, so it can't see this queue's depth, its oldest message or its settings. Its figures here are from your services' spans.",
+  // the server's reason when it sends one (reads off, the queue not named, what AWS answered); a server before QV-589 sends none
+  noFigures: (live) => live?.detail ?? "Trailbeam makes no AWS calls, so it can't see this queue's depth, its oldest message or its settings. Its figures here are from your services' spans.",
 };
 
-type Loaded = { flows: Flow[]; data: OverviewFlowsData; window: { fromMs: number; toMs: number; clipped: boolean } };
+type Loaded = { flows: Flow[]; data: OverviewFlowsData; window: { fromMs: number; toMs: number; clipped: boolean }; aws: boolean };
 type State =
   | { kind: "loading" }
   | { kind: "ok"; at: number; got: Loaded; stale?: { message: string; at: number } }
@@ -47,9 +51,9 @@ type State =
   | { kind: "unsupported" }
   | { kind: "error"; message: string };
 
-/** One flow's "In ‹queue› now", or null when it couldn't be read: the rest of the page still draws. */
-const nowOf = (f: Flow) =>
-  getJSON<QueueNowResponse>(`/api/queues/${encodeURIComponent(f.key)}/now`).then((r): [string, InQueueView | null] => [f.key, r], () => [f.key, null]);
+/** One flow's "In ‹queue› now" and AWS parts over the past `minutes`, or null when it couldn't be read: the rest of the page still draws. */
+const nowOf = (f: Flow, minutes: number) =>
+  getJSON<QueueNowResponse>(overviewNowPath(f.key, minutes)).then((r): [string, QueueNowAnswer | null] => [f.key, r], () => [f.key, null]);
 
 /** The range's totals for one queue, from its spans: what the open-source Overview's table showed. */
 function QueueTotals({ f, range }: { f: Flow; range: string }) {
@@ -107,7 +111,7 @@ function ShellPartMessages({ at, queue, window: w, time, live }: { at: PartMessa
   return (
     <>
       <PartMessages queue={queue} part={at.part} producer={at.producer} rows={rows} max={at.max} eventsHref={(q) => eventsHref(q, time)}
-        facts={live && { read: false, fifo: live.fifo, visibilityTimeoutS: live.visibilityTimeoutS, retentionS: live.retentionS, delayS: null, maxReceiveCount: live.maxReceiveCount, dlq: live.dlq, triggers: null }} />
+        facts={live && { read: live.status === "ok", fifo: live.fifo, visibilityTimeoutS: live.visibilityTimeoutS, retentionS: live.retentionS, delayS: live.delayS ?? null, maxReceiveCount: live.maxReceiveCount, dlq: live.dlq, triggers: null }} />
       {got.capped && <p className={note}>Read from the {fmtNum(PART_LIMIT)} most recently active messages in the range.</p>}
     </>
   );
@@ -139,10 +143,10 @@ export function OverviewPage() {
       getJSON<FlowsResponse>(`/api/flows?${win}`),
       getJSON<CausePage>(`/api/causes?${win}&limit=1`).catch(() => null),
     ]).then(async ([r, causes]) => {
-      const now = Object.fromEntries(await Promise.all(r.flows.map(nowOf)));
+      const now = Object.fromEntries(await Promise.all(r.flows.map((f) => nowOf(f, w.minutes))));
       if (!live) return;
       const data = selfHostedFlowsData({ range: overviewRangeOf(u.time), window: w, flows: r.flows, causes, now, causeHref: (id) => `/stuck?cause=${encodeURIComponent(id)}` });
-      setState({ kind: "ok", at, got: { flows: r.flows, data, window: w } });
+      setState({ kind: "ok", at, got: { flows: r.flows, data, window: w, aws: anyAwsRead(now) } });
     }, (e: Error) => {
       if (!live) return;
       if (e instanceof ApiError && e.status === 501) return setState({ kind: "unsupported" });
@@ -242,7 +246,9 @@ export function OverviewPage() {
           partMessages: (at) => got && <ShellPartMessages key={`${at.queue}:${at.part}:${at.producer ?? at.consumer ?? ""}`} at={at} queue={nameOf(at.queue)} window={got.window} time={u.time} live={got.data.info[at.queue]?.live} />,
           queueFacts: (label) => { const f = byLabel.get(label); return f ? <QueueTotals f={f} range={range} /> : null; },
           foot: got && <>
-            <p>Counts are of the spans your services reported between {clock(got.window.fromMs)} and {clock(got.window.toMs)} UTC. Trailbeam makes no AWS calls, so it can&rsquo;t see queue depth or the oldest message: open a queue&rsquo;s page for what it can see, and the SQS console for the rest.</p>
+            {got.aws
+              ? <p>Counts are of the spans your services reported between {clock(got.window.fromMs)} and {clock(got.window.toMs)} UTC. Depth, the oldest message and each queue&rsquo;s settings are from SQS and CloudWatch, for the queues named in the server&rsquo;s AWS settings.</p>
+              : <p>Counts are of the spans your services reported between {clock(got.window.fromMs)} and {clock(got.window.toMs)} UTC. Trailbeam reads nothing from AWS for these queues, so it can&rsquo;t see queue depth or the oldest message: open a queue&rsquo;s page for what it can see, and the SQS console for the rest.</p>}
             {got.window.clipped && <p className="mt-1">Spans before {new Date(got.window.fromMs).toISOString().slice(0, 16).replace("T", " ")} UTC aren&rsquo;t kept on this server.</p>}
             {state.kind === "ok" && state.stale && <p className="mt-1" role="status">Couldn&rsquo;t refresh at {clock(state.stale.at)} UTC: {state.stale.message}. These figures are from {clock(state.at)} UTC.</p>}
             <p className="mt-1">The same data as JSON: <a className="font-mono text-caption text-brand hover:underline" href={json}>/api/flows</a></p>

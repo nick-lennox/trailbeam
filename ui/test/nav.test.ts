@@ -69,12 +69,14 @@ test("without queues the Sidebar has no Queues section, and with none yet it say
   assert.match(html(h(Sidebar, { groups: items, queues: [] })), /None yet\. A queue appears when a service reports a call on it\./);
 });
 
-test("the shell's items are its header's: People for admins, Tokens for anyone signed in", () => {
+test("the shell's items are its header's: People for admins, Tokens for anyone signed in, Settings for admins", () => {
   const labels = (g: ReturnType<typeof shellItems>) => g.map((x) => x.map((i) => i.label));
   assert.deepEqual(labels(shellItems(null, "/")), [["Overview", "Event explorer", "Messages", "Duplicates", "Stuck", "Tenants"]]);
   const admin = { auth: "accounts", via: "session", user: { id: 1, email: "a@b.c", name: "A", role: "admin" } } as const;
-  assert.deepEqual(labels(shellItems(admin, "/"))[1], ["People", "Tokens"]);
+  assert.deepEqual(labels(shellItems(admin, "/"))[1], ["People", "Tokens", "Settings"]);
   assert.deepEqual(labels(shellItems({ ...admin, user: { ...admin.user, role: "member" } }, "/"))[1], ["Tokens"]);
+  // before accounts exist anyone may change the settings, as /api/settings/aws decides
+  assert.deepEqual(labels(shellItems({ auth: "token", via: "shared_token", user: null }, "/"))[1], ["Settings"]);
   // a queue's page is under the Overview; a message's under Messages
   assert.equal(shellItems(null, "/queue")[0][0].on, true);
   assert.equal(shellItems(null, "/message")[0][2].on, true);

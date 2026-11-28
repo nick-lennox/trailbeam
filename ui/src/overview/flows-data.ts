@@ -1,11 +1,15 @@
 /*
   Self-hosted Trailbeam's data for the shared Overview (OverviewFlows, @trailbeam/ui/design), from its own API: GET /api/flows
   for the range, GET /api/causes for why messages didn't finish in it, and GET /api/queues/{queue}/now for each queue's
-  messages now. Trailbeam makes no AWS calls, so every queue's figures are the spans' alone: its QueueLive says no
-  AWS read was made ("not_configured"), and its health is spanHealth's verdict. The URL is the Event explorer's range=<preset> or from=&to=, and flow=. Pure.
+  messages now, with what AWS says about it (QV-589). AWS reads are off by default: then every queue's figures are the
+  spans' alone, its QueueLive says no AWS read was made ("not_configured"), and its health is spanHealth's verdict. A
+  queue the server read (aws.status "ok") has the server's QueueLive (depth, age, settings) and Lambda triggers, and its
+  health from them, as in the hosted app. A queue it didn't read keeps the spans' figures, with the server's reason in
+  `detail`. The URL is the Event explorer's range=<preset> or from=&to=, and flow=. Pure.
 */
 import { overviewData, type OverviewData } from "../model/overview.ts";
 import type { QueueLive } from "../model/queue-live.ts";
+import { pageTrigger, type QueueAws } from "../model/aws.ts";
 import type { InQueueView } from "../model/in-queue.ts";
 import { toCause } from "../model/causes.ts";
 import type { OverviewRangeId } from "../model/format.ts";
@@ -15,8 +19,23 @@ import type { CauseGroup, CausePage } from "../causes/types.ts";
 import type { Flow } from "../queue/selfhosted.ts";
 import type { Trigger } from "../queue/types.ts";
 
-/** GET /api/queues/{queue}/now: the queue it read, and "In ‹queue› now" with no SQS totals. */
-export type QueueNowResponse = InQueueView & { queue: { key: string; name: string; account: string | null; region: string | null; fifo: boolean } };
+/**
+ * GET /api/queues/{queue}/now: the queue it read and "In ‹queue› now", with what AWS says about it (`aws`) and its
+ * figures for the Overview's card (`live`). A server before QV-589 part 3 sends neither.
+ */
+export type QueueNowResponse = InQueueView & {
+  queue: { key: string; name: string; account: string | null; region: string | null; fifo: boolean };
+  aws?: QueueAws; live?: QueueLive;
+};
+/** "In ‹queue› now" with the queue's AWS parts, as selfHostedFlowsData takes it. */
+export type QueueNowAnswer = InQueueView & { aws?: QueueAws; live?: QueueLive };
+
+/** The /now path for a queue on the Overview, asking for CloudWatch over its past `minutes` (whole, at least one). */
+export const overviewNowPath = (key: string, minutes: number) =>
+  `/api/queues/${encodeURIComponent(key)}/now?minutes=${Math.max(1, Math.round(minutes))}`;
+
+/** Whether any queue on the page was read from AWS: the page then says where its depth and age come from. */
+export const anyAwsRead = (now: Record<string, QueueNowAnswer | null>) => Object.values(now).some((v) => v?.aws?.status === "ok");
 
 export type FlowsUrl = { time: TimeRange; flow: string | undefined };
 
@@ -95,21 +114,36 @@ export type SelfHostedFlowsInput = {
   /** GET /api/causes for the window, or null when it couldn't be read */
   causes: CausePage | null;
   /** each flow's GET /api/queues/{queue}/now, by flow key, or null when it couldn't be read */
-  now: Record<string, InQueueView | null>;
+  now: Record<string, QueueNowAnswer | null>;
   /** a cause group's page on this server */
   causeHref: (id: string) => string;
 };
 
-/** The shared Overview's data on this server: the spans' figures, with health from spans alone. */
+/**
+ * The shared Overview's data on this server. A queue AWS was read for has the server's QueueLive and its Lambda
+ * triggers, so its health is from SQS and CloudWatch; any other has the spans' figures and health from spans alone,
+ * with the server's reason for not reading it.
+ */
 export function selfHostedFlowsData(i: SelfHostedFlowsInput): OverviewData<Trigger, InQueueView> {
   const { flows, window: w } = i;
   const groups = (i.causes?.groups ?? []).map((g) => ({ g, f: flowOfGroup(flows, g) })).filter((x): x is { g: CauseGroup; f: Flow } => !!x.f);
   const causes = groups.map(({ g, f }) => ({ row: toCause(g, f.queue, w.fromMs, w.toMs, i.causeHref), lastMs: g.lastMs, retrying: g.retrying }));
   const queueData = Object.fromEntries(flows.map((f) => {
-    const view = i.now[f.key] ?? null;
+    const got = i.now[f.key] ?? null;
+    const view = got && inQueueOf(got);
     const stuck = groups.filter((x) => x.f === f).reduce((a, x) => a + (x.g.counts.stuck ?? 0), 0);
-    return [f.key, { aws: { triggers: null }, live: spanOnlyLive({ view, fifo: f.name.endsWith(".fifo"), dlq: f.dlq?.name ?? null, stuck }), inQueue: view }];
+    const aws = got?.aws, live = got?.live;
+    if (aws?.status === "ok" && live) return [f.key, { aws: { triggers: aws.triggers && aws.triggers.map(pageTrigger) }, live, inQueue: view }];
+    const spans = spanOnlyLive({ view, fifo: f.name.endsWith(".fifo"), dlq: f.dlq?.name ?? null, stuck });
+    // not read: the spans' figures, with the server's reason (reads off, not named, or what AWS answered)
+    return [f.key, { aws: { triggers: null }, live: aws ? { ...spans, status: aws.status, detail: live?.detail ?? aws.detail } : spans, inQueue: view }];
   }));
   return overviewData<Trigger, InQueueView>("this server", i.range, w.minutes, flows, queueData, w.toMs, {},
     { causes, causesCapped: !!i.causes?.capped, spanHealth: true });
+}
+
+/** "In ‹queue› now" without the AWS parts /now sends with it. */
+function inQueueOf(r: QueueNowAnswer): InQueueView {
+  const { aws: _aws, live: _live, ...view } = r;
+  return view;
 }
