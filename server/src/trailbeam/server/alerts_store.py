@@ -16,7 +16,7 @@ from the ingest pool).
   their dashboard and widget, "Alert me" rules under dashboard ``rule`` and the rule's ID.
 - ``alert_checks``: per workspace (or alerts_run.span_key), when it was last checked and with what error, and its
   lease: who holds it until when.
-- ``alert_outbox`` (QV-674; SQLite schema 29, Postgres schema 23): the changes a check won and is sending. Written
+- ``alert_outbox`` (QV-674; SQLite schema 30, Postgres schema 24): the changes a check won and is sending. Written
   just before delivery and deleted once it returns, so a check stopped in between (a shutdown, a crash, a delivery
   that raised) leaves its changes here, and the next check of the workspace sends them (alerts_run.run_alerts).
 

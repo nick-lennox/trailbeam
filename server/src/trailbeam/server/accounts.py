@@ -428,15 +428,23 @@ class Accounts:
                                 (user_id, credential_id, public_key, sign_count, name, transports,
                                  1 if backed_up else 0, now_ms))
 
-    def passkey_used(self, passkey_id: int, sign_count: int, now_ms: int) -> None:
-        """A sign-in with it worked: its counter as the authenticator now says, the person's sign-in time, and
-        their failed-sign-in count started again (as sign_in_ok)."""
+    def passkey_used(self, passkey_id: int, sign_count: int, now_ms: int) -> bool:
+        """A sign-in with it checked out: its counter as the authenticator now says, the person's sign-in time,
+        and their failed-sign-in count started again (as sign_in_ok). False, and nothing changed: the counter is
+        no longer ahead of the saved one, because another sign-in with the same passkey saved its own meanwhile
+        (two replicas or threads at once, QV-696), or the passkey is gone. The caller checked the counter against
+        what it read before; this checks it again in the write, so a concurrent 10 can't overwrite an 11. A
+        passkey without a counter (always 0) passes only while the saved one is 0 too."""
         with self._write() as tx:
             row = tx.one("SELECT user_id FROM passkeys WHERE id = ?", (passkey_id,))
-            tx.run("UPDATE passkeys SET sign_count = ?, last_used_ms = ? WHERE id = ?", (sign_count, now_ms, passkey_id))
-            if row is not None:
-                tx.run("UPDATE users SET failed_count = 0, locked_until_ms = NULL, last_sign_in_ms = ? WHERE id = ?",
-                       (now_ms, row["user_id"]))
+            if row is None or not tx.run(
+                    "UPDATE passkeys SET sign_count = ?, last_used_ms = ? "
+                    "WHERE id = ? AND (sign_count < ? OR (? = 0 AND sign_count = 0))",
+                    (sign_count, now_ms, passkey_id, sign_count, sign_count)):
+                return False
+            tx.run("UPDATE users SET failed_count = 0, locked_until_ms = NULL, last_sign_in_ms = ? WHERE id = ?",
+                   (now_ms, row["user_id"]))
+            return True
 
     def remove_passkey(self, passkey_id: int, user_id: int) -> bool:
         """False: no such passkey of this person."""

@@ -153,7 +153,7 @@ from .events import HOUR_NS, KINDS as STEP_KINDS, hour_split
 from .lookup_filter import LookupFilter, hash_key, mid_key
 from .db import gate_record
 from .otlp import RECORD_FIELDS
-from .store import (SETTLE_KINDS, SETTLE_KINDS_SQL, TENANT_MAX_CHARS, Cutoffs, ExportAbandoned, PurgeStep, Store,
+from .store import (next_seq, SETTLE_KINDS, SETTLE_KINDS_SQL, TENANT_MAX_CHARS, Cutoffs, ExportAbandoned, PurgeStep, Store,
                     StoreFull, StoreTimeout, StoreUnavailable, StuckCandidate, TenantActivity, WriterBusy)
 from .summary_table import COLUMNS, FIELDS, LISTS, ascii_lower
 
@@ -165,10 +165,11 @@ URL_SCHEMES = ("postgres://", "postgresql://")
 
 # Every column of a span row, as SQLite's spans table has them (store.py "Rows").
 SPAN_COLUMNS = (["row"] + [f for f in RECORD_FIELDS] +
-                ["attributes", "mid", "mid_source", "receive_row", "body_dropped", "body_id"])
+                ["attributes", "mid", "mid_source", "receive_row", "body_dropped", "body_id", "seq"])
 _INT = {"time_ns", "start_ns", "receive_count", "sent_ts_ms", "first_receive_ts_ms", "visibility_timeout", "pid",
-        "order_issued", "order_returned", "body_id"}
-_INSERT_COLUMNS = ["rclass", "bucket"] + list(RECORD_FIELDS) + ["attributes", "mid", "mid_source", "body_dropped", "body_id"]
+        "order_issued", "order_returned", "body_id", "seq"}
+_INSERT_COLUMNS = ["rclass", "bucket"] + list(RECORD_FIELDS) + ["attributes", "mid", "mid_source", "body_dropped", "body_id",
+                                                               "seq"]
 
 
 def _q(c: str) -> str:
@@ -1117,6 +1118,7 @@ class PostgresStore(Store):
             cols["body_dropped"].append(dropped)
             cols["body_id"].append(None if body is None else
                                    body_ids[(own, hashlib.sha256(_body_bytes(body)).digest())])
+            cols["seq"].append(next_seq())
         types = ["bigint[]" if c in _INT or c in ("rclass", "bucket") else "text[]" for c in _INSERT_COLUMNS]
         names = ", ".join(_INSERT_COLUMNS)
         stmt = (f"INSERT INTO spans ({names}) SELECT {names} FROM unnest("

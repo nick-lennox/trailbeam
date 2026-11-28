@@ -51,6 +51,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import loadgen  # noqa: E402
 
 from trailbeam.server import body_table, summary_table  # noqa: E402
+from trailbeam.server.store import next_seq  # noqa: E402
 from trailbeam.server.events import HOUR_NS, KINDS as STEP_KINDS  # noqa: E402
 from trailbeam.server.db import (_STEP_ADD_SQL, RECEIVE_JOIN_SQL, RECORD_FIELDS, SETTLE_JOIN_SQL,  # noqa: E402
                                  SETTLE_KINDS, Database, gate_body)
@@ -64,12 +65,12 @@ class Seeder:
     """Writes generated spans the way ``Database.insert`` would, with the receipt-hash join in memory.
 
     Same rows as the server: the columns, the body gate (``gate_body``), each body once in ``bodies``, ``mid``/``mid_source`` and
-    ``receive_row`` in both join directions. A settle span joins the receive with its hash seen earlier
+    ``receive_row`` in both join directions, ``seq`` from the server's clock (store.next_seq). A settle span joins the receive with its hash seen earlier
     in this seeding run; generated handles are unique, so there is one candidate. Checked against
     ``Database.insert`` in tests/test_bench_harness.py.
     """
 
-    COLS = ["row"] + RECORD_FIELDS + ["attributes", "mid", "mid_source", "body_dropped", "receive_row", "body_id"]
+    COLS = ["row"] + RECORD_FIELDS + ["attributes", "mid", "mid_source", "body_dropped", "receive_row", "body_id", "seq"]
     MID = COLS.index("mid")
     KEEP_RECEIVES = 2_000_000  # receive hashes kept for joins; late settles come within a few batches
 
@@ -110,7 +111,7 @@ class Seeder:
                     updates.append((own, row, srow, was))
             rows.append([row] + [r.get(f) for f in RECORD_FIELDS]
                         + [body_table.attributes_json(attrs), mid, src, dropped, rrow,
-                           None if body is None else body_table.put(c, own, body)])
+                           None if body is None else body_table.put(c, own, body), next_seq()])
         c.executemany(self.sql, rows)
         steps: dict = {}  # step_rollup, as insert adds to it (generated spans are never duplicates)
         for r in records:

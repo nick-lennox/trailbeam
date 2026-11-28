@@ -17,10 +17,11 @@ PROFILE = loadgen.Profile(queues=6, tenants=4, body_size=300, body_queues=2, red
                           dlq=0.1, stuck=0.1, lambda_consumer=0.3, late_join=0.4, batch_spans=40)
 
 
-def rows(path, table="spans"):
+def rows(path, table="spans", drop=None):
     c = sqlite3.connect(path)
     c.row_factory = sqlite3.Row
-    out = sorted((dict(r) for r in c.execute(f"SELECT * FROM {table}")), key=lambda r: [str(v) for v in r.values()])
+    out = sorted(({k: r[k] for k in r.keys() if k != drop} for r in c.execute(f"SELECT * FROM {table}")),
+                 key=lambda r: [str(v) for v in r.values()])
     c.close()
     return out
 
@@ -38,6 +39,9 @@ def test_seeding_writes_the_rows_insert_writes(tmp_path):
     s.close()
     a, b = rows(by_insert), rows(by_seed)
     assert len(a) > 1000
+    # seq is each span's arrival on the clock (store.next_seq): both write one, at different moments
+    assert all(r["seq"] is not None for r in a + b)
+    a, b = rows(by_insert, drop="seq"), rows(by_seed, drop="seq")
     assert a == b
     for t in summary_table.TABLES + ("bodies", "step_rollup"):  # and the summary tables, bodies and steps insert keeps
         assert rows(by_insert, t) == rows(by_seed, t), t

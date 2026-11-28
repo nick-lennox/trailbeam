@@ -20,6 +20,11 @@ visibility timeouts: no message is FIFO-blocked here, and a received, undeleted 
 which the group's ``why`` says.
 
 Nothing is stored: :func:`read_unfinished` works the groups out at read time from the stuck messages.
+
+Triage (triage.py) needs to know when each message's failure reached the server: a classified message carries the
+``seq`` of the span that decided its cause (store.next_seq; NaN when not known: a span stored before the server kept
+it, or AWS-side evidence it has no time of storing for), and a group its ``arrivals``, one ``{mid, seq, ms, version}``
+per message (arrivals.ts in the app). As in the app, both stay on the server: :func:`public` leaves them out.
 """
 from __future__ import annotations
 
@@ -210,10 +215,12 @@ def _finite(x) -> bool:
 
 
 def cause_of(t: dict, now_ms: float, *, visibility_s: Optional[dict] = None, queue_url: Optional[str] = None,
-             tenant: Optional[str] = None, group_id: Optional[str] = None) -> dict:
+             tenant: Optional[str] = None, group_id: Optional[str] = None,
+             seq_of: Optional[Callable[[str], Optional[float]]] = None) -> dict:
     """The cause of one unfinished message, from its timeline (timeline.build). The latest delivery that shows a
     failure decides; with none, the latest delivery; never received, the send. A FIFO message blocked behind an
-    earlier one comes out as never_received here: :func:`group` tells the two apart."""
+    earlier one comes out as never_received here: :func:`group` tells the two apart. ``seq_of``: a span ID's seq,
+    for the ``seq`` of the event that decided it (NaN without one)."""
     evs = t["events"]
     source = str(t["source_queue"])
     base = {
@@ -226,15 +233,27 @@ def cause_of(t: dict, now_ms: float, *, visibility_s: Optional[dict] = None, que
     }
     outcome = "dead_lettered" if t.get("in_dead_letter_queue") or t.get("dead_letter_queue_move") else "stuck"
 
-    def make(kind: str, sig: str, consumer: str, evidence_ms: float, **extra) -> dict:
+    def arrived(e: Optional[dict]) -> float:
+        """When the event that decided it reached the server: its span's seq, or for AWS-side evidence the time AWS
+        recorded it, in seq units (arrivals.ts in the app)."""
+        if not e:
+            return NAN
+        if e.get("type") == "aws_step":
+            ms = _iso_ms(e.get("time"))
+            return ms * 1000 if _finite(ms) else NAN
+        sid = (e.get("span") or {}).get("span_id")
+        got = seq_of(sid) if seq_of is not None and isinstance(sid, str) else None
+        return NAN if got is None else got
+
+    def make(kind: str, sig: str, consumer: str, evidence_ms: float, from_: Optional[dict] = None, **extra) -> dict:
         return {**base, "kind": kind, "signature": sig, "consumer": consumer, "outcome": outcome,
-                "evidenceMs": evidence_ms, "earlier": [], **extra}
+                "evidenceMs": evidence_ms, "earlier": [], "seq": arrived(from_), **extra}
 
     # 1: removed by an event filter, from CloudTrail
     drop = next((e for e in evs if e.get("type") == "aws_step" and e.get("aws_kind") == "filter_drop"), None)
     if drop:
         fn = str(drop.get("function_name") or "")
-        return {**make("filter", f"filter:{fn}", fn, _iso_ms(drop.get("time")), fn=fn), "outcome": "filtered"}
+        return {**make("filter", f"filter:{fn}", fn, _iso_ms(drop.get("time")), drop, fn=fn), "outcome": "filtered"}
 
     receives = sorted((e for e in evs if e.get("type") == "received"), key=lambda e: e.get("delivery") or 0)
 
@@ -248,26 +267,26 @@ def cause_of(t: dict, now_ms: float, *, visibility_s: Optional[dict] = None, que
             if s.get("type") == "aws_step" and s.get("aws_kind") in ("timeout", "out_of_memory"):
                 fn = str(s["function_name"]) if s.get("function_name") is not None else c
                 kind = "fn_timeout" if s["aws_kind"] == "timeout" else "fn_oom"
-                out.append(make(kind, f"{kind}:{fn}", fn, _iso_ms(s.get("time")), fn=fn))
+                out.append(make(kind, f"{kind}:{fn}", fn, _iso_ms(s.get("time")), s, fn=fn))
         for x in on:
             if x.get("type") != "lambda_outcome" or x.get("outcome") == "success":
                 continue
             if x.get("outcome") == "failed_exception":
                 typ = str(x["error_type"]) if x.get("error_type") is not None else "Error"
                 text = x.get("error_message") if isinstance(x.get("error_message"), str) else None
-                out.append(make("exc", exc_signature(typ, text), c, _end_ms(x), errorType=typ, error=text))
+                out.append(make("exc", exc_signature(typ, text), c, _end_ms(x), x, errorType=typ, error=text))
             elif x.get("outcome") == "failed_invalid_response":
-                out.append(make("invalid_batch_response", "invalid_batch_response", c, _end_ms(x)))
+                out.append(make("invalid_batch_response", "invalid_batch_response", c, _end_ms(x), x))
             else:
-                out.append(make("reported_failure", "reported_failure", c, _end_ms(x)))
+                out.append(make("reported_failure", "reported_failure", c, _end_ms(x), x))
         if not out:
             for x in on:
                 if x.get("type") == "lambda_invocation_ended_without_outcome":
-                    out.append(make("no_outcome", "no_outcome", c, _end_ms(r)))
+                    out.append(make("no_outcome", "no_outcome", c, _end_ms(r), r))
         for x in on:
             if x.get("type") == "deleted" and x.get("result") != "ok":
                 code = str(x["error_code"]) if x.get("error_code") is not None else "unknown"
-                out.append(make("delete_failed", f"delete_failed:{code}", c, _end_ms(x), errorCode=code))
+                out.append(make("delete_failed", f"delete_failed:{code}", c, _end_ms(x), x, errorCode=code))
         for x in out:
             x["version"] = v
         return out
@@ -294,15 +313,15 @@ def cause_of(t: dict, now_ms: float, *, visibility_s: Optional[dict] = None, que
         vt = DEFAULT_VISIBILITY_S if known is None else known
         # a Lambda invocation still running is in flight whatever the timer says
         if t.get("state") == "processing" or base.get("amqp"):
-            return make("in_flight", "in_flight", c, _end_ms(latest), version=v)
+            return make("in_flight", "in_flight", c, _end_ms(latest), latest, version=v)
         extra = {"version": v, **({"assumedVisibility": True} if known is None else {})}
         if now_ms < from_ms + vt * 1000:
-            return make("in_flight", "in_flight", c, _end_ms(latest), **extra)
-        return make("not_deleted", "not_deleted", c, _end_ms(latest), **extra)
+            return make("in_flight", "in_flight", c, _end_ms(latest), latest, **extra)
+        return make("not_deleted", "not_deleted", c, _end_ms(latest), latest, **extra)
 
     # 12: never received (11, FIFO-blocked, is decided in group())
     send = next((e for e in evs if e.get("type") == "sent"), None)
-    return make("never_received", "never_received", "", _end_ms(send) if send else _iso_ms(t.get("first_seen")))
+    return make("never_received", "never_received", "", _end_ms(send) if send else _iso_ms(t.get("first_seen")), send)
 
 
 # ---- labels (design section 4) ----------------------------------------------------------------------------
@@ -403,7 +422,7 @@ def group(items: list, first_seen_ms: Optional[dict] = None, assign: Optional[di
                  "queue": x["queue"], "queueKey": x["queueKey"], "consumer": x["consumer"], "outcome": x["outcome"],
                  "count": 0, "counts": {"dead_lettered": 0, "stuck": 0, "filtered": 0}, "dlqInferred": 0,
                  "firstMs": math.inf, "lastMs": -math.inf, "times": [], "tenants": [], "sampleError": None,
-                 "sampleMid": x["mid"], "examples": [], "earlier": [], "retrying": 0, "versions": [],
+                 "sampleMid": x["mid"], "examples": [], "earlier": [], "retrying": 0, "versions": [], "arrivals": [],
                  "_first": (math.inf, None), "_x": x, "_earlier": {}, "_versions": {}}
             out[key] = g
         g["count"] += 1
@@ -442,6 +461,7 @@ def group(items: list, first_seen_ms: Optional[dict] = None, assign: Optional[di
                 if not ms <= v["lastMs"]:
                     v["lastMs"] = ms
         g["examples"].append(x["mid"])
+        g["arrivals"].append({"mid": x["mid"], "seq": x.get("seq", NAN), "ms": ms, "version": x["version"]})
         if assign is not None:
             assign[x["mid"]] = g["id"]
         for k in x["earlier"]:
@@ -551,7 +571,7 @@ def read_unfinished(db, now_ns: int, lambda_timeout_s: int, mrc: Optional[dict],
         if t["state"] in ("purged", "deleted", "deleted_inferred"):
             continue  # the stuck query leaves these out already; a span stored since can add one
         url = next((x["queue_url"] for x in rows if x["queue"] == t["source_queue"] and x["queue_url"]), None)
-        x = cause_of(t, now_ms, queue_url=url, tenant=summary.message_tenant(rows))
+        x = cause_of(t, now_ms, queue_url=url, tenant=summary.message_tenant(rows), seq_of=span_seqs(rows).get)
         classified.append(x)
         first_seen[r.message_id] = r.first_ns // 1_000_000
         urls[r.message_id] = url
@@ -562,8 +582,25 @@ def read_unfinished(db, now_ns: int, lambda_timeout_s: int, mrc: Optional[dict],
     return {"classified": classified, "items": items, "first_seen": first_seen, "urls": urls, "capped": capped}
 
 
+def span_seqs(rows) -> dict:
+    """Each span ID's seq (store.next_seq) in a message's rows: the first, should a span be stored twice (a retry
+    with another end time). Rows stored before the server kept seq have none, and are left out."""
+    out: dict = {}
+    for r in rows:
+        sq = r["seq"]
+        if sq is not None and not sq >= out.get(r["span_id"], math.inf):
+            out[r["span_id"]] = sq
+    return out
+
+
+SERVER_ONLY = ("seq", "arrivals")  # for triage on the server; the app keeps them off its pages too
+
+
 def public(g: dict) -> dict:
-    """A group as JSON: NaN (no evidence time) as null, as JSON.stringify writes it in the app."""
+    """A group (or a classified message) as JSON: NaN (no evidence time) as null, as JSON.stringify writes it in the
+    app, without what only triage reads (SERVER_ONLY)."""
+    g = {k: v for k, v in g.items() if k not in SERVER_ONLY}
+
     def fix(v):
         if isinstance(v, float):
             return None if math.isnan(v) else (int(v) if v.is_integer() else v)

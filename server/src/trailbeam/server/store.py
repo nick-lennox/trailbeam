@@ -25,6 +25,9 @@ sorted keys, bodies removed per ``store_bodies``), and these, which the Store se
   'span'``), else NULL. If several receives share a hash, the latest at or before the settle span, else the
   earliest after it.
 - ``body_dropped``: ``'not_opted_in'`` when the span carried a body for a queue not in ``store_bodies``.
+- ``seq``: when the span reached this server (``next_seq``), set once when the row is first stored: an exporter's
+  retry of the same span keeps the first copy's. NULL on rows stored before the column (SQLite schema 29, Postgres
+  23). Triage counts the failures that arrived after a resolve or ignore by it (triage.py).
 
 **Messages.** Only rows with a ``mid`` belong to a message. A message's time is its spans' ``time_ns``.
 
@@ -59,6 +62,8 @@ bucket, key and time (``s3_uploads``), finds the receives whose S3 notification 
 from __future__ import annotations
 
 import abc
+import threading
+import time
 from typing import Any, Callable, Iterable, Mapping, NamedTuple, Optional
 
 # Why a store without probes rejects them (contract section 17: the reason is "probe span not stored: " this).
@@ -69,6 +74,22 @@ Summary = Mapping[str, Any]  # summary.summarize, as stored
 
 # Spans about one delivery that join its receive (db.py): SQS's by receipt hash; RabbitMQ's reject and
 # channel_closed (otlp.py) by channel and delivery tag, through the same columns.
+_seq_lock = threading.Lock()
+_seq_last = 0
+
+
+def next_seq(now_ms: Optional[int] = None) -> int:
+    """A span's arrival on this server, in seq units: milliseconds since the epoch on the server's clock, times 1000,
+    plus a counter (as the hosted app's ingest). Increasing within one server process, so a resolve's watermark
+    (triage.py ``sinceSeq``) is below every span stored after it; ``seq // 1000`` is still the arrival's ms, unless
+    more than 1000 spans arrive in one millisecond, when it runs a little ahead until the clock passes it."""
+    global _seq_last
+    ms = time.time_ns() // 1_000_000 if now_ms is None else now_ms
+    with _seq_lock:
+        _seq_last = max(ms * 1000, _seq_last + 1)
+        return _seq_last
+
+
 SETTLE_KINDS = ("delete", "change_visibility", "reject", "channel_closed")
 MAX_CANCELS = 1000  # Store.consumer_cancels: a message's window rarely holds more than a few
 SETTLE_KINDS_SQL = "(" + ", ".join(f"'{k}'" for k in SETTLE_KINDS) + ")"  # kind IN SETTLE_KINDS_SQL
