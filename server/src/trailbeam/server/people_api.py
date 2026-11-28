@@ -44,6 +44,14 @@ passkeys too). The People list says how many each person has (``passkeys``). A r
 ``trailbeam users reset-password``, remove the person's passkeys along with ending their sessions: they are how an
 account someone else got into is taken back.
 
+**Only a browser sees a link** (QV-712): a link signs whoever opens it in, and from there they can add a passkey, so
+handing one to a personal API token or the proxy would undo the rule above. An admin's token could make a reset link
+for its own person, or add a new admin and take their invite, choose the password, and add a passkey that outlives
+the token. So unless the request is a session, ``link`` has no ``url``: ``POST /api/users`` still adds the person
+(and emails the invite when it would), and ``POST /api/users/{id}/link`` is 403 ``needs_a_session`` unless it
+emails the link, since a link nobody can see would only replace the one the person has. An email goes to the
+person's own address, never to the caller.
+
 **Requests that change something** go through csrf.check (server.py) and must send ``Content-Type:
 application/json`` when they have a body, which a form on another site can't send without a preflight this server
 never answers.
@@ -73,6 +81,9 @@ PASSKEYS_OFF = ("passkeys are off on this server: they need its public URL (TRAI
                 'pip install "trailbeam[server,passkeys]"')
 NEEDS_A_SESSION = ("add a passkey from the Account page, signed in in your browser: a personal API token or a "
                    "sign-in through the proxy can't add one")
+NEEDS_A_SESSION_FOR_LINK = ("make a link from the People page, signed in in your browser, or have it emailed "
+                            "(\"send_email\": true): a personal API token or a sign-in through the proxy can't see "
+                            "one")
 NEEDS_A_PERSON = ("personal API tokens belong to a person: sign in, or send your personal API token "
                   "(this request was let in without one)")
 
@@ -214,6 +225,13 @@ class PeopleApi:
                                   "copy the link and pass it on instead", "no_mail_server")
         return v
 
+    @staticmethod
+    def _hide_url(link: dict, who) -> dict:
+        """Takes ``url`` out of ``link`` unless a browser session asked: QV-712, see the module docstring."""
+        if who.via != "session":
+            link.pop("url", None)
+        return link
+
     def _email_link(self, u: dict, link: dict, who, base_url: str) -> dict:
         """Emails the link to the person. Their answer's ``email``; takes ``url`` out of ``link`` once sent."""
         site = base_url.rstrip("/")
@@ -248,7 +266,7 @@ class PeopleApi:
         log.info("user %s added %s (user %d, %s) from the People page", who.user_id, email.strip(), uid, role)
         u = self._user(acc, uid)
         sent = self._email_link(u, link, who, base_url) if send else None
-        return 201, {"user": self._view(acc, u, now_ms, who), "link": link, "email": sent}
+        return 201, {"user": self._view(acc, u, now_ms, who), "link": self._hide_url(link, who), "email": sent}
 
     def change_user(self, acc, rid, body, who, base_url, now_ms):
         u = self._user(acc, rid)
@@ -291,11 +309,13 @@ class PeopleApi:
         if u["disabled_at_ms"] is not None:
             raise ApiProblem(409, f"{u['email']} is disabled: enable them before making a link", "disabled")
         send = self._send_email(body)
+        if not send and who.via != "session":
+            raise ApiProblem(403, NEEDS_A_SESSION_FOR_LINK, "needs_a_session")
         kind = RESET if u["password_hash"] else INVITE
         link = self._link(acc, rid, kind, base_url, now_ms)
         log.info("user %s made a %s link for user %d", who.user_id, kind, rid)
         sent = self._email_link(u, link, who, base_url) if send else None
-        return 201, {"user": self._view(acc, u, now_ms, who), "link": link, "email": sent}
+        return 201, {"user": self._view(acc, u, now_ms, who), "link": self._hide_url(link, who), "email": sent}
 
     def list_user_passkeys(self, acc, rid, body, who, base_url, now_ms):
         self._user(acc, rid)

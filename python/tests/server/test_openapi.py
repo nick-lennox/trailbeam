@@ -713,9 +713,11 @@ def _people_and_tokens(db):
         assert r("POST", "/api/users", body({"email": "CY@example.com"}), {**j, **a})[0] == 409
         assert r("PATCH", f"/api/users/{admin}", body({"role": "member"}), {**j, **a})[0] == 409
         assert r("DELETE", f"/api/users/{admin}", None, a)[0] == 409
-        assert r("POST", f"/api/users/{cy}/link", b"{}", {**j, **a})[0] == 201
+        assert r("POST", f"/api/users/{cy}/link", b"{}", {**j, **a})[0] == 403  # a link needs a session (QV-712)
+        ab = {"Cookie": "trailbeam_sid=" + app.sessions.start(admin)[0]}
+        assert r("POST", f"/api/users/{cy}/link", b"{}", {**j, **ab})[0] == 201
         assert r("PATCH", f"/api/users/{cy}", body({"disabled": True}), {**j, **a})[0] == 200
-        assert r("POST", f"/api/users/{cy}/link", b"{}", {**j, **a})[0] == 409
+        assert r("POST", f"/api/users/{cy}/link", b"{}", {**j, **ab})[0] == 409
         assert r("DELETE", f"/api/users/{cy}", None, a)[0] == 200
         assert r("GET", f"/api/users/{member}/passkeys", None, a)[0] == 200
         assert r("DELETE", f"/api/users/{member}/passkeys", None, a)[0] == 200

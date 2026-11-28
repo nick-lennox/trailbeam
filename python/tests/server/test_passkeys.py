@@ -383,6 +383,41 @@ def test_a_sign_in_through_the_proxy_cant_add_a_passkey(srv):
     assert srv.app.people.call("list_my_passkeys", None, None, proxy, PUBLIC, 0)[1]["can_add"] is False
 
 
+def test_an_admin_token_cant_get_its_own_reset_link_and_add_a_passkey(srv):
+    """QV-712: the token makes a reset link for its own person, sets the password, and the session that answers
+    adds a passkey. Without the link's url it can't."""
+    st, _, out = srv("POST", f"/api/users/{srv.ada}/link", {}, srv.admin_token)
+    assert st == 403 and out["reason"] == "needs_a_session" and "People page" in out["error"]
+    assert srv("POST", f"/api/users/{srv.ada}/link", {"send_email": False}, srv.admin_token)[0] == 403
+    assert srv("GET", "/api/me", None, srv.admin)[0] == 200  # nothing was made: Ada's session and link stand
+    assert srv.acc.passkeys(srv.ada) == []
+
+
+def test_an_admin_token_cant_take_a_new_admins_invite_and_add_a_passkey(srv):
+    """QV-712: the token adds an admin, takes the invite from the answer, sets the password and adds a passkey to
+    an account nobody is told about. The person is still added; the answer has no url."""
+    st, _, out = srv("POST", "/api/users", {"email": "eve@example.com", "name": "Eve", "role": "admin"},
+                     srv.admin_token)
+    assert st == 201 and out["user"]["status"] == "invited" and out["email"] is None
+    assert out["link"]["kind"] == "invite" and "url" not in out["link"] and out["link"]["expires_at_ms"]
+    # a browser still gets the link, for the same person
+    st, _, again = srv("POST", f"/api/users/{out['user']['id']}/link", {}, srv.admin)
+    assert st == 201 and "#code=" in again["link"]["url"]
+
+
+def test_through_the_proxy_a_link_is_not_shown_either(srv):
+    from trailbeam.server.access import Who
+    from trailbeam.server.people_api import ApiProblem
+
+    proxy = Who("proxy", "admin", srv.ada, "ada@example.com", "Ada")
+    with pytest.raises(ApiProblem) as e:
+        srv.app.people.call("user_link", srv.ben, {}, proxy, PUBLIC, int(time.time() * 1000))
+    assert e.value.status == 403 and e.value.reason == "needs_a_session"
+    st, out = srv.app.people.call("create_user", None, {"email": "fay@example.com"}, proxy, PUBLIC,
+                                  int(time.time() * 1000))
+    assert st == 201 and "url" not in out["link"]
+
+
 def test_adding_a_passkey_is_logged_as_a_warning_with_the_address(srv, caplog):
     with caplog.at_level(logging.WARNING, logger="trailbeam.server"):
         pid = add(srv, srv.member, Authenticator(PUBLIC), name="Ben's key")[2]["passkey"]["id"]
@@ -395,7 +430,7 @@ def test_a_reset_link_removes_the_passkeys(srv):
     a, other = Authenticator(PUBLIC), Authenticator(PUBLIC)
     add(srv, srv.member, a)
     add(srv, srv.admin, other)
-    link = srv("POST", f"/api/users/{srv.ben}/link", {}, srv.admin_token)[2]["link"]
+    link = srv("POST", f"/api/users/{srv.ben}/link", {}, srv.admin)[2]["link"]
     st, _, body = request(srv.url, "GET", "/set-password")
     assert b"your passkeys" in body
     st, hdrs, _ = set_password(srv, _code(link["url"]), pw="a new password 123")
