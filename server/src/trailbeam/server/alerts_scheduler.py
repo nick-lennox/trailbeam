@@ -141,9 +141,10 @@ class AlertScheduler:
             w.join(self.deadline_s)
             if w.is_alive():
                 # a thread can't be stopped from outside: say so, and start no other check until it returns
-                self.overdue += 1
+                # logged before it is counted, so anyone who sees the count can also see the line
                 log.error("alert check: a check has run for more than %d s and has not returned (a call that "
                           "never answers?); no alerts are checked until it does", self.deadline_s)
+                self.overdue += 1
                 while w.is_alive() and not self._stop.is_set():
                     w.join(1.0)
                 if w.is_alive():
