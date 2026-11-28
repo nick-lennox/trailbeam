@@ -158,6 +158,21 @@ def summarize(held: list, not_seen: list, *, now_ms: int, config: dict, capped: 
     }
 
 
+def _steps_of(db, keys: set, name: str, from_ns: int, to_ns: int, limit: int = DELETED_LIMIT) -> list:
+    """The newest ``limit`` deletes and Lambda outcomes in [from_ns, to_ns) on the queue whose stored keys are
+    ``keys``, newest first. The store filters by name only, so the steps of a queue of this name in another account
+    or region are skipped here, a page at a time, and don't take this queue's places in the limit."""
+    out: list = []
+    after = None
+    while len(out) < limit:
+        page = db.step_rows(from_ns, to_ns, limit, queue=name, kinds=("delete", "outcome"), after=after)
+        out += [r for r in page if queues_mod.key(r["queue"], r["queue_url"]) in keys]
+        if len(page) < limit:
+            break
+        after = (page[-1]["time_ns"], page[-1]["trace_id"], page[-1]["span_id"])
+    return out[:limit]
+
+
 def config_of(settings: Optional[dict], mrc: Optional[int], lambda_timeout_s: int) -> dict:
     """The queue's ``config``: from GetQueueAttributes (``settings``, aws_figures.settings_from) when read, else
     unknown but for the server's maxReceiveCount (``mrc``). When read, the queue's redrive policy is the one that
@@ -211,7 +226,7 @@ def view(db, want: list, place, now_ns: int, lambda_timeout_s: int, max_receive_
             not_seen.append(p["notSeen"])
 
     # what left by a delete in the past minute: accepted deletes and Lambda successes on this queue
-    gone = db.step_rows(now_ns - 60_000 * NS_PER_MS, now_ns + 1, DELETED_LIMIT, queue=name, kinds=("delete", "outcome"))
+    gone = _steps_of(db, keys, name, now_ns - 60_000 * NS_PER_MS, now_ns + 1)
     deleted = [{"id": r["mid"], "atMs": _ms(r["time_ns"])} for r in reversed(gone)
                if (r["kind"] == "delete" and r["result"] == "ok") or (r["kind"] == "outcome" and r["outcome"] == "success")]
     # moves SQS reported in the past hour
