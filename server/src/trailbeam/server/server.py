@@ -447,7 +447,9 @@ class App:
         sign_out = who.via in ("session", "shared_cookie") or (
             who.via == "proxy" and self.proxy_auth is not None and self.proxy_auth.sign_out_url is not None)
         # which off-by-default parts are on, so the UI shows their pages without asking routes that would 404 (QV-766)
-        features = {"dashboards": self.dashboards is not None, "alerts": self.alerts is not None}
+        # and whether users and roles are on (TRAILBEAM_ACCOUNTS), so a page without a person says how to get one (QV-767)
+        features = {"dashboards": self.dashboards is not None, "alerts": self.alerts is not None,
+                    "accounts": self.accounts is not None}
         out = {"auth": self._mode(), "via": who.via, "user": user, "sign_out": sign_out, "features": features}
         ways = self._sign_in_ways(who.user_id)
         if ways is not None:

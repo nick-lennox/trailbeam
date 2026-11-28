@@ -105,8 +105,10 @@ def serve(store):
         httpd = make_server(store, "127.0.0.1", 0, ui_dir=None, auth=auth.Auth(token) if token else None, **kw)
         app = httpd.app
         app.access.state.ttl_s = ttl_s
-        app.signin.hasher = QUICK
-        app.tokens.touch_inline = True
+        if app.signin is not None:
+            app.signin.hasher = QUICK
+        if app.tokens is not None:
+            app.tokens.touch_inline = True
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         started.append(httpd)
         return f"http://127.0.0.1:{httpd.server_address[1]}", app
@@ -396,7 +398,8 @@ def test_without_users_or_tokens_nothing_changes(serve):
     h = json.loads(call(url, "/api/health")[2])
     assert h["config"]["auth"] == "off" and h["config"]["ingest_auth"] == "open"
     assert json.loads(call(url, "/api/me")[2]) == {"auth": "off", "via": "none", "user": None, "sign_out": False,
-                                                        "features": {"dashboards": False, "alerts": False}}
+                                                        "features": {"dashboards": False, "alerts": False,
+                                                                     "accounts": True}}
     assert call(url, "/login")[0] == 404
 
 
@@ -405,7 +408,18 @@ def test_me_says_which_off_by_default_parts_are_on(serve, monkeypatch):
     monkeypatch.setenv("TRAILBEAM_DASHBOARDS", "1")
     monkeypatch.setenv("TRAILBEAM_ALERT_CHECK", "on")
     url, _ = serve()
-    assert json.loads(call(url, "/api/me")[2])["features"] == {"dashboards": True, "alerts": True}
+    assert json.loads(call(url, "/api/me")[2])["features"] == {"dashboards": True, "alerts": True, "accounts": True}
+
+
+def test_with_accounts_off_the_token_server_says_how_to_turn_them_on(serve):
+    # the README team install: TRAILBEAM_TOKEN, users and roles off. /people must not advise a users create that
+    # refuses without --accounts and makes an admin the server ignores (QV-767)
+    url, _ = serve(SHARED, accounts=None)
+    me = json.loads(call(url, "/api/me", headers=bearer(SHARED))[2])
+    assert (me["auth"], me["via"], me["user"], me["features"]["accounts"]) == ("token", "shared_token", None, False)
+    status, _, body = call(url, "/api/users", headers=bearer(SHARED))
+    assert status == 403 and json.loads(body)["error"] == access.ACCOUNTS_OFF
+    assert "TRAILBEAM_ACCOUNTS=1" in access.ACCOUNTS_OFF and "users create --accounts" in access.ACCOUNTS_OFF
 
 
 def test_ingest_tokens_over_http_in_both_headers(serve):
@@ -473,7 +487,7 @@ def test_people_sign_in_and_out_and_personal_tokens_carry_their_role(serve):
     me = json.loads(call(url, "/api/me", headers={"Cookie": cookie})[2])
     assert me == {"auth": "accounts", "via": "session",
                   "user": {"id": ana, "email": "ana@example.com", "name": "Ana", "role": "member"}, "sign_out": True,
-                  "features": {"dashboards": False, "alerts": False},
+                  "features": {"dashboards": False, "alerts": False, "accounts": True},
                   "sign_in": {"password": True, "identities": []}}
     full = json.loads(call(url, "/api/health", headers={"Cookie": cookie})[2])
     assert full["config"]["auth"] == "accounts"

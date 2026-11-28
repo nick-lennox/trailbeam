@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { accountWays, deviceName } from "../src/account/text.ts";
+import { accountWays, deviceName, withoutPerson } from "../src/account/text.ts";
 import { AccountCard, type AccountCardProps } from "../src/account/AccountCard.tsx";
 import type { SignInIdentity } from "../src/account/types.ts";
 
@@ -66,4 +66,14 @@ test("a new passkey's name", () => {
   assert.equal(deviceName("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile Safari/604.1"), "Safari on iPhone");
   assert.equal(deviceName("Mozilla/5.0 (Windows NT 10.0) Chrome/131.0 Safari/537.36 Edg/131.0"), "Edge on Windows");
   assert.equal(deviceName("curl/8"), "This device");
+});
+
+test("signed in without a person, the card says how instead of loading for ever (QV-767)", () => {
+  // the README team install: TRAILBEAM_TOKEN, users and roles off
+  const off = withoutPerson({ via: "shared_cookie", accounts: false });
+  assert.equal(text(card({ user: null, signedIn: off.signedIn })), "Sign-in Signed in with this server's shared access token (TRAILBEAM_TOKEN), not as a person.");
+  assert.match(off.accounts, /off on this server.*TRAILBEAM_ACCOUNTS=1.*trailbeam users create --accounts --email <email> --role admin/);
+  // on, with no admin yet: no need to turn them on
+  assert.doesNotMatch(withoutPerson({ via: "shared_token", accounts: true }).accounts, /TRAILBEAM_ACCOUNTS/);
+  assert.match(withoutPerson({ via: "none", accounts: false }).signedIn, /needs no sign-in/);
 });

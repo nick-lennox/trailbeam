@@ -6,13 +6,15 @@
   Account). Add a passkey asks the server for options, has the browser make one (navigator.credentials.create) and
   sends it back; Remove deletes one. After each, the list is read again, so the page shows what the server holds.
   With passkeys off on the server, or a browser that can't make them, the card has no passkey part and a line under
-  it says why. Sign out is the sidebar's.
+  it says why. Signed in without a person (the shared TRAILBEAM_TOKEN, accounts off: the README team install), the
+  card says so and a line under it says how personal accounts are turned on, instead of loading for ever (QV-767).
+  Sign out is the sidebar's.
 */
 import { useCallback, useEffect, useState } from "react";
-import { ACCOUNT_ABOUT, ROLES, accountWays } from "../src/index.ts";
+import { ACCOUNT_ABOUT, ROLES, accountWays, withoutPerson } from "../src/index.ts";
 import { AccountCard, PageHeader } from "../src/design/index.ts";
 import { getJSON, sendJSON, useMe } from "./chrome.tsx";
-import { ShellFrame, ShellSearch } from "./frame.tsx";
+import { ShellFrame, ShellSearch, featureOn } from "./frame.tsx";
 import { browserProblem, creationOptions, deviceName, registrationJSON, type CreationOptionsJSON } from "./passkeys.ts";
 
 type Passkey = { id: number; name: string; created_at_ms: number; last_used_ms: number | null; synced: boolean };
@@ -69,6 +71,7 @@ export function AccountPage() {
   const supported = typeof window !== "undefined" && "PublicKeyCredential" in window;
   const list = state.kind === "ok" ? state.data : null;
   const passkeysShown = state.kind !== "ok" || (list!.on && supported);
+  const nobody = me && !user ? withoutPerson({ via: me.via, accounts: featureOn(me, "accounts") }) : null;
 
   return (
     <ShellFrame path="/account">
@@ -76,6 +79,7 @@ export function AccountPage() {
       <div className="grid max-w-3xl gap-4 px-8 pb-16">
         <AccountCard
           user={user && { name: user.name, email: user.email, role: ROLES.find((r) => r[0] === user.role)?.[1] }}
+          signedIn={nobody?.signedIn}
           ways={ways}
           passkeys={user && passkeysShown ? {
             keys: list ? list.passkeys.map((k) => ({ id: String(k.id), name: k.name, createdAt: k.created_at_ms })) : null,
@@ -84,6 +88,7 @@ export function AccountPage() {
             busy: busy || !list,
             error: problem || (state.kind === "error" ? state.message : ""),
           } : undefined} />
+        {nobody && <p className="max-w-2xl text-sm leading-relaxed text-ink-2">{nobody.accounts}</p>}
         {user && list && !list.on && (
           <p className="max-w-2xl text-sm leading-relaxed text-ink-3">
             Passkeys are off on this server. An operator turns them on by setting its public URL (<code className="font-mono text-caption">TRAILBEAM_PUBLIC_URL</code>) and installing <code className="font-mono text-caption">trailbeam[server,passkeys]</code>.

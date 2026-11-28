@@ -29,13 +29,16 @@ export type AccountPasskeys = {
 export type AccountCardProps = {
   /** null while the host is still asking who is signed in */
   user: { name: string; email: string; role?: string } | null;
+  /** Said in place of the person when the host knows there is none (self-hosted, signed in with the shared token,
+      QV-767). Without it, a null `user` reads as still loading. */
+  signedIn?: ReactNode;
   ways?: AccountWay[];
   passkeys?: AccountPasskeys;
 };
 
 const day = (d: Passkey["createdAt"]) => new Date(d).toISOString().slice(0, 10);
 
-export function AccountCard({ user, ways = [], passkeys }: AccountCardProps) {
+export function AccountCard({ user, signedIn, ways = [], passkeys }: AccountCardProps) {
   return (
     <Card className="p-6">
       <div className="flex items-start gap-4">
@@ -47,7 +50,7 @@ export function AccountCard({ user, ways = [], passkeys }: AccountCardProps) {
               <p className="mt-1 text-sm text-ink-2">
                 {user
                   ? <>Signed in as <span className="text-ink">{user.name}</span>, <span className="break-all font-mono text-caption">{user.email}</span>{user.role && <>, {user.role.toLowerCase()}</>}</>
-                  : "Loading"}
+                  : signedIn ?? "Loading"}
               </p>
             </div>
           </div>
