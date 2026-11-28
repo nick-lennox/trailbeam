@@ -10,10 +10,10 @@
   through the same API, as the hosted app's actions save them.
 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { dashboardMeasures, STARTERS, type Dashboard, type DashboardDef, type EventData } from "../src/dashboards/index.ts";
+import { dashboardMeasures, makeStarter, type Dashboard, type DashboardDef, type EventData } from "../src/dashboards/index.ts";
 import { DashboardsEnvProvider, DashboardsPage, DashboardView, type DashboardActions, type DashboardsEnv, type Refused, type ServerAlerts } from "../src/dashboards/views.ts";
 import { DAY, preset, queryLanguage, rangeFromParams, type TimeRange } from "../src/model/index.ts";
-import { ApiError, getJSON, messageHref, sendJSON } from "./chrome.tsx";
+import { ApiError, getHealth, getJSON, messageHref, sendJSON } from "./chrome.tsx";
 import { ShellFrame, shellQueueHref } from "./frame.tsx";
 import { qs } from "./lists.tsx";
 
@@ -47,10 +47,13 @@ export function dashboardsHref(path = ""): string {
 const said = (e: unknown): Refused => ({ ok: false, error: e instanceof Error ? e.message : String(e) });
 const D = (id: string) => `/api/dashboards/${encodeURIComponent(id)}`;
 
-/** The views' changes, saved through /api/dashboards. A starter is made here and sent as the new dashboard's definition. */
-export const apiActions: DashboardActions = {
+/**
+  The views' changes, saved through /api/dashboards. A starter is made here and sent as the new dashboard's
+  definition; on a server that does not read AWS (aws false) it is the starter built from the spans alone (QV-772).
+*/
+export const actionsFor = (aws?: boolean): DashboardActions => ({
   async create(name, from, imported) {
-    const def: DashboardDef | undefined = imported ? undefined : STARTERS.find((s) => s.id === from)?.make();
+    const def: DashboardDef | undefined = imported ? undefined : makeStarter(from, { aws });
     try {
       const r = await sendJSON<{ dashboard: ApiDashboard }>("POST", "/api/dashboards", { name, ...(imported ? { imported } : def ? { def } : {}) });
       return { ok: true, id: r.dashboard.id };
@@ -71,7 +74,8 @@ export const apiActions: DashboardActions = {
   async remove(id) {
     try { await sendJSON("DELETE", D(id)); return { ok: true }; } catch (e) { return said(e); }
   },
-};
+});
+export const apiActions = actionsFor();
 
 /** The time range a dashboard's link names, else the time the dashboard opens at, else the past hour. */
 export function dashboardTime(search: string, d: Pick<ApiDashboard, "time">, now: number): TimeRange {
@@ -124,14 +128,18 @@ function Every({ onTick }: { onTick: () => void }) {
   return null;
 }
 
-function useEnv(data: EventData, liveRefresh?: DashboardsEnv["liveRefresh"]): DashboardsEnv {
-  return useMemo(() => ({ engine: ENGINE, lang: LANG, data, href: dashboardsHref, actions: apiActions, liveRefresh }), [data, liveRefresh]);
+/* aws: whether this server reads AWS (GET /api/health's config.aws.on); undefined while that is not known */
+function useEnv(data: EventData, liveRefresh?: DashboardsEnv["liveRefresh"], aws?: boolean): DashboardsEnv {
+  return useMemo(() => ({ engine: ENGINE, lang: LANG, data, href: dashboardsHref, actions: actionsFor(aws), liveRefresh, aws }), [data, liveRefresh, aws]);
 }
 
 function ListPage() {
   const [state, setState] = useState<State<{ dashboards: ApiDashboard[]; alerts: ServerAlerts["states"] }>>({ kind: "loading" });
+  const [aws, setAws] = useState<boolean | undefined>(undefined);
   useEffect(() => {
     document.title = "Dashboards, Trailbeam";
+    // whether this server reads AWS decides which starters it offers; unknown, they are the hosted app's
+    getHealth(5000).then((h) => setAws(!!h.config?.aws?.on), () => setAws(undefined));
     const now = Date.now();
     getJSON<{ dashboards: ApiDashboard[] }>("/api/dashboards")
       .then(async ({ dashboards }) => {
@@ -142,7 +150,7 @@ function ListPage() {
       })
       .catch((e) => setState({ kind: "error", message: problem(e) }));
   }, []);
-  const env = useEnv(EMPTY);
+  const env = useEnv(EMPTY, undefined, aws);
   return (
     <ShellFrame path="/dashboards">
       {state.kind === "ok" ? (

@@ -5,10 +5,10 @@
 */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { STARTERS, type DashboardDef } from "../src/dashboards/index.ts";
+import { AWS_OFF_NOTE, STARTERS, type DashboardDef } from "../src/dashboards/index.ts";
 import { custom, DAY, HOUR, preset } from "../src/model/index.ts";
 import { ApiError } from "../shell/chrome.tsx";
-import { alertsOf, apiActions, dashboardTime, dashboardsHref, dataWindow, measuresPath, problem } from "../shell/dashboards.tsx";
+import { actionsFor, alertsOf, apiActions, dashboardTime, dashboardsHref, dataWindow, measuresPath, problem } from "../shell/dashboards.tsx";
 
 const NOW = 1_795_400_000_000;
 const def = (over: Partial<DashboardDef> = {}): DashboardDef => ({ variables: [], sections: [], widgets: [], ...over });
@@ -98,4 +98,10 @@ test("changes are sent as the API takes them, and a refusal is the server's sent
   ]);
   answer = [400, { error: "this dashboard is locked" }];
   assert.deepEqual(await apiActions.remove("d1"), { ok: false, error: "This dashboard is locked." });
+  // on a server that does not read AWS, the starter sent is the one built from the spans (QV-772)
+  answer = [201, { dashboard: { id: "n2" } }];
+  await actionsFor(false).create("Health", "queue-health");
+  assert.ok((sent.at(-1)!.body as { def: DashboardDef }).def.widgets.some((w) => w.text === AWS_OFF_NOTE));
+  await actionsFor(true).create("Health", "queue-health");
+  assert.ok(!(sent.at(-1)!.body as { def: DashboardDef }).def.widgets.some((w) => w.type === "note"));
 });

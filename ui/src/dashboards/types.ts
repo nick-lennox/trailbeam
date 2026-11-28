@@ -125,6 +125,89 @@ const W = (type: WidgetType, x: number, y: number, w: number, h: number, over: P
 
 const S = (title: string): Section => ({ id: uid(), title });
 
+/**
+  aws: false on a server that does not read AWS (self-hosted Trailbeam's default). Queue depth, the age of the oldest
+  message, DLQ depth and headroom come from AWS, so there a starter is built from what the spans record (sends,
+  receives, deletes, failures, dead-letter moves, time in queue and processing time) and says once, at the top, how
+  to turn AWS reads on (QV-772). Absent or true: the starter as the hosted app makes it.
+*/
+export type StarterOptions = { aws?: boolean };
+
+/** The sentence a spans-only starter opens with. */
+export const AWS_OFF_NOTE = "This dashboard is built from what your spans record: sends, receives, deletes, failures and dead-letter moves. Queue depth, the age of the oldest message and DLQ depth come from AWS. An admin can turn AWS reads on in [Settings](/settings), under AWS, and then add those widgets.";
+const awsOff = (h = 2) => W("note", 0, 0, 12, h, { title: "AWS reads are off on this server", text: AWS_OFF_NOTE });
+
+/* the starters on a server that does not read AWS: every widget is drawn from the spans */
+const SPANS_ONLY: Record<string, () => DashboardDef> = {
+  "queue-health": () => {
+    const queues = S("Queues"), through = S("Throughput"), failing = S("Failing");
+    return {
+      variables: [],
+      sections: [queues, through, failing],
+      widgets: [
+        awsOff(),
+        W("number", 0, 2, 3, 2, { title: "Sent per minute", queries: [{ measure: "sent" }], rule: undefined }),
+        W("number", 3, 2, 3, 2, { title: "Time in queue, p95", queries: [{ measure: "time_in_queue" }], rule: { warn: 60_000, crit: 300_000 } }),
+        W("number", 6, 2, 3, 2, { title: "Processing errors", queries: [{ measure: "processing_errors" }], rule: { crit: 0 } }),
+        W("number", 9, 2, 3, 2, { title: "Messages dead-lettered", queries: [{ measure: "dead_lettered" }], rule: { crit: 0 } }),
+        W("queue_table", 0, 0, 12, 3, { section: queues.id, trend: true, columns: ["sent", "received", "deleted", "processing_errors", "time_in_queue", "processing_time"] }),
+        W("timeseries", 0, 0, 8, 4, { section: through.id, title: "Sent, received and deleted per minute", queries: [{ measure: "sent" }, { measure: "received" }, { measure: "deleted" }] }),
+        W("toplist", 8, 0, 4, 2, { section: through.id, title: "Time in queue, p95", queries: [{ measure: "time_in_queue", group_by: "queue" }] }),
+        W("toplist", 8, 2, 4, 2, { section: through.id, title: "Processing time, p95", queries: [{ measure: "processing_time", group_by: "queue" }] }),
+        W("timeseries", 0, 0, 6, 3, { section: failing.id, title: "Events per minute", queries: [{ measure: "events" }], style: "bars" }),
+        W("toplist", 6, 0, 3, 3, { section: failing.id, title: "Dead-lettered by queue", queries: [{ measure: "dead_lettered", group_by: "queue" }] }),
+        W("toplist", 9, 0, 3, 3, { section: failing.id, title: "Processing errors by consumer", queries: [{ measure: "processing_errors", group_by: "consumer" }] }),
+        W("event_list", 0, 3, 12, 4, { section: failing.id }),
+      ],
+    };
+  },
+  /* every queue until one is picked: the hosted starter's sample queue is not on this server */
+  "one-queue": () => {
+    const through = S("Throughput"), failing = S("Failing");
+    return {
+      variables: [{ name: "queue", field: "queue", value: "*" }],
+      sections: [through, failing],
+      widgets: [
+        awsOff(),
+        W("number", 0, 2, 3, 2, { title: "Sent per minute", queries: [{ measure: "sent" }], rule: undefined }),
+        W("number", 3, 2, 3, 2, { title: "Time in queue, p95", queries: [{ measure: "time_in_queue" }], rule: { warn: 60_000, crit: 300_000 } }),
+        W("number", 6, 2, 3, 2, { title: "Processing time, p95", queries: [{ measure: "processing_time" }], rule: undefined }),
+        W("number", 9, 2, 3, 2, { title: "Messages dead-lettered", queries: [{ measure: "dead_lettered" }], rule: { crit: 0 } }),
+        W("timeseries", 0, 4, 7, 4, { title: "Time in queue and processing time, p95", queries: [{ measure: "time_in_queue" }, { measure: "processing_time" }] }),
+        W("queue_flow", 7, 4, 5, 4),
+        W("timeseries", 0, 0, 8, 4, { section: through.id, title: "Sent, received and deleted per minute", queries: [{ measure: "sent" }, { measure: "received" }, { measure: "deleted" }] }),
+        W("heatmap", 8, 0, 4, 4, { section: through.id }),
+        W("timeseries", 0, 0, 5, 3, { section: failing.id, title: "Events per minute", queries: [{ measure: "events" }], style: "bars" }),
+        W("distribution", 5, 0, 3, 3, { section: failing.id }),
+        W("toplist", 8, 0, 4, 3, { section: failing.id, title: "Processing errors by consumer", queries: [{ measure: "processing_errors", group_by: "consumer" }] }),
+        W("event_list", 0, 3, 12, 4, { section: failing.id }),
+      ],
+    };
+  },
+  "dead-letter": () => {
+    const evs = S("Events");
+    return {
+      variables: [],
+      sections: [evs],
+      widgets: [
+        awsOff(),
+        W("number", 0, 2, 3, 3, { title: "Messages dead-lettered", queries: [{ measure: "dead_lettered" }], rule: { crit: 0 } }),
+        W("toplist", 3, 2, 3, 3, { title: "Dead-lettered by queue", queries: [{ measure: "dead_lettered", group_by: "queue" }] }),
+        W("timeseries", 6, 2, 6, 3, { title: "Messages dead-lettered", queries: [{ measure: "dead_lettered" }], style: "bars" }),
+        W("distribution", 0, 0, 4, 4, { section: evs.id }),
+        W("event_list", 4, 0, 8, 4, { section: evs.id, title: "Failed events" }),
+      ],
+    };
+  },
+};
+
+/** A starter's definition: as the hosted app makes it, or from the spans alone on a server without AWS reads. */
+export function makeStarter(id: string, o: StarterOptions = {}): DashboardDef | undefined {
+  const s = STARTERS.find((x) => x.id === id);
+  if (!s) return undefined;
+  return o.aws === false && SPANS_ONLY[id] ? SPANS_ONLY[id]() : s.make();
+}
+
 export const STARTERS: { id: string; name: string; hint: string; make: () => DashboardDef }[] = [
   {
     id: "queue-health",
