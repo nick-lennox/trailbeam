@@ -14,7 +14,7 @@ export { TenantSearch, TENANTS_TITLE, TENANTS_SUBTITLE, p95Note, tenantsFootnote
 export type * from "./tenants/types.ts";
 export {
   LAST_ADMIN, ROLES, ROLE_TEXT, STATUS_HINT, STATUS_TEXT, emailedSentence, fmtWhen, isLastAdmin, linkButton, linkKind,
-  linkSentence, removeSentence, unsentSentence, removeSsoNote, signInAdmins,
+  linkSentence, notSentSentence, removeSentence, unsentSentence, removeSsoNote, signInAdmins,
 } from "./people/People.tsx";
 export type * from "./people/types.ts";
 export { ACCOUNT_ABOUT, PASSKEYS_ABOUT, PASSKEY_NOT_SAVED, WAY_OFF, accountWays, deviceName } from "./account/text.ts";
