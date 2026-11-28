@@ -574,7 +574,7 @@ def _took(ns: int) -> str:
 
 
 def _ref(e: Optional[dict]) -> str:
-    """A step as a reader names it: "the send", "receive 2", "the delete of delivery 1"."""
+    """A step as a reader names it: "the send", "receive 2", "the delete of receive 1"."""
     if not e:
         return "an earlier step"
     t, d = e["type"], e.get("delivery")
@@ -586,6 +586,7 @@ def _ref(e: Optional[dict]) -> str:
                  "returned_to_queue": "the return to the queue" + of, "routed": "the routing",
                  "moved_to_dead_letter_queue": "the move to the dead-letter queue"}
         return names.get(t, _label(e).lower())
+    of = f" of receive {d}" if d is not None else ""  # SQS's word is receive (QV-746)
     names = {"sent": "the send", "received": f"receive {d}" if d is not None else "a receive",
              "deleted": "the delete" + of, "visibility_changed": "the visibility change" + of,
              "lambda_outcome": "the Lambda outcome" + of}

@@ -111,7 +111,7 @@ def test_timeline_in_order_with_inferred_steps_marked(site):
                             ("received", False), ("deleted", False)]
     inferred = re.search(r'<li class="event inferred"[^>]*>(.*?)</li>', html).group(1)
     assert '<span class="badge">inferred</span>' in inferred
-    assert "between" in inferred and "SQS delivered it again" in inferred  # the window and the reason
+    assert "between" in inferred and "so the message was received again" in inferred  # the window and the reason
     assert "2025-11-14 00:26:40.000000Z" in html  # observed times are shown
     assert "consumer-b" in html and "orders-api" in html
     assert "<strong>final</strong>" in html

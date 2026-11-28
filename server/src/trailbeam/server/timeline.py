@@ -637,7 +637,8 @@ def _sources_of(rows, i, j) -> list[str]:
 def _label(ev: dict) -> str:
     t = ev["type"]
     d = ev.get("delivery")
-    of = f" of delivery {d}" if d is not None else ""
+    of = f" of delivery {d}" if d is not None else ""  # a RabbitMQ settle
+    of_receive = f" of receive {d}" if d is not None else ""  # an SQS step: SQS's word is receive (QV-746)
     if t == "sent":
         if "exchange" in ev:  # a RabbitMQ publish
             return "the publish" if ev.get("publish", 1) == 1 else f"publish {ev['publish']}"
@@ -653,11 +654,11 @@ def _label(ev: dict) -> str:
     if t == "returned":
         return "the return"
     if t == "deleted":
-        return "the delete" + of
+        return "the delete" + of_receive
     if t == "visibility_changed":
-        return "the visibility change" + of
+        return "the visibility change" + of_receive
     if t == "lambda_outcome":
-        return "the Lambda outcome" + of
+        return "the Lambda outcome" + of_receive
     if t == "queue_purged":
         return "the purge of the queue"
     if t == "published":
@@ -677,7 +678,7 @@ def _after_entry(rows, events, order, i: int, j: int, ev_id: str) -> dict:
     sources = order.edges[(i, j)]
     for src in sources:
         if src == "clock":
-            why.append(f"{who.capitalize()} ended ({iso(a['time_ns'])}) before this started ({iso(b['start_ns'])}), "
+            why.append(f"{who[:1].upper() + who[1:]} ended ({iso(a['time_ns'])}) before this started ({iso(b['start_ns'])}), "
                        f"on the hosts' clocks.")
         elif src == "process_order":
             why.append(f"Same process: {who} returned before this call was issued.")
@@ -758,7 +759,7 @@ def _not_seen_notice(queue: str, count: int, mrc: int) -> dict:
     return {"code": "dlq_move_not_seen", "message":
             f"Receive count reached maxReceiveCount; not seen on the DLQ yet. The last receive on {queue} had "
             f"receive count {count}, and {queue}'s maxReceiveCount is {mrc} as configured, so unless that receive "
-            f"deletes the message, SQS moves it to its dead-letter queue instead of delivering it again. This is "
+            f"deletes the message, SQS moves it to its dead-letter queue instead of making it visible again. This is "
             f"inferred from the configured value, and that receive may still be in progress. No receive from the "
             f"dead-letter queue has "
             f"reported the move yet, so no move is shown. Trailbeam does not receive from the dead-letter queue to "
@@ -786,7 +787,7 @@ def _expiry_reason(rows, p) -> str:
     if stale:
         return ("The visibility timeout expired before the delete: SQS accepted the delete, but the message "
                 "was received again, so the delete came too late to remove it.")
-    return "The visibility timeout expired before the message was deleted, so SQS delivered it again."
+    return "The visibility timeout expired before the message was deleted, so the message was received again."
 
 
 def successful_deliveries(rows) -> int:
@@ -835,12 +836,12 @@ def _notices(rows, receives, order=None, upstream_joined: bool = False) -> list[
         if receives and any(r["key_id"] not in rkeys for r in unmatched):
             out.append({"code": "key_mismatch", "message":
                         "A delete or visibility change for this message used a different receipt-hash key than "
-                        "its receives (trailbeam.receipt_handle.key_id differs), so it cannot be joined to a delivery. "
+                        "its receives (trailbeam.receipt_handle.key_id differs), so it cannot be joined to a receive. "
                         "Use the same TRAILBEAM_RECEIPT_HASH_KEY everywhere."})
         else:
             out.append({"code": "unmatched_handle", "message":
                         "A delete or visibility change carries this message ID, but no stored receive has its "
-                        "receipt-handle hash, so it is not attached to a delivery."})
+                        "receipt-handle hash, so it is not attached to a receive."})
     if not upstream_joined and not any(r["kind"] == "send" for r in rows):
         out.append({"code": "send_not_observed", "message":
                     "No trailbeam send span for this message: the producer is not instrumented, or the send is older "

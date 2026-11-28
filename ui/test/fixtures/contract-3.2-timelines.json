@@ -142,7 +142,7 @@
       "from": null,
       "to": "2026-11-16T18:05:37.493000Z"
      },
-     "reason": "The visibility timeout expired before the message was deleted, so SQS delivered it again.",
+     "reason": "The visibility timeout expired before the message was deleted, so the message was received again.",
      "queue": "billing",
      "after_delivery": 1,
      "before_delivery": 2,
@@ -259,7 +259,7 @@
         "process_order"
        ],
        "source": "clock",
-       "why": "The lambda outcome of delivery 1 ended (2026-11-16T18:05:37.462000Z) before this started (2026-11-16T18:05:37.495000Z), on the hosts' clocks. Same process: the Lambda outcome of delivery 1 returned before this call was issued."
+       "why": "The Lambda outcome of receive 1 ended (2026-11-16T18:05:37.462000Z) before this started (2026-11-16T18:05:37.495000Z), on the hosts' clocks. Same process: the Lambda outcome of receive 1 returned before this call was issued."
       },
       {
        "event": "e4",
@@ -282,7 +282,7 @@
       "from": null,
       "to": "2026-11-16T18:05:37.527000Z"
      },
-     "reason": "The visibility timeout expired before the message was deleted, so SQS delivered it again.",
+     "reason": "The visibility timeout expired before the message was deleted, so the message was received again.",
      "queue": "billing",
      "after_delivery": 2,
      "before_delivery": 3,
@@ -399,7 +399,7 @@
         "process_order"
        ],
        "source": "clock",
-       "why": "The lambda outcome of delivery 2 ended (2026-11-16T18:05:37.495000Z) before this started (2026-11-16T18:05:37.528000Z), on the hosts' clocks. Same process: the Lambda outcome of delivery 2 returned before this call was issued."
+       "why": "The Lambda outcome of receive 2 ended (2026-11-16T18:05:37.495000Z) before this started (2026-11-16T18:05:37.528000Z), on the hosts' clocks. Same process: the Lambda outcome of receive 2 returned before this call was issued."
       },
       {
        "event": "e7",
@@ -2210,7 +2210,7 @@
       "from": "2026-11-16T18:05:37.344000Z",
       "to": "2026-11-16T18:05:37.385000Z"
      },
-     "reason": "The visibility timeout expired before the message was deleted, so SQS delivered it again.",
+     "reason": "The visibility timeout expired before the message was deleted, so the message was received again.",
      "queue": "payments",
      "after_delivery": 1,
      "before_delivery": 2,

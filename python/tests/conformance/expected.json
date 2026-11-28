@@ -7885,7 +7885,7 @@
       "id": "e3",
       "inferred": true,
       "queue": "billing",
-      "reason": "The visibility timeout expired before the message was deleted, so SQS delivered it again.",
+      "reason": "The visibility timeout expired before the message was deleted, so the message was received again.",
       "time": null,
       "type": "visibility_timeout_expired",
       "window": {
@@ -7951,7 +7951,7 @@
          "process_order"
         ],
         "type": "lambda_outcome",
-        "why": "The lambda outcome of delivery 1 ended (2026-11-16T18:05:37.462000Z) before this started (2026-11-16T18:05:37.495000Z), on the hosts' clocks. Same process: the Lambda outcome of delivery 1 returned before this call was issued."
+        "why": "The Lambda outcome of receive 1 ended (2026-11-16T18:05:37.462000Z) before this started (2026-11-16T18:05:37.495000Z), on the hosts' clocks. Same process: the Lambda outcome of receive 1 returned before this call was issued."
        },
        {
         "event": "e4",
@@ -8025,7 +8025,7 @@
       "id": "e6",
       "inferred": true,
       "queue": "billing",
-      "reason": "The visibility timeout expired before the message was deleted, so SQS delivered it again.",
+      "reason": "The visibility timeout expired before the message was deleted, so the message was received again.",
       "time": null,
       "type": "visibility_timeout_expired",
       "window": {
@@ -8091,7 +8091,7 @@
          "process_order"
         ],
         "type": "lambda_outcome",
-        "why": "The lambda outcome of delivery 2 ended (2026-11-16T18:05:37.495000Z) before this started (2026-11-16T18:05:37.528000Z), on the hosts' clocks. Same process: the Lambda outcome of delivery 2 returned before this call was issued."
+        "why": "The Lambda outcome of receive 2 ended (2026-11-16T18:05:37.495000Z) before this started (2026-11-16T18:05:37.528000Z), on the hosts' clocks. Same process: the Lambda outcome of receive 2 returned before this call was issued."
        },
        {
         "event": "e7",
@@ -9943,7 +9943,7 @@
       "id": "e3",
       "inferred": true,
       "queue": "payments",
-      "reason": "The visibility timeout expired before the message was deleted, so SQS delivered it again.",
+      "reason": "The visibility timeout expired before the message was deleted, so the message was received again.",
       "time": null,
       "type": "visibility_timeout_expired",
       "window": {
@@ -18730,7 +18730,7 @@
       "id": "e3",
       "inferred": true,
       "queue": "billing",
-      "reason": "The visibility timeout expired before the message was deleted, so SQS delivered it again.",
+      "reason": "The visibility timeout expired before the message was deleted, so the message was received again.",
       "time": null,
       "type": "visibility_timeout_expired",
       "window": {
@@ -18796,7 +18796,7 @@
          "process_order"
         ],
         "type": "lambda_outcome",
-        "why": "The lambda outcome of delivery 1 ended (2026-11-16T18:05:37.462000Z) before this started (2026-11-16T18:05:37.495000Z), on the hosts' clocks. Same process: the Lambda outcome of delivery 1 returned before this call was issued."
+        "why": "The Lambda outcome of receive 1 ended (2026-11-16T18:05:37.462000Z) before this started (2026-11-16T18:05:37.495000Z), on the hosts' clocks. Same process: the Lambda outcome of receive 1 returned before this call was issued."
        },
        {
         "event": "e4",
@@ -18870,7 +18870,7 @@
       "id": "e6",
       "inferred": true,
       "queue": "billing",
-      "reason": "The visibility timeout expired before the message was deleted, so SQS delivered it again.",
+      "reason": "The visibility timeout expired before the message was deleted, so the message was received again.",
       "time": null,
       "type": "visibility_timeout_expired",
       "window": {
@@ -18936,7 +18936,7 @@
          "process_order"
         ],
         "type": "lambda_outcome",
-        "why": "The lambda outcome of delivery 2 ended (2026-11-16T18:05:37.495000Z) before this started (2026-11-16T18:05:37.528000Z), on the hosts' clocks. Same process: the Lambda outcome of delivery 2 returned before this call was issued."
+        "why": "The Lambda outcome of receive 2 ended (2026-11-16T18:05:37.495000Z) before this started (2026-11-16T18:05:37.528000Z), on the hosts' clocks. Same process: the Lambda outcome of receive 2 returned before this call was issued."
        },
        {
         "event": "e7",
@@ -20788,7 +20788,7 @@
       "id": "e3",
       "inferred": true,
       "queue": "payments",
-      "reason": "The visibility timeout expired before the message was deleted, so SQS delivered it again.",
+      "reason": "The visibility timeout expired before the message was deleted, so the message was received again.",
       "time": null,
       "type": "visibility_timeout_expired",
       "window": {
@@ -29642,7 +29642,7 @@
          "inferred_from"
         ],
         "type": "visibility_changed",
-        "why": "Inferred from the visibility change of delivery 1: it came after it."
+        "why": "Inferred from the visibility change of receive 1: it came after it."
        }
       ],
       "after_delivery": 1,
@@ -29677,7 +29677,7 @@
          "clock"
         ],
         "type": "visibility_changed",
-        "why": "The visibility change of delivery 1 ended (2025-11-14T00:26:51.000000Z) before this started (2025-11-14T00:27:00.000000Z), on the hosts' clocks."
+        "why": "The visibility change of receive 1 ended (2025-11-14T00:26:51.000000Z) before this started (2025-11-14T00:27:00.000000Z), on the hosts' clocks."
        }
       ],
       "consumer": {
@@ -29761,7 +29761,7 @@
          "clock"
         ],
         "type": "deleted",
-        "why": "The delete of delivery 2 ended (2025-11-14T00:27:01.000000Z) before this started (2025-11-14T00:27:32.000000Z), on the hosts' clocks."
+        "why": "The delete of receive 2 ended (2025-11-14T00:27:01.000000Z) before this started (2025-11-14T00:27:32.000000Z), on the hosts' clocks."
        }
       ],
       "consumer": {
@@ -30129,7 +30129,7 @@
       "id": "e4",
       "inferred": true,
       "queue": "billing",
-      "reason": "The visibility timeout expired before the message was deleted, so SQS delivered it again.",
+      "reason": "The visibility timeout expired before the message was deleted, so the message was received again.",
       "time": null,
       "type": "visibility_timeout_expired",
       "window": {
@@ -30188,7 +30188,7 @@
          "clock"
         ],
         "type": "lambda_outcome",
-        "why": "The lambda outcome of delivery 1 ended (2025-11-14T00:26:53.000000Z) before this started (2025-11-14T00:27:21.000000Z), on the hosts' clocks."
+        "why": "The Lambda outcome of receive 1 ended (2025-11-14T00:26:53.000000Z) before this started (2025-11-14T00:27:21.000000Z), on the hosts' clocks."
        },
        {
         "event": "e5",
@@ -30239,7 +30239,7 @@
          "inferred_from"
         ],
         "type": "lambda_outcome",
-        "why": "Inferred from the Lambda outcome of delivery 2: it came after it."
+        "why": "Inferred from the Lambda outcome of receive 2: it came after it."
        }
       ],
       "delivery": 2,
@@ -30282,7 +30282,7 @@
       "id": "e8",
       "inferred": true,
       "queue": "billing",
-      "reason": "The visibility timeout expired before the message was deleted, so SQS delivered it again.",
+      "reason": "The visibility timeout expired before the message was deleted, so the message was received again.",
       "time": null,
       "type": "visibility_timeout_expired",
       "window": {
@@ -30341,7 +30341,7 @@
          "clock"
         ],
         "type": "lambda_outcome",
-        "why": "The lambda outcome of delivery 2 ended (2025-11-14T00:27:21.000000Z) before this started (2025-11-14T00:27:23.000000Z), on the hosts' clocks."
+        "why": "The Lambda outcome of receive 2 ended (2025-11-14T00:27:21.000000Z) before this started (2025-11-14T00:27:23.000000Z), on the hosts' clocks."
        },
        {
         "event": "e9",
@@ -30392,7 +30392,7 @@
          "inferred_from"
         ],
         "type": "lambda_outcome",
-        "why": "Inferred from the Lambda outcome of delivery 3: it came after it."
+        "why": "Inferred from the Lambda outcome of receive 3: it came after it."
        }
       ],
       "delivery": 3,
@@ -30714,7 +30714,7 @@
       "id": "e3",
       "inferred": true,
       "queue": "orders",
-      "reason": "The visibility timeout expired before the message was deleted, so SQS delivered it again.",
+      "reason": "The visibility timeout expired before the message was deleted, so the message was received again.",
       "time": null,
       "type": "visibility_timeout_expired",
       "window": {
@@ -30789,7 +30789,7 @@
       "id": "e5",
       "inferred": true,
       "queue": "orders",
-      "reason": "The visibility timeout expired before the message was deleted, so SQS delivered it again.",
+      "reason": "The visibility timeout expired before the message was deleted, so the message was received again.",
       "time": null,
       "type": "visibility_timeout_expired",
       "window": {
@@ -31205,7 +31205,7 @@
     "notices": [
      {
       "code": "unmatched_handle",
-      "message": "A delete or visibility change carries this message ID, but no stored receive has its receipt-handle hash, so it is not attached to a delivery."
+      "message": "A delete or visibility change carries this message ID, but no stored receive has its receipt-handle hash, so it is not attached to a receive."
      },
      {
       "code": "send_not_observed",
