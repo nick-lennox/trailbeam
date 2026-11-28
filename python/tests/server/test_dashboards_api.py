@@ -421,6 +421,98 @@ def test_the_widgets_past_8_mb_or_5_seconds_are_skipped_and_asked_for_one_by_one
     assert len(a.call("GET", f"/api/dashboards/{did}/measures", {}, BEN)[1]["widgets"]) == api.MAX_WIDGETS
 
 
+def _many_queues(queues=500, messages=2000, now=1_764_000_000_000) -> dict:
+    """``messages`` messages over ``queues`` queues (sent, received, then deleted or failed, in the past hour), and
+    the store knowing every queue: the queue table QV-713 timed at 44 s."""
+    evs = []
+    for i in range(messages):
+        at, q = now - 3_500_000 + i * 1_700, f"q{i % queues:03d}"
+        evs += [{"ms": at, "event": "send", "status": "ok", "queue": q, "messageId": f"m{i:05d}", "sizeBytes": 100 + i % 7},
+                {"ms": at + 1, "event": "receive", "status": "ok", "queue": q, "messageId": f"m{i:05d}",
+                 "receiveCount": 1 + i % 3, "waitMs": i % 50},
+                {"ms": at + 2, "event": "delete" if i % 9 else "processing_error",
+                 "status": "ok" if i % 9 else "error", "queue": q, "messageId": f"m{i:05d}", "durationMs": (i * 37) % 900}]
+    evs.sort(key=lambda e: -e["ms"])
+    names = sorted({f"q{i:03d}" for i in range(queues)} | {"Q000", "q*", 'say"hi'})
+    return {"live": True, "events": evs, "now": now, "queues": names, "capped": False,
+            "queueLive": {n: {"status": "not_configured", "detail": api.NOT_QUEUE_LIVE} for n in names}}
+
+
+def _table(id_="t", **over):
+    return {"id": id_, "type": "queue_table", "title": "Queues", "layout": LAYOUT,
+            "columns": [m.id for m in M.MEASURES][:api.MAX_COLUMNS], **over}
+
+
+def _rows_before_qv713(cols, f, t, data) -> dict:
+    """The rows as widget_measures worked them out before QV-713: a pass over the events per queue and column."""
+    out = {}
+    for name in M.queues_for(M.parse(f), data["queues"]):
+        vals = {}
+        for m in cols:
+            if m.queue:
+                vals[m.id] = M.queue_value(m, name, data, t)
+            else:
+                s = M.series_for(m, f'queue:"{name}"', None, t, 2, data)
+                vals[m.id] = s[0]["now"] if s else 0
+        out[name] = {"name": name, "tone": M.queue_tone(name, data), "values": vals}
+    return out
+
+
+def test_a_19_column_queue_table_over_500_queues_answers_in_well_under_a_second(monkeypatch):
+    """QV-713: one queue table of every column over 500 queues took 44 s, and the 5 s budget was looked at only
+    between widgets. Now its events are grouped by queue in one pass; the rows are the 200 busiest, in name order."""
+    data = _many_queues()
+    a = _on(data)
+    did = a.call("POST", "/api/dashboards", {"name": "x", "def": {"widgets": [_table()]}}, ADA)[1]["dashboard"]["id"]
+    began = time.perf_counter()
+    out = a.call("GET", f"/api/dashboards/{did}/measures", {"range": "1h"}, BEN)[1]
+    took = time.perf_counter() - began
+    assert took < 0.5, f"{took:.2f} s"
+    table = out["widgets"][0]
+    assert out["skipped"] == 0 and table["queuesTotal"] == 503 and table["queuesCapped"] is True
+    names = [r["name"] for r in table["queues"]]
+    assert len(names) == api.MAX_QUEUE_ROWS and names == sorted(names)
+    # the busiest: q000 to q499 have 4 messages each, Q000 shares q000's (a queue term ignores case), and the two
+    # names a queue term reads otherwise (a wildcard, a quote) are ranked last
+    assert "q*" not in names and 'say"hi' not in names and "Q000" in names
+
+
+@pytest.mark.parametrize("f", ["", "queue:q00*", "-queue:q1*"])
+def test_the_one_pass_rows_are_the_rows_worked_out_per_queue(f):
+    """Every value, tone included, as M.series_for/M.queue_value/M.queue_tone gave it per queue before QV-713, for
+    queues with a wildcard and a quote in their names too, and with AWS figures for some queues."""
+    data = _many_queues(queues=40, messages=300)
+    data["queueLive"]["q001"] = {"status": "ok", "visible": 3, "inFlight": 1, "oldestS": 400, "dlq": True,
+                                 "dlqDepth": 2, "visibilityTimeoutS": 1, "retentionS": 1000, "windows": []}
+    data["queueLive"]["q*"] = dict(data["queueLive"]["q001"])
+    t = M.preset("1h", data["now"])
+    cols = [m for m in (M.measure(i) for i in _table()["columns"])]
+    rows, total, capped = api.queue_rows(cols, f, t, data)
+    want = _rows_before_qv713(cols, f, t, data)
+    assert {r["name"]: r for r in rows} == want and total == len(want) and capped is False
+    assert [r["name"] for r in rows] == list(want)
+
+
+def test_a_queue_table_stops_adding_rows_once_the_requests_time_is_up_on_either_route():
+    """The time budget is looked at inside a widget's rows too, on the one-widget route as well: a widget past it
+    keeps the rows it has and says queuesCapped, and the widgets after it are skipped."""
+    data = _many_queues(queues=20, messages=200)
+    a = _on(data)
+    ws = [_table("t"), widget("n")]
+    did = a.call("POST", "/api/dashboards", {"name": "x", "def": {"widgets": ws}}, ADA)[1]["dashboard"]["id"]
+    for path in (f"/api/dashboards/{did}/measures", f"/api/dashboards/{did}/widgets/t/measures"):
+        ticks = itertools.count(0, 1)  # a second a look: the table's sixth row finds 5 s gone
+        a.clock = lambda: next(ticks)
+        out = a.call("GET", path, {}, BEN)[1]
+        table = out["widgets"][0]
+        assert table["queuesCapped"] is True and table["queuesTotal"] == 23 and len(table["queues"]) == 5
+        if "/widgets/" not in path:
+            assert out["skipped"] == 1 and "skipped" in out["widgets"][1]
+    a.clock = time.monotonic
+    table = a.call("GET", f"/api/dashboards/{did}/widgets/t/measures", {}, BEN)[1]["widgets"][0]
+    assert table["queuesCapped"] is False and len(table["queues"]) == 23
+
+
 # ── EventData from the store ─────────────────────────────────────────────────────────────────────────────────────
 
 T = 1_764_000_000_000  # ms
