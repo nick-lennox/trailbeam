@@ -48,6 +48,16 @@ def test_same_cause():
         assert triage.same_cause(c["r"], c["g"]) is c["expected"], c
 
 
+@pytest.mark.parametrize("c", F["causeSignature"], ids=lambda c: f"{c['errorType']} / {c['text']}")
+def test_cause_signature(c):
+    """The exception part of a cause key (QV-702): the class escaped, and no text written as the merged form."""
+    from trailbeam.server import causes
+    assert causes.exc_signature(c["errorType"], c["text"]) == c["expected"]
+    assert causes.merged_signature(c["errorType"]) == c["merged"]
+    assert not triage.is_merged(f"v1|q|c|{c['expected']}")
+    assert triage.is_merged(f"v1|q|c|{c['merged']}")
+
+
 def test_in_filter_and_filter_of():
     for c in F["inFilter"]:
         assert triage.in_filter(c["triage"], c["filter"], c["me"], set(c["members"])) is c["expected"], c

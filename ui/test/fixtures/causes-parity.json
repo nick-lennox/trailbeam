@@ -820,6 +820,92 @@
    "visibilityS": null
   },
   {
+   "name": "a class with a colon is its own group, not one of the merged class's texts",
+   "timeline": {
+    "message_id": "m-exc-colon",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "search",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080003000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_exception",
+      "error_type": "LookupError:Missing",
+      "error_message": "no index",
+      "end_unix_nano": "1763080004000000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
+   "name": "an error text of \"*\" is written <*>, so it is not the class's merged group",
+   "timeline": {
+    "message_id": "m-exc-star",
+    "source_queue": "orders",
+    "current_queue": "orders",
+    "in_dead_letter_queue": false,
+    "dead_letter_queue_move": null,
+    "state": "not_deleted",
+    "deliveries": 1,
+    "first_seen": "2025-11-14T00:26:40.000Z",
+    "events": [
+     {
+      "type": "sent",
+      "queue": "orders",
+      "end_unix_nano": "1763080000000000000"
+     },
+     {
+      "type": "received",
+      "delivery": 1,
+      "queue": "orders",
+      "receive_count": 1,
+      "consumer": {
+       "service_name": "orders-worker",
+       "faas_invocation_id": "inv1"
+      },
+      "end_unix_nano": "1763080003000000000"
+     },
+     {
+      "type": "lambda_outcome",
+      "delivery": 1,
+      "outcome": "failed_exception",
+      "error_type": "TimeoutError",
+      "error_message": "*",
+      "end_unix_nano": "1763080004000000000"
+     }
+    ]
+   },
+   "queueUrl": "https://sqs.us-east-1.amazonaws.com/111111111111/orders",
+   "tenant": null,
+   "group": null,
+   "visibilityS": null
+  },
+  {
    "name": "merged: error text 0",
    "timeline": {
     "message_id": "m-many-00",
@@ -1314,6 +1400,8 @@
   "m-dlq": 1763080000000.0,
   "m-dlq-inferred": 1763080000000.0,
   "m-other-account": 1763080000000.0,
+  "m-exc-colon": 1763080000000.0,
+  "m-exc-star": 1763080000000.0,
   "m-many-00": 1763080000000.0,
   "m-many-01": 1763080000000.0,
   "m-many-02": 1763080000000.0,
@@ -1733,6 +1821,46 @@
     "consumer": "orders-worker",
     "outcome": "stuck",
     "evidenceMs": 1763080002000
+   },
+   {
+    "mid": "m-exc-colon",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": "LookupError:Missing",
+    "errorCode": null,
+    "fn": null,
+    "error": "no index",
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "exc",
+    "signature": "exc:LookupError%3AMissing:no index",
+    "consumer": "search",
+    "outcome": "stuck",
+    "evidenceMs": 1763080004000
+   },
+   {
+    "mid": "m-exc-star",
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "tenant": null,
+    "group": null,
+    "errorType": "TimeoutError",
+    "errorCode": null,
+    "fn": null,
+    "error": "*",
+    "earlier": [],
+    "dlqInferred": false,
+    "deliveries": 1,
+    "version": null,
+    "kind": "exc",
+    "signature": "exc:TimeoutError:<*>",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "evidenceMs": 1763080004000
    },
    {
     "mid": "m-many-00",
@@ -2225,6 +2353,76 @@
     "versions": []
    },
    {
+    "id": "f1a06cbb48f4",
+    "key": "v1|111111111111/us-east-1/orders|search|exc:LookupError%3AMissing:no index",
+    "kind": "exc",
+    "signature": "exc:LookupError%3AMissing:no index",
+    "label": "search raised LookupError:Missing: no index",
+    "basis": "spans",
+    "inferred": false,
+    "why": null,
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "consumer": "search",
+    "outcome": "stuck",
+    "count": 1,
+    "counts": {
+     "dead_lettered": 0,
+     "stuck": 1,
+     "filtered": 0
+    },
+    "dlqInferred": 0,
+    "firstMs": 1763080004000,
+    "lastMs": 1763080004000,
+    "times": [
+     1763080004000
+    ],
+    "tenants": [],
+    "sampleError": "no index",
+    "sampleMid": "m-exc-colon",
+    "examples": [
+     "m-exc-colon"
+    ],
+    "earlier": [],
+    "retrying": 0,
+    "versions": []
+   },
+   {
+    "id": "fda3a2b65253",
+    "key": "v1|111111111111/us-east-1/orders|orders-worker|exc:TimeoutError:<*>",
+    "kind": "exc",
+    "signature": "exc:TimeoutError:<*>",
+    "label": "orders-worker raised TimeoutError: *",
+    "basis": "spans",
+    "inferred": false,
+    "why": null,
+    "queue": "orders",
+    "queueKey": "111111111111/us-east-1/orders",
+    "consumer": "orders-worker",
+    "outcome": "stuck",
+    "count": 1,
+    "counts": {
+     "dead_lettered": 0,
+     "stuck": 1,
+     "filtered": 0
+    },
+    "dlqInferred": 0,
+    "firstMs": 1763080004000,
+    "lastMs": 1763080004000,
+    "times": [
+     1763080004000
+    ],
+    "tenants": [],
+    "sampleError": "*",
+    "sampleMid": "m-exc-star",
+    "examples": [
+     "m-exc-star"
+    ],
+    "earlier": [],
+    "retrying": 0,
+    "versions": []
+   },
+   {
     "id": "1dbef06fd894",
     "key": "v1|111111111111/us-east-1/orders|billing-fn|fn_oom:billing-fn",
     "kind": "fn_oom",
@@ -2631,6 +2829,8 @@
    "m-dlq": "7fc2a3d79616",
    "m-dlq-inferred": "74af82beac6e",
    "m-other-account": "8036d2f31159",
+   "m-exc-colon": "f1a06cbb48f4",
+   "m-exc-star": "fda3a2b65253",
    "m-many-00": "7819c4846154",
    "m-many-01": "7819c4846154",
    "m-many-02": "7819c4846154",
@@ -2871,6 +3071,28 @@
     0
    ],
    "d92a5fea2810": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "f1a06cbb48f4": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "fda3a2b65253": [
     1,
     0,
     0,
