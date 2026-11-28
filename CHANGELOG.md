@@ -2,11 +2,6 @@
 
 ## Unreleased
 
-- **With users and roles off, `/api/me/tokens` and `/api/me/passkeys` say so** (QV-791): on a SQLite or Postgres
-  store they now answer 403 "users and roles are off on this server ... start it with --accounts or
-  TRAILBEAM_ACCOUNTS=1", as the API contract says, in place of 404 "it is not SQLite or Postgres". The advice on
-  `/api/users` and the web screen no longer says to create "the first admin", since one made earlier may exist:
-  turn them on with TRAILBEAM_ACCOUNTS=1, and create an admin only if there is none.
 - **`npx trailbeam start` no longer leaves its output in Docker's log** (QV-409). It runs the container with
   `--log-driver none`, so the output still shows in the terminal but is not kept by `docker logs` or sent to a log
   service the Docker daemon is set up with (gelf, fluentd, awslogs, ...). That output holds the first run's token
