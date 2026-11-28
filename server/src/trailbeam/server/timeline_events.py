@@ -24,12 +24,15 @@ TypeScript leaves undefined is left out here too.
 
 Which messages: those with a stored span in the window, or up to the Lambda timeout before it (an invocation with no
 outcome is reported at its receive plus the timeout), most recently active first, at most ``limit`` of them
-(``capped`` says when there were more). Their events in the window, both ends included, newest first. A message's
+(``capped`` says when there were more). With ``queue=`` (QV-726), only the messages with a span on the named queues,
+each a key or a name (queues.resolve), so a busier queue doesn't take a quiet one's places in the limit, and a queue
+of the same name in another account or region is another queue; and only their events on those queues. Their events in the window, both ends included, newest first. A message's
 kept body (contract 15.4) goes on the event whose span carried it, for queues in ``TRAILBEAM_STORE_BODIES``, as on the
 Body tab: anyone the server lets in can read it. Bodies stop at ``MAX_BODY_CHARS`` for the page (``bodies_capped``).
 """
 from __future__ import annotations
 
+import heapq
 import json
 import re
 from datetime import datetime, timezone
@@ -37,11 +40,13 @@ from typing import Iterable, Optional
 from urllib.parse import unquote, urlsplit
 
 from . import bodies, queries
+from . import queues as queues_mod
 
 NS_PER_MS = 1_000_000
 INT64_MAX = 2 ** 63 - 1
 DEFAULT_MESSAGES = 1000
 MAX_MESSAGES = 2000
+MAX_QUEUES = 10  # queues one ``queue=`` may name (QV-726)
 MAX_BODY_CHARS = 4_000_000  # as the hosted app's loadEvents
 TENANT_MAX_CHARS = 256
 _PAGE = 1000  # spans read per step when finding the window's messages
@@ -376,44 +381,65 @@ def events_of_timeline(t: dict, *, urls: Optional[dict] = None, places: Optional
 
 # ---- the window's events -----------------------------------------------------------------------------------------
 
-def window_messages(db, from_ns: int, to_ns: int, limit: int) -> tuple[list[str], bool]:
-    """(message IDs, capped): up to ``limit`` messages with a span in [from_ns, to_ns), most recently active first.
-    Walks the window's spans newest first (Store.step_rows), a page at a time, so it reads about as many spans as the
-    messages it returns have in the window."""
-    mids: list[str] = []
-    seen: set = set()
+def _spans(db, from_ns: int, to_ns: int, name: Optional[str] = None, keys: Optional[set] = None):
+    """The window's spans newest first, a page at a time (Store.step_rows); with ``name``, those on the queue of that
+    name whose stored key is one of ``keys``. The store filters by name only, so a queue of this name in another
+    account or region is skipped here (as queue_now._steps_of does)."""
     after = None
     while True:
-        rows = db.step_rows(from_ns, to_ns, _PAGE, after=after)
+        rows = db.step_rows(from_ns, to_ns, _PAGE, queue=name, after=after)
         for r in rows:
-            m = r["mid"]
-            if m is not None and m not in seen:
-                if len(mids) == limit:
-                    return mids, True
-                seen.add(m)
-                mids.append(m)
+            if keys is None or queues_mod.key(r["queue"], r["queue_url"]) in keys:
+                yield r
         if len(rows) < _PAGE:
-            return mids, False
+            return
         last = rows[-1]
         after = (last["time_ns"], last["trace_id"], last["span_id"])
 
 
+def _order(r) -> tuple:
+    return r["time_ns"], r["trace_id"], r["span_id"]
+
+
+def window_messages(db, from_ns: int, to_ns: int, limit: int, on: Optional[dict] = None) -> tuple[list[str], bool]:
+    """(message IDs, capped): up to ``limit`` messages with a span in [from_ns, to_ns), most recently active first.
+    ``on``: {queue name: its stored keys}, only the messages with a span on one of those queues. Walks the window's
+    spans newest first, so it reads about as many spans as the messages it returns have in the window; the spans of
+    several queues are read a queue at a time and merged."""
+    if on is None:
+        rows: Iterable = _spans(db, from_ns, to_ns)
+    else:
+        rows = heapq.merge(*(_spans(db, from_ns, to_ns, n, set(k)) for n, k in sorted(on.items())),
+                           key=_order, reverse=True)
+    mids: list[str] = []
+    seen: set = set()
+    for r in rows:
+        m = r["mid"]
+        if m is not None and m not in seen:
+            if len(mids) == limit:
+                return mids, True
+            seen.add(m)
+            mids.append(m)
+    return mids, False
+
+
 def page(db, from_ms: int, to_ms: int, now_ns: int, lambda_timeout_s: int, max_receive_counts: Optional[dict] = None,
-         *, limit: int = DEFAULT_MESSAGES, max_body_chars: int = MAX_BODY_CHARS) -> dict:
-    """The answer of ``/api/timeline-events`` for [from_ms, to_ms], both included."""
+         *, limit: int = DEFAULT_MESSAGES, max_body_chars: int = MAX_BODY_CHARS, on: Optional[dict] = None) -> dict:
+    """The answer of ``/api/timeline-events`` for [from_ms, to_ms], both included. ``on``: {queue name: its stored
+    keys}, the queues asked for (``window_messages``), else every queue."""
     return answer(inputs(db, from_ms, to_ms, now_ns, lambda_timeout_s, max_receive_counts, limit=limit,
-                         max_body_chars=max_body_chars), from_ms, to_ms)
+                         max_body_chars=max_body_chars, on=on), from_ms, to_ms, names=None if on is None else set(on))
 
 
 def inputs(db, from_ms: int, to_ms: int, now_ns: int, lambda_timeout_s: int,
            max_receive_counts: Optional[dict] = None, *, limit: int = DEFAULT_MESSAGES,
-           max_body_chars: int = MAX_BODY_CHARS) -> dict:
+           max_body_chars: int = MAX_BODY_CHARS, on: Optional[dict] = None) -> dict:
     """What events_of_timeline is given for each message of the window: {messages: [{timeline, urls, metas, body}],
     capped, bodies_capped}. The parity fixture records these, so the TypeScript can be given the same."""
     lead_ns = lambda_timeout_s * 1_000_000_000
     # the store takes 64-bit integers: a window to about year 2262 and beyond is cut there (as events.py does)
     mids, capped = window_messages(db, min(INT64_MAX, max(0, from_ms * NS_PER_MS - lead_ns)),
-                                   min(INT64_MAX, (to_ms + 1) * NS_PER_MS), limit)
+                                   min(INT64_MAX, (to_ms + 1) * NS_PER_MS), limit, on)
     rows_of = db.messages_rows(mids)
     budget, bodies_capped = max_body_chars, False
     out = []
@@ -443,13 +469,14 @@ def inputs(db, from_ms: int, to_ms: int, now_ns: int, lambda_timeout_s: int,
     return {"messages": out, "capped": capped, "bodies_capped": bodies_capped}
 
 
-def answer(i: dict, from_ms: int, to_ms: int) -> dict:
+def answer(i: dict, from_ms: int, to_ms: int, names: Optional[set] = None) -> dict:
     """The page made of ``inputs``: every message's events in [from_ms, to_ms], newest first; events at the same time
-    keep their timeline's order, reversed (as the hosted app's loadEvents orders them)."""
+    keep their timeline's order, reversed (as the hosted app's loadEvents orders them). ``names``: only the events on
+    the queues of these names (a move to the dead-letter queue is on the queue it left)."""
     found = []
     for m in i["messages"]:
         for e in events_of_timeline(m["timeline"], urls=m["urls"], metas=m["metas"], body=m["body"]):
-            if from_ms <= e["ms"] <= to_ms:
+            if from_ms <= e["ms"] <= to_ms and (names is None or e["queue"] in names):
                 found.append(e)
     events = [e for _, e in sorted(enumerate(found), key=lambda x: (-x[1]["ms"], -x[0]))]
     return {"from_ms": from_ms, "to_ms": to_ms, "events": events, "messages": len(i["messages"]),

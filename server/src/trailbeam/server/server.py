@@ -589,12 +589,27 @@ class App:
 
     def timeline_events(self, q: dict, rest: list[str]) -> dict:
         """``/api/timeline-events``: the Event explorer's events in [from_ms, to_ms], or the last ``since_s`` seconds
-        (default a day), made from each message's timeline, inferred ones included (timeline_events.py, QV-580)."""
+        (default a day), made from each message's timeline, inferred ones included (timeline_events.py, QV-580).
+        ``queue``: only the messages on these queues, a comma-separated list of keys or names (QV-726)."""
         if rest:
             raise ApiError(404, "no such endpoint")
         from_ms, to_ms = self._window(q)
+        on = None
+        asked = list(dict.fromkeys(k.strip() for k in (q.get("queue") or "").split(",") if k.strip()))
+        if len(asked) > timeline_events.MAX_QUEUES:
+            raise ApiError(400, f"queue names {len(asked)} queues; ask for {timeline_events.MAX_QUEUES} at most at once")
+        if asked:  # QV-726: the messages on these queues, each a key or a name, so a busier queue can't crowd them out
+            try:
+                keys = self.db.queue_keys()
+            except NotImplementedError as e:
+                raise ApiError(501, str(e)) from None
+            on = {}
+            for a in asked:
+                want, place = self._queue_keys(a, keys)
+                on.setdefault(place.name, set()).update(want)
         return timeline_events.page(self.db, from_ms, to_ms, self.now(), self._lambda_timeout(q), self.max_receive_counts,
-                                    limit=_int(q, "limit", timeline_events.DEFAULT_MESSAGES, 1, timeline_events.MAX_MESSAGES))
+                                    limit=_int(q, "limit", timeline_events.DEFAULT_MESSAGES, 1, timeline_events.MAX_MESSAGES),
+                                    on=on)
 
     def causes(self, q: dict, rest: list[str]) -> dict:
         """``/api/causes``: the stuck messages grouped by why they didn't finish (causes.py, QV-367), the Needs

@@ -91,18 +91,38 @@ function QueueTotals({ f, range }: { f: Flow; range: string }) {
 /** The most messages the rows under a part are read from: GET /api/timeline-events' limit, most recently active first. */
 const PART_LIMIT = 500;
 type PartEvents = { key: string; events: Ev[]; capped: boolean } | { key: string; error: string };
+type Part = PartMessagesAt["part"];
+
+/**
+ * The queues a part's messages are read from (GET /api/timeline-events?queue=, QV-726): the flow's own key, so a busier
+ * queue can't take its places in the limit and a queue of its name in another account isn't read. For its dead-letter
+ * queue, that queue's key too when it has a flow in the same place: a move is reported on the receive from it, which
+ * may be the message's only span in the range.
+ */
+export function partQueueKeys(flows: readonly Flow[], f: Flow, part: Part): string[] {
+  const dlq = part === "dlq" && f.dlq ? flows.find((g) => g.name === f.dlq!.name && g.account === f.account && g.region === f.region) : undefined;
+  return dlq && dlq.key !== f.key ? [f.key, dlq.key] : [f.key];
+}
+
+/** What the part's panel says with no row. When the read was capped, its messages may be among the ones not read, so it says so instead of "No message". */
+export function partEmptyText(part: Part, capped: boolean, range: string): string {
+  const which = part === "producer" ? "it sent here" : part === "consumer" ? "it received from here" : "moved to the dead-letter queue";
+  return capped
+    ? `No message ${which} is among the ${fmtNum(PART_LIMIT)} most recently active on this queue in ${range}.`
+    : `No message ${which} has an event in ${range}.`;
+}
 
 /**
  * The messages behind a selected producer, consumer or dead-letter queue (the shared PartMessages), from recorded
- * spans: the range's events as the Event explorer reads them (GET /api/timeline-events), one row per message. Read
- * again when the range moves, without closing a row that is open.
+ * spans: the range's events on its queue (`keys`, partQueueKeys) as the Event explorer reads them (GET
+ * /api/timeline-events), one row per message. Read again when the range moves, without closing a row that is open.
  */
-function ShellPartMessages({ at, queue, window: w, time, live }: { at: PartMessagesAt; queue: string; window: { fromMs: number; toMs: number }; time: TimeRange; live: QueueLive | undefined }) {
-  const key = `${Math.floor(w.fromMs)}-${w.toMs}`;
+function ShellPartMessages({ at, queue, keys, window: w, time, live }: { at: PartMessagesAt; queue: string; keys: string[]; window: { fromMs: number; toMs: number }; time: TimeRange; live: QueueLive | undefined }) {
+  const key = `${Math.floor(w.fromMs)}-${w.toMs}-${keys.join(",")}`;
   const [got, setGot] = useState<PartEvents | null>(null);
   useEffect(() => {
     let on = true;
-    getJSON<{ events: Ev[]; capped: boolean }>(`/api/timeline-events?${qs({ ...timelineEventsQuery({ from: w.fromMs, to: w.toMs }), limit: String(PART_LIMIT) })}`)
+    getJSON<{ events: Ev[]; capped: boolean }>(`/api/timeline-events?${qs({ ...timelineEventsQuery({ from: w.fromMs, to: w.toMs }), queue: keys.join(","), limit: String(PART_LIMIT) })}`)
       .then((r) => on && setGot({ key, events: r.events, capped: r.capped }), (e: Error) => on && setGot({ key, error: e.message }));
     return () => { on = false; };
   }, [key]);
@@ -112,12 +132,12 @@ function ShellPartMessages({ at, queue, window: w, time, live }: { at: PartMessa
   const note = "border-t border-line px-5 py-3 text-xs text-ink-3";
   if (!got) return <p className={note}>Reading its messages in {phrase(time)}.</p>;
   if ("error" in got) return <p className={note} role="alert">Couldn&rsquo;t read its messages: {got.error}</p>;
-  if (!rows.length) return <p className={note}>No message {at.part === "producer" ? "it sent here" : at.part === "consumer" ? "it received from here" : "moved to the dead-letter queue"} has an event in {phrase(time)}.</p>;
+  if (!rows.length) return <p className={note}>{partEmptyText(at.part, got.capped, phrase(time))}</p>;
   return (
     <>
       <PartMessages queue={queue} part={at.part} producer={at.producer} rows={rows} max={at.max} eventsHref={(q) => eventsHref(q, time)}
         facts={live && { read: live.status === "ok", fifo: live.fifo, visibilityTimeoutS: live.visibilityTimeoutS, retentionS: live.retentionS, delayS: live.delayS ?? null, maxReceiveCount: live.maxReceiveCount, dlq: live.dlq, triggers: null }} />
-      {got.capped && <p className={note}>Read from the {fmtNum(PART_LIMIT)} most recently active messages in the range.</p>}
+      {got.capped && <p className={note}>Read from the {fmtNum(PART_LIMIT)} most recently active messages on this queue in the range.</p>}
     </>
   );
 }
@@ -255,7 +275,7 @@ export function OverviewPage() {
           search: <ShellSearch />,
           emptyActions: <a className="rounded-control border border-line bg-surface px-3 py-1.5 text-sm text-ink hover:border-line-strong" href="/">See how to connect a service</a>,
           actions: <CopyLink link={() => pinnedFlowsHref(u, state.kind === "ok" ? state.at : Date.now())} />,
-          partMessages: (at) => got && <ShellPartMessages key={`${at.queue}:${at.part}:${at.producer ?? at.consumer ?? ""}`} at={at} queue={nameOf(at.queue)} window={got.window} time={u.time} live={got.data.info[at.queue]?.live} />,
+          partMessages: (at) => { const f = byLabel.get(at.queue); return got && f && <ShellPartMessages key={`${at.queue}:${at.part}:${at.producer ?? at.consumer ?? ""}`} at={at} queue={f.name} keys={partQueueKeys(flows, f, at.part)} window={got.window} time={u.time} live={got.data.info[at.queue]?.live} />; },
           queueFacts: (label) => { const f = byLabel.get(label); return f ? <QueueTotals f={f} range={range} /> : null; },
           foot: got && <>
             {got.aws

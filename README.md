@@ -354,7 +354,7 @@ The Event explorer's events, inferred ones included, are listed by `GET /api/tim
 `from_ms`/`to_ms`: one per thing that happened to each message active in the window, newest first, made from the
 message's timeline. Besides the recorded steps (visibility changes included), that is an expired visibility timeout, a move to the dead-letter
 queue, the Lambda trigger's delete after a successful handler, and a Lambda invocation that never reported an
-outcome. The hosted app makes its explorer's events by the same rules, and both are tested against the same
+outcome. `queue=` (keys or names, comma-separated) reads only those queues' messages. The hosted app makes its explorer's events by the same rules, and both are tested against the same
 recorded spans. Operation `list-timeline-events` in [`contract/openapi.yaml`](contract/openapi.yaml).
 
 ## Troubleshooting: no data arriving

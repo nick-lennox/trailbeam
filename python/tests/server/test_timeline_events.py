@@ -144,6 +144,88 @@ def test_window_messages_walks_past_a_page_of_spans(db, ingest, monkeypatch):
     assert te.window_messages(db, T0, T0 + 10 * SEC, 2) == (["m2", "m1"], True)
 
 
+def test_a_queue_asked_for_is_read_on_its_own_so_a_busier_one_cannot_crowd_it_out(db, ingest, monkeypatch):
+    _quiet_and_busy(db, ingest, monkeypatch)
+
+
+def test_a_queue_of_the_same_name_in_another_account_is_another_queue(db, ingest):
+    _same_name_elsewhere(db, ingest)
+
+
+@pytest.mark.skipif(not os.environ.get("TRAILBEAM_TEST_POSTGRES_URL"), reason="TRAILBEAM_TEST_POSTGRES_URL is not set")
+def test_a_postgres_store_reads_one_queue_the_same(monkeypatch):
+    sys.path.insert(0, str(ROOT / "python" / "tests" / "conformance"))
+    from pg_helpers import postgres_store
+
+    from trailbeam.server.otlp import decode
+    from spans import to_proto
+    for scenario in (_quiet_and_busy, _same_name_elsewhere):
+        s = postgres_store()
+        try:
+            def ingest(*spans, service="orders-worker"):
+                s.insert(decode(to_proto(list(spans), service=service).SerializeToString(),
+                                "application/x-protobuf").records)
+            scenario(s, ingest, monkeypatch)
+        finally:
+            s.close()
+
+
+def _quiet_and_busy(db, ingest, monkeypatch):
+    """QV-726: 3 messages on quiet, then 600 sends on busy. Unfiltered, the 500 most recently active are all busy's;
+    asked for quiet (by key or by name), its 3 are read, with their events on it only."""
+    monkeypatch.setattr(te, "_PAGE", 50)
+    c = Consumer()
+    ingest(*(sp for i in range(3) for sp in (c.send(T0 + i * SEC, f"q{i}", queue="quiet"),
+                                             c.receive(T0 + i * SEC + 1, f"q{i}", f"rh{i}", queue="quiet"))))
+    ingest(*(c.send(T0 + 60 * SEC + i * MS, f"b{i}", queue="busy") for i in range(600)))
+    app = _app(db, T0 + 3600 * SEC)
+    every = _window(app, T0, T0 + 3600 * SEC, limit="500")
+    assert (every["messages"], every["capped"], every["queues"]) == (500, True, ["busy"])
+    for asked in ("quiet", "000000000000//quiet"):
+        a = _window(app, T0, T0 + 3600 * SEC, limit="500", queue=asked)
+        assert (a["messages"], a["capped"], a["queues"]) == (3, False, ["quiet"])
+        assert [e["event"] for e in a["events"] if e["messageId"] == "q0"] == ["receive", "send"]
+    a = _window(app, T0, T0 + 3600 * SEC, limit="500", queue="busy")
+    assert (a["messages"], a["capped"]) == (500, True)
+    a = _window(app, T0, T0 + 3600 * SEC, limit="500", queue="quiet,busy")
+    assert (a["messages"], a["capped"]) == (500, True) and {e["queue"] for e in a["events"]} == {"busy"}
+    assert _window(app, T0, T0 + 3600 * SEC, queue="nowhere")["events"] == []
+
+
+def _same_name_elsewhere(db, ingest, monkeypatch=None):
+    elsewhere = "https://sqs.eu-west-1.amazonaws.com/123456789012/orders"
+    mine, theirs = Consumer("a"), Consumer("b")
+    ingest(mine.send(T0, "x1"))
+    spans = [theirs.send(T0 + SEC, "y1"), theirs.receive(T0 + 2 * SEC, "y1", "hy")]
+    for sp in spans:
+        sp.attrs["aws.sqs.queue.url"] = elsewhere
+    ingest(*spans)
+    app = _app(db, T0 + 3600 * SEC)
+
+    def mids(**q):
+        return sorted({e["messageId"] for e in _window(app, T0, T0 + 10 * SEC, **q)["events"]})
+    assert mids() == ["x1", "y1"]
+    assert mids(queue="000000000000//orders") == ["x1"]
+    assert mids(queue="123456789012/eu-west-1/orders") == ["y1"]
+    assert mids(queue="000000000000//orders,123456789012/eu-west-1/orders") == ["x1", "y1"]
+    with pytest.raises(ApiError) as e:  # the name alone is two queues
+        _window(app, T0, T0 + 10 * SEC, queue="orders")
+    assert e.value.status == 400 and "more than one queue is called orders" in str(e.value)
+
+
+def test_a_move_to_the_dead_letter_queue_is_found_by_asking_for_the_dead_letter_queue_too(db, ingest):
+    """The move is reported on the receive from the dead-letter queue: when that is the message's only span in the
+    window, asking for the source queue alone doesn't find it; asking for both does, and the move is on the source."""
+    c = Consumer()
+    ingest(c.send(T0, "m1"), c.receive(T0 + SEC, "m1", "rh1"),
+           c.receive(T0 + 600 * SEC, "m1", "rh2", queue="orders-dlq", dlq_source="orders"))
+    app = _app(db, T0 + 3600 * SEC)
+    alone = _window(app, T0 + 300 * SEC, T0 + 900 * SEC, queue="orders")
+    both = _window(app, T0 + 300 * SEC, T0 + 900 * SEC, queue="orders,orders-dlq")
+    assert alone["messages"] == 0
+    assert both["messages"] == 1 and [e["queue"] for e in both["events"] if e["event"] == "dead_letter"] == ["orders"]
+
+
 def test_bodies_only_for_the_queues_the_server_stores_them_for():
     """With TRAILBEAM_STORE_BODIES unset the same events come without bodies; and bodies stop at the page's budget."""
     f = json.loads(RECORDED.read_text())
@@ -177,3 +259,6 @@ def test_bad_requests(db):
     assert e.value.status == 400
     with pytest.raises(ApiError):
         app.api("timeline-events", {"limit": "2001"})
+    with pytest.raises(ApiError) as e:
+        app.api("timeline-events", {"queue": ",".join(f"q{i}" for i in range(te.MAX_QUEUES + 1))})
+    assert e.value.status == 400
