@@ -28,11 +28,11 @@ export function ErrorCauses({ causes }: { causes: ErrorCause[] }) {
         {causes.map((c) => (
           <li key={c.steps[0]} className="grid gap-1 rounded-card border border-line bg-surface px-4 py-3 shadow-card">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <span className="font-mono text-caption font-medium text-critical-text">{c.errorType ?? OUTCOME[c.outcome] ?? c.outcome}</span>
+              <span className={`${c.errorType ? "font-mono text-caption" : "text-[13px]"} font-medium text-critical-text`}>{c.errorType ?? OUTCOME[c.outcome] ?? c.outcome}</span>
               <span className="text-xs text-ink-3">
                 {c.count === 1 ? "Once" : <><span className="font-mono tabular-nums">{c.count}</span> times</>}
-                {c.deliveries.length > 0 && <>, {c.deliveries.length === 1 ? "delivery" : "deliveries"} <span className="font-mono tabular-nums">{c.deliveries.join(", ")}</span></>}
-                {", "}<span className="font-mono tabular-nums">{c.first === c.last ? time(c.first) : `${time(c.first)} to ${time(c.last)}`}</span> UTC
+                {c.deliveries.length > 0 && <>, {c.deliveries.length === 1 ? "receive" : "receives"} <span className="font-mono tabular-nums">{c.deliveries.join(", ")}</span></>}
+                {", "}{c.first === c.last ? <span className="font-mono tabular-nums">{time(c.first)}</span> : <><span className="font-mono tabular-nums">{time(c.first)}</span> to <span className="font-mono tabular-nums">{time(c.last)}</span></>} UTC
                 {", "}{c.steps.length === 1 ? "step" : "steps"} <span className="font-mono tabular-nums">{c.steps.join(", ")}</span>
               </span>
             </div>

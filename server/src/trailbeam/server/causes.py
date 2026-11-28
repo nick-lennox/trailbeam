@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 from typing import Callable, Iterable, Optional
 from urllib.parse import unquote, urlsplit
 
-from . import summary, timeline
+from . import purge, queues, summary, timeline
 from .systems import RABBITMQ
 
 KEY_VERSION = "v1"
@@ -562,7 +562,9 @@ def read_unfinished(db, now_ns: int, lambda_timeout_s: int, mrc: Optional[dict],
     classified, items, first_seen, urls = [], [], {}, {}
     rows_of = db.messages_rows([r.message_id for r in found])
     # the PurgeQueue calls on these messages' queues (contract section 18): one read for them all
-    purges = db.purges({x["queue"] for rows in rows_of.values() for x in rows})
+    purges = purge.read(db, {x["queue"] for rows in rows_of.values() for x in rows},
+                        {queues.key(x["queue"], x["queue_url"]) for rows in rows_of.values() for x in rows
+                         if x["kind"] in ("send", "receive")})
     for r in found:
         rows = rows_of.get(r.message_id)
         if not rows or r.message_id not in sums:

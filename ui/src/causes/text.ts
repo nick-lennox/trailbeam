@@ -20,12 +20,12 @@ export function trendOf(times: number[], fromMs: number, toMs: number, n = TREND
   return out;
 }
 
-/** "2 in the DLQ, 3 retrying", or "" when none is in a dead-letter queue. */
+/** "2 in the DLQ, 3 still in the queue", or "" when none is in a dead-letter queue. */
 export function dlqSplit(g: Pick<CauseGroup, "counts" | "dlqInferred">): string {
   const d = g.counts.dead_lettered;
   if (!d) return "";
   const note = g.dlqInferred ? (g.dlqInferred === d ? " (inferred from maxReceiveCount)" : `, ${g.dlqInferred} inferred from maxReceiveCount`) : "";
-  return `${d} in the DLQ${note}${g.counts.stuck ? `, ${g.counts.stuck} retrying` : ""}`;
+  return `${d} in the DLQ${note}${g.counts.stuck ? `, ${g.counts.stuck} still in the queue` : ""}`;
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");

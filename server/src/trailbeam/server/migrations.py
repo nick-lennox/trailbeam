@@ -294,7 +294,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # data.
 # Schema 31 (QV-589) adds server_settings (aws_settings.py: the AWS settings, one row per key), empty, so AWS reads
 # are off after the upgrade as before it. It changes no span data.
-# Schema 32 (QV-590) adds redrive_log (redrive_log.py: who asked to redrive which dead-letter queue, and how it went),
+# Schema 33 (QV-590) adds redrive_log (redrive_log.py: who asked to redrive which dead-letter queue, and how it went),
 # empty. It changes no span data.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new", added=""))
                   + [f"INSERT INTO spans_new ({SPANS_COLUMNS}) SELECT {SPANS_COLUMNS} FROM spans ORDER BY row",
@@ -367,6 +367,13 @@ def _to_29(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE spans ADD COLUMN seq INTEGER")
 
 
+def _to_32(conn: sqlite3.Connection) -> None:
+    """Adds messages.current_key, unless the file has it (as _to_17), and fills it from each message's spans."""
+    if "current_key" not in {r[1] for r in conn.execute("PRAGMA table_info(messages)")}:
+        conn.execute("ALTER TABLE messages ADD COLUMN current_key TEXT NOT NULL DEFAULT ''")
+    summary_table.rebuild_current_keys(conn)
+
+
 def _to_25(conn: sqlite3.Connection) -> None:
     for sql in statements(S3_RECEIVES):
         conn.execute(sql)
@@ -428,7 +435,8 @@ MIGRATIONS = (
     Migration(29, "spans.seq: when each span reached the server", (), run=_to_29),
     Migration(30, "alert outbox", tuple(statements(alerts_store.SQLITE_OUTBOX))),
     Migration(31, "server settings (AWS reads)", tuple(statements(aws_settings.SQLITE_CREATE))),
-    Migration(32, "redrive log", tuple(statements(redrive_log.SQLITE_CREATE))),
+    Migration(32, "messages.current_key: purges by queue key", (), run=_to_32),
+    Migration(33, "redrive log", tuple(statements(redrive_log.SQLITE_CREATE))),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

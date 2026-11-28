@@ -37,6 +37,10 @@ def types(t):
     return [e["type"] for e in t["events"]]
 
 
+def codes(t):
+    return [n["code"] for n in t["notices"]]
+
+
 def fanout(s):
     """One publish to a topic with a raw (billing) and a non-raw (orders) queue subscription."""
     put(s, P.publish(T0 + SEC, SNS_ID, publish_id=PID, start=T0),
@@ -60,6 +64,7 @@ def test_both_subscriptions_join_the_one_publish(new_store):
     a = queries.message(s, "sqs-a", NOW, LT)
     b = queries.message(s, "sqs-b", NOW, LT)
     assert types(a) == ["published", "received"] and types(b) == ["published", "received"]
+    assert codes(a) == codes(b) == []  # QV-728: no send_not_observed under a joined publish
     pa, pb = a["events"][0], b["events"][0]
     assert pa["span"] == pb["span"]
     assert pa["joined_by"] == ["envelope_message_id"] and pb["joined_by"] == ["publish_id"]
@@ -78,9 +83,12 @@ def test_both_subscriptions_join_the_one_publish(new_store):
 def test_the_publish_may_arrive_after_the_receive(new_store):
     s = new_store()
     put(s, C.sns_receive(T0 + 3 * SEC, "sqs-a", "rh-a", sns_id=SNS_ID, start=T0 + 2 * SEC))
-    assert types(queries.message(s, "sqs-a", NOW, LT)) == ["arrived_via_sns", "received"]
+    t = queries.message(s, "sqs-a", NOW, LT)
+    assert types(t) == ["arrived_via_sns", "received"] and "send_not_observed" in codes(t)
     put(s, P.publish(T0 + SEC, SNS_ID, start=T0))
-    assert types(queries.message(s, "sqs-a", NOW, LT)) == ["published", "received"]
+    t = queries.message(s, "sqs-a", NOW, LT)
+    # QV-728: the publisher is instrumented and on the page; the SQS send was SNS's own
+    assert types(t) == ["published", "received"] and "send_not_observed" not in codes(t)
 
 
 def test_a_receive_is_not_after_its_publish_without_a_clock_or_tick(new_store):

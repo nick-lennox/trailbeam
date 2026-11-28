@@ -108,16 +108,16 @@ export const byUrgency = (a: Ranked, b: Ranked) => RANK[severity(a)] - RANK[seve
 
 export const EVIDENCE: Record<CauseKind, string> = {
   filter: "A Lambda event filter removed the message from the queue without invoking the function. Nothing in your code saw it. CloudTrail recorded the delete.",
-  fn_timeout: "Lambda's log says the invocation reached the function timeout. Lambda does not delete a record from a failed invocation, so SQS delivers it again when its visibility timeout expires.",
-  fn_oom: "Lambda's log says the invocation ran out of memory. Lambda does not delete a record from a failed invocation, so SQS delivers it again when its visibility timeout expires.",
-  exc: "The handler raised an exception while it held the message, and no delete followed. SQS delivers it again when its visibility timeout expires.",
+  fn_timeout: "Lambda's log says the invocation reached the function timeout. Lambda does not delete a record from a failed invocation, so SQS makes it visible to receive again when its visibility timeout expires.",
+  fn_oom: "Lambda's log says the invocation ran out of memory. Lambda does not delete a record from a failed invocation, so SQS makes it visible to receive again when its visibility timeout expires.",
+  exc: "The handler raised an exception while it held the message, and no delete followed. SQS makes it visible to receive again when its visibility timeout expires.",
   invalid_batch_response: "The function returned a batchItemFailures ID that is not in the batch, so Lambda treated the whole batch as failed.",
   reported_failure: "The function listed the message in batchItemFailures, so Lambda did not delete it.",
   no_outcome: "A Lambda receive with no outcome reported inside the function timeout. The invocation most likely timed out or ran out of memory. Nothing recorded how it ended, so this is inferred.",
   delete_failed: "SQS rejected the DeleteMessage call, so the message stayed in the queue. The usual reason is a receipt handle that is no longer valid because the visibility timeout expired first.",
   not_deleted: "A receive was recorded and no accepted delete followed before the visibility timeout ran out, so SQS makes the message visible again. Inferred from the receive and the timeout.",
   in_flight: "A receive was recorded over 5 minutes ago and no delete has followed yet. The consumer may still be working, may have stopped, or may have returned without deleting the message.",
-  fifo_blocked: "SQS delivers a FIFO message group's messages in order, and an earlier message of the same group has not finished, so this one waits behind it. Inferred.",
+  fifo_blocked: "SQS returns a FIFO message group's messages in order, and an earlier message of the same group has not finished, so this one waits behind it. Inferred.",
   never_received: "A send was recorded and no instrumented consumer has reported a receive since. Either nothing is consuming the queue, or its consumer does not have the Trailbeam package.",
 };
 
@@ -128,9 +128,9 @@ export const CHECKS: Record<CauseKind, string[]> = {
   fn_oom: ["The function's memory setting against what one batch needs.", "Whether the batch size makes one invocation hold more than it can."],
   exc: ["Whether the error depends on the message (a missing field, one tenant) or on the moment (a dependency that was down).", "Whether the function reports batch item failures. Without ReportBatchItemFailures, one failed record sends its whole batch back to the queue."],
   invalid_batch_response: ["The itemIdentifier values the function returns. Each must be the messageId of a record in the batch it was given."],
-  reported_failure: ["Why the handler listed the message as failed. The message is delivered again until it succeeds or reaches maxReceiveCount."],
+  reported_failure: ["Why the handler listed the message as failed. The message is received again until it succeeds or reaches maxReceiveCount."],
   no_outcome: ["The function timeout against the slowest call the handler makes. An invocation that reaches the timeout reports nothing.", "The visibility timeout against the function timeout. AWS recommends a visibility timeout of at least six times the function timeout for a Lambda trigger.", "Memory. An invocation that runs out of memory also ends without an outcome."],
-  delete_failed: ["How long the consumer holds a message against the visibility timeout. A receipt handle stops working once the message has been delivered again.", "Whether two workers share receipt handles, so that one deletes with a handle the other received."],
+  delete_failed: ["How long the consumer holds a message against the visibility timeout. A receipt handle stops working once the message has been received again.", "Whether two workers share receipt handles, so that one deletes with a handle the other received."],
   not_deleted: ["Processing time against the visibility timeout. If work can run longer, extend the timeout with ChangeMessageVisibility while it runs.", "Whether the consumer deletes after handling. A handler that returns without calling DeleteMessage looks the same from here."],
   in_flight: ["Whether the consumer is still running. A worker stopped mid-message leaves it in flight until the visibility timeout expires.", "Whether the consumer deletes after handling."],
   fifo_blocked: ["The earlier message in the same message group. Until it is deleted or moved to a dead-letter queue, SQS holds back the rest of its group."],

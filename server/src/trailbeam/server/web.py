@@ -17,7 +17,7 @@ Pages:
   A RabbitMQ message (contract/span-contract-amqp.md; QV-307) has RabbitMQ's words instead: published to an
   exchange, routed, delivered, acked, requeued, refused, returned to the queue with its cause, and a move to a
   dead-letter queue reported by RabbitMQ's ``x-death`` header (``_amqp``).
-- ``/duplicates``: duplicate deliveries.
+- ``/duplicates``: duplicates (messages received or handled more than once).
 - ``/stuck``: stuck messages.
 - ``/tenants``: per tenant, sends, share, p95 time in queue and dead-lettered messages (contract/tenants.md).
   ``/?tenant=...`` lists one tenant's messages.
@@ -64,7 +64,7 @@ EVENT_LABELS = {
     "visibility_changed": "Visibility changed",
     "lambda_outcome": "Lambda outcome",
     "visibility_timeout_expired": "Visibility timeout expired",
-    "deliveries_not_observed": "Deliveries not observed",
+    "deliveries_not_observed": "Receives not observed",
     "moved_to_dead_letter_queue": "Moved to dead-letter queue",
     "deleted_by_lambda": "Deleted by Lambda",
     "lambda_invocation_ended_without_outcome": "Lambda invocation ended without an outcome",
@@ -102,6 +102,7 @@ AMQP_EVENT_LABELS = {
     "returned": "Returned to the publisher (basic.return)",
     "returned_to_queue": "Returned to the queue",
     "moved_to_dead_letter_queue": "Dead-lettered",
+    "deliveries_not_observed": "Deliveries not observed",
 }
 AMQP_ONLY_TYPES = {"routed", "acked", "requeued", "rejected", "channel_closed", "returned", "returned_to_queue"}
 
@@ -158,8 +159,10 @@ def _is_amqp_event(e: dict) -> bool:
             or op.startswith(("basic.", "channel.", "connection.")))
 
 
-def _label(e: dict) -> str:
-    labels = AMQP_EVENT_LABELS if _is_amqp_event(e) else EVENT_LABELS
+def _label(e: dict, amqp_message: bool = False) -> str:
+    """A step's heading. ``amqp_message``: the step is a RabbitMQ message's even if nothing on the step says so (an
+    inferred gap carries no AMQP operation), so it keeps RabbitMQ's words ("Deliveries not observed")."""
+    labels = AMQP_EVENT_LABELS if amqp_message or _is_amqp_event(e) else EVENT_LABELS
     return labels.get(e["type"], EVENT_LABELS.get(e["type"], e["type"]))
 
 
@@ -384,18 +387,18 @@ def _duplicates(api, q: dict) -> Response:
     params = _pick(q, "limit", "queue", "reason", "cursor")
     data = api("duplicates", params)
     reason_opts = [("", "any reason")] + list(DUPLICATE_REASONS.items())
-    body = ("<h1>Duplicate deliveries</h1>"
+    body = ("<h1>Duplicates</h1>"
             '<p class="muted">Messages SQS returned more than once, or that more than one consumer handled. '
-            "A second receive is expected after your own <code>ChangeMessageVisibility</code> or a failed "
-            "attempt. It is worth a look when the visibility timeout expired while a consumer was still "
+            "A second receive is expected after your own <code>ChangeMessageVisibility</code> or after a "
+            "consumer failed to handle it. It is worth a look when the visibility timeout expired while a consumer was still "
             "working, or when a message was handled twice.</p>"
             f'<p class="muted">{AMQP_DUPLICATES_NOTE}</p>'
             + _filters("/duplicates", q, [("reason", "Reason", reason_opts), ("queue", "Queue", "text"),
                                           ("limit", "Limit", "number")])
             + _summary_table(data["messages"], extra=("Why", _duplicate_why),
-                empty=NO_SPANS if not data["messages"] and _store_empty(api) else "No duplicate deliveries.")
+                empty=NO_SPANS if not data["messages"] and _store_empty(api) else "No duplicates.")
             + _next("/duplicates", q, data))
-    return _page(200, "Duplicate deliveries", body)
+    return _page(200, "Duplicates", body)
 
 
 def _stuck(api, q: dict) -> Response:
@@ -432,9 +435,9 @@ TENANT_RANGES = [("3600", "Last hour"), ("86400", "Last 24 hours"), ("604800", "
 TENANT_IS = "A tenant is your own customer or account ID, read from each message."
 TENANTS_README = '<a href="https://github.com/nick-lennox/trailbeam#tenants">Tenants in the README</a>'
 # ui/src/tenants/Tenants.tsx P95_NOTE: what p95 in queue is over, and how close it is (QV-247)
-P95_NOTE = ("p95 in queue is from the send to the first receive, over first deliveries only. It compares two "
+P95_NOTE = ("p95 in queue is from the send to the first receive, over first receives only. It compares two "
             "clocks: the sender's host and the consumer's, or SQS's SentTimestamp when the send wasn't observed "
-            "(those first deliveries count too, so a tenant can have more first deliveries than sends). Clock skew "
+            "(those first receives count too, so a tenant can have more first receives than sends). Clock skew "
             "shows up in it, and a time below 0 counts as 0. It is estimated, within 1% of the exact p95.")
 TENANT_ENV = ("export TRAILBEAM_TENANT_ATTRIBUTE=tenant        # a message attribute\n"
               "export TRAILBEAM_TENANT_BODY_PATH=customer.id   # or a path in a JSON body")
@@ -467,7 +470,7 @@ def _tenants(api, q: dict) -> Response:
                else escape(_took(r["p95_in_queue_ms"] * 1_000_000)))
         rows.append(f'<tr><td><a href="/?{escape(urlencode({"tenant": r["tenant"]}))}">{escape(r["tenant"])}</a></td>'
                     f'<td class="mono">{r["sent"]:,}</td><td class="mono">{share}%</td>'
-                    f'<td class="mono" title="over {r["first_deliveries"]} first deliveries">{p95}</td>'
+                    f'<td class="mono" title="over {r["first_deliveries"]} first receives">{p95}</td>'
                     f'<td class="mono">{r["dead_lettered"]:,}</td></tr>')
     untagged = f', {d["untagged_sent"]:,} of them without a tenant' if d["untagged_sent"] else ""
     note = (f'<p class="muted">{escape(label)}, from every message in the range. Share is of all '
@@ -574,18 +577,19 @@ def _took(ns: int) -> str:
 
 
 def _ref(e: Optional[dict]) -> str:
-    """A step as a reader names it: "the send", "receive 2", "the delete of delivery 1"."""
+    """A step as a reader names it: "the send", "receive 2", "the delete of receive 1" ("of delivery 1" on RabbitMQ)."""
     if not e:
         return "an earlier step"
     t, d = e["type"], e.get("delivery")
-    of = f" of delivery {d}" if d is not None else ""
     if _is_amqp_event(e):
+        of = f" of delivery {d}" if d is not None else ""
         names = {"sent": "the publish", "received": f"delivery {d}" if d is not None else "a delivery",
                  "acked": "the ack" + of, "requeued": "the requeue" + of, "rejected": "the refusal" + of,
                  "channel_closed": "the channel close" + of, "returned": "the basic.return",
                  "returned_to_queue": "the return to the queue" + of, "routed": "the routing",
                  "moved_to_dead_letter_queue": "the move to the dead-letter queue"}
         return names.get(t, _label(e).lower())
+    of = f" of receive {d}" if d is not None else ""
     names = {"sent": "the send", "received": f"receive {d}" if d is not None else "a receive",
              "deleted": "the delete" + of, "visibility_changed": "the visibility change" + of,
              "lambda_outcome": "the Lambda outcome" + of}
@@ -619,7 +623,7 @@ def _why(e: dict, by_id: dict) -> list[str]:
 def _event(e: dict, by_id: Optional[dict] = None, bar: str = "", self_id: Optional[str] = None) -> str:
     inferred = bool(e.get("inferred"))
     amqp = _is_amqp_event(e)
-    label = escape(_label(e))
+    label = escape(_label(e, systems.system_of(str(self_id or "")) == systems.RABBITMQ))
     dedup = e["type"] == "sent" and bool(e.get("deduplicated"))  # a FIFO send SQS deduplicated (QV-246)
     if dedup:
         label = "Sent again, deduplicated by SQS"

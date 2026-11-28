@@ -153,12 +153,7 @@
     },
     "conflicts": []
    },
-   "notices": [
-    {
-     "code": "send_not_observed",
-     "message": "No trailbeam send span for this message: the producer is not instrumented, or the send is older than the stored data."
-    }
-   ]
+   "notices": []
   },
   {
    "message_id": "pe-default",
@@ -305,12 +300,7 @@
     },
     "conflicts": []
    },
-   "notices": [
-    {
-     "code": "send_not_observed",
-     "message": "No trailbeam send span for this message: the producer is not instrumented, or the send is older than the stored data."
-    }
-   ]
+   "notices": []
   },
   {
    "message_id": "pe-orders",
@@ -528,12 +518,7 @@
     },
     "conflicts": []
    },
-   "notices": [
-    {
-     "code": "send_not_observed",
-     "message": "No trailbeam send span for this message: the producer is not instrumented, or the send is older than the stored data."
-    }
-   ]
+   "notices": []
   }
  ]
 }

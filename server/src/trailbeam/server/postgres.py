@@ -2027,18 +2027,24 @@ class PostgresStore(Store):
         if version:
             where += self._BY_VERSION
             p.append(version)
+        starts = purge.stuck_starts(self, queue or None)
+        if starts:
+            where += f" AND NOT EXISTS ({_PURGED_SQL})"
+            p += [[k for k, _ in starts], [st for _, st in starts]]
         rows = self._walk_first(
             f"""SELECT s.mid, s.stuck_first_ns, s.stuck_sqs_clock, s.rclass, s.bucket FROM messages s
                 WHERE {{p}} AND s.stuck_open <> 0 AND s.stuck_first_ns IS NOT NULL AND s.stuck_first_ns < %s{where}
-                AND NOT EXISTS ({_PURGED_SQL})
                 ORDER BY s.stuck_first_ns, s.mid LIMIT %s""", p, lambda r: (r["stuck_first_ns"], r["mid"]), limit)
         return [StuckCandidate(r["mid"], r["stuck_first_ns"], bool(r["stuck_sqs_clock"])) for r in rows]
 
     def purges(self, queues) -> list[dict]:
+        cols = ", ".join(c for c in purge.COLUMNS if c != "row")
+        if queues is None:
+            with self._reading() as c:
+                return c.execute(f'SELECT id AS "row", {cols} FROM purges ORDER BY time_ns, id').fetchall()
         queues = sorted(set(queues))
         if not queues:
             return []
-        cols = ", ".join(c for c in purge.COLUMNS if c != "row")
         with self._reading() as c:
             return c.execute(f'SELECT id AS "row", {cols} FROM purges WHERE queue = ANY(%s) ORDER BY time_ns, id',
                              (queues,)).fetchall()
@@ -2514,8 +2520,11 @@ def _env_key(env: tuple) -> str:
     """The sns_receives key of an envelope key (topic ARN, SNS message ID): ARNs have no spaces."""
     return f"{_ENV}{env[0]} {env[1]}"
 # A PurgeQueue call SQS accepted on the message's queue that started after its newest step ended (contract section 18,
-# purge.classify): the message is purged, not stuck. ``s``: the messages row.
-_PURGED_SQL = """SELECT 1 FROM purges pg WHERE pg.queue = s.current_queue AND pg.result = 'ok' AND pg.start_ns > s.last_ns"""
+# purge.classify): the message is purged, not stuck. The purges are few, so they are read first and matched by queue
+# key in Python (purge.stuck_starts: a purge of "orders" in another account or region is of another queue, QV-725);
+# the parameters are their queue keys and each key's latest start. ``s``: the messages row.
+_PURGED_SQL = """SELECT 1 FROM unnest(%s::text[], %s::bigint[]) AS pg(k, st)
+   WHERE pg.k = s.current_key AND pg.st > s.last_ns"""
 
 
 def _expired(cutoff: Optional[int], bucket_end: int) -> bool:

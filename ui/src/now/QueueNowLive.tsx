@@ -143,7 +143,7 @@ export function QueueNowLive({ queue, view, live, heldTotal, consumer, fifo, tri
           {totals && un
             ? <>SQS holds {b(totals.visible)} visible and {b(totals.inFlight)} in flight{totals.delayed ? <>, and {b(totals.delayed)} delayed</> : null}. Your instrumented services account for {b(vis)} visible and {b(fly)} in flight, listed below. The other {b(un.visible)} visible and {b(un.inFlight)} in flight were sent or received by services without Trailbeam.{un.over && " Your spans list more messages than SQS holds: some were deleted by a service without Trailbeam, or their delete spans were lost."}</>
             : <>{live?.detail ?? "SQS's own totals were not read."} The counts are the messages your instrumented services sent or received.</>}
-          {notSeen > 0 && <> {b(notSeen)} {notSeen === 1 ? "message has" : "messages have"} reached maxReceiveCount and {notSeen === 1 ? "is" : "are"} not seen on the DLQ yet (inferred): SQS moves such a message on the next receive attempt, and no receive from the dead-letter queue has reported {notSeen === 1 ? "it" : "them"}, so {notSeen === 1 ? "it is" : "they are"} not counted as dead-lettered.</>}
+          {notSeen > 0 && <> {b(notSeen)} {notSeen === 1 ? "message has" : "messages have"} reached maxReceiveCount and {notSeen === 1 ? "is" : "are"} not seen on the DLQ yet (inferred): SQS moves such a message on its next receive, and no receive from the dead-letter queue has reported {notSeen === 1 ? "it" : "them"}, so {notSeen === 1 ? "it is" : "they are"} not counted as dead-lettered.</>}
           {view.capped && <> Only the oldest {fmtNum(view.held.length)} unfinished messages were read.</>}
         </p>
       </div>

@@ -88,8 +88,8 @@ export function barsOf(steps: Step[]): Bar[] {
       if (done > 0) bars.push({ kind: "run", col: 2, from: i, to: done, word: "processing", num: dur(i, done) });
       else bars.push({ kind: "run", col: 2, from: i, to: last + 0.6, word: "processing", num: "", open: true });
       const back = idx((x) => ["visibility_expired", "receive", "dead_letter", "delete"].includes(x.ev.event), i + 1);
-      if (back > 0) bars.push({ kind: "hidden", col: 1, from: i, to: back, word: "not visible", num: dur(i, back) });
-      else bars.push({ kind: "hidden", col: 1, from: i, to: last + 0.6, word: "not visible", num: "", open: true });
+      if (back > 0) bars.push({ kind: "hidden", col: 1, from: i, to: back, word: "in flight", num: dur(i, back) });
+      else bars.push({ kind: "hidden", col: 1, from: i, to: last + 0.6, word: "in flight", num: "", open: true });
     }
   });
   return bars;
@@ -161,9 +161,9 @@ export function sequenceOf(events: readonly Ev[], k?: QueueFacts): Sequence {
         facts: [
           ["Receive count", n ?? nr],
           ...maxRow,
-          ["Not visible until", <>{fmtT(e.ms + visS * 1000)}{!visKnown && <S> from SQS&apos;s default</S>}</>],
+          ["In flight until", <>{fmtT(e.ms + visS * 1000)}{!visKnown && <S> from SQS&apos;s default</S>}</>],
           visRow,
-          ["Delivered by", trigger ? <S key="d">Lambda event source mapping</S> : nr],
+          ["Received through", trigger ? <S key="d">Lambda event source mapping</S> : nr],
           ["Batch size", size !== undefined ? <>{size} <S>{size === 1 ? "message" : "messages"}</S></> : nr],
           ...(trigger ? ([["Batch size limit", trigger.batchSize ?? nread]] as [string, ReactNode][]) : []),
           ["Position in batch", idx !== undefined && size !== undefined ? <>{idx + 1} <S>of {size}</S></> : nr],
@@ -342,7 +342,7 @@ export function MessageSequence({ event, history, sequence, payload, stacked = f
                     className={`qs-arrow ${s.draw.b > s.draw.a ? "ltr" : "rtl"} ${s.draw.inferred ? "inferred" : ""}`}
                     style={{ left: Math.min(X(s.draw.a), X(s.draw.b)) + 9, width: Math.abs(X(s.draw.b) - X(s.draw.a)) - 18 }}
                   >
-                    <span>{s.draw.call}</span>
+                    <span className={/\s/.test(s.draw.call) ? "prose" : undefined}>{s.draw.call}</span>
                   </span>
                 ) : (
                   <>
@@ -431,13 +431,17 @@ export function MessageSequence({ event, history, sequence, payload, stacked = f
   );
 }
 
-/* A two-column list with a hairline between rows, so each fact reads as its own line. */
+/* An attribute's own name (MessageId, RedrivePolicy.maxReceiveCount) rather than a label in words (Body size). */
+const attrName = (k: string) => !/\s/.test(k) && /[a-z][A-Z]/.test(k);
+
+/* A two-column list with a hairline between rows, so each fact reads as its own line. With `mono`, the keys that are
+   attribute names are in mono; labels in words stay sans. */
 export function Rows({ rows, mono = false }: { rows: Fact[]; mono?: boolean }) {
   return (
     <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 text-[13px]">
       {rows.map(([k, v]) => (
         <div key={k} className="col-span-2 grid grid-cols-subgrid border-t border-line py-[5px] first:border-t-0">
-          <dt className={mono ? "font-mono text-caption leading-[1.55] text-ink-3" : "leading-[1.55] text-ink-3"}>{k}</dt>
+          <dt className={mono && attrName(k) ? "font-mono text-caption leading-[1.55] text-ink-3" : "leading-[1.55] text-ink-3"}>{k}</dt>
           <dd className="font-mono text-caption leading-[1.55] text-ink [overflow-wrap:anywhere]">{v}</dd>
         </div>
       ))}

@@ -29,7 +29,7 @@ export function PeoplePage() {
     .then((d) => setState({ kind: "ok", people: d.users, sendsEmail: d.sends_email === true }))
     .catch((e: Error) => setState({ kind: "error", message: e.message })), []);
 
-  useEffect(() => { document.title = "People · Trailbeam"; void load(); }, [load]);
+  useEffect(() => { document.title = "People, Trailbeam"; void load(); }, [load]);
 
   /** Send one change for `p`, then read the list again; a refusal (409 last_admin, ...) is shown above the list. */
   const change = (p: Person, send: () => Promise<unknown>, after?: (r: unknown) => void) => {

@@ -169,7 +169,7 @@ CREATE TABLE IF NOT EXISTS purges (
     trace_id TEXT NOT NULL, span_id TEXT NOT NULL,
     start_ns BIGINT, time_ns BIGINT NOT NULL,
     service_name TEXT, source TEXT, operation TEXT,
-    queue TEXT NOT NULL, queue_url TEXT,  -- the collation of messages.current_queue, which it is compared with
+    queue TEXT NOT NULL, queue_url TEXT,  -- matched to a message by queue key (purge.keyed, QV-725)
     result TEXT NOT NULL, error_code TEXT,
     client_id TEXT, pid BIGINT, thread_name TEXT,
     order_scope TEXT, order_issued BIGINT, order_returned BIGINT,
@@ -403,6 +403,7 @@ CREATE TABLE IF NOT EXISTS messages (
     strays_json TEXT NOT NULL DEFAULT '[]',  -- JSON [[rclass, bucket], ...]: other places with rows of it
     qevents_json TEXT NOT NULL DEFAULT '[]', -- JSON [[at_ms, kind, queue_key, service, lambda, value, peer,
                                          -- version], ...]: its queue_events rows, seq = index (version 11)
+    current_key TEXT NOT NULL DEFAULT '', -- the queue key of current_queue (queues.key), purges match by (version 26)
     UNIQUE (rclass, bucket, mid)
 ) PARTITION BY RANGE (rclass, bucket);
 CREATE INDEX IF NOT EXISTS messages_mid ON messages (mid);
@@ -753,6 +754,41 @@ def _queue_place(conn, rclass: int, bucket: int) -> None:
         conn.row_factory = was
 
 
+def _current_key_place(conn, rclass: int, bucket: int) -> None:
+    """Version 26, one place: messages.current_key of every message placed here, from its spans (here and in its
+    strays), as an export's refresh works it out (summary.summarize). Safe to run again."""
+    from . import timeline  # noqa: PLC0415  (not needed to open a current schema)
+    from psycopg.rows import dict_row  # noqa: PLC0415
+    import json  # noqa: PLC0415
+
+    place = (rclass, bucket)
+    was = conn.row_factory
+    conn.row_factory = dict_row
+    try:
+        msgs = conn.execute("SELECT mid, strays_json FROM messages WHERE rclass = %s AND bucket = %s ORDER BY mid",
+                            place).fetchall()
+        for k in range(0, len(msgs), 500):
+            batch = msgs[k:k + 500]
+            spans: dict = {}
+            wheres = {place} | {tuple(p) for m in batch for p in json.loads(m["strays_json"] or "[]")}
+            for pc, pb in sorted(wheres):
+                for r in conn.execute('SELECT "row", mid, kind, time_ns, queue, queue_url FROM spans '
+                                      "WHERE rclass = %s AND bucket = %s AND mid = ANY(%s)",
+                                      (pc, pb, [m["mid"] for m in batch])).fetchall():
+                    spans.setdefault(r["mid"], []).append(r)
+            put = []
+            for m in batch:
+                rows = sorted(spans.get(m["mid"], []), key=lambda r: (r["time_ns"], r["row"]))
+                if rows:
+                    put.append((timeline.current_key_of([r for r in rows if r["kind"] == "send"],
+                                                        [r for r in rows if r["kind"] == "receive"], rows),
+                                rclass, bucket, m["mid"]))
+            conn.cursor().executemany(
+                "UPDATE messages SET current_key = %s WHERE rclass = %s AND bucket = %s AND mid = %s", put)
+    finally:
+        conn.row_factory = was
+
+
 def _steps_place(conn, rclass: int, bucket: int) -> None:
     """Version 16, one place: spans_identity on its spans partition (attached to the parent's, as _mid_indexes),
     and its step_rollup partition (made and attached as place_ddl does) built from its spans, writer 0. Safe to run
@@ -893,11 +929,18 @@ MIGRATIONS: tuple = (
     # Version 25 (QV-589): server_settings (aws_settings.py: the AWS settings, one row per key), new and empty, so AWS
     # reads are off after the upgrade as before it.
     Migration(25, "server settings: AWS reads (QV-589)", tuple(statements(aws_settings.PG_CREATE))),
-    # Version 26 (QV-590): redrive_log (redrive_log.py: who asked to redrive which dead-letter queue, and how it
+    # Version 26 (QV-725): the queue key of each message's current queue, which a purge is matched by, so a purge of
+    # "orders" in one account or region no longer marks the "orders" of another purged. A column with a constant
+    # default is added without rewriting a partition (as version 11's); each place's messages then get it from
+    # their spans.
+    Migration(26, "messages.current_key: purges by queue key (QV-725)", (
+        "ALTER TABLE messages ADD COLUMN IF NOT EXISTS current_key TEXT NOT NULL DEFAULT ''",
+    ), per_place=(_current_key_place,)),
+    # Version 27 (QV-590): redrive_log (redrive_log.py: who asked to redrive which dead-letter queue, and how it
     # went), new and empty.
-    Migration(26, "redrive log (QV-590)", tuple(statements(redrive_log.PG_CREATE))),
+    Migration(27, "redrive log (QV-590)", tuple(statements(redrive_log.PG_CREATE))),
 )
-LATEST = 26
+LATEST = 27
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 

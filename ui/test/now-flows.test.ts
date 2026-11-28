@@ -103,7 +103,7 @@ const data = (o: Partial<OverviewFlowsData> = {}): OverviewFlowsData => ({
   receives: [{ from: "orders", to: "orders-worker", perMin: 12 }], consumers: [{ name: "orders-worker", runtime: "", queue: "orders" }],
   consumerStats: {}, consumerStatsCapped: false, producerPlatform: {}, avgBytes: { orders: 800 }, dlq: {}, places: {}, functionEnds: {},
   info: {
-    orders: { live: noLive, health: "warning", why: "Retrying", healthBasis: "spans", triggers: null, inQueue: view(), heldTotal: 3, moved: 0, dlqReceives: 0, dlqChange: null },
+    orders: { live: noLive, health: "warning", why: "Received again", healthBasis: "spans", triggers: null, inQueue: view(), heldTotal: 3, moved: 0, dlqReceives: 0, dlqChange: null },
   },
   causes: [{ queue: "orders", outcome: "stuck", title: "Not deleted after receive", count: 4 } as OverviewFlowsData["causes"][number]],
   causesCapped: false, now: NOW, ...o,
@@ -142,6 +142,6 @@ test("the page on the sample: the host's simulated queue and search come through
   assert.ok(out.includes("The queue is healthy"));
   assert.ok(out.includes(">30.0<"), "the sample's rate times its range scale, to one decimal");
   assert.ok(out.includes("orders-dlq"));
-  assert.ok(out.includes("1m 15s"));
+  assert.ok(out.includes("1 min 15 s"), "the oldest message's age as the queue page writes it");
   assert.equal(asked.length, 0, "the queue is the part selected, so no part's messages are asked for");
 });

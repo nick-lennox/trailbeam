@@ -96,7 +96,7 @@ export const OFF_TEXT = `Alerts are off on this server. Start it with ${ALERT_SE
 
 export function AlertsPage() {
   const { state, load, rules, channels, withSecrets } = useAlerts();
-  useEffect(() => { document.title = "Alerts · Trailbeam"; }, []);
+  useEffect(() => { document.title = "Alerts, Trailbeam"; }, []);
   const changed = () => { void load(); };
   const data = state.kind === "ok" ? state.data : null;
   const check = data ? checkStatus({ checkedAt: data.checkedAt, now: Date.now(), hasChannel: data.hasChannel, everyMin: data.everyMin, addChannel: "Add one below." }) : null;

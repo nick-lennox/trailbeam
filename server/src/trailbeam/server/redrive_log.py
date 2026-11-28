@@ -1,5 +1,5 @@
-"""The redrive log (QV-590): who asked to redrive which dead-letter queue, when, and how it went. SQLite schema 32,
-Postgres schema 26. The hosted app's ``tb_redrive_log`` (trailbeam-app lib/app/workspace-data.ts), for one server.
+"""The redrive log (QV-590): who asked to redrive which dead-letter queue, when, and how it went. SQLite schema 33,
+Postgres schema 27. The hosted app's ``tb_redrive_log`` (trailbeam-app lib/app/workspace-data.ts), for one server.
 
 One row per request, written when it is made, whether SQS started the move (``started``), Trailbeam refused it
 before asking SQS (``refused``: a move was already running) or SQS refused it (``failed``). A started row then

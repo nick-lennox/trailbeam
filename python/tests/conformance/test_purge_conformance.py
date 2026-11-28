@@ -122,6 +122,41 @@ def test_purges_are_read_by_queue(new_store):
     assert s.counts()["messages"] == 0
 
 
+US = "https://sqs.us-east-1.amazonaws.com/000000000000/orders"
+EU = "https://sqs.eu-west-1.amazonaws.com/123456789012/orders"
+
+
+def at(span, url):
+    span.attrs["aws.sqs.queue.url"] = url
+    return span
+
+
+def test_a_purge_of_a_same_named_queue_in_another_account_or_region_purges_nothing_here(new_store):
+    # QV-725: purges were matched by queue name, so this purge marked x1 purged
+    s = new_store()
+    put(s, at(P.send(T0, "x1"), US), at(P.purge(T0 + 5 * SEC, start=T0 + 5 * SEC), EU))
+    assert stuck_ids(s) == ["x1"] and stuck_ids(s, "orders") == ["x1"]
+    assert item(s, "x1")["state"] == "not_deleted" and "purge" not in item(s, "x1")
+    t = queries.message(s, "x1", NOW, LT)
+    assert t["state"] == "not_deleted" and "queue_purged" not in [e["type"] for e in t["events"]]
+    # the same queue's purge does purge it
+    put(s, at(P.purge(T0 + 10 * SEC, start=T0 + 9 * SEC), US))
+    assert stuck_ids(s) == [] and item(s, "x1")["state"] == "purged"
+    assert queries.message(s, "x1", NOW, LT)["purge"]["start"] == "2025-11-14T00:26:49.000000Z"
+
+
+def test_a_purge_whose_key_says_less_is_the_one_queue_it_fits(new_store):
+    # an emulator's URL names no region: 000000000000//orders is 000000000000/us-east-1/orders when that is the only
+    # queue it fits (queues.resolve's rule), and no queue's when two fit
+    s = new_store()
+    put(s, at(P.send(T0, "x1"), US), P.purge(T0 + 5 * SEC, start=T0 + 5 * SEC))
+    assert stuck_ids(s) == [] and item(s, "x1")["state"] == "purged"
+    s = new_store(name="b")
+    put(s, at(P.send(T0, "x1"), US), at(P.send(T0, "x2"), US.replace("us-east-1", "eu-west-1")),
+        P.purge(T0 + 5 * SEC, start=T0 + 5 * SEC))
+    assert stuck_ids(s) == ["x1", "x2"] and item(s, "x1")["state"] == "not_deleted"
+
+
 def test_an_exporter_retry_of_a_purge_changes_nothing(new_store):
     s = new_store()
     sp = P.purge(T0 + 10 * SEC, start=T0 + 9 * SEC)

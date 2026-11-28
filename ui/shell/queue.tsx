@@ -79,7 +79,7 @@ export function QueueShellPage() {
   };
 
   useEffect(() => {
-    document.title = `${u0.name || "Queue"} · Trailbeam`;
+    document.title = `${u0.name || "Queue"}, Trailbeam`;
     getHealth(5000).then((h) => { setKeptMs(retentionMs(h.config?.retention?.default)); setAwsOn(!!h.config?.aws?.on); }, () => setAwsOn(false));
   }, []);
 

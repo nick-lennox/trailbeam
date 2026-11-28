@@ -174,6 +174,35 @@ def test_of_two_changes_from_one_read_exactly_one_is_stored(store):
     assert w["id"].startswith("t")
 
 
+def test_a_nul_in_any_text_is_stored_and_found_on_every_store(store):
+    """QV-686: Postgres text refuses NUL (0x00), which a name, a widget's ID, a display name and a path's dashboard
+    ID can hold. Every store keeps it as given and finds a dashboard by an ID that holds one; on Postgres this was a
+    DataError, so a 500."""
+    nul = dash("a\x00b", name="Ord\x00ers", createdBy="A\x00da", updatedBy="A\x00da",
+               widgets=[widget("w\x00", "DLQ\x00depth")])
+    assert store.add_dashboard(WS, nul) is True
+    assert store.add_dashboard(WS, nul) is False
+    d = store.get_dashboard(WS, "a\x00b")
+    assert d == {**nul, "version": 1}
+    assert store.get_dashboard(WS, "a") is None and store.get_dashboard(WS, "a\x00c") is None
+    assert store.get_dashboard("w\x00s", "a\x00b") is None and store.list_dashboards("w\x00s") == []
+    assert store.update_dashboard(WS, "x\x00", {"name": "N"}) == ("missing", None)
+    assert store.lock_dashboard(WS, "x\x00", "B\x00en", "2", 2000) is None
+    assert store.remove_dashboard(WS, "x\x00") == "missing"
+
+    locked = store.lock_dashboard(WS, "a\x00b", "B\x00en", "2\x00", 2000)
+    assert locked["lockedBy"] == "B\x00en" and locked["lockedById"] == "2\x00"
+    assert store.update_dashboard(WS, "a\x00b", {"name": "x\x00"}, unlocked=True) == ("locked", None)
+    out, d = store.update_dashboard(WS, "a\x00b", {"lockedBy": None, "lockedById": None, "name": "N\x00",
+                                                    "updatedBy": "B\x00en",
+                                                    "def": {"widgets": [widget("v\x00")]}})
+    assert out == "ok" and d["name"] == "N\x00" and d["updatedBy"] == "B\x00en" and d["lockedBy"] is None
+    assert [w["id"] for w in d["def"]["widgets"]] == ["v\x00"]
+    assert [x["id"] for x in store.list_dashboards(WS)] == ["a\x00b"]
+    assert store.all_dashboards() == {WS: [d]}
+    assert store.remove_dashboard(WS, "a\x00b") == "ok" and store.get_dashboard(WS, "a\x00b") is None
+
+
 def test_the_tables_are_in_a_new_file_and_in_the_schema_text():
     db = Database(":memory:")
     try:

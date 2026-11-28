@@ -11,12 +11,14 @@ when and how it is asked: ``state`` "processing" (a Lambda receive with no outco
 timeout), ``dead_letter_queue_move`` "not_seen_on_dlq_yet" (needs the configured maxReceiveCount), and whether
 a PurgeQueue call removed it (``state`` "purged" and ``purge``: purge.py, from the queue's purges, which can
 arrive after the message's spans). ``item`` adds those from the ``lambda_wait_ns``, ``source_receive_count``,
-``last_ns`` and ``current_queue`` the summary keeps.
+``last_ns`` and ``current_key`` the summary keeps.
 tests/server/test_summary.py checks ``item(summarize(rows))`` against the timeline on every dataset.
 
 The fields (every one is a column of the SQLite ``messages`` table, migrations.CREATE):
 
 - ``mid``; ``first_ns`` and ``first_clock`` (timeline.first_seen_ns); ``last_ns``, the newest span's time.
+- ``current_key``: the queue key (queues.key: account, region and name) of the queue ``current_queue`` names,
+  which a purge is matched by (purge.py; schema 32 and Postgres 26, QV-725).
 - ``source_queue``, ``current_queue``, ``in_dlq`` and ``moved`` (an observed move to a dead-letter queue,
   contract 9b; on RabbitMQ from ``x-death``), ``source_receive_count`` (the highest receive count on the source
   queue, 0 if none; on RabbitMQ the x-delivery-count its copy reached, rabbitmq.failed_returns, which
@@ -63,7 +65,7 @@ Summary = Mapping[str, Any]
 FIELDS = ("mid", "first_ns", "first_clock", "last_ns", "source_queue", "current_queue", "in_dlq", "moved",
           "source_receive_count", "deliveries", "successes", "consumers", "final_delete", "lambda_ok",
           "lambda_wait_ns", "tenant", "dup_received", "dup_succeeded", "stuck_first_ns", "stuck_sqs_clock",
-          "stuck_open")
+          "stuck_open", "current_key")
 
 SENT, FIRST_DELIVERY, DEAD_LETTERED, DEAD_LETTERED_AGAIN = "sent", "first_delivery", "dead_lettered", "dead_lettered_again"
 _NS_PER_MS = 1_000_000
@@ -209,6 +211,7 @@ def summarize(rows) -> dict:
         "stuck_first_ns": stuck_first,
         "stuck_sqs_clock": on_sqs,
         "stuck_open": stuck_open,
+        "current_key": timeline.current_key_of(sends, receives, rows),
         "queues": sorted({r["queue"] for r in rows}),
         "tenants": named,
         "tenant_events": events,
@@ -217,12 +220,13 @@ def summarize(rows) -> dict:
 
 
 def state(s: Summary, now_ns: int, lambda_timeout_s: int, purges=()) -> str:
-    """timeline.build's ``state``. ``purges``: purge rows (Store.purges) of the message's queue, if any."""
+    """timeline.build's ``state``. ``purges``: purge rows (Store.purges, best purge.keyed) of the message's queue,
+    if any."""
     if s["final_delete"]:
         return "deleted"
     if s["lambda_ok"]:
         return "deleted_inferred"
-    v = purge.classify(s["last_ns"], s["current_queue"], purges)
+    v = purge.classify(s["last_ns"], s["current_key"], purges)
     if v is not None and v.status == purge.PURGED:
         return purge.PURGED
     if s["lambda_wait_ns"] is not None and now_ns - s["lambda_wait_ns"] <= lambda_timeout_s * 1_000_000_000:
@@ -233,7 +237,7 @@ def state(s: Summary, now_ns: int, lambda_timeout_s: int, purges=()) -> str:
 def item(s: Summary, now_ns: int, lambda_timeout_s: int, max_receive_counts: Optional[dict] = None,
          purges=()) -> dict:
     """A message in a list page, as the API returns it: the fields timeline.build gives, from the summary.
-    ``purges``: purge rows (Store.purges) that include those of the message's ``current_queue``."""
+    ``purges``: purge rows (Store.purges, best purge.keyed) that include those of the message's queue."""
     st = state(s, now_ns, lambda_timeout_s, purges)
     mrc = (max_receive_counts or {}).get(s["source_queue"])
     if s["moved"]:
@@ -269,5 +273,5 @@ def purge_of(s: Summary, st: str, purges) -> dict:
     field is left out when there is no purge to tell of."""
     if st != purge.PURGED and st not in purge.APPLIES_TO:
         return {}
-    v = purge.classify(s["last_ns"], s["current_queue"], purges)
+    v = purge.classify(s["last_ns"], s["current_key"], purges)
     return {} if v is None else {"purge": purge.describe(v)}

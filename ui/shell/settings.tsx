@@ -16,7 +16,7 @@ type Load = { kind: "loading" } | { kind: "error"; message: string } | { kind: "
 export function SettingsPage() {
   const [state, setState] = useState<Load>({ kind: "loading" });
   useEffect(() => {
-    document.title = "Settings · Trailbeam";
+    document.title = "Settings, Trailbeam";
     getJSON<AwsSettingsAnswer>(PATH).then(
       (answer) => setState({ kind: "ok", answer }),
       (e: Error) => setState(e instanceof ApiError && e.status === 403 ? { kind: "denied" } : { kind: "error", message: e.message }),

@@ -3242,7 +3242,9 @@ components:
         eventsCapped: {type: boolean}
         queues:
           type: array
-          description: Queue tables and status grids, per queue the filter leaves.
+          description: |
+            Queue tables and status grids, per queue the filter leaves, in name order: at most 200, the queues
+            with the most events in the range, and fewer once the request has taken 5 seconds (`queuesCapped`).
           items:
             type: object
             additionalProperties: false
@@ -3251,6 +3253,8 @@ components:
               name: {type: string}
               tone: {type: [string, 'null']}
               values: {type: object, additionalProperties: {anyOf: [{$ref: '#/components/schemas/MeasureNumber'}, {type: 'null'}]}}
+        queuesTotal: {type: integer, description: Queue tables and status grids, how many queues the filter leaves.}
+        queuesCapped: {type: boolean, description: 'Queue tables and status grids: `queues` holds fewer than `queuesTotal`.'}
         alert:
           type: [object, 'null']
           additionalProperties: false

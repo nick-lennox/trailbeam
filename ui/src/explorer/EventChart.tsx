@@ -70,8 +70,8 @@ export function EventChart({ buckets, from, to, span, per, win, onPick, steps = 
       <div className="mb-1.5 flex h-5 items-center justify-between gap-3 text-xs text-ink-3">
         <span>{steps ? "Recorded steps" : "Events"} per {per}</span>
         {win && (
-          <span className="inline-flex items-center gap-1.5 rounded-md bg-accent/12 py-0.5 pr-1 pl-2 font-mono text-micro text-accent">
-            {clock(win[0])} to {clock(win[1])}
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-accent/12 py-0.5 pr-1 pl-2 text-micro text-accent">
+            <span className="font-mono">{clock(win[0])}</span> to <span className="font-mono">{clock(win[1])}</span>
             <button onClick={() => onPick(null)} aria-label="Show the whole range again" className="rounded p-0.5 hover:bg-accent/20"><X size={11} /></button>
           </span>
         )}
@@ -120,7 +120,7 @@ export function EventChart({ buckets, from, to, span, per, win, onPick, steps = 
               className="pointer-events-none absolute top-full z-30 mt-7 w-max rounded-lg border border-line-strong bg-surface px-3 py-2 text-xs shadow-panel"
               style={hover.i < n * 0.15 ? { left: `${(hover.i / n) * 100}%` } : hover.i > n * 0.85 ? { right: `${(1 - (hover.i + 1) / n) * 100}%` } : { left: `${((hover.i + 0.5) / n) * 100}%`, transform: "translateX(-50%)" }}
             >
-              <p className="font-mono text-micro text-ink-3">{clock(from + hover.i * span)} to {clock(from + (hover.i + 1) * span)}</p>
+              <p className="text-micro text-ink-3"><span className="font-mono">{clock(from + hover.i * span)}</span> to <span className="font-mono">{clock(from + (hover.i + 1) * span)}</span></p>
               <p className="mt-1 font-medium text-ink"><span className="font-mono">{tip.ok + tip.err}</span> {steps ? (tip.ok + tip.err === 1 ? "recorded step" : "recorded steps") : tip.ok + tip.err === 1 ? "event" : "events"}</p>
               {!steps && <><p className={`mt-1 flex items-center gap-1.5 ${hover.seg === "ok" ? "text-ink" : "text-ink-2"}`}><i className="block size-2 rounded-[2px] bg-brand/70" /><span className="font-mono">{tip.ok}</span> ok</p>
               <p className={`flex items-center gap-1.5 ${hover.seg === "err" ? "text-ink" : "text-ink-2"}`}><i className="block size-2 rounded-[2px] bg-critical" /><span className="font-mono">{tip.err}</span> failed</p></>}

@@ -697,15 +697,17 @@ def p95_processing(data: dict, queue: str, from_: float, to: float) -> Optional[
     return p95_of(xs) if xs else None
 
 
-def queue_value(m: Measure, queue: str, data: dict, time: Optional[dict] = None) -> Optional[float]:
-    """A queue measure's figure for one queue now, from its figures; None when it has none (or m is an event measure)."""
+def queue_value(m: Measure, queue: str, data: dict, time: Optional[dict] = None,
+                p95: Optional[Callable[[], Optional[float]]] = None) -> Optional[float]:
+    """A queue measure's figure for one queue now, from its figures; None when it has none (or m is an event measure).
+    ``p95``: the queue's p95 processing time over ``time``, when the caller has it (else p95_processing)."""
     if not m.queue:
         return None
     q = _live(data, queue)
     if not q:
         return None
     t = time or preset("1h", data["now"])
-    return m.live(q, lambda: p95_processing(data, queue, t["from"], t["to"]))
+    return m.live(q, p95 or (lambda: p95_processing(data, queue, t["from"], t["to"])))
 
 
 def depth_missing(m: Measure, data: dict) -> bool:
@@ -856,6 +858,23 @@ def other_line(m: Measure, rest: list, n: int) -> dict:
             "points": [_fold(m, [s["points"][i] for s in rest]) for i in range(n)], "others": len(rest)}
 
 
+def event_value(m: Measure, es: list, minutes: float) -> float:
+    """An event measure's figure over events ``es`` that its ``when`` already let through, ``minutes`` long: a count
+    (per minute for a rate) or what it takes from each, folded (series_for's figure for one line)."""
+    ev = m.ev or {}
+    take = ev.get("take")
+    if not take:
+        return len(es) / max(minutes, 1e-9) if m.unit == "rate" else len(es)
+    xs = [x for x in (take(e) for e in es) if x is not None]
+    if not xs:
+        return 0
+    if ev.get("fold") == "p95":
+        return p95_of(xs)
+    if ev.get("fold") == "max":
+        return max(xs)
+    return _total(xs) / len(xs)
+
+
 def series_for(m: Measure, filter_: str, group_by: Optional[str], time: dict, n: int, data: dict,
                top: Optional[int] = None) -> list:
     """One measure as lines {name, points, now}: one per group value, or one for all of it. points: n buckets over
@@ -885,7 +904,7 @@ def series_for(m: Measure, filter_: str, group_by: Optional[str], time: dict, n:
                  "points": [_fold(m, [p["points"][i] for p in per]) for i in range(n)]}]
     span = (time["to"] - time["from"]) / n
     ev = m.ev or {}
-    when, take = ev.get("when"), ev.get("take")
+    when = ev.get("when")
     rows = [e for e in data.get("events") or []
             if time["from"] <= e["ms"] < time["to"] and matches(e, terms) and (not when or when(e))]
     d = field_def(group_by) if _truthy(group_by) else None
@@ -903,16 +922,7 @@ def series_for(m: Measure, filter_: str, group_by: Optional[str], time: dict, n:
         by[m.label] = []
 
     def val(es: list, minutes: float) -> float:
-        if not take:
-            return len(es) / max(minutes, 1e-9) if m.unit == "rate" else len(es)
-        xs = [x for x in (take(e) for e in es) if x is not None]
-        if not xs:
-            return 0
-        if ev.get("fold") == "p95":
-            return p95_of(xs)
-        if ev.get("fold") == "max":
-            return max(xs)
-        return _total(xs) / len(xs)
+        return event_value(m, es, minutes)
 
     def at(e) -> int:
         return min(n - 1, math.floor((e["ms"] - time["from"]) / span))
@@ -964,10 +974,15 @@ def events_for(filter_: str, time: dict, data: dict) -> list:
 TONE_WORD = {"good": "OK", "warning": "Warning", "critical": "Critical"}
 
 
-def queue_tone(queue: str, data: dict) -> Optional[str]:
-    """A queue's health, as its figures give it (the sidebar's dots show the same thing)."""
+def queue_tone(queue: str, data: dict, p95: Optional[Callable[[], Optional[float]]] = None) -> Optional[str]:
+    """A queue's health, as its figures give it (the sidebar's dots show the same thing). ``p95``: the queue's p95
+    processing time over the past hour, when the caller has it (else p95_processing); asked for only when the queue
+    has figures, as health() reads it only then."""
+    q = (data.get("queueLive") or {}).get(queue)
+    if not q or q.get("status") != "ok":
+        return None
     t = preset("1h", data["now"])
-    return health_of((data.get("queueLive") or {}).get(queue), p95_processing(data, queue, t["from"], t["to"]))
+    return health_of(q, p95() if p95 else p95_processing(data, queue, t["from"], t["to"]))
 
 
 def alert_of(w: dict, vars_: list, data: dict) -> Optional[dict]:

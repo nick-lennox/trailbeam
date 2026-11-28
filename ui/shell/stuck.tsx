@@ -40,7 +40,7 @@ export function StuckPage() {
   const [changes, setChanges] = useState(0);
   const redrive = useRedrive();
   const key = qs(own);
-  useEffect(() => { document.title = "Stuck messages · Trailbeam"; }, []);
+  useEffect(() => { document.title = "Stuck messages, Trailbeam"; }, []);
   useEffect(() => {
     if (problem) return;
     let live = true;

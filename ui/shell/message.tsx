@@ -50,7 +50,7 @@ export function MessageShellPage() {
 
   useEffect(() => {
     if (!id) return;
-    document.title = `Message ${id} · Trailbeam`;
+    document.title = `Message ${id}, Trailbeam`;
     getJSON<Timeline>(`/api/messages/${encodeURIComponent(id)}`)
       .then((t) => setState({ kind: "ok", t }))
       .catch(async (e: Error) => {

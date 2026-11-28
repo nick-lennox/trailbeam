@@ -131,7 +131,7 @@ export function spanHealth(f: SpanFigures): { tone: Tone; why: string; basis: "s
   if (f.failingNow) return v("critical", "Failing now");
   if (f.moved > 0) return v("warning", "Near the DLQ");
   if (f.stuck > 0) return v("warning", "Stuck messages");
-  if (f.retrying) return v("warning", "Retrying");
+  if (f.retrying) return v("warning", "Received again");
   if (f.active) return v("good", "Healthy");
   return null;
 }
