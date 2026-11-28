@@ -2,15 +2,21 @@
 in a queue right now, each visible or in flight, and what left it in the past minute.
 
 This is the hosted app's ``loadInQueue`` and ``placeOf`` (trailbeam-app ``lib/app/in-queue.ts``), in its
-``InQueueView`` shape and camelCase, so the shared "In ‹queue› now" view reads either. Open-source Trailbeam makes
-no AWS calls, so the answer differs from the hosted one in three ways:
+``InQueueView`` shape and camelCase, so the shared "In ‹queue› now" view reads either. With AWS reads off
+(aws_settings.py, the default), or on but not for this queue, the server makes no AWS call, so the answer differs from
+the hosted one in three ways:
 
 - ``totals`` and ``uninstrumented`` are null. Only SQS knows what the queue holds beyond the instrumented messages.
 - The visibility timeout is SQS's default of 30 s (``config.visibilityKnown`` is false), unless an accepted
-  ChangeMessageVisibility on the latest receive set another one. The queue's own setting is never read.
+  ChangeMessageVisibility on the latest receive set another one. The queue's own setting is not read.
 - The retention period is SQS's longest, 14 days, because the queue's own ``MessageRetentionPeriod`` is not read
   either. A message older than that has left SQS whatever its spans say. The server's own retention usually ends
   sooner.
+
+With AWS reads on for the queue (QV-589), ``view`` is given what GetQueueAttributes said (``aws``, aws_figures'
+settings) and SQS's counts (``totals``), as the hosted app gives them: the queue's own visibility timeout, retention
+period, maxReceiveCount (over the server's ``--max-receive-count``), dead-letter queue and ARN, and the totals with
+what the spans don't account for.
 
 Trailbeam never calls ReceiveMessage (that would hide the messages it returned), so nothing here looks inside the
 queue. It is worked out from the spans:
@@ -125,34 +131,59 @@ def _js(x: float):
 
 
 def summarize(held: list, not_seen: list, *, now_ms: int, config: dict, capped: bool, deleted: list,
-              seen_on_dlq: int) -> dict:
-    """The hosted ``summarize``, with no SQS totals."""
+              seen_on_dlq: int, totals: Optional[dict] = None) -> dict:
+    """The hosted ``summarize``. ``totals``: SQS's counts ({visible, inFlight, delayed}), None when not read."""
     by_producer: dict = {}
     for m in held:
         k = m["producer"] or NO_SEND
         by_producer[k] = by_producer.get(k, 0) + 1
+    instrumented = {"visible": sum(1 for m in held if m["state"] == "visible"),
+                    "inFlight": sum(1 for m in held if m["state"] == "in_flight")}
+    t = totals
+    tot = ({"visible": t["visible"], "inFlight": t["inFlight"], "delayed": t.get("delayed")}
+           if t and t.get("visible") is not None and t.get("inFlight") is not None else None)
+    # totals minus instrumented, never below zero; over: the spans account for more than SQS holds
+    unins = ({"visible": max(0, tot["visible"] - instrumented["visible"]),
+              "inFlight": max(0, tot["inFlight"] - instrumented["inFlight"]),
+              "over": instrumented["visible"] > tot["visible"] or instrumented["inFlight"] > tot["inFlight"]}
+             if tot else None)
     return {
         "nowMs": now_ms, "config": {**config, "visibilityKnown": config["visibilityTimeoutS"] is not None},
         "held": held, "capped": capped,
-        "instrumented": {"visible": sum(1 for m in held if m["state"] == "visible"),
-                         "inFlight": sum(1 for m in held if m["state"] == "in_flight")},
-        "totals": None, "uninstrumented": None,
+        "instrumented": instrumented,
+        "totals": tot, "uninstrumented": unins,
         "notSeenOnDlq": not_seen, "seenOnDlq": seen_on_dlq, "deleted": deleted,
         # most first; a stable sort keeps the first seen first among equal counts, as Array.prototype.sort does
         "producers": sorted(({"name": k, "n": n} for k, n in by_producer.items()), key=lambda p: -p["n"]),
     }
 
 
+def config_of(settings: Optional[dict], mrc: Optional[int], lambda_timeout_s: int) -> dict:
+    """The queue's ``config``: from GetQueueAttributes (``settings``, aws_figures.settings_from) when read, else
+    unknown but for the server's maxReceiveCount (``mrc``). When read, the queue's redrive policy is the one that
+    applies: a queue without one has no maxReceiveCount, whatever the server's setting."""
+    s = settings or {}
+    return {"visibilityTimeoutS": s.get("visibilityTimeoutS"), "retentionS": s.get("retentionS"),
+            "maxReceiveCount": s.get("maxReceiveCount") if settings is not None else mrc, "dlq": s.get("dlqName"),
+            "arn": s.get("arn"),
+            "lambdaTimeoutS": lambda_timeout_s}
+
+
 def view(db, want: list, place, now_ns: int, lambda_timeout_s: int, max_receive_counts: Optional[dict] = None,
-         *, limit: int = LIST_LIMIT) -> dict:
-    """The view of the queue whose stored keys are ``want`` (queues.resolve) and whose place is ``place``."""
+         *, limit: int = LIST_LIMIT, settings: Optional[dict] = None, totals: Optional[dict] = None) -> dict:
+    """The view of the queue whose stored keys are ``want`` (queues.resolve) and whose place is ``place``.
+    ``settings`` and ``totals``: what SQS said about the queue (the module's docstring), None when not read."""
     name = place.name
     keys = set(want)
     now_ms = _ms(now_ns)
-    mrc = (max_receive_counts or {}).get(name)
-    config = {"visibilityTimeoutS": None, "retentionS": None, "maxReceiveCount": mrc, "dlq": None, "arn": None,
-              "lambdaTimeoutS": lambda_timeout_s}
-    since_ns = now_ns - SQS_MAX_RETENTION_S * 1_000_000_000
+    config = config_of(settings, (max_receive_counts or {}).get(name), lambda_timeout_s)
+    if settings is not None:  # the timelines go by the queue's own redrive policy too
+        max_receive_counts = {k: v for k, v in (max_receive_counts or {}).items() if k != name}
+        if config["maxReceiveCount"]:
+            max_receive_counts[name] = config["maxReceiveCount"]
+    retention_s = min(config["retentionS"] if config["retentionS"] is not None else SQS_MAX_RETENTION_S,
+                      SQS_MAX_RETENTION_S)
+    since_ns = now_ns - retention_s * 1_000_000_000
     found = db.stuck_messages(now_ns + 1, limit + 1, name, from_ns=since_ns)
     capped = len(found) > limit
     mids = [r.message_id for r in found[:limit]]
@@ -185,7 +216,9 @@ def view(db, want: list, place, now_ns: int, lambda_timeout_s: int, max_receive_
                if (r["kind"] == "delete" and r["result"] == "ok") or (r["kind"] == "outcome" and r["outcome"] == "success")]
     # moves SQS reported in the past hour
     seen = sum(1 for e in db.queue_events(want, now_ms - 3_600_000, now_ms) if e[1] == "dlq_seen")
-    return summarize(held, not_seen, now_ms=now_ms, config=config, capped=capped, deleted=deleted, seen_on_dlq=seen)
+    return summarize(held, not_seen, now_ms=now_ms, config=config, capped=capped, deleted=deleted, seen_on_dlq=seen,
+                     totals=totals)
 
 
-__all__ = ["view", "place_of", "summarize", "not_deleted_text", "SQS_DEFAULT_VISIBILITY_S", "SQS_MAX_RETENTION_S"]
+__all__ = ["view", "config_of", "place_of", "summarize", "not_deleted_text", "SQS_DEFAULT_VISIBILITY_S",
+           "SQS_MAX_RETENTION_S"]

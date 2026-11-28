@@ -21,7 +21,7 @@ from . import __version__
 from . import github as github_mod
 from . import queues as queues_mod
 from . import queue_now as queue_now_mod
-from . import alerts_api, aws_api, dashboards_api, access as access_mod, auth as auth_mod, causes as causes_mod, proxy_auth as proxy_auth_mod, bodies, csrf, first_admin, \
+from . import alerts_api, aws_api, queue_data, dashboards_api, access as access_mod, auth as auth_mod, causes as causes_mod, proxy_auth as proxy_auth_mod, bodies, csrf, first_admin, \
     metrics, oidc as oidc_mod, passkeys as passkeys_mod, passwords, people_api, queries, \
     sessions as sessions_mod, trace_links, ui_files, web
 from .accounts import AccountError, Accounts, AdminExists, BadSetupCode, check_email, check_name
@@ -650,27 +650,50 @@ class App:
         if split not in ("", "version"):
             raise ApiError(400, "split must be version, or left out")
         want, place = self._queue_keys(rest[0], keys)
-        mrc = self.max_receive_counts.get(place.name)
+        now_ms = self.now() // 1_000_000
+        # what AWS says about the queue over the page's range (queue_data.py); no AWS call while reads are off
+        ref = queue_data.ref_of(want[0], place, _url_of(want[0]))
+        aws = queue_data.read(self.aws.reader if self.aws is not None else None, [ref],
+                              queue_data.page_window(from_ms, to_ms, step, now_ms), now_ms)[ref["key"]]
+        s = aws.get("settings")
+        # the queue's own redrive policy, when read, over the server's --max-receive-count
+        mrc = s.get("maxReceiveCount") if s is not None else self.max_receive_counts.get(place.name)
         rows = self.db.queue_events(want, from_ms, to_ms)
         return {"queue": {"key": want[0], "name": place.name, "account": place.account, "region": place.region,
                           "fifo": place.name.endswith(".fifo")},
                 "from_ms": from_ms, "to_ms": to_ms, "step_s": step,
                 "max_receive_count": mrc,
                 "series": queues_mod.series(rows, step, mrc, by_version=split == "version"),
-                "versions": queues_mod.versions(rows)}
+                "versions": queues_mod.versions(rows),
+                "aws": aws}
 
     def queue_now(self, q: dict, asked: str) -> dict:
-        """``/api/queues/{queue}/now``: "In ‹queue› now" from spans alone (queue_now.py), the hosted app's
-        ``InQueueView`` with no SQS totals. ``{queue}`` is a queue key or name, as for ``series``."""
+        """``/api/queues/{queue}/now``: "In ‹queue› now" (queue_now.py), the hosted app's ``InQueueView``, with
+        ``aws`` (what AWS says about the queue: its settings, CloudWatch over the Overview's past ``minutes`` when
+        asked, and its Lambda triggers) and ``live`` (its QueueLive). With AWS reads off, ``aws`` is
+        ``not_configured``, no AWS call is made, and the view is from spans alone. ``{queue}`` is a queue key or name,
+        as for ``series``."""
         try:
             keys = self.db.queue_keys()
         except NotImplementedError as e:
             raise ApiError(501, str(e)) from None
         want, place = self._queue_keys(asked, keys)
+        now_ns = self.now()
+        now_ms = now_ns // 1_000_000
+        windows = queue_data.overview_windows(now_ms, _int(q, "minutes", 60, 1, 400 * 1440)) if "minutes" in q else []
+        lambda_s = self._lambda_timeout(q)
+        limit = _int(q, "limit", queue_now_mod.LIST_LIMIT, 1, queue_now_mod.LIST_LIMIT)
+
+        def in_queue(ref: dict, settings, totals) -> dict:
+            return queue_now_mod.view(self.db, want, place, now_ns, lambda_s, self.max_receive_counts, limit=limit,
+                                      settings=settings, totals=totals)
+
+        ref = queue_data.ref_of(want[0], place, _url_of(want[0]))
+        d = queue_data.build(self.aws.reader if self.aws is not None else None, [ref], windows, now_ms,
+                             in_queue)[ref["key"]]
         return {"queue": {"key": want[0], "name": place.name, "account": place.account, "region": place.region,
                           "fifo": place.name.endswith(".fifo")},
-                **queue_now_mod.view(self.db, want, place, self.now(), self._lambda_timeout(q), self.max_receive_counts,
-                                     limit=_int(q, "limit", queue_now_mod.LIST_LIMIT, 1, queue_now_mod.LIST_LIMIT))}
+                **d["inQueue"], "aws": d["aws"], "live": d["live"]}
 
     def flows(self, q: dict, rest: list[str]) -> dict:
         """``/api/flows``: the overview's flows over [from_ms, to_ms] (default: the last day): per queue, who sends to
@@ -710,6 +733,12 @@ class App:
         if frm is not None and to is not None and frm > to:
             raise ApiError(400, "from_ms must not be after to_ms")
         return (None if frm is None else frm * 1_000_000), (None if to is None else (to + 1) * 1_000_000)
+
+
+def _url_of(key: str) -> Optional[str]:
+    """A queue's URL when its key is one (queues.key: a URL with no account in it, as an emulator's can be); else
+    None, and the AWS reader builds it from the queue's account and region."""
+    return key if "://" in key else None
 
 
 def _int(q: dict, name: str, default: int, lo: int, hi: int) -> int:

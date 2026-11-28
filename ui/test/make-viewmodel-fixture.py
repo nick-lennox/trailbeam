@@ -57,6 +57,12 @@ def record() -> tuple:
     return now_ms, int(window["from_ms"]), answers
 
 
+def in_queue_view(answer: dict) -> dict:
+    """The InQueueView of a /now answer: without ``aws`` and ``live`` (QV-589), which are the queue's AWS reads and
+    figures (the hosted QueueData's other parts), not what the hosted loadInQueue gives."""
+    return {k: v for k, v in answer.items() if k not in ("aws", "live")}
+
+
 def queue_now(db, last_ns: int, queues: list) -> list:
     """GET /api/queues/{queue}/now for every queue, at each of NOW_AFTER_NS after the last span."""
     out = []
@@ -65,7 +71,7 @@ def queue_now(db, last_ns: int, queues: list) -> list:
         app = server.App(db, ui_dir=None, now=lambda: at_ns, max_receive_counts=NOW_MAX_RECEIVE_COUNTS)
         for q in queues:
             out.append({"queue": q, "nowMs": at_ns // 10**6, "maxReceiveCount": NOW_MAX_RECEIVE_COUNTS.get(q),
-                        "view": app.api(f"queues/{q}/now", {})})
+                        "view": in_queue_view(app.api(f"queues/{q}/now", {}))})
     return out
 
 
