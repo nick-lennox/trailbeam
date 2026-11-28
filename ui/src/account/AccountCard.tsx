@@ -8,11 +8,11 @@
   Sign out is not on the card: it is the sidebar's, in both products (board, QV-588). Names in the UI face, emails and dates in mono.
   A client module, reached through @trailbeam/ui/design, never the main entry.
 */
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Fingerprint, Trash2, UserRound } from "lucide-react";
 import { Button } from "../design/Button.tsx";
 import { Card } from "../design/Card.tsx";
-import { FormError, StateMark } from "../design/Settings.tsx";
+import { Confirm, FormError, StateMark } from "../design/Settings.tsx";
 import { PASSKEYS_ABOUT, WAY_OFF } from "./text.ts";
 import type { AccountWay, Passkey } from "./types.ts";
 
@@ -21,7 +21,7 @@ export type AccountPasskeys = {
   keys: Passkey[] | null;
   onAdd: () => void;
   onRemove: (id: string) => void;
-  /** an add is in progress: the button is off */
+  /** an add or a remove is in progress: the buttons are off */
   busy?: boolean;
   error?: ReactNode;
 };
@@ -35,7 +35,12 @@ export type AccountCardProps = {
 
 const day = (d: Passkey["createdAt"]) => new Date(d).toISOString().slice(0, 10);
 
+/** The confirmation before a passkey is removed (QV-739). */
+export const removePasskeySentence = (k: Pick<Passkey, "name">) =>
+  `Remove ${k.name || "this passkey"}? It can't sign you in after this.`;
+
 export function AccountCard({ user, ways = [], passkeys }: AccountCardProps) {
+  const [removing, setRemoving] = useState<string | null>(null);
   return (
     <Card className="p-6">
       <div className="flex items-start gap-4">
@@ -85,13 +90,18 @@ export function AccountCard({ user, ways = [], passkeys }: AccountCardProps) {
               {passkeys.keys && passkeys.keys.length > 0 && (
                 <ul className="mt-3 divide-y divide-line rounded-lg border border-line" aria-label="Passkeys">
                   {passkeys.keys.map((k) => (
-                    <li key={k.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                    <li key={k.id} className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
                       <span className="text-ink">{k.name || "Passkey"}</span>{" "}
                       <span className="text-ink-3">added <span className="font-mono text-caption">{day(k.createdAt)}</span></span>
-                      <button type="button" onClick={() => passkeys.onRemove(k.id)} aria-label={`Remove ${k.name || "passkey"}`}
-                        className="ml-auto rounded-md p-1 text-ink-3 hover:bg-sunken hover:text-ink">
-                        <Trash2 size={14} aria-hidden />
-                      </button>
+                      {removing === k.id ? (
+                        <Confirm label={`Remove ${k.name || "passkey"}`} action="Remove" disabled={passkeys.busy} className="ml-auto justify-end"
+                          onCancel={() => setRemoving(null)} onConfirm={() => { setRemoving(null); passkeys.onRemove(k.id); }}>{removePasskeySentence(k)}</Confirm>
+                      ) : (
+                        <button type="button" onClick={() => setRemoving(k.id)} disabled={passkeys.busy} aria-label={`Remove ${k.name || "passkey"}`}
+                          className="ml-auto rounded-md p-1 text-ink-3 hover:bg-sunken hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent">
+                          <Trash2 size={14} aria-hidden />
+                        </button>
+                      )}
                     </li>
                   ))}
                 </ul>

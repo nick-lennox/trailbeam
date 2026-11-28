@@ -13,7 +13,11 @@ import { Tooltip } from "../design/Tooltip.tsx";
 */
 
 export const PALETTE: Record<SectionColor, string> = { blue: "var(--color-series-1)", orange: "var(--color-series-2)", green: "var(--color-series-3)", yellow: "var(--cat-4)", pink: "var(--cat-5)", gray: "var(--color-sunken)" };
-const LIGHT = "#f6f1e7", DARK = "#0a0c22";
+/* The text pair for a coloured header: the sky's ink and the sky, fixed in both themes, so a header reads the same on
+   the colour a person picked whichever theme views it. */
+const LIGHT = "var(--color-sky-ink)", DARK = "var(--color-sky)";
+/* <input type="color"> takes only a hex, so its starting values are written out: the series blue, and the ember. */
+const PICK_BG = "#2a78d6", PICK_TEXT = "#ffb65e";
 const isHex = (c?: string): c is string => !!c && /^#[0-9a-f]{6}$/i.test(c);
 const isName = (c?: string): c is SectionColor => !!c && (SECTION_COLORS as readonly string[]).includes(c);
 const dark = (hex: string) => { const n = parseInt(hex.slice(1), 16); return (0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255 < 0.55; };
@@ -51,7 +55,7 @@ function Swatches({ value, onChange, label, soft = false }: { value?: string; on
       ))}
       <Tooltip content="Any color" className="inline-flex"><label className={`relative grid size-7 cursor-pointer place-items-center overflow-hidden rounded-md border border-line-strong text-ink-3 ${isHex(value) ? ring : ""}`} style={{ background: isHex(value) ? value : undefined }}>
         {!isHex(value) && <Plus size={13} />}
-        <input type="color" aria-label={`Any ${label}`} value={isHex(value) ? value : "#5a9cf0"} onChange={(e) => onChange(e.target.value)} className="absolute inset-0 cursor-pointer opacity-0" />
+        <input type="color" aria-label={`Any ${label}`} value={isHex(value) ? value : PICK_BG} onChange={(e) => onChange(e.target.value)} className="absolute inset-0 cursor-pointer opacity-0" />
       </label></Tooltip>
     </span>
   );
@@ -98,7 +102,7 @@ export function SectionOptions({ section: g, onChange, onClose }: { section: Sec
         <div className="grid gap-1.5">
           <span className={LABEL}>Text color</span>
           <span className="flex items-center gap-2">
-            <Seg value={textMode} options={[["auto", "Auto"], ["light", "Light"], ["dark", "Dark"], ["custom", "Custom"]]} onChange={(v) => onChange({ text: v === "auto" ? undefined : v === "custom" ? (isHex(g.text) ? g.text : "#ffb65e") : v })} />
+            <Seg value={textMode} options={[["auto", "Auto"], ["light", "Light"], ["dark", "Dark"], ["custom", "Custom"]]} onChange={(v) => onChange({ text: v === "auto" ? undefined : v === "custom" ? (isHex(g.text) ? g.text : PICK_TEXT) : v })} />
             {textMode === "custom" && <input type="color" aria-label="Header text color" value={g.text} onChange={(e) => onChange({ text: e.target.value })} className="size-7 cursor-pointer rounded-md border border-line-strong bg-transparent p-0" />}
           </span>
         </div>

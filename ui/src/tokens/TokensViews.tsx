@@ -13,7 +13,7 @@ import { useCopy } from "../copy.ts";
 import { Button } from "../design/Button.tsx";
 import { Card } from "../design/Card.tsx";
 import { CodeText } from "../design/CodeText.tsx";
-import { Field, FormError, INPUT, OneTimeBox, SelectField, StateMark, type StateTone } from "../design/Settings.tsx";
+import { Confirm, Field, FormError, INPUT, OneTimeBox, SelectField, StateMark, type StateTone } from "../design/Settings.tsx";
 import { fmtWhen } from "../people/People.tsx";
 import {
   DEFAULT_EXPIRY, EXPIRY, OPEN_INGEST_CONFIRM, STATUS_TEXT, revokeSentence, secretSentence, sharedSentence, shownPrefix,
@@ -92,12 +92,8 @@ export function TokensTable({ kind, tokens, shared, pending = null, onRevoke }: 
                 <td className={TD}><When ms={t.last_used_ms} none="never" /></td>
                 <td className={`${TD} pr-5`}>
                   {active && (revoking === t.id ? (
-                    <div className="flex flex-wrap items-center justify-end gap-2" role="group" aria-label={`Revoke ${t.name}`}>
-                      <span className="max-w-[34ch] text-ink-2">{revokeSentence(kind, t)}</span>
-                      <Button size="sm" variant="ghost" onClick={() => setRevoking(null)}>Cancel</Button>
-                      <Button size="sm" className="text-critical-text disabled:opacity-50" disabled={pending === t.id}
-                        onClick={() => { setRevoking(null); onRevoke(t); }}>Revoke</Button>
-                    </div>
+                    <Confirm label={`Revoke ${t.name}`} action="Revoke" disabled={pending === t.id} onCancel={() => setRevoking(null)}
+                      onConfirm={() => { setRevoking(null); onRevoke(t); }}>{revokeSentence(kind, t)}</Confirm>
                   ) : (
                     <div className="flex justify-end">
                       <Button size="sm" variant="ghost" className="disabled:opacity-50" disabled={pending === t.id} onClick={() => setRevoking(t.id)}>Revoke</Button>

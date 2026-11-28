@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, type ReactNode, type InputHTMLAttributes, type SelectHTMLAttributes } from "react";
+import { Button } from "./Button.tsx";
 import { Tooltip } from "./Tooltip.tsx";
 
 /*
@@ -75,6 +76,39 @@ export function StateMark({ tone, note, children }: { tone: StateTone; note?: Re
       <span aria-hidden className={`size-2 shrink-0 rounded-[2px] ${SQUARE[tone]}`} />
       {children}
     </Tooltip>
+  );
+}
+
+/**
+  Asking before a change that can't be undone, in place of the button that asked (QV-739): the sentence that says
+  what happens, then Cancel and the change, named as the button was. The one way the app confirms on a row or in a
+  form; a change made from a menu, with nothing on the page to stand in for, asks in the Modal instead. Cancel takes
+  the focus, so Enter or Space alone never makes the change, and Escape cancels.
+*/
+export function Confirm({ label, children, note, action, onCancel, onConfirm, disabled = false, className = "justify-end" }: {
+  /** the group's name for a screen reader: "Remove ana@example.com" */
+  label: string;
+  /** what happens, as a question: "Remove Ana? Their sign-ins stop working. This can't be undone." */
+  children: ReactNode;
+  /** a warning to read as well, in the warning colour */
+  note?: ReactNode;
+  /** the change's button, named as the one that asked: "Remove" */
+  action: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+  /** the change is being sent: its button is off */
+  disabled?: boolean;
+  /** where it sits: on the row's right by default (justify-end) */
+  className?: string;
+}) {
+  return (
+    <div role="group" aria-label={label} onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); onCancel(); } }}
+      className={`flex flex-wrap items-center gap-2 ${className}`}>
+      <span className="max-w-[34ch] text-sm text-ink-2">{children}</span>
+      {note && <span className="max-w-[34ch] text-sm text-warning-text" role="note">{note}</span>}
+      <Button type="button" size="sm" variant="ghost" autoFocus onClick={onCancel}>Cancel</Button>
+      <Button type="button" size="sm" className="text-critical-text disabled:cursor-not-allowed disabled:opacity-50" disabled={disabled} onClick={onConfirm}>{action}</Button>
+    </div>
   );
 }
 

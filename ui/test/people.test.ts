@@ -9,7 +9,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AddPerson, OneTimeLink, PeopleTable } from "../src/people/PeopleViews.tsx";
 import {
-  LAST_ADMIN, ROLES, emailedSentence, fmtWhen, isLastAdmin, linkButton, linkKind, linkSentence, notSentSentence, removeSentence, removeSsoNote, signInAdmins, unsentSentence,
+  LAST_ADMIN, ROLES, disableSentence, emailedSentence, fmtWhen, isLastAdmin, linkButton, linkKind, linkSentence, notSentSentence, ownRoleSentence, removeSentence, removeSsoNote, signInAdmins, unsentSentence,
 } from "../src/people/People.tsx";
 import type { Person } from "../src/people/types.ts";
 
@@ -136,7 +136,21 @@ test("removing someone who signs in with single sign-on warns that it doesn't ke
   assert.match(removeSsoNote({ ...me, single_sign_on: true })!, /^You sign in with single sign-on, so removing your account doesn't keep you out/);
   // the confirmation shows the note, in a role token, only when there is one
   const src = readFileSync(new URL("../src/people/PeopleViews.tsx", import.meta.url), "utf8");
-  assert.match(src, /\{removeSsoNote\(p\) && <span className="[^"]*text-warning-text"[^>]*>\{removeSsoNote\(p\)\}<\/span>\}/);
+  assert.match(src, /<Confirm label=\{`Remove \$\{p\.email\}`\} note=\{removeSsoNote\(p\)\}/);
+  const confirm = readFileSync(new URL("../src/design/Settings.tsx", import.meta.url), "utf8");
+  assert.match(confirm, /\{note && <span className="[^"]*text-warning-text"[^>]*>\{note\}<\/span>\}/);
+});
+
+test("a disable, and taking away your own admin, ask first (QV-739)", () => {
+  assert.equal(disableSentence({ name: "Ben", email: "ben@example.com", you: false }),
+    "Disable Ben? They are signed out everywhere within 20 seconds and can't sign in until an admin enables them.");
+  assert.match(disableSentence({ name: "Ada", email: "a@example.com", you: true }), /^Disable your own account\? /);
+  const me = { you: true, role: "admin" as const };
+  assert.match(ownRoleSentence(me, "member")!, /^Make yourself a member\? You stop being an admin at once and leave this page/);
+  assert.equal(ownRoleSentence(me, "admin"), null, "no change, nothing to ask");
+  assert.equal(ownRoleSentence({ you: false, role: "admin" }, "member"), null, "someone else's role changes when picked");
+  const src = readFileSync(new URL("../src/people/PeopleViews.tsx", import.meta.url), "utf8");
+  assert.match(src, /setAsking\(\{ id: p\.id, kind: "disable" \}\)/, "Disable asks; Enable doesn't");
 });
 
 test("the people views use the design system's role tokens, which tokens.css defines", () => {

@@ -11,9 +11,8 @@
   Links from before the shared explorer still open what they named: range=24h, from_ms and to_ms, and kind: queries.
 */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pause, Play } from "lucide-react";
-import { NothingReporting, Tooltip, TopBar } from "../src/design/index.ts";
-import { EventExplorer, stepChart, stepChartQuery, TimePicker, type ExplorerData, type StepChartDoc } from "../src/explorer/index.ts";
+import { NothingReporting, TopBar } from "../src/design/index.ts";
+import { EventExplorer, LiveButton, stepChart, stepChartQuery, TimePicker, type ExplorerData, type StepChartDoc } from "../src/explorer/index.ts";
 import { DEFAULT_RANGE, follow, pinned, rangeFromParams, withRange, type Ev, type TimeRange } from "../src/model/index.ts";
 import { storeIsEmpty } from "../src/firstrun/status.ts";
 import { ApiError, CopyLink, getHealth, getJSON, messageHref } from "./chrome.tsx";
@@ -69,7 +68,6 @@ export function EventsFirstRun() {
   );
 }
 
-const BUTTON = "inline-flex h-10 items-center rounded-lg border border-line-strong bg-surface px-3 text-[13px] text-ink-2 hover:text-ink";
 const loadSteps = (from: number, to: number) => getJSON<StepChartDoc>(`/api/events?${qs(stepChartQuery(from, to))}`).then(stepChart);
 
 export function EventsPage() {
@@ -126,12 +124,8 @@ export function EventsPage() {
     <div className="flex h-10 shrink-0 items-center gap-2">
       <TimePicker time={time} setTime={setTime} now={Date.now()} />
       <CopyLink link={() => eventsHref(query, pinned(time))} />
-      <Tooltip content={!time.preset ? "A fixed range in the past does not update" : following ? "Pause new events" : "Resume new events"} className="inline-flex">
-        <button type="button" onClick={() => setLive(!live)} disabled={!time.preset} aria-pressed={following}
-          className={`${BUTTON} w-[92px] justify-center gap-2 disabled:opacity-50 disabled:hover:text-ink-2`}>
-          {following ? <><span className="live-dot size-1.5 rounded-full bg-good" /> Live <Pause size={13} className="text-ink-3" /></> : <>Paused <Play size={13} className="text-ink-3" /></>}
-        </button>
-      </Tooltip>
+      <LiveButton following={following} onToggle={() => setLive(!live)} disabled={!time.preset}
+        note={!time.preset ? "A fixed range in the past does not update" : following ? "Pause new events" : "Resume new events"} />
     </div>
   );
 

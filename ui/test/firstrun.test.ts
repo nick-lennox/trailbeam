@@ -9,7 +9,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { FirstRun, highlight, type FirstRunProps } from "../src/firstrun/FirstRun.tsx";
 import { EXAMPLE, environment } from "../src/firstrun/text.ts";
 import { NO_SPANS_AFTER_MS, announcement, isDefaultEndpoint, retainedFor, storeHasSpans, storeIsEmpty, waitingStatus, type Health } from "../src/firstrun/status.ts";
-import { EmptyState, MessagesTable, RECEIVES_TITLE, duplicateWhy, fmtAge, fmtThreshold, fmtTime, shortId, type MessageSummary } from "../src/messages/Messages.tsx";
+import { EmptyState, RECEIVES_TITLE, duplicateWhy, fmtAge, fmtThreshold, fmtTime, shortId, type MessageSummary } from "../src/messages/Messages.tsx";
 import { duplicatesEmpty, lookupEmpty, messagesEmpty, stuckEmpty, tenantsEmpty, without } from "../src/messages/empty.tsx";
 
 /** The page's words: block elements and cells end a phrase, inline ones (code, spans) don't; curly quotes as straight. */
@@ -172,35 +172,12 @@ const msg: MessageSummary = {
   first_seen: "2026-11-16T18:05:37.429123Z", first_seen_clock: "sqs", last_seen: "2026-11-16T18:06:00Z", age_s: 400,
 };
 
-test("the message list", () => {
-  const html = renderToStaticMarkup(createElement(MessagesTable, { messages: [msg], href: (id: string) => `/message?id=${id}`, extra: { title: "Age", cell: (m: MessageSummary) => fmtAge(m.age_s) } }));
-  const t = text(html);
-  for (const s of ["m-2", "no delete seen", "orders-dlq (DLQ, from orders)", "3 · 0 handled", "orders-worker", "2026-11-16 18:05:37.429 SQS's clock", "2026-11-16 18:06:00", "Age", "7 min"]) assert.ok(t.includes(s), `missing ${s}: ${t}`);
-  assert.ok(html.includes('href="/message?id=m-2"'));
-  assert.ok(t.includes("Receives") && !t.includes("Deliveries") && !t.includes(" ok)"));
-  assert.ok(html.includes(`<th title="${RECEIVES_TITLE.replace(/'/g, "&#x27;")}"`), "the Receives head says what it counts");
-  assert.match(RECEIVES_TITLE, /^Receives Trailbeam observed, on every queue, the receive from a dead-letter queue included\. SQS's own receive count can be higher/);
-  assert.match(html, /<span class="text-warning-text">3<\/span>/, "a message received more than once is marked");
-  const once = renderToStaticMarkup(createElement(MessagesTable, { messages: [{ ...msg, deliveries: 1, successful_deliveries: 1 }], href: (id: string) => id }));
-  assert.ok(!once.includes("text-warning-text") && text(once).includes("1 · 1 handled"));
+test("the message list's helpers: times, ages and a short ID", () => {
   assert.equal(fmtTime(null), null);
   assert.deepEqual([fmtAge(30), fmtAge(600), fmtAge(9000), fmtAge(200_000), fmtAge(null)], ["30 s", "10 min", "2.5 h", "2.3 days", "?"]);
-});
-
-test("the message list below md: three lines per row, the ID on one line", () => {
-  const id = "22e15633-1b7c-4d6e-9a1f-0c3b8e29707e";
-  const m: MessageSummary = { ...msg, message_id: id, state: "deleted", current_queue: "orders", in_dead_letter_queue: false, deliveries: 2, successful_deliveries: 1, first_seen_clock: "host", reasons: ["received_more_than_once"] };
-  assert.equal(shortId(id), "22e15633\u20269707e");
+  assert.equal(shortId("22e15633-1b7c-4d6e-9a1f-0c3b8e29707e"), "22e15633\u20269707e");
   assert.equal(shortId("m-2"), "m-2");
-  const html = renderToStaticMarkup(createElement(MessagesTable, { messages: [m], href: (i: string) => `/message?id=${i}`, extra: { title: "Why", cell: () => "x", brief: () => "received more than once" } }));
-  const phone = /<ul class="md:hidden"[^>]*>(.*?)<\/ul>/.exec(html)?.[1] ?? "";
-  const lines = [...phone.matchAll(/<li[^>]*>(.*?)<\/li>/g)][0][1].split(/(?=<a |<p )/);
-  assert.equal(lines.length, 3, phone);
-  assert.ok(lines[0].includes(`href="/message?id=${id}"`) && lines[0].includes(`title="${id}"`) && text(lines[0]).trim() === "22e15633\u20269707e");
-  assert.equal(text(lines[1]).trim(), "deleted · orders · 2 receives · 1 handled · received more than once");
-  assert.equal(text(lines[2]).trim(), "2026-11-16 18:05:37.429");
-  for (const l of lines) assert.match(l, /class="[^"]*truncate/, "each line stays on one line");
-  assert.match(html, /<table class="hidden w-full text-\[15px\] md:table">/, "the table from md up");
+  assert.match(RECEIVES_TITLE, /^Receives Trailbeam observed, on every queue, the receive from a dead-letter queue included\. SQS's own receive count can be higher/);
 });
 
 const empty = (e: Parameters<typeof EmptyState>[0] | null) => (e ? text(renderToStaticMarkup(createElement(EmptyState, e))) : "");

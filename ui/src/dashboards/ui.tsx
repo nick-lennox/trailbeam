@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, type ComponentProps, type ReactNode } from "react";
+import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
 import { X } from "lucide-react";
 import type { Tone } from "./measures.ts";
+import { Button } from "../design/Button.tsx";
 import { Tooltip } from "../design/Tooltip.tsx";
 
 /* Small parts the dashboard pages share. Menu and useSize are the design system's and the charts' (QV-591). */
@@ -39,7 +40,7 @@ export function Modal({ title, onClose, children, footer, width = "max-w-[440px]
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[rgb(5_6_20/0.6)] p-6" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-scrim p-6" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div role="dialog" aria-label={title} className={`w-full ${width} overflow-hidden rounded-panel border border-line bg-surface text-ink shadow-panel`}>
         <div className="flex items-center gap-3 pt-4 pr-4 pl-5">
           <h2 className="text-base font-semibold">{title}</h2>
@@ -49,6 +50,27 @@ export function Modal({ title, onClose, children, footer, width = "max-w-[440px]
         {footer && <div className="flex items-center justify-end gap-2 border-t border-line bg-canvas px-5 py-3">{footer}</div>}
       </div>
     </div>
+  );
+}
+
+/* The confirmation before a dashboard is deleted, from its own page or from the list's menu (QV-739): the same Modal
+   and words on both, never the browser's own box. `onDelete` resolves once the host has answered. */
+export function DeleteDashboard({ name, widgets, onCancel, onDelete }: { name: string; widgets: number; onCancel: () => void; onDelete: () => Promise<unknown> }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal
+      title={`Delete ${name}?`}
+      onClose={onCancel}
+      footer={
+        <>
+          <Button variant="secondary" size="sm" autoFocus onClick={onCancel}>Cancel</Button>
+          <button type="button" disabled={busy} className="inline-flex h-8 items-center rounded-control bg-critical px-3 text-small font-medium text-canvas disabled:opacity-60"
+            onClick={() => { setBusy(true); void onDelete().finally(() => setBusy(false)); }}>Delete dashboard</button>
+        </>
+      }
+    >
+      <p className="px-5 pt-3 pb-5 text-sm text-ink-2">This deletes the dashboard and its {widgets} {widgets === 1 ? "widget" : "widgets"} for everyone in this workspace. It cannot be undone. Nothing in your queues changes.</p>
+    </Modal>
   );
 }
 

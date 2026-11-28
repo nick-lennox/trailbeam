@@ -13,10 +13,10 @@ import { useState, type FormEvent } from "react";
 import { useCopy } from "../copy.ts";
 import { Button } from "../design/Button.tsx";
 import { Card } from "../design/Card.tsx";
-import { Field, FormError, INPUT, OneTimeBox, SELECT, SelectField, StateMark, type StateTone } from "../design/Settings.tsx";
+import { Confirm, Field, FormError, INPUT, OneTimeBox, SELECT, SelectField, StateMark, type StateTone } from "../design/Settings.tsx";
 import {
-  LAST_ADMIN, ROLES, STATUS_HINT, STATUS_TEXT, emailedSentence, fmtWhen, isLastAdmin, linkButton, linkSentence, notSentSentence, removeSentence,
-  removeSsoNote, unsentSentence,
+  LAST_ADMIN, ROLES, STATUS_HINT, STATUS_TEXT, disableSentence, emailedSentence, fmtWhen, isLastAdmin, linkButton, linkSentence, notSentSentence,
+  ownRoleSentence, removeSentence, removeSsoNote, unsentSentence,
 } from "./People.tsx";
 import type { Person, PersonEmail, PersonLink, PersonStatus, Role } from "./types.ts";
 
@@ -34,15 +34,20 @@ export type PeopleTableProps = {
   onLink: (p: Person) => void;
 };
 
+/** The change a row is asking about before it is sent: a remove, a disable, or taking away your own admin. */
+type Asking = { id: number; kind: "remove" | "disable" } | { id: number; kind: "role"; role: Role };
+
 /** One row per person, in the API's order (oldest first), in a card. */
 export function PeopleTable({ people, pending = null, onRole, onDisabled, onRemove, onLink }: PeopleTableProps) {
-  const [removing, setRemoving] = useState<number | null>(null);
+  const [asking, setAsking] = useState<Asking | null>(null);
+  const cancel = () => setAsking(null);
   return (
     <Card>
       <ul className="divide-y divide-line" aria-label="People">
         {people.map((p) => {
           const last = isLastAdmin(people, p);
           const busy = pending === p.id;
+          const ask = asking?.id === p.id ? asking : null;
           return (
             <li key={p.id} data-person={p.id}
               className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 px-5 py-3.5 md:grid-cols-[minmax(12rem,1fr)_7rem_7rem_10.5rem_20rem]">
@@ -52,8 +57,9 @@ export function PeopleTable({ people, pending = null, onRole, onDisabled, onRemo
                 {/* said in the row, not on hover: a keyboard can't reach a control that is off */}
                 {last && <p className="mt-1 text-xs text-ink-3" data-last-admin="">{LAST_ADMIN}</p>}
               </div>
-              <select aria-label={`Role of ${p.email}`} value={p.role} disabled={busy || (last && p.role === "admin")}
-                onChange={(e) => onRole(p, e.target.value as Role)} className={`${SELECT} h-8 w-28 ${OFF}`}>
+              <select aria-label={`Role of ${p.email}`} value={ask?.kind === "role" ? ask.role : p.role} disabled={busy || (last && p.role === "admin")}
+                onChange={(e) => { const role = e.target.value as Role; if (ownRoleSentence(p, role)) setAsking({ id: p.id, kind: "role", role }); else { cancel(); onRole(p, role); } }}
+                className={`${SELECT} h-8 w-28 ${OFF}`}>
                 {ROLES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
               </select>
               <div><StateMark tone={TONE[p.status]} note={STATUS_HINT[p.status]}>{STATUS_TEXT[p.status]}</StateMark></div>
@@ -62,19 +68,21 @@ export function PeopleTable({ people, pending = null, onRole, onDisabled, onRemo
                 {p.last_sign_in_ms === null ? <span className="text-ink-2">never</span> : <span className="font-mono text-caption text-ink-2">{fmtWhen(p.last_sign_in_ms)}</span>}
               </div>
               <div className="col-span-2 md:col-span-1">
-                {removing === p.id ? (
-                  <div className="flex flex-wrap items-center justify-end gap-2" role="group" aria-label={`Remove ${p.email}`}>
-                    <span className="max-w-[34ch] text-sm text-ink-2">{removeSentence(p)}</span>
-                    {removeSsoNote(p) && <span className="max-w-[34ch] text-sm text-warning-text" role="note">{removeSsoNote(p)}</span>}
-                    <Button size="sm" variant="ghost" onClick={() => setRemoving(null)}>Cancel</Button>
-                    <Button size="sm" className={`text-critical-text ${OFF}`} disabled={busy} onClick={() => { setRemoving(null); onRemove(p); }}>Remove</Button>
-                  </div>
+                {ask?.kind === "remove" ? (
+                  <Confirm label={`Remove ${p.email}`} note={removeSsoNote(p)} action="Remove" disabled={busy} onCancel={cancel}
+                    onConfirm={() => { cancel(); onRemove(p); }}>{removeSentence(p)}</Confirm>
+                ) : ask?.kind === "disable" ? (
+                  <Confirm label={`Disable ${p.email}`} action="Disable" disabled={busy} onCancel={cancel}
+                    onConfirm={() => { cancel(); onDisabled(p, true); }}>{disableSentence(p)}</Confirm>
+                ) : ask?.kind === "role" ? (
+                  <Confirm label={`Change the role of ${p.email}`} action="Make me a member" disabled={busy} onCancel={cancel}
+                    onConfirm={() => { cancel(); onRole(p, ask.role); }}>{ownRoleSentence(p, ask.role)}</Confirm>
                 ) : (
                   <div className="flex flex-wrap justify-end gap-1">
                     {p.status !== "disabled" && <Button size="sm" variant="ghost" className={OFF} disabled={busy} onClick={() => onLink(p)}>{linkButton(p)}</Button>}
                     <Button size="sm" variant="ghost" className={OFF} disabled={busy || (last && p.status !== "disabled")}
-                      onClick={() => onDisabled(p, p.status !== "disabled")}>{p.status === "disabled" ? "Enable" : "Disable"}</Button>
-                    <Button size="sm" variant="ghost" className={OFF} disabled={busy || last} onClick={() => setRemoving(p.id)}>Remove</Button>
+                      onClick={() => p.status === "disabled" ? onDisabled(p, false) : setAsking({ id: p.id, kind: "disable" })}>{p.status === "disabled" ? "Enable" : "Disable"}</Button>
+                    <Button size="sm" variant="ghost" className={OFF} disabled={busy || last} onClick={() => setAsking({ id: p.id, kind: "remove" })}>Remove</Button>
                   </div>
                 )}
               </div>

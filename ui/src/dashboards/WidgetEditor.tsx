@@ -235,7 +235,7 @@ export function WidgetEditor({ widget, ctx, isNew, onSave, onClose }: { widget: 
               </>
             )}
             {w.type !== "note" && (
-              <Labeled label="Time range">
+              <Labeled label="Time range" hint={w.time ? "Its own range: the widget is marked with a clock, and dragging across it doesn't zoom the dashboard." : undefined}>
                 <select value={w.time ?? ""} onChange={(e) => set({ time: e.target.value || undefined })} className={FIELD}>
                   <option value="">Same as the dashboard</option>
                   {PRESETS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}

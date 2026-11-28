@@ -9,7 +9,7 @@ import { useDashboardsEnv } from "./env.tsx";
 import { fmtLimit, TONE_WORD, type Alert, type Tone } from "./measures.ts";
 import { makeStarter, STARTERS, type Dashboard, type Widget } from "./types.ts";
 import { Mini } from "./Mini.tsx";
-import { FIELD, IconBtn, Labeled, Menu, MenuItem, Modal, StateMark, TONE_TEXT, TONE_VAR } from "./ui.tsx";
+import { DeleteDashboard, FIELD, IconBtn, Labeled, Menu, MenuItem, Modal, StateMark, TONE_TEXT, TONE_VAR } from "./ui.tsx";
 
 /*
   Every dashboard in the workspace, and which of their widgets are alerting.
@@ -46,6 +46,7 @@ export function DashboardsPage({ dashboards, server }: { dashboards: Dashboard[]
   const [note, setNote] = useState<string | null>(null);
   const data = env.data;
   const [open, setOpen] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<Dashboard | null>(null);
 
   /* A widget alerts when the rule set on it is breached. On own data the server's check says so; its titles are read from the dashboard, so a rename shows at once. */
   const alerts = useMemo(
@@ -166,7 +167,7 @@ export function DashboardsPage({ dashboards, server }: { dashboards: Dashboard[]
                           <MenuItem onClick={() => { close(); act(actions.duplicate(d.id)); }}>Duplicate</MenuItem>
                           <MenuItem onClick={() => { close(); act(actions.lock(d.id, !d.lockedBy)); }}><Lock size={14} /> {d.lockedBy ? "Unlock" : "Lock"}</MenuItem>
                           <div className="my-1 h-px bg-line" />
-                          <MenuItem danger disabled={!!d.lockedBy} onClick={() => { close(); if (window.confirm(`Delete ${d.name} and its ${d.def.widgets.length} widgets for everyone in this workspace? It cannot be undone.`)) act(actions.remove(d.id)); }}>Delete</MenuItem>
+                          <MenuItem danger disabled={!!d.lockedBy} onClick={() => { close(); setDeleting(d); }}>Delete</MenuItem>
                         </>
                       )}
                     </Menu>
@@ -206,6 +207,8 @@ export function DashboardsPage({ dashboards, server }: { dashboards: Dashboard[]
         ))}
       </div>
 
+      {deleting && <DeleteDashboard name={deleting.name} widgets={deleting.def.widgets.length} onCancel={() => setDeleting(null)}
+        onDelete={() => act(actions.remove(deleting.id)).finally(() => setDeleting(null))} />}
       {creating !== null && <NewDashboard from={creating} onClose={() => setCreating(null)} onMade={(id) => router.push(ws(`/dashboards/${id}`))} />}
     </div>
   );

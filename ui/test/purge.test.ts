@@ -9,7 +9,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TimelineView } from "../src/timeline/Timeline.tsx";
 import { answerFor } from "../src/summary.ts";
-import { MessagesTable, POSSIBLY_PURGED_TITLE, rowFacts, stateText, type MessageSummary } from "../src/messages/Messages.tsx";
+import { stateText, type MessageSummary } from "../src/messages/Messages.tsx";
+import { MESSAGE_COLUMNS } from "../src/messages/columns.tsx";
 import type { Timeline } from "../src/timeline/types.ts";
 
 const { timelines } = JSON.parse(readFileSync(new URL("./fixtures/purge-timelines.json", import.meta.url), "utf8")) as { timelines: Timeline[] };
@@ -38,9 +39,10 @@ test("a message in the purge's window keeps its state and is marked possibly pur
   assert.match(html, /No delete seen possibly purged \(PurgeQueue at /);
   assert.match(html, /Queue purged \(may have removed it\)/);
   assert.match(answerFor(t), /not received yet/);
-  assert.match(rowFacts(row(t))[0], /^no delete seen, possibly purged \(PurgeQueue at /);
-  const table = renderToStaticMarkup(createElement(MessagesTable, { messages: [row(t)], href: (id) => `/m/${id}` }));
-  assert.ok(table.includes('data-purge="possibly_purged"') && table.includes(POSSIBLY_PURGED_TITLE));
+  assert.match(stateText(row(t)), /^no delete seen, possibly purged \(PurgeQueue at /);
+  // the Messages list (MessagesView) says it in its State column
+  const state = MESSAGE_COLUMNS.find((c) => c.id === "state")!;
+  assert.match(state.text(row(t)), /Possibly purged: a PurgeQueue call ran at /);
 });
 
 test("a message received after the window is not affected", () => {

@@ -94,51 +94,8 @@ export function fmtThreshold(s: number): string {
   return `${s} s`;
 }
 
-const Muted = ({ children }: { children: ReactNode }) => <span className="text-ink-3">{children}</span>;
-
-function Queue({ m }: { m: MessageSummary }) {
-  return (
-    <>
-      <span className="font-mono text-caption text-ink">{m.current_queue || m.source_queue || "?"}</span>
-      {m.in_dead_letter_queue && <> <Muted>(DLQ, from {m.source_queue || "?"})</Muted></>}
-      {!m.in_dead_letter_queue && m.dead_letter_queue_move === "not_seen_on_dlq_yet" && <> <Muted>(reached maxReceiveCount; the move to the dead-letter queue isn’t seen yet)</Muted></>}
-    </>
-  );
-}
-
-const Time = ({ t }: { t: string | null }) => (t ? <time dateTime={t} className="font-mono text-caption tabular-nums text-ink-2">{fmtTime(t)}</time> : <Muted>unknown</Muted>);
-
-export type Column = {
-  title: string;
-  cell: (m: MessageSummary) => ReactNode;
-  align?: "right";
-  /** the same fact as plain text, for a row's second line below `md` (the reason, the age); `cell` when absent */
-  brief?: (m: MessageSummary) => string;
-};
-
 /** A message ID on one line: the first 8 and last 5 characters around an ellipsis, when it is longer than that. */
 export const shortId = (id: string) => (id.length > 16 ? `${id.slice(0, 8)}\u2026${id.slice(-5)}` : id);
-
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-
-/** A row's second line below `md`: state · queue · receives · handled, then the extra column's fact. */
-export function rowFacts(m: MessageSummary): string[] {
-  const queue = m.current_queue || m.source_queue || "?";
-  return [
-    stateText(m),
-    m.in_dead_letter_queue ? `${queue} (DLQ)` : queue,
-    plural(m.deliveries, "receive", "receives"),
-    `${m.successful_deliveries} handled`,
-  ];
-}
-
-export type MessagesTableProps = {
-  messages: MessageSummary[];
-  /** where a message links to: its timeline */
-  href: (messageId: string) => string;
-  /** one more column at the end (Why, Age) */
-  extra?: Column;
-};
 
 /** The Receives head's tooltip: what the count is, and what it is not (SQS's own receive count). */
 export const RECEIVES_TITLE = "Receives Trailbeam observed, on every queue, the receive from a dead-letter queue included. "
@@ -146,65 +103,6 @@ export const RECEIVES_TITLE = "Receives Trailbeam observed, on every queue, the 
 
 /** The Handled head's tooltip. */
 export const HANDLED_TITLE = "Receives that ended in a delete, or in a Lambda record that succeeded.";
-
-/** The tooltip on a column head, where the word alone needs explaining. */
-const HEAD_TITLES: Record<string, string> = {
-  Receives: RECEIVES_TITLE,
-  Handled: HANDLED_TITLE,
-};
-
-/** One row per message, in the API's order. Times are UTC. A message received more than once shows its count
- *  in warning-text (Ember on the sky, the timeline's colour for a repeat attempt). Below `md`, three lines per
- *  row instead of the table. */
-export function MessagesTable({ messages, href, extra }: MessagesTableProps) {
-  const heads = ["Message ID", "State", "Queue", "Receives", "Consumers", "First seen", "Last seen", ...(extra ? [extra.title] : [])];
-  return (
-    <>
-      <ul className="md:hidden" data-phone-list>
-        {messages.map((m) => {
-          const facts = rowFacts(m);
-          const more = extra && (extra.brief ? extra.brief(m) : extra.cell(m));
-          return (
-            <li key={m.message_id} className="border-b border-line/60 py-3 leading-[1.45] last:border-0">
-              <a href={href(m.message_id)} title={m.message_id} className="block truncate whitespace-nowrap font-mono text-caption text-ink hover:text-brand">{shortId(m.message_id)}</a>
-              <p className="truncate text-[15px] text-ink-2" title={[...facts, ...(typeof more === "string" ? [more] : [])].join(" · ")}>
-                {facts.join(" · ")}{more !== undefined && more !== "" && <> · {more}</>}
-              </p>
-              <p className="truncate font-mono text-caption tabular-nums text-ink-3">
-                {m.first_seen ? <time dateTime={m.first_seen}>{fmtTime(m.first_seen)}</time> : "first seen unknown"}{m.first_seen_clock === "sqs" && " SQS\u2019s clock"}
-              </p>
-            </li>
-          );
-        })}
-      </ul>
-    <table className="hidden w-full text-[15px] md:table">
-      <thead>
-        <tr className="border-b border-line text-left font-mono text-caption text-ink-3">
-          {heads.map((h, i) => <th key={h} title={HEAD_TITLES[h]} className={`py-2 font-medium ${i === 0 ? "pl-5 pr-3" : i === heads.length - 1 ? "pl-3 pr-5" : "px-3"}`}>{h}</th>)}
-        </tr>
-      </thead>
-      <tbody>
-        {messages.map((m) => (
-          <tr key={m.message_id} className="border-b border-line/60 align-top last:border-0">
-            <td className="py-3 pl-5 pr-3"><a href={href(m.message_id)} className="break-all font-mono text-caption text-ink hover:text-brand">{m.message_id}</a></td>
-            <td className="px-3 py-3 text-ink-2" data-purge={m.purge?.status} title={m.purge?.status === "possibly_purged" ? POSSIBLY_PURGED_TITLE : undefined}>{stateText(m)}</td>
-            <td className="px-3 py-3"><Queue m={m} /></td>
-            <td className="px-3 py-3 font-mono text-caption tabular-nums text-ink-2"><span className={m.deliveries > 1 ? "text-warning-text" : undefined}>{m.deliveries}</span> <Muted>· {m.successful_deliveries} handled</Muted></td>
-            <td className="px-3 py-3 text-ink-2">
-              {m.consumers.length === 0 ? <Muted>none yet</Muted> : m.consumers.map((c, i) => (
-                <span key={i}>{i > 0 && ", "}{c.service_name ?? "?"}</span>
-              ))}
-            </td>
-            <td className="px-3 py-3"><Time t={m.first_seen} />{m.first_seen_clock === "sqs" && <> <Muted>SQS&rsquo;s clock</Muted></>}</td>
-            <td className={`py-3 ${extra ? "px-3" : "pl-3 pr-5"}`}><Time t={m.last_seen} /></td>
-            {extra && <td className={`py-3 pl-3 pr-5 text-ink-2 ${extra.align === "right" ? "text-right" : ""}`}>{extra.cell(m)}</td>}
-          </tr>
-        ))}
-      </tbody>
-    </table>
-    </>
-  );
-}
 
 export type EmptyStateProps = { title: ReactNode; detail?: ReactNode; link?: { href: string; label: string } };
 
