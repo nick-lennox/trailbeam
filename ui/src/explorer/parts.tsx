@@ -6,12 +6,12 @@
   column or a filter looks and behaves the same wherever it appears. Each takes the host's query language (`lang`);
   without one it is the language over what events recorded.
 */
-import { cloneElement, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
-import { Search, X } from "lucide-react";
+import { cloneElement, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { Columns3, Download, Search, X } from "lucide-react";
 import { SourceTag } from "../design/pills.tsx";
 import { Tooltip } from "../design/Tooltip.tsx";
 import { fmtDate, eventName, type Ev } from "../model/events.ts";
-import type { Field, QueryLanguage } from "../model/query.ts";
+import type { Field, QueryLanguage, Term } from "../model/query.ts";
 import { RECORDED_LANGUAGE, columnChoices, level, show } from "./columns.ts";
 
 /* The row's level (warning or error), on the 3px bar at the left edge of the row's first cell (.ev-row, tokens.css). */
@@ -47,12 +47,14 @@ function cellOf(c: string, e: Ev, cell: string, sel: boolean, lang: QueryLanguag
   return <td key={c} className={cell}>{v === undefined ? (f.buckets ? null : <span className="font-sans text-ink-3">{c === "body" ? "not stored" : "none"}</span>) : show(f, v)}</td>;
 }
 
-/* The list of columns to tick, grouped as the field registry groups them. */
-/* only: the columns to offer (the ones some event fills); every column by default */
-export function ColumnChoices({ columns, setColumns, live = false, lang = RECORDED_LANGUAGE, only }: { columns: string[]; setColumns: (c: string[]) => void; live?: boolean; lang?: QueryLanguage; only?: Set<string> }) {
+/* The list of columns to tick, in groups: the Event explorer's and every list built from its parts. */
+export type ColumnGroup = { group: string; cols: { id: string; label: string }[]; mono?: boolean };
+
+/* only: the columns to offer (the ones some row fills); every column by default. The last column shown stays ticked. */
+export function ColumnList({ groups, columns, setColumns, only }: { groups: ColumnGroup[]; columns: string[]; setColumns: (c: string[]) => void; only?: Set<string> }) {
   return (
     <>
-      {columnChoices(lang, live).map(({ group, cols }) => ({ group, cols: only ? cols.filter((c) => only.has(c.id)) : cols })).filter((g) => g.cols.length).map(({ group, cols }) => (
+      {groups.map((g) => ({ ...g, cols: only ? g.cols.filter((c) => only.has(c.id)) : g.cols })).filter((g) => g.cols.length).map(({ group, cols, mono }) => (
         <div key={group} className="py-1.5">
           <p className="mb-1 text-xs font-medium text-ink-3">{group}</p>
           {cols.map((c) => {
@@ -66,7 +68,7 @@ export function ColumnChoices({ columns, setColumns, live = false, lang = RECORD
                   onChange={() => setColumns(on ? columns.filter((x) => x !== c.id) : [...columns, c.id])}
                   className="size-3.5 shrink-0 accent-brand"
                 />
-                <span className={`min-w-0 flex-1 truncate text-ink ${group === "Event" ? "text-[13px]" : "font-mono text-caption"}`}>{c.label}</span>
+                <span className={`min-w-0 flex-1 truncate text-ink ${mono ? "font-mono text-caption" : "text-[13px]"}`}>{c.label}</span>
               </label>
             );
           })}
@@ -76,21 +78,89 @@ export function ColumnChoices({ columns, setColumns, live = false, lang = RECORD
   );
 }
 
+/* The Event explorer's columns to tick, grouped as the field registry groups them; attribute names are in mono. */
+export function ColumnChoices({ columns, setColumns, live = false, lang = RECORDED_LANGUAGE, only }: { columns: string[]; setColumns: (c: string[]) => void; live?: boolean; lang?: QueryLanguage; only?: Set<string> }) {
+  const groups = columnChoices(lang, live).map((g) => ({ ...g, mono: g.group !== "Event" }));
+  return <ColumnList groups={groups} columns={columns} setColumns={setColumns} only={only} />;
+}
+
+const BAR_BUTTON = "inline-flex h-7 items-center gap-1.5 rounded-md border border-line-strong px-2 font-sans text-xs font-medium text-ink-2 hover:border-ink-3 hover:text-ink disabled:opacity-40";
+
+/* The results bar's Columns button. */
+export function ColumnsButton({ open, onClick }: { open: boolean; onClick: () => void }) {
+  return <button type="button" onClick={onClick} aria-expanded={open} aria-haspopup="dialog" className={BAR_BUTTON}><Columns3 size={13} /> Columns</button>;
+}
+
+/* The column list, over the top right of the list, under the results bar. `note` says which columns are left out. */
+export function ColumnsPanel({ shown, onReset, onClose, note, children }: { shown: number; onReset: () => void; onClose: () => void; note: ReactNode; children: ReactNode }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <>
+      <button type="button" aria-label="Close the column list" className="fixed inset-0 z-20 cursor-default" onClick={onClose} />
+      <div role="dialog" aria-label="Choose columns" className="absolute top-11 right-3 z-30 flex max-h-[min(560px,calc(100%-56px))] w-[340px] max-w-[calc(100%-24px)] flex-col overflow-hidden rounded-xl border border-line-strong bg-surface font-sans shadow-panel">
+        <div className="flex items-center justify-between border-b border-line px-3.5 py-2.5">
+          <h3 className="text-[13px] font-semibold text-ink">Columns <span className="ml-1 font-mono text-micro font-normal text-ink-3">{shown} shown</span></h3>
+          <button type="button" onClick={onReset} className="text-xs text-brand hover:underline">Reset</button>
+        </div>
+        <div className="overflow-y-auto px-3.5 py-2">{children}</div>
+        <p className="border-t border-line px-3.5 py-2 text-xs text-ink-3">{note} New columns are added on the right. Your choice is remembered in this browser.</p>
+      </div>
+    </>
+  );
+}
+
+/* The results bar's Export button and its menu: what is exported (`what`), then each format. */
+export function ExportMenu({ open, setOpen, disabled, what, formats, onExport }: {
+  open: boolean; setOpen: (o: boolean) => void; disabled?: boolean; what: ReactNode; formats: ("csv" | "pdf")[]; onExport: (kind: "csv" | "pdf") => void;
+}) {
+  return (
+    <span className="relative inline-block">
+      <button type="button" onClick={() => setOpen(!open)} disabled={disabled} aria-expanded={open} aria-haspopup="menu" className={BAR_BUTTON}>
+        <Download size={13} /> Export
+      </button>
+      {open && (
+        <>
+          <button type="button" aria-label="Close the export menu" className="fixed inset-0 z-20 cursor-default" onClick={() => setOpen(false)} />
+          <div role="menu" className="absolute top-full right-0 z-30 mt-1.5 w-56 rounded-lg border border-line-strong bg-surface p-1.5 text-left font-sans shadow-raised">
+            <p className="px-2 pt-1 pb-1.5 text-xs font-normal text-ink-3">{what}</p>
+            {formats.map((f) => (
+              <button key={f} type="button" role="menuitem" onClick={() => { setOpen(false); onExport(f); }} className="block w-full rounded-md px-2 py-1.5 text-left text-[13px] font-medium text-ink hover:bg-sunken">{f.toUpperCase()}</button>
+            ))}
+          </div>
+        </>
+      )}
+    </span>
+  );
+}
+
 /*
   The query bar: one line of field:value terms, highlighted as they parse, with
   suggestions for the word being typed and the first mistake said under it.
   values gives a field's known values with their counts, for suggestions.
   vars are names that may follow a $, as a dashboard's variables do.
+  lang is the Event explorer's query language by default; a list over a server's filters passes its own
+  (messageQueryLanguage). Body paths are offered only when the language has a body field.
 */
+export type QueryBarLanguage = {
+  parse: (q: string, live?: boolean) => Term[];
+  fieldsFor: (live?: boolean) => readonly { name: string }[];
+  def: (name: string) => { name: string; group: string } | undefined;
+};
+
 export function QueryInput({ query, setQuery, values, right, note, vars = [], bodyPaths = [], live = false, lang = RECORDED_LANGUAGE, placeholder = "Filter events, for example queue:orders-events status:error", label = "Filter events" }: {
   query: string;
-  lang?: QueryLanguage;
+  lang?: QueryBarLanguage;
   /* the query runs on a workspace's own events: sampleOnly fields are not suggested, and naming one is an error */
   live?: boolean;
   /* the body paths to suggest: the stored bodies' (bodyPathsOf), or the hosted sample payloads' */
   bodyPaths?: string[];
   setQuery: (q: string) => void;
-  values?: (field: Field) => [string, number][] | undefined;
+  /* a field's known values, with how many events have each (null: not counted) */
+  values?: (field: Field) => [string, number | null][] | undefined;
   right?: ReactNode;
   note?: ReactNode;
   vars?: string[];
@@ -113,7 +183,7 @@ export function QueryInput({ query, setQuery, values, right, note, vars = [], bo
     if (i < 0) {
       const w = word.toLowerCase();
       /* a path into the message body: offer the paths seen in stored bodies */
-      if (w.length >= 2 && "body.".startsWith(w.slice(0, 5)) && (w.length <= 5 || w.startsWith("body."))) {
+      if (lang.def("body") && w.length >= 2 && "body.".startsWith(w.slice(0, 5)) && (w.length <= 5 || w.startsWith("body."))) {
         const rest = word.slice(5).toLowerCase();
         return [...(w.length <= 4 ? [{ text: `${neg}body:`, hint: "Text anywhere in the body" }] : []), ...bodyPaths.filter((p) => p.toLowerCase().startsWith(rest)).slice(0, 7).map((p) => ({ text: `${neg}body.${p}:`, hint: "Message body" }))];
       }
@@ -127,7 +197,7 @@ export function QueryInput({ query, setQuery, values, right, note, vars = [], bo
     return known
       .filter(([v]) => v.toLowerCase().startsWith(typed) && v.toLowerCase() !== typed)
       .slice(0, 6)
-      .map(([v, n]) => ({ text: `${neg}${field}:${/[\s()]/.test(v) ? `"${v}"` : v} `, hint: `${n} ${n === 1 ? "event" : "events"}` }));
+      .map(([v, n]) => ({ text: `${neg}${field}:${/[\s()]/.test(v) ? `"${v}"` : v} `, hint: n === null ? "" : `${n} ${n === 1 ? "event" : "events"}` }));
   }, [focused, query, last, values, vars, lang, live, bodyPaths]);
   const accept = (text: string) => setQuery(query.slice(0, query.length - last.length) + text);
 
@@ -181,7 +251,7 @@ export function QueryInput({ query, setQuery, values, right, note, vars = [], bo
             <li key={s.text}>
               <button type="button" onMouseDown={(e) => { e.preventDefault(); accept(s.text); }} className={`flex w-full items-baseline gap-3 rounded-md px-2 py-1.5 text-left hover:bg-sunken ${i === 0 ? "bg-sunken" : ""}`}>
                 <code className="min-w-[150px] font-mono text-xs text-ink">{s.text.trim()}</code>
-                <span className="text-ink-3">{s.hint}{i === 0 ? ", press Tab" : ""}</span>
+                <span className="text-ink-3">{s.hint}{i === 0 ? (s.hint ? ", press Tab" : "Press Tab") : ""}</span>
               </button>
             </li>
           ))}

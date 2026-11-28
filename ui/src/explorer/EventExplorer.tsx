@@ -11,8 +11,8 @@
   GET /api/timeline-events for the chosen range. A column or filter that no event in the range fills is left out, and
   Columns and Export sit in the results bar over the list.
 */
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, Clock, Columns3, Download, Search, X } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { ChevronDown, ChevronRight, Clock, Search, X } from "lucide-react";
 import { SOURCE } from "../design/pills.tsx";
 import { Tooltip } from "../design/Tooltip.tsx";
 import { EVENT_NAME, fmtDate, type Ev } from "../model/events.ts";
@@ -22,7 +22,7 @@ import { EventChart, type Seg } from "./EventChart.tsx";
 import { EventDetail } from "./EventDetail.tsx";
 import { DEFAULT_COLUMNS, LEVEL_COLOR, RECORDED_LANGUAGE, SPECIAL, TD, TH, cellText, colLabel, columnChoices, filledColumns, level } from "./columns.ts";
 import { download as browserDownload, toCsv, toPdf } from "./export.ts";
-import { ColumnChoices, LevelMark, QueryInput, eventCell } from "./parts.tsx";
+import { ColumnChoices, ColumnsButton, ColumnsPanel, ExportMenu, LevelMark, QueryInput, eventCell } from "./parts.tsx";
 import { cutShort, type StepChart } from "./stepChart.ts";
 
 /** The events the explorer reads, and where the ranges end. */
@@ -98,12 +98,7 @@ export function EventExplorer({ query, setQuery, time, data, messageHref, lang =
     setColumnsState(c);
     try { localStorage.setItem(columnsKey, JSON.stringify(c)); } catch {}
   };
-  useEffect(() => {
-    if (!picker) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPicker(false);
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [picker]);
+  const closePicker = useCallback(() => setPicker(false), []);
 
   const { events, capped, live, bodies, bodiesCapped, now } = data;
   const bodyPaths = useMemo(() => givenPaths ?? bodyPathsOf(events.flatMap((e) => (e.body === undefined ? [] : [e.body]))), [events, givenPaths]);
@@ -127,7 +122,6 @@ export function EventExplorer({ query, setQuery, time, data, messageHref, lang =
   /* Export: every event that matches the query and the time range, not only the page on
      screen, with the columns that are shown. Values are written in full. */
   const exportAs = (kind: "csv" | "pdf") => {
-    setExporting(false);
     const text = (c: string, e: Ev) => cellText(c, e, lang, (s) => SOURCE[s]?.label ?? s);
     const table = { headers: shownCols.map((c) => colLabel(c, lang)), rows: rows.map((e) => shownCols.map((c) => text(c, e))) };
     const span = win ? rangeLabel(win[0], win[1]) : rangeLabel(from, to);
@@ -304,40 +298,15 @@ export function EventExplorer({ query, setQuery, time, data, messageHref, lang =
               {chart && <>. The chart counts all <b className="font-mono font-medium text-ink">{chart.total.toLocaleString("en-US")}</b> recorded steps in this range</>}
             </p>
             <div className="flex shrink-0 items-center gap-1.5">
-              <button onClick={() => { setExporting(false); setPicker(!picker); }} aria-expanded={picker} aria-haspopup="dialog" className="inline-flex h-7 items-center gap-1.5 rounded-md border border-line-strong px-2 font-sans text-xs font-medium text-ink-2 hover:border-ink-3 hover:text-ink">
-                <Columns3 size={13} /> Columns
-              </button>
-              <span className="relative inline-block">
-                <button onClick={() => { setPicker(false); setExporting(!exporting); }} disabled={rows.length === 0} aria-expanded={exporting} aria-haspopup="menu" className="inline-flex h-7 items-center gap-1.5 rounded-md border border-line-strong px-2 font-sans text-xs font-medium text-ink-2 hover:border-ink-3 hover:text-ink disabled:opacity-40">
-                  <Download size={13} /> Export
-                </button>
-                {exporting && (
-                  <>
-                    <button aria-label="Close the export menu" className="fixed inset-0 z-20 cursor-default" onClick={() => setExporting(false)} />
-                    <div role="menu" className="absolute top-full right-0 z-30 mt-1.5 w-56 rounded-lg border border-line-strong bg-surface p-1.5 text-left font-sans shadow-raised">
-                      <p className="px-2 pt-1 pb-1.5 text-xs font-normal text-ink-3">{rows.length.toLocaleString("en-US")} {rows.length === 1 ? "event" : "events"} match, with the columns shown</p>
-                      <button role="menuitem" onClick={() => exportAs("csv")} className="block w-full rounded-md px-2 py-1.5 text-left text-[13px] font-medium text-ink hover:bg-sunken">CSV</button>
-                      <button role="menuitem" onClick={() => exportAs("pdf")} className="block w-full rounded-md px-2 py-1.5 text-left text-[13px] font-medium text-ink hover:bg-sunken">PDF</button>
-                    </div>
-                  </>
-                )}
-              </span>
+              <ColumnsButton open={picker} onClick={() => { setExporting(false); setPicker(!picker); }} />
+              <ExportMenu open={exporting} setOpen={(o) => { setPicker(false); setExporting(o); }} disabled={rows.length === 0} formats={["csv", "pdf"]} onExport={exportAs}
+                what={<>{rows.length.toLocaleString("en-US")} {rows.length === 1 ? "event" : "events"} match, with the columns shown</>} />
             </div>
           </div>
           {picker && (
-            <>
-              <button aria-label="Close the column list" className="fixed inset-0 z-20 cursor-default" onClick={() => setPicker(false)} />
-              <div role="dialog" aria-label="Choose columns" className="absolute top-11 right-3 z-30 flex max-h-[min(560px,calc(100%-56px))] w-[340px] max-w-[calc(100%-24px)] flex-col overflow-hidden rounded-xl border border-line-strong bg-surface font-sans shadow-panel">
-                <div className="flex items-center justify-between border-b border-line px-3.5 py-2.5">
-                  <h3 className="text-[13px] font-semibold text-ink">Columns <span className="ml-1 font-mono text-micro font-normal text-ink-3">{shownCols.length} shown</span></h3>
-                  <button onClick={() => setColumns(DEFAULT_COLUMNS)} className="text-xs text-brand hover:underline">Reset</button>
-                </div>
-                <div className="overflow-y-auto px-3.5 py-2">
-                  <ColumnChoices columns={columns} setColumns={setColumns} live={live} lang={lang} only={filled} />
-                </div>
-                <p className="border-t border-line px-3.5 py-2 text-xs text-ink-3">Columns that no event in this range fills are left out. New columns are added on the right. Your choice is remembered in this browser.</p>
-              </div>
-            </>
+            <ColumnsPanel shown={shownCols.length} onReset={() => setColumns(DEFAULT_COLUMNS)} onClose={closePicker} note="Columns that no event in this range fills are left out.">
+              <ColumnChoices columns={columns} setColumns={setColumns} live={live} lang={lang} only={filled} />
+            </ColumnsPanel>
           )}
           <div className={`min-h-0 min-w-0 flex-1 overflow-auto [container-type:inline-size] ${page ? "bg-canvas" : "max-h-[640px]"}`}>
             <table className="w-full border-collapse font-mono text-caption" data-events>
