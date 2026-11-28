@@ -42,6 +42,11 @@ does not read AWS, so ``queueLive`` gives every queue ``status: "not_configured"
 headroom) have no figures and say why (measures.no_depth). Infinity and NaN are the strings "Infinity", "-Infinity"
 and "NaN", as in contract/fixtures/measures-parity.json, because JSON has no such numbers.
 
+**What a measures request may cost** (QV-684): a definition holds at most MAX_WIDGETS widgets, MAX_QUERIES queries a
+widget and MAX_COLUMNS columns a queue table (_checked); a query's lines are the largest MAX_LINES and one
+"Other (k)" line for the rest; and once a dashboard's answer holds MEASURES_BYTES of JSON or has taken
+MEASURES_SECONDS, the widgets left are ``skipped``, to be asked for one at a time.
+
 The routes answer only when ``TRAILBEAM_DASHBOARDS`` is on (1, true, yes or on), so nothing half done shows by
 default; the dashboard screens are later parts of QV-591.
 """
@@ -77,6 +82,22 @@ MAX_RANGE_MS = 30 * M.DAY
 MAX_EVENTS = 500
 N_DEFAULT = 60
 WRITE_TRIES = 3
+# What one measures request may cost (QV-684). A definition's 256 KB holds some 1,600 widgets, and a group-by on a
+# field with a value per message (message_id) makes a line per message: without these one GET took minutes of CPU
+# and gigabytes. measures.check_def has none of them, as the hosted app's checks have none; _checked adds them.
+#: widgets on one dashboard (the hosted app's starter dashboards have up to 12)
+MAX_WIDGETS = 50
+#: queries on one widget (the hosted app's starters use up to 3)
+MAX_QUERIES = 5
+#: a queue table's columns: each measure once
+MAX_COLUMNS = 19
+#: lines per query, the largest first; the rest are one "Other (k)" line (measures.other_line). The hosted
+#: dashboard draws the top 5 and Other on a chart and the top 10 on a top list, so both are drawn from these.
+MAX_LINES = 10
+#: once a dashboard's answer holds this much JSON, or has taken this long, the widgets left are skipped: each comes
+#: back with ``skipped`` (SKIPPED) and no figures, to be asked for on its own (/widgets/{wid}/measures)
+MEASURES_BYTES = 8 * 1024 * 1024
+MEASURES_SECONDS = 5.0
 
 NO_NAME = "Give the dashboard a name."
 TOO_BIG = f"That dashboard is too large. A dashboard can be at most {M.MAX_DEF_BYTES // 1024} KB."
@@ -86,6 +107,8 @@ LOCKED_DELETE = "This dashboard is locked. Unlock it before deleting it."
 GONE = "This dashboard no longer exists."
 WIDGET_GONE = "That widget is no longer on this dashboard."
 BUSY = "Someone else changed this dashboard at the same moment. Reload it and try again."
+SKIPPED = ("This widget's figures did not fit in the dashboard's answer. Ask for this widget on its own: "
+           "GET /api/dashboards/{id}/widgets/{wid}/measures.")
 NOT_QUEUE_LIVE = ("No data. This server does not read queue figures from AWS, so depth, age and headroom have "
                   "none here.")
 
@@ -317,8 +340,9 @@ def widget_measures(w: dict, variables: list, time: dict, data: dict, n: int = N
     """What one widget draws, worked out as the hosted dashboard's widgets work it out (components/dashboards/
     widgets.tsx) over the widget's own time range if it has one, else ``time``:
 
-    - ``queries``: per query, its measure's lines (measures.series_for with the query's group-by, ``n`` buckets),
-      and whether the measure has no figure (``depthMissing``) or no history (``noHistory``);
+    - ``queries``: per query, its measure's lines (measures.series_for with the query's group-by, ``n`` buckets):
+      the largest MAX_LINES, then the rest as one line "Other (k)" with ``others``: k (measures.other_line); and
+      whether the measure has no figure (``depthMissing``) or no history (``noHistory``);
     - ``buckets``: the events per bucket, ok and failed, for a timeseries of the events measure;
     - ``events``: the matching events (up to MAX_EVENTS; ``eventsCapped``), for event lists, distributions and
       heatmaps;
@@ -338,7 +362,8 @@ def widget_measures(w: dict, variables: list, time: dict, data: dict, n: int = N
         missing = bool(M.depth_missing(m, data))
         qs.append({"measure": m.id, "label": m.label, "unit": m.unit, "groupBy": q.get("group_by") or None,
                    "depthMissing": missing, "noHistory": M.no_history(m, data, t),
-                   "lines": [] if missing else M.series_for(m, f, q.get("group_by") or None, t, n, data)})
+                   "lines": [] if missing else M.series_for(m, f, q.get("group_by") or None, t, n, data,
+                                                            top=MAX_LINES)})
     out["queries"] = qs
     if w.get("type") == "timeseries" and qs and qs[0]["measure"] == "events":
         out["buckets"] = M.event_buckets(f, t, n, data)
@@ -438,10 +463,20 @@ def _check_time(v: Any) -> str | None:
 
 
 def _checked(raw: Any) -> dict:
+    """measures.check_def, then what one measures request may cost (MAX_WIDGETS, MAX_QUERIES, MAX_COLUMNS)."""
     c = M.check_def(raw)
     if "error" in c:
         raise ApiProblem(400, c["error"])
-    return c["def"]
+    d = c["def"]
+    if len(d["widgets"]) > MAX_WIDGETS:
+        raise ApiProblem(400, f"That dashboard has {len(d['widgets'])} widgets. A dashboard can have at most "
+                              f"{MAX_WIDGETS}.")
+    for i, w in enumerate(d["widgets"]):
+        if len(w.get("queries") or []) > MAX_QUERIES:
+            raise ApiProblem(400, f"Widget {i + 1}: a widget can have at most {MAX_QUERIES} queries.")
+        if w.get("type") == "queue_table" and len(w.get("columns") or []) > MAX_COLUMNS:
+            raise ApiProblem(400, f"Widget {i + 1}: a queue table can have at most {MAX_COLUMNS} columns.")
+    return d
 
 
 class DashboardsApi:
@@ -457,6 +492,8 @@ class DashboardsApi:
                  now: Callable[[], int] = lambda: _time.time_ns() // _NS, no_depth_text: str | None = None):
         self.store, self.ws, self.data, self.can_unlock, self.now = store, workspace, data, can_unlock, now
         self.no_depth_text = no_depth_text
+        #: seconds, for MEASURES_SECONDS
+        self.clock: Callable[[], float] = _time.monotonic
 
     def call(self, method: str, path: str, body: dict | None, who, base: str | None = None) -> tuple[int, dict]:
         """(status, JSON body) for a dashboards route. ``body``: the JSON body, or for a GET the query (name ->
@@ -665,14 +702,24 @@ class DashboardsApi:
             if not n_text.isdigit() or not 1 <= int(n_text) <= 200:
                 raise ApiProblem(400, "n is a whole number from 1 to 200.")
             n = int(n_text)
+        # a definition stored before the caps, or past them some other way, is answered for its first MAX_WIDGETS
+        widgets = widgets[:MAX_WIDGETS]
         now = self.now()
         t = self.time_of(q, d, now)
         # read once, from the earliest range a widget draws
         since = min([t["from"]] + [M.preset(w["time"], now)["from"] for w in widgets if w.get("time")])
         data = self.data(int(since), now)
+        start, size, done = self.clock(), 0, []
+        for w in widgets:
+            if done and (size >= MEASURES_BYTES or self.clock() - start >= MEASURES_SECONDS):
+                done.append({"id": w.get("id"), "type": w.get("type"), "title": w.get("title"),
+                             "skipped": SKIPPED.format(id=d["id"], wid=w.get("id"))})
+                continue
+            wm = plain(widget_measures(w, d["def"]["variables"], t, data, n, self.no_depth_text))
+            size += len(json.dumps(wm, separators=(",", ":")))
+            done.append(wm)
         out: dict = {"dashboard": d["id"], "time": t, "now": data["now"], "capped": data.get("capped", False),
-                     "widgets": [widget_measures(w, d["def"]["variables"], t, data, n, self.no_depth_text)
-                                 for w in widgets]}
+                     "skipped": sum(1 for w in done if "skipped" in w), "widgets": done}
         if _one(q, "data") in ("1", "true"):
             out["data"] = data
         return 200, out

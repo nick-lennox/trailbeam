@@ -6,6 +6,7 @@ are off by default)."""
 from __future__ import annotations
 
 import copy
+import itertools
 import json
 import re
 import time
@@ -199,17 +200,27 @@ SERIES = [c for c in F["series"] if M.problem(_series_widget(c)) is None
           and c["time"]["to"] - c["time"]["from"] <= api.MAX_RANGE_MS]
 
 
+def _numbers(line: dict) -> dict:
+    """A fixture line with "Infinity", "-Infinity" and "NaN" as numbers again."""
+    num = lambda v: float(v) if isinstance(v, str) else v
+    return {**line, "now": num(line["now"]), "points": [num(p) for p in line["points"]]}
+
+
 @pytest.mark.parametrize("c", SERIES, ids=lambda c: f"{c['data']}: {c['name']}")
 def test_a_widgets_measures_are_the_shared_cases(c):
     """The measures endpoint over the shared cases' data: the lines of a widget with that one query are the case's
-    expected series, as the hosted app's measures.ts computes them (measures-parity.json)."""
+    expected series, as the hosted app's measures.ts computes them (measures-parity.json), the largest MAX_LINES
+    and the rest as one "Other (k)" line."""
     a = make(c["data"])
     did = a.call("POST", "/api/dashboards", {"name": "Parity", "def": {"widgets": [_series_widget(c)]}}, ADA)[1]["dashboard"]["id"]
     q = {"from": str(c["time"]["from"]), "to": str(c["time"]["to"]), "n": str(c["n"])}
     st, out = a.call("GET", f"/api/dashboards/{did}/widgets/w1/measures", q, BEN)
     assert st == 200
     [w] = out["widgets"]
-    assert w["queries"][0]["lines"] == c["expected"]
+    full = c["expected"]
+    capped = full if len(full) <= api.MAX_LINES else full[:api.MAX_LINES] + [
+        api.plain(M.other_line(M.measure(c["measure"]), [_numbers(x) for x in full[api.MAX_LINES:]], c["n"]))]
+    assert w["queries"][0]["lines"] == capped
     assert json.loads(json.dumps(out, allow_nan=False)) == out, "JSON with no Infinity or NaN numbers"
 
 
@@ -252,6 +263,102 @@ def test_what_a_measures_request_refuses(q, error):
     a = make()
     did = a.call("POST", "/api/dashboards", {"name": "x"}, ADA)[1]["dashboard"]["id"]
     assert refused(a.call, "GET", f"/api/dashboards/{did}/measures", q, BEN) == (400, error)
+
+
+# ── what a measures request may cost (QV-684) ────────────────────────────────────────────────────────────────────
+
+def _many_messages(count=2000, now=1_764_000_000_000) -> dict:
+    """EventData of ``count`` messages, each sent, received and deleted (with a processing time) in the past hour:
+    a group-by on message_id makes a line per message."""
+    evs = []
+    for i in range(count):
+        at = now - 3_500_000 + i * 1_700
+        for k, kind in enumerate(("send", "receive", "delete")):
+            evs.append({"ms": at + k, "event": kind, "status": "ok", "queue": "orders", "messageId": f"m{i:05d}",
+                        **({"durationMs": (i * 37) % 900} if kind == "delete" else {})})
+    return {"events": evs, "now": now, "queues": ["orders"], "live": True,
+            "queueLive": {"orders": {"status": "not_configured", "detail": api.NOT_QUEUE_LIVE}}}
+
+
+def _on(data, store=None):
+    return api.DashboardsApi(store or MemoryDashboards(), "local", lambda since, now: data, now=lambda: data["now"])
+
+
+def _grouped(id_="g", measure="sent"):
+    return {"id": id_, "type": "timeseries", "title": "By message", "layout": LAYOUT,
+            "queries": [{"measure": measure, "group_by": "message_id"}]}
+
+
+@pytest.mark.parametrize("measure", ["sent", "processing_time"])
+def test_a_group_by_with_a_value_per_message_is_the_top_lines_and_the_rest_as_one(measure):
+    """Grouped by message_id, 2000 messages are 2000 lines of 200 points (2 MB a widget, before QV-684); the answer
+    is the largest 10 and "Other (1990)", the rest added up (sent) or the largest of them (processing time), the
+    same as working out every line."""
+    data = _many_messages()
+    a = _on(data)
+    did = a.call("POST", "/api/dashboards", {"name": "x", "def": {"widgets": [_grouped(measure=measure)]}}, ADA)[1]["dashboard"]["id"]
+    out = a.call("GET", f"/api/dashboards/{did}/measures", {"n": "200"}, BEN)[1]
+    lines = out["widgets"][0]["queries"][0]["lines"]
+    m = M.measure(measure)
+    full = M.series_for(m, "", "message_id", out["time"], 200, data)
+    assert len(full) == 2000
+    assert len(lines) == api.MAX_LINES + 1
+    assert lines == api.plain(full[:api.MAX_LINES] + [M.other_line(m, full[api.MAX_LINES:], 200)])
+    assert lines[-1]["name"] == "Other (1990)" and lines[-1]["others"] == 1990
+    if measure == "sent":  # every message once: the lines add up to the widget without a group-by
+        [whole] = M.series_for(m, "", None, out["time"], 200, data)
+        assert [sum(x) for x in zip(*(ln["points"] for ln in lines))] == pytest.approx(whole["points"])
+    assert len(json.dumps(out)) < 50_000
+
+
+def test_a_dashboard_holds_at_most_50_widgets_of_at_most_5_queries():
+    a = make()
+    many = [widget(f"w{i}") for i in range(api.MAX_WIDGETS)]
+    did = a.call("POST", "/api/dashboards", {"name": "x", "def": {"widgets": many}}, ADA)[1]["dashboard"]["id"]
+    assert refused(a.call, "POST", "/api/dashboards", {"name": "x", "def": {"widgets": many + [widget("one")]}}, ADA) \
+        == (400, "That dashboard has 51 widgets. A dashboard can have at most 50.")
+    assert refused(a.call, "POST", f"/api/dashboards/{did}/widgets", {"widget": widget("one")}, ADA) \
+        == (400, "That dashboard has 51 widgets. A dashboard can have at most 50.")
+    six = widget("q", queries=[{"measure": "sent"}] * (api.MAX_QUERIES + 1))
+    assert refused(a.call, "PATCH", f"/api/dashboards/{did}/widgets/w3", {"widget": six}, ADA) \
+        == (400, "Widget 4: a widget can have at most 5 queries.")
+    table = {"id": "t", "type": "queue_table", "title": "Queues", "layout": LAYOUT,
+             "columns": ["dlq_depth"] * (api.MAX_COLUMNS + 1)}
+    assert refused(a.call, "PATCH", f"/api/dashboards/{did}", {"def": {"widgets": [table]}}, ADA) \
+        == (400, "Widget 1: a queue table can have at most 19 columns.")
+    assert a.call("PATCH", f"/api/dashboards/{did}", {"def": {"widgets": [widget(queries=[{"measure": "sent"}] * 5)]}},
+                  ADA)[0] == 200
+
+
+def test_the_widgets_past_8_mb_or_5_seconds_are_skipped_and_asked_for_one_by_one(monkeypatch):
+    data = _many_messages(200)
+    store = MemoryDashboards()
+    a = _on(data, store)
+    ws = [_grouped(f"g{i}") for i in range(4)]
+    did = a.call("POST", "/api/dashboards", {"name": "x", "def": {"widgets": ws}}, ADA)[1]["dashboard"]["id"]
+    one = len(json.dumps(a.call("GET", f"/api/dashboards/{did}/widgets/g0/measures", {}, BEN)[1]["widgets"][0],
+                         separators=(",", ":")))
+    # two widgets fill the budget: the first two are answered, the last two skipped
+    monkeypatch.setattr(api, "MEASURES_BYTES", 2 * one)
+    out = a.call("GET", f"/api/dashboards/{did}/measures", {}, BEN)[1]
+    assert out["skipped"] == 2 and [("skipped" in w) for w in out["widgets"]] == [False, False, True, True]
+    assert out["widgets"][2] == {"id": "g2", "type": "timeseries", "title": "By message",
+                                 "skipped": api.SKIPPED.format(id=did, wid="g2")}
+    assert f"GET /api/dashboards/{did}/widgets/g2/measures" in out["widgets"][2]["skipped"]
+    assert "queries" in a.call("GET", f"/api/dashboards/{did}/widgets/g2/measures", {}, BEN)[1]["widgets"][0]
+    # a budget smaller than one widget still answers the first
+    monkeypatch.setattr(api, "MEASURES_BYTES", 1)
+    assert a.call("GET", f"/api/dashboards/{did}/measures", {}, BEN)[1]["skipped"] == 3
+    # time: each widget takes 2 s on this clock, so the third starts past 5 s and is skipped
+    monkeypatch.setattr(api, "MEASURES_BYTES", 8 * 1024 * 1024)
+    ticks = itertools.count(0, 2)
+    a.clock = lambda: next(ticks)
+    out = a.call("GET", f"/api/dashboards/{did}/measures", {}, BEN)[1]
+    assert [("skipped" in w) for w in out["widgets"]] == [False, False, False, True]
+    # a definition stored past the caps (before them, or by hand) is answered for its first 50 widgets only
+    d = store.get_dashboard("local", did)
+    assert store.update_dashboard("local", did, {"def": {**d["def"], "widgets": [widget(f"n{i}") for i in range(60)]}})[0] == "ok"
+    assert len(a.call("GET", f"/api/dashboards/{did}/measures", {}, BEN)[1]["widgets"]) == api.MAX_WIDGETS
 
 
 # ── EventData from the store ─────────────────────────────────────────────────────────────────────────────────────

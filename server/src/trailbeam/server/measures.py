@@ -849,9 +849,22 @@ def _finite_or(v: float, other: float) -> float:
     return v if math.isfinite(v) else other
 
 
-def series_for(m: Measure, filter_: str, group_by: Optional[str], time: dict, n: int, data: dict) -> list:
+def other_line(m: Measure, rest: list, n: int) -> dict:
+    """The lines past the top as one, as the hosted dashboard draws them (widgets.tsx): "Other (k)", each point the
+    sum of theirs (a measure whose figures add up, agg "sum") or the largest; ``now`` folded the same way."""
+    return {"name": f"Other ({len(rest)})", "now": _fold(m, [s["now"] for s in rest]),
+            "points": [_fold(m, [s["points"][i] for s in rest]) for i in range(n)], "others": len(rest)}
+
+
+def series_for(m: Measure, filter_: str, group_by: Optional[str], time: dict, n: int, data: dict,
+               top: Optional[int] = None) -> list:
     """One measure as lines {name, points, now}: one per group value, or one for all of it. points: n buckets over
-    time; now: the figure over the whole range (a queue measure's figure now). Largest first."""
+    time; now: the figure over the whole range (a queue measure's figure now). Largest first.
+
+    ``top``: at most that many lines, then the rest as one (other_line, with ``others``: how many it holds), the
+    same as ``series_for(...)[:top] + [other_line(m, series_for(...)[top:], n)]`` but without working out each of
+    the rest's points: a group-by on a field with thousands of values (message_id) costs the events, not the values
+    times the buckets (QV-684). Not in measures.ts, which draws every line; the API caps them (dashboards_api)."""
     terms = parse(filter_)
     if depth_missing(m, data):
         return []
@@ -866,7 +879,8 @@ def series_for(m: Measure, filter_: str, group_by: Optional[str], time: dict, n:
                           lambda a, b, q=q: p95_processing(data, q, a, b)) if m.history else None
             per.append({"name": q, "now": now, "points": h if h is not None else [_finite_or(now, 0)] * n})
         if group_by == "queue":
-            return sorted(per, key=lambda s: -_finite_or(s["now"], 1e12))
+            per = sorted(per, key=lambda s: -_finite_or(s["now"], 1e12))
+            return per if top is None or len(per) <= top else per[:top] + [other_line(m, per[top:], n)]
         return [{"name": m.label, "now": _fold(m, [p["now"] for p in per]),
                  "points": [_fold(m, [p["points"][i] for p in per]) for i in range(n)]}]
     span = (time["to"] - time["from"]) / n
@@ -900,14 +914,33 @@ def series_for(m: Measure, filter_: str, group_by: Optional[str], time: dict, n:
             return max(xs)
         return _total(xs) / len(xs)
 
+    def at(e) -> int:
+        return min(n - 1, math.floor((e["ms"] - time["from"]) / span))
+
+    # largest first; sorted() keeps first-seen order among equals, as Array.prototype.sort does
+    ranked = sorted(((name, es, val(es, (time["to"] - time["from"]) / 60_000)) for name, es in by.items()),
+                    key=lambda x: -x[2])
+    keep = ranked if top is None else ranked[:top]
     out = []
-    for name, es in by.items():
+    for name, es, now in keep:
         bucketed: list[list] = [[] for _ in range(n)]
         for e in es:
-            bucketed[min(n - 1, math.floor((e["ms"] - time["from"]) / span))].append(e)
-        out.append({"name": name, "now": val(es, (time["to"] - time["from"]) / 60_000),
-                    "points": [val(b, span / 60_000) for b in bucketed]})
-    return sorted(out, key=lambda s: -s["now"])
+            bucketed[at(e)].append(e)
+        out.append({"name": name, "now": now, "points": [val(b, span / 60_000) for b in bucketed]})
+    rest = ranked[len(keep):]
+    if rest:
+        # each of the rest's points folded over its non-empty buckets only: an empty bucket's figure is 0, which
+        # neither a sum nor _fold's max([0, ...]) changes, and the rest stay in order so the sum adds up the same
+        folded: list[list] = [[] for _ in range(n)]
+        for _, es, _ in rest:
+            mine: dict[int, list] = {}
+            for e in es:
+                mine.setdefault(at(e), []).append(e)
+            for i in sorted(mine):
+                folded[i].append(val(mine[i], span / 60_000))
+        out.append({"name": f"Other ({len(rest)})", "now": _fold(m, [x[2] for x in rest]),
+                    "points": [_fold(m, f) for f in folded], "others": len(rest)})
+    return out
 
 
 def event_buckets(filter_: str, time: dict, n: int, data: dict) -> list:

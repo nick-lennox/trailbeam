@@ -1883,8 +1883,9 @@ paths:
       description: |
         A dashboard named `name` (trimmed, at most 80 characters). Its definition is `imported` (a definition
         as JSON text, as the hosted app's Import takes it), else `def`, else empty. Every definition is checked
-        as the hosted app checks it, at most 256 KB. `time`: the preset the dashboard opens at. You are its
-        owner. Needs a member.
+        as the hosted app checks it, at most 256 KB, and holds at most 50 widgets, 5 queries a widget and 19
+        columns a queue table, so what it draws stays affordable to work out. `time`: the preset the dashboard
+        opens at. You are its owner. Needs a member.
       requestBody:
         required: true
         content:
@@ -2122,7 +2123,9 @@ paths:
         works them out: its measures' lines, its events, its queues and its alert state. A widget with its own
         `time` keeps it. Queue measures (depth, age, headroom) need figures from AWS, which this server does
         not read: they have none, and `noDepth` says so. Infinity and NaN are the strings `Infinity`,
-        `-Infinity` and `NaN`.
+        `-Infinity` and `NaN`. A query has at most 10 lines and then one `Other (k)` line. Once the answer holds
+        8 MB of JSON or has taken 5 seconds, the widgets left come back with only `skipped` (and `skipped` at the
+        top counts them): ask for each on its own.
       parameters:
         - {$ref: '#/components/parameters/DashboardRange'}
         - {$ref: '#/components/parameters/DashboardFrom'}
@@ -2386,13 +2389,19 @@ components:
           schema:
             type: object
             additionalProperties: false
-            required: [dashboard, time, now, capped, widgets]
+            required: [dashboard, time, now, capped, skipped, widgets]
             properties:
               dashboard: {type: string}
               time: {$ref: '#/components/schemas/DashboardRangeTimes'}
               now: {type: integer, description: The time the events were read up to, ms.}
               capped: {type: boolean, description: 'More messages had spans in the range than were read (2000): the oldest are missing.'}
-              widgets: {type: array, items: {$ref: '#/components/schemas/WidgetMeasures'}}
+              skipped: {type: integer, description: 'How many widgets were skipped: the answer was already 8 MB, or had taken 5 seconds.'}
+              widgets:
+                type: array
+                items:
+                  oneOf:
+                    - {$ref: '#/components/schemas/WidgetMeasures'}
+                    - {$ref: '#/components/schemas/WidgetSkipped'}
               data: {type: object, description: 'With `data=1`: the events, queues and queue figures the measures read.'}
     Forbidden:
       description: |
@@ -2603,7 +2612,10 @@ components:
               noHistory: {type: boolean, description: A measure with no history over the range.}
               lines:
                 type: array
-                description: One per value of the group-by field, or one for all of it; largest first.
+                description: |
+                  One per value of the group-by field, or one for all of it; largest first. At most 10, then
+                  the rest as one line named `Other (k)`, with `others`: k, each point the sum of theirs (a
+                  measure whose figures add up) or the largest.
                 items:
                   type: object
                   additionalProperties: false
@@ -2612,6 +2624,7 @@ components:
                     name: {type: string}
                     now: {$ref: '#/components/schemas/MeasureNumber'}
                     points: {type: array, items: {$ref: '#/components/schemas/MeasureNumber'}}
+                    others: {type: integer, description: On the `Other (k)` line only, how many lines it holds.}
         buckets:
           type: array
           description: A timeseries of the events measure, its events per bucket, ok and failed.
@@ -2644,6 +2657,15 @@ components:
             queue: {type: string}
         queueOnlyTerms: {type: array, items: {type: string}}
         noDepth: {type: [string, 'null'], description: Why queue measures have no figure here.}
+    WidgetSkipped:
+      type: object
+      additionalProperties: false
+      required: [id, type, title, skipped]
+      properties:
+        id: {type: [string, 'null']}
+        type: {type: [string, 'null']}
+        title: {type: [string, 'null']}
+        skipped: {type: string, description: 'Why this widget has no figures here, and where to ask for them.'}
     Me:
       type: object
       additionalProperties: false
