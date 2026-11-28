@@ -2285,7 +2285,9 @@ paths:
       summary: Lock or unlock a dashboard
       description: |
         `lock` true locks it under your name (a locked one stays as it is); false unlocks it, which only
-        whoever locked it, or an admin, may (`403`). Needs a member.
+        whoever locked it, or an admin, may (`403`). An unlock is written only if no one changed the dashboard
+        since it was checked; after such a race it is checked again, and after three races it is `409`. Needs a
+        member.
       requestBody:
         required: true
         content:
@@ -2312,6 +2314,7 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/DashboardGone'}
+        '409': {$ref: '#/components/responses/DashboardBusy'}
         '413': {$ref: '#/components/responses/BodyTooLarge'}
         '415': {$ref: '#/components/responses/NotJson'}
         '500': {$ref: '#/components/responses/InternalError'}
