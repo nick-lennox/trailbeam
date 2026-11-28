@@ -101,7 +101,7 @@ function Queue({ m }: { m: MessageSummary }) {
     <>
       <span className="font-mono text-caption text-ink">{m.current_queue || m.source_queue || "?"}</span>
       {m.in_dead_letter_queue && <> <Muted>(DLQ, from {m.source_queue || "?"})</Muted></>}
-      {!m.in_dead_letter_queue && m.dead_letter_queue_move === "not_seen_on_dlq_yet" && <> <Muted>(maxReceiveCount reached; DLQ move inferred, not seen yet)</Muted></>}
+      {!m.in_dead_letter_queue && m.dead_letter_queue_move === "not_seen_on_dlq_yet" && <> <Muted>(reached maxReceiveCount; the move to the dead-letter queue isn’t seen yet)</Muted></>}
     </>
   );
 }
@@ -142,12 +142,15 @@ export type MessagesTableProps = {
 
 /** The Receives head's tooltip: what the count is, and what it is not (SQS's own receive count). */
 export const RECEIVES_TITLE = "Receives Trailbeam observed, on every queue, the receive from a dead-letter queue included. "
-  + "SQS's own receive count can be higher: it counts receives by consumers Trailbeam doesn't see. "
-  + "Handled: a receive that ended in a delete or a successful Lambda record.";
+  + "SQS's own receive count can be higher: it counts receives by consumers Trailbeam doesn't see.";
+
+/** The Handled head's tooltip. */
+export const HANDLED_TITLE = "Receives that ended in a delete, or in a Lambda record that succeeded.";
 
 /** The tooltip on a column head, where the word alone needs explaining. */
 const HEAD_TITLES: Record<string, string> = {
   Receives: RECEIVES_TITLE,
+  Handled: HANDLED_TITLE,
 };
 
 /** One row per message, in the API's order. Times are UTC. A message received more than once shows its count

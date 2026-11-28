@@ -803,8 +803,10 @@ def _consumer(c: dict) -> str:
 
 
 RECEIVES_TITLE = ("Receives Trailbeam observed, on every queue, the receive from a dead-letter queue included. "
-                  "SQS's own receive count can be higher: it counts receives by consumers Trailbeam doesn't see. "
-                  "Handled: a receive that ended in a delete or a successful Lambda record.")
+                  "SQS's own receive count can be higher: it counts receives by consumers Trailbeam doesn't see.")
+HANDLED_TITLE = "Receives that ended in a delete, or in a Lambda record that succeeded."
+# These pages have no Handled column: the Receives cell says "2 · 1 handled", so its head explains both.
+_RECEIVES_HEAD_TITLE = f"{RECEIVES_TITLE} Handled: {HANDLED_TITLE[0].lower()}{HANDLED_TITLE[1:]}"
 
 
 def _receives(m: dict) -> str:
@@ -841,7 +843,7 @@ def _summary_table(messages: list[dict], *, empty: str, extra: Optional[tuple] =
             cells.append(extra[1](m))
         rows.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
     return ("<table><thead><tr>" + "".join(
-        f'<th title="{escape(RECEIVES_TITLE)}">{escape(c)}</th>' if c == "Receives" else f"<th>{escape(c)}</th>" for c in cols) + "</tr></thead><tbody>"
+        f'<th title="{escape(_RECEIVES_HEAD_TITLE)}">{escape(c)}</th>' if c == "Receives" else f"<th>{escape(c)}</th>" for c in cols) + "</tr></thead><tbody>"
             + "".join(rows) + "</tbody></table>")
 
 

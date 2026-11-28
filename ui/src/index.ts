@@ -49,7 +49,7 @@ export {
   type FirstMessage, type FirstRunStatus, type Health,
 } from "./firstrun/status.ts";
 export {
-  MessagesTable, EmptyState, SET_UP, STATE_LABELS, RECEIVES_TITLE, DUPLICATE_REASONS, duplicateWhy, duplicateWhyText, fmtAge, fmtThreshold, fmtTime, rowFacts, shortId,
+  MessagesTable, EmptyState, SET_UP, STATE_LABELS, RECEIVES_TITLE, HANDLED_TITLE, DUPLICATE_REASONS, duplicateWhy, duplicateWhyText, fmtAge, fmtThreshold, fmtTime, rowFacts, shortId,
   stateText, POSSIBLY_PURGED_TITLE,
   type Column, type EmptyStateProps, type MessageSummary, type MessagesTableProps,
 } from "./messages/Messages.tsx";

@@ -235,14 +235,14 @@ export function dashboardMeasures(o: { language?: QueryLanguage; sample?: Sample
     { id: "sent", label: "Sent per minute", ask: ASKS[1], unit: "rate", agg: "sum", ev: { when: is("send") } },
     { id: "received", label: "Received per minute", ask: ASKS[1], unit: "rate", agg: "sum", ev: { when: is("receive") } },
     { id: "deleted", label: "Deleted per minute", ask: ASKS[1], unit: "rate", agg: "sum", ev: { when: is("delete") } },
-    { id: "processing_time", label: "Processing time, p95", ask: ASKS[1], unit: "ms", agg: "max", ev: { when: is("delete", "processing_error"), take: (e) => e.durationMs, fold: "p95" } },
+    { id: "processing_time", label: "Handling time, p95", ask: ASKS[1], unit: "ms", agg: "max", ev: { when: is("delete", "processing_error"), take: (e) => e.durationMs, fold: "p95" } },
     { id: "time_in_queue", label: "Time in queue, p95", ask: ASKS[1], unit: "ms", agg: "max", ev: { when: is("receive"), take: (e) => e.waitMs, fold: "p95" } },
-    { id: "dlq_depth", label: "DLQ depth", ask: ASKS[2], unit: "count", agg: "sum", now: now("dlq_depth"),
+    { id: "dlq_depth", label: "Dead-letter queue depth", ask: ASKS[2], unit: "count", agg: "sum", now: now("dlq_depth"),
       live: (q) => (q.dlq ? q.dlqDepth : null), history: (q, f, t, n) => (q.dlq ? gauge(q, "dlq", f, t, n) : null) },
     /* instrumented messages with no final settle, first seen more than 5 minutes ago (the Stuck page) */
     { id: "stuck_in_flight", label: "Stuck in flight", ask: ASKS[2], unit: "count", agg: "sum", now: now("stuck_in_flight"), live: (q) => q.stuck,
       spans: true, history: (q, f, t, n) => spanGauge(q, "stuck", f, t, n, q.stuck) },
-    { id: "processing_errors", label: "Processing errors", ask: ASKS[2], unit: "count", agg: "sum", ev: { when: is("processing_error") } },
+    { id: "processing_errors", label: "Handling errors", ask: ASKS[2], unit: "count", agg: "sum", ev: { when: is("processing_error") } },
     { id: "dead_lettered", label: "Messages dead-lettered", ask: ASKS[2], unit: "count", agg: "sum", ev: { when: is("dead_letter") } },
     {
       id: "retention_headroom", label: "Retention headroom", ask: ASKS[3], unit: "pct", agg: "max", now: now("retention_headroom"),
@@ -261,7 +261,7 @@ export function dashboardMeasures(o: { language?: QueryLanguage; sample?: Sample
     },
     /* instrumented messages in flight on their last allowed receive (receive count at maxReceiveCount), as a share of
        the instrumented messages in flight */
-    { id: "near_dlq", label: "One receive from the DLQ", ask: ASKS[3], unit: "pct", agg: "max", now: now("near_dlq"),
+    { id: "near_dlq", label: "One receive from the dead-letter queue", ask: ASKS[3], unit: "pct", agg: "max", now: now("near_dlq"),
       live: (q) => nearNow(q), spans: true, history: (q, f, t, n) => spanGauge(q, "nearDlq", f, t, n, nearNow(q)) },
     { id: "events", label: "Events matching the filter", ask: ASKS[4], unit: "count", agg: "sum", ev: {} },
     { id: "body_size", label: "Body size, average", ask: ASKS[4], unit: "bytes", agg: "max", ev: { take: (e) => e.sizeBytes, fold: "avg" } },

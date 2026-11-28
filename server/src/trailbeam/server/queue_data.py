@@ -9,8 +9,8 @@ or a dashboard's measure can name any queue, and the server's credentials do the
 answer is ``{"aws", "live", "inQueue"}``: ``aws`` in @trailbeam/ui/model's ``QueueAws`` shape, ``live`` its
 ``QueueLive``, ``inQueue`` its ``InQueueView`` or None.
 
-The span-derived history the hosted dashboards draw (Stuck in flight and One receive from the DLQ over the day,
-lib/app/span-history.ts) is not worked out yet: those measures show their figure now.
+The span-derived history the hosted dashboards draw (Stuck in flight and One receive from the dead-letter queue over
+the day, lib/app/span-history.ts) is not worked out yet: those measures show their figure now.
 """
 from __future__ import annotations
 

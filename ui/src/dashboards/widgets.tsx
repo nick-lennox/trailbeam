@@ -59,7 +59,7 @@ function QueueOnly({ w, ctx }: { w: Widget; ctx: Ctx }) {
   );
 }
 /* a measure on own data worked out from the spans as they are now, without history */
-const NoHistory = ({ m }: { m: Measure }) => <Empty>{m.label} is worked out from your spans as they are now, so it has no history to draw. Show it as a number.</Empty>;
+const NoHistory = ({ m }: { m: Measure }) => <Empty>{m.label} is worked out from your events as they are now, so it has no history to draw. Show it as a number.</Empty>;
 
 function TimeSeriesBody({ w, ctx }: { w: Widget; ctx: Ctx }) {
   const router = useNav();
@@ -302,7 +302,7 @@ function HeatmapBody({ w, ctx }: { w: Widget; ctx: Ctx }) {
     any = true;
     cells[HEAT_ROWS.findIndex(([lo]) => v >= lo)][Math.min(COLS - 1, Math.floor(((e.ms - time.from) / (time.to - time.from)) * COLS))]++;
   }
-  if (!any) return <Empty>No processing times were recorded for this filter in this range.</Empty>;
+  if (!any) return <Empty>No handling times were recorded for this filter in this range.</Empty>;
   return <Heatmap cells={cells} labels={HEAT_ROWS.map(([, l]) => l)} from={time.from} to={time.to} />;
 }
 
@@ -361,7 +361,7 @@ function FlowBody({ w, ctx }: { w: Widget; ctx: Ctx }) {
   const [ref, { w: sw, h: sh }] = useSize<HTMLDivElement>();
   const names = queuesFor(ctx.lang.parse(effectiveFilter(w, ctx.vars)), ctx.data.queues);
   const q = names[0];
-  if (ctx.data.live) return <Empty><span>The flow of your own queues is on the <UiLink href={ctx.ws("")} className="text-brand underline underline-offset-2">overview</UiLink>.</span></Empty>;
+  if (ctx.data.live) return <Empty><span>The flow of your own queues is on the <UiLink href={ctx.ws("")} className="text-brand underline underline-offset-2">Overview</UiLink>.</span></Empty>;
   const flow = q ? ctx.sampleFlow?.(q) : undefined;
   if (!q || !flow) return <Empty>No queue matched this filter.</Empty>;
   const prods = flow.producers.slice(0, 3);

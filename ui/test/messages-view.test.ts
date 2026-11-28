@@ -94,7 +94,7 @@ test("the level bar: red in a dead-letter queue, amber when received more than o
 test("nothing the open-source list shows is lost: SQS clock, purge, the DLQ move not seen yet, consumers none yet", () => {
   const t = text(draw([row({ first_seen_clock: "sqs", state: "not_deleted", consumers: [], deliveries: 4, successful_deliveries: 0, dead_letter_queue_move: "not_seen_on_dlq_yet",
     purge: { status: "possibly_purged", queue: "orders", start: "2026-11-27T12:00:09.000Z", end: "2026-11-27T12:00:09.100Z", window_end: "2026-11-27T12:01:09.100Z", span: { trace_id: TRACE, span_id: "00f067aa0ba902b7" } } })]));
-  for (const s of ["SQS clock", "Possibly purged: a PurgeQueue call ran at 12:00:09.000 UTC", "maxReceiveCount reached, move to the DLQ not seen yet", "None yet"]) assert.ok(t.includes(s), `missing ${s}: ${t}`);
+  for (const s of ["SQS clock", "Possibly purged: a PurgeQueue call ran at 12:00:09.000 UTC", "reached maxReceiveCount; the move to the dead-letter queue isn't seen yet", "None yet"]) assert.ok(t.includes(s), `missing ${s}: ${t}`);
 });
 
 test("an empty page says the host's words; the host's own columns join on the right", () => {
@@ -115,4 +115,10 @@ test("the export writes the columns shown, every value in full", () => {
   // the view's export goes through the host's download
   draw([m], { download: (_n: string, _t: string, d: BlobPart) => { got = String(d); } });
   assert.equal(got, "", "nothing is written until Export is chosen");
+});
+
+test("Handled has its own head note, and Receives' note is about receives only", () => {
+  const tip = (id: string) => MESSAGE_COLUMNS.find((c) => c.id === id)?.tip;
+  assert.equal(tip("handled"), "Receives that ended in a delete, or in a Lambda record that succeeded.");
+  assert.doesNotMatch(String(tip("receives")), /Handled/);
 });

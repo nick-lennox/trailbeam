@@ -28,8 +28,8 @@ export const STATUS_TEXT: Record<AnyToken["status"], string> = { active: "Active
 export const EXPIRY: readonly [number | null, string][] = [[30, "30 days"], [90, "90 days"], [365, "1 year"], [null, "Until revoked"]];
 export const DEFAULT_EXPIRY = 90;
 
-/** The part of a token the page can show: its first 8 characters, never more. */
-export const shownPrefix = (prefix: string) => `${prefix}…`;
+/** The part of a token the page can show, under "Starts with": its first 8 characters, never more. */
+export const shownPrefix = (prefix: string) => prefix;
 
 /** The legacy shared token's line: what it is, what it works for, and how to stop it (not from this page). */
 export function sharedSentence(s: SharedToken): string {
