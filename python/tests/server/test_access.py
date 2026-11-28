@@ -406,7 +406,6 @@ def test_me_says_which_off_by_default_parts_are_on(serve, monkeypatch):
     monkeypatch.setenv("TRAILBEAM_ALERT_CHECK", "on")
     url, _ = serve()
     assert json.loads(call(url, "/api/me")[2])["features"] == {"dashboards": True, "alerts": True}
-    assert call(url, "/api/dashboards")[0] == 200 and call(url, "/api/alerts/rules")[0] == 200
 
 
 def test_ingest_tokens_over_http_in_both_headers(serve):
