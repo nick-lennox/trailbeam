@@ -390,8 +390,8 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
         "groups": groups,
         "events": evs,
         "order": order_doc,
-        "notices": _notices(rows, receives, order) + ([_not_seen_notice(source_queue, src_count, mrc)]
-                                                       if dlq_move == "not_seen_on_dlq_yet" else []),
+        "notices": _notices(rows, receives, order, bool(publishes or put_events or s3_uploads))
+                   + ([_not_seen_notice(source_queue, src_count, mrc)] if dlq_move == "not_seen_on_dlq_yet" else []),
     }
 
 
@@ -814,7 +814,10 @@ def first_seen_ns(rows) -> tuple[int, str]:
     return min(r["time_ns"] for r in rows), HOST_CLOCK
 
 
-def _notices(rows, receives, order=None) -> list[dict]:
+def _notices(rows, receives, order=None, upstream_joined: bool = False) -> list[dict]:
+    """``upstream_joined``: an SNS publish, EventBridge PutEvents entry or S3 upload joined the message. Its
+    producer is instrumented and on the page; the SQS send was the AWS service's own, which nothing can
+    instrument, so no send_not_observed (QV-728)."""
     out = []
     if order is not None and order.conflicts:
         out.append({"code": "order_conflict", "message":
@@ -838,7 +841,7 @@ def _notices(rows, receives, order=None) -> list[dict]:
             out.append({"code": "unmatched_handle", "message":
                         "A delete or visibility change carries this message ID, but no stored receive has its "
                         "receipt-handle hash, so it is not attached to a delivery."})
-    if not any(r["kind"] == "send" for r in rows):
+    if not upstream_joined and not any(r["kind"] == "send" for r in rows):
         out.append({"code": "send_not_observed", "message":
                     "No trailbeam send span for this message: the producer is not instrumented, or the send is older "
                     "than the stored data."})

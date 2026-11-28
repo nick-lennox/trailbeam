@@ -50,6 +50,10 @@ def types(t):
     return [e["type"] for e in t["events"]]
 
 
+def codes(t):
+    return [n["code"] for n in t["notices"]]
+
+
 def upload(t=T0 + SEC, **kw):
     """An upload from T0 to ``t``; S3 finished it at T0 + 800 ms."""
     kw.setdefault("key", KEY)
@@ -81,6 +85,7 @@ def test_both_queues_join_the_one_upload(new_store):
     a, b = queries.message(s, "sqs-a", NOW, LT), queries.message(s, "sqs-b", NOW, LT)
     # the joined upload replaces the inferred "S3 object created" step (section 23.3)
     assert types(a) == ["s3_upload", "received"] and types(b) == ["s3_upload", "received"]
+    assert codes(a) == codes(b) == []  # QV-728: no send_not_observed under a joined upload
     ea, eb = a["events"][0], b["events"][0]
     assert ea["span"] == eb["span"]
     assert ea["inferred"] is False and ea["source"] == "s3_upload" and ea["joined_by"] == "bucket_key_time"
@@ -98,9 +103,12 @@ def test_both_queues_join_the_one_upload(new_store):
 def test_the_upload_may_arrive_after_the_receive(new_store):
     s = new_store()
     put(s, received(C, "sqs-a"))
-    assert types(queries.message(s, "sqs-a", NOW, LT)) == ["s3_event", "received"]
+    t = queries.message(s, "sqs-a", NOW, LT)
+    assert types(t) == ["s3_event", "received"] and "send_not_observed" in codes(t)
     put(s, upload())
-    assert types(queries.message(s, "sqs-a", NOW, LT)) == ["s3_upload", "received"]
+    t = queries.message(s, "sqs-a", NOW, LT)
+    # QV-728: the uploader is instrumented and on the page; the SQS send was S3's own
+    assert types(t) == ["s3_upload", "received"] and "send_not_observed" not in codes(t)
 
 
 @pytest.mark.parametrize("why,up,rec", [
