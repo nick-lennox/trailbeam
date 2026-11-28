@@ -332,7 +332,7 @@ export function AlertChannels({ channels, canManage, actions, empty, secretNote,
               <option value="email">Email</option>
             </select>
           </label>
-          <Field label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="#oncall" className="w-44" maxLength={60} />
+          <Field label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="#oncall" className="w-44 self-start" maxLength={60} />
           <Field label={kind === "email" ? "Addresses" : "URL"} mono value={target} onChange={(e) => setTarget(e.target.value)} required
             placeholder={PLACEHOLDER[kind]} className="min-w-72 flex-1" hint={HINT[kind]} />
           <label className="grid gap-1.5 self-start">
