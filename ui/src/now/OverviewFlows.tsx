@@ -671,7 +671,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
         {/* ── what is in the queue now: opens under the flow, across the page like the event explorer, when the queue itself is the selected part ── */}
         {part.kind === "queue" && (real ? (
           <div className="min-w-0 min-[1480px]:col-span-2">
-            <QueueNowLive key={q.name} queue={q.name} view={info?.inQueue ?? null} live={lv ?? null} heldTotal={info?.heldTotal ?? 0} consumer={conList.length === 1 ? found[0]?.name ?? "" : ""} fifo={q.type === "FIFO"} triggers={info?.triggers ?? null} hrefs={hrefs} />
+            <QueueNowLive key={q.name} queue={q.name} view={info?.inQueue ?? null} live={lv ?? null} heldTotal={info?.heldTotal ?? 0} consumer={conList.length === 1 ? found[0]?.name ?? "" : ""} fifo={q.type === "FIFO"} triggers={info?.triggers ?? null} seenDlq={seenDlq?.name ?? null} hrefs={hrefs} />
           </div>
         ) : slots.sampleNow ? <div className="min-w-0 min-[1480px]:col-span-2">{slots.sampleNow(q.name)}</div> : null)}
         {real && slots.foot && <footer className="min-w-0 text-xs leading-relaxed text-ink-3 min-[1480px]:col-span-2">{slots.foot}</footer>}
