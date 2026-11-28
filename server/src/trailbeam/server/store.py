@@ -274,9 +274,11 @@ class Store(abc.ABC):
     @abc.abstractmethod
     def stuck_messages(self, cutoff_ns: int, limit: int, queue: Optional[str] = None, *,
                        from_ns: Optional[int] = None, after: Optional[tuple] = None,
-                       version: Optional[str] = None) -> list[StuckCandidate]:
+                       version: Optional[str] = None, keys: Optional[Iterable[str]] = None) -> list[StuckCandidate]:
         """Messages first seen before ``cutoff_ns`` (and at or after ``from_ns``) with no final delete, oldest
-        first. ``after``: the (first_ns, message ID) of the previous page's last message.
+        first. ``after``: the (first_ns, message ID) of the previous page's last message. ``keys``: only messages
+        whose summary's ``current_key`` (the queue key they are on now) is one of these, so a queue of the same
+        name in another account or region is left out by the store, not after it is read (QV-758).
 
         First seen: the earliest send span's time, else the earliest receive's SentTimestamp (``sent_ts_ms``,
         on SQS's clock: ``on_sqs_clock``), else the earliest send or receive time. Messages with neither a send

@@ -654,7 +654,7 @@ class SqliteStore(Store):
 
     def stuck_messages(self, cutoff_ns: int, limit: int, queue: Optional[str] = None, *,
                        from_ns: Optional[int] = None, after: Optional[tuple] = None,
-                       version: Optional[str] = None) -> list[StuckCandidate]:
+                       version: Optional[str] = None, keys: Optional[Iterable[str]] = None) -> list[StuckCandidate]:
         where, p = "", [cutoff_ns]
         if from_ns is not None:
             where += " AND s.stuck_first_ns >= ?"
@@ -665,6 +665,9 @@ class SqliteStore(Store):
         if queue:
             where += " AND EXISTS (SELECT 1 FROM json_each(s.queues_json) WHERE value = ?)"
             p.append(queue)
+        if keys is not None:
+            where += " AND s.current_key IN (SELECT value FROM json_each(?))"
+            p.append(json.dumps(sorted(set(keys))))
         if version:
             where += self._BY_VERSION
             p.append(version)

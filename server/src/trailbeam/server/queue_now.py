@@ -160,21 +160,17 @@ def summarize(held: list, not_seen: list, *, now_ms: int, config: dict, capped: 
 
 def _held_of(db, keys: set, name: str, cutoff_ns: int, from_ns: int, limit: int) -> list:
     """The oldest ``limit`` of the Stuck list's candidates first seen in [from_ns, cutoff_ns) that are on the queue
-    whose stored keys are ``keys``, as (message ID, its rows), oldest first. The store filters by name only, so a
-    queue of this name in another account or region is skipped here, a page at a time, and its messages don't take
-    this queue's places in the limit (nor turn ``capped`` on). RabbitMQ messages are skipped the same way."""
+    whose stored keys are ``keys`` now, as (message ID, its rows), oldest first. The store filters by queue key
+    (the summary's ``current_key``), so a queue of this name in another account or region is neither read here nor
+    takes this queue's places in the limit (QV-758). RabbitMQ messages are skipped, a page at a time."""
     out: list = []
     after = None
     while len(out) < limit:
-        page = db.stuck_messages(cutoff_ns, limit, name, from_ns=from_ns, after=after)
+        page = db.stuck_messages(cutoff_ns, limit, name, from_ns=from_ns, after=after, keys=keys)
         rows_of = db.messages_rows([c.message_id for c in page])
         for c in page:
             rows = rows_of.get(c.message_id)
-            if not rows or rabbitmq.is_rabbitmq(rows):
-                continue
-            # a queue of this name in another account or region is another queue
-            if any(queues_mod.key(r["queue"], r["queue_url"]) in keys for r in rows
-                   if r["queue"] == name and r["kind"] in ("send", "receive")):
+            if rows and not rabbitmq.is_rabbitmq(rows):
                 out.append((c.message_id, rows))
         if len(page) < limit:
             break

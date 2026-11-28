@@ -2011,7 +2011,7 @@ class PostgresStore(Store):
 
     def stuck_messages(self, cutoff_ns: int, limit: int, queue: Optional[str] = None, *,
                        from_ns: Optional[int] = None, after: Optional[tuple] = None,
-                       version: Optional[str] = None) -> list[StuckCandidate]:
+                       version: Optional[str] = None, keys: Optional[Iterable[str]] = None) -> list[StuckCandidate]:
         # Oldest first by stuck_first_ns, which a place's bucket doesn't bound (a message received long ago and
         # kept on its consumer is placed by its newest span; an SQS send time is SQS's clock): every place is read.
         where, p = "", [cutoff_ns]
@@ -2024,6 +2024,9 @@ class PostgresStore(Store):
         if queue:
             where += self._ON_QUEUE
             p.append(queue)
+        if keys is not None:
+            where += " AND s.current_key = ANY(%s)"
+            p.append(sorted(set(keys)))
         if version:
             where += self._BY_VERSION
             p.append(version)

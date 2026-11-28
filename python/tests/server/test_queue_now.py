@@ -158,6 +158,35 @@ def test_the_other_queues_messages_do_not_cap_this_ones_list(db, ingest):
     assert [m["id"] for m in there_now["held"]] == ["y0", "y1"] and there_now["capped"] is True
 
 
+def test_the_other_queues_backlog_is_not_read(db, ingest, monkeypatch):
+    """QV-758: the store leaves a same-named queue elsewhere out, so its older open messages are not read first (the
+    time it took grew with that backlog: 80,000 of them took 4.4 s)."""
+    here, there = Consumer("a"), Consumer("b")
+    theirs = [there.send(T0 + i, f"y{i}") for i in range(3000)]  # older than this queue's one: read first by age
+    for s in theirs:
+        s.attrs["aws.sqs.queue.url"] = ELSEWHERE
+    ingest(*theirs, here.send(T0 + SEC, "x0"))
+    read, rows_of = [], db.messages_rows
+    monkeypatch.setattr(db, "messages_rows", lambda mids: read.extend(mids) or rows_of(mids))
+    d = now_of(db, T0 + 10 * SEC, path="queues/000000000000%2F%2Forders/now")
+    assert [m["id"] for m in d["held"]] == ["x0"] and d["capped"] is False and read == ["x0"]
+
+
+def _received_elsewhere(ingest_into):
+    """x2 sent to 000000000000//orders and received on 123456789012/eu-west-1/orders; y2 sent there, older."""
+    a, b = Consumer("a"), Consumer("b")
+    r, y = b.receive(T0 + SEC, "x2", "h2"), b.send(T0 - SEC, "y2")
+    r.attrs["aws.sqs.queue.url"] = y.attrs["aws.sqs.queue.url"] = ELSEWHERE
+    ingest_into([a.send(T0, "x2"), r, y])
+
+
+def test_a_message_received_on_the_queue_of_the_same_name_elsewhere_is_there_now(db, ingest):
+    _received_elsewhere(lambda spans: ingest(*spans))
+    assert now_of(db, T0 + 2 * SEC, path="queues/000000000000%2F%2Forders/now")["held"] == []
+    there = now_of(db, T0 + 2 * SEC, path="queues/123456789012%2Feu-west-1%2Forders/now")
+    assert [m["id"] for m in there["held"]] == ["y2", "x2"]
+
+
 def test_the_list_is_capped(db, ingest):
     w = Consumer("w")
     ingest(*[w.send(T0 + i * SEC, f"m{i}") for i in range(5)])
@@ -208,6 +237,7 @@ def test_a_postgres_store_keeps_a_same_named_queue_apart_as_sqlite_does(db):
             def into(spans, store=store):
                 store.insert(decode(to_proto(spans, service="orders").SerializeToString(), "application/x-protobuf").records)
             _same_name_elsewhere(into)
+            _received_elsewhere(into)
         for path in ("queues/000000000000%2F%2Forders/now", "queues/123456789012%2Feu-west-1%2Forders/now"):
             assert now_of(pg, T0 + 10 * SEC, path=path) == now_of(db, T0 + 10 * SEC, path=path)
         assert now_of(pg, T0 + 10 * SEC, path="queues/000000000000%2F%2Forders/now")["deleted"] == []
