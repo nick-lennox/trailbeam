@@ -8,14 +8,18 @@
   still opens), and flow=. The range is chosen with the explorer's TimePicker. A range that ends now asks again every 15 s
   while the tab is showing and updates the figures in place; a fixed range is read once. Copy link pins the exact window. /queues, the queue list QV-360 planned, is this page.
 */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   LAMBDA_DELETES_HINT, REFRESH_S, flowsHref, flowsWindow, fmtBytes, lambdaDeletes, overviewRangeOf, pinnedFlowsHref, queueQuery, queueRangeOf,
   readFlowsUrl, selfHostedFlowsData, timeKey, storeIsEmpty, type CausePage, type Flow, type FlowsResponse, type FlowsUrl, type QueueNowResponse,
 } from "../src/index.ts";
-import { fmtNum, phrase, preset, type InQueueView, type TimeRange } from "../src/model/index.ts";
-import { OverviewFlows, TopBar, Tooltip, UiLink, type OverviewCopy, type OverviewFlowsData, type OverviewFlowsHrefs } from "../src/design/index.ts";
+import { fmtNum, partMessagesOf, phrase, preset, type Ev, type InQueueView, type QueueLive, type TimeRange } from "../src/model/index.ts";
+import {
+  OverviewFlows, PartMessages, Since, TopBar, Tooltip, UiLink, type OverviewCopy, type OverviewFlowsData, type OverviewFlowsHrefs, type PartMessagesAt,
+} from "../src/design/index.ts";
 import { ApiError, CopyLink, getHealth, getJSON } from "./chrome.tsx";
+import { eventsHref, timelineEventsQuery } from "./events.tsx";
+import { qs } from "./lists.tsx";
 import { ShellFrame, ShellSearch } from "./frame.tsx";
 
 const DOCS = "https://github.com/nick-lennox/trailbeam/blob/main/docs/api.md#list-flows";
@@ -72,6 +76,40 @@ function QueueTotals({ f, range }: { f: Flow; range: string }) {
         ))}
       </dl>
     </div>
+  );
+}
+
+/** The most messages the rows under a part are read from: GET /api/timeline-events' limit, most recently active first. */
+const PART_LIMIT = 500;
+type PartEvents = { key: string; events: Ev[]; capped: boolean } | { key: string; error: string };
+
+/**
+ * The messages behind a selected producer, consumer or dead-letter queue (the shared PartMessages), from recorded
+ * spans: the range's events as the Event explorer reads them (GET /api/timeline-events), one row per message. Read
+ * again when the range moves, without closing a row that is open.
+ */
+function ShellPartMessages({ at, queue, window: w, time, live }: { at: PartMessagesAt; queue: string; window: { fromMs: number; toMs: number }; time: TimeRange; live: QueueLive | undefined }) {
+  const key = `${Math.floor(w.fromMs)}-${w.toMs}`;
+  const [got, setGot] = useState<PartEvents | null>(null);
+  useEffect(() => {
+    let on = true;
+    getJSON<{ events: Ev[]; capped: boolean }>(`/api/timeline-events?${qs({ ...timelineEventsQuery({ from: w.fromMs, to: w.toMs }), limit: String(PART_LIMIT) })}`)
+      .then((r) => on && setGot({ key, events: r.events, capped: r.capped }), (e: Error) => on && setGot({ key, error: e.message }));
+    return () => { on = false; };
+  }, [key]);
+  const name = at.part === "producer" ? at.producer : at.part === "consumer" ? at.consumer : undefined;
+  const rows = useMemo(() => (got && "events" in got ? partMessagesOf(got.events, { queue, part: at.part, name }) : []), [got, queue, at.part, name]);
+  if (at.part !== "dlq" && !name) return null;
+  const note = "border-t border-line px-5 py-3 text-xs text-ink-3";
+  if (!got) return <p className={note}>Reading its messages in {phrase(time)}.</p>;
+  if ("error" in got) return <p className={note} role="alert">Couldn&rsquo;t read its messages: {got.error}</p>;
+  if (!rows.length) return <p className={note}>No message {at.part === "producer" ? "it sent here" : at.part === "consumer" ? "it received from here" : "moved to the dead-letter queue"} has an event in {phrase(time)}.</p>;
+  return (
+    <>
+      <PartMessages queue={queue} part={at.part} producer={at.producer} rows={rows} max={at.max} eventsHref={(q) => eventsHref(q, time)}
+        facts={live && { read: false, fifo: live.fifo, visibilityTimeoutS: live.visibilityTimeoutS, retentionS: live.retentionS, delayS: null, maxReceiveCount: live.maxReceiveCount, dlq: live.dlq, triggers: null }} />
+      {got.capped && <p className={note}>Read from the {fmtNum(PART_LIMIT)} most recently active messages in the range.</p>}
+    </>
   );
 }
 
@@ -149,7 +187,7 @@ export function OverviewPage() {
     },
     issues: (queue) => `/stuck?queue=${encodeURIComponent(nameOf(queue))}`,
     cause: (c) => c.href ?? "/stuck",
-    events: (query) => `/events?q=${encodeURIComponent(query)}`,
+    events: (query) => eventsHref(query, u.time),
     deadLettered: ({ queue }) => `/stuck?queue=${encodeURIComponent(nameOf(queue))}`,
     message: (id) => `/message?id=${encodeURIComponent(id)}`,
   };
@@ -193,6 +231,7 @@ export function OverviewPage() {
         time={{ range: u.time, now: state.kind === "ok" ? state.at : Date.now(), onChange: setTime }}
         data={got?.data ?? selfHostedFlowsData({ range: overviewRangeOf(u.time), window: { fromMs: 0, toMs: 0, minutes: 1 }, flows: [], causes: null, now: {}, causeHref: () => "/stuck" })}
         flow={u.flow}
+        fresh={state.kind === "ok" ? <Since ms={state.at} /> : undefined}
         onFlow={(flow) => { const next = { ...u, flow }; setU(next); history.replaceState(history.state, "", flowsHref(next)); }}
         copy={COPY}
         hrefs={hrefs}
@@ -200,6 +239,7 @@ export function OverviewPage() {
           search: <ShellSearch />,
           emptyActions: <a className="rounded-control border border-line bg-surface px-3 py-1.5 text-sm text-ink hover:border-line-strong" href="/">See how to connect a service</a>,
           actions: <CopyLink design link={() => pinnedFlowsHref(u, state.kind === "ok" ? state.at : Date.now())} />,
+          partMessages: (at) => got && <ShellPartMessages key={`${at.queue}:${at.part}:${at.producer ?? at.consumer ?? ""}`} at={at} queue={nameOf(at.queue)} window={got.window} time={u.time} live={got.data.info[at.queue]?.live} />,
           queueFacts: (label) => { const f = byLabel.get(label); return f ? <QueueTotals f={f} range={range} /> : null; },
           foot: got && <>
             <p>Counts are of the spans your services reported between {clock(got.window.fromMs)} and {clock(got.window.toMs)} UTC. Trailbeam makes no AWS calls, so it can&rsquo;t see queue depth or the oldest message: open a queue&rsquo;s page for what it can see, and the SQS console for the rest.</p>

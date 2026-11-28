@@ -2,7 +2,8 @@
 
 import { Fragment, useState } from "react";
 import { fmtBytes, fmtMs, fmtNum } from "../model/format.ts";
-import { fmtT, type Ev } from "../model/events.ts";
+import { fmtT } from "../model/events.ts";
+import type { PartMessage } from "../model/part-messages.ts";
 import { UiLink } from "../design/nav.tsx";
 import { MessageSequence, type QueueFacts, type Sequence } from "./MessageSequence.tsx";
 
@@ -10,19 +11,7 @@ import { MessageSequence, type QueueFacts, type Sequence } from "./MessageSequen
    queue's own list ("In ‹queue› now"), one row per message, and a row opens to that message's sequence
    diagram. The host passes the rows in, newest first: the hosted app's sample, or a backend's messages from spans. */
 
-/** one message under a part of the flow map, with its whole history so far, oldest event first */
-export type PartMessage = {
-  id: string;
-  producer: string;
-  receiveCount: number;
-  sentMs: number;
-  /* the time of its newest event, which a dead-lettered row is listed by */
-  lastMs: number;
-  outcome: "visible" | "in_flight" | "deleted" | "failed" | "dead_lettered";
-  lastError?: string;
-  events: Ev[];
-  payload?: unknown;
-};
+export type { PartMessage };
 export type PartMessagesProps = {
   queue: string; part: "consumer" | "dlq" | "producer"; producer?: string; rows: readonly PartMessage[]; max: number | null;
   /* the Event explorer with a query typed in, for "Open in Event explorer" */

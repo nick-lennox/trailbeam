@@ -14,6 +14,7 @@
     triage.ts      triage on a cause: the state a stored row is in now, which row a cause shows, filters, words
     arrivals.ts    when a cause's failures reached Trailbeam, for regression and "ignore until N more"
     format.ts      durations, counts, sizes, platform names and the Overview's ranges
+    part-messages.ts  the messages behind a part of the Overview's flow map, from recorded events
 
   fixtures/viewmodel-parity.json: recorded answers from both backends for the same spans, and what these functions
   make of them, which must be the same (test/viewmodel.test.ts here, and the hosted app's own test).
@@ -28,5 +29,6 @@ export * from "./in-queue.ts";
 export * from "./timerange.ts";
 export * from "./query.ts";
 export * from "./format.ts";
+export * from "./part-messages.ts";
 export * from "./arrivals.ts";
 export * from "./triage.ts";
