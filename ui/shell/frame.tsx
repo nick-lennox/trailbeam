@@ -4,13 +4,13 @@
   answers /api/dashboards (TRAILBEAM_DASHBOARDS on), Alerts only while it answers /api/alerts (TRAILBEAM_ALERT_CHECK on). Each page moves into it from the header
   frame (chrome.tsx Frame) when it moves onto the design system, in rows 1 to 10; until then the pages keep
   the header, so nothing they show changes. The items are the header's: People only for admins, Tokens for
-  anyone signed in, and Settings for admins (anyone before accounts exist). The account slot is the header's too: the name, a link to the Account page, and Sign out when
-  it ends anything.
+  anyone signed in, and Settings for admins (anyone before accounts exist). The account slot is drawn as the hosted app's: the initials, the name (a link to the Account page), and a
+  door icon that signs out when signing out ends anything. The sidebar is the one place to sign out (board, QV-588).
   ShellSearch is the top bar's search on this server: a message ID opens its timeline, tenant:<name> (or a
   suggested tenant) lists that tenant's messages, and suggestions come from /api/tenants/search.
 */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Bell, CircleAlert, Copy, KeyRound, LayoutDashboard, ListFilter, Search, Settings, Users, UserCog, Workflow } from "lucide-react";
+import { Bell, CircleAlert, Copy, KeyRound, LayoutDashboard, ListFilter, LogOut, Search, Settings, Users, UserCog, Workflow } from "lucide-react";
 import { AppThemeProvider, MessageSearch, Sidebar, Tooltip, UiLink, tenantText, type SidebarItem, type SidebarQueue } from "../src/design/index.ts";
 import { messageHref, suggestTenants, tenantHref, useMe, useTenantSeen, type Me } from "./chrome.tsx";
 
@@ -61,17 +61,31 @@ export const shellQueueHref = (name: string) => `/queue?name=${encodeURIComponen
 /** Who is signed in, and Sign out: nothing on a server without a token or accounts (chrome.tsx Account). */
 const signedIn = (me: Me | null): me is Me => !!me && (me.via === "session" || me.via === "shared_cookie" || me.via === "proxy");
 
+/** Initials for the round mark beside the name, as the hosted sidebar makes them: the first letters of the first two words. */
+export const initials = (name: string) => name.split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("");
+
+/** The sidebar's last row, drawn as the hosted app's (components/Sidebar.tsx): the initials, the name (a link to the
+    Account page, the email and role on hover) and a door icon that signs out. */
 export function ShellAccount({ me }: { me: Me | null }) {
   if (!signedIn(me)) return null;
   const signOut = me.sign_out ?? me.via !== "proxy";
   return (
     <>
       {me.user && (
-        <Tooltip content={`${me.user.email}, ${me.user.role}`} className="min-w-0 truncate text-sm text-ink">
-          <UiLink href="/account" className="hover:underline">{me.user.name}</UiLink>
-        </Tooltip>
+        <>
+          <span aria-hidden className="grid size-6 shrink-0 place-items-center rounded-full bg-brand text-[11px] font-semibold text-on-brand">{initials(me.user.name)}</span>
+          <Tooltip content={`${me.user.email}, ${me.user.role}`} className="min-w-0 truncate text-sm text-ink">
+            <UiLink href="/account" className="hover:underline">{me.user.name}</UiLink>
+          </Tooltip>
+        </>
       )}
-      {signOut ? <a href="/logout" className="ml-auto rounded-md px-1.5 text-sm text-ink-3 hover:bg-surface/70 hover:text-ink">Sign out</a> : <span className="ml-auto" />}
+      {signOut ? (
+        <Tooltip content="Sign out" className="ml-auto inline-flex">
+          <a href="/logout" aria-label="Sign out" className="rounded-md p-1.5 text-ink-3 hover:bg-surface/70 hover:text-ink">
+            <LogOut size={15} />
+          </a>
+        </Tooltip>
+      ) : <span className="ml-auto" />}
     </>
   );
 }

@@ -12,7 +12,7 @@ import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Workflow, Search } from "lucide-react";
 import { NavProvider, Sidebar, UiLink, plainNav, useNav, useSearch, type LinkProps, type Nav } from "../src/design/index.ts";
-import { shellItems } from "../shell/frame.tsx";
+import { ShellAccount, initials, shellItems } from "../shell/frame.tsx";
 
 const html = (el: ReturnType<typeof h>) => renderToStaticMarkup(el);
 const SRC = new URL("../src/", import.meta.url).pathname;
@@ -92,4 +92,20 @@ test("no view imports a router: the package and the shell route through the Nav"
 
 test("the shell routes through the browser's history", () => {
   assert.match(readFileSync(join(SHELL, "main.tsx"), "utf8"), /<HistoryNav>\{\(v\) => <App key=\{v\} \/>\}<\/HistoryNav>/);
+});
+
+test("Sign out is the sidebar's, drawn as the hosted app's: initials, the name, and a door icon with a hover note (QV-588)", () => {
+  const ada = { id: 1, email: "ada@example.com", name: "Ada Lovelace", role: "admin" as const };
+  const row = html(h(ShellAccount, { me: { auth: "accounts", via: "session", user: ada } }));
+  assert.match(row, />AL</, "the initials in the round mark");
+  assert.match(row, /href="\/account"[^>]*>Ada Lovelace</);
+  assert.match(row, /<a href="\/logout" aria-label="Sign out"[^>]*><svg[^>]*lucide-log-out/, "an icon, not the words");
+  assert.doesNotMatch(row, />Sign out</, "the words are the hover note, not the row's");
+  // a proxy whose sign-out the server doesn't know: the name, no way out that would do nothing
+  assert.doesNotMatch(html(h(ShellAccount, { me: { auth: "accounts", via: "proxy", user: ada, sign_out: false } })), /logout/);
+  // nobody signed in (no token, no accounts): no row
+  assert.equal(html(h(ShellAccount, { me: { auth: "off", via: "none", user: null } })), "");
+  assert.equal(initials("ada@example.com"), "AE");
+  // the account card has no corner for it any more
+  assert.doesNotMatch(readFileSync(join(SRC, "account", "AccountCard.tsx"), "utf8"), /action\?: ReactNode/);
 });
