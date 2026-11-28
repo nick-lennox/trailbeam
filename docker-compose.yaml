@@ -55,6 +55,19 @@ services:
       TRAILBEAM_TOKEN: ${TRAILBEAM_TOKEN:?set TRAILBEAM_TOKEN in .env (see .env.example)}
       TRAILBEAM_RETENTION: ${TRAILBEAM_RETENTION:-7d}
       TRAILBEAM_STORE_BODIES: ${TRAILBEAM_STORE_BODIES:-}
+      # Previews, off unless set in .env (README: Dashboards, Alerts). Empty is the same as unset.
+      TRAILBEAM_DASHBOARDS: ${TRAILBEAM_DASHBOARDS:-}
+      TRAILBEAM_ALERT_CHECK: ${TRAILBEAM_ALERT_CHECK:-}
+      TRAILBEAM_ALERT_ALLOW_PRIVATE_WEBHOOKS: ${TRAILBEAM_ALERT_ALLOW_PRIVATE_WEBHOOKS:-}
+      # Where people open Trailbeam: the start of the links in alerts and emails.
+      TRAILBEAM_PUBLIC_URL: ${TRAILBEAM_PUBLIC_URL:-}
+      # The mail server for alert email channels and invite emails. Off while TRAILBEAM_SMTP_HOST is empty.
+      TRAILBEAM_SMTP_HOST: ${TRAILBEAM_SMTP_HOST:-}
+      TRAILBEAM_SMTP_FROM: ${TRAILBEAM_SMTP_FROM:-}
+      TRAILBEAM_SMTP_PORT: ${TRAILBEAM_SMTP_PORT:-}
+      TRAILBEAM_SMTP_TLS: ${TRAILBEAM_SMTP_TLS:-}
+      TRAILBEAM_SMTP_USER: ${TRAILBEAM_SMTP_USER:-}
+      TRAILBEAM_SMTP_PASSWORD: ${TRAILBEAM_SMTP_PASSWORD:-}
     # TRAILBEAM_BIND unset: this machine only (127.0.0.1). Docker publishes ports past ufw/firewalld (QV-202).
     ports: ["${TRAILBEAM_BIND:-127.0.0.1}:${TRAILBEAM_PORT:-4318}:4318"]
     # Holds nothing with Postgres as the store; kept so the image's /data is never an anonymous volume.

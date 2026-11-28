@@ -94,6 +94,11 @@ tags:
     description: |
       Dashboards, their widgets, and what each widget draws over a time range (the hosted app's dashboards). A
       preview: answered only while `TRAILBEAM_DASHBOARDS` is on (1, true, yes or on); off, every route is a `404`.
+  - name: Alerts
+    description: |
+      "Alert me" rules on Stuck's causes, the channels alerts go to (Slack, a signed webhook, email), and what
+      each rule said at the last check. Answered only while the scheduled check is on (`TRAILBEAM_ALERT_CHECK`);
+      off, every route is a `404`.
   - name: Settings
     description: |
       The server's settings. Admins only (anyone, before accounts exist).
@@ -2763,6 +2768,341 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/DashboardGone'}
         '500': {$ref: '#/components/responses/InternalError'}
+  /api/alerts/rules:
+    get:
+      operationId: list-alert-rules
+      x-example-request: /api/alerts/rules
+      tags: [Alerts]
+      summary: List the alert rules
+      description: |
+        Every "Alert me" rule, oldest first, each with whether it is muted and its state at the last check
+        (`null` before the first). Also how often the check runs (`everyMin`, and `checkEvery` and `cadence` in
+        words), the quiet periods a rule may pick at that interval, the snoozes, and the most rules allowed.
+        Needs a member.
+      responses:
+        '200':
+          description: The rules, and the choices a rule's form offers.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [rules, checkEvery, everyMin, cadence, quietChoices, defaultQuiet, snoozes, max]
+                properties:
+                  rules: {type: array, items: {$ref: '#/components/schemas/AlertRule'}}
+                  checkEvery: {type: string}
+                  everyMin: {type: integer, minimum: 1, maximum: 1440}
+                  cadence: {type: string}
+                  quietChoices: {type: array, items: {type: integer}, description: Quiet periods in seconds.}
+                  defaultQuiet: {type: integer}
+                  snoozes: {type: array, items: {type: integer}, description: Snoozes in seconds.}
+                  max: {type: integer}
+              example: {"rules": [], "checkEvery": "every 5 minutes", "everyMin": 5, "cadence": "Trailbeam checks every 5 minutes, so an alert can arrive up to 5 minutes after it happens.", "quietChoices": [1800, 3600, 21600, 86400, 604800], "defaultQuiet": 21600, "snoozes": [3600, 14400, 86400], "max": 100}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/AlertsOff'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    post:
+      operationId: add-alert-rule
+      tags: [Alerts]
+      summary: Make an alert rule
+      description: |
+        A rule on one of Stuck's causes (`causeId`, from `GET /api/causes`), sent to `channels` (channel IDs).
+        `mode` `every` alerts at every check that finds new messages with the cause; `quiet` alerts once,
+        then again only after `quietS` seconds with none, one of `quietChoices`. A cause has one rule: when it
+        has one already, that rule is answered with `existed` true and `200`. At most 100 rules. Needs a member.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [causeId, channels, mode]
+              properties:
+                causeId: {type: string}
+                channels: {type: array, items: {type: string}}
+                mode: {type: string, enum: [quiet, every]}
+                quietS: {type: integer}
+            example: {"causeId": "c1", "channels": ["0b6c1e52-7d3f-4a8e-9c21-5f4d2a7b8e10"], "mode": "quiet", "quietS": 21600}
+      responses:
+        '200': {$ref: '#/components/responses/AlertRuleExisted'}
+        '201': {$ref: '#/components/responses/AlertRuleMade'}
+        '400': {$ref: '#/components/responses/AlertRefused'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/AlertGone'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+  /api/alerts/rules/{rule_id}:
+    parameters:
+      - {$ref: '#/components/parameters/AlertRuleId'}
+    patch:
+      operationId: change-alert-rule
+      x-example-request: /api/alerts/rules/4f1c2b9e-0d7a-4c55-9a3e-2b8e6f0c1d2a
+      tags: [Alerts]
+      summary: Change an alert rule
+      description: Its `channels`, `mode` and `quietS`, checked as for a new rule. Needs a member.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channels, mode]
+              properties:
+                channels: {type: array, items: {type: string}}
+                mode: {type: string, enum: [quiet, every]}
+                quietS: {type: integer}
+            example: {"channels": ["0b6c1e52-7d3f-4a8e-9c21-5f4d2a7b8e10"], "mode": "every"}
+      responses:
+        '200': {$ref: '#/components/responses/OneAlertRule'}
+        '400': {$ref: '#/components/responses/AlertRefused'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/AlertGone'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+    delete:
+      operationId: remove-alert-rule
+      x-example-request: /api/alerts/rules/4f1c2b9e-0d7a-4c55-9a3e-2b8e6f0c1d2a
+      tags: [Alerts]
+      summary: Delete an alert rule
+      description: The rule and its state. `removed` false when there was no such rule. Needs a member.
+      responses:
+        '200': {$ref: '#/components/responses/AlertRemoved'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/AlertsOff'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+  /api/alerts/rules/{rule_id}/mute:
+    parameters:
+      - {$ref: '#/components/parameters/AlertRuleId'}
+    post:
+      operationId: mute-alert-rule
+      x-example-request: /api/alerts/rules/4f1c2b9e-0d7a-4c55-9a3e-2b8e6f0c1d2a/mute
+      tags: [Alerts]
+      summary: Mute, snooze or unmute an alert rule
+      description: |
+        `forS` `null` mutes the rule until someone unmutes it; `3600`, `14400` or `86400` snoozes it for that
+        many seconds; `0` unmutes it. A muted rule sends nothing. Needs a member.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [forS]
+              properties:
+                forS: {type: [integer, 'null'], enum: [null, 0, 3600, 14400, 86400]}
+            example: {"forS": 3600}
+      responses:
+        '200': {$ref: '#/components/responses/OneAlertRule'}
+        '400': {$ref: '#/components/responses/AlertRefused'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/AlertGone'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+  /api/alerts/channels:
+    get:
+      operationId: list-alert-channels
+      x-example-request: /api/alerts/channels
+      tags: [Alerts]
+      summary: List the alert channels
+      description: |
+        Every channel, oldest first, with the outcome of its last send. A channel's address is never answered,
+        only `shown`: a Slack URL up to its team, a webhook up to its host, an email channel's addresses.
+        `canManage`: whether you may add, change, test and remove channels. Needs a member.
+      responses:
+        '200':
+          description: The channels.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [channels, max, canManage]
+                properties:
+                  channels: {type: array, items: {$ref: '#/components/schemas/AlertChannel'}}
+                  max: {type: integer}
+                  canManage: {type: boolean}
+              example: {"channels": [], "max": 20, "canManage": true}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/AlertsOff'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    post:
+      operationId: add-alert-channel
+      tags: [Alerts]
+      summary: Add an alert channel
+      description: |
+        `kind` `webhook` (a signed JSON `POST`), `slack` (a Slack incoming webhook) or `email` (up to 10
+        addresses, sent through the mail server set with `TRAILBEAM_SMTP_HOST`). `target` is the URL or the
+        addresses. A webhook must be `https` on a public host, and a Slack URL must start with
+        `https://hooks.slack.com/services/`, unless the server runs with
+        `TRAILBEAM_ALERT_ALLOW_PRIVATE_WEBHOOKS=1`. `minTone` `critical` sends only critical alerts; anything
+        else is `warning`. `name` defaults to the kind. A webhook's signing secret is in this answer only. At
+        most 20 channels. Needs an admin (anyone, before accounts exist).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, target]
+              properties:
+                kind: {type: string, enum: [webhook, slack, email]}
+                name: {type: string}
+                target: {type: string}
+                minTone: {type: string, enum: [warning, critical]}
+            example: {"kind": "webhook", "name": "On-call", "target": "https://hooks.example.com/trailbeam", "minTone": "warning"}
+      responses:
+        '201':
+          description: The channel, and a webhook's signing secret (`null` for the other kinds).
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [channel, secret]
+                properties:
+                  channel: {$ref: '#/components/schemas/AlertChannel'}
+                  secret: {type: [string, 'null'], description: "`whsec_` and 48 hex digits. Shown once."}
+        '400': {$ref: '#/components/responses/AlertRefused'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/AlertsOff'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+  /api/alerts/channels/{channel_id}:
+    parameters:
+      - {$ref: '#/components/parameters/AlertChannelId'}
+    patch:
+      operationId: change-alert-channel
+      x-example-request: /api/alerts/channels/0b6c1e52-7d3f-4a8e-9c21-5f4d2a7b8e10
+      tags: [Alerts]
+      summary: Change an alert channel
+      description: |
+        Any of `name`, `target` (checked as for a new channel) and `minTone`. A channel's kind can't change.
+        Needs an admin (anyone, before accounts exist).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+                target: {type: string}
+                minTone: {type: string, enum: [warning, critical]}
+            example: {"minTone": "critical"}
+      responses:
+        '200':
+          description: The channel after the change.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [channel]
+                properties:
+                  channel: {$ref: '#/components/schemas/AlertChannel'}
+        '400': {$ref: '#/components/responses/AlertRefused'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/AlertGone'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+    delete:
+      operationId: remove-alert-channel
+      x-example-request: /api/alerts/channels/0b6c1e52-7d3f-4a8e-9c21-5f4d2a7b8e10
+      tags: [Alerts]
+      summary: Remove an alert channel
+      description: |
+        `removed` false when there was no such channel. Needs an admin (anyone, before accounts exist).
+      responses:
+        '200': {$ref: '#/components/responses/AlertRemoved'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/AlertsOff'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+  /api/alerts/channels/{channel_id}/test:
+    parameters:
+      - {$ref: '#/components/parameters/AlertChannelId'}
+    post:
+      operationId: test-alert-channel
+      x-example-request: /api/alerts/channels/0b6c1e52-7d3f-4a8e-9c21-5f4d2a7b8e10/test
+      tags: [Alerts]
+      summary: Send a test alert
+      description: |
+        Sends a sample alert to the channel now, and notes the outcome on it (`lastAt`, `lastOk`,
+        `lastDetail`). A send that fails is a `200` with `ok` false and the reason. Its links start with
+        `--public-url`, else with the address this request reached the server at. Needs an admin (anyone,
+        before accounts exist).
+      responses:
+        '200':
+          description: Whether the channel took the test alert.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ok]
+                properties:
+                  ok: {type: boolean}
+                  error: {type: string, description: Why the send failed. Only when `ok` is false.}
+              example: {"ok": false, "error": "The endpoint did not answer in time."}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/AlertGone'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StoreUnreachable'}
+  /api/alerts/state:
+    get:
+      operationId: list-alert-state
+      x-example-request: /api/alerts/state
+      tags: [Alerts]
+      summary: What every rule says now
+      description: |
+        Every rule's state as the last check left it: dashboard rules under their dashboard and widget, "Alert
+        me" rules under `dashboardId` `rule` and the rule's ID. `checkedAt`: when the last check ran (`null`:
+        never). `hasChannel`: whether any channel exists, without which nothing is sent. Needs a member.
+      responses:
+        '200':
+          description: The states, and when the check last ran.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [alerts, checkedAt, hasChannel, checkEvery, everyMin]
+                properties:
+                  alerts: {type: array, items: {$ref: '#/components/schemas/AlertState'}}
+                  checkedAt: {type: [integer, 'null'], description: ms since the epoch.}
+                  hasChannel: {type: boolean}
+                  checkEvery: {type: string}
+                  everyMin: {type: integer, minimum: 1, maximum: 1440}
+              example: {"alerts": [], "checkedAt": null, "hasChannel": false, "checkEvery": "every 5 minutes", "everyMin": 5}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/AlertsOff'}
+        '500': {$ref: '#/components/responses/InternalError'}
 components:
   headers:
     NoStore:
@@ -2817,6 +3157,20 @@ components:
       description: |
         An ingest token (`tbi_` and 40 letters and digits) sent as `Authorization: Bearer`. Ingest only.
   parameters:
+    AlertRuleId:
+      name: rule_id
+      in: path
+      required: true
+      description: The rule's ID, from `GET /api/alerts/rules`.
+      schema: {type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$'}
+      example: 4f1c2b9e-0d7a-4c55-9a3e-2b8e6f0c1d2a
+    AlertChannelId:
+      name: channel_id
+      in: path
+      required: true
+      description: The channel's ID, from `GET /api/alerts/channels`.
+      schema: {type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$'}
+      example: 0b6c1e52-7d3f-4a8e-9c21-5f4d2a7b8e10
     DashboardId:
       name: dashboard_id
       in: path
@@ -2933,6 +3287,55 @@ components:
       description: The length of the time window in seconds, when `from_ms` is not given.
       schema: {type: integer, minimum: 1, maximum: 34560000, default: 86400}
   responses:
+    AlertsOff:
+      description: No such route, or alerts are off (`TRAILBEAM_ALERT_CHECK`).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {"error": "no such endpoint: GET /api/alerts/rules"}
+    AlertGone:
+      description: No rule, channel or cause with this ID, or alerts are off. `error` says which.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {"error": "That alert was deleted."}
+    AlertRefused:
+      description: The form is refused, in the words the Alerts page shows. `error` says why.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {"error": "The webhook must be on a public host, not a private or local address."}
+    AlertRemoved:
+      description: Whether there was one to remove.
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [removed]
+            properties:
+              removed: {type: boolean}
+          example: {"removed": true}
+    OneAlertRule:
+      description: The rule after the change.
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [rule]
+            properties:
+              rule: {$ref: '#/components/schemas/AlertRule'}
+    AlertRuleMade:
+      description: The new rule.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/AlertRuleAnswer'}
+    AlertRuleExisted:
+      description: The cause had a rule already; this is that rule, unchanged.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/AlertRuleAnswer'}
     DashboardsOff:
       description: No such route, or dashboards are off (`TRAILBEAM_DASHBOARDS`).
       content:
@@ -3170,6 +3573,73 @@ components:
             required: [id, title]
             properties: {id: {type: string}, title: {type: string}}
         widgets: {type: array, items: {$ref: '#/components/schemas/DashboardWidget'}}
+    AlertRule:
+      type: object
+      additionalProperties: false
+      description: An "Alert me" rule on one of Stuck's causes (the hosted app's Rule record).
+      required: [id, kind, causeKey, causeId, label, queue, channels, mode, quietS, mutedUntil, mutedBy, mutedAt, createdBy, createdAt, updatedAt]
+      properties:
+        id: {type: string}
+        kind: {type: string, const: cause}
+        causeKey: {type: string, description: The cause's lasting key; a rule follows it when the cause's ID changes.}
+        causeId: {type: string}
+        label: {type: string, description: The cause in words, as Stuck shows it.}
+        queue: {type: string}
+        channels: {type: array, items: {type: string}, description: Channel IDs.}
+        mode: {type: string, enum: [quiet, every]}
+        quietS: {type: integer, description: The quiet period in seconds; 0 with mode every.}
+        mutedUntil: {type: [integer, 'null'], description: "ms since the epoch; null: not muted. 8640000000000000: until someone unmutes it."}
+        mutedBy: {type: [string, 'null']}
+        mutedAt: {type: [integer, 'null']}
+        createdBy: {type: string, description: "The person's ID, or how the request was let in."}
+        createdAt: {type: integer, description: ms since the epoch.}
+        updatedAt: {type: integer, description: ms since the epoch.}
+        muted: {type: boolean, description: Muted now. In lists and after a mute only.}
+        state:
+          description: Its state at the last check; null before the first. In lists and after a mute only.
+          oneOf: [{$ref: '#/components/schemas/AlertState'}, {type: 'null'}]
+    AlertRuleAnswer:
+      type: object
+      additionalProperties: false
+      required: [rule, existed]
+      properties:
+        rule: {$ref: '#/components/schemas/AlertRule'}
+        existed: {type: boolean}
+    AlertChannel:
+      type: object
+      additionalProperties: false
+      description: Where alerts go. Its address and signing secret are never answered.
+      required: [id, kind, name, shown, minTone, signed, createdBy, createdAt, lastAt, lastOk, lastDetail]
+      properties:
+        id: {type: string}
+        kind: {type: string, enum: [webhook, slack, email]}
+        name: {type: string, maxLength: 60}
+        shown: {type: string, description: "The address, cut short: a Slack URL up to its team, a webhook up to its host, an email channel's addresses."}
+        minTone: {type: string, enum: [warning, critical]}
+        signed: {type: boolean, description: Whether sends are signed (webhooks).}
+        createdBy: {type: [string, 'null']}
+        createdAt: {type: [integer, 'null']}
+        lastAt: {type: [integer, 'null'], description: "When it was last sent to, ms since the epoch; null: never."}
+        lastOk: {type: [boolean, 'null']}
+        lastDetail: {type: [string, 'null'], description: What the last send said, up to 300 characters.}
+      example: {"id": "0b6c1e52-7d3f-4a8e-9c21-5f4d2a7b8e10", "kind": "webhook", "name": "On-call", "shown": "https://hooks.example.com/…", "minTone": "warning", "signed": true, "createdBy": "1", "createdAt": 1795400000000, "lastAt": null, "lastOk": null, "lastDetail": null}
+    AlertState:
+      type: object
+      additionalProperties: false
+      description: How one rule stood at the last check.
+      required: [dashboardId, widgetId, dashboardName, title, tone, value, limit, queue, since, checkedAt]
+      properties:
+        dashboardId: {type: string, description: "The dashboard's ID, or `rule` for an \"Alert me\" rule."}
+        widgetId: {type: string, description: "The widget's ID, or the rule's."}
+        dashboardName: {type: string}
+        title: {type: string}
+        tone: {type: string, enum: [good, warning, critical]}
+        value: {type: string, description: The figure, as shown.}
+        limit: {type: string, description: The limit it was checked against, in words.}
+        queue: {type: string}
+        since: {type: integer, description: "When it took this tone, ms since the epoch."}
+        checkedAt: {type: integer, description: ms since the epoch.}
+      example: {"dashboardId": "rule", "widgetId": "4f1c2b9e-0d7a-4c55-9a3e-2b8e6f0c1d2a", "dashboardName": "", "title": "Lambda timeout on orders", "tone": "critical", "value": "3", "limit": "new messages after 6 hours quiet", "queue": "orders", "since": 1795400000000, "checkedAt": 1795400300000}
     Dashboard:
       type: object
       additionalProperties: false
