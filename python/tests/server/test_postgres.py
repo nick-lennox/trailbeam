@@ -1527,6 +1527,7 @@ def test_seq_is_each_span_s_arrival_on_the_server(pg_store):
     assert x["kind"] == "not_deleted" and x["seq"] == seqs[1]
 
 
+@needs_pg
 def test_service_version_is_kept_and_filters_the_lists(pg_store):
     """QV-362: spans.service_version (schema 10) on Postgres, as on SQLite (test_api.py): on the timeline's
     consumer, on the list rows' consumers, and as the lists' ``version`` filter, also with a queue or a tenant."""
