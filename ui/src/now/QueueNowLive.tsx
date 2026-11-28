@@ -8,6 +8,7 @@ import type { QueueLive } from "../model/queue-live.ts";
 import { UiLink } from "../design/nav.tsx";
 import { MessageSequence, type QueueFacts, type SequenceTrigger } from "./MessageSequence.tsx";
 import { Watching } from "./Watching.tsx";
+import { Tooltip } from "../design/Tooltip.tsx";
 import { QueueLane, type LaneMessage } from "./QueueLane.tsx";
 
 /* "In ‹queue› now" on recorded data (model/in-queue.ts): the instrumented messages in the queue, each visible or in flight,
@@ -21,7 +22,9 @@ const PAGE = 10;
 const age = (s: number) => (s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`);
 const flip = <T,>(list: T[], x: T) => (list.includes(x) ? list.filter((y) => y !== x) : [...list, x]);
 const th = "border-b border-line px-2.5 py-[7px] text-left font-sans text-xs font-medium whitespace-nowrap text-ink-3";
-const td = "max-w-[260px] truncate border-b border-line px-2.5 py-1.5 text-ink-2";
+const td = "max-w-[260px] truncate whitespace-nowrap border-b border-line px-2.5 py-1.5 text-ink-2";
+/* producer and consumer names are long service names: cut short with the full name on hover, so the last column fits */
+const name = "!max-w-[168px]";
 const none = <span className="text-ink-3">none</span>;
 const STATE = { visible: "Visible", in_flight: "In flight" };
 
@@ -45,10 +48,13 @@ export type QueueNowLiveProps = {
   consumer: string;
   fifo: boolean;
   triggers?: SequenceTrigger[] | null;
+  /** the dead-letter queue that receives have shown this queue's messages moving to (DeadLetterQueueSourceArn), when the
+      redrive policy was not read: the page names it as seen in moves rather than saying there is none */
+  seenDlq?: string | null;
   hrefs: QueueNowHrefs;
 };
 
-export function QueueNowLive({ queue, view, live, heldTotal, consumer, fifo, triggers = null, hrefs }: QueueNowLiveProps) {
+export function QueueNowLive({ queue, view, live, heldTotal, consumer, fifo, triggers = null, seenDlq = null, hrefs }: QueueNowLiveProps) {
   // the clock, offset so the server's "now" and the browser's agree
   const [skew] = useState(() => (view ? Date.now() - view.nowMs : 0));
   const [now, setNow] = useState(() => view?.nowMs ?? 0);
@@ -81,6 +87,11 @@ export function QueueNowLive({ queue, view, live, heldTotal, consumer, fifo, tri
   }
 
   const cfg = view.config;
+  /* the dead-letter queue: the redrive policy's when it was read, else the one moves were seen to. With neither, the page
+     says there is none only when the host read the queue's settings */
+  const dlq = cfg.dlq ?? seenDlq;
+  const dlqSeen = !cfg.dlq && !!seenDlq;
+  const settingsRead = live?.status === "ok" || cfg.dlq !== null;
   const vis = held.filter((m) => m.state === "visible").length, fly = held.length - vis;
   const extra = heldTotal - view.held.length;
   /* SQS's totals when the host read them; otherwise what the spans account for */
@@ -125,7 +136,9 @@ export function QueueNowLive({ queue, view, live, heldTotal, consumer, fifo, tri
         <h2 className="text-sm font-medium text-ink">In {queue} now</h2>
         <p className="mr-auto text-[13px] text-ink-3">
           {cfg.visibilityKnown ? <>Visibility timeout <span className="font-mono text-caption text-ink-2">{cfg.visibilityTimeoutS} s</span></> : <>Visibility timeout not read, so SQS&apos;s default <span className="font-mono text-caption text-ink-2">30 s</span> is used</>}
-          {max !== null ? <>, maxReceiveCount <span className="font-mono text-caption text-ink-2">{max}</span>{cfg.dlq && <>, dead-letter queue <span className="font-mono text-caption text-ink-2">{cfg.dlq}</span></>}</> : cfg.visibilityKnown ? ", no redrive policy" : ""}
+          {max !== null && <>, maxReceiveCount <span className="font-mono text-caption text-ink-2">{max}</span></>}
+          {dlq ? <>, dead-letter queue <span className="font-mono text-caption text-ink-2">{dlq}</span>{dlqSeen && " (seen in moves)"}</>
+            : max === null && cfg.visibilityKnown && settingsRead ? ", no redrive policy" : !settingsRead ? ", dead-letter queue not read" : ""}
         </p>
         <span className="inline-flex items-center gap-2 text-[13px] text-ink-3">
           <i className="block size-1.5 rounded-full bg-good" aria-hidden />
@@ -135,8 +148,9 @@ export function QueueNowLive({ queue, view, live, heldTotal, consumer, fifo, tri
 
       <div className="border-y border-line bg-canvas/50 px-4 py-3">
         <QueueLane
-          live={held.map((m) => asLane(m))} gone={gone} consumer={consumer || "the consumer"} dlq={cfg.dlq} max={max} fifo={fifo}
-          visible={visible} inFlight={inFlight} flow={view.deleted.length} windowS={60} exact t={t} dead={view.seenOnDlq} deadNote="Seen on the dead-letter queue in the past hour."
+          live={held.map((m) => asLane(m))} gone={gone} consumer={consumer || "the consumer"} dlq={dlq} max={max} fifo={fifo}
+          visible={visible} inFlight={inFlight} flow={view.deleted.length} windowS={60} exact t={t} dead={view.seenOnDlq} deadNote={dlqSeen ? "Moves seen in the past hour." : "Seen on the dead-letter queue in the past hour."}
+          noDlq={settingsRead ? "No dead-letter queue" : "Dead-letter queue not read"}
           selected={open} onSelect={(id) => setOpen(open === id ? null : id)} onGroup={(st) => change(() => setStates(states.length === 1 && states[0] === st ? [] : [st]))}
         />
         <p className="mt-2 text-xs text-ink-3">
@@ -149,9 +163,9 @@ export function QueueNowLive({ queue, view, live, heldTotal, consumer, fifo, tri
       </div>
 
       <div className="grid md:grid-cols-[212px_minmax(0,1fr)]">
-        <aside className="grid content-start gap-3 border-b border-line px-3 py-3 text-[13px] md:border-r md:border-b-0">
+        <aside className="grid min-w-0 content-start gap-3 border-b border-line px-3 py-3 text-[13px] md:border-r md:border-b-0">
           {facets.map((f) => (
-            <fieldset key={f.title}>
+            <fieldset key={f.title} className="min-w-0">
               <legend className="px-0 py-1 text-xs font-medium text-ink-2">{f.title}</legend>
               {f.values.map((v) => (
                 <label key={v.key} className="-mx-1.5 flex cursor-pointer items-center gap-2 rounded-[5px] px-1.5 py-[3px] hover:bg-sunken">
@@ -181,8 +195,8 @@ export function QueueNowLive({ queue, view, live, heldTotal, consumer, fifo, tri
                       onKeyDown={(k) => { if (k.key === "Enter" || k.key === " ") { k.preventDefault(); setOpen(isOpen ? null : m.id); } }}>
                       <td className={`${cell} tabular-nums ${isOpen ? "text-accent" : "text-ink-3"}`}>{fmtT(m.sentMs).slice(0, 8)}</td>
                       <td className={`${cell} text-ink`}>{m.id.slice(0, 8)}</td>
-                      <td className={cell}>{m.producer || none}</td>
-                      <td className={cell}>{m.consumer || none}</td>
+                      <td className={`${cell} ${name}`}>{m.producer ? <Tooltip content={m.producer}>{m.producer}</Tooltip> : none}</td>
+                      <td className={`${cell} ${name}`}>{m.consumer ? <Tooltip content={m.consumer}>{m.consumer}</Tooltip> : none}</td>
                       <td className={cell}><span className="font-sans text-[13px] font-medium text-ink">{STATE[m.state]}</span></td>
                       <td className={`${cell} tabular-nums ${last ? "!text-critical-text" : ""}`}>{m.receiveCount}{max !== null && ` of ${max}`}</td>
                       <td className={`${cell} tabular-nums ${last && flying ? "!text-critical-text" : ""}`}>
@@ -193,7 +207,7 @@ export function QueueNowLive({ queue, view, live, heldTotal, consumer, fifo, tri
                           </span>
                         ) : none}
                       </td>
-                      <td className={cell}>{m.lastError ?? none}</td>
+                      <td className={cell}>{m.lastError ? <Tooltip content={m.lastError}>{m.lastError}</Tooltip> : none}</td>
                     </tr>
                     {isOpen && (
                       <tr>
