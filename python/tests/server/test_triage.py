@@ -1,6 +1,6 @@
 """The triage rules (triage.py, QV-593): parity with @trailbeam/ui's model/triage.ts and arrivals.ts on the shared
-cases in contract/fixtures/triage-parity.json (ui/test/triage.test.ts and the hosted app's test run the same file),
-and what the cases don't cover."""
+cases in contract/fixtures/triage-parity.json (ui/test/triage.test.ts runs the same file, and the hosted app's
+test/triage-parity.test.ts runs a copy of it on the app's own copies of the rules), and what the cases don't cover."""
 import copy
 import importlib.util
 import json
