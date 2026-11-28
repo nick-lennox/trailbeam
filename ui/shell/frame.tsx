@@ -9,7 +9,7 @@
   suggested tenant) lists that tenant's messages, and suggestions come from /api/tenants/search.
 */
 import { useCallback, useRef, type ReactNode } from "react";
-import { CircleAlert, Copy, KeyRound, ListFilter, Search, Users, UserCog, Workflow } from "lucide-react";
+import { Bell, CircleAlert, Copy, KeyRound, ListFilter, Search, Users, UserCog, Workflow } from "lucide-react";
 import { AppThemeProvider, MessageSearch, Sidebar, Tooltip, UiLink, tenantText, type SidebarItem, type SidebarQueue } from "../src/design/index.ts";
 import { messageHref, suggestTenants, tenantHref, useMe, useTenantSeen, type Me } from "./chrome.tsx";
 
@@ -22,6 +22,7 @@ export function shellItems(me: Me | null, path: string): SidebarItem[][] {
     { href: "/duplicates", label: "Duplicates", icon: Copy },
     { href: "/stuck", label: "Stuck", icon: CircleAlert },
     { href: "/tenants", label: "Tenants", icon: Users },
+    { href: "/alerts", label: "Alerts", icon: Bell },
   ];
   const manage: SidebarItem[] = [
     ...(me?.user?.role === "admin" ? [{ href: "/people", label: "People", icon: UserCog }] : []),

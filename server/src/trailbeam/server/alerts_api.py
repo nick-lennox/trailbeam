@@ -467,7 +467,7 @@ class AlertsApi:
     def list_rules(self, rid, body, who) -> tuple[int, dict]:
         at, states = self.now(), self._rule_states()
         return 200, {"rules": [self._rule_view(r, states, at) for r in self.store.list_rules(self.ws_id)],
-                     "checkEvery": check_every(self.every_min), "cadence": cadence_note(self.every_min),
+                     "checkEvery": check_every(self.every_min), "everyMin": self.every_min, "cadence": cadence_note(self.every_min),
                      "quietChoices": quiet_choices(self.every_min), "defaultQuiet": default_quiet(self.every_min),
                      "snoozes": list(SNOOZES_S), "max": MAX_RULES}
 
@@ -595,7 +595,8 @@ class AlertsApi:
         ws = self.ws_id
         states = sorted(self.store.alert_states(ws), key=lambda s: (s["dashboardId"], s["widgetId"]))
         return 200, {"alerts": states, "checkedAt": self.store.last_check(ws),
-                     "hasChannel": bool(self.store.list_channels(ws)), "checkEvery": check_every(self.every_min)}
+                     "hasChannel": bool(self.store.list_channels(ws)), "checkEvery": check_every(self.every_min),
+                     "everyMin": self.every_min}
 
 
 # ── in the server ────────────────────────────────────────────────────────────────────────────────────────────────

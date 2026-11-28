@@ -71,7 +71,7 @@ test("without queues the Sidebar has no Queues section, and with none yet it say
 
 test("the shell's items are its header's: People for admins, Tokens for anyone signed in", () => {
   const labels = (g: ReturnType<typeof shellItems>) => g.map((x) => x.map((i) => i.label));
-  assert.deepEqual(labels(shellItems(null, "/")), [["Overview", "Event explorer", "Messages", "Duplicates", "Stuck", "Tenants"]]);
+  assert.deepEqual(labels(shellItems(null, "/")), [["Overview", "Event explorer", "Messages", "Duplicates", "Stuck", "Tenants", "Alerts"]]);
   const admin = { auth: "accounts", via: "session", user: { id: 1, email: "a@b.c", name: "A", role: "admin" } } as const;
   assert.deepEqual(labels(shellItems(admin, "/"))[1], ["People", "Tokens"]);
   assert.deepEqual(labels(shellItems({ ...admin, user: { ...admin.user, role: "member" } }, "/"))[1], ["Tokens"]);

@@ -277,6 +277,7 @@ def test_editing_muting_and_deleting_a_rule():
     _, listed = a("GET", "/api/alerts/rules")
     assert listed["rules"][0]["state"]["tone"] == "critical"
     assert listed["checkEvery"] == "every 5 minutes" and listed["quietChoices"][0] == 1800
+    assert listed["everyMin"] == 5  # the shell's "checks are late" note (ui/src/alerts checkStatus)
     assert listed["snoozes"] == [3600, 14400, 86400] and listed["max"] == 100
     assert a("DELETE", f"/api/alerts/rules/{rid}") == (200, {"removed": True})
     assert a.store.alert_states("local") == [] and a("GET", "/api/alerts/rules")[1]["rules"] == []
@@ -292,7 +293,7 @@ def _state(rid, **o):
 def test_the_state_lists_every_rule_and_the_last_check():
     a = Api()
     _, out = a("GET", "/api/alerts/state")
-    assert out == {"alerts": [], "checkedAt": None, "hasChannel": False, "checkEvery": "every 5 minutes"}
+    assert out == {"alerts": [], "checkedAt": None, "hasChannel": False, "checkEvery": "every 5 minutes", "everyMin": 5}
     a.channel()
     dash = {"dashboardId": "d1", "widgetId": "w1", "dashboardName": "Orders", "title": "Depth", "tone": "warning",
             "value": "12", "limit": "above 10", "queue": "orders", "since": T, "checkedAt": T}
