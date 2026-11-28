@@ -166,9 +166,11 @@ SPANS_COLUMNS = ("row, trace_id, span_id, kind, time_ns, start_ns, service_name,
                  "thread_name, faas_name, faas_invocation_id, order_scope, order_issued, order_returned, attributes, "
                  "mid, mid_source, receive_row, body_dropped, body_id")  # those of schema 11, which migration 11 copies
 # The columns added after schema 11, each by its own migration: service_version (16), the resource's
-# service.version, NULL if not set.
+# service.version, NULL if not set; seq (29), when the span reached this server (store.next_seq), NULL on rows
+# stored before it.
 SPANS_ADDED = """,
-    service_version TEXT             -- the resource's service.version (QV-362)"""
+    service_version TEXT,            -- the resource's service.version (QV-362)
+    seq INTEGER                      -- arrival on the server's clock: ms * 1000 plus a counter (QV-593)"""
 
 # Schema 19 (QV-394): the steps /api/events counts, per hour, queue, service and kind (events.py, db.py). Kept
 # exact: ingest adds the spans it stores, retention takes out the ones it deletes. Purges are not steps.
@@ -283,6 +285,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # no span data.
 # Schema 28 (QV-665) adds the passkey tables (account_tables.py: passkeys, passkey_challenges), empty. It changes no
 # span data.
+# Schema 29 (QV-593) adds spans.seq, when the span reached this server (store.next_seq), for triage: a regression or
+# "ignore until N more" counts the failures that arrived after the resolve or ignore, on the server's clock, never
+# the reporting host's. Rows stored before it keep NULL: when they arrived is not known, so none of them ever counts
+# as a new failure (as on the hosted app). Adding a nullable column rewrites no row. No index: triage reads the seq
+# of spans it has already read by message.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new", added=""))
                   + [f"INSERT INTO spans_new ({SPANS_COLUMNS}) SELECT {SPANS_COLUMNS} FROM spans ORDER BY row",
                      "DROP TABLE spans",
@@ -348,6 +355,12 @@ def _to_14(conn: sqlite3.Connection) -> None:
         summary_table.refresh(conn, again)
 
 
+def _to_29(conn: sqlite3.Connection) -> None:
+    """Adds spans.seq, unless the file has it (as _to_16)."""
+    if "seq" not in {r[1] for r in conn.execute("PRAGMA table_info(spans)")}:
+        conn.execute("ALTER TABLE spans ADD COLUMN seq INTEGER")
+
+
 def _to_25(conn: sqlite3.Connection) -> None:
     for sql in statements(S3_RECEIVES):
         conn.execute(sql)
@@ -406,6 +419,7 @@ MIGRATIONS = (
     Migration(26, "alert rules, channels, state and checks", tuple(statements(alerts_store.SQLITE_CREATE))),
     Migration(27, "dashboards and their widgets", tuple(statements(dashboards_store.SQLITE_CREATE))),
     Migration(28, "passkeys and their challenges", tuple(statements(account_tables.SQLITE_PASSKEYS))),
+    Migration(29, "spans.seq: when each span reached the server", (), run=_to_29),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

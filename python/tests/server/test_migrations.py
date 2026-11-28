@@ -40,7 +40,7 @@ INSERT INTO spans (trace_id, span_id, kind, time_ns, queue, message_id, attribut
 def raw(path) -> list[dict]:
     """Every span as it arrived: from schema 10 its body is back in ``attributes`` (body_table.py), which are
     compared parsed, and ``body_id``, where the body is kept, is left out, as is a ``service_version`` (schema 16)
-    that is NULL: a row stored before 16 gets one, which says the version was not kept."""
+    or ``seq`` (schema 29) that is NULL: a row stored before 16 or 29 gets one, which says it was not kept."""
     c = sqlite3.connect(path)
     c.row_factory = sqlite3.Row
     try:
@@ -49,7 +49,7 @@ def raw(path) -> list[dict]:
         else:
             sql = "SELECT * FROM spans ORDER BY row"
         return [{k: json.loads(r[k]) if k == "attributes" else r[k] for k in r.keys()
-                 if k != "body_id" and not (k == "service_version" and r[k] is None)}
+                 if k != "body_id" and not (k in ("service_version", "seq") and r[k] is None)}
                 for r in c.execute(sql)]
     finally:
         c.close()
@@ -146,7 +146,7 @@ def test_the_fixture_is_a_schema_5_file():
 def test_a_file_from_main_upgrades_in_place_and_keeps_every_span(from_main):
     before = raw(from_main)
     db = Database(from_main, store_bodies=frozenset({"orders"}))
-    assert db.migrated == [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]
+    assert db.migrated == [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]
     db.close()
     assert raw(from_main) == before  # every row, every column, same row IDs
     assert meta_version(from_main) == str(LATEST)
@@ -170,8 +170,8 @@ def test_a_file_from_main_upgrades_in_place_and_keeps_every_span(from_main):
                                        (25, "S3 receives by decoded object key", True),
                                        (26, "alert rules, channels, state and checks", True),
                                        (27, "dashboards and their widgets", True),
-
-                                       (28, "passkeys and their challenges", True)]
+                                       (28, "passkeys and their challenges", True),
+                                       (29, "spans.seq: when each span reached the server", True)]
     assert schema(from_main) == schema_new_file(from_main + ".new")
 
 

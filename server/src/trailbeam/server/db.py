@@ -37,7 +37,7 @@ from typing import Callable, Iterable, Iterator, Optional
 from . import body_table, eventbridge, migrations, purge, queues, rollup, s3, sns, summary_table
 from .events import HOUR_NS, KINDS as STEP_KINDS, hour_split
 from .otlp import AMQP_KINDS, RECORD_FIELDS
-from .store import (MAX_CANCELS, SETTLE_KINDS, SETTLE_KINDS_SQL, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store, StoreFull,
+from .store import (MAX_CANCELS, next_seq, SETTLE_KINDS, SETTLE_KINDS_SQL, TENANT_MAX_CHARS, Cutoffs, PurgeStep, Store, StoreFull,
                     StuckCandidate, TenantActivity, WriterBusy)
 
 # The body and the attributes that describe it (contract 15.2). trailbeam.body.capture_status is kept:
@@ -383,7 +383,7 @@ class SqliteStore(Store):
             # an exporter's retry carries the same body: put finds the row the first copy wrote
             values = [r.get(f) for f in RECORD_FIELDS] + [
                 body_table.attributes_json(attrs), mid, mid_source, receive_row, dropped,
-                None if body is None else body_table.put(c, own, body)]
+                None if body is None else body_table.put(c, own, body), next_seq()]
             cur = c.execute(_INSERT_SQL, values)
             if cur.rowcount == 0:
                 dupes += 1
@@ -1009,7 +1009,7 @@ class _Export:
         self.started = self.ended = 0.0  # perf_counter: when its group's write began, and ended
 
 
-_INSERT_COLUMNS = RECORD_FIELDS + ["attributes", "mid", "mid_source", "receive_row", "body_dropped", "body_id"]
+_INSERT_COLUMNS = RECORD_FIELDS + ["attributes", "mid", "mid_source", "receive_row", "body_dropped", "body_id", "seq"]
 _INSERT_SQL = f"INSERT OR IGNORE INTO spans ({', '.join(_INSERT_COLUMNS)}) VALUES ({', '.join('?' * len(_INSERT_COLUMNS))})"
 
 AUTO_VACUUM_INCREMENTAL = 2  # PRAGMA auto_vacuum

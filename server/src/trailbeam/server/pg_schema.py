@@ -363,7 +363,8 @@ CREATE TABLE IF NOT EXISTS spans (
     receive_row BIGINT,
     body_dropped TEXT,
     body_id BIGINT,
-    service_version TEXT                 -- the resource's service.version (version 10, QV-362)
+    service_version TEXT,                -- the resource's service.version (version 10, QV-362)
+    seq BIGINT                           -- arrival on the server's clock, store.next_seq (version 23, QV-593)
 ) PARTITION BY RANGE (rclass, bucket);
 """ + SPANS_IDENTITY.format(only="") + """;
 CREATE INDEX IF NOT EXISTS spans_row ON spans ("row");
@@ -882,8 +883,13 @@ MIGRATIONS: tuple = (
     Migration(21, "dashboards and their widgets (QV-652)", tuple(statements(dashboards_store.PG_CREATE))),
     # Version 22 (QV-665): passkeys and their challenges (account_tables.py), new and empty.
     Migration(22, "passkeys and their challenges (QV-665)", tuple(statements(account_tables.PG_PASSKEYS))),
+    # Version 23 (QV-593): when each span reached the server (store.next_seq), for triage's "failures after the
+    # resolve". NULL on rows stored before it, which never count as new failures. A nullable column with no default
+    # is added to every place without rewriting it, as version 10's.
+    Migration(23, "spans.seq: when each span reached the server (QV-593)",
+              ("ALTER TABLE spans ADD COLUMN IF NOT EXISTS seq BIGINT",)),
 )
-LATEST = 22
+LATEST = 23
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 
