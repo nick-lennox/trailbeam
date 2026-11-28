@@ -163,6 +163,25 @@ def fingerprint(text: Optional[str]) -> str:
     return _SPACE.sub(" ", text).strip()[:200]
 
 
+def _class_part(error_type: str) -> str:
+    """An exception class as a key part: ``%``, ``:`` and ``|`` percent-encoded, so the class ends at the first ``:``
+    and ``exc:Err:*`` is never a prefix of another class's key, as it was of ``Err:Timeout``'s (QV-702). A class
+    without those characters keeps the key it had."""
+    return error_type.replace("%", "%25").replace(":", "%3A").replace("|", "%7C")
+
+
+def exc_signature(error_type: str, text: Optional[str]) -> str:
+    """The signature of an exception: ``exc:<class>:<fingerprint>``. An error text whose fingerprint is ``*`` is
+    written ``<*>``, so no text has the merged form's signature (:func:`merged_signature`) (QV-702)."""
+    fp = fingerprint(text)
+    return f"exc:{_class_part(error_type)}:{'<*>' if fp == '*' else fp}"
+
+
+def merged_signature(error_type: str) -> str:
+    """The signature of all of one exception class's error texts, merged: ``exc:<class>:*``."""
+    return f"exc:{_class_part(error_type)}:*"
+
+
 # ---- the classifier (design section 3) --------------------------------------------------------------------
 
 def _iso_ms(v) -> float:
@@ -255,7 +274,7 @@ def cause_of(t: dict, now_ms: float, *, visibility_s: Optional[dict] = None, que
             if x.get("outcome") == "failed_exception":
                 typ = str(x["error_type"]) if x.get("error_type") is not None else "Error"
                 text = x.get("error_message") if isinstance(x.get("error_message"), str) else None
-                out.append(make("exc", f"exc:{typ}:{fingerprint(text)}", c, _end_ms(x), x, errorType=typ, error=text))
+                out.append(make("exc", exc_signature(typ, text), c, _end_ms(x), x, errorType=typ, error=text))
             elif x.get("outcome") == "failed_invalid_response":
                 out.append(make("invalid_batch_response", "invalid_batch_response", c, _end_ms(x), x))
             else:
@@ -393,7 +412,7 @@ def group(items: list, first_seen_ms: Optional[dict] = None, assign: Optional[di
 
     out: dict = {}
     for x in all_:
-        sig = f"exc:{x['errorType']}:*" if merged(x) else x["signature"]
+        sig = merged_signature(x["errorType"]) if merged(x) else x["signature"]
         key = f"{KEY_VERSION}|{x['queueKey']}|{x['consumer']}|{sig}"
         g = out.get(key)
         if g is None:

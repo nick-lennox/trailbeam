@@ -3,16 +3,18 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronRight, CircleAlert, CircleCheck } from "lucide-react";
 import { PlatformIcon } from "../design/icons.tsx";
-import { TopBar } from "../design/TopBar.tsx";
+import { TopBar, type Fresh } from "../design/TopBar.tsx";
 import { HealthPill } from "../design/pills.tsx";
 import { Tooltip } from "../design/Tooltip.tsx";
+import { MiddleTruncate } from "../design/MiddleTruncate.tsx";
 import { UiLink, useNav } from "../design/nav.tsx";
-import { fmtBytes, fmtMs, fmtNum, OVERVIEW_RANGES as RANGES, PLATFORM_LABEL, type OverviewRangeId } from "../model/format.ts";
+import { fmtBytes, fmtMs, fmtNum, fmtRate, OVERVIEW_RANGES as RANGES, PLATFORM_LABEL, type OverviewRangeId } from "../model/format.ts";
 import { OUTCOME_FILL, OUTCOME_LABEL, OUTCOME_TEXT, type Cause, type CauseOutcome } from "../model/causes.ts";
 import type { Edge, OverviewData, Queue } from "../model/overview.ts";
 import type { QueueLive } from "../model/queue-live.ts";
 import type { InQueueView } from "../model/in-queue.ts";
-import { stamp } from "../model/timerange.ts";
+import { phrase, stamp, type TimeRange } from "../model/timerange.ts";
+import { TimePicker } from "../explorer/TimePicker.tsx";
 import { SPAN_HEALTH_NOTE } from "../queue/model.ts";
 import type { Trigger } from "../queue/types.ts";
 import { QueueNowLive } from "./QueueNowLive.tsx";
@@ -75,10 +77,16 @@ export type OverviewFlowsSlots = {
   sampleNow?: (queue: string) => ReactNode;
   /** under a selected producer, consumer or dead-letter queue: the messages behind it (PartMessages), or nothing */
   partMessages?: (o: PartMessagesAt) => ReactNode;
+  /** in the top bar, on recorded data, before the range: the host's own controls (open source: Copy link) */
+  actions?: ReactNode;
+  /** in the queue's card, above its link, on recorded data: the host's own figures for it (open source: the range's totals from spans) */
+  queueFacts?: (queue: string) => ReactNode;
+  /** under the page, on recorded data: where the figures come from, and the same data as JSON */
+  foot?: ReactNode;
 };
 /** Which messages a part of the flow map stands for, for slots.partMessages. */
 export type PartMessagesAt = {
-  queue: string; part: "producer" | "consumer" | "dlq"; producer?: string;
+  queue: string; part: "producer" | "consumer" | "dlq"; producer?: string; consumer?: string;
   /* the dead-lettered count, for the dead-letter queue; the part's rate per minute; the queue's maxReceiveCount */
   count: number; perMin: number; max: number | null; real: boolean;
 };
@@ -100,6 +108,28 @@ export type OverviewFlowsHrefs = {
   message: (id: string) => string;
 };
 const NO_SAMPLE: OverviewSample = { queues: [], causes: [], sends: [], receives: [], consumers: [], producerPlatform: {}, settings: {}, stats: {}, consumerStats: {}, avgBytes: {}, rangeScale: {} };
+
+/** The list's heading, in counts that agree with their nouns: "The queue is healthy", not "All 1 queues are healthy". */
+export function healthHeading(queues: number, judged: number, troubled: number): string {
+  const unjudged = queues - judged;
+  if (troubled) {
+    const head = queues === 1 ? "The queue needs attention" : `${fmtNum(troubled)} of ${fmtNum(queues)} queues ${troubled === 1 ? "needs" : "need"} attention`;
+    return unjudged ? `${head}; ${fmtNum(unjudged)} ${unjudged === 1 ? "has" : "have"} no health data` : head;
+  }
+  if (judged === queues) return queues === 1 ? "The queue is healthy" : queues === 2 ? "Both queues are healthy" : `All ${fmtNum(queues)} queues are healthy`;
+  return judged === 1 ? `1 of ${fmtNum(queues)} queues has health data, and it is healthy` : `${fmtNum(judged)} of ${fmtNum(queues)} queues have health data, and they are healthy`;
+}
+
+/**
+ * The figure on the flow map's DLQ node, with its note. On recorded data: the messages in the dead-letter queue now
+ * when AWS said, else the receives on it in the range (all the spans can count). On the sample: the dead-lettered.
+ */
+export function dlqNodeCount(o: { real: boolean; queue: string; dlq: string; depth: number | null; received: number; moved: number; range: string }): { n: number; note: string } {
+  if (!o.real) return { n: o.moved, note: `Messages from ${o.queue} dead-lettered in ${o.range}` };
+  const moved = ` ${fmtNum(o.moved)} ${o.moved === 1 ? "message" : "messages"} moved to it in ${o.range}.`;
+  if (o.depth != null) return { n: o.depth, note: `Messages in ${o.dlq} now, from CloudWatch.${moved}` };
+  return { n: o.received, note: `Receives on ${o.dlq} in ${o.range} by your services that SQS marked as coming from ${o.queue}.${moved}` };
+}
 
 const NoData = () => <span className="font-sans font-normal text-ink-3">No data</span>;
 /* A figure only CloudWatch has, for a queue CloudWatch has not published yet. */
@@ -140,41 +170,47 @@ function useWidth<T extends Element>() {
 /* Curved, dashed connectors across one gap of the drawing. Dashes move the way messages do.
    A wire can carry its rate: messages per minute over bytes per minute, set beside the wire
    where it leaves or meets a node, on the side away from its bend, so the wire never
-   crosses its own label and labels on converging wires stay apart. */
+   crosses its own label and labels on converging wires stay apart. Each label sits on a pad of the page's
+   background, so no dash runs through a figure ("3.9" never reads as "-3.9"). */
 type Line = { key: string; y1: number; y2: number; tone: Tone; rate?: { n: string; bytes?: string; at: "start" | "end" } };
+/* a label's height: one 13 px line, or two, and its pad */
+const LABEL_H = (two: boolean) => (two ? 26 : 13) + 4;
+/** Where a wire's label goes: its top edge, from the end it is set at and the side away from the bend. */
+export function labelTop(l: Pick<Line, "y1" | "y2"> & { at: "start" | "end"; two: boolean }): number {
+  const yy = l.at === "end" ? l.y2 : l.y1;
+  const other = l.at === "end" ? l.y1 : l.y2;
+  const below = Math.abs(other - yy) > 1 && other < yy;
+  return below ? yy + 5 : yy - 5 - LABEL_H(l.two);
+}
 function Wires({ lines, height }: { lines: Line[]; height: number }) {
   const [ref, w] = useWidth<HTMLDivElement>();
-  const halo = { paintOrder: "stroke" as const, stroke: "var(--color-canvas)", strokeWidth: 4, strokeLinejoin: "round" as const };
   return (
-    <div ref={ref} style={{ height }}>
+    <div ref={ref} className="relative" style={{ height }}>
       {w > 0 && (
         <svg width={w} height={height} className="block overflow-visible" aria-hidden>
           {lines.map((l) => {
             const end = w - 7;
             const d = `M0 ${l.y1} C${end * 0.5} ${l.y1} ${end * 0.5} ${l.y2} ${end} ${l.y2}`;
-            const r = l.rate;
-            const x = r?.at === "end" ? w - 12 : 8;
-            const yy = r?.at === "end" ? l.y2 : l.y1;
-            /* the label sits on the side of the wire away from its bend */
-            const other = r?.at === "end" ? l.y1 : l.y2;
-            const below = Math.abs(other - yy) > 1 && other < yy;
-            const top = below ? yy + 15 : yy - 21;
-            const anchor = r?.at === "end" ? "end" : "start";
             return (
               <g key={l.key}>
                 <path d={d} fill="none" stroke={TONE[l.tone]} strokeWidth={1.5} strokeDasharray="5 9" className="flow-dash" style={{ animationDuration: "0.9s" }} />
                 <path d={`M${w - 8} ${l.y2 - 4} L${w - 1} ${l.y2} L${w - 8} ${l.y2 + 4} Z`} fill={TONE[l.tone]} />
-                {r && (
-                  <text x={x} y={top} textAnchor={anchor} className="text-[11px]" style={halo}>
-                    <tspan className="fill-ink font-mono tabular-nums">{r.n}</tspan><tspan className="fill-ink-3 font-sans"> messages/min</tspan>
-                    {r.bytes && <><tspan x={x} dy={13} className="fill-ink-2 font-mono tabular-nums">{r.bytes}</tspan><tspan className="fill-ink-3 font-sans">/min</tspan></>}
-                  </text>
-                )}
               </g>
             );
           })}
         </svg>
       )}
+      {w > 0 && lines.map((l) => {
+        const r = l.rate;
+        if (!r) return null;
+        const top = labelTop({ y1: l.y1, y2: l.y2, at: r.at, two: !!r.bytes });
+        return (
+          <span key={`label:${l.key}`} data-wire-label="" className={`absolute rounded bg-canvas px-1 py-0.5 text-[11px] leading-[13px] whitespace-nowrap ${r.at === "end" ? "right-3 text-right" : "left-2"}`} style={{ top }}>
+            <span className="block"><span className="font-mono text-ink tabular-nums">{r.n}</span><span className="text-ink-3"> messages/min</span></span>
+            {r.bytes && <span className="block"><span className="font-mono text-ink-2 tabular-nums">{r.bytes}</span><span className="text-ink-3">/min</span></span>}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -188,9 +224,19 @@ const Fact = ({ k, children }: { k: string; children: ReactNode }) => (
 
 export type OverviewFlowsProps = {
   data?: OverviewFlowsData; sample?: OverviewSample; flow?: string; copy: OverviewCopy; slots?: OverviewFlowsSlots; hrefs: OverviewFlowsHrefs;
+  /** told when another flow is selected, so a host can keep it in the page's URL */
+  onFlow?: (queue: string) => void;
+  /**
+   * On recorded data, the page's one time range, chosen with the Event explorer's TimePicker in place of the three
+   * range buttons: any preset, a typed range or exact times. `now` is where a range that ends now ends. Without it the
+   * page offers 15 min, 1 hour and 24 hours (hrefs.range), as the sample, sized for those three, always does.
+   */
+  time?: { range: TimeRange; now: number; onChange: (t: TimeRange) => void };
+  /** the top bar's freshness mark (TopBar's `fresh`): how long ago the figures were read, e.g. <Since ms={readAt} /> */
+  fresh?: Fresh;
 };
 
-export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, copy, slots = {}, hrefs }: OverviewFlowsProps) {
+export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, copy, slots = {}, hrefs, onFlow, time: timeProp, fresh }: OverviewFlowsProps) {
   const router = useNav();
   const real = Boolean(data);
   const queues: Queue[] = data?.queues ?? sample.queues;
@@ -205,9 +251,12 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
   /* a workspace's figures are counted on the server for the range in the URL */
   const rangeId = data ? ((RANGES.find((r) => r.id === data.range)?.id ?? "1h") as OverviewRangeId) : picked;
   const chooseRange = (id: OverviewRangeId) => (data ? router.push(hrefs.range(id)) : setRangeId(id));
-  const range = RANGES.find((r) => r.id === rangeId)!;
+  const preset = RANGES.find((r) => r.id === rangeId)!;
+  const time = real ? timeProp : undefined;
+  /* the range in a sentence: "the last hour", or the picker's "the past 7 days" and "this time range" */
+  const range = time ? { id: preset.id, label: phrase(time.range), long: phrase(time.range) } : preset;
   const scale = sample.rangeScale[range.id] ?? { k: 1, c: 1 };
-  const rate = (n: number) => (real ? n : Math.round(n * scale.k));
+  const rate = (n: number) => (real ? n : Math.round(n * scale.k * 10) / 10);
   const count = (n: number) => (real ? n : Math.round(n * scale.c));
 
   /* what did not finish on each flow, by outcome */
@@ -223,7 +272,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
 
   const [name, setName] = useState(flows.find((f) => f.q.name === initialFlow)?.q.name ?? flows[0]?.q.name ?? "");
   const [part, setPart] = useState<Part>({ kind: "queue" });
-  const pick = (n: string) => { setName(n); setPart({ kind: "queue" }); };
+  const pick = (n: string) => { setName(n); setPart({ kind: "queue" }); onFlow?.(n); };
   const seg = (active: boolean) => `rounded-md px-3 py-1 ${active ? "bg-sunken font-medium text-ink" : "text-ink-2 hover:text-ink"}`;
 
   /* a workspace nothing has reported to: one message, with its two ways forward. No empty flows
@@ -285,6 +334,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
   const dead = data ? (info?.moved ?? 0) : flow.bad.filter((c) => c.outcome === "dead_lettered").reduce((a, c) => a + c.n, 0);
   const dlqDepth = lv?.dlq ? lv.dlqDepth : null;
   const dlqBad = data ? dead > 0 || (info?.dlqChange ?? 0) > 0 : dead > 0;
+  const dlqCount = dlqNodeCount({ real, queue: q.name, dlq: cfg.dlq ?? "", depth: dlqDepth, received: info?.dlqReceives ?? seenDlq?.received ?? 0, moved: dead, range: range.long });
   /* the Lambda triggers on the queue; the consumer's own, when its service name is its function's name */
   const triggers = info?.triggers ?? null;
   const mine = !!triggers?.some((t) => t.functionName === con.name);
@@ -311,11 +361,11 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
       <Tooltip content={PLATFORM_LABEL[platform as keyof typeof PLATFORM_LABEL]} className="grid size-8 shrink-0 place-items-center rounded-md border border-line bg-canvas"><PlatformIcon platform={platform} size={18} color={color} /></Tooltip>
       <span className="min-w-0">
         <span className="block truncate text-xs text-ink-3"><Key color={color} />{role}</span>
-        <Tooltip content={name} className="block truncate text-sm font-medium text-ink">{name}</Tooltip>
+        <Tooltip content={name} className="block text-sm font-medium text-ink"><MiddleTruncate text={name} /></Tooltip>
       </span>
     </span>
   );
-  const flowRate = (perMin: number) => ({ n: fmtNum(rate(perMin)), bytes: avg === undefined ? undefined : fmtBytes(rate(perMin) * avg) });
+  const flowRate = (perMin: number) => ({ n: fmtRate(rate(perMin)), bytes: avg === undefined ? undefined : fmtBytes(rate(perMin) * avg) });
   const Verdict = troubled.length ? CircleAlert : CircleCheck;
 
   return (
@@ -323,14 +373,18 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
       <TopBar
         title="Overview"
         pad="px-6"
-        plain={real}
-        search={slots.search}
+        plain={real && !fresh}
+        search={real ? undefined : slots.search}
+        fresh={fresh}
         actions={
           <>
             {real && slots.sampleSwitch}
-            <div role="group" aria-label="Time range" className="inline-flex rounded-lg border border-line bg-surface p-0.5 text-sm">
-              {RANGES.map((r) => <button key={r.id} aria-pressed={r.id === rangeId} onClick={() => chooseRange(r.id)} className={seg(r.id === rangeId)}>{r.label}</button>)}
-            </div>
+            {real && slots.actions}
+            {time
+              ? <TimePicker time={time.range} setTime={time.onChange} now={time.now} />
+              : <div role="group" aria-label="Time range" className="inline-flex rounded-lg border border-line bg-surface p-0.5 text-sm">
+                  {RANGES.map((r) => <button key={r.id} aria-pressed={r.id === rangeId} onClick={() => chooseRange(r.id)} className={seg(r.id === rangeId)}>{r.label}</button>)}
+                </div>}
           </>
         }
       />
@@ -339,9 +393,9 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
         <div className="grid gap-4">
           <section className={`${panel} overflow-hidden`} aria-label="Queues">
             <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-3">
-              {real && !judged.length && <span aria-hidden className="size-2 shrink-0 rounded-[2px] bg-good" />}
+              {real && !judged.length && <span aria-hidden data-mark="neutral" className="size-2 shrink-0 rounded-[2px] bg-ink-3" />}
               {(!real || judged.length > 0) && <Verdict size={17} className={`shrink-0 ${troubled.length ? "text-critical" : "text-good"}`} aria-hidden />}
-              <h2 className="text-sm font-medium text-ink">{real && !judged.length ? copy.noHealth(queues.length) : troubled.length ? `${troubled.length} of ${queues.length} queues need attention${judged.length < queues.length ? `; ${queues.length - judged.length} ${queues.length - judged.length === 1 ? "has" : "have"} no health data` : ""}` : judged.length === queues.length ? `All ${queues.length} queues are healthy` : `${judged.length} of ${queues.length} queues have health data, and they are healthy`}{fromSpans && copy.spansOnly}</h2>
+              <h2 className="text-sm font-medium text-ink">{real && !judged.length ? copy.noHealth(queues.length) : healthHeading(queues.length, judged.length, troubled.length)}{fromSpans && copy.spansOnly}</h2>
             </div>
             <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_4.75rem_1rem] gap-x-3 border-y border-line bg-sunken/50 px-4 py-1.5 text-xs font-medium text-ink-3">
               <span>Queue</span><span className="text-right">Sent/min</span><span className="text-right">Not finished</span><span />
@@ -357,7 +411,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
                         <span className="block truncate text-sm font-medium text-ink">{f.name}</span>
                         <span className="mt-0.5 block truncate text-xs text-ink-3">{[sends.filter((e) => e.to === f.name).map((e) => e.from).join(", ") || "No producer reported", consumers.find((c) => c.queue === f.name)?.name ?? "no consumer reported"].join(" to ")}</span>
                       </span>
-                      <span className="text-right font-mono text-[13px] text-ink tabular-nums">{fmtNum(rate(f.sentPerMin))}</span>
+                      <span className="text-right font-mono text-[13px] text-ink tabular-nums">{fmtRate(rate(f.sentPerMin))}</span>
                       <Tooltip content={n ? `Worst outcome: ${OUTCOME_LABEL[worst!]}` : undefined} className={`text-right font-mono text-[13px] tabular-nums ${n ? OUTCOME_TEXT[worst!] : "text-ink-3"}`}>{fmtNum(n)}</Tooltip>
                       <ChevronRight size={15} className={on ? "text-ink" : "text-ink-3"} aria-hidden />
                     </button>
@@ -370,7 +424,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
           {/* ── why messages didn't finish on the selected flow: one row per cause ── */}
           <section aria-labelledby="causes-h" className={panel}>
             <div className="flex items-baseline gap-3 px-4 pt-3.5 pb-2">
-              <h2 id="causes-h" className="min-w-0 truncate text-sm font-medium text-ink">Why messages didn&apos;t finish on {q.name}</h2>
+              <h2 id="causes-h" className="min-w-0 text-sm font-medium text-ink [overflow-wrap:anywhere]">Why messages didn&apos;t finish on {q.name}</h2>
               <UiLink href={hrefs.issues(q.name)} className="ml-auto shrink-0 text-xs font-medium text-brand hover:underline">Issues on {q.name}</UiLink>
             </div>
             {flow.bad.length ? (
@@ -439,11 +493,11 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
                   <div className="mt-3.5 grid grid-cols-3 gap-x-4 px-4">
                     <div>
                       <p className="text-xs text-ink-3"><Key color={SEND} />Sent</p>
-                      <p className="mt-0.5 font-mono text-[17px] font-medium text-ink tabular-nums">{fmtNum(rate(q.sentPerMin))}<span className="text-xs font-normal text-ink-3">/min</span></p>
+                      <p className="mt-0.5 font-mono text-[17px] font-medium text-ink tabular-nums">{fmtRate(rate(q.sentPerMin))}<span className="text-xs font-normal text-ink-3">/min</span></p>
                     </div>
                     <div>
                       <p className="text-xs text-ink-3"><Key color={RECEIVE} />Received</p>
-                      <p className="mt-0.5 font-mono text-[17px] font-medium text-ink tabular-nums">{fmtNum(rate(receivedPerMin))}<span className="text-xs font-normal text-ink-3">/min</span></p>
+                      <p className="mt-0.5 font-mono text-[17px] font-medium text-ink tabular-nums">{fmtRate(rate(receivedPerMin))}<span className="text-xs font-normal text-ink-3">/min</span></p>
                     </div>
                     <div>
                       <p className="text-xs text-ink-3">Not finished</p>
@@ -473,6 +527,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
                       </div>
                     </div>
                   )}
+                  {real && slots.queueFacts?.(q.name)}
                   <div className="border-t border-line px-4 py-2.5 text-right">
                     <UiLink href={queuePage} onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline">Queue page</UiLink>
                   </div>
@@ -490,12 +545,13 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
                     <button key="dlq" {...node({ kind: "dlq" }, dlqBad ? "bad" : "ok")} style={{ top: y(i, rights.length) }}>
                       <span className="flex h-full items-center gap-2.5">
                         <span className="grid size-8 shrink-0 place-items-center rounded-md border border-line bg-canvas"><PlatformIcon platform="SQS" size={18} /></span>
-                        <span className="min-w-0">
-                          {real
-                            ? <span className={`block truncate text-xs ${dlqBad ? "font-medium text-critical-text" : "text-ink-3"}`}>{dlqDepth !== null ? `${fmtNum(dlqDepth)} in the dead-letter queue` : dead ? `${fmtNum(dead)} moved in ${range.label}` : "Dead-letter queue"}</span>
-                            : dead ? <span className="block truncate text-xs font-medium text-critical-text">{fmtNum(dead)} dead-lettered</span> : <span className="block truncate text-xs text-ink-3">Empty dead-letter queue</span>}
-                          <Tooltip content={cfg.dlq} className="block truncate text-sm font-medium text-ink">{cfg.dlq}</Tooltip>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-xs text-ink-3">DLQ</span>
+                          <Tooltip content={cfg.dlq} className="block text-sm font-medium text-ink"><MiddleTruncate text={cfg.dlq ?? ""} /></Tooltip>
                         </span>
+                        <Tooltip content={dlqCount.note} className={`shrink-0 font-mono text-[15px] font-medium tabular-nums ${dlqCount.n && dlqBad ? "text-critical-text" : "text-ink"}`}>
+                          <span data-dlq-count="">{fmtNum(dlqCount.n)}</span>
+                        </Tooltip>
                       </span>
                     </button>
                   ),
@@ -513,7 +569,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
                   {(!real || found.length > 0) && <UiLink href={hrefs.events(fieldQuery("consumer", con.name))} className="ml-auto inline-flex shrink-0 items-center gap-1 text-xs font-medium text-brand hover:underline">View its events</UiLink>}
                 </div>
                 <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-5">
-                  <Fact k="Receives">{fmtNum(rate(out.perMin))}/min</Fact>
+                  <Fact k="Receives">{fmtRate(rate(out.perMin))}/min</Fact>
                   <Fact k="p95 processing time">{p95 !== null
                     ? <Tooltip content={own ? `From ${con.name}'s deletes and processing errors in the range: the handler's span for Lambda, and from the end of the receive to the start of the delete for other consumers.${fromCapped}` : undefined}>{fmtMs(p95)}</Tooltip>
                     : <NoData />}</Fact>
@@ -552,7 +608,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
               </div>
             )}
             {/* the messages it received lately, one row each */}
-            {part.kind === "consumer" && slots.partMessages?.({ queue: q.name, part: "consumer", count: 0, perMin: out.perMin, max: cfg.maxReceiveCount, real })}
+            {part.kind === "consumer" && slots.partMessages?.({ queue: q.name, part: "consumer", consumer: found.length ? con.name : undefined, count: 0, perMin: out.perMin, max: cfg.maxReceiveCount, real })}
 
             {part.kind === "producer" && (
               <div className="px-5 py-4">
@@ -566,7 +622,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
                     <li key={e.to}>
                       <button type="button" onClick={() => pick(e.to)} disabled={e.to === q.name} className="flex w-full items-center gap-4 py-2.5 text-left text-sm enabled:hover:bg-sunken">
                         <span className="min-w-0 flex-1 truncate font-medium text-ink">{e.to}</span>
-                        <span className="font-mono text-[13px] text-ink-2 tabular-nums">{fmtNum(rate(e.perMin))}/min</span>
+                        <span className="font-mono text-[13px] text-ink-2 tabular-nums">{fmtRate(rate(e.perMin))}/min</span>
                         <span className="w-24 text-right text-xs text-ink-3">{e.to === q.name ? "Shown above" : "Show this queue"}</span>
                       </button>
                     </li>
@@ -625,6 +681,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
             <QueueNowLive key={q.name} queue={q.name} view={info?.inQueue ?? null} live={lv ?? null} heldTotal={info?.heldTotal ?? 0} consumer={conList.length === 1 ? found[0]?.name ?? "" : ""} fifo={q.type === "FIFO"} triggers={info?.triggers ?? null} hrefs={hrefs} />
           </div>
         ) : slots.sampleNow ? <div className="min-w-0 min-[1480px]:col-span-2">{slots.sampleNow(q.name)}</div> : null)}
+        {real && slots.foot && <footer className="min-w-0 text-xs leading-relaxed text-ink-3 min-[1480px]:col-span-2">{slots.foot}</footer>}
       </div>
     </>
   );

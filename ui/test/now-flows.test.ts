@@ -112,7 +112,7 @@ const data = (o: Partial<OverviewFlowsData> = {}): OverviewFlowsData => ({
 test("the page on recorded data: worst flow first, span-only health marked, In ‹queue› now under it, links from the host", () => {
   const out = html(createElement(OverviewFlows, { data: data(), copy: COPY, hrefs: HREFS }));
   assert.ok(out.indexOf(">orders<") < out.indexOf(">emails<"), "the flow with unfinished messages is listed first");
-  for (const w of ["1 of 2 queues need attention; 1 has no health data (from spans)", "Messages through orders", "Why messages didn&#x27;t finish on orders",
+  for (const w of ["1 of 2 queues needs attention; 1 has no health data (from spans)", "Messages through orders", "Why messages didn&#x27;t finish on orders",
     "Not deleted after receive", "No AWS figures for this queue.", "In orders now", "12.5", "Issues on orders"]) assert.ok(out.includes(w), w);
   for (const h of [`href="/issues?queue=orders"`, `href="/queues/orders?range=1h"`, `href="/issues/Not%20deleted%20after%20receive"`]) assert.ok(out.includes(h), h);
   assert.doesNotMatch(out, / title="/);
@@ -139,8 +139,8 @@ test("the page on the sample: the host's simulated queue and search come through
   }));
   assert.ok(out.includes("simulated orders"));
   assert.ok(out.includes(`aria-label="Search messages"`));
-  assert.ok(out.includes("All 1 queues are healthy"));
-  assert.ok(out.includes(">30<"), "the sample's rate times its range scale");
+  assert.ok(out.includes("The queue is healthy"));
+  assert.ok(out.includes(">30.0<"), "the sample's rate times its range scale, to one decimal");
   assert.ok(out.includes("orders-dlq"));
   assert.ok(out.includes("1m 15s"));
   assert.equal(asked.length, 0, "the queue is the part selected, so no part's messages are asked for");

@@ -11,8 +11,9 @@ they are. Times are milliseconds on the server's clock. ``seq`` is a span's arri
 counter); a span with no seq (``None``, stored before the server kept it) never counts as arriving after anything.
 
 contract/fixtures/triage-parity.json holds the cases both engines must agree on (make-triage-parity.py writes it from
-this module; python/tests/server/test_triage.py and @trailbeam/ui's test/triage.test.ts run it, and the hosted app's
-test reads it from @trailbeam/ui/fixtures).
+this module; python/tests/server/test_triage.py and @trailbeam/ui's test/triage.test.ts run it). The hosted app keeps
+its own copies of these rules and runs the same cases on them in its test/triage-parity.test.ts, from a copy of this
+file until the @trailbeam/ui it vendors ships it as @trailbeam/ui/fixtures/triage-parity.json.
 """
 from __future__ import annotations
 
@@ -142,7 +143,9 @@ def triage_of(row: Optional[dict], group: Optional[dict], now_ms: int) -> dict:
 # ---- which row a cause shows ----------------------------------------------------------------------------------
 
 def same_cause(r: str, g: str) -> bool:
-    """Whether a group with key g is the cause with key r, across the merge of error texts ("...|exc:<class>:*")."""
+    """Whether a group with key g is the cause with key r, across the merge of error texts ("...|exc:<class>:*").
+    The prefix match is sound because causes.py writes the class with ``%``, ``:`` and ``|`` escaped and never writes a
+    text as ``*`` (QV-702)."""
     if r == g:
         return True
     if g.endswith(":*") and "|exc:" in g and r.startswith(g[:-1]):
@@ -207,8 +210,10 @@ def in_filter(t: dict, f: str, me: str, members: set) -> bool:
 
 # ---- notes ----------------------------------------------------------------------------------------------------
 
-#: control characters other than tab and newline, and the bidi embeddings, overrides and isolates (QV-557)
-_NOTE_BAD = re.compile("[\u0000-\u0008\u000b-\u001f\u007f-\u009f‪-‮⁦-⁩]")
+#: control characters other than tab and newline, the bidi embeddings, overrides and isolates (QV-557), and lone
+#: surrogates (QV-701): half of a UTF-16 pair, as a truncated emoji leaves, which JSON can carry ("\ud83d") but neither
+#: database can store. JSON always joins a whole pair into one character, so any surrogate in a str is a lone one.
+_NOTE_BAD = re.compile("[\u0000-\u0008\u000b-\u001f\u007f-\u009f\ud800-\udfff‪-‮⁦-⁩]")
 # JavaScript's \s: WhiteSpace and LineTerminator (Zs is checked by category)
 _JS_SPACE = set("\t\n\u000b\u000c\r  ﻿  ")
 _INVISIBLE = set("͏ᅟᅠ឴឵᠎⠀ㅤﾠ") | {chr(c) for c in range(0xFE00, 0xFE10)}
@@ -224,8 +229,8 @@ def note_blank(body: str) -> bool:
 
 
 def js_length(s: str) -> int:
-    """A string's length as JavaScript counts it: UTF-16 code units."""
-    return len(s.encode("utf-16-le")) // 2
+    """A string's length as JavaScript counts it: UTF-16 code units. A lone surrogate counts 1, as in JavaScript."""
+    return len(s.encode("utf-16-le", "surrogatepass")) // 2
 
 
 def note_problem(body: str) -> Optional[str]:

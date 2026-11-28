@@ -50,7 +50,7 @@ def widget(id_="w1", **over):
 
 def make(dataset="own", can_unlock=lambda who: who.role == "admin", store=None):
     data = D[dataset]
-    return api.DashboardsApi(store or MemoryDashboards(), "local", lambda since, now: copy.deepcopy(data),
+    return api.DashboardsApi(store or MemoryDashboards(), "local", lambda since, now, to: copy.deepcopy(data),
                              can_unlock=can_unlock, now=lambda: data["now"])
 
 
@@ -281,7 +281,7 @@ def _many_messages(count=2000, now=1_764_000_000_000) -> dict:
 
 
 def _on(data, store=None):
-    return api.DashboardsApi(store or MemoryDashboards(), "local", lambda since, now: data, now=lambda: data["now"])
+    return api.DashboardsApi(store or MemoryDashboards(), "local", lambda since, now, to: data, now=lambda: data["now"])
 
 
 def _grouped(id_="g", measure="sent"):
@@ -328,6 +328,24 @@ def test_a_dashboard_holds_at_most_50_widgets_of_at_most_5_queries():
         == (400, "Widget 1: a queue table can have at most 19 columns.")
     assert a.call("PATCH", f"/api/dashboards/{did}", {"def": {"widgets": [widget(queries=[{"measure": "sent"}] * 5)]}},
                   ADA)[0] == 200
+
+
+def test_a_widgets_own_time_is_a_preset_or_null():
+    # QV-688: measures.preset draws an unknown ID as the past hour, so "10y" was stored and drawn as 1h
+    a = make()
+    said = 'Widget 2: "time" is a preset: 5m, 15m, 1h, 4h, 1d, 2d, 7d, 30d, or null.'
+    assert refused(a.call, "POST", "/api/dashboards",
+                   {"name": "x", "def": {"widgets": [widget(), widget("w2", time="10y")]}}, ADA) == (400, said)
+    did = a.call("POST", "/api/dashboards", {"name": "x", "def": {"widgets": [widget(time=None)]}}, ADA)[1][
+        "dashboard"]["id"]
+    for bad in ("90d", "", 7, ["7d"]):
+        assert refused(a.call, "POST", f"/api/dashboards/{did}/widgets", {"widget": widget("w2", time=bad)}, ADA) \
+            == (400, said)
+    assert refused(a.call, "PATCH", f"/api/dashboards/{did}", {"def": {"widgets": [widget(time="1y")]}}, ADA) \
+        == (400, said.replace("Widget 2", "Widget 1"))
+    assert a.call("POST", f"/api/dashboards/{did}/widgets", {"widget": widget("w2", time="7d")}, ADA)[0] == 201
+    out = a.call("GET", f"/api/dashboards/{did}/measures", {}, BEN)[1]
+    assert [w["time"]["preset"] for w in out["widgets"]] == ["1h", "7d"]
 
 
 def test_the_widgets_past_8_mb_or_5_seconds_are_skipped_and_asked_for_one_by_one(monkeypatch):
@@ -410,6 +428,59 @@ def test_event_data_reads_the_stored_spans_as_the_event_explorers_rows():
     finally:
         db.close()
     assert capped["capped"] is True and [e["messageId"] for e in capped["events"]] == ["new"]
+
+
+def test_a_past_range_reads_its_own_messages_not_the_newest_since():
+    # QV-685: more messages after the range's end than the cap must not crowd the range out
+    p, c = Consumer("api-1", service="api"), Consumer()
+    ns = T * 1_000_000
+    db = Database(":memory:")
+    try:
+        spans = [p.send(ns, "in-range"), c.receive(ns + SEC, "in-range", "rh-in"),
+                 p.send(ns + 50 * SEC, "straddles"), c.receive(ns + 70 * SEC, "straddles", "rh-st")]
+        # 5 messages after the end, past STRADDLE_MS
+        spans += [p.send(ns + 60 * SEC + api.STRADDLE_MS * 1_000_000 + i * SEC, f"later-{i}") for i in range(5)]
+        _ingest(db, spans)
+        # the range [T - 1s, T + 60s), now well after it; a cap below the 5 messages since
+        data = api.event_data(db, T + 3_600_000, T - 1000, max_messages=3, to_ms=T + 60_000)
+        # the cap reached by the range's own messages: the straddler is not read, and capped says so
+        full = api.event_data(db, T + 3_600_000, T - 1000, max_messages=1, to_ms=T + 60_000)
+        # and the same read up to now keeps the newest, as before
+        now = api.event_data(db, T + 3_600_000, T - 1000, max_messages=3)
+        # busy just after the end: the newest there fill what is left, so the straddler is not read; capped says so
+        _ingest(db, [p.send(ns + (71 + i) * SEC, f"soon-{i}") for i in range(3)])
+        busy = api.event_data(db, T + 3_600_000, T - 1000, max_messages=3, to_ms=T + 60_000)
+    finally:
+        db.close()
+    got = [(e["messageId"], e["event"], e["ms"] - T) for e in data["events"]]
+    # the straddling message's send is in the range; its receive at 70s is not
+    assert got == [("straddles", "send", 50_000), ("in-range", "receive", 1000), ("in-range", "send", 0)]
+    assert data["capped"] is False
+    assert full["capped"] is True and {e["messageId"] for e in full["events"]} == {"in-range"}
+    assert now["capped"] is True and {e["messageId"] for e in now["events"]} == {"later-4", "later-3", "later-2"}
+    assert busy["capped"] is True
+    assert {(e["messageId"], e["event"]) for e in busy["events"]} == {("in-range", "send"), ("in-range", "receive")}
+
+
+def test_measures_reads_a_past_range_up_to_its_end():
+    reads, data = [], D["own"]
+    now = data["now"]
+
+    def read(since, now_ms, to):
+        reads.append((since, to))
+        return {**copy.deepcopy(data), "capped": to is not None}
+
+    a = api.DashboardsApi(MemoryDashboards(), "local", read, now=lambda: now)
+    body = {"name": "Past", "def": {"widgets": [widget("a"), widget("b", time="1h")]}}
+    did = a.call("POST", "/api/dashboards", body, ADA)[1]["dashboard"]["id"]
+    frm, to = now - 7 * M.DAY, now - 6 * M.DAY
+    out = a.call("GET", f"/api/dashboards/{did}/measures", {"from": str(frm), "to": str(to)}, BEN)[1]
+    # the past range up to its end; the widget with its own time, which ends now, up to now
+    assert sorted(reads, key=repr) == sorted([(frm, to), (now - M.HOUR, None)], key=repr)
+    assert out["capped"] is True and out["widgets"][1]["time"]["from"] == now - M.HOUR
+    reads.clear()
+    out = a.call("GET", f"/api/dashboards/{did}/measures", {"range": "1d"}, BEN)[1]
+    assert reads == [(now - M.DAY, None)] and out["capped"] is False  # ranges that end now: one read
 
 
 def test_a_lambda_message_and_one_moved_to_the_dead_letter_queue():

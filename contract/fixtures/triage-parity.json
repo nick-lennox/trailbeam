@@ -2884,6 +2884,248 @@
    ],
    "key": "v1|orders|billing|exc:TimeoutError:aa",
    "expected": null
+  },
+  {
+   "name": "a class with a colon: not the merged row of the class before the colon",
+   "rows": [
+    {
+     "causeKey": "v1|orders|billing|exc:Err:*",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1763996400000
+    }
+   ],
+   "key": "v1|orders|billing|exc:Err%3ATimeout:db down",
+   "expected": null
+  },
+  {
+   "name": "a class with a colon: its own class's merged row",
+   "rows": [
+    {
+     "causeKey": "v1|orders|billing|exc:Err:*",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1763996400000
+    },
+    {
+     "causeKey": "v1|orders|billing|exc:Err%3ATimeout:*",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "resolved",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1763996400000
+    }
+   ],
+   "key": "v1|orders|billing|exc:Err%3ATimeout:db down",
+   "expected": "v1|orders|billing|exc:Err%3ATimeout:*"
+  },
+  {
+   "name": "a merged class: not a class that starts with it and a colon",
+   "rows": [
+    {
+     "causeKey": "v1|orders|billing|exc:Err%3ATimeout:db down",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1763996400000
+    }
+   ],
+   "key": "v1|orders|billing|exc:Err:*",
+   "expected": null
+  },
+  {
+   "name": "a text of \"*\" is one text: its class's merged row changed later wins",
+   "rows": [
+    {
+     "causeKey": "v1|orders|billing|exc:Other:<*>",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1764000000000
+    },
+    {
+     "causeKey": "v1|orders|billing|exc:Other:*",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1764000000001
+    }
+   ],
+   "key": "v1|orders|billing|exc:Other:<*>",
+   "expected": "v1|orders|billing|exc:Other:*"
+  },
+  {
+   "name": "a text of \"*\" is not merged: no other text's row",
+   "rows": [
+    {
+     "causeKey": "v1|orders|billing|exc:Other:boom",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1763996400000
+    }
+   ],
+   "key": "v1|orders|billing|exc:Other:<*>",
+   "expected": null
+  },
+  {
+   "name": "the merged cause: a text of \"*\" is one of its texts",
+   "rows": [
+    {
+     "causeKey": "v1|orders|billing|exc:Other:<*>",
+     "causeId": "c1",
+     "label": "billing timed out",
+     "queue": "orders",
+     "status": "open",
+     "resolveMode": null,
+     "resolveVersions": [],
+     "sinceSeq": null,
+     "ignoreUntil": null,
+     "ignoreMore": null,
+     "ignoreSeen": null,
+     "regressedAt": null,
+     "regressedVersion": null,
+     "regressedCount": null,
+     "assignee": null,
+     "assignedBy": null,
+     "assignedAt": null,
+     "statusBy": null,
+     "statusAt": null,
+     "noteCount": 0,
+     "heldRule": 0,
+     "createdAt": 1763996400000,
+     "updatedAt": 1763996400000
+    }
+   ],
+   "key": "v1|orders|billing|exc:Other:*",
+   "expected": "v1|orders|billing|exc:Other:<*>"
   }
  ],
  "sameCause": [
@@ -2961,6 +3203,199 @@
    "r": "v1|orders|billing|exc:KeyError:cc",
    "g": "v1|orders|billing|exc:TimeoutError",
    "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Err:*",
+   "g": "v1|orders|billing|exc:Err%3ATimeout:db down",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Err:*",
+   "g": "v1|orders|billing|exc:Err%3ATimeout:*",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Err:*",
+   "g": "v1|orders|billing|exc:Other:<*>",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Err:*",
+   "g": "v1|orders|billing|exc:Other:*",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Err:*",
+   "g": "v1|orders|billing|exc:Other:boom",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Err%3ATimeout:db down",
+   "g": "v1|orders|billing|exc:Err:*",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Err%3ATimeout:db down",
+   "g": "v1|orders|billing|exc:Err%3ATimeout:*",
+   "expected": true
+  },
+  {
+   "r": "v1|orders|billing|exc:Err%3ATimeout:db down",
+   "g": "v1|orders|billing|exc:Other:<*>",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Err%3ATimeout:db down",
+   "g": "v1|orders|billing|exc:Other:*",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Err%3ATimeout:db down",
+   "g": "v1|orders|billing|exc:Other:boom",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Err%3ATimeout:*",
+   "g": "v1|orders|billing|exc:Err:*",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Err%3ATimeout:*",
+   "g": "v1|orders|billing|exc:Err%3ATimeout:db down",
+   "expected": true
+  },
+  {
+   "r": "v1|orders|billing|exc:Err%3ATimeout:*",
+   "g": "v1|orders|billing|exc:Other:<*>",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Err%3ATimeout:*",
+   "g": "v1|orders|billing|exc:Other:*",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Err%3ATimeout:*",
+   "g": "v1|orders|billing|exc:Other:boom",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Other:<*>",
+   "g": "v1|orders|billing|exc:Err:*",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Other:<*>",
+   "g": "v1|orders|billing|exc:Err%3ATimeout:db down",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Other:<*>",
+   "g": "v1|orders|billing|exc:Err%3ATimeout:*",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Other:<*>",
+   "g": "v1|orders|billing|exc:Other:*",
+   "expected": true
+  },
+  {
+   "r": "v1|orders|billing|exc:Other:<*>",
+   "g": "v1|orders|billing|exc:Other:boom",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Other:*",
+   "g": "v1|orders|billing|exc:Err:*",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Other:*",
+   "g": "v1|orders|billing|exc:Err%3ATimeout:db down",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Other:*",
+   "g": "v1|orders|billing|exc:Err%3ATimeout:*",
+   "expected": false
+  },
+  {
+   "r": "v1|orders|billing|exc:Other:*",
+   "g": "v1|orders|billing|exc:Other:<*>",
+   "expected": true
+  },
+  {
+   "r": "v1|orders|billing|exc:Other:*",
+   "g": "v1|orders|billing|exc:Other:boom",
+   "expected": true
+  }
+ ],
+ "causeSignature": [
+  {
+   "errorType": "TimeoutError",
+   "text": "Stripe timed out after 10000 ms",
+   "expected": "exc:TimeoutError:Stripe timed out after <n> ms",
+   "merged": "exc:TimeoutError:*"
+  },
+  {
+   "errorType": "Err",
+   "text": "db down",
+   "expected": "exc:Err:db down",
+   "merged": "exc:Err:*"
+  },
+  {
+   "errorType": "Err:Timeout",
+   "text": "db down",
+   "expected": "exc:Err%3ATimeout:db down",
+   "merged": "exc:Err%3ATimeout:*"
+  },
+  {
+   "errorType": "Other",
+   "text": "*",
+   "expected": "exc:Other:<*>",
+   "merged": "exc:Other:*"
+  },
+  {
+   "errorType": "Other",
+   "text": " * ",
+   "expected": "exc:Other:<*>",
+   "merged": "exc:Other:*"
+  },
+  {
+   "errorType": "Other",
+   "text": "**",
+   "expected": "exc:Other:**",
+   "merged": "exc:Other:*"
+  },
+  {
+   "errorType": "Other",
+   "text": "boom",
+   "expected": "exc:Other:boom",
+   "merged": "exc:Other:*"
+  },
+  {
+   "errorType": "Other",
+   "text": null,
+   "expected": "exc:Other:",
+   "merged": "exc:Other:*"
+  },
+  {
+   "errorType": "pkg.mod:Err|x%y",
+   "text": "a: b",
+   "expected": "exc:pkg.mod%3AErr%7Cx%25y:a: b",
+   "merged": "exc:pkg.mod%3AErr%7Cx%25y:*"
+  },
+  {
+   "errorType": "Err:",
+   "text": "",
+   "expected": "exc:Err%3A:",
+   "merged": "exc:Err%3A:*"
+  },
+  {
+   "errorType": "*",
+   "text": "*",
+   "expected": "exc:*:<*>",
+   "merged": "exc:*:*"
   }
  ],
  "inFilter": [
@@ -4141,6 +4576,36 @@
    "name": "an emoji with a variation selector",
    "body": "\u2764\ufe0f",
    "expected": null
+  },
+  {
+   "name": "a lone high surrogate (a truncated emoji)",
+   "body": "see \ud83d attached",
+   "expected": "The note has hidden characters that can't be saved (control characters or text-direction marks), often from pasted text. Retype the pasted part and try again."
+  },
+  {
+   "name": "a lone low surrogate",
+   "body": "see \ude00 attached",
+   "expected": "The note has hidden characters that can't be saved (control characters or text-direction marks), often from pasted text. Retype the pasted part and try again."
+  },
+  {
+   "name": "a lone surrogate at the end",
+   "body": "see \ud83d",
+   "expected": "The note has hidden characters that can't be saved (control characters or text-direction marks), often from pasted text. Retype the pasted part and try again."
+  },
+  {
+   "name": "a lone surrogate only",
+   "body": "\ud83d",
+   "expected": "The note has hidden characters that can't be saved (control characters or text-direction marks), often from pasted text. Retype the pasted part and try again."
+  },
+  {
+   "name": "a surrogate pair is one emoji: 2 units",
+   "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d\ude00",
+   "expected": null
+  },
+  {
+   "name": "a surrogate pair at 2,001 units",
+   "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d\ude00",
+   "expected": "Notes can be up to 2,000 characters."
   }
  ]
 }

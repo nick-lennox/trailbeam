@@ -954,7 +954,8 @@ def make_handler(app: App):
                 if mounted is not None:
                     status, obj = mounted.call(method, path, body, d.who, base)
                 else:
-                    status, obj = app.people.call(handler, rid, body, d.who, base, time.time_ns() // 1_000_000)
+                    status, obj = app.people.call(handler, rid, body, d.who, base, time.time_ns() // 1_000_000,
+                                                  self._client())
             except people_api.ApiProblem as e:
                 self._json(e.status, e.body())
                 return

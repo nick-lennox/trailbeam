@@ -5,7 +5,8 @@ TypeScript rules (@trailbeam/ui/model triage.ts and arrivals.ts, run by ui/test/
 test/triage-parity.test.ts, reading @trailbeam/ui/fixtures/triage-parity.json) run every case and must give the
 expected result: the state a stored row is in now (ignore until a time, ignore until N more messages, regression,
 resolved in a new version, late exports), which row a cause shows across the merge and split of error texts, the
-list's filters, and what a note may hold. The expected results are the Python engine's. Run from the repository root
+list's filters, what a note may hold, and the exception signature a cause key is built from (``causeSignature``: the
+server's causes.exc_signature and the hosted app's causes.ts excSignature; @trailbeam/ui builds no keys). The expected results are the Python engine's. Run from the repository root
 after changing a case or the rules:
 
     PYTHONPATH=python/src:server/src python contract/fixtures/make-triage-parity.py
@@ -15,7 +16,7 @@ JSON has no NaN: an arrival's ``seq`` or ``ms`` of null stands for NaN (no span 
 import json
 from pathlib import Path
 
-from trailbeam.server import triage
+from trailbeam.server import causes, triage
 
 OUT = Path(__file__).resolve().parent / "triage-parity.json"
 MIN = 60_000
@@ -123,6 +124,24 @@ M = "v1|orders|billing|exc:TimeoutError:*"
 A = "v1|orders|billing|exc:TimeoutError:aa"
 B = "v1|orders|billing|exc:TimeoutError:bb"
 OTHER = "v1|orders|billing|exc:KeyError:cc"
+SIG = [("TimeoutError", "Stripe timed out after 10000 ms"), ("Err", "db down"), ("Err:Timeout", "db down"),
+       ("Other", "*"), ("Other", " * "), ("Other", "**"), ("Other", "boom"), ("Other", None), ("pkg.mod:Err|x%y", "a: b"),
+       ("Err:", ""), ("*", "*")]
+
+
+def key(typ, text=None, merged=False, q="orders", c="billing"):
+    """A cause key as causes.group writes it."""
+    sig = causes.merged_signature(typ) if merged else causes.exc_signature(typ, text)
+    return f"{causes.KEY_VERSION}|{q}|{c}|{sig}"
+
+
+ERR_M = key("Err", merged=True)
+COLON = key("Err:Timeout", "db down")
+COLON_M = key("Err:Timeout", merged=True)
+STAR = key("Other", "*")
+OTHER_M = key("Other", merged=True)
+OTHER_BOOM = key("Other", "boom")
+assert not COLON.startswith(ERR_M[:-1]) and STAR != OTHER_M, (COLON, STAR)
 ROW_FOR = [
     ("no rows", [], A),
     ("its own row", [row(causeKey=A), row(causeKey=OTHER, updatedAt=T0)], A),
@@ -136,6 +155,13 @@ ROW_FOR = [
     ("a merged cause: another class's rows don't count", [row(causeKey=OTHER, updatedAt=T0)], M),
     ("another consumer's merged row doesn't count", [row(causeKey="v1|orders|mailer|exc:TimeoutError:*")], A),
     ("a key that only shares a prefix", [row(causeKey="v1|orders|billing|exc:Timeout:*")], A),
+    # QV-702: a class with a colon, and an error text of "*", match only their own cause
+    ("a class with a colon: not the merged row of the class before the colon", [row(causeKey=ERR_M)], COLON),
+    ("a class with a colon: its own class's merged row", [row(causeKey=ERR_M), row(causeKey=COLON_M, status="resolved")], COLON),
+    ("a merged class: not a class that starts with it and a colon", [row(causeKey=COLON)], ERR_M),
+    ("a text of \"*\" is one text: its class's merged row changed later wins", [row(causeKey=STAR, updatedAt=T0), row(causeKey=OTHER_M, updatedAt=T0 + 1)], STAR),
+    ("a text of \"*\" is not merged: no other text's row", [row(causeKey=OTHER_BOOM)], STAR),
+    ("the merged cause: a text of \"*\" is one of its texts", [row(causeKey=STAR)], OTHER_M),
 ]
 
 MEMBERS = ["me", "sam"]
@@ -168,6 +194,12 @@ NOTES = [
     ("1,000 emoji: 2,000 UTF-16 units", "\U0001F600" * 1000),
     ("1,001 emoji: over", "\U0001F600" * 1001),
     ("an emoji with a variation selector", "❤️"),
+    ("a lone high surrogate (a truncated emoji)", "see \ud83d attached"),
+    ("a lone low surrogate", "see \ude00 attached"),
+    ("a lone surrogate at the end", "see \ud83d"),
+    ("a lone surrogate only", "\ud83d"),
+    ("a surrogate pair is one emoji: 2 units", "x" * 1998 + "\U0001F600"),
+    ("a surrogate pair at 2,001 units", "x" * 1999 + "\U0001F600"),
 ]
 
 RAW_FILTERS = ["open", "mine", "unassigned", "resolved", "ignored", "all", "", None, "OPEN", "closed"]
@@ -183,7 +215,12 @@ def main():
         "rowFor": [{"name": n, "rows": rows, "key": k, "expected": (lambda r: r and r["causeKey"])(triage.row_for(rows, k))}
                    for n, rows, k in ROW_FOR],
         "sameCause": [{"r": r, "g": g, "expected": triage.same_cause(r, g)}
-                      for r in (A, M, OTHER) for g in (A, B, M, OTHER, "v1|orders|billing|exc:TimeoutError")],
+                      for r in (A, M, OTHER) for g in (A, B, M, OTHER, "v1|orders|billing|exc:TimeoutError")]
+                     + [{"r": r, "g": g, "expected": triage.same_cause(r, g)}
+                        for r in (ERR_M, COLON, COLON_M, STAR, OTHER_M) for g in (ERR_M, COLON, COLON_M, STAR, OTHER_M, OTHER_BOOM)
+                        if r != g],
+        "causeSignature": [{"errorType": t, "text": x, "expected": causes.exc_signature(t, x),
+                            "merged": causes.merged_signature(t)} for t, x in SIG],
         "inFilter": [{"name": n, "triage": t, "filter": f, "me": "me", "members": MEMBERS,
                       "expected": triage.in_filter(t, f, "me", set(MEMBERS))}
                      for n, t in FILTER_TRIAGES for f in triage.FILTERS],

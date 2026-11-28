@@ -1,8 +1,9 @@
 /*
   The triage rules (src/model/triage.ts, arrivals.ts; QV-593) on the cases in ../contract/fixtures/triage-parity.json,
   which the server's trailbeam.server.triage writes and runs (python/tests/server/test_triage.py), and which the
-  hosted app's test reads from @trailbeam/ui/fixtures: the ignore and regression rules, which row a cause shows,
-  the filters and the note checks are the same in both products. Then the words, which only this side has.
+  hosted app runs on its own copies of the rules (its test/triage-parity.test.ts, from a copy of the file until the
+  @trailbeam/ui it vendors ships it): the ignore and regression rules, which row a cause shows, the filters and the
+  note checks are the same in both products. Then the words, which only this side has.
   Run: npm test
 */
 import { test } from "node:test";

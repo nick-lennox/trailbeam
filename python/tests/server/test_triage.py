@@ -1,6 +1,6 @@
 """The triage rules (triage.py, QV-593): parity with @trailbeam/ui's model/triage.ts and arrivals.ts on the shared
-cases in contract/fixtures/triage-parity.json (ui/test/triage.test.ts and the hosted app's test run the same file),
-and what the cases don't cover."""
+cases in contract/fixtures/triage-parity.json (ui/test/triage.test.ts runs the same file, and the hosted app's
+test/triage-parity.test.ts runs a copy of it on the app's own copies of the rules), and what the cases don't cover."""
 import copy
 import importlib.util
 import json
@@ -46,6 +46,16 @@ def test_row_for(c):
 def test_same_cause():
     for c in F["sameCause"]:
         assert triage.same_cause(c["r"], c["g"]) is c["expected"], c
+
+
+@pytest.mark.parametrize("c", F["causeSignature"], ids=lambda c: f"{c['errorType']} / {c['text']}")
+def test_cause_signature(c):
+    """The exception part of a cause key (QV-702): the class escaped, and no text written as the merged form."""
+    from trailbeam.server import causes
+    assert causes.exc_signature(c["errorType"], c["text"]) == c["expected"]
+    assert causes.merged_signature(c["errorType"]) == c["merged"]
+    assert not triage.is_merged(f"v1|q|c|{c['expected']}")
+    assert triage.is_merged(f"v1|q|c|{c['merged']}")
 
 
 def test_in_filter_and_filter_of():
