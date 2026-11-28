@@ -253,7 +253,7 @@ export function EventExplorer({ query, setQuery, time, data, messageHref, lang =
                         <div key={f.name}>
                           <button onClick={() => setOpenFacets(flip(openFacets, f.name))} aria-expanded={facetOpen} className="-mx-1.5 flex w-[calc(100%+12px)] items-center gap-1 rounded-[5px] px-1.5 py-1 text-left hover:bg-sunken">
                             {facetOpen ? <ChevronDown size={12} className="shrink-0 text-ink-3" /> : <ChevronRight size={12} className="shrink-0 text-ink-3" />}
-                            <Tooltip content={attribute ? f.name : undefined} className={`min-w-0 truncate ${attribute ? "font-mono text-caption" : "text-xs font-medium"} ${f.active ? "text-ink" : "text-ink-2"}`}>{f.label}</Tooltip>
+                            <Tooltip content={attribute ? f.name : undefined} className={`min-w-0 truncate text-xs font-medium ${f.active ? "text-ink" : "text-ink-2"}`}>{f.label}</Tooltip>
                             {f.active > 0 && <span className="size-1.5 shrink-0 rounded-full bg-accent" />}
                             <span className="ml-auto pl-1 font-mono text-micro text-ink-3">{f.values.length}</span>
                           </button>

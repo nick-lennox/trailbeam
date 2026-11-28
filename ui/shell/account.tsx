@@ -25,7 +25,7 @@ export function AccountPage() {
   const [state, setState] = useState<Load>({ kind: "loading" });
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
-  useEffect(() => { document.title = "Account · Trailbeam"; }, []);
+  useEffect(() => { document.title = "Account, Trailbeam"; }, []);
 
   const load = useCallback(() => getJSON<List>("/api/me/passkeys")
     .then((data) => setState({ kind: "ok", data }))

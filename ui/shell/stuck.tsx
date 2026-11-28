@@ -34,7 +34,7 @@ export function StuckPage() {
   const [state, setState] = useState<State>({ kind: "loading" });
   const [refresh, setRefresh, tick] = useRefresh(refreshOn(own));
   const key = qs(own);
-  useEffect(() => { document.title = "Stuck messages · Trailbeam"; }, []);
+  useEffect(() => { document.title = "Stuck messages, Trailbeam"; }, []);
   useEffect(() => {
     if (problem) return;
     let live = true;

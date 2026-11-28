@@ -53,8 +53,8 @@ test("a receive whose envelope names a topic with no recorded publish arrived vi
   assert.match(html, /Arrived via SNS topic audit-topic/);
   assert.match(html, /no time/);
   assert.match(html, /SNS envelope/);
-  assert.match(html, /Reported on delivery 1 SNS delivery 25 ms/);
-  assert.match(html, /Before e2 \(pickup 1\)/);
+  assert.match(html, /Reported on receive 1 SNS delivery 25 ms/);
+  assert.match(html, /Before e2 \(receive 1\)/);
   assert.match(html, /publisher runs no Trailbeam package/);
   assert.doesNotMatch(html, /inferred</);
 });

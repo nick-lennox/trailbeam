@@ -268,7 +268,7 @@ export function IssueList({ rows, now, filters, filterName, emptyText, tags = {}
             <div className="min-w-0 flex-1 overflow-x-auto">
               <div className={`grid min-w-[800px] ${COLS} h-[33px] items-center gap-x-3 border-b border-line bg-surface pr-[var(--row-actions)] pl-4 text-xs font-medium text-ink-3`}>
                 {th("worst", "Issue")}{th("count", "Messages")}{th("receives", "Receives")}
-                <span className="flex justify-between font-mono text-micro font-normal tabular-nums"><span className="sr-only">Failing messages from </span><span className="whitespace-nowrap">{clock(time.from)}</span><span className="whitespace-nowrap">{time.preset ? "Now" : clock(time.to)}</span></span>
+                <span className="flex justify-between font-mono text-micro font-normal tabular-nums"><span className="sr-only">Failing messages from </span><span className="whitespace-nowrap">{clock(time.from)}</span><span className="whitespace-nowrap">{time.preset ? <span className="font-sans">Now</span> : clock(time.to)}</span></span>
                 {th("first", "First seen", "justify-self-end")}{th("recent", "Last seen", "justify-self-end")}
               </div>
               {shown.length ? (

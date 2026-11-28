@@ -3,6 +3,7 @@
 import { useEffect, type ComponentProps, type ReactNode } from "react";
 import { X } from "lucide-react";
 import type { Tone } from "./measures.ts";
+import { Tooltip } from "../design/Tooltip.tsx";
 
 /* Small parts the dashboard pages share. Menu and useSize are the design system's and the charts' (QV-591). */
 export { Menu, MenuItem } from "../design/Menu.tsx";
@@ -23,9 +24,11 @@ export function StateMark({ tone, children, muted = false }: { tone: Tone | null
 
 export function IconBtn({ label, children, className = "", ...rest }: { label: string; children: ReactNode; className?: string } & Omit<ComponentProps<"button">, "className" | "children">) {
   return (
-    <button type="button" aria-label={label} title={label} className={`grid size-[26px] shrink-0 place-items-center rounded-md text-ink-3 hover:bg-sunken hover:text-ink ${className}`} {...rest}>
-      {children}
-    </button>
+    <Tooltip content={label} className="inline-flex shrink-0">
+      <button type="button" aria-label={label} className={`grid size-[26px] shrink-0 place-items-center rounded-md text-ink-3 hover:bg-sunken hover:text-ink ${className}`} {...rest}>
+        {children}
+      </button>
+    </Tooltip>
   );
 }
 

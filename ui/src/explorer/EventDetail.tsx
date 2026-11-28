@@ -24,10 +24,10 @@ export function EventDetail({ event: e, messageHref }: { event: Ev; messageHref:
     ...(e.tenant ? [mono("Tenant", e.tenant)] : []),
     ...(a["message.MessageGroupId"] ? [mono("Message group", a["message.MessageGroupId"])] : []),
     ...(a["message.SequenceNumber"] ? [mono("Sequence number", a["message.SequenceNumber"])] : []),
-    ...(e.sizeBytes !== undefined ? [["Body size", `${e.sizeBytes.toLocaleString("en-US")} bytes`] as [string, ReactNode]] : []),
-    ...(e.receiveCount !== undefined ? [["Receive count", String(e.receiveCount)] as [string, ReactNode]] : []),
-    ...(e.waitMs !== undefined ? [["Time in queue", fmtMs(Math.round(e.waitMs))] as [string, ReactNode]] : []),
-    ...(e.durationMs !== undefined ? [["Processing time", fmtMs(Math.round(e.durationMs))] as [string, ReactNode]] : []),
+    ...(e.sizeBytes !== undefined ? [["Body size", <><span key="n" className="font-mono">{e.sizeBytes.toLocaleString("en-US")}</span> bytes</>] as [string, ReactNode]] : []),
+    ...(e.receiveCount !== undefined ? [mono("Receive count", e.receiveCount)] : []),
+    ...(e.waitMs !== undefined ? [mono("Time in queue", fmtMs(Math.round(e.waitMs)))] : []),
+    ...(e.durationMs !== undefined ? [mono("Processing time", fmtMs(Math.round(e.durationMs)))] : []),
     ["Recorded by", <SourceTag key="s" source={e.source} />],
   ];
   return (

@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, Clock, Copy, GripVertical, Lock, Maximize, M
 import { Button } from "../design/Button.tsx";
 import { CopyText } from "../design/CopyText.tsx";
 import { UiLink, useNav } from "../design/nav.tsx";
+import { Tooltip } from "../design/Tooltip.tsx";
 import { TimePicker } from "../explorer/TimePicker.tsx";
 import type { QueryLanguage } from "../model/query.ts";
 import { follow, pinned, PRESETS, rangeFromParams, stamp, withRange, type TimeRange } from "../model/timerange.ts";
@@ -148,12 +149,12 @@ export function DashboardView({ dashboard, range = {} }: { dashboard: Dashboard;
         <header data-grid-drag className={`flex h-9 shrink-0 items-center gap-1.5 pr-1.5 pl-3 ${locked ? "" : "cursor-grab active:cursor-grabbing"}`}>
           {!locked && <GripVertical size={14} className="-mr-0.5 -ml-2 shrink-0 text-ink-3 opacity-0 group-hover/w:opacity-100" />}
           <h3 className="shrink-0 truncate text-[13px] font-semibold text-ink" style={{ maxWidth: "100%" }}>{w.title}</h3>
-          {pinned && <span className={MARK} title="This widget does not follow the dashboard's variables"><Pin size={11} className="shrink-0" /><span className="truncate">Pinned</span></span>}
+          {pinned && <Tooltip className={MARK} content="This widget does not follow the dashboard's variables" tabIndex={0}><Pin size={11} className="shrink-0" /><span className="truncate">Pinned</span></Tooltip>}
           {w.time && <span className={MARK}><Clock size={11} className="shrink-0" /><span className="truncate font-mono text-ink-2">{PRESETS.find((p) => p.id === w.time)?.label ?? w.time}</span></span>}
           {alert && alert.tone !== "good" && w.type !== "number" && <span className={`${MARK} ${TONE_TEXT[alert.tone]}`}>{TONE_WORD[alert.tone]}</span>}
           <span className="absolute top-[5px] right-1.5 flex gap-0.5 bg-surface pl-1.5 opacity-0 group-hover/w:opacity-100 focus-within:opacity-100">
             {w.type !== "note" && (
-              <UiLink href={exploreHref(w, ctx)} aria-label="Open in Event explorer" title="Open in Event explorer" className="grid size-[26px] place-items-center rounded-md text-ink-3 hover:bg-sunken hover:text-ink"><SquareArrowOutUpRight size={14} /></UiLink>
+              <Tooltip content="Open in Event explorer" className="grid"><UiLink href={exploreHref(w, ctx)} aria-label="Open in Event explorer" className="grid size-[26px] place-items-center rounded-md text-ink-3 hover:bg-sunken hover:text-ink"><SquareArrowOutUpRight size={14} /></UiLink></Tooltip>
             )}
             <Menu button={(_, toggle) => <IconBtn label="Widget menu" onClick={toggle}><MoreHorizontal size={14} /></IconBtn>}>
               {(close) => (
@@ -256,15 +257,16 @@ export function DashboardView({ dashboard, range = {} }: { dashboard: Dashboard;
           <CopyText path={() => withRange(ws(`/dashboards/${dashboard.id}`), pinned(time))} icon="link" label="Copy a link to this dashboard at this exact time range"
             className="h-10 rounded-lg border border-line-strong bg-surface px-3 text-[13px] text-ink-2">Copy link</CopyText>
           {data.live && following && env.liveRefresh}
+          <Tooltip content={!time.preset ? "A fixed range in the past does not update" : following ? `Updated ${stamp(data.now, { seconds: true })}. Pause updates` : "Resume updates"} className="inline-flex">
           <button
             onClick={() => setLive(!live)}
             disabled={!time.preset}
             aria-pressed={following}
-            title={!time.preset ? "A fixed range in the past does not update" : following ? `Updated ${stamp(data.now, { seconds: true })}. Pause updates` : "Resume updates"}
             className="inline-flex h-10 w-[92px] items-center justify-center gap-2 rounded-lg border border-line-strong bg-surface text-[13px] text-ink-2 hover:text-ink disabled:opacity-50 disabled:hover:text-ink-2"
           >
             {following ? (<><span className="live-dot size-1.5 rounded-full bg-good" /> Live <Pause size={13} className="text-ink-3" /></>) : (<>Paused <Play size={13} className="text-ink-3" /></>)}
           </button>
+          </Tooltip>
         </div>
 
         <div className="mt-4">

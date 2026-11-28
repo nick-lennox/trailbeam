@@ -335,14 +335,14 @@ function SpanCharts({ d, p, hover, setHover }: { d: QueuePageData; p: QueuePageP
       <Chart {...common} title="Receives and handled per minute" source="spans" fmt={fmtR}
         lines={[{ key: "receives", label: "receives", color: WAIT, values: rate("receives") }, handled]} marks={marks}
         legend={[{ label: "receives", color: WAIT }, { label: "handled", color: HANDLER }, { label: "moved to the DLQ (seen)", color: LOST, shape: "diamond" }, { label: "reached maxReceiveCount (inferred)", color: LOST, shape: "diamond-dashed" }, ...markerLegend]}
-        caption="The gap between the lines is failed or abandoned attempts."
+        caption="The gap between the lines is receives that were never deleted."
         tip={(i) => {
           const b = at[i];
           return b ? [...raw(i, [["receives", "receives"], ["handled", "handled"]]), `Of which re-received: ${fmtNum(b.reReceives)}`, ...(b.dlqSeen ? [`Moved to the DLQ (seen): ${b.dlqSeen}`] : []), ...(b.dlqInferred ? [`Reached maxReceiveCount (inferred): ${b.dlqInferred}`] : [])] : [];
         }} />
       <Chart {...common} title="p95 time in queue (s)" source="spans" fmt={fmtSec} lines={queueLines} rules={rules}
         legend={[...legendOf(queueLines), ...versionLegend(WAIT, "p95 in queue"), ...ruleLegend, ...markerLegend]}
-        caption={<>From send to first receive. Waits after a failed attempt show as re-receives in the chart above.{noSend > 0 && <> {fmtNum(noSend)} {noSend === 1 ? "receive had no recorded send and isn’t" : "receives had no recorded send and aren’t"} counted.</>}</>} />
+        caption={<>From send to first receive. Waits after a failed receive show as re-receives in the chart above.{noSend > 0 && <> {fmtNum(noSend)} {noSend === 1 ? "receive had no recorded send and isn’t" : "receives had no recorded send and aren’t"} counted.</>}</>} />
       <Chart {...common} title="p95 time in handler (s)" source="spans" fmt={fmtSec} lines={handlerLines} rules={rules}
         legend={[...legendOf(handlerLines), ...versionLegend(HANDLER, "p95 in handler"), ...ruleLegend, ...markerLegend]}
         caption="From receive to delete or processing error." />
@@ -432,7 +432,7 @@ function Spike({ d, p }: { d: QueuePageData; p: QueuePageProps }) {
   const t = totalsIn(d.series, fromMs, toMs);
   const items: [MessagesView, string, number | null][] = [
     ["sent", "Sent", t.sends], ["waited", "Waited longest", null], ["slowest", "Slowest in handler", null],
-    ["failed", "Failed or retried", t.failedOrRetried], ["dead_lettered", "Dead-lettered", t.dlq],
+    ["failed", "Failed or received again", t.failedOrRetried], ["dead_lettered", "Dead-lettered", t.dlq],
   ];
   const links = items.map(([view, label, n]) => ({ label, n, href: p.href.messages({ queue: d.queue.name, fromMs, toMs, view }) })).filter((x) => x.href);
   return (

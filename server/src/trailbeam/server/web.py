@@ -432,9 +432,9 @@ TENANT_RANGES = [("3600", "Last hour"), ("86400", "Last 24 hours"), ("604800", "
 TENANT_IS = "A tenant is your own customer or account ID, read from each message."
 TENANTS_README = '<a href="https://github.com/nick-lennox/trailbeam#tenants">Tenants in the README</a>'
 # ui/src/tenants/Tenants.tsx P95_NOTE: what p95 in queue is over, and how close it is (QV-247)
-P95_NOTE = ("p95 in queue is from the send to the first receive, over first deliveries only. It compares two "
+P95_NOTE = ("p95 in queue is from the send to the first receive, over first receives only. It compares two "
             "clocks: the sender's host and the consumer's, or SQS's SentTimestamp when the send wasn't observed "
-            "(those first deliveries count too, so a tenant can have more first deliveries than sends). Clock skew "
+            "(those first receives count too, so a tenant can have more first receives than sends). Clock skew "
             "shows up in it, and a time below 0 counts as 0. It is estimated, within 1% of the exact p95.")
 TENANT_ENV = ("export TRAILBEAM_TENANT_ATTRIBUTE=tenant        # a message attribute\n"
               "export TRAILBEAM_TENANT_BODY_PATH=customer.id   # or a path in a JSON body")

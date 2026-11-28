@@ -9313,7 +9313,7 @@
     "id": "6a0aaff19a60",
     "kind": "exc",
     "title": "billing-fn raised TypeError: card declined for [REDACTED]",
-    "evidence": "The handler raised an exception while it held the message, and no delete followed. SQS delivers it again when its visibility timeout expires.",
+    "evidence": "The handler raised an exception while it held the message, and no delete followed. SQS makes it visible to receive again when its visibility timeout expires.",
     "inferred": false,
     "stage": "handler",
     "queue": "billing",
@@ -10385,7 +10385,7 @@
        "leftS": 25,
        "used": 0.17296666666666666,
        "timeoutS": 30,
-       "lastError": "Inferred: receive count 3 reached maxReceiveCount 3, so SQS moves it on the next receive attempt; not seen on the DLQ yet",
+       "lastError": "Inferred: receive count 3 reached maxReceiveCount 3, so SQS moves it on its next receive; not seen on the DLQ yet",
        "left": true
       },
       {

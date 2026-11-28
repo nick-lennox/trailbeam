@@ -29,7 +29,7 @@ export type MessageSearchProps = {
 /** The text without a "tenant:" prefix: what a tenant search asks for. */
 export const tenantText = (q: string) => q.replace(/^tenant:\s*/i, "").trim();
 
-export function MessageSearch({ action, name = "q", suggest, go, placeholder = "Find a message by ID, trace ID, or a tenant" }: MessageSearchProps) {
+export function MessageSearch({ action, name = "q", suggest, go, placeholder = "Find a message by its ID, a trace ID or a tenant" }: MessageSearchProps) {
   const nav = useNav();
   const list = useId();
   const input = useRef<HTMLInputElement>(null);

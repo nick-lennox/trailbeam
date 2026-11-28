@@ -38,7 +38,7 @@ function cellOf(c: string, e: Ev, cell: string, sel: boolean, lang: QueryLanguag
         <span className="font-sans text-[13px] font-medium text-ink">{eventName(e)}</span>
       </td>
     );
-  if (c === "detail") return <td key={c} className={cell}>{e.detail}</td>;
+  if (c === "detail") return <td key={c} className={cell}><span className="font-sans text-[13px]">{e.detail}</span></td>;
   if (c === "source") return <td key={c} className={cell}><SourceTag source={e.source} /></td>;
   if (c === "message_id") return <td key={c} className={`${cell} text-ink`}>{e.messageId.slice(0, 8)}</td>;
   const f = lang.def(c);
@@ -48,13 +48,14 @@ function cellOf(c: string, e: Ev, cell: string, sel: boolean, lang: QueryLanguag
 }
 
 /* The list of columns to tick, in groups: the Event explorer's and every list built from its parts. */
+/* `mono` is ignored: a column's label is a word, so it is in sans (QV-588). Kept so a caller that sets it still builds. */
 export type ColumnGroup = { group: string; cols: { id: string; label: string }[]; mono?: boolean };
 
 /* only: the columns to offer (the ones some row fills); every column by default. The last column shown stays ticked. */
 export function ColumnList({ groups, columns, setColumns, only }: { groups: ColumnGroup[]; columns: string[]; setColumns: (c: string[]) => void; only?: Set<string> }) {
   return (
     <>
-      {groups.map((g) => ({ ...g, cols: only ? g.cols.filter((c) => only.has(c.id)) : g.cols })).filter((g) => g.cols.length).map(({ group, cols, mono }) => (
+      {groups.map((g) => ({ ...g, cols: only ? g.cols.filter((c) => only.has(c.id)) : g.cols })).filter((g) => g.cols.length).map(({ group, cols }) => (
         <div key={group} className="py-1.5">
           <p className="mb-1 text-xs font-medium text-ink-3">{group}</p>
           {cols.map((c) => {
@@ -68,7 +69,7 @@ export function ColumnList({ groups, columns, setColumns, only }: { groups: Colu
                   onChange={() => setColumns(on ? columns.filter((x) => x !== c.id) : [...columns, c.id])}
                   className="size-3.5 shrink-0 accent-brand"
                 />
-                <span className={`min-w-0 flex-1 truncate text-ink ${mono ? "font-mono text-caption" : "text-[13px]"}`}>{c.label}</span>
+                <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{c.label}</span>
               </label>
             );
           })}
@@ -78,10 +79,9 @@ export function ColumnList({ groups, columns, setColumns, only }: { groups: Colu
   );
 }
 
-/* The Event explorer's columns to tick, grouped as the field registry groups them; attribute names are in mono. */
+/* The Event explorer's columns to tick, grouped as the field registry groups them. */
 export function ColumnChoices({ columns, setColumns, live = false, lang = RECORDED_LANGUAGE, only }: { columns: string[]; setColumns: (c: string[]) => void; live?: boolean; lang?: QueryLanguage; only?: Set<string> }) {
-  const groups = columnChoices(lang, live).map((g) => ({ ...g, mono: g.group !== "Event" }));
-  return <ColumnList groups={groups} columns={columns} setColumns={setColumns} only={only} />;
+  return <ColumnList groups={columnChoices(lang, live)} columns={columns} setColumns={setColumns} only={only} />;
 }
 
 const BAR_BUTTON = "inline-flex h-7 items-center gap-1.5 rounded-md border border-line-strong px-2 font-sans text-xs font-medium text-ink-2 hover:border-ink-3 hover:text-ink disabled:opacity-40";
@@ -103,7 +103,7 @@ export function ColumnsPanel({ shown, onReset, onClose, note, children }: { show
       <button type="button" aria-label="Close the column list" className="fixed inset-0 z-20 cursor-default" onClick={onClose} />
       <div role="dialog" aria-label="Choose columns" className="absolute top-11 right-3 z-30 flex max-h-[min(560px,calc(100%-56px))] w-[340px] max-w-[calc(100%-24px)] flex-col overflow-hidden rounded-xl border border-line-strong bg-surface font-sans shadow-panel">
         <div className="flex items-center justify-between border-b border-line px-3.5 py-2.5">
-          <h3 className="text-[13px] font-semibold text-ink">Columns <span className="ml-1 font-mono text-micro font-normal text-ink-3">{shown} shown</span></h3>
+          <h3 className="text-[13px] font-semibold text-ink">Columns <span className="ml-1 text-micro font-normal text-ink-3"><span className="font-mono">{shown}</span> shown</span></h3>
           <button type="button" onClick={onReset} className="text-xs text-brand hover:underline">Reset</button>
         </div>
         <div className="overflow-y-auto px-3.5 py-2">{children}</div>

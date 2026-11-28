@@ -37,10 +37,10 @@ export function messagesEmpty(params: Record<string, string>, opts: { empty: boo
 export function duplicatesEmpty(params: Record<string, string>, empty: boolean): EmptyStateProps {
   if (empty) return { title: "No messages yet.", detail: "Duplicates show up once a service sends spans.", link: SET_UP };
   if (params.reason) return {
-    title: `No duplicate deliveries for "${DUPLICATE_REASONS[params.reason] ?? params.reason}".`,
+    title: `No duplicates for "${DUPLICATE_REASONS[params.reason] ?? params.reason}".`,
     link: { href: without("/duplicates", params, "reason"), label: "Show every reason" },
   };
-  return { title: "No duplicate deliveries.", detail: "No message was received more than once or handled more than once." };
+  return { title: "No duplicates.", detail: "No message was received more than once or handled more than once." };
 }
 
 export function stuckEmpty(olderThanS: number, empty: boolean): EmptyStateProps {

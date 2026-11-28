@@ -24,7 +24,7 @@ export const BLIND_SPOTS: Record<BlindSpot, string> = {
   separate_roles:
     "The function is named only because each function reading this queue has its own IAM role. With a shared role, CloudTrail can't say which function's trigger made the delete.",
   receives_not_in_cloudtrail:
-    "CloudTrail never records receives, so it can't show when Lambda picked the message up, or how many times.",
+    "CloudTrail never records receives, so it can't show when Lambda received the message, or how many times.",
   no_per_message_cause:
     "AWS gives no per-message cause for throttling or a recursion stop. The metric shows something happened to the function then. It doesn't show it happened to this message.",
   logs_end_not_cause:
