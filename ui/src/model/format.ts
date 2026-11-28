@@ -15,6 +15,23 @@ export function fmtNum(n: number) {
   return n.toLocaleString("en-US");
 }
 
+/** A rate, always to one decimal, so rates side by side read alike: 6.3, 8.0, 1,204.5 */
+export function fmtRate(n: number) {
+  return (Math.round(n * 10) / 10).toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
+/**
+ * A name split for truncating in the middle: everything but its last `tail` characters, and those. The head is the
+ * part that gives way (MiddleTruncate), so "trailbeam-demo-order-worker" reads "trailbeam-de…order-worker" in a
+ * narrow node where cutting the end would leave every service reading "trailbeam-d…". A name no longer than
+ * twice the tail is not split.
+ */
+export function splitTail(s: string, tail = 10): [string, string] {
+  const chars = Array.from(s);
+  if (chars.length <= tail * 2) return [s, ""];
+  return [chars.slice(0, -tail).join(""), chars.slice(-tail).join("")];
+}
+
 /** 512 B, 1.5 KB, 2.0 MB, 1.25 GB */
 export function fmtBytes(n: number) {
   if (n < 1024) return `${Math.round(n)} B`;
