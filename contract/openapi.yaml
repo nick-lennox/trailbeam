@@ -1546,8 +1546,10 @@ paths:
       tags: [Queues]
       summary: Get a queue's series
       description: |
-        Returns one queue's figures per time bucket: what the queue page charts. Every figure counts spans
-        your services reported. Nothing here reads the queue itself.
+        Returns one queue's figures per time bucket: what the queue page charts. Every figure in `series` counts
+        spans your services reported. Nothing here reads the queue itself. `aws` is what AWS says about the queue
+        over the window (its settings, CloudWatch at the step, its Lambda triggers) when AWS reads are on for it;
+        while they are off its `status` is `not_configured` and no AWS call is made.
 
         - `sends`: messages sent to the queue, except sends SQS deduplicated on a FIFO queue.
         - `receives`: receives from the queue. `re_receives`: the receives among them with a receive count of 2 or
@@ -1634,6 +1636,7 @@ paths:
                   handler_samples: 210
                 versions:
                 - {service: orders-worker, version: 1.4.3, first_ms: 1794853140000}
+                aws: {status: not_configured, detail: 'AWS reads are off on this server, so the queue''s settings and depth are not read. An admin turns them on in Settings, under AWS.', accountId: null, region: null, readAt: null, settings: null, series: {}, triggers: null, errors: []}
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
@@ -1647,24 +1650,33 @@ paths:
       summary: Get what is in a queue now
       description: |
         Returns the messages your services sent or received that are in the queue right now, each visible or in
-        flight, worked out from their spans: "In ‹queue› now" on the Overview. Trailbeam makes no AWS calls and
-        never receives from the queue, so this lists only instrumented messages, and it can't say what else the
-        queue holds (`totals` and `uninstrumented` are always null here).
+        flight, worked out from their spans: "In ‹queue› now" on the Overview. Trailbeam never receives from the
+        queue, so this lists only instrumented messages. While AWS reads are off (the default, see
+        `/api/settings/aws`), or on but not for this queue, no AWS call is made: it can't say what else the queue
+        holds (`totals` and `uninstrumented` are null), and the queue's own settings are not known (`config`).
+        With reads on for the queue, `config` has the queue's settings from GetQueueAttributes, `totals` SQS's own
+        counts, and `uninstrumented` what the spans don't account for.
 
         - A message is in the queue when it has a send or receive on this queue, no accepted delete of its latest
           receive and no Lambda success for it, it was not purged, and its latest receive is not on another queue
-          (one received on its dead-letter queue has left). One sent more than 14 days ago, SQS's longest retention
-          period, has left too.
+          (one received on its dead-letter queue has left). One sent longer ago than the queue's retention period
+          (14 days, SQS's longest, when it was not read) has left too.
         - A received message is in flight until its visibility timeout runs out, counted from its latest receive. The
-          timeout is SQS's default of 30 s (`config.visibilityKnown` is false), or the one an accepted
-          ChangeMessageVisibility on that receive set, counted from that change. After that the message is visible.
+          timeout is the queue's, or SQS's default of 30 s when it was not read (`config.visibilityKnown` is false),
+          or the one an accepted ChangeMessageVisibility on that receive set, counted from that change. After that
+          the message is visible.
           A message never received is visible.
-        - `notSeenOnDlq`: messages received `max_receive_count` times (as configured for the queue on this server)
+        - `notSeenOnDlq`: messages received `maxReceiveCount` times (the queue's redrive policy when read, else as
+          configured for the queue on this server)
           whose last timeout ran out. SQS moves such a message to the dead-letter queue on the next receive attempt,
           so it is not listed as in the queue. Inferred, not observed.
         - `deleted`: accepted deletes and Lambda successes on the queue in the past minute. `seenOnDlq`: messages
           SQS moved from this queue to a dead-letter queue in the past hour, as receives from the dead-letter queue
           reported.
+
+        - `aws`: what AWS says about the queue (its settings, its CloudWatch figures over the past `minutes` when
+          that is given, and its Lambda triggers), and `live`: the queue's figures worked out from that and the
+          spans, as the Overview's queue card shows them. `aws.status` is `not_configured` while reads are off.
 
         The fields are the hosted app's, in its camelCase, so the shared view reads either. `{queue}` is the queue's
         key, URL-encoded, or its name when only one queue has that name, as for `/api/queues/{queue}/series`.
@@ -1679,6 +1691,13 @@ paths:
           in: query
           description: The most messages to read, oldest first (default and maximum 1000). `capped` says when there were more.
           schema: {type: integer, minimum: 1, maximum: 1000, default: 1000}
+        - name: minutes
+          in: query
+          description: |
+            With AWS reads on: read CloudWatch over the past this many minutes (at least 60), at one minute, or five
+            past six hours, as the Overview does. Left out, no CloudWatch figures are read, only GetQueueAttributes and
+            the Lambda triggers.
+          schema: {type: integer, minimum: 1, maximum: 576000}
         - $ref: '#/components/parameters/lambda_timeout_s'
       responses:
         '200':
@@ -1715,6 +1734,8 @@ paths:
                 - {id: 0b9e7d3c-55a4-4c47-8f0e-2a6d1c9e8b71, atMs: 1794855571000}
                 producers:
                 - {name: billing-api, n: 1}
+                aws: {status: not_configured, detail: 'AWS reads are off on this server, so the queue''s settings and depth are not read. An admin turns them on in Settings, under AWS.', accountId: null, region: null, readAt: null, settings: null, series: {}, triggers: null, errors: []}
+                live: {status: not_configured, detail: 'AWS reads are off on this server, so the queue''s settings and depth are not read. An admin turns them on in Settings, under AWS.', readAt: null, visibilityTimeoutS: null, retentionS: null, delayS: null, maxReceiveCount: null, dlq: null, fifo: null, visible: null, inFlight: null, oldestS: null, dlqDepth: null, oldestAsOf: null, dlqAsOf: null, oldestUnpublished: false, dlqUnpublished: false, windows: [], stuck: 1, nearDlq: null}
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
@@ -4504,7 +4525,7 @@ components:
       type: object
       additionalProperties: false
       required: [queue, nowMs, config, held, capped, instrumented, totals, uninstrumented, notSeenOnDlq, seenOnDlq,
-                 deleted, producers]
+                 deleted, producers, aws, live]
       properties:
         queue: {$ref: '#/components/schemas/QueueSeries/properties/queue'}
         nowMs: {type: integer, description: 'The time the answer is for, in Unix milliseconds.'}
@@ -4513,13 +4534,13 @@ components:
           additionalProperties: false
           required: [visibilityTimeoutS, retentionS, maxReceiveCount, dlq, arn, lambdaTimeoutS, visibilityKnown]
           properties:
-            visibilityTimeoutS: {type: 'null', description: 'The queue''s VisibilityTimeout. Always null: it is not read from AWS.'}
-            retentionS: {type: 'null', description: 'The queue''s MessageRetentionPeriod. Always null: it is not read from AWS.'}
-            maxReceiveCount: {type: [integer, 'null'], description: The maxReceiveCount configured for the queue on this server, or null.}
-            dlq: {type: 'null'}
-            arn: {type: 'null'}
+            visibilityTimeoutS: {type: [integer, 'null'], description: 'The queue''s VisibilityTimeout. Null when it was not read from AWS.'}
+            retentionS: {type: [integer, 'null'], description: 'The queue''s MessageRetentionPeriod. Null when it was not read from AWS.'}
+            maxReceiveCount: {type: [integer, 'null'], description: 'The queue''s redrive policy''s maxReceiveCount when it was read from AWS, else the one configured for the queue on this server, or null.'}
+            dlq: {type: [string, 'null'], description: The dead-letter queue's name, from the redrive policy read from AWS.}
+            arn: {type: [string, 'null'], description: The queue's ARN, when read from AWS.}
             lambdaTimeoutS: {type: integer}
-            visibilityKnown: {type: boolean, description: False. The timeouts are SQS's default of 30 s unless a visibility change set one.}
+            visibilityKnown: {type: boolean, description: 'The queue''s visibility timeout was read. False: the timeouts are SQS''s default of 30 s unless a visibility change set one.'}
         held:
           type: array
           description: The instrumented messages in the queue, oldest first.
@@ -4552,8 +4573,28 @@ components:
           properties:
             visible: {type: integer, minimum: 0}
             inFlight: {type: integer, minimum: 0}
-        totals: {type: 'null', description: What SQS says the queue holds. Always null here.}
-        uninstrumented: {type: 'null', description: SQS's totals minus the instrumented messages. Always null here.}
+        totals:
+          description: What SQS says the queue holds (GetQueueAttributes), when read. Null with AWS reads off.
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [visible, inFlight, delayed]
+              properties:
+                visible: {type: integer, minimum: 0}
+                inFlight: {type: integer, minimum: 0}
+                delayed: {type: [integer, 'null'], minimum: 0}
+        uninstrumented:
+          description: SQS's totals minus the instrumented messages, never below zero. Null without totals.
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [visible, inFlight, over]
+              properties:
+                visible: {type: integer, minimum: 0}
+                inFlight: {type: integer, minimum: 0}
+                over: {type: boolean, description: The spans account for more messages than SQS holds.}
         notSeenOnDlq:
           type: array
           description: Messages at maxReceiveCount whose last timeout ran out, inferred to move on the next receive attempt.
@@ -4590,10 +4631,12 @@ components:
             properties:
               name: {type: string}
               n: {type: integer, minimum: 1}
+        aws: {$ref: '#/components/schemas/QueueAws'}
+        live: {$ref: '#/components/schemas/QueueLive'}
     QueueSeries:
       type: object
       additionalProperties: false
-      required: [queue, from_ms, to_ms, step_s, max_receive_count, series, versions]
+      required: [queue, from_ms, to_ms, step_s, max_receive_count, series, versions, aws]
       properties:
         queue:
           type: object
@@ -4608,7 +4651,10 @@ components:
         from_ms: {type: integer, description: 'The start of the time window, in Unix milliseconds.'}
         to_ms: {type: integer, description: 'The end of the time window, in Unix milliseconds.'}
         step_s: {type: integer, description: The bucket length, in seconds.}
-        max_receive_count: {type: [integer, 'null'], description: 'The maxReceiveCount configured for the queue on this server (--max-receive-count, --queue-config), which `dlq_inferred` compares with. Null when none is configured.'}
+        max_receive_count: {type: [integer, 'null'], description: 'The maxReceiveCount `dlq_inferred` compares with: the queue''s redrive policy''s when it was read from AWS, else the one configured for the queue on this server (--max-receive-count, --queue-config). Null when there is none.'}
+        aws:
+          allOf: [{$ref: '#/components/schemas/QueueAws'}]
+          description: What AWS says about the queue over the window. Its CloudWatch figures are under `series.page`.
         series:
           type: array
           description: The buckets with anything in them, oldest first.
@@ -4881,6 +4927,154 @@ components:
       properties:
         settings: {$ref: '#/components/schemas/AwsSettings'}
         status: {$ref: '#/components/schemas/AwsStatus'}
+    AwsPoints:
+      type: array
+      description: 'CloudWatch points, oldest first: each [the start of its period in Unix milliseconds, the value].'
+      items: {type: array, minItems: 2, maxItems: 2, items: {type: number}}
+    QueueAws:
+      type: object
+      description: |
+        What AWS says about one queue (@trailbeam/ui/model's `QueueAws`), read with GetQueueAttributes,
+        GetMetricData and ListEventSourceMappings, never ReceiveMessage. `status`: `ok` (read), `not_configured`
+        (AWS reads are off, or on without boto3), `no_account` (the AWS settings don't name this queue, or name
+        another account) or `failed` (a read failed); `detail` says why in a sentence. Added in 0.5.
+      additionalProperties: false
+      required: [status, detail, accountId, region, readAt, settings, series, triggers, errors]
+      properties:
+        status: {type: string, enum: [ok, not_configured, no_account, failed]}
+        detail: {type: [string, 'null']}
+        accountId: {type: [string, 'null']}
+        region: {type: [string, 'null']}
+        readAt: {type: [integer, 'null'], description: 'When it was read, Unix milliseconds. Reads are kept a short while: attributes 15 s, CloudWatch 60 s, triggers 5 minutes.'}
+        settings:
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [arn, fifo, visibilityTimeoutS, retentionS, delayS, maxReceiveCount, dlqArn, dlqName, visible,
+                         inFlight, delayed]
+              properties:
+                arn: {type: [string, 'null']}
+                fifo: {type: boolean}
+                visibilityTimeoutS: {type: [number, 'null']}
+                retentionS: {type: [number, 'null']}
+                delayS: {type: [number, 'null']}
+                maxReceiveCount: {type: [number, 'null'], description: From the redrive policy; null when the queue has none.}
+                dlqArn: {type: [string, 'null']}
+                dlqName: {type: [string, 'null']}
+                visible: {type: [number, 'null'], description: ApproximateNumberOfMessages.}
+                inFlight: {type: [number, 'null'], description: ApproximateNumberOfMessagesNotVisible.}
+                delayed: {type: [number, 'null'], description: ApproximateNumberOfMessagesDelayed.}
+        series:
+          type: object
+          description: CloudWatch over each window asked for, by the window's ID.
+          additionalProperties:
+            type: object
+            additionalProperties: false
+            required: [periodS, fromMs, toMs, queue, dlq]
+            properties:
+              periodS: {type: integer}
+              fromMs: {type: integer}
+              toMs: {type: integer}
+              queue:
+                type: object
+                additionalProperties: false
+                required: [visible, inFlight, oldestS, sent, deleted]
+                properties:
+                  visible: {$ref: '#/components/schemas/AwsPoints'}
+                  inFlight: {$ref: '#/components/schemas/AwsPoints'}
+                  oldestS: {$ref: '#/components/schemas/AwsPoints'}
+                  sent: {$ref: '#/components/schemas/AwsPoints'}
+                  deleted: {$ref: '#/components/schemas/AwsPoints'}
+              dlq: {$ref: '#/components/schemas/AwsPoints'}
+        triggers:
+          description: The Lambda triggers on the queue; null when not read.
+          oneOf:
+            - type: 'null'
+            - type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [uuid, functionName, functionArn, state, batchSize, batchingWindowS, reportBatchItemFailures,
+                           maxConcurrency, filters, filterPatterns]
+                properties:
+                  uuid: {type: string}
+                  functionName: {type: string}
+                  functionArn: {type: [string, 'null']}
+                  state: {type: [string, 'null']}
+                  batchSize: {type: [integer, 'null']}
+                  batchingWindowS: {type: [integer, 'null']}
+                  reportBatchItemFailures: {type: boolean}
+                  maxConcurrency: {type: [integer, 'null']}
+                  filters: {type: integer, minimum: 0}
+                  filterPatterns: {type: array, items: {type: string}}
+        errors: {type: array, items: {type: string}, description: 'Reads that failed while others worked, each in a sentence.'}
+        dlqNow:
+          description: The dead-letter queue's depth from its own GetQueueAttributes, when read that way.
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [visible, at]
+              properties:
+                visible: {type: number}
+                at: {type: integer}
+    QueueLive:
+      type: object
+      description: |
+        A queue's figures from its AWS reads and its spans (@trailbeam/ui/model's `QueueLive`), as the Overview's queue
+        card, the dashboards and the alert check read them. Added in 0.5.
+      additionalProperties: false
+      required: [status, detail, readAt, visibilityTimeoutS, retentionS, delayS, maxReceiveCount, dlq, fifo, visible,
+                 inFlight, oldestS, dlqDepth, oldestAsOf, dlqAsOf, oldestUnpublished, dlqUnpublished, windows, stuck,
+                 nearDlq]
+      properties:
+        status: {type: string, enum: [ok, not_configured, no_account, failed]}
+        detail: {type: [string, 'null']}
+        readAt: {type: [integer, 'null']}
+        visibilityTimeoutS: {type: [number, 'null']}
+        retentionS: {type: [number, 'null']}
+        delayS: {type: [number, 'null']}
+        maxReceiveCount: {type: [number, 'null']}
+        dlq: {type: [string, 'null']}
+        fifo: {type: [boolean, 'null']}
+        visible: {type: [number, 'null']}
+        inFlight: {type: [number, 'null']}
+        oldestS: {type: [number, 'null']}
+        dlqDepth: {type: [number, 'null']}
+        oldestAsOf: {type: [integer, 'null'], description: 'The end of the CloudWatch period `oldestS` is from.'}
+        dlqAsOf: {type: [integer, 'null']}
+        oldestUnpublished: {type: boolean, description: CloudWatch was read and has no point for the age of the oldest message yet.}
+        dlqUnpublished: {type: boolean}
+        windows:
+          type: array
+          description: The CloudWatch windows read, finest first.
+          items:
+            type: object
+            additionalProperties: false
+            required: [periodS, fromMs, toMs, visible, inFlight, oldestS, sent, deleted, dlq]
+            properties:
+              periodS: {type: integer}
+              fromMs: {type: integer}
+              toMs: {type: integer}
+              visible: {$ref: '#/components/schemas/AwsPoints'}
+              inFlight: {$ref: '#/components/schemas/AwsPoints'}
+              oldestS: {$ref: '#/components/schemas/AwsPoints'}
+              sent: {$ref: '#/components/schemas/AwsPoints'}
+              deleted: {$ref: '#/components/schemas/AwsPoints'}
+              dlq: {$ref: '#/components/schemas/AwsPoints'}
+              stuck: {$ref: '#/components/schemas/AwsPoints'}
+              nearDlq: {$ref: '#/components/schemas/AwsPoints'}
+        stuck: {type: [integer, 'null'], description: Instrumented messages received and not settled for more than 5 minutes; null when "In ‹queue› now" was not worked out.}
+        nearDlq:
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [count, inFlight]
+              properties:
+                count: {type: integer, minimum: 0, description: Messages in flight on their last allowed receive.}
+                inFlight: {type: integer, minimum: 0}
     Probe:
       type: object
       additionalProperties: false
