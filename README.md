@@ -1076,7 +1076,8 @@ not named is not read. The region and account ID are optional: they are only nee
 don't name them. The same settings are at `GET` and `PATCH /api/settings/aws`.
 
 The server uses boto3's usual credentials: environment variables, a profile, or the instance or task role. It
-never stores them. They need these three read-only permissions, and Trailbeam makes no other AWS call:
+never stores them. They need these three read-only permissions, and Trailbeam makes no other AWS call for reads
+([redrive](#redrive), which you turn on separately, needs a few more):
 
 - `sqs:GetQueueAttributes`
 - `cloudwatch:GetMetricData`
@@ -1095,6 +1096,34 @@ reads off never imports it. With pip, the extra adds boto3 and s3transfer, about
 
 `trailbeam doctor` has an "AWS reads" line that says whether they are on, and when they are, whether boto3 is
 installed and credentials were found. For an SQS emulator, set `AWS_ENDPOINT_URL_SQS` where the server runs.
+
+### Redrive
+
+With AWS reads on, Trailbeam can also redrive a dead-letter queue: move every message in it back to the queue it
+came from, with SQS's own message move task (`StartMessageMoveTask`). It is the one thing Trailbeam does that changes
+a queue, so it is off until an admin names, in **Settings** under AWS, the dead-letter queues it may redrive (exact
+names such as `orders-dlq`, or patterns such as `*-dlq`). Then admins get **Redrive whole DLQ** on Stuck, for the
+dead-letter queues they tick, and on the page of a message in a dead-letter queue. Members see the log but can't
+redrive.
+
+Pressing it shows how many messages the queue holds and asks to confirm. SQS moves the whole queue, oldest first,
+not only the messages you picked, and each message moved gets a new message ID. A move already running is not
+started twice. Every request is kept in the redrive log on Stuck, with who asked and when, and the log follows the
+move: SQS can report a move finished before it has moved everything, so it says Done only once the dead-letter
+queue is seen empty a minute later. A running move can be cancelled there; SQS can keep moving for a while after.
+The log is in the server's database (SQLite or Postgres) and is never deleted by retention. The same is at
+`GET /api/redrive` and the `POST /api/redrive/...` routes.
+
+Redrive uses the same credentials as the reads. Trailbeam calls `sqs:StartMessageMoveTask`,
+`sqs:ListMessageMoveTasks` and `sqs:CancelMessageMoveTask`, and SQS's move then receives, sends and deletes with
+those credentials, so they need, on each dead-letter queue to redrive:
+
+- `sqs:StartMessageMoveTask`, `sqs:ListMessageMoveTasks`, `sqs:CancelMessageMoveTask`
+- `sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:GetQueueAttributes`
+
+and on the queues its messages go back to, `sqs:SendMessage`. Queues encrypted with a customer managed KMS key also
+need `kms:Decrypt` and `kms:GenerateDataKey` on the key. When AWS refuses a move, the button says which permission
+it named.
 
 ### Configuration file
 

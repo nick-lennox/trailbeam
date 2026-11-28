@@ -181,12 +181,15 @@ test("the form: one name per line, tidied, and only a real change saves", () => 
   assert.deepEqual(queueList(" orders \n\npayments-*, orders\n"), ["orders", "payments-*"]);
   const s = settings({ enabled: true, queues: ["orders"], region: "eu-west-1" });
   const f = formOf(s);
-  assert.deepEqual(f, { enabled: true, queues: "orders", region: "eu-west-1", accountId: "" });
+  assert.deepEqual(f, { enabled: true, queues: "orders", redrive: "", region: "eu-west-1", accountId: "" });
   assert.equal(changed(f, s), false);
   assert.equal(changed({ ...f, queues: "orders\n" }, s), false);
   assert.equal(changed({ ...f, queues: "orders\nbilling" }, s), true);
-  assert.deepEqual(changeOf({ enabled: false, queues: "a\nb", region: " ", accountId: " 123456789012 " }),
-    { enabled: false, queues: ["a", "b"], region: null, accountId: "123456789012" });
+  assert.deepEqual(changeOf({ enabled: false, queues: "a\nb", redrive: " a-dlq \n", region: " ", accountId: " 123456789012 " }),
+    { enabled: false, queues: ["a", "b"], redrive: ["a-dlq"], region: null, accountId: "123456789012" });
+  // QV-590: a server from before redrive sends no redrive list; the form reads it as empty
+  assert.equal(formOf(settings()).redrive, "");
+  assert.equal(changed({ ...f, redrive: "orders-dlq" }, s), true);
 });
 
 test("what the screen says about the reads", () => {
@@ -195,8 +198,9 @@ test("what the screen says about the reads", () => {
   assert.deepEqual(statusLine(status({ on: true, queues: 2, problem: "No AWS credentials were found." }), settings({ enabled: true, queues: ["a", "b"] })),
     { tone: "warning", text: "On for 2 names or patterns, but nothing can be read. No AWS credentials were found." });
   assert.deepEqual(statusLine(status({ on: true, queues: 1, boto3: true, credentials: "iam-role", region: "eu-west-1" }), settings({ enabled: true, queues: ["a"] })),
-    { tone: "good", text: "On for 1 name or pattern. Credentials from the instance's role. Region eu-west-1 for queues whose spans don't name one." });
-  assert.equal(statusLine(status({ on: true, queues: 1, credentials: "sso-ish" }), settings()).text, "On for 1 name or pattern. Credentials from sso-ish.");
+    { tone: "good", text: "On for 1 name or pattern. Credentials from the instance's role. Region eu-west-1 for queues whose spans don't name one. Redrive is off." });
+  assert.equal(statusLine(status({ on: true, queues: 1, credentials: "sso-ish" }), settings()).text, "On for 1 name or pattern. Credentials from sso-ish. Redrive is off.");
+  assert.equal(statusLine(status({ on: true, queues: 1 }), settings({ redrive: ["*-dlq"] })).text, "On for 1 name or pattern. Redrive is on for 1 dead-letter queue name or pattern.");
 });
 
 test("the AWS section: off by default, the three read-only permissions, and the app's copy rules", () => {
@@ -212,4 +216,8 @@ test("the AWS section: off by default, the three read-only permissions, and the 
   assert.match(on, /Can’t read from AWS|Can&#x27;t read from AWS/);
   assert.match(on, /by Ana/);
   assert.match(on, />orders<\/textarea>/);
+  // QV-590: the dead-letter queues to redrive, empty by default, and what redrive needs besides the reads
+  assert.match(html, /Dead-letter queues to redrive/);
+  assert.match(html, /Leave it empty to keep redrive off/);
+  for (const a of ["sqs:StartMessageMoveTask", "sqs:ListMessageMoveTasks", "sqs:CancelMessageMoveTask", "sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:SendMessage"]) assert.ok(html.includes(a), a);
 });

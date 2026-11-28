@@ -10,6 +10,8 @@ export type AwsReadSettings = {
   enabled: boolean;
   /** exact queue names, or patterns with * in them */
   queues: string[];
+  /** the dead-letter queues Trailbeam may redrive (QV-590), names or patterns; empty: redrive off. Missing from servers before 0.5. */
+  redrive?: string[];
   region: string | null;
   accountId: string | null;
   updatedAt: number | null;
@@ -33,17 +35,22 @@ export type AwsReadsStatus = {
 export type AwsSettingsAnswer = { settings: AwsReadSettings; status: AwsReadsStatus };
 
 /** The form's fields, as typed. */
-export type AwsForm = { enabled: boolean; queues: string; region: string; accountId: string };
+export type AwsForm = { enabled: boolean; queues: string; redrive: string; region: string; accountId: string };
 
 /** The three read-only calls the reads make, for the role's policy. ReceiveMessage is never called. */
 export const AWS_ACTIONS = ["sqs:GetQueueAttributes", "cloudwatch:GetMetricData", "lambda:ListEventSourceMappings"] as const;
+
+/** What redrive needs besides the reads (QV-590, the hosted app's redrive policy): on each dead-letter queue to redrive, the move-task calls
+    Trailbeam makes and what SQS's move then does with the same credentials; on the queues the messages go back to, SendMessage. */
+export const REDRIVE_ON_DLQ = ["sqs:StartMessageMoveTask", "sqs:ListMessageMoveTasks", "sqs:CancelMessageMoveTask", "sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"] as const;
+export const REDRIVE_ON_SOURCE = ["sqs:SendMessage"] as const;
 
 export const AWS_ABOUT =
   "Trailbeam can read what AWS says about your queues: their depth, the oldest message's age, their settings and their Lambda triggers. " +
   "It is off until an admin names the queues to read here.";
 
 export const formOf = (s: AwsReadSettings): AwsForm =>
-  ({ enabled: s.enabled, queues: s.queues.join("\n"), region: s.region ?? "", accountId: s.accountId ?? "" });
+  ({ enabled: s.enabled, queues: s.queues.join("\n"), redrive: (s.redrive ?? []).join("\n"), region: s.region ?? "", accountId: s.accountId ?? "" });
 
 /** The names typed one per line (or with commas), trimmed, without empty lines or repeats. */
 export function queueList(text: string): string[] {
@@ -57,7 +64,7 @@ export function queueList(text: string): string[] {
 
 /** The PATCH body for the form: every field, so what is saved is what the form shows. */
 export const changeOf = (f: AwsForm) =>
-  ({ enabled: f.enabled, queues: queueList(f.queues), region: f.region.trim() || null, accountId: f.accountId.trim() || null });
+  ({ enabled: f.enabled, queues: queueList(f.queues), redrive: queueList(f.redrive), region: f.region.trim() || null, accountId: f.accountId.trim() || null });
 
 /** Whether the form differs from what is saved. */
 export const changed = (f: AwsForm, s: AwsReadSettings) => JSON.stringify(changeOf(f)) !== JSON.stringify(changeOf(formOf(s)));
@@ -91,5 +98,7 @@ export function statusLine(st: AwsReadsStatus, s: AwsReadSettings): AwsStatusLin
   const parts = [`On for ${n}.`];
   if (st.credentials) parts.push(`Credentials from ${credentialsText(st.credentials)}.`);
   if (st.region) parts.push(`Region ${st.region} for queues whose spans don't name one.`);
+  const r = s.redrive?.length ?? 0;
+  parts.push(r ? `Redrive is on for ${r} ${r === 1 ? "dead-letter queue name or pattern" : "dead-letter queue names or patterns"}.` : "Redrive is off.");
   return { tone: "good", text: parts.join(" ") };
 }

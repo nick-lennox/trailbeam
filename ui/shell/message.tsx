@@ -3,17 +3,19 @@
   (@trailbeam/ui/design) in the shell's frame (frame.tsx), with ShellSearch in its top bar. It reads
   /api/messages/{id} and, on the Body tab, /api/messages/{id}/body on the same origin. Anyone who can reach the
   page can read the body (bodyAccess says who that is on this server), so the Body tab is always there.
-  The slots the hosted app fills (redrive, the cause and its triage note) stay empty until their feature issues
-  make them shared views.
+  A message in a dead-letter queue gets the shared "Redrive whole DLQ" in the actions slot while redrive is on
+  (redrive.tsx, QV-590: AWS on and the queue named), and the "redriven" notice once a redrive of its queue started.
+  The cause slot stays empty until its feature issue makes it a shared view.
 */
 import { useEffect, useState } from "react";
 import {
-  BodyPanel, EmptyState, lookupEmpty, storeIsEmpty,
-  type EmptyStateProps, type MessageBody, type MessageHrefs, type MessageTab, type Timeline,
+  BodyPanel, EmptyState, lookupEmpty, redrivenNotice, storeIsEmpty,
+  type EmptyStateProps, type MessageBody, type MessageHrefs, type MessageTab, type RedriveGateAnswer, type Timeline,
 } from "../src/index.ts";
-import { MessageFrame, MessagePage } from "../src/design/index.ts";
+import { MessageFrame, MessagePage, Redrive } from "../src/design/index.ts";
 import { ApiError, bodyAccess, getHealth, getJSON, messageHref, tenantHref, useMe } from "./chrome.tsx";
 import { ShellFrame, ShellSearch } from "./frame.tsx";
+import { SHELL_REDRIVE, redriveGates, useRedrive } from "./redrive.tsx";
 
 type State = { kind: "loading" } | { kind: "missing" } | { kind: "error"; message: string } | { kind: "not-found"; empty: EmptyStateProps } | { kind: "ok"; t: Timeline };
 type BodyState = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ok"; v: MessageBody };
@@ -43,6 +45,8 @@ export function MessageShellPage() {
   const [state, setState] = useState<State>(id ? { kind: "loading" } : { kind: "missing" });
   const [body, setBody] = useState<BodyState>({ kind: "loading" });
   const me = useMe();
+  const redrive = useRedrive();
+  const [gate, setGate] = useState<RedriveGateAnswer | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -63,6 +67,15 @@ export function MessageShellPage() {
       .catch(() => setBody({ kind: "error", message: "Couldn't reach Trailbeam's API." }));
   }, [id, tab]);
 
+  // its dead-letter queue's gate, with the account and region from its spans, while redrive is on
+  const inDlq = state.kind === "ok" && state.t.in_dead_letter_queue ? state.t.current_queue : null;
+  useEffect(() => {
+    if (!inDlq || !redrive.view?.on) return setGate(null);
+    let live = true;
+    redriveGates([{ name: inDlq, messageId: id }]).then((g) => live && setGate(g[0] ?? null), () => live && setGate(null));
+    return () => { live = false; };
+  }, [inDlq, id, redrive.view?.on]);
+
   const href = shellMessageHrefs(id);
 
   if (state.kind !== "ok") {
@@ -79,6 +92,11 @@ export function MessageShellPage() {
   }
 
   const api = `/api/messages/${encodeURIComponent(id)}`;
+  const t = state.t;
+  const dlq = gate?.dlq ?? (t.in_dead_letter_queue ? { name: t.current_queue, account: null, region: null } : null);
+  // after a redrive of its dead-letter queue, the message is back on its source queue under a new message ID
+  const redriven = dlq && redrive.view?.log.length ? redrivenNotice(redrive.view.log, { messageId: t.message_id, dlq, lastSeen: Date.parse(t.last_seen) }) : null;
+  const changed = () => redrive.reload();
   const bodyView = (
     <>
       {body.kind === "loading" && <p className="px-5 py-5 text-sm text-ink-3 md:px-7">Loading the body</p>}
@@ -95,6 +113,12 @@ export function MessageShellPage() {
         body={bodyView}
         tenant={body.kind === "ok" && body.v.kind === "body" ? body.v.tenant : null}
         search={<ShellSearch />}
+        notices={redriven ? [redriven] : undefined}
+        actions={dlq && gate && redrive.view?.on ? (
+          <Redrive label="Redrive whole DLQ" className="justify-items-end text-right" actions={SHELL_REDRIVE} onChanged={changed}
+            logHint="The redrive log on Stuck says when the queue is empty."
+            targets={[{ dlq, messageIds: [t.message_id], newest: Date.parse(t.last_seen), gate: gate.ok ? { ok: true } : { ok: false, reason: gate.reason } }]} />
+        ) : undefined}
         footer={tab === "body"
           ? <>The same data as JSON: {jsonLink(`${api}/body`)}</>
           : <>Times are in UTC. Steps are in an order only where something observed proves it. Dashed steps are inferred. The same data as JSON: {jsonLink(api)}</>}

@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from "react";
 import { Button } from "../design/Button.tsx";
 import { Caution, Field, FormError, INPUT, SettingsSection, StateMark } from "../design/Settings.tsx";
 import { utc } from "../queue/model.ts";
-import { AWS_ABOUT, AWS_ACTIONS, changeOf, changed, formOf, queueList, statusLine, type AwsForm, type AwsSettingsAnswer } from "./settings.ts";
+import { AWS_ABOUT, AWS_ACTIONS, REDRIVE_ON_DLQ, REDRIVE_ON_SOURCE, changeOf, changed, formOf, queueList, statusLine, type AwsForm, type AwsSettingsAnswer } from "./settings.ts";
 
 /*
   The AWS section of the Settings page (QV-589), for admins: whether this server reads what AWS says about its queues,
@@ -21,12 +21,14 @@ export function AwsSettingsView({ answer, onSave }: AwsSettingsViewProps) {
   const [problem, setProblem] = useState("");
   const [saved, setSaved] = useState(false);
   const queuesId = useId();
+  const redriveId = useId();
   useEffect(() => { setGot(answer); setForm(formOf(answer.settings)); }, [answer]);
 
   const s = got.settings;
   const line = statusLine(got.status, s);
   const dirty = changed(form, s);
   const names = queueList(form.queues);
+  const dlqs = queueList(form.redrive);
   const set = (p: Partial<AwsForm>) => { setForm((f) => ({ ...f, ...p })); setSaved(false); };
   const save = async () => {
     setBusy(true);
@@ -68,6 +70,16 @@ export function AwsSettingsView({ answer, onSave }: AwsSettingsViewProps) {
               {names.length > 0 && ` ${names.length} ${names.length === 1 ? "name" : "names"}.`}
             </span>
           </div>
+          <div className="grid gap-1.5">
+            <label htmlFor={redriveId} className="text-xs font-medium text-ink-2">Dead-letter queues to redrive</label>
+            <textarea id={redriveId} rows={3} value={form.redrive} onChange={(e) => set({ redrive: e.target.value })} spellCheck={false}
+              placeholder={"orders-dlq\n*-dlq"} aria-describedby={`${redriveId}-hint`}
+              className={`${INPUT} h-auto py-2 font-mono text-caption`} />
+            <span id={`${redriveId}-hint`} className="text-xs text-ink-3">
+              Optional. Admins can then move every message in these dead-letter queues back to the queues they came from, on Stuck and on a message. Leave it empty to keep redrive off.
+              {dlqs.length > 0 && ` ${dlqs.length} ${dlqs.length === 1 ? "name" : "names"}.`}
+            </span>
+          </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Region" mono value={form.region} onChange={(e) => set({ region: e.target.value })} placeholder="us-east-1"
               hint="For queues whose spans don't name a region. A queue's own URL always wins." />
@@ -88,7 +100,14 @@ export function AwsSettingsView({ answer, onSave }: AwsSettingsViewProps) {
           </p>
           <ul className="grid gap-0.5 pl-1">{AWS_ACTIONS.map((a) => <li key={a} className="font-mono text-caption text-ink">{a}</li>)}</ul>
           <p>
-            It never receives, deletes or changes a message. CloudWatch&rsquo;s GetMetricData is billed by AWS, so each read is kept for a minute,
+            Reading never receives, deletes or changes a message. Redrive, when you name dead-letter queues for it, is the one thing that does: SQS&rsquo;s message move task
+            receives each message from the dead-letter queue, sends it back to its source queue and deletes it, with the same credentials. They then need these on the dead-letter queues:
+          </p>
+          <ul className="grid gap-0.5 pl-1">{REDRIVE_ON_DLQ.map((a) => <li key={a} className="font-mono text-caption text-ink">{a}</li>)}</ul>
+          <p>and this on the queues the messages go back to:</p>
+          <ul className="grid gap-0.5 pl-1">{REDRIVE_ON_SOURCE.map((a) => <li key={a} className="font-mono text-caption text-ink">{a}</li>)}</ul>
+          <p>
+            CloudWatch&rsquo;s GetMetricData is billed by AWS, so each read is kept for a minute,
             queue settings for 15 seconds and Lambda triggers for 5 minutes. Installed with pip, the server needs boto3 for this: <code className="font-mono text-caption">pip install &quot;trailbeam[aws]&quot;</code>.
           </p>
         </div>

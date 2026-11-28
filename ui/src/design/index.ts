@@ -68,3 +68,8 @@ export {
   type OverviewSample, type OverviewTrigger, type PartMessagesAt,
 } from "../now/OverviewFlows.tsx";
 export { AwsSettingsView, type AwsSettingsViewProps } from "../aws/AwsSettingsView.tsx";
+// redrive (QV-590): "Redrive whole DLQ", the dead-letter queues to pick from, Cancel, and the redrive log
+export {
+  CancelRedrive, DlqWhere, Redrive, RedriveLog, RedriveSelect, cancellable as redriveCancellable, entryState as redriveEntryState,
+  type RedriveGroup, type RedriveLogProps, type RedriveProps, type RedriveSelectProps,
+} from "../redrive/Redrive.tsx";
