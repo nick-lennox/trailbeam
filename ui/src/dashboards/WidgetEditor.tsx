@@ -102,7 +102,7 @@ export function WidgetEditor({ widget, ctx, isNew, onSave, onClose }: { widget: 
           </div>
         );
       case "heatmap":
-        return <p className="text-[13px] text-ink-2">Processing time.</p>;
+        return <p className="text-[13px] text-ink-2">Handling time: from receive to delete or error, for each message.</p>;
       case "distribution":
         return (
           <Labeled label="Field">

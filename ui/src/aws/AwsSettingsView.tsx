@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from "react";
 import { Button } from "../design/Button.tsx";
-import { Caution, Field, FormError, INPUT, SettingsSection, StateMark } from "../design/Settings.tsx";
+import { Field, FormError, INPUT, SettingsSection, StateMark } from "../design/Settings.tsx";
 import { utc } from "../queue/model.ts";
 import { AWS_ABOUT, AWS_ACTIONS, REDRIVE_ON_DLQ, REDRIVE_ON_SOURCE, changeOf, changed, formOf, queueList, statusLine, type AwsForm, type AwsSettingsAnswer } from "./settings.ts";
 
@@ -53,7 +53,6 @@ export function AwsSettingsView({ answer, onSave }: AwsSettingsViewProps) {
           <p className="text-sm leading-relaxed text-ink-2">{line.text}</p>
           {s.updatedAt !== null && <p className="text-xs text-ink-3">Last changed at <span className="font-mono text-caption">{utc(s.updatedAt, { date: true })}</span> UTC by {s.updatedBy ?? "someone"}.</p>}
         </div>
-        {got.status.on && got.status.problem && <Caution>{got.status.problem}</Caution>}
 
         <form className="grid gap-4" onSubmit={(e) => { e.preventDefault(); if (dirty && !busy) void save(); }}>
           <label className="flex items-center gap-2.5 text-sm text-ink">
@@ -66,7 +65,7 @@ export function AwsSettingsView({ answer, onSave }: AwsSettingsViewProps) {
               placeholder={"orders\npayments-*"} aria-describedby={`${queuesId}-hint`}
               className={`${INPUT} h-auto py-2 font-mono text-caption`} />
             <span id={`${queuesId}-hint`} className="text-xs text-ink-3">
-              One queue name per line. A * matches any letters, so payments-* names every queue whose name starts with payments-.
+              One queue name per line. A * matches any characters, so payments-* names every queue whose name starts with payments-.
               {names.length > 0 && ` ${names.length} ${names.length === 1 ? "name" : "names"}.`}
             </span>
           </div>
@@ -86,7 +85,7 @@ export function AwsSettingsView({ answer, onSave }: AwsSettingsViewProps) {
             <Field label="Other regions" mono value={form.regions} onChange={(e) => set({ regions: e.target.value })} placeholder="eu-west-1, us-west-2"
               hint="Separated by commas. A queue in a region not named here or above is not read." />
             <Field label="AWS account ID" mono value={form.accountId} onChange={(e) => set({ accountId: e.target.value })} placeholder="123456789012" inputMode="numeric"
-              hint="Only queues in this account are read. Empty: the account of the server's credentials." />
+              hint="Each queue's URL is built from this account, so a queue in another account is not read. Empty: the account of the server's credentials." />
           </div>
           <FormError>{problem}</FormError>
           <div className="flex items-center gap-3">

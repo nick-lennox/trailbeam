@@ -27,10 +27,10 @@ export function checkEvery(min: number) {
 /** A time of day in the viewer's clock. The server renders UTC, so the two may differ until the page hydrates. */
 export const hm = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-/** "Held while this cause is ignored (by Ana, until 18:00). It sends again when the ignore ends." */
+/** "Held while this cause is ignored (by Ana, until 18:00). It sends again when the cause stops being ignored." */
 export function heldText(h: NonNullable<RuleView["held"]>) {
   const how = [h.by ? `by ${h.by}` : "", h.until !== null ? `until ${hm(h.until)}` : h.more !== null ? `until ${h.more} more messages` : ""].filter(Boolean).join(", ");
-  return `Held while this cause is ignored${how ? ` (${how})` : ""}. It sends again when the ignore ends.`;
+  return `Held while this cause is ignored${how ? ` (${how})` : ""}. It sends again when the cause stops being ignored.`;
 }
 /** The rules list's word for a held rule: "Held until 18:00", or "Held while ignored". */
 export const heldWord = (h: NonNullable<RuleView["held"]>) => (h.until !== null ? `Held until ${hm(h.until)}` : "Held while ignored");
@@ -56,11 +56,11 @@ export function ruleState(r: RuleView | null, channels: { id: string; name: stri
 export const ruleRank = (r: RuleView) => (r.firingSince !== null ? 0 : r.mutedUntil === null ? (r.held ? 2 : 1) : r.forever ? 3 : 2);
 export const sortRules = (rules: RuleView[]) => [...rules].sort((a, b) => ruleRank(a) - ruleRank(b));
 
-/** When a rule sends, in words: "Every check with new messages", "Back after 6 h quiet". */
+/** When a rule sends, in words: "Every check with new messages", "New messages arrive after none for 6 h". */
 export const whenText = (r: Pick<RuleView, "mode" | "quietS">, quiet: RulesView["quiet"]) =>
-  r.mode === "every" ? "Every check with new messages" : `Back after ${quiet.find((q) => q.s === r.quietS)?.text ?? quietText(r.quietS)} quiet`;
+  r.mode === "every" ? "Every check with new messages" : `New messages arrive after none for ${quiet.find((q) => q.s === r.quietS)?.text ?? quietText(r.quietS)}`;
 
-/** A channel's Send setting in words. */
+/** A channel's Alert levels setting in words. */
 export const toneText = (t: ChannelRow["minTone"]) => (t === "critical" ? "critical only" : "warning and critical");
 
 /** A dashboard rule's tone at the last check, as a word. */
@@ -70,6 +70,8 @@ export const dashboardToneText = (t: string) => (t === "good" ? "OK" : t);
 export const PLACEHOLDER: Record<ChannelKind, string> = {
   webhook: "https://example.com/hooks/trailbeam", slack: "https://hooks.slack.com/services/T000/B000/XXXX", email: "oncall@company.com, lead@company.com",
 };
+/** The Name field's example for each kind. */
+export const NAME_PLACEHOLDER: Record<ChannelKind, string> = { slack: "#oncall", webhook: "Incident bot", email: "On-call team" };
 export const HINT: Record<ChannelKind, string> = {
   webhook: "A JSON POST, signed with a secret shown once you add it.",
   slack: "A Slack incoming webhook. Slack's app settings give you one per channel.",

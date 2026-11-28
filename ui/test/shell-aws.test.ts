@@ -196,7 +196,7 @@ test("the form: one name per line, tidied, and only a real change saves", () => 
 
 test("what the screen says about the reads", () => {
   assert.deepEqual(statusLine(status(), settings()), { tone: "idle", text: "Off. This server makes no AWS calls." });
-  assert.equal(statusLine(status(), settings({ enabled: true })).text, "Off: reads are switched on, but no queue is named, so nothing is read.");
+  assert.equal(statusLine(status(), settings({ enabled: true })).text, "Not reading: AWS reads are switched on, but no queue is named.");
   assert.deepEqual(statusLine(status({ on: true, queues: 2, problem: "No AWS credentials were found." }), settings({ enabled: true, queues: ["a", "b"] })),
     { tone: "warning", text: "On for 2 names or patterns, but nothing can be read. No AWS credentials were found." });
   assert.deepEqual(statusLine(status({ on: true, queues: 1, boto3: true, credentials: "iam-role", region: "eu-west-1" }), settings({ enabled: true, queues: ["a"] })),

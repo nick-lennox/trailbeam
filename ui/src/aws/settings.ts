@@ -95,7 +95,7 @@ export type AwsStatusLine = { tone: "good" | "warning" | "idle"; text: string };
 /** What the screen says about the reads now. */
 export function statusLine(st: AwsReadsStatus, s: AwsReadSettings): AwsStatusLine {
   if (!st.on) {
-    if (s.enabled && !s.queues.length) return { tone: "idle", text: "Off: reads are switched on, but no queue is named, so nothing is read." };
+    if (s.enabled && !s.queues.length) return { tone: "idle", text: "Not reading: AWS reads are switched on, but no queue is named." };
     return { tone: "idle", text: "Off. This server makes no AWS calls." };
   }
   const n = `${st.queues} ${st.queues === 1 ? "name or pattern" : "names or patterns"}`;

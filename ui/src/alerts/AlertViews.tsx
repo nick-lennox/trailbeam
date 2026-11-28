@@ -19,7 +19,7 @@ import { UiLink, useNav } from "../design/nav.tsx";
 import { Field, FormError, SELECT, StateMark } from "../design/Settings.tsx";
 import { Tooltip } from "../design/Tooltip.tsx";
 import {
-  HINT, KIND, PLACEHOLDER, dashboardToneText, deliveredWhen, heldText, heldWord, hm, ruleState, sortRules, toneText, whenText,
+  HINT, KIND, NAME_PLACEHOLDER, PLACEHOLDER, dashboardToneText, deliveredWhen, heldText, heldWord, hm, ruleState, sortRules, toneText, whenText,
 } from "./Alerts.ts";
 import type {
   AlertHrefs, AlertResult, ChannelActions, ChannelForm, ChannelKind, ChannelRow, MinTone, RuleActions, RuleForm, RuleMode, RuleView, RulesView,
@@ -136,7 +136,7 @@ export function RuleFormView({ cause, rule, view, actions, done, changed }: {
         {rule?.firingSince != null && <p className="mt-2 text-xs text-critical-text" suppressHydrationWarning>Firing since {hm(rule.firingSince)}.</p>}
         {rule && !rule.checked && <p className="mt-2 text-xs text-ink-3">Not checked yet. {view.cadence}</p>}
         {rule?.held && !muted && <p className="mt-2 text-xs text-ink-3" suppressHydrationWarning>{heldText(rule.held)}</p>}
-        {muted && <p className="mt-2 text-xs text-ink-3" suppressHydrationWarning>{rule!.forever ? "Muted" : `Snoozed until ${hm(rule!.mutedUntil!)}`}{rule!.mutedBy ? ` by ${rule!.mutedBy}` : ""}. Nothing is sent until then; the page still shows whether it is firing.</p>}
+        {muted && <p className="mt-2 text-xs text-ink-3" suppressHydrationWarning>{rule!.forever ? "Muted" : `Snoozed until ${hm(rule!.mutedUntil!)}`}{rule!.mutedBy ? ` by ${rule!.mutedBy}` : ""}. {rule!.forever ? "Nothing is sent until it is unmuted" : "Nothing is sent until then"}; the page still shows whether it is firing.</p>}
       </div>
       {muted && <Button type="button" size="sm" variant="secondary" disabled={busy} className="justify-self-start" onClick={() => run(() => actions.mute(rule!.id, 0))}>{rule!.forever ? "Unmute" : "Wake now"}</Button>}
 
@@ -154,14 +154,14 @@ export function RuleFormView({ cause, rule, view, actions, done, changed }: {
         <legend className="mb-1 text-xs font-medium text-ink-2">When</legend>
         <label className="flex flex-wrap items-center gap-2 text-ink">
           <input type="radio" name={`${id}-mode`} checked={mode === "quiet"} onChange={() => setMode("quiet")} />
-          <span>New messages hit it after it has been quiet for</span>
+          <span>New messages arrive after none for</span>
           <select aria-label="Quiet for" className={SMALL_SELECT} value={quietS} disabled={mode !== "quiet"} onChange={(e) => setQuietS(Number(e.target.value))}>
             {view.quiet.map((q) => <option key={q.s} value={q.s}>{q.text}</option>)}
           </select>
         </label>
         <label className="flex items-center gap-2 text-ink">
           <input type="radio" name={`${id}-mode`} checked={mode === "every"} onChange={() => setMode("every")} />
-          <span>Every check that finds new messages, at most one message a check</span>
+          <span>Every check that finds new messages, at most one alert a check</span>
         </label>
         <p className="text-xs text-ink-3">{view.cadence}</p>
       </fieldset>
@@ -228,7 +228,7 @@ export function AlertRules({ view, canManage, actions, hrefs, managers, changed 
         <li key={`${d.dashboardId}/${d.title}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line px-5 py-3 last:border-0">
           <div className="min-w-0 flex-1">
             <span className="text-ink">{d.title}</span>{d.dashboardName && <span className="text-ink-3"> on the dashboard &ldquo;{d.dashboardName}&rdquo;</span>}
-            <p className="text-xs text-ink-3">Dashboard rule, {dashboardToneText(d.tone)} at the last check. Sent to each channel by its Send setting.</p>
+            <p className="text-xs text-ink-3">Dashboard rule, {dashboardToneText(d.tone)} at the last check. Sent to each channel by its Alert levels setting.</p>
           </div>
           {hrefs.dashboard && <UiLink href={hrefs.dashboard(d.dashboardId)} className="text-xs font-medium text-brand hover:underline">Edit on the dashboard</UiLink>}
         </li>
@@ -332,11 +332,11 @@ export function AlertChannels({ channels, canManage, actions, empty, secretNote,
               <option value="email">Email</option>
             </select>
           </label>
-          <Field label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="#oncall" className="w-44 self-start" maxLength={60} />
+          <Field label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder={NAME_PLACEHOLDER[kind]} className="w-44 self-start" maxLength={60} />
           <Field label={kind === "email" ? "Addresses" : "URL"} mono value={target} onChange={(e) => setTarget(e.target.value)} required
             placeholder={PLACEHOLDER[kind]} className="min-w-72 flex-1" hint={HINT[kind]} />
           <label className="grid gap-1.5 self-start">
-            <span className="text-xs font-medium text-ink-2">Send</span>
+            <span className="text-xs font-medium text-ink-2">Alert levels</span>
             <select value={minTone} onChange={(e) => setMinTone(e.target.value as MinTone)} className={SELECT}>
               <option value="warning">Warning and critical</option>
               <option value="critical">Critical only</option>

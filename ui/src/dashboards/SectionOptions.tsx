@@ -104,7 +104,7 @@ export function SectionOptions({ section: g, onChange, onClose }: { section: Sec
         </div>
         <label className="flex cursor-pointer items-center gap-2 text-[13px]">
           <input type="checkbox" checked={g.divider !== false} onChange={(e) => onChange({ divider: e.target.checked ? undefined : false })} className="size-3.5 accent-brand" />
-          Rule under a header with no background
+          Line under the header when it has no background
         </label>
 
         <h4 className="border-t border-line pt-3 text-[13px] font-semibold">Content</h4>

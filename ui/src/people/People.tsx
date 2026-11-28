@@ -42,7 +42,7 @@ export function isLastAdmin(people: Person[], p: Person): boolean {
 
 /** What "new link" makes for this person: an invite until they have a password, else a password reset. */
 export const linkKind = (p: Person): PersonLink["kind"] => (p.status === "invited" ? "invite" : "reset");
-export const linkButton = (p: Person) => (linkKind(p) === "invite" ? "New invite link" : "Password reset link");
+export const linkButton = (p: Person) => (linkKind(p) === "invite" ? "Make a new invite link" : "Make a reset link");
 
 /** A time as the page shows it: "2026-11-24 06:02 UTC". */
 export const fmtWhen = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T", " ") + " UTC";
