@@ -51,7 +51,7 @@ def test_a_change_is_tidied():
     assert check_change({}) == {}
     # the record as read back may be sent back whole
     assert check_change({**aws_settings.DEFAULT, "updatedAt": 5, "updatedBy": "Ada"}) == {
-        "enabled": False, "queues": [], "region": None, "regions": [], "accountId": None}
+        "enabled": False, "queues": [], "redrive": [], "region": None, "regions": [], "accountId": None}
     # the other regions, as a list or typed one per line or with commas
     assert check_change({"regions": [" us-east-1", "us-east-1", "", "ap-south-1"]}) == {
         "regions": ["us-east-1", "ap-south-1"]}
@@ -119,12 +119,16 @@ def test_off_until_saved_on_and_a_save_is_seen_at_once(table):
     seen = []
     s.on_change.append(seen.append)
     after = s.save({"enabled": True, "queues": ["orders"]}, "Ada", 1000)
-    assert after == {"enabled": True, "queues": ["orders"], "region": None, "regions": [], "accountId": None,
-                     "updatedAt": 1000, "updatedBy": "Ada"}
+    assert after == {"enabled": True, "queues": ["orders"], "redrive": [], "region": None, "regions": [],
+                     "accountId": None, "updatedAt": 1000, "updatedBy": "Ada"}
     assert s.on() and s.current() == after and seen == [after]
     # a change keeps the fields it doesn't name
     s.save({"enabled": False}, "Ben", 2000)
     assert s.current()["queues"] == ["orders"] and not s.on()
+    # a row saved before redrive was a setting (QV-590) reads with it off
+    old = AwsSettings(MemorySettings({"aws": {"value": {"enabled": True, "queues": ["orders"]}, "updatedAt": 1,
+                                              "updatedBy": "Ada"}}))
+    assert old.current()["redrive"] == [] and old.on()
     # another replica of the store sees it after its few seconds
     other = AwsSettings(table, clock=lambda: now[0])
     assert other.current()["updatedBy"] == "Ben"

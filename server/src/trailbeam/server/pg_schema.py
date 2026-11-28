@@ -84,7 +84,7 @@ import time
 from dataclasses import dataclass
 
 from . import __version__
-from . import account_tables, alerts_store, aws_settings, dashboards_store
+from . import account_tables, alerts_store, aws_settings, dashboards_store, redrive_log
 from .migrations import SchemaError, SchemaTooNew
 
 # Partitioned tables: one partition of each per place.
@@ -480,7 +480,7 @@ CREATE TABLE IF NOT EXISTS hash_places (
     bucket BIGINT NOT NULL,
     PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
 ) PARTITION BY RANGE (rclass, bucket);
-""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + QUEUE_CREATE + SNS + account_tables.PG_OIDC + STEP_CREATE + EVENTBRIDGE + S3 + S3_IDS + alerts_store.PG_CREATE + dashboards_store.PG_CREATE + account_tables.PG_PASSKEYS + alerts_store.PG_OUTBOX + aws_settings.PG_CREATE + """
+""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + QUEUE_CREATE + SNS + account_tables.PG_OIDC + STEP_CREATE + EVENTBRIDGE + S3 + S3_IDS + alerts_store.PG_CREATE + dashboards_store.PG_CREATE + account_tables.PG_PASSKEYS + alerts_store.PG_OUTBOX + aws_settings.PG_CREATE + redrive_log.PG_CREATE + """
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
@@ -936,8 +936,11 @@ MIGRATIONS: tuple = (
     Migration(26, "messages.current_key: purges by queue key (QV-725)", (
         "ALTER TABLE messages ADD COLUMN IF NOT EXISTS current_key TEXT NOT NULL DEFAULT ''",
     ), per_place=(_current_key_place,)),
+    # Version 27 (QV-590): redrive_log (redrive_log.py: who asked to redrive which dead-letter queue, and how it
+    # went), new and empty.
+    Migration(27, "redrive log (QV-590)", tuple(statements(redrive_log.PG_CREATE))),
 )
-LATEST = 26
+LATEST = 27
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 

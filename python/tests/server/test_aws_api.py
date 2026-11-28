@@ -68,7 +68,8 @@ def test_before_accounts_anyone_may_turn_reads_on_and_they_outlive_a_restart(tmp
         status, got = call(base, "PATCH", body={"enabled": True, "queues": "orders\nbilling-*\n", "region": "eu-west-1"})
         assert status == 200
         assert got["settings"] | {"updatedAt": None} == {"enabled": True, "queues": ["orders", "billing-*"],
-                                                          "region": "eu-west-1", "regions": [], "accountId": None,
+                                                          "redrive": [], "region": "eu-west-1", "regions": [],
+                                                          "accountId": None,
                                                           "updatedAt": None, "updatedBy": "none"}
         assert got["status"] == {"on": True, "queues": 2, "boto3": True, "credentials": "env", "region": "eu-west-1",
                                  "problem": None}

@@ -30,7 +30,7 @@ from openapi_spec_validator import validate as validate_openapi
 
 from openapi_contract import Contract, contract, pointer
 from spans import SEC, T0, Consumer, to_json, to_proto
-from trailbeam.server import auth as auth_mod, aws_api, doctor, proxy_auth, server
+from trailbeam.server import auth as auth_mod, aws_api, doctor, proxy_auth, redrive_api, server
 from trailbeam.server.backpressure import IngestGate
 from trailbeam.server.proxy import TrustedProxies, parse_networks
 from trailbeam.server.store import StoreUnavailable, WriterBusy
@@ -234,7 +234,7 @@ def _concrete(template):
 
 
 PEOPLE_TAGS = {"People", "Tokens", "Account"}  # need an admin or a person: test_people_api.py, and _people_and_tokens below
-SETTINGS_TAGS = {"Settings"}  # need an admin and a JSON body: test_aws_api.py, and _aws_settings below
+SETTINGS_TAGS = {"Settings", "Redrive"}  # need an admin and a JSON body: test_aws_api.py, test_redrive_api.py, and _aws_settings and _redrive below
 
 
 def _people_op(op) -> bool:
@@ -274,6 +274,7 @@ def _server_paths(app):
     roots = {f"/api/{k}" for k in firsts} | set(re.findall(r'"(/v1/[a-z_/]+)"', source))
     # the mounted APIs that match their whole path in their own module (aws_api.PATH)
     roots |= set(re.findall(r'"(/api/[a-z_/]+)"', Path(aws_api.__file__).read_text()))
+    roots |= set(re.findall(r'"(/api/[a-z_/]+)"', Path(redrive_api.__file__).read_text()))
     extra = [MID, "body", "search", "series", "now", "x", "1", "ingest", "tokens", "link", "passkeys", "options"]
     out = set(roots)
     for r in roots:
@@ -649,6 +650,7 @@ def test_every_status_the_file_lists_is_answered_and_matches_it(db, record_api_r
 
     _people_and_tokens(db)  # it creates an admin, which changes what the token above opens; before the proxy block, which adds one too
     _aws_settings(db)  # after the admin above, for its 403
+    _redrive(db)
 
     # 403: signed in through a proxy (proxy_auth.py) as someone who may not be: last, as it adds an admin to the store
     proxied = server.App(db, ui_dir=None, trusted_proxies=TrustedProxies(parse_networks("127.0.0.1")),
@@ -936,3 +938,94 @@ def test_every_step_type_notice_and_state_in_the_file_is_answered(db, record_api
     for what in seen:
         assert seen[what] == in_file[what], (what, "never answered:", in_file[what] - seen[what],
                                              "not in the file:", seen[what] - in_file[what])
+
+
+class _FakeSqs:
+    """The move-task calls of an SQS client, for _redrive: one dead-letter queue with 3 messages."""
+
+    def __init__(self):
+        self.tasks = []
+
+    def get_queue_attributes(self, QueueUrl, AttributeNames):
+        return {"Attributes": {"ApproximateNumberOfMessages": "3", "ApproximateNumberOfMessagesNotVisible": "0"}}
+
+    def list_message_move_tasks(self, SourceArn, MaxResults):
+        return {"Results": self.tasks}
+
+    def start_message_move_task(self, SourceArn):
+        self.tasks.insert(0, {"TaskHandle": "h-1", "Status": "RUNNING", "SourceArn": SourceArn,
+                              "ApproximateNumberOfMessagesMoved": 0, "ApproximateNumberOfMessagesToMove": 3,
+                              "StartedTimestamp": 1794852337000})
+        return {"TaskHandle": "h-1"}
+
+    def cancel_message_move_task(self, TaskHandle):
+        self.tasks[0]["Status"] = "CANCELLING"
+        return {"ApproximateNumberOfMessagesMoved": 1}
+
+
+def _redrive(db):
+    """Every status of /api/redrive (redrive_api.py), with AWS on and a fake SQS client: an admin's 200s and 409s,
+    a member's 403, a token's 401, the body's 400, 413 and 415, and a 500 from a broken settings table. Needs the
+    admin _aws_settings made."""
+    from trailbeam.server.accounts import Accounts
+    from trailbeam.server.tokens import Tokens
+
+    j = {"Content-Type": "application/json"}
+    acc = Accounts(db)
+    member = acc.create_user("hal@example.com", "Hal", "member", "x", 1)
+    admin = acc.create_user("ida@example.com", "Ida", "admin", "x", 1)
+    t = Tokens(acc)
+    m = {"Authorization": "Bearer " + t.create_personal(member, "m")[1]}
+    a = {"Authorization": "Bearer " + t.create_personal(admin, "a")[1]}
+    dlq = {"name": "orders-dlq", "account": "123456789012", "region": "eu-west-1"}
+    CANCEL = "/api/redrive/cancel"
+
+    def body(o):
+        return json.dumps(o).encode()
+
+    app = server.App(db, ui_dir=None)
+    app.redrive.installed = lambda: True
+    sqs = _FakeSqs()
+    sts = types.SimpleNamespace(get_caller_identity=lambda: {"Account": "123456789012"})  # the credentials' account
+    app.aws.reader.clients_for = lambda region: {"sqs": sqs, "sts": sts, "region": region or "eu-west-1"}
+    with serve(app) as base:
+        assert request(base, "GET", "/api/redrive", headers=a)[0] == 200  # AWS off
+        assert request(base, "POST", "/api/redrive/preview", body({"dlq": dlq}), {**j, **a})[0] == 409  # off
+        assert request(base, "PATCH", "/api/settings/aws", body({"enabled": True, "queues": ["orders"],
+                                                                  "redrive": ["*-dlq"]}), {**j, **a})[0] == 200
+        assert request(base, "POST", "/api/redrive/gates", body({"dlqs": [dlq, {"name": "other"}]}),
+                       {**j, **a})[0] == 200
+        assert request(base, "POST", "/api/redrive/preview", body({"dlq": dlq}), {**j, **a})[0] == 200
+        status, _, out = request(base, "POST", "/api/redrive/start", body({"dlq": dlq, "messageIds": ["m-1"]}),
+                                 {**j, **a})
+        assert status == 200
+        entry = json.loads(out)["entry"]["id"]
+        assert request(base, "POST", "/api/redrive/start", body({"dlq": dlq}), {**j, **a})[0] == 409  # running
+        assert request(base, "GET", "/api/redrive", headers=a)[0] == 200
+        assert request(base, "POST", CANCEL, body({"id": entry}), {**j, **a})[0] == 200
+        assert request(base, "POST", CANCEL, body({"id": entry}), {**j, **a})[0] == 409  # cancelling
+        assert request(base, "POST", CANCEL, body({"id": "0" * 32}), {**j, **a})[0] == 404
+        for path in ("/api/redrive/gates", "/api/redrive/preview", "/api/redrive/start", CANCEL):
+            assert request(base, "POST", path, body({"dlq": 1, "dlqs": 1, "messageIds": 1, "id": 1}),
+                           {**j, **a})[0] == 400
+            assert request(base, "POST", path, b"x", {"Content-Type": "text/plain", **a})[0] == 415
+            assert request(base, "POST", path, None, {"Content-Length": "999999", **j, **a})[0] == 413
+            assert request(base, "POST", path, b"{}", j)[0] == 401
+        assert request(base, "POST", "/api/redrive/preview", body({"dlq": dlq}), {**j, **m})[0] == 403
+        assert request(base, "POST", "/api/redrive/start", body({"dlq": dlq}), {**j, **m})[0] == 403
+        assert request(base, "POST", CANCEL, body({"id": entry}), {**j, **m})[0] == 403
+        assert request(base, "POST", "/api/redrive/gates", body({"dlqs": []}), {**j, **m})[0] == 200
+        assert request(base, "POST", "/api/redrive/gates", body({"dlqs": []}),
+                       {**j, **m, "Sec-Fetch-Site": "cross-site"})[0] == 403  # csrf
+        assert request(base, "GET", "/api/redrive")[0] == 401
+        assert request(base, "POST", CANCEL, body({"id": entry}), j)[0] == 401
+        # off again, for the tests after this one
+        assert request(base, "PATCH", "/api/settings/aws", body({"enabled": False, "redrive": []}),
+                       {**j, **a})[0] == 200
+    broken = server.App(db, ui_dir=None)
+    broken.aws.settings.table = types.SimpleNamespace(get=_raise, put=_raise)
+    with serve(broken) as base:
+        assert request(base, "GET", "/api/redrive", headers=a)[0] == 500
+        for path in ("/api/redrive/gates", "/api/redrive/preview", "/api/redrive/start"):
+            assert request(base, "POST", path, body({"dlq": dlq, "dlqs": [dlq]}), {**j, **a})[0] == 500
+        assert request(base, "POST", CANCEL, body({"id": entry}), {**j, **a})[0] == 500

@@ -17,6 +17,9 @@ task role), and they need only the three read-only calls aws_reads.py makes. Wha
 - ``accountId``: the one AWS account queues are read in. When not set, it is the credentials' own account
   (sts:GetCallerIdentity, which needs no permission). A queue whose spans name another account is never read, and
   every queue's URL is built from this account, its region and its name, never taken from its spans (QV-740).
+- ``redrive`` (QV-590): the dead-letter queues this server may redrive (names or patterns, as ``queues``). Empty by
+  default, so redrive is off until an admin names a queue here, even with reads on: redrive is the one thing
+  Trailbeam does that changes a queue (redrive.py), and its credentials then need SQS's move-task permissions too.
 
 The table, ``server_settings``, is a small key-value table so later settings can go in it too: one row per key
 (``aws`` here), its JSON, and who changed it when. Postgres has no ``meta`` table for this, and SQLite's ``meta`` is
@@ -48,11 +51,11 @@ PG_CREATE = SQLITE_CREATE.replace(" INTEGER", " BIGINT")
 KEY = "aws"
 
 #: what a server has before anyone changes anything: off
-DEFAULT = {"enabled": False, "queues": [], "region": None, "regions": [], "accountId": None, "updatedAt": None,
-           "updatedBy": None}
+DEFAULT = {"enabled": False, "queues": [], "redrive": [], "region": None, "regions": [], "accountId": None,
+           "updatedAt": None, "updatedBy": None}
 
 #: the fields a change may set
-FIELDS = ("enabled", "queues", "region", "regions", "accountId")
+FIELDS = ("enabled", "queues", "redrive", "region", "regions", "accountId")
 
 MAX_QUEUES = 200
 MAX_REGIONS = 40
@@ -69,6 +72,23 @@ class SettingsProblem(ValueError):
     """A change that can't be saved; the message is a sentence for the settings screen."""
 
 
+def _names(qs: Any, field: str) -> list:
+    """A list of queue names or patterns, one per line when typed: trimmed, empty lines and repeats dropped."""
+    if isinstance(qs, str):  # one name per line, as typed
+        qs = qs.splitlines()
+    if not isinstance(qs, list) or not all(isinstance(q, str) for q in qs):
+        raise SettingsProblem(f"{field} is a list of queue names.")
+    names = list(dict.fromkeys(q.strip() for q in qs if q.strip()))
+    bad = [q for q in names if not _QUEUE_PATTERN.match(q)]
+    if bad:
+        raise SettingsProblem(f"{bad[0]} is not a queue name. A queue name has up to 80 letters, digits, hyphens "
+                              "and underscores, and a FIFO queue's ends in .fifo. Use * to match any part of a "
+                              "name, as in orders-*.")
+    if len(names) > MAX_QUEUES:
+        raise SettingsProblem(f"Name at most {MAX_QUEUES} queues. Use * to match many with one pattern.")
+    return names
+
+
 def check_change(body: Any) -> dict:
     """The fields of a change (FIELDS), checked and tidied: queue names trimmed, empty lines and repeats dropped, an
     empty region or account ID as None. Raises SettingsProblem."""
@@ -82,21 +102,9 @@ def check_change(body: Any) -> dict:
         if not isinstance(body["enabled"], bool):
             raise SettingsProblem("enabled is true or false.")
         out["enabled"] = body["enabled"]
-    if "queues" in body:
-        qs = body["queues"]
-        if isinstance(qs, str):  # one name per line, as typed
-            qs = qs.splitlines()
-        if not isinstance(qs, list) or not all(isinstance(q, str) for q in qs):
-            raise SettingsProblem("queues is a list of queue names.")
-        names = list(dict.fromkeys(q.strip() for q in qs if q.strip()))
-        bad = [q for q in names if not _QUEUE_PATTERN.match(q)]
-        if bad:
-            raise SettingsProblem(f"{bad[0]} is not a queue name. A queue name has up to 80 letters, digits, hyphens "
-                                  "and underscores, and a FIFO queue's ends in .fifo. Use * to match any part of a "
-                                  "name, as in orders-*.")
-        if len(names) > MAX_QUEUES:
-            raise SettingsProblem(f"Name at most {MAX_QUEUES} queues. Use * to match many with one pattern.")
-        out["queues"] = names
+    for field in ("queues", "redrive"):
+        if field in body:
+            out[field] = _names(body[field], field)
     if "regions" in body:
         rs = body["regions"]
         if rs is None:

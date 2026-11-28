@@ -2,19 +2,22 @@
   Stuck (/stuck): the stuck messages grouped by why they didn't finish, the messages with their cause, and the
   dead-letter queues holding them, from GET /api/causes. The views are the shared Needs attention ones
   (../src/causes), the same as the hosted app's. ?cause=<id> narrows the messages to one cause; the URL is the
-  page's state, as on the other lists. Redrive is not here: it needs AWS's redrive permissions, which this
-  server doesn't have. Each cause has the shared "Alert me" (alerts.tsx) while the scheduled alert check is on.
+  page's state, as on the other lists. While redrive is on (redrive.tsx, QV-590: AWS on and an admin named the
+  dead-letter queues to redrive), the dead-letter queues are the shared RedriveSelect, with a box before each and
+  "Redrive whole DLQ", and the redrive log follows them; off, the list is as before, with how to redrive in SQS.
+  Each cause has the shared "Alert me" (alerts.tsx) while the scheduled alert check is on.
 */
 import { useEffect, useState, type ReactNode } from "react";
 import {
   CauseList, CauseMessagesTable, DeadLetterQueues, EmptyState, causesNote, fmtThreshold, storeIsEmpty, stuckEmpty,
   RANGE_PARAMS, REFRESH_S, apiQuery, pinnedQuery, rangeText, readRange, refreshOn,
-  type CauseGroup, type CausePage, type TimeRange,
+  type CauseGroup, type CausePage, type DlqGroup, type RedriveGateAnswer, type TimeRange,
 } from "../src/index.ts";
 import { CopyLink, Frame, Json, getHealth, getJSON, messageHref } from "./chrome.tsx";
-import { AlertMe } from "../src/design/index.ts";
+import { AlertMe, RedriveLog, RedriveSelect } from "../src/design/index.ts";
 import { Filters, clock, pick, qs, useRefresh, withQuery } from "./lists.tsx";
 import { SHELL_ALERT_HREFS, useAlerts } from "./alerts.tsx";
+import { SHELL_REDRIVE, redriveGates, useRedrive } from "./redrive.tsx";
 
 type State = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ok"; page: CausePage; storeEmpty: boolean; at: number; asked: string };
 
@@ -33,6 +36,9 @@ export function StuckPage() {
   const problem = "error" in read ? read.error : null;
   const [state, setState] = useState<State>({ kind: "loading" });
   const [refresh, setRefresh, tick] = useRefresh(refreshOn(own));
+  // a redrive started or cancelled reads the page and the log again
+  const [changes, setChanges] = useState(0);
+  const redrive = useRedrive();
   const key = qs(own);
   useEffect(() => { document.title = "Stuck messages, Trailbeam"; }, []);
   useEffect(() => {
@@ -51,7 +57,8 @@ export function StuckPage() {
       })
       .catch((e: Error) => live && setState({ kind: "error", message: e.message }));
     return () => { live = false; };
-  }, [key, tick, Boolean(problem)]);
+  }, [key, tick, changes, Boolean(problem)]);
+  useEffect(() => { if (tick || changes) redrive.reload(); }, [tick, changes]);
 
   const page = state.kind === "ok" ? state.page : null;
   const threshold = page?.older_than_s ?? (/^\d+$/.test(own.older_than_s ?? "") ? Number(own.older_than_s) : undefined);
@@ -69,6 +76,10 @@ export function StuckPage() {
     <AlertMe cause={{ id: g.id, label: g.label, queue: g.queue ?? "" }} rule={ruleOf(g)} view={ad.view} canManage={ad.canManage}
       actions={alerts.rules} hrefs={SHELL_ALERT_HREFS} changed={() => { void alerts.load(); }} />
   ) : undefined;
+  const redriveOn = Boolean(redrive.view?.on);
+  const dlqs = state.kind === "ok" ? state.page.dead_letter_queues : [];
+  const gates = useGates(redriveOn ? dlqs : []);
+  const changed = () => setChanges((x) => x + 1);
   const values = Object.fromEntries(Object.entries(own).filter(([k]) => !(RANGE_PARAMS as readonly string[]).includes(k) && k !== "cause"));
 
   return (
@@ -128,8 +139,26 @@ export function StuckPage() {
             {page!.dead_letter_queues.length > 0 && (
               <section aria-labelledby="dlq-h">
                 <H2 id="dlq-h">In a dead-letter queue</H2>
-                <Note>To move a dead-letter queue&rsquo;s messages back to the queue they came from, start a redrive in the SQS console, or with <code className="font-mono text-caption">aws sqs start-message-move-task</code>. Trailbeam only reads, so it can&rsquo;t move them.</Note>
-                <div className={card}><DeadLetterQueues groups={page!.dead_letter_queues} nowMs={state.at} /></div>
+                {redriveOn && gates ? <>
+                  <Note>A redrive moves every message in the dead-letter queue back to the queue it came from, with SQS&rsquo;s message move task and this server&rsquo;s AWS credentials.</Note>
+                  <div className={card}>
+                    <RedriveSelect groups={dlqs.map((g, i) => ({ ...g, account: gates[i]?.dlq.account ?? g.account, region: gates[i]?.dlq.region ?? g.region, gate: gateOf(gates[i]) }))} nowMs={state.at} actions={SHELL_REDRIVE} onChanged={changed}
+                      logHint="The redrive log below says when the queue is empty." />
+                  </div>
+                </> : <>
+                  <Note>To move a dead-letter queue&rsquo;s messages back to the queue they came from, start a redrive in the SQS console, or with <code className="font-mono text-caption">aws sqs start-message-move-task</code>. Trailbeam can start one too once an admin turns on AWS and names the dead-letter queues to redrive in Settings, under AWS.</Note>
+                  <div className={card}><DeadLetterQueues groups={page!.dead_letter_queues} nowMs={state.at} /></div>
+                </>}
+              </section>
+            )}
+
+            {redrive.view && (redriveOn || redrive.view.log.length > 0) && (
+              <section aria-labelledby="redrives-h">
+                <H2 id="redrives-h">Redrives</H2>
+                <Note>Who asked to redrive which dead-letter queue, and how it went. Done means the queue was empty a minute after SQS said the move finished, as SQS can say so before it has moved everything.</Note>
+                <div className={card}>
+                  <RedriveLog entries={redrive.view.log} now={state.at} canCancel={redrive.view.canRedrive && redriveOn} actions={SHELL_REDRIVE} onChanged={changed} />
+                </div>
               </section>
             )}
 
@@ -139,6 +168,22 @@ export function StuckPage() {
       </div>
     </Frame>
   );
+}
+
+const gateOf = (g: RedriveGateAnswer | undefined) => (!g ? { ok: false as const, reason: "Trailbeam couldn't check this queue." } : g.ok ? { ok: true as const } : { ok: false as const, reason: g.reason });
+
+/** Each dead-letter queue's gate, in order, or null while they are read. */
+function useGates(dlqs: DlqGroup[]): RedriveGateAnswer[] | null {
+  const [got, setGot] = useState<{ key: string; gates: RedriveGateAnswer[] } | null>(null);
+  const key = dlqs.map((g) => g.key).join("|");
+  useEffect(() => {
+    if (!dlqs.length) return;
+    let live = true;
+    redriveGates(dlqs.map((g) => ({ name: g.name, account: g.account, region: g.region, ...(g.messageIds[0] ? { messageId: g.messageIds[0] } : {}) })))
+      .then((gates) => live && setGot({ key, gates }), () => live && setGot({ key, gates: [] }));
+    return () => { live = false; };
+  }, [key]);
+  return got && got.key === key ? got.gates : null;
 }
 
 /** Nothing stuck: the shared sentence, with the range when there is one. */

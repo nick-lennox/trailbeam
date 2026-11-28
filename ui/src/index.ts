@@ -86,3 +86,11 @@ export { overviewHref, overviewQuery, overviewWindow, pinnedOverview, readOvervi
 export {
   flowOfGroup, flowsHref, flowsWindow, overviewRangeOf, pinnedFlowsHref, queueRangeOf, readFlowsUrl, selfHostedFlowsData, spanOnlyLive, timeKey, overviewNowPath, anyAwsRead, type FlowsUrl, type QueueNowResponse, type QueueNowAnswer, type SelfHostedFlowsInput,
 } from "./overview/flows-data.ts";
+// redrive (QV-590): the words, the shapes, and the views on the message page and Stuck (Issues in the hosted app)
+export {
+  CHECK_WITHIN_MS as REDRIVE_CHECK_WITHIN_MS, SETTLE_MS as REDRIVE_SETTLE_MS, counted as redriveCounted, failureWords as redriveFailureWords,
+  freshWarning as redriveFreshWarning, isFinal as redriveIsFinal, moveWords, nextCheck as redriveNextCheck, redrivenNotice,
+  type DlqPlace, type LoggedRedrive, type MoveRow, type MoveState,
+} from "./redrive/words.ts";
+export type * from "./redrive/types.ts";
+// the views are in the design entry (@trailbeam/ui/design): they use its Nav

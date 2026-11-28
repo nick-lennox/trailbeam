@@ -21,7 +21,7 @@ from . import __version__
 from . import github as github_mod
 from . import queues as queues_mod
 from . import queue_now as queue_now_mod
-from . import alerts_api, aws_api, queue_data, dashboards_api, access as access_mod, auth as auth_mod, causes as causes_mod, proxy_auth as proxy_auth_mod, bodies, csrf, first_admin, \
+from . import alerts_api, aws_api, redrive_api, queue_data, dashboards_api, access as access_mod, auth as auth_mod, causes as causes_mod, proxy_auth as proxy_auth_mod, bodies, csrf, first_admin, \
     metrics, oidc as oidc_mod, passkeys as passkeys_mod, passwords, people_api, queries, \
     sessions as sessions_mod, trace_links, ui_files, web
 from .accounts import AccountError, Accounts, AdminExists, BadSetupCode, check_email, check_name
@@ -151,6 +151,9 @@ class App:
         # /api/settings/aws and the AWS reads (aws_api.py, QV-589): always mounted; reads off until an admin names
         # queues, and with them off no AWS call is made
         self.aws: aws_api.ServerAws = aws_api.for_app(self) if aws == "auto" else aws
+        # /api/redrive (redrive_api.py, QV-590): always mounted; off until AWS is on and an admin names the dead-letter
+        # queues to redrive
+        self.redrive: Optional[redrive_api.ServerRedrive] = redrive_api.for_app(self) if self.aws is not None else None
         self._init_metrics()
 
     # ---- /metrics -------------------------------------------------------------------------
@@ -375,7 +378,7 @@ class App:
             raise ApiError(400, str(e)) from None
 
     def mounted(self, path: str, method: str = "GET"):
-        """The JSON API mounted at this request path (alerts_api.py, dashboards_api.py or aws_api.py), when it is on,
+        """The JSON API mounted at this request path (alerts_api.py, dashboards_api.py, aws_api.py or redrive_api.py), when it is on,
         or None. Each answers ``call(method, path, body, who, base)`` and raise alerts_api.ApiProblem."""
         if self.alerts is not None and alerts_api.is_alerts_path(path):
             return self.alerts
@@ -383,6 +386,8 @@ class App:
             return self.dashboards
         if self.aws is not None and aws_api.is_aws_path(path) and method in aws_api.METHODS:
             return self.aws
+        if self.redrive is not None and redrive_api.answers(path, method):
+            return self.redrive
         return None
 
     def _not_a_route(self, query: dict, rest: list[str]) -> dict:

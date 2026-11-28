@@ -209,14 +209,26 @@ def drop_age(page: dict) -> dict:
     return page
 
 
-NOTICE = re.compile(r"\.notices\[\d+\]$")
+# Sentences written for people, by the key that holds them and where that key sits: a notice's message, a
+# timeline event's reason, and the why of an ordering inferred for an event (``after``). Across versions
+# the codes and fields around them are the contract; the wording may be rewritten (QV-746 did).
+PROSE = (
+    ("message", re.compile(r"\.notices\[\d+\]$")),
+    ("reason", re.compile(r"\.timelines\..+\.events\[\d+\]$")),
+    ("why", re.compile(r"\.timelines\..+\.events\[\d+\]\.after\[\d+\]$")),
+)
+
+
+def prose(key: str, path: str) -> bool:
+    return any(key == k and where.search(path) for k, where in PROSE)
 
 
 def diffs(old, new, path="", limit=10, *, notice_words=True) -> list:
     """Where ``new`` differs from ``old``, ignoring dict keys ``old`` doesn't have (fields added since).
 
-    ``notice_words=False`` skips the ``message`` of each notice: across versions a notice keeps its
-    ``code`` (the contract), but its wording may be rewritten.
+    ``notice_words=False`` skips the sentences in ``PROSE`` (a notice's ``message``, an event's ``reason``
+    and ``why``): across versions a notice keeps its ``code`` and an event its fields, but the wording may
+    be rewritten.
     """
     out: list = []
 
@@ -225,7 +237,7 @@ def diffs(old, new, path="", limit=10, *, notice_words=True) -> list:
             return
         if isinstance(a, dict) and isinstance(b, dict):
             for k in a:
-                if k == "message" and not notice_words and NOTICE.search(p):
+                if not notice_words and prose(k, p):
                     continue
                 if k not in b:
                     out.append(f"{p}.{k}: missing")
