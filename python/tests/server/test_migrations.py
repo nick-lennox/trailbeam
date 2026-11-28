@@ -146,7 +146,7 @@ def test_the_fixture_is_a_schema_5_file():
 def test_a_file_from_main_upgrades_in_place_and_keeps_every_span(from_main):
     before = raw(from_main)
     db = Database(from_main, store_bodies=frozenset({"orders"}))
-    assert db.migrated == [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+    assert db.migrated == [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
     db.close()
     assert raw(from_main) == before  # every row, every column, same row IDs
     assert meta_version(from_main) == str(LATEST)
@@ -173,7 +173,8 @@ def test_a_file_from_main_upgrades_in_place_and_keeps_every_span(from_main):
                                        (28, "passkeys and their challenges", True),
                                        (29, "spans.seq: when each span reached the server", True),
                                        (30, "alert outbox", True),
-                                       (31, "server settings (AWS reads)", True)]
+                                       (31, "server settings (AWS reads)", True),
+                                       (32, "redrive log", True)]
     assert schema(from_main) == schema_new_file(from_main + ".new")
 
 

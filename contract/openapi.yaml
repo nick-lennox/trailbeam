@@ -97,6 +97,11 @@ tags:
   - name: Settings
     description: |
       The server's settings. Admins only (anyone, before accounts exist).
+  - name: Redrive
+    description: |
+      Moving every message in a dead-letter queue back to the queues they came from, with SQS's message move
+      task, and the log of who asked for it. Available only while AWS is on and an admin has named the
+      dead-letter queues to redrive (`redrive` in `/api/settings/aws`); until then no route makes an AWS call.
   - name: Ingest
     description: Where the packages and the OpenTelemetry Collector send spans. Not part of the API.
 security:
@@ -2196,7 +2201,7 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/AwsSettingsView'}
-              example: {"settings": {"enabled": false, "queues": [], "region": null, "accountId": null, "updatedAt": null, "updatedBy": null}, "status": {"on": false, "queues": 0, "boto3": true, "credentials": null, "region": null, "problem": null}}
+              example: {"settings": {"enabled": false, "queues": [], "redrive": [], "region": null, "accountId": null, "updatedAt": null, "updatedBy": null}, "status": {"on": false, "queues": 0, "boto3": true, "credentials": null, "region": null, "problem": null}}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
@@ -2206,7 +2211,8 @@ paths:
       summary: Change the AWS settings
       description: |
         Sets the fields given and keeps the others. `queues` is a list of names, or one text with a name per
-        line; names are trimmed, and empty lines and repeats dropped. An empty `region` or `accountId` clears
+        line; names are trimmed, and empty lines and repeats dropped. `redrive`, the dead-letter queues to
+        redrive, is given the same way. An empty `region` or `accountId` clears
         it. Reads are on once `enabled` is true and at least one queue is named. Every AWS read kept from
         before the change is dropped. Needs an admin.
       requestBody:
@@ -2219,6 +2225,8 @@ paths:
               properties:
                 enabled: {type: boolean}
                 queues:
+                  oneOf: [{type: array, items: {type: string}}, {type: string}]
+                redrive:
                   oneOf: [{type: array, items: {type: string}}, {type: string}]
                 region: {type: [string, 'null']}
                 accountId: {type: [string, 'null']}
@@ -2237,6 +2245,194 @@ paths:
               example: {"error": "orders queue is not a queue name. A queue name has up to 80 letters, digits, hyphens and underscores, and a FIFO queue's ends in .fifo. Use * to match any part of a name, as in orders-*."}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/redrive:
+    get:
+      operationId: get-redrive
+      x-example-request: /api/redrive
+      tags: [Redrive]
+      summary: Read the redrive log
+      description: |
+        Whether redrive is available on this server (`on`, with `reason` the sentence why not), whether you may
+        start and cancel one (`canRedrive`: an admin, or anyone before accounts exist), and the latest 50
+        redrives asked for, newest first. The moves still open are read from SQS (`sqs:ListMessageMoveTasks`)
+        first, at most every 5 s; a move SQS calls finished stays open until the dead-letter queue's depth is
+        read again a minute later, because SQS can say `COMPLETED` before it has moved everything.
+      responses:
+        '200':
+          description: Redrive on this server, and its log.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: ['on', reason, canRedrive, log]
+                properties:
+                  'on': {type: boolean}
+                  reason: {type: [string, 'null']}
+                  canRedrive: {type: boolean}
+                  log: {type: array, items: {$ref: '#/components/schemas/RedriveEntry'}}
+              example: {"on": false, "reason": "Redrive needs AWS turned on. An admin turns on AWS in Settings, under AWS, and names the dead-letter queues Trailbeam may redrive.", "canRedrive": true, "log": []}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/redrive/gates:
+    post:
+      operationId: check-redrive
+      tags: [Redrive]
+      summary: Whether dead-letter queues can be redriven
+      description: |
+        For each dead-letter queue, whether you may redrive it now, and if not why, as one sentence for the
+        button that stays off. Send `messageId`, a message in the queue, when its account and region are not
+        known (a message's timeline does not carry them): its spans' queue URL gives them. `dlq` in the answer is
+        the place the gate used, to send with `preview-redrive` and `start-redrive`. `code`: `not_configured` (AWS is off, or boto3 is missing), `dlq_not_named` (the
+        settings' `redrive` doesn't name it), `no_account` (its AWS account is not known, or is another than the
+        settings') or `not_manager` (only an admin can redrive). Makes no AWS call.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dlqs]
+              properties:
+                dlqs: {type: array, maxItems: 100, items: {$ref: '#/components/schemas/RedrivePlace'}}
+            example: {"dlqs": [{"name": "orders-dlq", "account": "123456789012", "region": "eu-west-1"}]}
+      responses:
+        '200':
+          description: One gate per queue, in the order asked.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [gates]
+                properties:
+                  gates: {type: array, items: {$ref: '#/components/schemas/RedriveGate'}}
+        '400': {$ref: '#/components/responses/BadBody'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/redrive/preview:
+    post:
+      operationId: preview-redrive
+      tags: [Redrive]
+      summary: What a redrive would move
+      description: |
+        The dead-letter queue's depth now (`sqs:GetQueueAttributes`) and any move already running on it
+        (`sqs:ListMessageMoveTasks`), for the confirmation. Reads only. Needs an admin.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dlq]
+              properties:
+                dlq: {$ref: '#/components/schemas/RedrivePlace'}
+            example: {"dlq": {"name": "orders-dlq", "account": "123456789012", "region": "eu-west-1"}}
+      responses:
+        '200':
+          description: What would move.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [preview, dlqArn]
+                properties:
+                  preview: {$ref: '#/components/schemas/RedrivePreview'}
+                  dlqArn: {type: string}
+        '400': {$ref: '#/components/responses/BadBody'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/RedriveRefused'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/redrive/start:
+    post:
+      operationId: start-redrive
+      tags: [Redrive]
+      summary: Redrive a dead-letter queue
+      description: |
+        Starts moving every message in the dead-letter queue back to the queue each came from
+        (`sqs:StartMessageMoveTask` with no destination), unless a move is already running on it. SQS moves
+        the whole queue, oldest first, not only `messageIds` (at most 200, the messages picked, kept on the
+        entry), and each message moved gets a new message ID. The request is written to the log whatever SQS
+        answers, with your name. Needs an admin.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dlq]
+              properties:
+                dlq: {$ref: '#/components/schemas/RedrivePlace'}
+                messageIds: {type: array, maxItems: 200, items: {type: string}}
+            example: {"dlq": {"name": "orders-dlq", "account": "123456789012", "region": "eu-west-1"}, "messageIds": ["m-orders-1"]}
+      responses:
+        '200':
+          description: The move started; its log entry.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [entry]
+                properties:
+                  entry: {$ref: '#/components/schemas/RedriveEntry'}
+        '400': {$ref: '#/components/responses/BadBody'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/RedriveRefused'}
+        '413': {$ref: '#/components/responses/BodyTooLarge'}
+        '415': {$ref: '#/components/responses/NotJson'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/redrive/cancel:
+    post:
+      operationId: cancel-redrive
+      tags: [Redrive]
+      summary: Cancel a running redrive
+      description: |
+        Asks SQS to cancel the move of the log entry `id` (`sqs:CancelMessageMoveTask`) and records who asked on
+        the entry, whose status becomes `CANCELLING`. SQS can keep moving after a cancel, and messages already
+        moved stay in their source queue, so the final count is read later. Needs an admin.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: {type: string, pattern: '^[0-9a-f]{32}$', description: "The log entry's `id`."}
+            example: {"id": "0f1e2d3c4b5a69788796a5b4c3d2e1f0"}
+      responses:
+        '200':
+          description: The cancel was asked for; the entry.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [entry]
+                properties:
+                  entry: {$ref: '#/components/schemas/RedriveEntry'}
+        '400': {$ref: '#/components/responses/BadBody'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: No entry with this ID that a cancel can be asked for.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '409': {$ref: '#/components/responses/RedriveRefused'}
         '413': {$ref: '#/components/responses/BodyTooLarge'}
         '415': {$ref: '#/components/responses/NotJson'}
         '500': {$ref: '#/components/responses/InternalError'}
@@ -2834,6 +3030,14 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}
           example: {"error": "no person with ID 7"}
+    RedriveRefused:
+      description: |
+        The redrive can't be done now. `error` says why, as a sentence: redrive is not on for this queue, a move
+        is already running on it, or what AWS answered (a denied action names the permission to add).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {"error": "Redrive is not turned on for orders-dlq. An admin adds it to the dead-letter queues to redrive in Settings, under AWS."}
     BodyTooLarge:
       description: The request body is over 16 KiB, or was sent without a `Content-Length`.
       content:
@@ -4907,9 +5111,15 @@ components:
     AwsSettings:
       type: object
       additionalProperties: false
-      required: [enabled, queues, region, accountId, updatedAt, updatedBy]
+      required: [enabled, queues, redrive, region, accountId, updatedAt, updatedBy]
       properties:
         enabled: {type: boolean, description: The switch. Off keeps the list of queues.}
+        redrive:
+          type: array
+          description: |
+            The dead-letter queues Trailbeam may redrive (`/api/redrive`), by exact name or a pattern with `*`.
+            Empty by default, so redrive is off until an admin names one, even with reads on. Added in 0.5.
+          items: {type: string}
         queues:
           type: array
           description: |
@@ -4920,6 +5130,91 @@ components:
         accountId: {type: [string, 'null'], description: 'Optional. A queue whose spans name another account is not read; a queue whose spans carry no URL gets one built from it.'}
         updatedAt: {type: [integer, 'null'], description: 'When they were last changed, Unix milliseconds; null if never.'}
         updatedBy: {type: [string, 'null'], description: 'Who changed them last; null if never.'}
+    RedrivePlace:
+      type: object
+      description: A dead-letter queue, with the AWS account and region of its messages' spans when known.
+      required: [name]
+      properties:
+        name: {type: string}
+        account: {type: [string, 'null']}
+        region: {type: [string, 'null']}
+        messageId: {type: string, description: 'Gates only: a message in the queue, for its account and region.'}
+    RedriveDlq:
+      type: object
+      additionalProperties: false
+      required: [name, account, region]
+      properties:
+        name: {type: string}
+        account: {type: [string, 'null']}
+        region: {type: [string, 'null']}
+    RedriveGate:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [ok, dlq]
+          properties:
+            ok: {const: true}
+            dlq: {$ref: '#/components/schemas/RedriveDlq'}
+        - type: object
+          additionalProperties: false
+          required: [ok, code, reason, dlq]
+          properties:
+            ok: {const: false}
+            code: {enum: [not_configured, dlq_not_named, no_account, not_manager]}
+            reason: {type: string}
+            dlq: {$ref: '#/components/schemas/RedriveDlq'}
+    RedriveMove:
+      type: object
+      description: A move task, as `sqs:ListMessageMoveTasks` gives it.
+      additionalProperties: false
+      required: [handle, status, moved, toMove, failure, startedAt, destination]
+      properties:
+        handle: {type: [string, 'null'], description: 'SQS gives one only while the move runs.'}
+        status: {type: string, description: '`RUNNING`, `COMPLETED`, `CANCELLING`, `CANCELLED` or `FAILED`.'}
+        moved: {type: [integer, 'null']}
+        toMove: {type: [integer, 'null'], description: 'The size SQS gave the move when it started, not what is left.'}
+        failure: {type: [string, 'null']}
+        startedAt: {type: [integer, 'null'], description: Unix milliseconds.}
+        destination: {type: [string, 'null']}
+    RedrivePreview:
+      type: object
+      additionalProperties: false
+      required: [visible, inFlight, running]
+      properties:
+        visible: {type: [integer, 'null'], description: 'Messages in the dead-letter queue now; null when SQS gave no count.'}
+        inFlight: {type: [integer, 'null'], description: 'In flight: SQS moves them once they are visible again.'}
+        running:
+          oneOf: [{$ref: '#/components/schemas/RedriveMove'}, {type: 'null'}]
+          description: A move already running, which a redrive leaves alone.
+    RedriveEntry:
+      type: object
+      description: |
+        One redrive asked for. `outcome`: `started` (SQS started the move), `refused` (a move was already
+        running, so SQS was not asked) or `failed` (SQS refused; `detail` says why). A started one follows the
+        move: `status`, `moved` and `toMove` as SQS last gave them, `statusAt` when the status last changed, and
+        `left`, the dead-letter queue's depth read at `leftAt`, a minute after SQS called the move finished.
+      additionalProperties: false
+      required: [id, dlqName, dlqArn, accountId, region, messageIds, requestedBy, requestedByEmail, requestedAt, outcome, detail, taskHandle, status, moved, toMove, failure, statusAt, left, leftAt]
+      properties:
+        id: {type: string}
+        dlqName: {type: string}
+        dlqArn: {type: string}
+        accountId: {type: string}
+        region: {type: string}
+        messageIds: {type: array, items: {type: string}, description: 'The messages picked. SQS moves the whole queue.'}
+        requestedBy: {type: string}
+        requestedByEmail: {type: [string, 'null']}
+        requestedAt: {type: integer, description: Unix milliseconds.}
+        outcome: {enum: [started, refused, failed]}
+        detail: {type: [string, 'null']}
+        taskHandle: {type: [string, 'null']}
+        status: {type: [string, 'null']}
+        moved: {type: [integer, 'null']}
+        toMove: {type: [integer, 'null']}
+        failure: {type: [string, 'null'], description: "SQS's FailureReason, or who asked to cancel."}
+        statusAt: {type: [integer, 'null']}
+        left: {type: [integer, 'null']}
+        leftAt: {type: [integer, 'null']}
     AwsSettingsView:
       type: object
       additionalProperties: false

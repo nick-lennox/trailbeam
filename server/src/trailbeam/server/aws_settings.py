@@ -14,6 +14,9 @@ task role), and they need only the three read-only calls aws_reads.py makes. Wha
 - ``region``: for a queue whose spans don't say its region. A queue's own region, from its URL, always wins.
 - ``accountId``: optional. When set, a queue whose spans name another account is not read, and a queue whose spans
   carry no URL gets its URL built from it.
+- ``redrive`` (QV-590): the dead-letter queues this server may redrive (names or patterns, as ``queues``). Empty by
+  default, so redrive is off until an admin names a queue here, even with reads on: redrive is the one thing
+  Trailbeam does that changes a queue (redrive.py), and its credentials then need SQS's move-task permissions too.
 
 The table, ``server_settings``, is a small key-value table so later settings can go in it too: one row per key
 (``aws`` here), its JSON, and who changed it when. Postgres has no ``meta`` table for this, and SQLite's ``meta`` is
@@ -45,10 +48,10 @@ PG_CREATE = SQLITE_CREATE.replace(" INTEGER", " BIGINT")
 KEY = "aws"
 
 #: what a server has before anyone changes anything: off
-DEFAULT = {"enabled": False, "queues": [], "region": None, "accountId": None, "updatedAt": None, "updatedBy": None}
+DEFAULT = {"enabled": False, "queues": [], "redrive": [], "region": None, "accountId": None, "updatedAt": None, "updatedBy": None}
 
 #: the fields a change may set
-FIELDS = ("enabled", "queues", "region", "accountId")
+FIELDS = ("enabled", "queues", "redrive", "region", "accountId")
 
 MAX_QUEUES = 200
 #: an SQS queue name (1 to 80 letters, digits, - and _, .fifo at the end of a FIFO queue), with * allowed in a pattern
@@ -60,6 +63,23 @@ _ACCOUNT = re.compile(r"^\d{12}$")
 
 class SettingsProblem(ValueError):
     """A change that can't be saved; the message is a sentence for the settings screen."""
+
+
+def _names(qs: Any, field: str) -> list:
+    """A list of queue names or patterns, one per line when typed: trimmed, empty lines and repeats dropped."""
+    if isinstance(qs, str):  # one name per line, as typed
+        qs = qs.splitlines()
+    if not isinstance(qs, list) or not all(isinstance(q, str) for q in qs):
+        raise SettingsProblem(f"{field} is a list of queue names.")
+    names = list(dict.fromkeys(q.strip() for q in qs if q.strip()))
+    bad = [q for q in names if not _QUEUE_PATTERN.match(q)]
+    if bad:
+        raise SettingsProblem(f"{bad[0]} is not a queue name. A queue name has up to 80 letters, digits, hyphens "
+                              "and underscores, and a FIFO queue's ends in .fifo. Use * to match any part of a "
+                              "name, as in orders-*.")
+    if len(names) > MAX_QUEUES:
+        raise SettingsProblem(f"Name at most {MAX_QUEUES} queues. Use * to match many with one pattern.")
+    return names
 
 
 def check_change(body: Any) -> dict:
@@ -75,21 +95,9 @@ def check_change(body: Any) -> dict:
         if not isinstance(body["enabled"], bool):
             raise SettingsProblem("enabled is true or false.")
         out["enabled"] = body["enabled"]
-    if "queues" in body:
-        qs = body["queues"]
-        if isinstance(qs, str):  # one name per line, as typed
-            qs = qs.splitlines()
-        if not isinstance(qs, list) or not all(isinstance(q, str) for q in qs):
-            raise SettingsProblem("queues is a list of queue names.")
-        names = list(dict.fromkeys(q.strip() for q in qs if q.strip()))
-        bad = [q for q in names if not _QUEUE_PATTERN.match(q)]
-        if bad:
-            raise SettingsProblem(f"{bad[0]} is not a queue name. A queue name has up to 80 letters, digits, hyphens "
-                                  "and underscores, and a FIFO queue's ends in .fifo. Use * to match any part of a "
-                                  "name, as in orders-*.")
-        if len(names) > MAX_QUEUES:
-            raise SettingsProblem(f"Name at most {MAX_QUEUES} queues. Use * to match many with one pattern.")
-        out["queues"] = names
+    for field in ("queues", "redrive"):
+        if field in body:
+            out[field] = _names(body[field], field)
     for field, pattern, example in (("region", _REGION, "eu-west-1"), ("accountId", _ACCOUNT, "123456789012")):
         if field not in body:
             continue
