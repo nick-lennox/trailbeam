@@ -187,7 +187,7 @@ export function labelTop(l: Pick<Line, "y1" | "y2"> & { at: "start" | "end"; two
 function Wires({ lines, height }: { lines: Line[]; height: number }) {
   const [ref, w] = useWidth<HTMLDivElement>();
   return (
-    <div ref={ref} className="relative" style={{ height }}>
+    <div ref={ref} className="relative self-center" style={{ height }}>
       {w > 0 && (
         <svg width={w} height={height} className="block overflow-visible" aria-hidden>
           {lines.map((l) => {
@@ -459,7 +459,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
               <p className="mt-0.5 text-sm text-ink-2">What sends to it, what receives from it, and where messages go when they fail. Select a part to see more.</p>
             </div>
             <div className="grid min-w-[904px] grid-cols-[minmax(160px,210px)_minmax(118px,1fr)_minmax(340px,440px)_minmax(118px,1fr)_minmax(160px,220px)] px-6 pt-2 pb-6">
-              <div className="relative" style={{ height: H }}>
+              <div className="relative self-center" style={{ height: H }}>
                 {ins.length === 0 && <p className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-sm leading-relaxed text-ink-3">No data. No service reported a send to this queue.</p>}
                 {ins.map((e, i) => (
                   <button key={e.from} {...node({ kind: "producer", name: e.from })} style={{ top: y(i, ins.length) }}>
@@ -469,7 +469,8 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
               </div>
               <Wires height={H} lines={ins.map((e, i) => ({ key: e.from, y1: y(i, ins.length), y2: port(i, ins.length), tone: "send" as Tone, rate: { ...flowRate(e.perMin), at: "start" as const } }))} />
 
-              <div className="flex items-center" style={{ height: H }}>
+              {/* the card's row grows to the card, which can be taller than the lanes; the lanes and wires stay centred on it */}
+              <div className="flex items-center" style={{ minHeight: H }}>
                 <div
                   role="button" tabIndex={0} aria-pressed={part.kind === "queue"} onClick={() => setPart({ kind: "queue" })}
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setPart({ kind: "queue" }); } }}
@@ -478,11 +479,12 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
                   <div className="flex items-center gap-2.5 px-4 pt-3.5">
                     <PlatformIcon platform="SQS" size={18} />
                     <h3 className="min-w-0 truncate text-[15px] font-medium text-ink"><Tooltip content={q.name}><UiLink href={queuePage} onClick={(e) => e.stopPropagation()} className="hover:underline">{q.name}</UiLink></Tooltip></h3>
-                    {place && (place.account || place.region) && <Tooltip content="Account and region, from the queue URL" className="shrink-0 font-mono text-micro text-ink-3">{[place.account, place.region].filter(Boolean).join(" / ")}</Tooltip>}
                     <span className="ml-auto shrink-0">{real ? (info?.health ? (info.healthBasis === "spans"
                       ? <span className="inline-flex items-center gap-1.5"><HealthPill health={info.health} label={info.why ?? undefined} /><Tooltip content={SPAN_HEALTH_NOTE} className="rounded border border-line px-1 text-micro text-ink-3">spans</Tooltip></span>
                       : <HealthPill health={info.health} label={info.why ?? undefined} />) : <span className="text-xs text-ink-3">No health data</span>) : <HealthPill health={q.health} />}</span>
                   </div>
+                  {/* the account and region under the name, lined up with it, so a long account id doesn't squeeze the name (QV-768) */}
+                  {place && (place.account || place.region) && <p className="mt-0.5 truncate pr-4 pl-[44px] font-mono text-micro text-ink-3"><Tooltip content="Account and region, from the queue URL">{[place.account, place.region].filter(Boolean).join(" / ")}</Tooltip></p>}
                   <div className="mt-3.5 grid grid-cols-3 gap-x-4 px-4">
                     <div>
                       <p className="text-xs text-ink-3"><Key color={SEND} />Sent</p>
@@ -528,7 +530,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
               </div>
 
               <Wires height={H} lines={rights.map((k, i) => ({ key: k.kind === "consumer" ? `c:${k.name}` : k.kind, y1: port(i, rights.length), y2: y(i, rights.length), tone: k.kind === "dlq" ? (dlqBad ? "bad" : "ok") : conTone === "ok" ? "receive" : conTone, rate: k.kind === "consumer" ? { ...flowRate(outOf(k.name).perMin), at: "end" as const } : undefined }))} />
-              <div className="relative" style={{ height: H }}>
+              <div className="relative self-center" style={{ height: H }}>
                 {rights.map((k, i) =>
                   k.kind === "consumer" ? (
                     <button key={`c:${k.name}`} {...node(k)} style={{ top: y(i, rights.length) }}>
