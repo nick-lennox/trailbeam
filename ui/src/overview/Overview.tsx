@@ -73,7 +73,7 @@ export type OverviewProps = {
   /** the page's foot (self-hosted: the coverage sentence and the JSON link) */
   foot?: ReactNode;
   href: OverviewHrefs;
-  /** what the host's nav calls Needs attention: "Stuck" in self-hosted Trailbeam, "Needs attention" hosted */
+  /** what the host's nav calls the page of messages that didn't finish: "Issues" in both products (QV-708) */
   stuckWord?: string;
   /** a doc link for the 501 state */
   unsupportedHref?: string;
@@ -133,7 +133,7 @@ const Placeholder = ({ cols }: { cols: number }) => (
 );
 
 export function Overview(p: OverviewProps) {
-  const { flows, range, href, slots = {}, Link = A, stuckWord = "Stuck" } = p;
+  const { flows, range, href, slots = {}, Link = A, stuckWord = "Issues" } = p;
   const [more, setMore] = useState(false);
   /* the order freeze (§3.2): fixed at the first load and at a range change; a refresh keeps it */
   const frozen = useRef<{ range: string; keys: string[] } | null>(null);
