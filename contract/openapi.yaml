@@ -169,6 +169,11 @@ paths:
         is `false`; once sent, the answer leaves out `link.url`. Otherwise, or when sending fails, the answer
         has the link: give it to them privately, since whoever opens it chooses the password. `name` defaults
         to the part of the email before `@`, and `role` to `member`. Needs an admin. Added in 0.5.
+
+        `link.url` is only ever in the answer to someone signed in in a browser. With a personal API token or
+        a sign-in through the proxy the person is still added and emailed, but the answer leaves out
+        `link.url`: whoever opens the link is signed in and could add a passkey that outlives the token.
+        Make a link from the People page instead.
       requestBody:
         required: true
         content:
@@ -284,6 +289,11 @@ paths:
         and choosing a password ends their other sessions and removes their passkeys. A disabled person
         gets a `409`. With a mail server set up, the link is emailed to them as when adding a person
         (`send_email`). Send `{}` as the body. Needs an admin. Added in 0.5.
+
+        With a personal API token or a sign-in through the proxy, the link can only be emailed: the answer
+        leaves out `link.url`, and a request that wouldn't email it (no mail server, or `send_email`
+        `false`) gets `403` (`reason` `needs_a_session`), with the person's earlier link kept. Whoever
+        opens a link is signed in and could add a passkey that outlives the token.
       parameters: [{$ref: '#/components/parameters/user_id'}]
       requestBody:
         content:
@@ -3075,7 +3085,8 @@ components:
           description: |
             `/set-password#code=...` on this server, at `--public-url` if it is set, else as the request reached
             it. The code is after `#`, so browsers never send it in a request. It works once, and is shown only
-            in this answer. Left out once the link was emailed to the person.
+            in this answer. Left out once the link was emailed to the person, and always for a personal
+            API token or a sign-in through the proxy: only a browser session sees it.
         expires_at_ms: {type: integer}
     UserWithLink:
       type: object
@@ -3096,7 +3107,9 @@ components:
                 to: {type: string, description: The person's email address.}
                 error:
                   type: ['string', 'null']
-                  description: Why the mail server didn't take it, when `sent` is false. `link.url` is there then.
+                  description: |
+                    Why the mail server didn't take it, when `sent` is false. `link.url` is there then, for
+                    someone signed in in a browser.
     SendEmail:
       type: boolean
       description: |

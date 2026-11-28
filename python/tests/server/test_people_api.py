@@ -64,6 +64,8 @@ class Server:
         t = Tokens(acc)
         self.admin = {"Authorization": "Bearer " + t.create_personal(self.ada, "ada")[1]}
         self.member = {"Authorization": "Bearer " + t.create_personal(self.ben, "ben")[1]}
+        # Ada signed in in a browser: only a session sees an invite or reset link (QV-712)
+        self.browser = {"Cookie": "trailbeam_sid=" + self.app.sessions.start(self.ada)[0]}
 
     def __call__(self, method, path, obj=None, headers=None, raw=None):
         data = raw if raw is not None else (json.dumps(obj).encode() if obj is not None else None)
@@ -125,7 +127,8 @@ def test_every_example_request_answers_on_a_server_with_an_admin(srv):
         body = {"email": "cy@example.com"} if op.key == "POST /api/users" else (
             {"name": "n"} if op.method == "POST" and "tokens" in path else ({"role": "member"} if op.method == "PATCH"
                                                                           else {}))
-        status, _, out = srv(op.method, path, None if op.method in ("GET", "DELETE") else body, srv.admin)
+        who = srv.browser if op.key == "POST /api/users/{user_id}/link" else srv.admin  # QV-712: a session's
+        status, _, out = srv(op.method, path, None if op.method in ("GET", "DELETE") else body, who)
         assert status in (200, 201), (op.key, status, out)
         asked += 1
     assert asked == 13
@@ -270,7 +273,7 @@ def test_a_form_can_t_post_to_the_api(srv):
 # ---- people --------------------------------------------------------------------------------------------------
 
 def test_adding_a_person_gives_an_invite_link_that_works_once(srv):
-    st, headers, out = srv("POST", "/api/users", {"email": "cy@example.com", "name": "Cy"}, srv.admin)
+    st, headers, out = srv("POST", "/api/users", {"email": "cy@example.com", "name": "Cy"}, srv.browser)
     assert st == 201 and headers["Cache-Control"] == "no-store"
     assert out["user"]["role"] == "member" and out["user"]["status"] == "invited"
     link = out["link"]
@@ -296,9 +299,9 @@ def test_adding_a_person_gives_an_invite_link_that_works_once(srv):
 
 
 def test_a_new_link_replaces_the_old_one(srv):
-    out = srv("POST", "/api/users", {"email": "cy@example.com"}, srv.admin)[2]
+    out = srv("POST", "/api/users", {"email": "cy@example.com"}, srv.browser)[2]
     first, uid = _code(out["link"]["url"]), out["user"]["id"]
-    second = _code(srv("POST", f"/api/users/{uid}/link", {}, srv.admin)[2]["link"]["url"])
+    second = _code(srv("POST", f"/api/users/{uid}/link", {}, srv.browser)[2]["link"]["url"])
     assert set_password(srv, first)[0] == 403
     assert set_password(srv, second)[0] == 303
 
@@ -307,7 +310,7 @@ def test_a_reset_link_sets_a_new_password_and_ends_the_other_sessions(srv):
     sid, _ = srv.app.sessions.start(srv.ben)
     ben = {"Cookie": f"trailbeam_sid={sid}"}
     assert srv("GET", "/api/me", headers=ben)[0] == 200
-    st, _, out = srv("POST", f"/api/users/{srv.ben}/link", {}, srv.admin)
+    st, _, out = srv("POST", f"/api/users/{srv.ben}/link", {}, srv.browser)
     assert st == 201 and out["link"]["kind"] == "reset"
     assert 23 * 3_600_000 < out["link"]["expires_at_ms"] - _now() <= 86_400_000
     # making the link changes nothing yet
@@ -321,7 +324,7 @@ def test_me_says_how_the_person_signs_in(srv):
     st, _, me = srv("GET", "/api/me", headers=srv.admin)
     assert st == 200 and me["sign_in"] == {"password": True, "identities": []}
     # someone invited who hasn't chosen a password yet
-    cy = srv("POST", "/api/users", {"email": "cy@example.com"}, srv.admin)[2]["user"]["id"]
+    cy = srv("POST", "/api/users", {"email": "cy@example.com"}, srv.browser)[2]["user"]["id"]
     sid, _ = srv.app.sessions.start(cy)
     assert srv("GET", "/api/me", headers={"Cookie": f"trailbeam_sid={sid}"})[2]["sign_in"]["password"] is False
     # the Account page is a shell page for anyone signed in
@@ -330,7 +333,7 @@ def test_me_says_how_the_person_signs_in(srv):
 
 
 def test_set_password_refuses_bad_codes_mismatches_and_short_passwords(srv):
-    code = _code(srv("POST", f"/api/users/{srv.ben}/link", {}, srv.admin)[2]["link"]["url"])
+    code = _code(srv("POST", f"/api/users/{srv.ben}/link", {}, srv.browser)[2]["link"]["url"])
     assert set_password(srv, "not-a-code-at-all-but-long-enough")[0] == 403
     assert set_password(srv, code, pw2="something else entirely")[0] == 400
     assert set_password(srv, code, pw="short")[0] == 400
@@ -338,10 +341,10 @@ def test_set_password_refuses_bad_codes_mismatches_and_short_passwords(srv):
 
 
 def test_a_disabled_person_s_link_stops_working(srv):
-    code = _code(srv("POST", f"/api/users/{srv.ben}/link", {}, srv.admin)[2]["link"]["url"])
+    code = _code(srv("POST", f"/api/users/{srv.ben}/link", {}, srv.browser)[2]["link"]["url"])
     assert srv("PATCH", f"/api/users/{srv.ben}", {"disabled": True}, srv.admin)[2]["user"]["status"] == "disabled"
     assert set_password(srv, code)[0] == 403
-    st, _, out = srv("POST", f"/api/users/{srv.ben}/link", {}, srv.admin)
+    st, _, out = srv("POST", f"/api/users/{srv.ben}/link", {}, srv.browser)
     assert st == 409 and out["reason"] == "disabled"
     # disabled: their personal token stops working on this replica at once
     assert srv("GET", "/api/me", headers=srv.member)[0] == 401
@@ -350,7 +353,7 @@ def test_a_disabled_person_s_link_stops_working(srv):
 
 
 def test_an_expired_link_is_refused(srv):
-    out = srv("POST", "/api/users", {"email": "cy@example.com"}, srv.admin)[2]
+    out = srv("POST", "/api/users", {"email": "cy@example.com"}, srv.browser)[2]
     code = _code(out["link"]["url"])
     with pytest.raises(BadSetupCode):
         srv.acc.use_user_code(people_api.first_admin.code_hash(code), "x", _now() + people_api.INVITE_MS + 1)
@@ -379,7 +382,7 @@ def test_the_last_admin_can_t_be_demoted_disabled_or_removed(srv):
 
 
 def test_no_viewer_role(srv):
-    st, _, out = srv("POST", "/api/users", {"email": "v@example.com", "role": "viewer"}, srv.admin)
+    st, _, out = srv("POST", "/api/users", {"email": "v@example.com", "role": "viewer"}, srv.browser)
     assert st == 400 and "admin, member" in out["error"]
     assert srv("PATCH", f"/api/users/{srv.ben}", {"role": "viewer"}, srv.admin)[0] == 400
 
@@ -400,7 +403,7 @@ def test_bad_bodies(srv):
 
 
 def test_removing_a_person_takes_their_tokens_and_links(srv):
-    code = _code(srv("POST", f"/api/users/{srv.ben}/link", {}, srv.admin)[2]["link"]["url"])
+    code = _code(srv("POST", f"/api/users/{srv.ben}/link", {}, srv.browser)[2]["link"]["url"])
     st, _, out = srv("DELETE", f"/api/users/{srv.ben}", None, srv.admin)
     assert st == 200 and out["removed"] == {"id": srv.ben, "email": "ben@example.com"}
     assert srv("GET", "/api/me", headers=srv.member)[0] == 401

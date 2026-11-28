@@ -97,9 +97,14 @@ def test_the_public_url_for_links():
 
 def test_without_a_mail_server_the_link_is_shown_as_before(plain):
     assert plain("GET", "/api/users", headers=plain.admin)[2]["sends_email"] is False
-    st, _, out = plain("POST", "/api/users", {"email": "cy@example.com"}, plain.admin)
+    st, _, out = plain("POST", "/api/users", {"email": "cy@example.com"}, plain.browser)
     assert st == 201 and out["email"] is None and "#code=" in out["link"]["url"]
-    st, _, out = plain("POST", "/api/users", {"email": "dee@example.com", "send_email": True}, plain.admin)
+    # a personal API token adds the person, but sees no link, and can't make one it would see (QV-712)
+    st, _, out = plain("POST", "/api/users", {"email": "eve@example.com"}, plain.admin)
+    assert st == 201 and out["email"] is None and "url" not in out["link"]
+    st, _, out = plain("POST", f"/api/users/{out['user']['id']}/link", {}, plain.admin)
+    assert (st, out["reason"]) == (403, "needs_a_session")
+    st, _, out = plain("POST", "/api/users", {"email": "dee@example.com", "send_email": True}, plain.browser)
     assert (st, out["reason"]) == (409, "no_mail_server")
     assert "dee@example.com" not in [u["email"] for u in plain.acc.users()]
 
@@ -129,21 +134,28 @@ def test_a_reset_link_is_emailed_too(mailing, outbox):
 
 
 def test_send_email_false_shows_the_link_instead(mailing, outbox):
-    st, _, out = mailing("POST", "/api/users", {"email": "cy@example.com", "send_email": False}, mailing.admin)
+    st, _, out = mailing("POST", "/api/users", {"email": "cy@example.com", "send_email": False}, mailing.browser)
     assert st == 201 and out["email"] is None and "#code=" in out["link"]["url"] and not outbox.sent
-    st, _, out = mailing("POST", f"/api/users/{mailing.ben}/link", {"send_email": False}, mailing.admin)
+    st, _, out = mailing("POST", f"/api/users/{mailing.ben}/link", {"send_email": False}, mailing.browser)
     assert st == 201 and out["email"] is None and out["link"]["url"]
+    st, _, out = mailing("POST", f"/api/users/{mailing.ben}/link", {"send_email": False}, mailing.admin)
+    assert (st, out["reason"]) == (403, "needs_a_session") and not outbox.sent  # QV-712: a token only emails it
     assert mailing("POST", "/api/users", {"email": "dee@example.com", "send_email": "yes"}, mailing.admin)[0] == 400
 
 
 def test_when_sending_fails_the_person_is_added_and_the_link_is_shown(store):
     s = Server(store, TOKEN, mailer=mail.Mailer(SMTP, send=Outbox(fail="The mail server refused cy@example.com.")))
     try:
-        st, _, out = s("POST", "/api/users", {"email": "cy@example.com"}, s.admin)
+        st, _, out = s("POST", "/api/users", {"email": "cy@example.com"}, s.browser)
         assert st == 201
         assert out["email"] == {"sent": False, "to": "cy@example.com", "error": "The mail server refused cy@example.com."}
         assert "#code=" in out["link"]["url"]
         assert set_password(s, _code(out["link"]["url"]))[0] == 303
+        # to a personal API token the failure is said, but the link is not shown (QV-712)
+        st, _, out = s("POST", "/api/users", {"email": "dee@example.com"}, s.admin)
+        assert st == 201 and out["email"]["sent"] is False and "url" not in out["link"]
+        st, _, out = s("POST", f"/api/users/{s.ben}/link", {}, s.admin)
+        assert st == 201 and out["email"]["sent"] is False and "url" not in out["link"]
     finally:
         s.close()
 
@@ -154,7 +166,7 @@ def test_the_invite_goes_through_a_real_smtp_conversation(store):
         smtp = SmtpConfig(host="127.0.0.1", port=box.port, sender="Trailbeam <trailbeam@example.com>", tls="none")
         s = Server(store, TOKEN, mailer=mail.Mailer(smtp))
         try:
-            st, _, out = s("POST", "/api/users", {"email": "cy@example.com"}, s.admin)
+            st, _, out = s("POST", "/api/users", {"email": "cy@example.com"}, s.browser)
             assert st == 201 and out["email"]["sent"] is True
         finally:
             s.close()

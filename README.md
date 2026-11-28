@@ -729,9 +729,9 @@ anyone signed in manages their own personal API tokens with `/api/me/tokens` (al
 ```sh norun="needs a server with an admin; test_people_api.py makes these requests against SQLite and Postgres"
 ADMIN="Authorization: Bearer tbp_..."   # an admin's personal API token
 curl -H "$ADMIN" -H 'Content-Type: application/json' -d '{"email": "cy@example.com", "role": "member"}' \
-  http://127.0.0.1:4318/api/users                       # the answer holds Cy's one-time invite link
+  http://127.0.0.1:4318/api/users                       # adds Cy, and emails the invite with a mail server
 curl -H "$ADMIN" -X PATCH -H 'Content-Type: application/json' -d '{"role": "admin"}' http://127.0.0.1:4318/api/users/3
-curl -H "$ADMIN" -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:4318/api/users/3/link
+curl -H "$ADMIN" -X POST -H 'Content-Type: application/json' -d '{"send_email": true}' http://127.0.0.1:4318/api/users/3/link   # emails a new link (needs a mail server)
 curl -H "$ADMIN" -H 'Content-Type: application/json' -d '{"name": "orders-api prod"}' http://127.0.0.1:4318/api/tokens/ingest
 ```
 
@@ -742,6 +742,10 @@ curl -H "$ADMIN" -H 'Content-Type: application/json' -d '{"name": "orders-api pr
   sends no email: pass the link on privately, because until it is used it opens that person's account. With one,
   both routes email the link to the person (send `"send_email": false` not to), and the answer's `email` says
   whether it was sent; once it was, the answer leaves out the link's `url`.
+- **Only a browser sees a link.** Opening a link signs you in, and from there you could add a passkey, so a
+  personal API token or a sign-in through the proxy never gets the link's `url`: `POST /api/users` still adds
+  the person and emails the invite, and `POST /api/users/{id}/link` works only to email it (else `403`,
+  `needs_a_session`). Make the link on the People page to pass it on yourself.
 - Two roles, `admin` and `member`. The last admin who can sign in can't be made a member, disabled or removed
   (`409`).
 - The first ingest token of a server without `TRAILBEAM_TOKEN` needs `"close_open_ingest": true`, because it
