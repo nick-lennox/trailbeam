@@ -726,6 +726,29 @@ def test_a_lone_surrogate_anywhere_is_a_400_not_a_500(monkeypatch, tmp_path):
         db.close()
 
 
+def test_a_uffff_in_a_title_or_a_variable_is_kept_and_the_list_still_answers():
+    """QV-756: on SQLite (and Postgres) a U+FFFF in a widget title or a variable's value was a 500 after the row was
+    written, and every later list was a 500 for everyone. It is a 201 now, read back as given."""
+    db = Database(":memory:")
+    try:
+        a = make(store=DashboardTables(db))
+        assert a.call("POST", "/api/dashboards", {"name": "fine"}, BEN)[0] == 201
+        st, out = a.call("POST", "/api/dashboards", {"name": "t", "def": {"widgets": [widget(title="x\uffffy")]}}, BEN)
+        assert st == 201 and out["dashboard"]["def"]["widgets"][0]["title"] == "x\uffffy"
+        did = out["dashboard"]["id"]
+        var = {"name": "v", "def": {"widgets": [], "variables": [{"name": "q", "field": "queue", "value": "\uffff"}]}}
+        st, out = a.call("POST", "/api/dashboards", var, BEN)
+        assert st == 201 and out["dashboard"]["def"]["variables"][0]["value"] == "\uffff"
+        st, out = a.call("POST", f"/api/dashboards/{did}/widgets", {"widget": widget("w2", title="\uffff")}, BEN)
+        assert st in (200, 201)
+        st, out = a.call("GET", f"/api/dashboards/{did}", {}, ADA)
+        assert st == 200 and [w["title"] for w in out["dashboard"]["def"]["widgets"]] == ["x\uffffy", "\uffff"]
+        st, out = a.call("GET", "/api/dashboards", {}, ADA)
+        assert st == 200 and sorted(d["name"] for d in out["dashboards"]) == ["fine", "t", "v"]
+    finally:
+        db.close()
+
+
 def _dashboard_ops():
     return [op for op in contract().ops if "Dashboards" in op.op.get("tags", [])]
 

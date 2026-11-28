@@ -3,6 +3,7 @@ in-memory store (MemoryDashboards), SQLite (a file and :memory:) and Postgres, a
 of which exactly one is stored. Upgrades from every older version are in test_migrations.py and test_postgres.py.
 
 The Postgres cases run when TRAILBEAM_TEST_POSTGRES_URL names a database, as in test_postgres.py."""
+import json
 import os
 import sys
 import threading
@@ -201,6 +202,53 @@ def test_a_nul_in_any_text_is_stored_and_found_on_every_store(store):
     assert [x["id"] for x in store.list_dashboards(WS)] == ["a\x00b"]
     assert store.all_dashboards() == {WS: [d]}
     assert store.remove_dashboard(WS, "a\x00b") == "ok" and store.get_dashboard(WS, "a\x00b") is None
+
+
+FFFF = "\uffff"
+
+
+def test_a_uffff_in_a_definition_reads_back_as_given_on_every_store(store):
+    """QV-756: U+FFFF is how the text columns store a NUL (QV-686). The JSON columns were written with it raw, so a
+    widget title or a variable's value holding one read back as a NUL, json.loads refused it, and the dashboard's
+    reads and every list of its workspace were a 500. They are written ASCII-only now and read as stored."""
+    defn = {"variables": [{"name": "q" + FFFF, "field": "queue", "value": FFFF}],
+            "sections": [{"id": "s" + FFFF, "title": "a" + FFFF + "\x00b", "color": "blue"}],
+            "widgets": [widget("w1", "x" + FFFF + "y"), widget("w" + FFFF, "n\x00" + FFFF, note=[FFFF, "\x00"])]}
+    fine = dash("f1", at=500)
+    assert store.add_dashboard(WS, fine)
+    d = dash("a1", **{"def": defn})
+    assert store.add_dashboard(WS, d) is True
+    assert store.get_dashboard(WS, "a1") == {**d, "version": 1}
+    assert [x["id"] for x in store.list_dashboards(WS)] == ["a1", "f1"]
+    # a widget changed in on an existing dashboard (POST /{id}/widgets writes the whole definition)
+    out, got = store.update_dashboard(WS, "f1", {"def": {**fine["def"], "widgets": [widget("w1", FFFF)]}})
+    assert out == "ok" and got["def"]["widgets"][0]["title"] == FFFF
+    assert store.get_dashboard(WS, "f1")["def"]["widgets"] == [widget("w1", FFFF)]
+    assert store.all_dashboards()[WS] == store.list_dashboards(WS)
+
+
+def test_a_definition_written_with_a_raw_uffff_before_qv756_reads_back_as_given(opened, monkeypatch):
+    """Rows written before QV-756 hold U+FFFF raw in their JSON. No JSON column ever held a raw NUL (json.dumps
+    escapes it), so such a row is read as stored and the list that was a 500 answers again."""
+    if opened.kind == "memory":
+        pytest.skip("only the tables store JSON text")
+    store = opened.store
+    monkeypatch.setattr(dashboards_store, "_json", lambda v: json.dumps(v, ensure_ascii=False, separators=(",", ":")))
+    d = dash("a1", widgets=[widget("w1", "x" + FFFF + "y")])
+    d["def"]["variables"][0]["value"] = FFFF
+    assert store.add_dashboard(WS, d)
+    monkeypatch.undo()
+    assert store.get_dashboard(WS, "a1") == {**d, "version": 1}
+    assert store.list_dashboards(WS) == [{**d, "version": 1}]
+
+
+def test_a_uffff_in_a_text_column_reads_back_as_nul_on_the_tables(opened):
+    """In a text column (a name, an ID, a display name) U+FFFF is the stored form of NUL (QV-658, QV-686), so on
+    SQLite and Postgres it reads back as NUL; the memory store keeps it. Pinned so a change to it is a choice."""
+    d = dash("a1", name="a" + FFFF + "b")
+    assert opened.store.add_dashboard(WS, d)
+    want = "a" + FFFF + "b" if opened.kind == "memory" else "a\x00b"
+    assert opened.store.get_dashboard(WS, "a1")["name"] == want
 
 
 def test_the_tables_are_in_a_new_file_and_in_the_schema_text():
