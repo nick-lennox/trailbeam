@@ -110,6 +110,12 @@ CASES = [
     case("the same cause on a queue of the same name in another account is another group",
          tl("m-other-account", [recv(1, T0 + S), exc(1, T0 + 2 * S, "KeyError")]),
          queue_url="https://sqs.eu-west-1.amazonaws.com/222222222222/orders"),
+    # QV-702: the class is escaped in the key, so this is not a text of the merged LookupError below
+    case("a class with a colon is its own group, not one of the merged class's texts",
+         tl("m-exc-colon", [recv(1, T0 + 3 * S, service="search"), exc(1, T0 + 4 * S, "LookupError:Missing", "no index")]),
+         queue_url=URL + "orders"),
+    case("an error text of \"*\" is written <*>, so it is not the class's merged group",
+         tl("m-exc-star", [recv(1, T0 + 3 * S), exc(1, T0 + 4 * S, "TimeoutError", "*")])),
 ] + [
     # more than MAX_FINGERPRINTS error texts for one exception class: one group for the class
     case(f"merged: error text {i}", tl(f"m-many-{i:02}", [recv(1, T0 + i * S, service="search"),

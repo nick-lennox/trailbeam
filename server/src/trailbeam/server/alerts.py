@@ -150,7 +150,9 @@ def is_muted(rule: dict, at: int) -> bool:
 
 def same_cause(r: str, g: str) -> bool:
     """Whether a group with key g is the cause a rule was made on with key r. An exception class with too many error
-    texts is merged into one group, "...|exc:<class>:*"; a rule matches across that merge in both directions."""
+    texts is merged into one group, "...|exc:<class>:*"; a rule matches across that merge in both directions.
+    The prefix match is sound because causes.py writes the class with ``%``, ``:`` and ``|`` escaped and never writes a
+    text as ``*`` (QV-702)."""
     if r == g:
         return True
     if g.endswith(":*") and "|exc:" in g and r.startswith(g[:-1]):

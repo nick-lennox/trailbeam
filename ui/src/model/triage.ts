@@ -130,7 +130,10 @@ export function triageOf(row: TriageRow | null, group: { id: string; arrivals?: 
 
 /* ── which row a cause shows ──────────────────────────────────────────── */
 
-/** Whether a group with key g is the cause with key r, across the merge of error texts ("…|exc:<class>:*"). */
+/**
+  Whether a group with key g is the cause with key r, across the merge of error texts ("…|exc:<class>:*"). The prefix
+  match is sound because the key's builder escapes %, : and | in the class and never writes a text as * (QV-702).
+*/
 export function sameCause(r: string, g: string): boolean {
   if (r === g) return true;
   if (g.endsWith(":*") && g.includes("|exc:") && r.startsWith(g.slice(0, -1))) return true;

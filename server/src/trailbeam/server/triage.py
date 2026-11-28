@@ -143,7 +143,9 @@ def triage_of(row: Optional[dict], group: Optional[dict], now_ms: int) -> dict:
 # ---- which row a cause shows ----------------------------------------------------------------------------------
 
 def same_cause(r: str, g: str) -> bool:
-    """Whether a group with key g is the cause with key r, across the merge of error texts ("...|exc:<class>:*")."""
+    """Whether a group with key g is the cause with key r, across the merge of error texts ("...|exc:<class>:*").
+    The prefix match is sound because causes.py writes the class with ``%``, ``:`` and ``|`` escaped and never writes a
+    text as ``*`` (QV-702)."""
     if r == g:
         return True
     if g.endswith(":*") and "|exc:" in g and r.startswith(g[:-1]):
