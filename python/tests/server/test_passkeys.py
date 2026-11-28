@@ -230,6 +230,29 @@ def test_bad_bodies(srv):
     assert st in (413, None)
 
 
+def test_an_over_long_credential_id_or_public_key_is_refused(srv):
+    """WebAuthn Level 3, 7.1: a credential ID over 1023 bytes aborts the ceremony (QV-694). Saved, it could never
+    sign in, and on Postgres it is over the unique index's row size (a 500)."""
+    longest = Authenticator(PUBLIC, id_bytes=passkeys_mod.MAX_CREDENTIAL_ID)
+    assert add(srv, srv.admin, longest)[0] == 201
+    assert sign_in(srv, longest)[0][0] == 200
+    for auth in (Authenticator(PUBLIC, id_bytes=passkeys_mod.MAX_CREDENTIAL_ID + 1),
+                 Authenticator(PUBLIC, key_padding=passkeys_mod.MAX_PUBLIC_KEY)):
+        st, _, out = add(srv, srv.member, auth)
+        assert st == 400 and "didn't check out" in out["error"], (st, out)
+    st, _, out = srv("GET", "/api/me/passkeys", None, srv.member)
+    assert st == 200 and out["passkeys"] == []
+
+
+def test_a_raw_id_that_is_not_the_attested_one_is_refused(srv):
+    a = Authenticator(PUBLIC)
+    st, _, opts = srv("POST", "/api/me/passkeys/options", {}, srv.admin)
+    cred = a.create(opts["options"])
+    cred["id"] = cred["rawId"] = "AAAA"
+    st, _, out = srv("POST", "/api/me/passkeys", {"name": "x", "credential": cred}, srv.admin)
+    assert st == 400, out
+
+
 def test_another_sites_page_cant_sign_in(srv):
     st, _, body = request(srv.url, "POST", passkeys_mod.OPTIONS_PATH, b"{}", {**J, "Sec-Fetch-Site": "cross-site"})
     assert st == 403 and b"forbidden" in body

@@ -27,10 +27,12 @@ def unb64(s: str) -> bytes:
 
 
 class Authenticator:
-    def __init__(self, origin: str, *, counter: bool = True, synced: bool = False):
+    def __init__(self, origin: str, *, counter: bool = True, synced: bool = False, id_bytes: int = 16,
+                 key_padding: int = 0):
         self.origin = origin
         self.key = ec.generate_private_key(ec.SECP256R1())
-        self.cred_id = os.urandom(16)
+        self.cred_id = os.urandom(id_bytes)
+        self.key_padding = key_padding  # bytes of an extra, unknown COSE parameter, to make a long public key
         self.counter = counter  # False: keeps no counter (always 0), as synced passkeys do
         self.count = 0
         self.synced = synced
@@ -42,7 +44,10 @@ class Authenticator:
 
     def _cose(self) -> bytes:
         n = self.key.public_key().public_numbers()
-        return cbor2.dumps({1: 2, 3: -7, -1: 1, -2: n.x.to_bytes(32, "big"), -3: n.y.to_bytes(32, "big")})
+        key = {1: 2, 3: -7, -1: 1, -2: n.x.to_bytes(32, "big"), -3: n.y.to_bytes(32, "big")}
+        if self.key_padding:
+            key[-70000] = bytes(self.key_padding)
+        return cbor2.dumps(key)
 
     def create(self, options: dict, *, origin: str | None = None, rp_id: str | None = None, uv: bool = True) -> dict:
         """The answer to navigator.credentials.create({publicKey: options})."""
