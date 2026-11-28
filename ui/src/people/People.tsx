@@ -82,6 +82,13 @@ export function emailedSentence(p: Pick<Person, "name" | "email">, link: PersonL
   return `${what} was emailed to ${to}. It works once, until ${fmtWhen(link.expires_at_ms)}. Make a new link if it doesn't arrive.`;
 }
 
+/** The sentence when the server neither showed nor emailed the link: the request wasn't a browser session (a sign-in
+ * through the proxy), so it only added the person (QV-712, QV-755). */
+export function notSentSentence(p: Pick<Person, "name" | "email">): string {
+  return `${p.name || p.email} was added, but no link was shown or emailed: only someone signed in to Trailbeam in a browser, `
+    + "not through the proxy, can make one. People who sign in through the proxy don't need one.";
+}
+
 /** Why the email with the link wasn't sent, and what to do instead. */
 export function unsentSentence(email: PersonEmail): string {
   const why = (email.error ?? "").trim();

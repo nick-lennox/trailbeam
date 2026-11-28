@@ -15,7 +15,7 @@ import { Button } from "../design/Button.tsx";
 import { Card } from "../design/Card.tsx";
 import { Field, FormError, INPUT, OneTimeBox, SELECT, SelectField, StateMark, type StateTone } from "../design/Settings.tsx";
 import {
-  LAST_ADMIN, ROLES, STATUS_HINT, STATUS_TEXT, emailedSentence, fmtWhen, isLastAdmin, linkButton, linkSentence, removeSentence,
+  LAST_ADMIN, ROLES, STATUS_HINT, STATUS_TEXT, emailedSentence, fmtWhen, isLastAdmin, linkButton, linkSentence, notSentSentence, removeSentence,
   removeSsoNote, unsentSentence,
 } from "./People.tsx";
 import type { Person, PersonEmail, PersonLink, PersonStatus, Role } from "./types.ts";
@@ -140,7 +140,7 @@ export function OneTimeLink({ person, link, email, onDismiss }: OneTimeLinkProps
   if (link.url === undefined) {
     return (
       <OneTimeBox>
-        <p className="max-w-[80ch]">{emailedSentence(person, link, email?.to ?? person.email)}</p>
+        <p className="max-w-[80ch]">{email?.sent ? emailedSentence(person, link, email.to) : notSentSentence(person)}</p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button size="sm" onClick={onDismiss}>Done</Button>
         </div>

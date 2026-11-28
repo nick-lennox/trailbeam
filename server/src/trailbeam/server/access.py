@@ -15,9 +15,10 @@ is ``MEMBER``, so a page or file added later is never open by mistake):
   own personal API tokens (``/api/me/tokens``) and passkeys (``/api/me/passkeys``) are ``MEMBER``, and need a
   person (adding a passkey needs a browser session, people_api.py); so are the Tokens page (``/tokens``), which
   shows the ingest tokens only to an admin, and the Account page (``/account``). Someone else's passkeys
-  (``/api/users/{id}/passkeys``) are ``ADMIN``. An invite or reset link is shown only to a browser session too
-  (QV-712): ``/api/users`` leaves its ``url`` out for a personal token or the proxy, and ``/api/users/{id}/link``
-  then only emails it (403 ``needs_a_session`` otherwise), since a link signs in and could add a passkey.
+  (``/api/users/{id}/passkeys``) are ``ADMIN``. An invite or reset link is shown or emailed only for a browser
+  session too (QV-712, QV-755): for a personal token or the proxy, ``POST /api/users`` adds the person with no url
+  and no email, and ``/api/users/{id}/link`` is 403 ``needs_a_session``, since a link signs in and could add a
+  passkey.
 
 **Two modes, switched by the store, not by a setting.** ``State`` asks the store whether an admin exists at most
 every ``STATE_TTL_S`` (5 s), on every replica, so when the first admin is created every replica switches within

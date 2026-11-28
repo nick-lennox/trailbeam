@@ -9,7 +9,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AddPerson, OneTimeLink, PeopleTable } from "../src/people/PeopleViews.tsx";
 import {
-  LAST_ADMIN, ROLES, emailedSentence, fmtWhen, isLastAdmin, linkButton, linkKind, linkSentence, removeSentence, removeSsoNote, signInAdmins, unsentSentence,
+  LAST_ADMIN, ROLES, emailedSentence, fmtWhen, isLastAdmin, linkButton, linkKind, linkSentence, notSentSentence, removeSentence, removeSsoNote, signInAdmins, unsentSentence,
 } from "../src/people/People.tsx";
 import type { Person } from "../src/people/types.ts";
 
@@ -108,6 +108,9 @@ test("an emailed link is not shown, and an email that failed says why and shows 
   const html = renderToStaticMarkup(createElement(OneTimeLink, { person: ben, link: { ...link, url: "http://x/set-password#code=abc" }, email: failed, onDismiss: noop }));
   assert.ok(html.includes("wasn&#x27;t sent") && button(html, "Copy link"));
   assert.match(html, /value="http:\/\/x\/set-password#code=abc"/);
+  // through the proxy the server shows and emails nothing (QV-712, QV-755): the box says so, not "emailed"
+  const none = renderToStaticMarkup(createElement(OneTimeLink, { person: ben, link, email: null, onDismiss: noop }));
+  assert.ok(none.includes(notSentSentence(ben).replace(/'/g, "&#x27;")) && !none.includes("was emailed") && button(none, "Done"));
   const form = renderToStaticMarkup(createElement(AddPerson, { onAdd: async () => {}, sendsEmail: true }));
   assert.ok(button(form, "Add and email invite"));
 });

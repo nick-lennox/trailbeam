@@ -47,10 +47,15 @@ account someone else got into is taken back.
 **Only a browser sees a link** (QV-712): a link signs whoever opens it in, and from there they can add a passkey, so
 handing one to a personal API token or the proxy would undo the rule above. An admin's token could make a reset link
 for its own person, or add a new admin and take their invite, choose the password, and add a passkey that outlives
-the token. So unless the request is a session, ``link`` has no ``url``: ``POST /api/users`` still adds the person
-(and emails the invite when it would), and ``POST /api/users/{id}/link`` is 403 ``needs_a_session`` unless it
-emails the link, since a link nobody can see would only replace the one the person has. An email goes to the
-person's own address, never to the caller.
+the token. So unless the request is a session, ``link`` has no ``url``.
+
+**Only a browser sends a link either** (QV-755): emailing it is no better, since the token chooses the address when
+it adds the person: it adds ``eve@attacker.example`` as an admin, and the invite goes to whoever reads that inbox.
+So unless the request is a session, ``POST /api/users`` adds the person but emails nothing (``email`` is
+``null``; ``"send_email": true`` is 403 ``needs_a_session``, and nobody is added), and ``POST
+/api/users/{id}/link`` is always 403 ``needs_a_session``. This holds for a sign-in through the proxy too: whoever
+the proxy lets in is added as a member on their first request (proxy_auth.py) and needs no invite, and an admin
+who wants to invite someone with a password signs in in a browser.
 
 **Requests that change something** go through csrf.check (server.py) and must send ``Content-Type:
 application/json`` when they have a body, which a form on another site can't send without a preflight this server
@@ -81,9 +86,8 @@ PASSKEYS_OFF = ("passkeys are off on this server: they need its public URL (TRAI
                 'pip install "trailbeam[server,passkeys]"')
 NEEDS_A_SESSION = ("add a passkey from the Account page, signed in in your browser: a personal API token or a "
                    "sign-in through the proxy can't add one")
-NEEDS_A_SESSION_FOR_LINK = ("make a link from the People page, signed in in your browser, or have it emailed "
-                            "(\"send_email\": true): a personal API token or a sign-in through the proxy can't see "
-                            "one")
+NEEDS_A_SESSION_FOR_LINK = ("make or email a link from the People page, signed in in your browser: a personal API "
+                            "token or a sign-in through the proxy can't, since whoever opens a link is signed in")
 NEEDS_A_PERSON = ("personal API tokens belong to a person: sign in, or send your personal API token "
                   "(this request was let in without one)")
 
@@ -213,13 +217,18 @@ class PeopleApi:
     def mailer(self):
         return getattr(self.app, "mailer", None)
 
-    def _send_email(self, body: dict) -> bool:
-        """Whether to email the link: ``send_email`` if given, else whether a mail server is set up."""
+    def _send_email(self, body: dict, who) -> bool:
+        """Whether to email the link: ``send_email`` if given, else whether a mail server is set up. Never for a
+        request that isn't a browser session (QV-755): ``"send_email": true`` from one is 403."""
         v = body.get("send_email")
+        if v is not None and not isinstance(v, bool):
+            raise ApiProblem(400, "send_email must be true or false")
+        if who.via != "session":
+            if v:
+                raise ApiProblem(403, NEEDS_A_SESSION_FOR_LINK, "needs_a_session")
+            return False
         if v is None:
             return self.mailer is not None
-        if not isinstance(v, bool):
-            raise ApiProblem(400, "send_email must be true or false")
         if v and self.mailer is None:
             raise ApiProblem(409, "this server has no mail server to send email with (TRAILBEAM_SMTP_HOST): "
                                   "copy the link and pass it on instead", "no_mail_server")
@@ -253,7 +262,7 @@ class PeopleApi:
         email = _str(body, "email")
         name = _str(body, "name", required=False) or first_admin.default_name(email.strip())
         role = _str(body, "role", required=False) or "member"
-        send = self._send_email(body)
+        send = self._send_email(body, who)
         try:
             check_role(role)
             uid = acc.create_user(email, name, role, None, now_ms)
@@ -308,9 +317,9 @@ class PeopleApi:
         u = self._user(acc, rid)
         if u["disabled_at_ms"] is not None:
             raise ApiProblem(409, f"{u['email']} is disabled: enable them before making a link", "disabled")
-        send = self._send_email(body)
-        if not send and who.via != "session":
+        if who.via != "session":  # QV-712, QV-755: neither shown nor emailed, so a link would only replace theirs
             raise ApiProblem(403, NEEDS_A_SESSION_FOR_LINK, "needs_a_session")
+        send = self._send_email(body, who)
         kind = RESET if u["password_hash"] else INVITE
         link = self._link(acc, rid, kind, base_url, now_ms)
         log.info("user %s made a %s link for user %d", who.user_id, kind, rid)

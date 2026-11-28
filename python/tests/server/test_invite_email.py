@@ -111,7 +111,7 @@ def test_without_a_mail_server_the_link_is_shown_as_before(plain):
 
 def test_an_invite_is_emailed_and_only_the_person_gets_the_link(mailing, outbox):
     assert mailing("GET", "/api/users", headers=mailing.admin)[2]["sends_email"] is True
-    st, _, out = mailing("POST", "/api/users", {"email": "cy@example.com", "name": "Cy"}, mailing.admin)
+    st, _, out = mailing("POST", "/api/users", {"email": "cy@example.com", "name": "Cy"}, mailing.browser)
     assert st == 201
     assert out["email"] == {"sent": True, "to": "cy@example.com", "error": None}
     assert "url" not in out["link"] and out["link"]["kind"] == "invite"
@@ -127,7 +127,7 @@ def test_an_invite_is_emailed_and_only_the_person_gets_the_link(mailing, outbox)
 
 
 def test_a_reset_link_is_emailed_too(mailing, outbox):
-    st, _, out = mailing("POST", f"/api/users/{mailing.ben}/link", {}, mailing.admin)
+    st, _, out = mailing("POST", f"/api/users/{mailing.ben}/link", {}, mailing.browser)
     assert st == 201 and out["link"]["kind"] == "reset" and out["email"]["sent"] is True and "url" not in out["link"]
     [(to, m)] = outbox.sent
     assert to == "ben@example.com" and m["subject"] == "Reset your Trailbeam password" and "24 hours" in m["text"]
@@ -139,8 +139,48 @@ def test_send_email_false_shows_the_link_instead(mailing, outbox):
     st, _, out = mailing("POST", f"/api/users/{mailing.ben}/link", {"send_email": False}, mailing.browser)
     assert st == 201 and out["email"] is None and out["link"]["url"]
     st, _, out = mailing("POST", f"/api/users/{mailing.ben}/link", {"send_email": False}, mailing.admin)
-    assert (st, out["reason"]) == (403, "needs_a_session") and not outbox.sent  # QV-712: a token only emails it
+    assert (st, out["reason"]) == (403, "needs_a_session") and not outbox.sent  # QV-712: a token sees no link
     assert mailing("POST", "/api/users", {"email": "dee@example.com", "send_email": "yes"}, mailing.admin)[0] == 400
+
+
+def test_an_admin_token_cant_have_an_invite_emailed_to_an_address_it_chose(mailing, outbox):
+    """QV-755: with a mail server, the token adds eve@attacker.example as an admin and the invite goes to her inbox;
+    she sets the password, adds a passkey, and keeps an admin account after the token is revoked. Here nothing is
+    emailed, so nobody can open the invite."""
+    eve = {"email": "eve@attacker.example", "name": "Eve", "role": "admin"}
+    st, _, out = mailing("POST", "/api/users", eve, mailing.admin)
+    assert st == 201 and out["email"] is None and "url" not in out["link"] and not outbox.sent
+    uid = out["user"]["id"]
+    for body in ({}, {"send_email": True}):  # re-inviting her doesn't email it either
+        st, _, out = mailing("POST", f"/api/users/{uid}/link", body, mailing.admin)
+        assert (st, out["reason"]) == (403, "needs_a_session") and "People page" in out["error"]
+    st, _, out = mailing("POST", "/api/users", {**eve, "email": "eve2@attacker.example", "send_email": True},
+                         mailing.admin)
+    assert (st, out["reason"]) == (403, "needs_a_session")
+    assert "eve2@attacker.example" not in [u["email"] for u in mailing.acc.users()]  # asked to email: nobody added
+    assert not outbox.sent and mailing.acc.user_by_email("eve@attacker.example")["password_hash"] is None
+    # nor a reset to someone who has a password: a link from a token is a session it could take
+    assert mailing("POST", f"/api/users/{mailing.ben}/link", {"send_email": True}, mailing.admin)[0] == 403
+    assert not outbox.sent
+    # an admin signed in in a browser still emails Eve her invite
+    st, _, out = mailing("POST", f"/api/users/{uid}/link", {}, mailing.browser)
+    assert st == 201 and out["email"]["sent"] is True and [to for to, _ in outbox.sent] == ["eve@attacker.example"]
+
+
+def test_through_the_proxy_nothing_is_emailed_either(mailing, outbox):
+    from trailbeam.server.access import Who
+    from trailbeam.server.people_api import ApiProblem
+
+    proxy = Who("proxy", "admin", mailing.ada, "ada@example.com", "Ada")
+    people = mailing.app.people
+    st, out = people.call("create_user", None, {"email": "fay@example.com"}, proxy, "https://t.example.com", 0)
+    assert st == 201 and out["email"] is None and "url" not in out["link"] and not outbox.sent
+    for handler, rid, body in (("user_link", out["user"]["id"], {}), ("user_link", mailing.ben, {"send_email": True}),
+                               ("create_user", None, {"email": "gus@example.com", "send_email": True})):
+        with pytest.raises(ApiProblem) as e:
+            people.call(handler, rid, body, proxy, "https://t.example.com", 0)
+        assert (e.value.status, e.value.reason) == (403, "needs_a_session")
+    assert not outbox.sent
 
 
 def test_when_sending_fails_the_person_is_added_and_the_link_is_shown(store):
@@ -151,11 +191,10 @@ def test_when_sending_fails_the_person_is_added_and_the_link_is_shown(store):
         assert out["email"] == {"sent": False, "to": "cy@example.com", "error": "The mail server refused cy@example.com."}
         assert "#code=" in out["link"]["url"]
         assert set_password(s, _code(out["link"]["url"]))[0] == 303
-        # to a personal API token the failure is said, but the link is not shown (QV-712)
+        # a personal API token gets neither the link nor an email (QV-712, QV-755)
         st, _, out = s("POST", "/api/users", {"email": "dee@example.com"}, s.admin)
-        assert st == 201 and out["email"]["sent"] is False and "url" not in out["link"]
-        st, _, out = s("POST", f"/api/users/{s.ben}/link", {}, s.admin)
-        assert st == 201 and out["email"]["sent"] is False and "url" not in out["link"]
+        assert st == 201 and out["email"] is None and "url" not in out["link"]
+        assert s("POST", f"/api/users/{s.ben}/link", {}, s.admin)[0] == 403
     finally:
         s.close()
 

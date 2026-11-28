@@ -173,10 +173,11 @@ paths:
         has the link: give it to them privately, since whoever opens it chooses the password. `name` defaults
         to the part of the email before `@`, and `role` to `member`. Needs an admin. Added in 0.5.
 
-        `link.url` is only ever in the answer to someone signed in in a browser. With a personal API token or
-        a sign-in through the proxy the person is still added and emailed, but the answer leaves out
-        `link.url`: whoever opens the link is signed in and could add a passkey that outlives the token.
-        Make a link from the People page instead.
+        Only someone signed in in a browser gets the link, shown or emailed. With a personal API token or a
+        sign-in through the proxy the person is still added, but the answer leaves out `link.url`, nothing is
+        emailed (`email` is `null`), and `send_email` `true` gets `403` (`reason` `needs_a_session`) with
+        nobody added: whoever opens the link is signed in and could add a passkey that outlives the token,
+        and the caller chose the address it would go to. Make or email a link from the People page instead.
       requestBody:
         required: true
         content:
@@ -293,10 +294,9 @@ paths:
         gets a `409`. With a mail server set up, the link is emailed to them as when adding a person
         (`send_email`). Send `{}` as the body. Needs an admin. Added in 0.5.
 
-        With a personal API token or a sign-in through the proxy, the link can only be emailed: the answer
-        leaves out `link.url`, and a request that wouldn't email it (no mail server, or `send_email`
-        `false`) gets `403` (`reason` `needs_a_session`), with the person's earlier link kept. Whoever
-        opens a link is signed in and could add a passkey that outlives the token.
+        A personal API token or a sign-in through the proxy gets `403` (`reason` `needs_a_session`), emailed
+        or not, with the person's earlier link kept: whoever opens a link is signed in and could add a
+        passkey that outlives the token. Make one from the People page, signed in in a browser.
       parameters: [{$ref: '#/components/parameters/user_id'}]
       requestBody:
         content:
@@ -3213,7 +3213,8 @@ components:
       type: boolean
       description: |
         Email the link to the person. Default: `true` when the server has a mail server set up
-        (`TRAILBEAM_SMTP_HOST`), else `false`. `true` without one is a `409` (`no_mail_server`).
+        (`TRAILBEAM_SMTP_HOST`) and the request is a browser session, else `false`. `true` without one is a
+        `409` (`no_mail_server`), and from a personal API token or the proxy a `403` (`needs_a_session`).
     IngestToken:
       type: object
       additionalProperties: false
