@@ -73,6 +73,8 @@ test("signed in without a person, the card says how instead of loading for ever 
   const off = withoutPerson({ via: "shared_cookie", accounts: false });
   assert.equal(text(card({ user: null, signedIn: off.signedIn })), "Sign-in Signed in with this server's shared access token (TRAILBEAM_TOKEN), not as a person.");
   assert.match(off.accounts, /off on this server.*TRAILBEAM_ACCOUNTS=1.*trailbeam users create --accounts --email <email> --role admin/);
+  // an admin made with them on may exist: say to create one only if there is none (QV-791)
+  assert.doesNotMatch(off.accounts, /first admin/);
   // on, with no admin yet: no need to turn them on
   assert.doesNotMatch(withoutPerson({ via: "shared_token", accounts: true }).accounts, /TRAILBEAM_ACCOUNTS/);
   assert.match(withoutPerson({ via: "none", accounts: false }).signedIn, /needs no sign-in/);

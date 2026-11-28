@@ -166,7 +166,8 @@ def test_off_trailbeam_start_prints_no_setup_link(tmp_path):
 
 
 def test_off_the_people_and_tokens_routes_manage_nobody(tmp_path):
-    """QV-226: the People and Tokens API behaves as on a store without accounts, even with people in the store."""
+    """QV-226: the People and Tokens API manages nobody, even with people in the store. /api/me/tokens says users
+    and roles are off (403), not that the store has no accounts (QV-791)."""
     db = tmp_path / "t.sqlite"
     _store_with_an_admin_and_an_ingest_token(db)
     s = Server(db, TRAILBEAM_TOKEN=TOKEN)
@@ -174,7 +175,7 @@ def test_off_the_people_and_tokens_routes_manage_nobody(tmp_path):
         bearer = {"Authorization": f"Bearer {TOKEN}"}
         got = {p: s.get(p, bearer) for p in ("/api/users", "/api/tokens/ingest", "/api/me/tokens", "/set-password")}
         assert {p: g[0] for p, g in got.items()} == {
-            "/api/users": 403, "/api/tokens/ingest": 403, "/api/me/tokens": 404, "/set-password": 404}
+            "/api/users": 403, "/api/tokens/ingest": 403, "/api/me/tokens": 403, "/set-password": 404}
         for p, (status, body) in got.items():
             assert "root@example.com" not in body, p
     finally:

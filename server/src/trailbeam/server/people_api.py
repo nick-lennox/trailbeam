@@ -74,6 +74,7 @@ import logging
 from typing import Optional
 
 from . import first_admin, passkeys as passkeys_mod
+from .access import SWITCHED_OFF
 from .mail import DeliveryError, invite_email, reset_email
 from .accounts import INVITE, RESET, AccountError, EmailTaken, LastAdmin, PasskeyTaken, check_role
 
@@ -185,6 +186,8 @@ class PeopleApi:
     @property
     def acc(self):
         if self.app.accounts is None:
+            if getattr(self.app, "accounts_off", False):
+                raise ApiProblem(403, SWITCHED_OFF)
             raise ApiProblem(404, "this store has no people or tokens (it is not SQLite or Postgres)")
         return self.app.accounts
 

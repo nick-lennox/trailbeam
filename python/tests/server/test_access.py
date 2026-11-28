@@ -427,6 +427,21 @@ def test_with_accounts_off_the_token_server_says_how_to_turn_them_on(serve):
     assert "TRAILBEAM_ACCOUNTS=1" in access.ACCOUNTS_OFF and "users create --accounts" in access.ACCOUNTS_OFF
 
 
+def test_with_accounts_off_the_person_routes_say_so_and_an_earlier_admin_is_not_doubled(serve, store):
+    # an admin made with users and roles on is kept when the server starts with them off: /api/users must not
+    # send the caller to create "the first admin" again, and /api/me/tokens must not say the store has no
+    # accounts (it said 404 "it is not SQLite or Postgres"), but that they are off: the contract's 403 (QV-791)
+    Accounts(store).create_user("a@example.com", "A", "admin", QUICK.hash("pw-long-enough"), NOW)
+    url, _ = serve(SHARED, accounts=None)
+    assert "first admin" not in access.ACCOUNTS_OFF and "no admin yet" in access.ACCOUNTS_OFF
+    status, _, body = call(url, "/api/users", headers=bearer(SHARED))
+    assert status == 403 and json.loads(body)["error"] == access.ACCOUNTS_OFF
+    for method, path in (("GET", "/api/me/tokens"), ("GET", "/api/me/passkeys"), ("DELETE", "/api/me/tokens/1")):
+        status, _, body = call(url, path, method=method, headers=bearer(SHARED))
+        assert status == 403 and json.loads(body)["error"] == access.SWITCHED_OFF, (method, path)
+        assert "TRAILBEAM_ACCOUNTS=1" in access.SWITCHED_OFF and "SQLite" not in access.SWITCHED_OFF
+
+
 @pytest.mark.parametrize("accounts", ["auto", None])
 def test_with_the_token_and_no_admin_admin_routes_say_nothing_of_the_setup_without_the_token(serve, accounts):
     # 0.4.0 answered 401 on every path but /api/ready and /api/health without the token. The no-admin sentences
