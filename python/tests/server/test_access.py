@@ -327,6 +327,11 @@ def test_every_level_before_an_admin_exists(store):
             assert acc.check(H(bearer(mtok)), level).ok is (shared is None)
         assert acc.check(H(bearer(SHARED)), ADMIN).message == access.NO_ADMIN_YET
         assert acc.check(H(), INGEST).ok is (shared is None)
+        # with the token set, a caller without it is told only that, not why ADMIN would be refused (QV-790)
+        for h in (H(), H(bearer("nope")), H(bearer(mtok))):
+            d = acc.check(h, ADMIN)
+            assert not d.ok and (d.status, d.message) == ((401, access.NEEDS_SHARED) if shared
+                                                           else (403, access.NO_ADMIN_YET))
 
 
 def test_ingest_closes_when_the_first_ingest_token_exists_and_a_revoked_one_keeps_it_closed(store):
@@ -420,6 +425,26 @@ def test_with_accounts_off_the_token_server_says_how_to_turn_them_on(serve):
     status, _, body = call(url, "/api/users", headers=bearer(SHARED))
     assert status == 403 and json.loads(body)["error"] == access.ACCOUNTS_OFF
     assert "TRAILBEAM_ACCOUNTS=1" in access.ACCOUNTS_OFF and "users create --accounts" in access.ACCOUNTS_OFF
+
+
+@pytest.mark.parametrize("accounts", ["auto", None])
+def test_with_the_token_and_no_admin_admin_routes_say_nothing_of_the_setup_without_the_token(serve, accounts):
+    # 0.4.0 answered 401 on every path but /api/ready and /api/health without the token. The no-admin sentences
+    # (accounts on or off, the CLI to run) are for a caller who has it (QV-790)
+    url, _ = serve(SHARED, accounts=accounts)
+    told = access.NO_ADMIN_YET if accounts else access.ACCOUNTS_OFF
+    for h in ({}, bearer("nope"), key("nope")):
+        for path in ("/api/users", "/api/tokens/ingest"):
+            status, headers, body = call(url, path, headers=h)
+            assert status == 401 and json.loads(body)["error"] == access.NEEDS_SHARED, (path, h)
+            assert headers["WWW-Authenticate"] == 'Bearer realm="trailbeam"'
+        status, _, body = call(url, "/people", headers=h)
+        assert status == 401 and told.encode() not in body and b"TRAILBEAM_ACCOUNTS" not in body
+        assert b"Welcome back." in body  # the token login page
+    status, _, body = call(url, "/api/users", headers=bearer(SHARED))
+    assert status == 403 and json.loads(body)["error"] == told
+    status, _, body = call(url, "/people", headers=bearer(SHARED))
+    assert status == 403 and b"users create --accounts" in body
 
 
 def test_ingest_tokens_over_http_in_both_headers(serve):

@@ -33,8 +33,9 @@ info:
     of the first admin being created.
 
     - No admin yet: with `TRAILBEAM_TOKEN` set, the API needs it (`Authorization: Bearer` or
-      `x-trailbeam-key`) or the `trailbeam_session` cookie the login page sets. Without it, every
-      request is served.
+      `x-trailbeam-key`) or the `trailbeam_session` cookie the login page sets, admin routes too: without
+      it they answer 401, and only with it 403 (there is no admin yet). Without `TRAILBEAM_TOKEN`, every
+      request but admin routes is served.
     - Once an admin exists: the API needs a person, an admin or a member. That means a personal API
       token (`Authorization: Bearer tbp_...`) or a sign-in session (the `trailbeam_sid` cookie, or
       `__Host-trailbeam_sid` over HTTPS), from an email and password or from single sign-on. `TRAILBEAM_TOKEN` then works only for ingest and
@@ -3524,8 +3525,8 @@ components:
     Forbidden:
       description: |
         Signed in, but not allowed: the route needs an admin, or a person (`/api/me/tokens` with the shared
-        token), or the server has no admin yet. Also a request that changes something sent by another
-        site's page (`reason` `csrf`).
+        token), or the server has no admin yet (with `TRAILBEAM_TOKEN` set, only once the request has it).
+        Also a request that changes something sent by another site's page (`reason` `csrf`).
       content:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}
