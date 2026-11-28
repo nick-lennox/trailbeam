@@ -31,8 +31,8 @@ export const PRIVATE_WEBHOOKS_SETTING = "TRAILBEAM_ALERT_ALLOW_PRIVATE_WEBHOOKS"
 
 export const SHELL_ALERT_HREFS: AlertHrefs = {
   channels: "/alerts#channels",
-  cause: (id) => `/stuck?cause=${encodeURIComponent(id)}`,
-  causes: { href: "/stuck", label: "Stuck" },
+  cause: (id) => `/issues/${encodeURIComponent(id)}`,
+  causes: { href: "/issues", label: "Issues" },
 };
 
 /** Who made or muted something, as the server stores it (a person's ID, or how the request was let in), as a name. */

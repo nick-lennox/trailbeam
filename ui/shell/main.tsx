@@ -1,6 +1,6 @@
 /*
   Self-hosted Trailbeam's pages drawn with the shared views (../src): Messages at / (messages.tsx, the shared MessagesView; the first-run screen while
-  no span is stored: home.tsx), Duplicates (messages.tsx), Stuck grouped by cause (stuck.tsx), the message page
+  no span is stored: home.tsx), Duplicates (messages.tsx), Issues at /issues and one issue at /issues/<cause ID> (issues.tsx; /stuck redirects there), the message page
   at /message?id=<message ID> (message.tsx, in the shared frame: the timeline, and with &tab=body the Body tab), the Tenants page at /tenants
   (tenants.tsx, in the shared frame),
   the Overview at /overview (overview.tsx; /queues redirects there), a queue's page at /queue?name=<queue>
@@ -23,17 +23,17 @@ import { AlertsPage } from "./alerts.tsx";
 import { PeoplePage } from "./people.tsx";
 import { SettingsPage } from "./settings.tsx";
 import { QueueShellPage } from "./queue.tsx";
-import { StuckPage } from "./stuck.tsx";
+import { IssuePage, IssuesPage, StuckRedirect, issueIdOf } from "./issues.tsx";
 import { TenantsPage } from "./tenants.tsx";
 import { TokensPage } from "./tokens.tsx";
 import "./styles.css";
 
-const PAGES: Record<string, () => React.JSX.Element> = { "/": HomePage, "/duplicates": DuplicatesPage, "/stuck": StuckPage, "/tenants": TenantsPage, "/queue": QueueShellPage, "/queues": QueuesRedirect, "/overview": OverviewPage, "/events": EventsPage, "/dashboards": DashboardsShellPage, "/people": PeoplePage, "/tokens": TokensPage, "/account": AccountPage, "/alerts": AlertsPage, "/settings": SettingsPage };
+const PAGES: Record<string, () => React.JSX.Element> = { "/": HomePage, "/duplicates": DuplicatesPage, "/issues": IssuesPage, "/stuck": StuckRedirect, "/tenants": TenantsPage, "/queue": QueueShellPage, "/queues": QueuesRedirect, "/overview": OverviewPage, "/events": EventsPage, "/dashboards": DashboardsShellPage, "/people": PeoplePage, "/tokens": TokensPage, "/account": AccountPage, "/alerts": AlertsPage, "/settings": SettingsPage };
 /* The shell's Nav is the browser's history (HistoryNav): a view that moves with the Nav's push changes the page
    without a full load. The page is keyed on the Nav's version, so it reads location and its data again. */
 function App() {
   const path = usePath();
-  const Page = PAGES[path] ?? MessageShellPage;
+  const Page = PAGES[path] ?? (issueIdOf(path) !== null ? IssuePage : MessageShellPage);
   return <Page />;
 }
 createRoot(document.getElementById("root")!).render(<StrictMode><HistoryNav>{(v) => <App key={v} />}</HistoryNav></StrictMode>);

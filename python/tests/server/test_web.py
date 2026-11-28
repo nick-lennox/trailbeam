@@ -86,7 +86,7 @@ def test_wording_shared_with_the_ui_package_matches_it():
         assert f'{state}: "{label}"' in messages
     title = re.search(r'export const POSSIBLY_PURGED_TITLE = ((?:"[^"]*"\s*\+?\s*)+);', messages).group(1)
     assert "".join(re.findall(r'"([^"]*)"', title)) == web.POSSIBLY_PURGED_TITLE
-    stuck = (ui.parent / "shell" / "stuck.tsx").read_text()  # the Stuck page (QV-367)
+    stuck = (ui.parent / "shell" / "issues.tsx").read_text()  # the Issues page (QV-708), Stuck before it (QV-367)
     plain = lambda h: unescape(re.sub(r"<[^>]+>", "", h.replace("&rsquo;", "'")))  # noqa: E731
     assert plain(web.STUCK_LEAVES_SQS_NOTE) in plain(stuck)
 

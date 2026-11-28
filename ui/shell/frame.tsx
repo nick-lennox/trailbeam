@@ -1,7 +1,7 @@
 /*
   The open-source shell's app frame (row 0c of the one-UI plan): the shared Sidebar (@trailbeam/ui/design) with
   this server's pages as its items, inside the design system's theme. Dashboards is one only while /api/me says
-  the server has them on (TRAILBEAM_DASHBOARDS), Alerts only while it has the alert check on (TRAILBEAM_ALERT_CHECK). Every page is in it (Stuck was the last to
+  the server has them on (TRAILBEAM_DASHBOARDS), Alerts only while it has the alert check on (TRAILBEAM_ALERT_CHECK). Every page is in it (Stuck, now Issues, was the last to
   leave the old header frame, QV-765). The items: People only for admins, Tokens for
   anyone signed in, and Settings for admins (anyone before accounts exist). The account slot is drawn as the hosted app's: the initials, the name (a link to the Account page), and a
   door icon that signs out when signing out ends anything. The sidebar is the one place to sign out (board, QV-588).
@@ -25,7 +25,7 @@ export function shellItems(me: Me | null, path: string, dashboards = false, aler
     ...(dashboards ? [{ href: "/dashboards", label: "Dashboards", icon: LayoutDashboard }] : []),
     { href: "/", label: "Messages", icon: Search, on: path === "/" || path === "/message" },
     { href: "/duplicates", label: "Duplicates", icon: Copy },
-    { href: "/stuck", label: "Stuck", icon: CircleAlert },
+    { href: "/issues", label: "Issues", icon: CircleAlert },
     { href: "/tenants", label: "Tenants", icon: Users },
     ...(alerts ? [{ href: "/alerts", label: "Alerts", icon: Bell }] : []),
   ];

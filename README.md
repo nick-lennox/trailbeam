@@ -2113,14 +2113,14 @@ without one, anyone who can reach the port can read it. Labels never hold span d
 | `trailbeam_db_file_bytes{file}` | gauge | SQLite file (`main`) and write-ahead log (`wal`) size |
 | `trailbeam_db_last_row` | gauge | Highest span row ID (one index step, not a count) |
 | `trailbeam_build_info{version}`, `trailbeam_start_time_seconds` | gauge | Version and start time |
-| `trailbeam_stuck_messages` | gauge | Messages stuck now, as the Stuck page lists them (no final delete after `TRAILBEAM_STUCK_AFTER_S`), counted up to 1000 |
+| `trailbeam_stuck_messages` | gauge | Messages stuck now, as the Issues page counts them (no final delete after `TRAILBEAM_STUCK_AFTER_S`), counted up to 1000 |
 | `trailbeam_stuck_oldest_age_seconds` | gauge | How long ago the oldest stuck message was first seen; 0 when none is |
 | `trailbeam_dead_lettered_messages_recent` | gauge | Messages moved to a dead-letter queue in the last 15 minutes |
 | `trailbeam_stuck_after_seconds` | gauge | The stuck threshold, `TRAILBEAM_STUCK_AFTER_S` |
 
 The stuck and dead-letter gauges are read from the store (at most every 10 seconds), so every replica of one
 store serves the same value: take `max` across replicas, not `sum`. They have no queue or tenant label, which
-would make the number of series grow with your queues and customers; the Stuck page and the queue filter say which.
+would make the number of series grow with your queues and customers; the Issues page and its queue filter say which.
 
 There are no retention purge metrics yet: the server logs each purge pass that deletes spans, and any pass that fails.
 

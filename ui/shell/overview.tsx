@@ -145,7 +145,7 @@ export function OverviewPage() {
     ]).then(async ([r, causes]) => {
       const now = Object.fromEntries(await Promise.all(r.flows.map((f) => nowOf(f, w.minutes))));
       if (!live) return;
-      const data = selfHostedFlowsData({ range: overviewRangeOf(u.time), window: w, flows: r.flows, causes, now, causeHref: (id) => `/stuck?cause=${encodeURIComponent(id)}` });
+      const data = selfHostedFlowsData({ range: overviewRangeOf(u.time), window: w, flows: r.flows, causes, now, causeHref: (id) => `/issues/${encodeURIComponent(id)}` });
       setState({ kind: "ok", at, got: { flows: r.flows, data, window: w, aws: anyAwsRead(now) } });
     }, (e: Error) => {
       if (!live) return;
@@ -189,10 +189,10 @@ export function OverviewPage() {
       const f = byLabel.get(name);
       return `/queue?${queueQuery({ name: f?.name ?? name, at: f ? atOf(f) : null, range: queueRangeOf(u.time, asked) })}`;
     },
-    issues: (queue) => `/stuck?queue=${encodeURIComponent(nameOf(queue))}`,
-    cause: (c) => c.href ?? "/stuck",
+    issues: (queue) => `/issues?queue=${encodeURIComponent(nameOf(queue))}`,
+    cause: (c) => c.href ?? "/issues",
     events: (query) => eventsHref(query, u.time),
-    deadLettered: ({ queue }) => `/stuck?queue=${encodeURIComponent(nameOf(queue))}`,
+    deadLettered: ({ queue }) => `/issues?queue=${encodeURIComponent(nameOf(queue))}`,
     message: (id) => `/message?id=${encodeURIComponent(id)}`,
   };
   const sidebar = flows.map((f) => ({ name: f.queue, health: state.kind === "ok" ? state.got.data.info[f.queue]?.health ?? null : null }));
@@ -233,7 +233,7 @@ export function OverviewPage() {
       <OverviewFlows
         key={timeKey(u.time)}
         time={{ range: u.time, now: state.kind === "ok" ? state.at : Date.now(), onChange: setTime }}
-        data={got?.data ?? selfHostedFlowsData({ range: overviewRangeOf(u.time), window: { fromMs: 0, toMs: 0, minutes: 1 }, flows: [], causes: null, now: {}, causeHref: () => "/stuck" })}
+        data={got?.data ?? selfHostedFlowsData({ range: overviewRangeOf(u.time), window: { fromMs: 0, toMs: 0, minutes: 1 }, flows: [], causes: null, now: {}, causeHref: () => "/issues" })}
         flow={u.flow}
         fresh={state.kind === "ok" ? <Since ms={state.at} /> : undefined}
         onFlow={(flow) => { const next = { ...u, flow }; setU(next); history.replaceState(history.state, "", flowsHref(next)); }}
