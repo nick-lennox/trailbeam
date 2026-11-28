@@ -27,7 +27,7 @@ function look(i: Omit<Standing, "count">) {
   if (i.notFinished > 0) return { label: "Not finished", icon: PauseCircle, cls: SERIOUS };
   if (i.kind === "filter") return { label: "Filtered by trigger", icon: Filter, cls: WARNING };
   if (i.handledTwice > 0) return { label: "Handled twice", icon: Copy, cls: WARNING };
-  return { label: "Retried", icon: RotateCw, cls: WARNING };
+  return { label: "Received again", icon: RotateCw, cls: WARNING };
 }
 
 export function IssuePill({ issue, status = "open" }: { issue: Omit<Standing, "count">; status?: IssueStatus }) {
@@ -166,8 +166,8 @@ export function TimingRuler({ t }: { t: Timing }) {
       <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
         {t.label} {secs(t.atS)} into the receive.{" "}
         {idle !== null
-          ? `The message then stays in flight for another ${secs(idle)} with nothing working on it, until the visibility timeout expires and SQS delivers it again.`
-          : vt === null ? "No data on this queue's visibility timeout, so how long the message then waits to be received again is not known." : "That is at or past the visibility timeout, so the message may already have been delivered again."}
+          ? `The message then stays in flight for another ${secs(idle)} with nothing working on it, until the visibility timeout expires and SQS makes it visible to receive again.`
+          : vt === null ? "No data on this queue's visibility timeout, so how long the message then waits to be received again is not known." : "That is at or past the visibility timeout, so the message may already have been received again."}
       </p>
     </div>
   );

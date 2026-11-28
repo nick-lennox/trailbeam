@@ -265,12 +265,12 @@ export function MessagesPage() {
 /** Duplicates' heading and what the list is, over the query bar. */
 export const DuplicatesHeader = () => (
   <header className="shrink-0 border-b border-line px-5 pb-3 pt-4">
-    <h1 className="font-serif text-[1.5rem] text-ink">Duplicate deliveries</h1>
-    <p className="mt-1 max-w-[80ch] text-[13px] text-ink-2">Messages SQS returned more than once, or that more than one consumer handled. A second receive is expected after your own <C>ChangeMessageVisibility</C> or a failed attempt. It is worth a look when the visibility timeout expired while a consumer was still working, or when a message was handled twice.</p>
+    <h1 className="font-serif text-[1.5rem] text-ink">Duplicates</h1>
+    <p className="mt-1 max-w-[80ch] text-[13px] text-ink-2">Messages SQS returned more than once, or that more than one consumer handled. A second receive is expected after your own <C>ChangeMessageVisibility</C> or a failed receive. It is worth a look when the visibility timeout expired while a consumer was still working, or when a message was handled twice.</p>
   </header>
 );
 
 export function DuplicatesPage() {
-  useEffect(() => { document.title = "Duplicate deliveries · Trailbeam"; }, []);
+  useEffect(() => { document.title = "Duplicates, Trailbeam"; }, []);
   return <ShellFrame path="/duplicates"><MessagesPanel on={DUPLICATES_PAGE} header={<DuplicatesHeader />} /></ShellFrame>;
 }

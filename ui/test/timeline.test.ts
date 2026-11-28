@@ -106,7 +106,7 @@ test("between steps there is only the rail, and the record keeps the order evide
   assert.match(html, /data-connector=/, "the rail between steps is still drawn");
   const vc = t.events.find((e) => e.type === "visibility_changed")!;
   if (t.events.some((e) => e.after.some((a) => a.event === vc.id))) {
-    assert.ok(page.includes(`After ${vc.id} (the visibility change on delivery 1)`), "the record names the visibility change in full");
+    assert.ok(page.includes(`After ${vc.id} (the visibility change on receive 1)`), "the record names the visibility change in full");
   }
 });
 

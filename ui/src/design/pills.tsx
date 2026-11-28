@@ -15,7 +15,7 @@ type Look = { label: string; icon: ElementType; cls: string };
 const OUTCOME: Record<Outcome, Look> = {
   deleted: { label: "Deleted", icon: CheckCircle2, cls: "bg-good-soft text-good-text ring-good-ring" },
   in_flight: { label: "In flight", icon: CircleDashed, cls: "bg-sunken text-ink-2 ring-line" },
-  retrying: { label: "Retrying", icon: RotateCw, cls: "bg-warning-soft text-warning-text ring-warning-ring" },
+  retrying: { label: "Received again", icon: RotateCw, cls: "bg-warning-soft text-warning-text ring-warning-ring" },
   stuck: { label: "Stuck", icon: PauseCircle, cls: "bg-serious-soft text-serious-text ring-serious-ring" },
   dead_lettered: { label: "Dead-lettered", icon: Skull, cls: "bg-critical-soft text-critical-text ring-critical-ring" },
   filtered: { label: "Filtered by trigger", icon: Filter, cls: "bg-serious-soft text-serious-text ring-serious-ring" },

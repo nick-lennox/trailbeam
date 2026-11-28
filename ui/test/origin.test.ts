@@ -23,7 +23,7 @@ test("an EventBridge event body gives an inferred first step with the source, de
   assert.match(html, / Arrived via an EventBridge rule: OrderPlaced /);
   assert.match(html, /inferred from the EventBridge event body/);
   assert.match(html, /com\.example\.orders \(EventBridge\)/);
-  assert.match(html, /Body of delivery 1 Delivery took 1\.2 s/);
+  assert.match(html, /Body of receive 1 Delivery took 1\.2 s/);
   assert.match(html, /6a7e8feb-b491-4cf7-a9f1-bf3703467718/);
 });
 

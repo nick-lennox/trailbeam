@@ -17,8 +17,8 @@ export function fmtWait(ms: number): string {
 /** A share as a whole percentage; "<1%" for a tenant that sent something but rounds to 0. */
 export const fmtShare = (r: Pick<TenantRow, "share" | "sent">) => (r.share < 0.01 && r.sent > 0 ? "<1%" : `${Math.round(r.share * 100)}%`);
 
-/** The p95 cell's hover note: how many first deliveries it is over. */
-export const p95Note = (n: number) => (n ? `Over ${fmtNum(n)} first ${n === 1 ? "delivery" : "deliveries"}.` : "No first delivery observed.");
+/** The p95 cell's hover note: how many first receives it is over. */
+export const p95Note = (n: number) => (n ? `Over ${fmtNum(n)} first ${n === 1 ? "receive" : "receives"}.` : "No first receive observed.");
 
 export const TENANTS_TITLE = "Tenants";
 export const TENANTS_SUBTITLE = "Which of your customers are sending the traffic, and who is waiting longest.";
@@ -31,9 +31,9 @@ export function tenantsFootnote(s: { total_sent: number; untagged_sent: number; 
 }
 
 /** What p95 in queue is over, and how close it is: shared with the server-rendered page. */
-export const P95_NOTE = "p95 in queue is from the send to the first receive, over first deliveries only. "
+export const P95_NOTE = "p95 in queue is from the send to the first receive, over first receives only. "
   + "It compares two clocks: the sender's host and the consumer's, or SQS's SentTimestamp when the send wasn't observed "
-  + "(those first deliveries count too, so a tenant can have more first deliveries than sends). "
+  + "(those first receives count too, so a tenant can have more first receives than sends). "
   + "Clock skew shows up in it, and a time below 0 counts as 0. It is estimated, within 1% of the exact p95.";
 
 /** The Tenants page with no tenant in its range (QV-217): what a tenant is, and how to set one. */

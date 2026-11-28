@@ -47,14 +47,14 @@ const INFERRED_NOTE = "Not recorded by any source. Trailbeam deduced it from the
 function title(e: TimelineEvent): string {
   switch (e.type) {
     case "sent": return e.deduplicated ? `Sent again to ${e.queue}, deduplicated by SQS` : `Sent to ${e.queue}`;
-    case "received": return e.dlq_source_arn ? "Picked up from the dead-letter queue" : `Picked up, attempt ${e.receive_count}`;
+    case "received": return e.dlq_source_arn ? "Received from the dead-letter queue" : `Received (receive count ${e.receive_count})`;
     case "deleted":
-      return e.status === "final" ? "Handled and deleted" : e.status === "stale_handle" ? "Deleted, but too late" : e.status === "failed" ? "Delete failed" : "Deleted (no matching pickup)";
+      return e.status === "final" ? "Handled and deleted" : e.status === "stale_handle" ? "Deleted, but too late" : e.status === "failed" ? "Delete failed" : "Deleted (no matching receive)";
     case "visibility_changed":
       return e.result !== "ok" ? "Visibility change failed" : e.visibility_timeout_s === 0 ? "Released back to the queue" : `Visibility timeout set to ${e.visibility_timeout_s} s`;
     case "lambda_outcome": return e.outcome === "success" ? "Handler succeeded" : `Handler failed${e.error_type ? `: ${e.error_type}` : ""}`;
     case "visibility_timeout_expired": return "Visibility timeout ended";
-    case "deliveries_not_observed": return `${e.count} pickup${e.count === 1 ? "" : "s"} not observed`;
+    case "deliveries_not_observed": return `${e.count} receive${e.count === 1 ? "" : "s"} not observed`;
     case "deleted_by_lambda": return "Deleted by Lambda";
     case "lambda_invocation_ended_without_outcome": return "Invocation ended with no outcome";
     case "moved_to_dead_letter_queue": return "Moved to the dead-letter queue";
@@ -70,11 +70,11 @@ function title(e: TimelineEvent): string {
   }
 }
 
-/** Short label for an event, as the concurrent box names its members ("e2 pickup 1"). */
+/** Short label for an event, as the concurrent box names its members ("e2 receive 1"). */
 function shortLabel(e: TimelineEvent): string {
   switch (e.type) {
     case "sent": return e.deduplicated ? "the deduplicated send" : "the send";
-    case "received": return `pickup ${e.delivery}`;
+    case "received": return `receive ${e.delivery}`;
     case "deleted": return `delete${e.delivery ? ` of ${e.delivery}` : ""}`;
     case "visibility_changed": return `visibility change${e.delivery ? ` of ${e.delivery}` : ""}`;
     case "lambda_outcome": return "handler outcome";
@@ -86,7 +86,7 @@ function shortLabel(e: TimelineEvent): string {
     case "arrived_via_eventbridge": return "EventBridge delivery";
     case "s3_event": return "S3 notification";
     case "visibility_timeout_expired": return "timeout ended";
-    case "deliveries_not_observed": return "unseen pickups";
+    case "deliveries_not_observed": return "unseen receives";
     case "deleted_by_lambda": return "Lambda delete";
     case "lambda_invocation_ended_without_outcome": return "no outcome";
     case "aws_step": return { trigger_delete: "trigger delete", filter_drop: "filter drop", second_function: "other function",
@@ -94,10 +94,10 @@ function shortLabel(e: TimelineEvent): string {
   }
 }
 
-/** How the record names an earlier step ("After e3 (the visibility change on delivery 1)"). */
+/** How the record names an earlier step ("After e3 (the visibility change on receive 1)"). */
 function refLabel(e: TimelineEvent): string {
-  if (e.type === "visibility_changed") return `the visibility change${e.delivery ? ` on delivery ${e.delivery}` : ""}`;
-  if (e.type === "deleted") return `the delete${e.delivery ? ` on delivery ${e.delivery}` : ""}`;
+  if (e.type === "visibility_changed") return `the visibility change${e.delivery ? ` on receive ${e.delivery}` : ""}`;
+  if (e.type === "deleted") return `the delete${e.delivery ? ` on receive ${e.delivery}` : ""}`;
   return shortLabel(e);
 }
 
@@ -254,13 +254,13 @@ function facts(e: TimelineEvent): Fact[] {
   }
   if (e.type === "sent" && e.deduplicated) out.push(["Deduplicated, so it enqueued nothing"]);
   if (e.type === "received") {
-    out.push(["Delivery", String(e.delivery)], ["Receive count", String(e.receive_count)]);
+    out.push(["Receive", String(e.delivery)], ["Receive count", String(e.receive_count)]);
     if (e.dlq_source_arn) out.push(["From", e.queue]);
   }
   if (e.type === "deleted" || e.type === "visibility_changed") {
-    out.push(["Delivery", String(e.delivery ?? "unknown")], e.result === "ok" ? ["SQS accepted it"] : ["Error", e.error_code ?? "unknown"]);
+    out.push(["Receive", String(e.delivery ?? "unknown")], e.result === "ok" ? ["SQS accepted it"] : ["Error", e.error_code ?? "unknown"]);
   }
-  if (e.type === "lambda_outcome" && e.delivery) out.push(["Delivery", String(e.delivery)]);
+  if (e.type === "lambda_outcome" && e.delivery) out.push(["Receive", String(e.delivery)]);
   if (e.type === "queue_purged") out.push(["PurgeQueue, accepted by SQS"]);
   if (e.type === "published") {
     out.push([e.batch_entry_id ? "PublishBatch" : "Publish"], [e.joined_by.includes("envelope_message_id") ? "Joined by the envelope" : "Joined by the publish ID"]);
@@ -274,14 +274,14 @@ function facts(e: TimelineEvent): Fact[] {
     }
   }
   if (e.type === "arrived_via_sns") {
-    out.push(["Reported on delivery", String(e.reported_on_delivery)]);
+    out.push(["Reported on receive", String(e.reported_on_delivery)]);
     if (e.sns_delivery_ms !== undefined) out.push(["SNS delivery", dur(e.sns_delivery_ms)]);
   }
   if (e.type === "arrived_via_eventbridge" || e.type === "s3_event") {
-    out.push(["Body of delivery", String(e.reported_on_delivery)]);
+    out.push(["Body of receive", String(e.reported_on_delivery)]);
     if (e.delivery_ms !== undefined) out.push(["Delivery took", dur(e.delivery_ms)]);
   }
-  if (e.type === "moved_to_dead_letter_queue") out.push(["From", e.from_queue], ["To", e.to_queue], ["Reported on delivery", String(e.reported_on_delivery)]);
+  if (e.type === "moved_to_dead_letter_queue") out.push(["From", e.from_queue], ["To", e.to_queue], ["Reported on receive", String(e.reported_on_delivery)]);
   if (e.type === "aws_step") {
     if (e.role) out.push(["Role", e.role]);
     if (typeof e.record.eventName === "string") out.push(["Event", e.record.eventName]);

@@ -44,7 +44,7 @@ test("formats: share, p95 and the footnote", () => {
   assert.doesNotMatch(tenantsFootnote({ ...whole, capped: true }, "Last hour"), /2,000/, "capped is always false: no capped wording (QV-247)");
   const foot = tenantsFootnote(whole, "Last hour");
   assert.ok(foot.includes(P95_NOTE));
-  for (const s of ["two clocks", "SentTimestamp when the send wasn't observed", "more first deliveries than sends", "below 0 counts as 0", "within 1% of the exact p95"])
+  for (const s of ["two clocks", "SentTimestamp when the send wasn't observed", "more first receives than sends", "below 0 counts as 0", "within 1% of the exact p95"])
     assert.ok(P95_NOTE.includes(s), `p95 note says ${s}`);
 });
 
@@ -93,9 +93,9 @@ test("the table follows the design rules: sans labels, hover notes as Tooltips, 
   assert.doesNotMatch(html, /\stitle="/, "no native title");
   for (const th of html.match(/<th [^>]*>/g) ?? []) assert.doesNotMatch(th, /font-mono/, `a label in mono: ${th}`);
   assert.equal((html.match(/<th /g) ?? []).length, 5);
-  assert.equal(p95Note(1), "Over 1 first delivery.");
-  assert.equal(p95Note(1200), "Over 1,200 first deliveries.");
-  assert.equal(p95Note(0), "No first delivery observed.");
+  assert.equal(p95Note(1), "Over 1 first receive.");
+  assert.equal(p95Note(1200), "Over 1,200 first receives.");
+  assert.equal(p95Note(0), "No first receive observed.");
   assert.doesNotMatch(text(html), / - /);
 });
 

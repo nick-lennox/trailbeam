@@ -25,7 +25,7 @@ test("trendOf gives the fixture's trends (make-causes-fixture.py: the hour befor
 
 test("the words: dead-letter split, first and last seen, versions, tenants", () => {
   assert.equal(dlqSplit({ counts: { dead_lettered: 0, stuck: 2, filtered: 0 }, dlqInferred: 0 }), "");
-  assert.equal(dlqSplit({ counts: { dead_lettered: 1, stuck: 2, filtered: 0 }, dlqInferred: 0 }), "1 in the DLQ, 2 retrying");
+  assert.equal(dlqSplit({ counts: { dead_lettered: 1, stuck: 2, filtered: 0 }, dlqInferred: 0 }), "1 in the DLQ, 2 still in the queue");
   assert.equal(dlqSplit({ counts: { dead_lettered: 1, stuck: 0, filtered: 0 }, dlqInferred: 1 }), "1 in the DLQ (inferred from maxReceiveCount)");
   assert.equal(dlqSplit({ counts: { dead_lettered: 3, stuck: 0, filtered: 0 }, dlqInferred: 1 }), "3 in the DLQ, 1 inferred from maxReceiveCount");
   assert.equal(whenFirst(Date.UTC(2026, 10, 24, 9, 5), Date.UTC(2026, 10, 24, 12)), "09:05 UTC");

@@ -88,8 +88,8 @@ export function barsOf(steps: Step[]): Bar[] {
       if (done > 0) bars.push({ kind: "run", col: 2, from: i, to: done, word: "processing", num: dur(i, done) });
       else bars.push({ kind: "run", col: 2, from: i, to: last + 0.6, word: "processing", num: "", open: true });
       const back = idx((x) => ["visibility_expired", "receive", "dead_letter", "delete"].includes(x.ev.event), i + 1);
-      if (back > 0) bars.push({ kind: "hidden", col: 1, from: i, to: back, word: "not visible", num: dur(i, back) });
-      else bars.push({ kind: "hidden", col: 1, from: i, to: last + 0.6, word: "not visible", num: "", open: true });
+      if (back > 0) bars.push({ kind: "hidden", col: 1, from: i, to: back, word: "in flight", num: dur(i, back) });
+      else bars.push({ kind: "hidden", col: 1, from: i, to: last + 0.6, word: "in flight", num: "", open: true });
     }
   });
   return bars;
@@ -161,9 +161,9 @@ export function sequenceOf(events: readonly Ev[], k?: QueueFacts): Sequence {
         facts: [
           ["Receive count", n ?? nr],
           ...maxRow,
-          ["Not visible until", <>{fmtT(e.ms + visS * 1000)}{!visKnown && <S> from SQS&apos;s default</S>}</>],
+          ["In flight until", <>{fmtT(e.ms + visS * 1000)}{!visKnown && <S> from SQS&apos;s default</S>}</>],
           visRow,
-          ["Delivered by", trigger ? <S key="d">Lambda event source mapping</S> : nr],
+          ["Received through", trigger ? <S key="d">Lambda event source mapping</S> : nr],
           ["Batch size", size !== undefined ? <>{size} <S>{size === 1 ? "message" : "messages"}</S></> : nr],
           ...(trigger ? ([["Batch size limit", trigger.batchSize ?? nread]] as [string, ReactNode][]) : []),
           ["Position in batch", idx !== undefined && size !== undefined ? <>{idx + 1} <S>of {size}</S></> : nr],

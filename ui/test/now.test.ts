@@ -51,7 +51,7 @@ test("what the spans and the queue's settings did not give says so, never a made
   const s = sequenceOf(delivered);
   const vis = s.steps[1].facts.find(([k]) => k === "Visibility timeout")!;
   assert.match(html(vis[1] as never), /30 s.*SQS&#x27;s default; the queue&#x27;s setting was not read/);
-  assert.match(html(s.steps[1].facts.find(([k]) => k === "Delivered by")![1] as never), /Not recorded/);
+  assert.match(html(s.steps[1].facts.find(([k]) => k === "Received through")![1] as never), /Not recorded/);
   assert.match(html(s.queueAttrs.find(([k]) => k === "GetQueueAttributes")![1] as never), /Not read/);
 });
 

@@ -103,7 +103,7 @@ const data = (o: Partial<OverviewFlowsData> = {}): OverviewFlowsData => ({
   receives: [{ from: "orders", to: "orders-worker", perMin: 12 }], consumers: [{ name: "orders-worker", runtime: "", queue: "orders" }],
   consumerStats: {}, consumerStatsCapped: false, producerPlatform: {}, avgBytes: { orders: 800 }, dlq: {}, places: {}, functionEnds: {},
   info: {
-    orders: { live: noLive, health: "warning", why: "Retrying", healthBasis: "spans", triggers: null, inQueue: view(), heldTotal: 3, moved: 0, dlqReceives: 0, dlqChange: null },
+    orders: { live: noLive, health: "warning", why: "Received again", healthBasis: "spans", triggers: null, inQueue: view(), heldTotal: 3, moved: 0, dlqReceives: 0, dlqChange: null },
   },
   causes: [{ queue: "orders", outcome: "stuck", title: "Not deleted after receive", count: 4 } as OverviewFlowsData["causes"][number]],
   causesCapped: false, now: NOW, ...o,

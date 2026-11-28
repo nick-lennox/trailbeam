@@ -594,7 +594,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
                             <td className="border-b border-line py-1.5 pr-4 font-sans">{t.state ?? "Unknown"}</td>
                             <td className="border-b border-line py-1.5 pr-4">{t.batchSize ?? "Default"}</td>
                             <td className="border-b border-line py-1.5 pr-4">{t.batchingWindowS ? `${t.batchingWindowS} s` : "None"}</td>
-                            <td className="border-b border-line py-1.5 pr-4 font-sans">{t.reportBatchItemFailures ? "Reported per message" : "Whole batch retried"}</td>
+                            <td className="border-b border-line py-1.5 pr-4 font-sans">{t.reportBatchItemFailures ? "Reported per message" : "Whole batch received again"}</td>
                             <td className="border-b border-line py-1.5 pr-4">{t.maxConcurrency ?? "Not set"}</td>
                             <td className="border-b border-line py-1.5 pr-4">{t.filters || "None"}</td>
                           </tr>
@@ -661,7 +661,7 @@ export function OverviewFlows({ data, sample = NO_SAMPLE, flow: initialFlow, cop
                   {real
                     ? <>
                         {lv?.dlq ? `${q.name}'s redrive policy names ${cfg.dlq}. Its depth is CloudWatch's ApproximateNumberOfMessagesVisible for ${cfg.dlq}.` : `Known because a receive on ${cfg.dlq} carried DeadLetterQueueSourceArn naming ${q.name}. ${copy.noFigures(lv)}`}
-                        {" "}AWS does not log a move to a dead-letter queue. Moved counts the messages your services received {cfg.maxReceiveCount ?? "maxReceiveCount"} times without deleting them once the last visibility timeout ran out, since SQS moves such a message instead of delivering it again.
+                        {" "}AWS does not log a move to a dead-letter queue. Moved counts the messages your services received {cfg.maxReceiveCount ?? "maxReceiveCount"} times without deleting them once the last visibility timeout ran out, since SQS moves such a message instead of letting it be received again.
                         {(info?.dlqReceives ?? 0) > 0 && ` Received on it counts receives from ${cfg.dlq} by your services that SQS marked as coming from ${q.name}.`}
                       </>
                     : dead

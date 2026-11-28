@@ -67,7 +67,7 @@ export function notDeletedText(n: number, defaultTimeout: boolean, why = "no del
 
 /** A message at maxReceiveCount whose last timeout ran out (contract 9b): inferred to move on the next receive attempt, not yet seen. */
 export function notSeenOnDlqText(n: number, max: number): string {
-  return `Inferred: receive count ${n} reached maxReceiveCount ${max}, so SQS moves it on the next receive attempt; not seen on the DLQ yet`;
+  return `Inferred: receive count ${n} reached maxReceiveCount ${max}, so SQS moves it on its next receive; not seen on the DLQ yet`;
 }
 
 /** A message as it is at nowMs: its visibility timeout counted down, or run out. A timeout that runs out on the page's clock is

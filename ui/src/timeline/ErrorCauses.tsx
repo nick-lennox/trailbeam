@@ -31,7 +31,7 @@ export function ErrorCauses({ causes }: { causes: ErrorCause[] }) {
               <span className="font-mono text-caption font-medium text-critical-text">{c.errorType ?? OUTCOME[c.outcome] ?? c.outcome}</span>
               <span className="text-xs text-ink-3">
                 {c.count === 1 ? "Once" : <><span className="font-mono tabular-nums">{c.count}</span> times</>}
-                {c.deliveries.length > 0 && <>, {c.deliveries.length === 1 ? "delivery" : "deliveries"} <span className="font-mono tabular-nums">{c.deliveries.join(", ")}</span></>}
+                {c.deliveries.length > 0 && <>, {c.deliveries.length === 1 ? "receive" : "receives"} <span className="font-mono tabular-nums">{c.deliveries.join(", ")}</span></>}
                 {", "}<span className="font-mono tabular-nums">{c.first === c.last ? time(c.first) : `${time(c.first)} to ${time(c.last)}`}</span> UTC
                 {", "}{c.steps.length === 1 ? "step" : "steps"} <span className="font-mono tabular-nums">{c.steps.join(", ")}</span>
               </span>

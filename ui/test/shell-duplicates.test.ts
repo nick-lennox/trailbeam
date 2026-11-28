@@ -70,12 +70,12 @@ test("the Why column says each reason with its count, in the table and the expor
 
 test("the heading and intro, and the empty states", () => {
   const head = text(renderToStaticMarkup(h(DuplicatesHeader)));
-  assert.match(head, /^Duplicate deliveries/);
+  assert.match(head, /^Duplicates/);
   assert.match(head, /ChangeMessageVisibility/);
   assert.match(head, /visibility timeout expired/);
   const e = DUPLICATES_PAGE.empty({ reason: "received_more_than_once", queue: "orders" }, { empty: false })!;
-  assert.equal(e.title, 'No duplicate deliveries for "received more than once".');
+  assert.equal(e.title, 'No duplicates for "received more than once".');
   assert.deepEqual(e.link, { href: "/duplicates?queue=orders", label: "Show every reason" });
   assert.equal(DUPLICATES_PAGE.empty({}, { empty: true })!.title, "No messages yet.");
-  assert.equal(DUPLICATES_PAGE.empty({}, { empty: false })!.title, "No duplicate deliveries.");
+  assert.equal(DUPLICATES_PAGE.empty({}, { empty: false })!.title, "No duplicates.");
 });
