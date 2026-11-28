@@ -150,7 +150,7 @@ export function DashboardView({ dashboard, range = {} }: { dashboard: Dashboard;
           {!locked && <GripVertical size={14} className="-mr-0.5 -ml-2 shrink-0 text-ink-3 opacity-0 group-hover/w:opacity-100" />}
           <h3 className="shrink-0 truncate text-[13px] font-semibold text-ink" style={{ maxWidth: "100%" }}>{w.title}</h3>
           {pinned && <Tooltip className={MARK} content="This widget does not follow the dashboard's variables" tabIndex={0}><Pin size={11} className="shrink-0" /><span className="truncate">Pinned</span></Tooltip>}
-          {w.time && <span className={MARK}><Clock size={11} className="shrink-0" /><span className="truncate font-mono text-ink-2">{PRESETS.find((p) => p.id === w.time)?.label ?? w.time}</span></span>}
+          {w.time && <span className={MARK}><Clock size={11} className="shrink-0" /><span className="truncate text-ink-2">{PRESETS.find((p) => p.id === w.time)?.label ?? w.time}</span></span>}
           {alert && alert.tone !== "good" && w.type !== "number" && <span className={`${MARK} ${TONE_TEXT[alert.tone]}`}>{TONE_WORD[alert.tone]}</span>}
           <span className="absolute top-[5px] right-1.5 flex gap-0.5 bg-surface pl-1.5 opacity-0 group-hover/w:opacity-100 focus-within:opacity-100">
             {w.type !== "note" && (
@@ -202,7 +202,7 @@ export function DashboardView({ dashboard, range = {} }: { dashboard: Dashboard;
               className={`${FIELD} h-9 w-[320px] text-[22px]`}
             />
           ) : (
-            <h1 className="text-[22px] tracking-tight text-ink" onDoubleClick={() => !locked && setRenaming(true)}>{name}</h1>
+            <h1 className="font-serif text-[22px] tracking-tight text-ink" onDoubleClick={() => !locked && setRenaming(true)}>{name}</h1>
           )}
           <IconBtn label={starred ? "Remove the star" : "Star this dashboard"} className={starred ? "!text-accent" : ""} onClick={async () => { setStarred(!starred); await actions.star(dashboard.id, !starred); router.refresh(); }}>
             <Star size={16} fill={starred ? "currentColor" : "none"} />
@@ -233,7 +233,7 @@ export function DashboardView({ dashboard, range = {} }: { dashboard: Dashboard;
             <Menu key={v.name} align="left" width="w-64" button={(open, toggle) => (
               <button type="button" onClick={toggle} aria-expanded={open} className={`inline-flex h-10 items-center gap-2 rounded-lg border bg-surface pr-2 pl-3 text-[13px] hover:border-ink-3 ${open ? "border-accent" : "border-line-strong"}`}>
                 <span className="text-ink-3">{v.name}</span>
-                <span className="font-mono text-ink">{v.value === "*" ? "All" : v.value}</span>
+                <span className={`${v.value === "*" ? "font-sans" : "font-mono"} text-ink`}>{v.value === "*" ? "All" : v.value}</span>
                 <ChevronDown size={14} className="text-ink-3" />
               </button>
             )}>

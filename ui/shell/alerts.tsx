@@ -14,7 +14,7 @@ import {
   channelRowsOf, checkStatus, rulesViewOf,
   type AlertHrefs, type AlertResult, type ApiChannel, type ApiRules, type ApiState, type ChannelActions, type ChannelRow, type RuleActions, type RulesView,
 } from "../src/index.ts";
-import { AlertChannels, AlertRules, PageHeader, Problem, SettingsSection } from "../src/design/index.ts";
+import { AlertChannels, AlertRules, CodeText, PageHeader, Problem, SettingsSection } from "../src/design/index.ts";
 import { ApiError, getJSON, getMe, sendJSON, type Me } from "./chrome.tsx";
 import { ShellFrame, ShellSearch } from "./frame.tsx";
 
@@ -115,7 +115,7 @@ export function AlertsPage() {
         {state.kind === "error" && <Problem>{state.message}</Problem>}
         {state.kind === "off" && (
           <p className="max-w-2xl rounded-card border border-line bg-surface px-5 py-4 text-sm leading-relaxed text-ink-2" data-alerts-off>
-            {OFF_TEXT} Alerts email through the same mail server as invites (<code className="font-mono text-caption">TRAILBEAM_SMTP_HOST</code>), and their links point to <code className="font-mono text-caption">--public-url</code>.
+            <CodeText text={OFF_TEXT} /> Alerts email through the same mail server as invites (<code className="font-mono text-caption">TRAILBEAM_SMTP_HOST</code>), and their links point to <code className="font-mono text-caption">--public-url</code>.
           </p>
         )}
         {data && check && (

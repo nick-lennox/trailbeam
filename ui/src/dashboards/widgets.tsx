@@ -219,7 +219,7 @@ function QueueTableBody({ w, ctx }: { w: Widget; ctx: Ctx }) {
                 return (
                   <td key={m.id} className={`${TD} text-right text-ink tabular-nums group-hover:bg-sunken`}>
                     {trend && <Trend points={trend} />}
-                    {v === null ? <Tooltip content={noDepth(ctx.data)} className="text-ink-3" tabIndex={0}>No data</Tooltip> : fmt(v, m.unit)}
+                    {v === null ? <Tooltip content={noDepth(ctx.data)} className="font-sans text-ink-3" tabIndex={0}>No data</Tooltip> : fmt(v, m.unit)}
                   </td>
                 );
               })}
@@ -369,13 +369,16 @@ function FlowBody({ w, ctx }: { w: Widget; ctx: Ctx }) {
   const ys = (n: number, i: number) => (n === 1 ? sh / 2 - 44 : 10 + ((sh - 96) * i) / (n - 1));
   const ym = sh / 2 - 44;
   const right = [{ kind: "consumer" as const, role: "Consumer", name: flow.consumer, fact: `p95 ${fmt(flow.p95Ms, "ms")}`, bad: false }, ...(flow.dlq ? [{ kind: "dlq" as const, role: "Dead-letter queue", name: flow.dlq, fact: fmt(flow.dlqDepth, "count"), bad: false }] : [])];
+  // a node's fact ("12 visible, 3 in flight", "p95 640 ms"): its numbers in mono, the words around them in the sans
+  const factParts = (fact: string) => fact.split(/((?<!\w)\d[\d.,]*(?:\s?(?:ms|s|m|h|k|K|M|%))?(?=[\s,/]|$))/).filter(Boolean)
+    .map((t, i) => (/^\d/.test(t) ? <tspan key={i} className="font-mono text-[10.5px]">{t}</tspan> : t));
   const node = (cx: number, y: number, kind: keyof typeof GLYPH, role: string, name: string, fact?: string, bad = false) => (
     <g key={`${role}${name}`}>
       <rect x={cx - TS / 2} y={y} width={TS} height={TS} rx={7} fill="var(--color-canvas)" stroke="var(--color-line-strong)" />
       <g transform={`translate(${cx - 8},${y + 7}) scale(0.667)`} fill="none" stroke="var(--color-ink)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">{GLYPH[kind]}</g>
       <text x={cx} y={y + TS + 15} textAnchor="middle" className="fill-ink font-sans text-xs font-semibold">{role}</text>
       <text x={cx} y={y + TS + 29} textAnchor="middle" className="fill-ink-3 font-mono text-[10.5px]">{name}</text>
-      {fact && <text x={cx} y={y + TS + 43} textAnchor="middle" className={`font-mono text-[10.5px] ${bad ? "fill-critical-text" : "fill-ink-2"}`}>{fact}</text>}
+      {fact && <text x={cx} y={y + TS + 43} textAnchor="middle" className={`font-sans text-[11px] ${bad ? "fill-critical-text" : "fill-ink-2"}`}>{factParts(fact)}</text>}
     </g>
   );
   const wire = (ax: number, ay: number, bx: number, by: number, col: string, label: string, dash = false, key = "") => {

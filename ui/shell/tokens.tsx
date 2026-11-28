@@ -10,7 +10,7 @@ import {
   INGEST_TEXT, OPEN_INGEST, PERSONAL_TEXT,
   type IngestTokenList, type NewToken, type NewTokenRequest, type PersonalToken, type TokenKind,
 } from "../src/index.ts";
-import { Caution, CreateToken, OneTimeToken, PageHeader, Problem, SettingsSection, TokensTable } from "../src/design/index.ts";
+import { Caution, CodeText, CreateToken, OneTimeToken, PageHeader, Problem, SettingsSection, TokensTable } from "../src/design/index.ts";
 import { getJSON, sendJSON, useMe } from "./chrome.tsx";
 import { ShellFrame, ShellSearch } from "./frame.tsx";
 
@@ -80,7 +80,7 @@ export function TokensPage() {
         {admin && (
           <SettingsSection id="ingest-tokens" title="Ingest tokens" about={`${INGEST_TEXT} Only admins see these.`}>
             <div className="grid gap-4">
-              {open && <Caution>{OPEN_INGEST}</Caution>}
+              {open && <Caution><CodeText text={OPEN_INGEST} /></Caution>}
               <CreateToken kind="ingest" ingestOpen={open} onCreate={onCreate("ingest", ingest.create)} />
               <Problem>{ingest.problem}</Problem>
               {ingest.state.kind === "loading" && <p className="text-sm text-ink-3">Loading ingest tokens</p>}
@@ -95,7 +95,7 @@ export function TokensPage() {
         )}
 
         {person && (
-          <SettingsSection id="personal-tokens" title="Your personal API tokens" about={`${PERSONAL_TEXT} Only you see yours.`}>
+          <SettingsSection id="personal-tokens" title="Your personal API tokens" about={<><CodeText text={PERSONAL_TEXT} /> Only you see yours.</>}>
             <div className="grid gap-4">
               <CreateToken kind="personal" onCreate={onCreate("personal", mine.create)} />
               <Problem>{mine.problem}</Problem>

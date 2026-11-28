@@ -69,7 +69,7 @@ export function DashboardsPage({ dashboards, server }: { dashboards: Dashboard[]
   return (
     <div className="px-8 pt-7 pb-10">
       <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-[22px] tracking-tight text-ink">Dashboards</h1>
+        <h1 className="font-serif text-[22px] tracking-tight text-ink">Dashboards</h1>
         <span className="flex-1" />
         <label className="flex h-9 w-60 items-center gap-2 rounded-lg border border-line-strong bg-surface px-2.5 text-sm text-ink-3 focus-within:border-accent">
           <Search size={14} />

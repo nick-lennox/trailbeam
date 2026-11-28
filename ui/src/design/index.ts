@@ -33,6 +33,7 @@ export {
 } from "../timeline/Timeline.tsx";
 export { MessageFrame, MessagePage, type MessageHrefs, type MessagePageProps, type MessageTab } from "../message/MessagePage.tsx";
 export { CopyText } from "./CopyText.tsx";
+export { CodeText, codeParts } from "./CodeText.tsx";
 export {
   Caution, Field, FormError, INPUT, OneTimeBox, Problem, SELECT, SelectField, SettingsSection, StateMark, type StateTone,
 } from "./Settings.tsx";

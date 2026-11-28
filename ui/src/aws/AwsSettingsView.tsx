@@ -65,7 +65,7 @@ export function AwsSettingsView({ answer, onSave }: AwsSettingsViewProps) {
               placeholder={"orders\npayments-*"} aria-describedby={`${queuesId}-hint`}
               className={`${INPUT} h-auto py-2 font-mono text-caption`} />
             <span id={`${queuesId}-hint`} className="text-xs text-ink-3">
-              One queue name per line. A * matches any characters, so payments-* names every queue whose name starts with payments-.
+              One queue name per line. A <code className="font-mono">*</code> matches any characters, so <code className="font-mono">payments-*</code> names every queue whose name starts with <code className="font-mono">payments-</code>.
               {names.length > 0 && ` ${names.length} ${names.length === 1 ? "name" : "names"}.`}
             </span>
           </div>
