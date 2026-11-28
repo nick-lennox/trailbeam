@@ -1,6 +1,7 @@
 /*
-  QV-366: the time range on the lists (Recent, Duplicates, Stuck), "Refresh every 15 s", and the pinned links
-  "Copy link" makes (src/messages/range.ts, shell/lists.tsx, shell/chrome.tsx). Run: npm test
+  QV-366: the time range on Stuck's list, and the pinned links "Copy link" makes (src/messages/range.ts,
+  shell/lists.tsx, shell/chrome.tsx). Messages and Duplicates use the shared list's TimePicker (shell-messages.test.ts).
+  Run: npm test
 */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -9,7 +10,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   apiQuery, formQuery, fromInputUtc, pinnedQuery, rangeText, rangeWindow, readRange, refreshOn, toInputUtc, type TimeRange,
 } from "../src/messages/range.ts";
-import { MessageList } from "../shell/lists.tsx";
+import { Filters } from "../shell/lists.tsx";
 import { CopyLink } from "../shell/chrome.tsx";
 
 const NOW = Date.UTC(2026, 10, 23, 12, 0, 0); // 2026-11-23 12:00 UTC
@@ -97,17 +98,14 @@ test("the range in a sentence, and refresh=15", () => {
   assert.equal(refreshOn({ refresh: "1" }), false);
 });
 
-const list = (params: Record<string, string>, range: { what: "last seen" | "first seen"; upper: boolean } = { what: "last seen", upper: true }) =>
-  renderToStaticMarkup(createElement(MessageList, { action: "/duplicates", api: "duplicates", params, fields: [], range, empty: () => null }));
+const list = (params: Record<string, string>, opt: { what: "last seen" | "first seen" | "cause seen"; upper: boolean } = { what: "cause seen", upper: true }) =>
+  renderToStaticMarkup(createElement(Filters, { action: "/stuck", values: {}, fields: [], refresh: false, range: { r: ok(params), opt } }));
 
-test("the lists draw the range control and the refresh toggle from the URL", () => {
+test("the filters draw the range control from the URL", () => {
   const preset = list({ range: "7d" });
   assert.match(preset, /<select name="range"[^>]*><option value="">any time<\/option><option value="1h">last hour<\/option><option value="24h">last 24 hours<\/option><option value="7d" selected="">last 7 days<\/option>/);
   assert.doesNotMatch(preset, /name="from"/);
-  assert.match(preset, /Last seen/);
-  assert.match(preset, /<input type="checkbox"\/>Refresh every 15 s/);
-  // off by default; on with refresh=15
-  assert.match(list({ refresh: "15" }), /<input type="checkbox" checked=""\/>Refresh every/);
+  assert.match(preset, /Cause seen/);
   // a fixed window opens as custom, its times shown in UTC
   const fixed = list({ from_ms: String(Date.UTC(2026, 10, 23, 10)), to_ms: String(Date.UTC(2026, 10, 23, 11)) });
   assert.match(fixed, /<option value="custom" selected="">custom<\/option>/);
@@ -115,7 +113,7 @@ test("the lists draw the range control and the refresh toggle from the URL", () 
   assert.match(fixed, /name="to" value="2026-11-23T11:00"/);
 });
 
-test("Stuck's range is on first seen, with a start and no end", () => {
+test("a range with a start and no end", () => {
   const stuck = list({ from_ms: String(Date.UTC(2026, 10, 23, 10)) }, { what: "first seen", upper: false });
   assert.match(stuck, /First seen/);
   assert.match(stuck, /name="from"/);
@@ -123,7 +121,7 @@ test("Stuck's range is on first seen, with a start and no end", () => {
 });
 
 test("a range the API would refuse is said instead of asking", () => {
-  assert.match(list({ range: "2h" }), /role="alert">range must be 1h, 24h or 7d/);
+  assert.deepEqual(readRange({ range: "2h" }), { error: "range must be 1h, 24h or 7d, not “2h”." });
 });
 
 test("Copy link is a button", () => {

@@ -55,16 +55,23 @@ export const DUPLICATE_REASONS: Record<string, string> = {
   succeeded_more_than_once: "handled more than once",
 };
 
+/* each of a row's reasons: its verb and count from the row (receives, or successful handlings), or its name */
+const whyParts = (m: MessageSummary) => (m.reasons ?? []).map((r) => {
+  const n = r === "received_more_than_once" ? m.deliveries : r === "succeeded_more_than_once" ? m.successful_deliveries : null;
+  return { r, verb: r === "received_more_than_once" ? "received" : "handled", n };
+});
+
 /** The Why cell on Duplicates: each reason with its count from the row (receives, or successful handlings). */
 export function duplicateWhy(m: MessageSummary): ReactNode {
-  const parts = (m.reasons ?? []).map((r) => {
-    const n = r === "received_more_than_once" ? m.deliveries : r === "succeeded_more_than_once" ? m.successful_deliveries : null;
-    if (n === null) return <span key={r}>{DUPLICATE_REASONS[r] ?? r}</span>;
-    const verb = r === "received_more_than_once" ? "received" : "handled";
-    return <span key={r}>{verb} <span className="font-mono tabular-nums">{n}</span> times</span>;
-  });
+  const parts = whyParts(m).map(({ r, verb, n }) => n === null
+    ? <span key={r}>{DUPLICATE_REASONS[r] ?? r}</span>
+    : <span key={r}>{verb} <span className="font-mono tabular-nums">{n}</span> times</span>);
   return parts.flatMap((p, i) => (i ? [", ", p] : [p]));
 }
+
+/** The Why cell as text, for an export: "received 3 times, handled 2 times". */
+export const duplicateWhyText = (m: MessageSummary): string =>
+  whyParts(m).map(({ r, verb, n }) => (n === null ? DUPLICATE_REASONS[r] ?? r : `${verb} ${n} times`)).join(", ");
 
 /** An API timestamp as the list shows it: UTC, to the millisecond, no "T" or "Z". */
 export const fmtTime = (t: string | null) => (t ? t.replace("T", " ").replace(/(\.\d{3})\d*Z$/, "$1").replace(/Z$/, "") : null);

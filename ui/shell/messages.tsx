@@ -10,14 +10,19 @@
   Links from before the shared list open what they named: range=24h, from_ms and to_ms, and a body search's since_s.
   A body search reads one window (a day unless the range says otherwise), so with Any time it searches the last day.
   Words with no field in the query bar are a message ID: the page opens that message.
+
+  Duplicates (`/duplicates`, row 8) is the same list on GET /api/duplicates: the query bar takes queue: and reason:, the
+  Why column says each message's count, and its links (reason, queue, range, from_ms, to_ms, refresh, cursor, limit)
+  open the same rows they did on the list before.
 */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Pause, Play } from "lucide-react";
 import {
-  EmptyState, listQuery, messageQueryLanguage, messagesEmpty, queryOfParams, storeIsEmpty, type ListQuery, type MessageSummary,
+  EmptyState, duplicatesEmpty, listQuery, messageQueryLanguage, messagesEmpty, queryOfParams, storeIsEmpty,
+  type EmptyStateProps, type ListField, type ListQuery, type MessageSummary,
 } from "../src/index.ts";
 import { Tooltip } from "../src/design/index.ts";
-import { MessagesView, TimePicker } from "../src/explorer/index.ts";
+import { MessagesView, TimePicker, WHY_COLUMN, type MessageColumn } from "../src/explorer/index.ts";
 import { ANY_TIME, anyTime, custom, follow, parseRange, pinned, preset, PRESETS, type TimeRange } from "../src/model/index.ts";
 import { CopyLink, getHealth, getJSON, messageHref } from "./chrome.tsx";
 import { ShellFrame } from "./frame.tsx";
@@ -30,9 +35,37 @@ export type MessagePage = {
   body_search?: { stores_bodies: boolean; from_ms: number; to_ms: number; scanned: number; searched_from_ms: number | null; complete: boolean };
 };
 
+/** A page drawn on the shared list: where it is, the list API it reads and the filters that API takes. */
+export type ListPage = {
+  path: string;
+  /** the API path, under /api */
+  api: string;
+  filters: readonly ListField[];
+  lang: ReturnType<typeof messageQueryLanguage>;
+  /** the page's own columns, after the list's */
+  extra?: MessageColumn[];
+  /** what stands in place of an empty list, from the URL's filters */
+  empty: (params: Record<string, string>, opts: { empty: boolean; storesBodies?: boolean }) => EmptyStateProps | null;
+  /** the results bar's words after the count */
+  order: string;
+  columnsKey?: string;
+  exportName?: string;
+};
+
+const listPage = (path: string, api: string, filters: ListField[], rest: Omit<ListPage, "path" | "api" | "filters" | "lang">): ListPage =>
+  ({ path, api, filters, lang: messageQueryLanguage(filters), ...rest });
+
+/** Messages (`/`) on GET /api/messages. */
+export const MESSAGES_PAGE = listPage("/", "messages", ["queue", "tenant", "version", "body"], { empty: messagesEmpty, order: "most recently active first" });
+
+/** Duplicates (`/duplicates`) on GET /api/duplicates: the messages received or handled more than once, newest last seen first. */
+export const DUPLICATES_PAGE = listPage("/duplicates", "duplicates", ["queue", "reason"], {
+  extra: [WHY_COLUMN], empty: (params, o) => duplicatesEmpty(params, o.empty), order: "most recently seen first",
+  columnsKey: "trailbeam-duplicate-columns-1", exportName: "trailbeam-duplicates",
+});
+
 /** The filters GET /api/messages takes, as the query bar's language. */
-export const MESSAGES_LANGUAGE = messageQueryLanguage(["queue", "tenant", "version", "body"]);
-const FILTERS = ["queue", "tenant", "version", "body"] as const;
+export const MESSAGES_LANGUAGE = MESSAGES_PAGE.lang;
 
 const ms = (v: string | null) => (!v ? NaN : /^\d+$/.test(v) ? Number(v) : /^\d{4}-\d{2}-\d{2}T/.test(v) ? Date.parse(/Z$|[+-]\d{2}:?\d{2}$/.test(v) ? v : `${v}Z`) : NaN);
 const SINCE: Record<string, string> = { "3600": "1h", "86400": "1d", "604800": "7d", "2592000": "30d" };
@@ -55,27 +88,29 @@ export function messagesTime(search: string, now: number): TimeRange {
 /** The window the list is asked for: a body search reads one window, a day when the range is any time. */
 export const searchTime = (t: TimeRange, body: boolean): TimeRange => (body && t.preset === ANY_TIME ? preset("1d", t.to) : t);
 
-/** GET /api/messages' query: the filters, the range's from_ms and to_ms (both included), the page. */
-export function messagesApiQuery(list: ListQuery, t: TimeRange, page: { cursor?: string; limit?: string } = {}): Record<string, string> {
+/** The list API's query (GET /api/messages by default): the filters, the range's from_ms and to_ms (both included), the page. */
+export function messagesApiQuery(list: ListQuery, t: TimeRange, page: { cursor?: string; limit?: string } = {}, on: ListPage = MESSAGES_PAGE): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const f of FILTERS) if (list[f]) out[f] = list[f]!;
+  for (const f of on.filters) if (list[f]) out[f] = list[f]!;
   if (t.preset !== ANY_TIME) { out.from_ms = String(Math.floor(t.from)); out.to_ms = String(Math.ceil(t.to) - 1); }
   if (page.limit) out.limit = page.limit;
   if (page.cursor) out.cursor = page.cursor;
   return out;
 }
 
-/** The page's link: the filters, the range (none for any time), and the rest as given. */
-export function messagesHref(list: ListQuery, t: TimeRange, rest: Record<string, string> = {}): string {
+/** The page's link (Messages by default): the filters, the range (none for any time), and the rest as given. */
+export function messagesHref(list: ListQuery, t: TimeRange, rest: Record<string, string> = {}, on: ListPage = MESSAGES_PAGE): string {
   const p: Record<string, string> = {};
-  for (const f of FILTERS) if (list[f]) p[f] = list[f]!;
+  for (const f of on.filters) if (list[f]) p[f] = list[f]!;
   if (t.preset && t.preset !== ANY_TIME) p.range = t.preset;
   else if (!t.preset) { p.from = new Date(t.from).toISOString(); p.to = new Date(t.to).toISOString(); }
   const q = qs({ ...p, ...rest });
-  return q ? `/?${q}` : "/";
+  return q ? `${on.path}?${q}` : on.path;
 }
 
-const listOf = (params: Record<string, string>): ListQuery => Object.fromEntries(FILTERS.filter((f) => params[f]?.trim()).map((f) => [f, params[f].trim()]));
+/** The URL's filters the page's list API takes. */
+export const listOf = (params: Record<string, string>, on: ListPage = MESSAGES_PAGE): ListQuery =>
+  Object.fromEntries(on.filters.filter((f) => params[f]?.trim()).map((f) => [f, params[f].trim()]));
 
 const C = ({ children }: { children: ReactNode }) => <code className="font-mono text-caption">{children}</code>;
 const utc = (v: number | null) => (v === null ? "unknown" : new Date(v).toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC"));
@@ -104,11 +139,17 @@ type State = { kind: "loading" } | { kind: "error"; message: string } | { kind: 
 
 const BUTTON = "inline-flex h-10 items-center rounded-lg border border-line-strong bg-surface px-3 text-[13px] text-ink-2 hover:text-ink";
 
-/** The list: the whole page (`/`), or `embedded` in a card under the first-run screen once the first message arrives. */
-export function MessagesPanel({ embedded = false }: { embedded?: boolean }) {
+/**
+  The list: the whole page (`/`, or another page's list as `on` says: Duplicates), or `embedded` in a card under the
+  first-run screen once the first message arrives. `header` goes over the query bar (Duplicates' heading and intro).
+*/
+export function MessagesPanel({ embedded = false, on = MESSAGES_PAGE, header }: { embedded?: boolean; on?: ListPage; header?: ReactNode }) {
   const params = useMemo(() => Object.fromEntries(new URLSearchParams(embedded ? "" : location.search)), [embedded]);
-  const list = useMemo(() => listOf(params), [params]);
-  const query = useMemo(() => queryOfParams(list, MESSAGES_LANGUAGE), [list]);
+  const list = useMemo(() => listOf(params, on), [params, on]);
+  const query = useMemo(() => queryOfParams(list, on.lang), [list, on]);
+  const lang = on.lang;
+  const href = (l: ListQuery, t: TimeRange, rest: Record<string, string> = {}) => messagesHref(l, t, rest, on);
+  const bodies = on.filters.includes("body");
   const [time, setTime] = useState<TimeRange>(() => messagesTime(embedded ? "" : location.search, Date.now()));
   const { limit } = params;
   // a new range starts again from the newest page
@@ -120,14 +161,15 @@ export function MessagesPanel({ embedded = false }: { embedded?: boolean }) {
   // /api/health's store_bodies: [] when the server keeps none (without a session, health doesn't say: leave the search on)
   const [noBodies, setNoBodies] = useState(false);
   useEffect(() => {
-    let on = true;
-    getHealth(5000).then((h) => on && setNoBodies(Array.isArray(h.config?.store_bodies) && h.config.store_bodies.length === 0), () => {});
-    return () => { on = false; };
-  }, []);
+    if (!bodies) return;
+    let live = true;
+    getHealth(5000).then((h) => live && setNoBodies(Array.isArray(h.config?.store_bodies) && h.config.store_bodies.length === 0), () => {});
+    return () => { live = false; };
+  }, [bodies]);
 
   useEffect(() => { if (tick && following) setTime((t) => follow(t, Date.now())); }, [tick]);
   const asks = searchTime(time, !!list.body);
-  const asked = `/api/messages?${qs(messagesApiQuery(list, asks, { cursor, limit }))}`.replace(/\?$/, "");
+  const asked = `/api/${on.api}?${qs(messagesApiQuery(list, asks, { cursor, limit }, on))}`.replace(/\?$/, "");
   // a range that ends now moves on each tick, which changes the ask; any time asks the same again
   const again = asks.preset === ANY_TIME ? tick : 0;
   const n = useRef(0);
@@ -145,14 +187,14 @@ export function MessagesPanel({ embedded = false }: { embedded?: boolean }) {
 
   // the URL follows the range (a range that ends now keeps its link as it moves up)
   const keep = { ...(limit && { limit }), ...(live && { refresh: "15" }) };
-  const link = messagesHref(list, time, { ...keep, ...(cursor && { cursor }) });
+  const link = href(list, time, { ...keep, ...(cursor && { cursor }) });
   useEffect(() => { if (!embedded) history.replaceState(history.state, "", link); }, [link, embedded]);
 
   const onQuery = (q: string) => {
-    const { params: next } = listQuery(q, MESSAGES_LANGUAGE);
+    const { params: next } = listQuery(q, lang);
     // a word with no field is a message ID: open it (the message page says when there's none)
     if (next.q) { location.assign(messageHref(next.q)); return; }
-    location.assign(messagesHref(next, time, keep));
+    location.assign(href(next, time, keep));
   };
 
   const ok = state.kind === "ok" ? state : null;
@@ -165,18 +207,18 @@ export function MessagesPanel({ embedded = false }: { embedded?: boolean }) {
   const pinFor = (p: MessagePage, at: number): TimeRange => (!p.body_search && asks.preset === ANY_TIME ? custom(0, at) : nextWindow(p));
   const pager = page && (
     <>
-      {cursor && <a className="text-brand hover:underline" href={messagesHref(list, time, keep)}>Newest</a>}
-      {page.next_cursor && <a className="text-brand hover:underline" href={messagesHref(list, nextWindow(page), { ...keep, cursor: page.next_cursor })}>Next page</a>}
+      {cursor && <a className="text-brand hover:underline" href={href(list, time, keep)}>Newest</a>}
+      {page.next_cursor && <a className="text-brand hover:underline" href={href(list, nextWindow(page), { ...keep, cursor: page.next_cursor })}>Next page</a>}
     </>
   );
 
   const emptyState = () => {
     if (!ok) return state.kind === "error" ? <p role="alert">{state.message}</p> : <p>Loading messages</p>;
-    const e = messagesEmpty(params, { empty: ok.storeEmpty, storesBodies: b?.stores_bodies });
+    const e = on.empty(params, { empty: ok.storeEmpty, storesBodies: b?.stores_bodies });
     if (!e) return <p>No messages.</p>;
     if (ok.storeEmpty || asks.preset === ANY_TIME) return <EmptyState {...e} />;
     const sentence = <>Only messages last seen {asks.preset ? `in the ${asks.label.toLowerCase()}` : `between ${utc(asks.from)} and ${utc(asks.to)}`} are listed.</>;
-    return <EmptyState {...e} detail={<>{e.detail && <>{e.detail} </>}{sentence}</>} link={e.link ?? { href: messagesHref(list, anyTime(Date.now()), keep), label: "Show any time" }} />;
+    return <EmptyState {...e} detail={<>{e.detail && <>{e.detail} </>}{sentence}</>} link={e.link ?? { href: href(list, anyTime(Date.now()), keep), label: "Show any time" }} />;
   };
 
   const queues = useMemo(() => [...new Set(page?.messages.flatMap((m) => [m.source_queue, m.current_queue]).filter(Boolean) ?? [])].sort(), [page]);
@@ -185,7 +227,7 @@ export function MessagesPanel({ embedded = false }: { embedded?: boolean }) {
   const controls = (
     <div className="flex h-10 shrink-0 items-center gap-2">
       <TimePicker any time={time} setTime={pickTime} now={Date.now()} />
-      {ok && <CopyLink design link={() => messagesHref(list, pinFor(ok.page, ok.at), { ...(limit && { limit }), ...(cursor && { cursor }) })} />}
+      {ok && <CopyLink design link={() => href(list, pinFor(ok.page, ok.at), { ...(limit && { limit }), ...(cursor && { cursor }) })} />}
       <Tooltip content={!time.preset ? "A fixed range in the past does not update" : cursor ? "A later page does not update" : following ? "Stop asking for new messages" : "Ask for new messages every 15 s"} className="inline-flex">
         <button type="button" onClick={() => setLive(!live)} disabled={!time.preset || !!cursor} aria-pressed={following}
           className={`${BUTTON} w-[92px] justify-center gap-2 disabled:opacity-50 disabled:hover:text-ink-2`}>
@@ -196,25 +238,39 @@ export function MessagesPanel({ embedded = false }: { embedded?: boolean }) {
   );
 
   const view = (
-    <MessagesView page={!embedded} messages={page?.messages ?? []} query={query} onQuery={onQuery} lang={MESSAGES_LANGUAGE} messageHref={messageHref}
+    <MessagesView page={!embedded} messages={page?.messages ?? []} query={query} onQuery={onQuery} lang={lang} messageHref={messageHref}
+      extra={on.extra} columnsKey={on.columnsKey} exportName={on.exportName}
       values={(f) => (f === "queue" ? queues : f === "version" ? versions : undefined)}
       controls={controls} notice={noBodies && <NoBodies />} queryNote={b && bodyNote(b, noBodies)} pager={pager} empty={emptyState()}
       summary={ok && page!.messages.length > 0 && <>
         <b className="font-mono font-medium text-ink">{page!.messages.length.toLocaleString("en-US")}</b> {page!.messages.length === 1 ? "message" : "messages"}
-        {b ? " whose body matches, most recently seen first" : ", most recently active first"}{cursor ? ", further back" : ""}
+        {b ? " whose body matches, most recently seen first" : `, ${on.order}`}{cursor ? ", further back" : ""}
       </>} />
   );
   const foot = (
     <p className={`shrink-0 text-xs text-ink-3 ${embedded ? "mt-3" : "border-t border-line px-5 py-2"}`}>
       Times are in UTC{ok && <>, as of {new Date(ok.at).toISOString().slice(11, 19)}</>}. The same data as JSON:{" "}
-      <a className="font-mono text-brand hover:underline" href={ok?.asked ?? asked}>/api/messages</a>
+      <a className="font-mono text-brand hover:underline" href={ok?.asked ?? asked}>/api/{on.api}</a>
     </p>
   );
   if (embedded) return <section><h2 className="mb-3 font-serif text-[1.25rem] text-ink">Recent messages</h2>{view}{foot}</section>;
-  return <div className="flex h-screen flex-col"><h1 className="sr-only">{list.body ? "Messages whose body matches" : "Messages"}</h1>{view}{foot}</div>;
+  return <div className="flex h-screen flex-col">{header ?? <h1 className="sr-only">{list.body ? "Messages whose body matches" : "Messages"}</h1>}{view}{foot}</div>;
 }
 
 export function MessagesPage() {
   useEffect(() => { document.title = "Messages · Trailbeam"; }, []);
   return <ShellFrame path="/"><MessagesPanel /></ShellFrame>;
+}
+
+/** Duplicates' heading and what the list is, over the query bar. */
+export const DuplicatesHeader = () => (
+  <header className="shrink-0 border-b border-line px-5 pb-3 pt-4">
+    <h1 className="font-serif text-[1.5rem] text-ink">Duplicate deliveries</h1>
+    <p className="mt-1 max-w-[80ch] text-[13px] text-ink-2">Messages SQS returned more than once, or that more than one consumer handled. A second receive is expected after your own <C>ChangeMessageVisibility</C> or a failed attempt. It is worth a look when the visibility timeout expired while a consumer was still working, or when a message was handled twice.</p>
+  </header>
+);
+
+export function DuplicatesPage() {
+  useEffect(() => { document.title = "Duplicate deliveries · Trailbeam"; }, []);
+  return <ShellFrame path="/duplicates"><MessagesPanel on={DUPLICATES_PAGE} header={<DuplicatesHeader />} /></ShellFrame>;
 }
