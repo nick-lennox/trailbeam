@@ -4,3 +4,4 @@
   @trailbeam/ui/design.css.
 */
 export { CAT, HoverCtx, OTHER, TimeSeries, fmt, useSize, type Line, type Unit } from "./TimeSeries.tsx";
+export { Bars, Heatmap, Spark } from "./Small.tsx";

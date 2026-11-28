@@ -12,7 +12,7 @@ Routes (``ROUTES``), all under ``/api/dashboards``, JSON in and out, records wit
                                           JSON text (the hosted app's Import); without either an empty dashboard
 - ``GET    /{id}``                        one dashboard
 - ``PATCH  /{id}``                        any of {name, def, time, starred, version}; a locked dashboard takes only a star
-- ``POST   /{id}/lock``                   {lock: true or false}
+- ``POST   /{id}/lock``                   {lock: true or false}; an unlock is written only at the version checked
 - ``POST   /{id}/duplicate``              a copy named "<name> copy"
 - ``DELETE /{id}``                        refused while it is locked
 - ``POST   /{id}/widgets``                {widget}: added at the end of the definition
@@ -615,21 +615,30 @@ class DashboardsApi:
 
     def lock(self, did: str, body: dict, who) -> tuple[int, dict]:
         """lockDashboardAction: locking a locked one changes nothing; unlocking someone else's lock needs an admin
-        (compared by person ID; a lock without one only an admin lifts)."""
+        (compared by person ID; a lock without one only an admin lifts).
+
+        An unlock is written only if the dashboard is still at the version it was checked at, so a lock someone
+        else took between the check and the write is never lifted (QV-689); on such a race it reads the dashboard
+        again and checks again (403 if the lock is now someone else's), WRITE_TRIES times at most, then 409."""
         lock = body.get("lock")
         if not isinstance(lock, bool):
             raise ApiProblem(400, '"lock" is true or false.')
-        d = self._get(did)
         if lock:
+            self._get(did)
             got = self.store.lock_dashboard(self.ws, did, _by(who), _by_id(who), self.now())
             if got is None:
                 raise ApiProblem(404, GONE)
             return 200, {"dashboard": got, "lockedBy": got["lockedBy"]}
-        if d["lockedBy"] is not None and (d["lockedById"] is None or d["lockedById"] != _by_id(who)) \
-                and not self.can_unlock(who):
-            raise ApiProblem(403, f"{d['lockedBy']} locked this dashboard. They, or an admin, can unlock it.")
-        out, after = self.store.update_dashboard(self.ws, did, {"lockedBy": None, "lockedById": None})
-        return 200, {"dashboard": self._outcome(out, after), "lockedBy": None}
+        for _ in range(WRITE_TRIES):
+            d = self._get(did)
+            if d["lockedBy"] is not None and (d["lockedById"] is None or d["lockedById"] != _by_id(who)) \
+                    and not self.can_unlock(who):
+                raise ApiProblem(403, f"{d['lockedBy']} locked this dashboard. They, or an admin, can unlock it.")
+            out, after = self.store.update_dashboard(self.ws, did, {"lockedBy": None, "lockedById": None},
+                                                     version=d["version"])
+            if out != "conflict":
+                return 200, {"dashboard": self._outcome(out, after), "lockedBy": None}
+        raise ApiProblem(409, BUSY)
 
     def duplicate(self, did: str, body: dict, who) -> tuple[int, dict]:
         d = self._get(did)

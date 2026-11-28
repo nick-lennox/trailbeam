@@ -458,6 +458,48 @@ def test_stop_waits_a_bounded_time_for_a_check_under_way():
     assert sched.STOP_WAIT_S < 10 and sched.DEADLINE_S * 1000 < run.LEASE_MS
 
 
+def test_stop_while_a_check_thread_is_being_started_waits_for_it(monkeypatch):
+    # QV-729: the loop published a check's thread before starting it, so a stop() in between raised
+    # "cannot join thread before it is started"
+    starting, go, ran = threading.Event(), threading.Event(), threading.Event()
+    real = threading.Thread
+
+    class SlowStart(real):
+        def start(self):
+            if self.name == "trailbeam-alert-check-run" and not starting.is_set():
+                starting.set()
+                assert go.wait(5)
+            super().start()
+
+    monkeypatch.setattr(sched.threading, "Thread", SlowStart)
+    s = sched.AlertScheduler(lambda: ran.set() or {}, 60).start()
+    assert starting.wait(5)
+    out: list = []
+
+    def stop():
+        try:
+            out.append(s.stop(5))
+        except Exception as e:  # noqa: BLE001 - the bug: RuntimeError from join
+            out.append(e)
+
+    t = real(target=stop)
+    t.start()
+    import time
+    time.sleep(0.1)  # stop() is under way while the check's thread is still being started
+    go.set()
+    t.join(10)
+    assert out == [True]
+    assert ran.is_set()  # the check that was being started ran, and stop() waited for it
+    assert not s.running and s.ticks == 1  # and no other started
+
+
+def test_a_stopped_scheduler_starts_no_other_check():
+    s = sched.AlertScheduler(dict, 60)
+    s._stop.set()
+    s._loop()
+    assert s.ticks == 0 and s._worker is None
+
+
 def test_every_s_must_be_positive():
     with pytest.raises(ValueError):
         sched.AlertScheduler(dict, 0)

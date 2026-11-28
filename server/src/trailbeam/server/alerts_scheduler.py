@@ -81,6 +81,9 @@ class AlertScheduler:
         self._thread: threading.Thread | None = None
         self._worker: threading.Thread | None = None
         self._lock = threading.Lock()
+        #: held while the loop starts a check's thread and while stop() asks for one: stop() then sees either no new
+        #: thread (the loop sees _stop and starts none) or one already started, never one it can't join (QV-729)
+        self._spawn = threading.Lock()
         #: for /api/health (health()): when the scheduler started, when the last tick began and ended (s since the
         #: epoch), what it found, and its error; running_since: the tick under way, if one is
         self.started_at: float | None = None
@@ -129,9 +132,12 @@ class AlertScheduler:
         while not self._stop.is_set():
             began = self.clock()
             w = threading.Thread(target=self.tick, name="trailbeam-alert-check-run", daemon=True)
-            # published only once started: stop() joins it, and joining a thread not yet started raises
-            w.start()
-            self._worker = w
+            with self._spawn:
+                if self._stop.is_set():
+                    return
+                # started before it is published: stop() can't join a thread that has not started (QV-729)
+                w.start()
+                self._worker = w
             w.join(self.deadline_s)
             if w.is_alive():
                 # a thread can't be stopped from outside: say so, and start no other check until it returns
@@ -157,12 +163,14 @@ class AlertScheduler:
         """Starts no other check and waits up to ``timeout`` seconds (None: as long as it takes) for the one under
         way. True if it ended in time. A check still going when the process exits is cut off; the changes it was
         sending are in the outbox (alerts_run.py), and the next check sends them."""
-        self._stop.set()
+        with self._spawn:
+            self._stop.set()
+            worker = self._worker
         end = None if timeout is None else time.monotonic() + timeout
-        for t in (self._worker, self._thread):
+        for t in (worker, self._thread):
             if t is not None:
                 t.join(None if end is None else max(0.0, end - time.monotonic()))
-        done = not any(t is not None and t.is_alive() for t in (self._worker, self._thread))
+        done = not any(t is not None and t.is_alive() for t in (worker, self._thread))
         if not done:
             log.warning("alert check: stopping with a check still under way after %s s; what it was sending is sent "
                         "by the next check", timeout)
