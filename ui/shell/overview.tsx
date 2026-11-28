@@ -242,7 +242,7 @@ export function OverviewPage() {
         slots={{
           search: <ShellSearch />,
           emptyActions: <a className="rounded-control border border-line bg-surface px-3 py-1.5 text-sm text-ink hover:border-line-strong" href="/">See how to connect a service</a>,
-          actions: <CopyLink design link={() => pinnedFlowsHref(u, state.kind === "ok" ? state.at : Date.now())} />,
+          actions: <CopyLink link={() => pinnedFlowsHref(u, state.kind === "ok" ? state.at : Date.now())} />,
           partMessages: (at) => got && <ShellPartMessages key={`${at.queue}:${at.part}:${at.producer ?? at.consumer ?? ""}`} at={at} queue={nameOf(at.queue)} window={got.window} time={u.time} live={got.data.info[at.queue]?.live} />,
           queueFacts: (label) => { const f = byLabel.get(label); return f ? <QueueTotals f={f} range={range} /> : null; },
           foot: got && <>

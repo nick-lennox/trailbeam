@@ -14,7 +14,7 @@ export type RangeOpt = { what: "last seen" | "first seen" | "cause seen"; upper:
 export const pick = (params: Record<string, string>, names: string[]) => Object.fromEntries(names.filter((n) => params[n]).map((n) => [n, params[n]]));
 export const qs = (p: Record<string, string>) => new URLSearchParams(Object.entries(p).filter(([, v]) => v !== "")).toString();
 export const withQuery = (path: string, p: Record<string, string>) => { const q = qs(p); return q ? `${path}?${q}` : path; };
-const input = "rounded-full border border-sky-line bg-sky-2 px-3 py-1 font-mono text-caption text-sky-ink";
+const input = "h-9 rounded-lg border border-line-strong bg-surface px-3 font-mono text-caption text-ink";
 
 /** The range control: presets, all time, or custom (two UTC times; Stuck takes only a start). */
 function RangeFields({ range, opt }: { range: TimeRange; opt: RangeOpt }) {
@@ -56,7 +56,7 @@ export function Filters({ action, values, fields, range, refresh, hidden = {} }:
     location.assign(withQuery(action, { ...q, ...(refresh && { refresh: String(REFRESH_S) }) }));
   };
   return (
-    <form method="get" action={action} onSubmit={submit} className="mt-4 flex flex-wrap items-end gap-3 text-sm text-sky-ink-2">
+    <form method="get" action={action} onSubmit={submit} className="mt-4 flex flex-wrap items-end gap-3 text-sm text-ink-2">
       {fields.map((f) => (
         <label key={f.name} className="flex flex-col gap-1">
           <span>{f.label}</span>
@@ -66,13 +66,13 @@ export function Filters({ action, values, fields, range, refresh, hidden = {} }:
             </select>
           ) : (
             <input name={f.name} type={f.kind} defaultValue={values[f.name] ?? ""} placeholder={f.placeholder} disabled={f.disabled}
-              className={`${input} ${f.kind === "number" ? "w-24" : f.placeholder ? "w-72" : "w-44"} placeholder:text-sky-ink-3 disabled:cursor-not-allowed disabled:opacity-60`} />
+              className={`${input} ${f.kind === "number" ? "w-24" : f.placeholder ? "w-72" : "w-44"} placeholder:text-ink-3 disabled:cursor-not-allowed disabled:opacity-60`} />
           )}
         </label>
       ))}
       {range && <RangeFields range={range.r} opt={range.opt} />}
       {Object.entries(hidden).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
-      <button className="rounded-full border border-sky-line px-4 py-1 text-sky-ink hover:border-sky-ink">Apply</button>
+      <button className="inline-flex h-9 items-center rounded-lg border border-line-strong bg-surface px-4 text-[13px] text-ink-2 hover:text-ink">Apply</button>
     </form>
   );
 }

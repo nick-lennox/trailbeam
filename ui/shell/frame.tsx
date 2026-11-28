@@ -1,9 +1,8 @@
 /*
   The open-source shell's app frame (row 0c of the one-UI plan): the shared Sidebar (@trailbeam/ui/design) with
   this server's pages as its items, inside the design system's theme. Dashboards is one only while the server
-  answers /api/dashboards (TRAILBEAM_DASHBOARDS on), Alerts only while it answers /api/alerts (TRAILBEAM_ALERT_CHECK on). Each page moves into it from the header
-  frame (chrome.tsx Frame) when it moves onto the design system, in rows 1 to 10; until then the pages keep
-  the header, so nothing they show changes. The items are the header's: People only for admins, Tokens for
+  answers /api/dashboards (TRAILBEAM_DASHBOARDS on), Alerts only while it answers /api/alerts (TRAILBEAM_ALERT_CHECK on). Every page is in it (Stuck was the last to
+  leave the old header frame, QV-765). The items: People only for admins, Tokens for
   anyone signed in, and Settings for admins (anyone before accounts exist). The account slot is drawn as the hosted app's: the initials, the name (a link to the Account page), and a
   door icon that signs out when signing out ends anything. The sidebar is the one place to sign out (board, QV-588).
   ShellSearch is the top bar's search on this server: a message ID opens its timeline, tenant:<name> (or a
