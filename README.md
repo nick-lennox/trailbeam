@@ -1062,6 +1062,40 @@ Access has no fixed address, so use the shared secret there, added with a Cloudf
 Checking these proxies' **signed** tokens (safer than a plain header) comes with the OIDC support, as part of the
 optional `sso` extra.
 
+### AWS reads
+
+Trailbeam can also read what AWS knows about your queues: how many messages are waiting and the oldest message's
+age (CloudWatch), the queue's own settings (visibility timeout, retention, the dead-letter queue and its maximum
+receive count) and its Lambda triggers. The Overview, the queue page and the dashboards then show these next to what
+the spans show. It is off by default: until an admin turns it on, the server makes no AWS calls and the queue page
+says what Trailbeam can't see there.
+
+To turn it on, open **Settings** (admins only, or anyone while the server has no accounts), switch on AWS reads,
+and name the queues to read, one per line: exact names such as `orders`, or patterns such as `payments-*`. A queue
+not named is not read. The region and account ID are optional: they are only needed for a queue whose spans
+don't name them. The same settings are at `GET` and `PATCH /api/settings/aws`.
+
+The server uses boto3's usual credentials: environment variables, a profile, or the instance or task role. It
+never stores them. They need these three read-only permissions, and Trailbeam makes no other AWS call:
+
+- `sqs:GetQueueAttributes`
+- `cloudwatch:GetMetricData`
+- `lambda:ListEventSourceMappings`
+
+**Installing.** AWS reads need boto3, an optional extra:
+
+```sh norun="starts a server that keeps running; python/tests/server/test_aws_settings.py tests the settings"
+pip install "trailbeam[server,aws]"
+trailbeam
+```
+
+The Docker image always includes boto3, whatever `TRAILBEAM_EXTRAS` you build with. The client library already
+brings botocore, so boto3 adds 3.4 MB to a 312 MB image (316 MB in all, measured with Python 3.12), and an image with AWS
+reads off never imports it. With pip, the extra adds boto3 and s3transfer, about 2 MB, for the same reason.
+
+`trailbeam doctor` has an "AWS reads" line that says whether they are on, and when they are, whether boto3 is
+installed and credentials were found. For an SQS emulator, set `AWS_ENDPOINT_URL_SQS` where the server runs.
+
 ### Configuration file
 
 Per-queue settings go in a TOML file, so a few hundred queues don't turn into a few hundred flags:
