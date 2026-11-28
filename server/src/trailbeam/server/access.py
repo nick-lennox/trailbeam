@@ -13,8 +13,9 @@ is ``MEMBER``, so a page or file added later is never open by mistake):
 - ``ADMIN``: managing people and ingest tokens: ``/api/users`` and ``/api/tokens/ingest`` (``API_ROUTES``,
   people_api.py), the People page (``/people``), and ``trailbeam users`` / ``trailbeam tokens`` (cli.py). A person's
   own personal API tokens (``/api/me/tokens``) and passkeys (``/api/me/passkeys``) are ``MEMBER``, and need a
-  person (adding a passkey needs a browser session, people_api.py); so are the Tokens page (``/tokens``), which
-  shows the ingest tokens only to an admin, and the Account page (``/account``). Someone else's passkeys
+  person (adding a passkey needs a browser session, and creating a token anything but a personal token,
+  people_api.py); so are the Tokens page (``/tokens``), which shows the ingest tokens only to an admin, and the
+  Account page (``/account``). Someone else's passkeys
   (``/api/users/{id}/passkeys``) are ``ADMIN``. An invite or reset link is shown or emailed only for a browser
   session too (QV-712, QV-755): for a personal token or the proxy, ``POST /api/users`` adds the person with no url
   and no email, and ``/api/users/{id}/link`` is 403 ``needs_a_session``, since a link signs in and could add a

@@ -12,6 +12,12 @@ QV-149, section 7). The routes and their levels are ``access.API_ROUTES``; contr
 - **Your personal API tokens** (``/api/me/tokens``, anyone signed in): list, create, revoke your own. They need a
   person: the shared token, or a server with no admin yet, gets 403.
 
+**A token can't make a token** (QV-759): ``POST /api/me/tokens`` with a personal API token is 403 (``reason``
+``needs_a_session``). Otherwise a short-lived CI token could create one that never expires, and that one would
+keep working after the first is revoked or expires: the passkey problem of QV-695 again. A browser session can,
+and so can a sign-in through the proxy, which is a browser too and has no other way to get a token; listing and
+revoking your tokens still work with a token.
+
 **Invite and reset links** are ``/set-password#code=<code>``: ``CODE_BYTES`` random bytes, only the SHA-256 kept
 (``setup_codes``, kind ``invite`` or ``reset``, naming the person), in the URL fragment so request logs never see
 it. Invites last ``INVITE_MS`` (7 days), resets ``RESET_MS`` (24 hours). A new link replaces the person's earlier
@@ -88,6 +94,8 @@ NEEDS_A_SESSION = ("add a passkey from the Account page, signed in in your brows
                    "sign-in through the proxy can't add one")
 NEEDS_A_SESSION_FOR_LINK = ("make or email a link from the People page, signed in in your browser: a personal API "
                             "token or a sign-in through the proxy can't, since whoever opens a link is signed in")
+NEEDS_A_SESSION_FOR_TOKEN = ("create a personal API token from the Tokens page, signed in in your browser: a "
+                             "personal API token can't create another one")
 NEEDS_A_PERSON = ("personal API tokens belong to a person: sign in, or send your personal API token "
                   "(this request was let in without one)")
 
@@ -388,6 +396,8 @@ class PeopleApi:
 
     def create_my_token(self, acc, rid, body, who, base_url, now_ms):
         uid = self._me(who)
+        if who.via == "personal_token":  # QV-759: a short-lived token must not mint one that outlives it
+            raise ApiProblem(403, NEEDS_A_SESSION_FOR_TOKEN, "needs_a_session")
         name = _str(body, "name")
         days = body.get("expires_in_days")
         if days is not None and (isinstance(days, bool) or not isinstance(days, int)

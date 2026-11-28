@@ -115,7 +115,7 @@ def set_password(srv, code, pw=PW, pw2=None, headers=None):
 def test_every_example_request_answers_on_a_server_with_an_admin(srv):
     """Each People and Tokens operation's x-example-request, on a server with that person and token."""
     ing = srv("POST", "/api/tokens/ingest", {"name": "orders"}, srv.admin)[2]["token"]["id"]
-    mine = srv("POST", "/api/me/tokens", {"name": "x"}, srv.admin)[2]["token"]["id"]
+    mine = srv("POST", "/api/me/tokens", {"name": "x"}, srv.browser)[2]["token"]["id"]
     asked = 0
     for op in sorted(contract().ops, key=lambda o: (o.method == "DELETE", o.key == "DELETE /api/users/{user_id}")):
         # remove Ben last
@@ -127,7 +127,8 @@ def test_every_example_request_answers_on_a_server_with_an_admin(srv):
         body = {"email": "cy@example.com"} if op.key == "POST /api/users" else (
             {"name": "n"} if op.method == "POST" and "tokens" in path else ({"role": "member"} if op.method == "PATCH"
                                                                           else {}))
-        who = srv.browser if op.key == "POST /api/users/{user_id}/link" else srv.admin  # QV-712: a session's
+        # QV-712, QV-759: only a session makes a link or a personal token
+        who = srv.browser if op.key in ("POST /api/users/{user_id}/link", "POST /api/me/tokens") else srv.admin
         status, _, out = srv(op.method, path, None if op.method in ("GET", "DELETE") else body, who)
         assert status in (200, 201), (op.key, status, out)
         asked += 1
@@ -458,8 +459,13 @@ def test_the_first_ingest_token_of_an_open_server_needs_confirming(open_srv):
     assert s("POST", "/api/tokens/ingest", {"name": "second"}, s.admin)[0] == 201  # closed already
 
 
+def _session(srv, uid):
+    return {"Cookie": "trailbeam_sid=" + srv.app.sessions.start(uid)[0]}
+
+
 def test_personal_tokens_are_your_own(srv):
-    st, _, out = srv("POST", "/api/me/tokens", {"name": "laptop", "expires_in_days": 30}, srv.member)
+    ben = _session(srv, srv.ben)
+    st, _, out = srv("POST", "/api/me/tokens", {"name": "laptop", "expires_in_days": 30}, ben)
     assert st == 201 and out["secret"].startswith("tbp_")
     assert 29 * 86_400_000 < out["token"]["expires_at_ms"] - _now() <= 30 * 86_400_000
     tid = out["token"]["id"]
@@ -474,5 +480,22 @@ def test_personal_tokens_are_your_own(srv):
     assert srv("DELETE", f"/api/me/tokens/{tid}", None, srv.member)[0] == 200
     assert srv("GET", "/api/me", headers=new)[0] == 401
     for days in (0, 3651, 1.5, True, "30"):
-        assert srv("POST", "/api/me/tokens", {"name": "x", "expires_in_days": days}, srv.member)[0] == 400, days
-    assert srv("POST", "/api/me/tokens", {"name": "forever", "expires_in_days": None}, srv.member)[0] == 201
+        assert srv("POST", "/api/me/tokens", {"name": "x", "expires_in_days": days}, ben)[0] == 400, days
+    assert srv("POST", "/api/me/tokens", {"name": "forever", "expires_in_days": None}, ben)[0] == 201
+
+
+def test_a_personal_token_cant_create_one_that_outlives_it(srv):
+    """QV-759: a 1-day CI token made a token that never expires, which kept working once the CI token was
+    revoked. A token can't create one at all now, whatever it asks for; it still lists and revokes."""
+    ben = _session(srv, srv.ben)
+    st, _, out = srv("POST", "/api/me/tokens", {"name": "ci", "expires_in_days": 1}, ben)
+    assert st == 201
+    ci = {"Authorization": "Bearer " + out["secret"]}
+    for who in (ci, srv.member, srv.admin):
+        for days in (None, 1, 30):
+            st, _, got = srv("POST", "/api/me/tokens", {"name": "forever", "expires_in_days": days}, who)
+            assert (st, got["reason"]) == (403, "needs_a_session") and "browser" in got["error"], (who, days)
+    names = [t["name"] for t in srv("GET", "/api/me/tokens", headers=ci)[2]["tokens"]]
+    assert names == ["ben", "ci"]
+    assert srv("DELETE", f"/api/me/tokens/{out['token']['id']}", None, ci)[0] == 200
+    assert srv("GET", "/api/me", headers=ci)[0] == 401

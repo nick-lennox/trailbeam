@@ -766,7 +766,9 @@ def _people_and_tokens(db):
         assert r("DELETE", f"/api/tokens/ingest/{json.loads(out)['token']['id']}", None, a)[0] == 200
         # your personal tokens
         assert r("GET", "/api/me/tokens", None, m)[0] == 200
-        st, _, out = r("POST", "/api/me/tokens", body({"name": "ci", "expires_in_days": 30}), {**j, **m})
+        assert r("POST", "/api/me/tokens", body({"name": "ci"}), {**j, **m})[0] == 403  # a token can't (QV-759)
+        mb = {"Cookie": "trailbeam_sid=" + app.sessions.start(member)[0]}
+        st, _, out = r("POST", "/api/me/tokens", body({"name": "ci", "expires_in_days": 30}), {**j, **mb})
         assert st == 201, out
         assert r("DELETE", f"/api/me/tokens/{json.loads(out)['token']['id']}", None, m)[0] == 200
         # your passkeys (passkeys.py), on a server with them on: a software authenticator's
