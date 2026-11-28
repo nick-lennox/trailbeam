@@ -668,7 +668,7 @@ class App:
         ref = queue_data.ref_of(want[0], place, _url_of(want[0]))
         aws = queue_data.read(self.aws.reader if self.aws is not None else None, [ref],
                               queue_data.page_window(from_ms, to_ms, step, now_ms), now_ms, known=keys,
-                              caller=_caller(who))[ref["key"]]
+                              caller=_caller(who), admin=self._aws_admin(who))[ref["key"]]
         s = aws.get("settings")
         # the queue's own redrive policy, when read, over the server's --max-receive-count
         mrc = s.get("maxReceiveCount") if s is not None else self.max_receive_counts.get(place.name)
@@ -720,6 +720,10 @@ class App:
         return {"minutes": _int(q, "minutes", 60, 1, 400 * 1440) if "minutes" in q else None,
                 "queues": got, "errors": errors}
 
+    def _aws_admin(self, who: access_mod.Who) -> bool:
+        """Whether ``who`` is told why AWS is not read for a queue (QV-788): an admin, as for /api/health."""
+        return self.aws is None or bool(self.aws.is_admin(who))
+
     def _now_of(self, q: dict, found: dict, keys: list, metrics: Optional[list], who: access_mod.Who) -> dict:
         """``/now``'s answer for each asked queue (``found``: asked -> (its keys, its place), queues.resolve), with
         the AWS reads of all of them made together."""
@@ -738,7 +742,8 @@ class App:
                                       settings=settings, totals=totals)
 
         d = queue_data.build(self.aws.reader if self.aws is not None else None, [r for r, _, _ in refs.values()],
-                             windows, now_ms, in_queue, known=keys, metrics=metrics, caller=_caller(who))
+                             windows, now_ms, in_queue, known=keys, metrics=metrics, caller=_caller(who),
+                             admin=self._aws_admin(who))
         out: dict = {}
         for a, (want, place) in found.items():
             x = d[want[0]]
