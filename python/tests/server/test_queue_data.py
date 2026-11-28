@@ -7,7 +7,7 @@ import json
 
 import pytest
 from spans import SEC, T0, Consumer
-from test_aws_reader import Stubs, never
+from test_aws_reader import Stubs as _Stubs, never
 from trailbeam.server import aws_api, aws_reader, aws_settings, dashboards_api, queue_data
 from trailbeam.server.server import App
 
@@ -17,6 +17,11 @@ DLQ_ARN = f"arn:aws:sqs:eu-west-1:{ACCOUNT}:orders-dlq"
 ORDERS = {"VisibilityTimeout": "45", "MessageRetentionPeriod": "86400", "ApproximateNumberOfMessages": "7",
           "ApproximateNumberOfMessagesNotVisible": "4", "ApproximateNumberOfMessagesDelayed": "0",
           "RedrivePolicy": json.dumps({"deadLetterTargetArn": DLQ_ARN, "maxReceiveCount": 5})}
+
+
+def Stubs(**kw):
+    # the credentials are in the emulator's account, so CloudWatch answers for its queues (QV-741)
+    return _Stubs(account=ACCOUNT, **kw)
 
 
 def server_aws(stubs=None, queues=("orders",), enabled=True):

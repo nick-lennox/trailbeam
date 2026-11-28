@@ -1086,6 +1086,12 @@ the page's address, and anyone who can send spans or open a page chooses those. 
 Trailbeam builds each queue's URL from that account, region and name, and never sends AWS a URL taken from spans.
 For an SQS emulator such as ElasticMQ, set the account ID to the one in its queue URLs (`000000000000`).
 
+CloudWatch's SQS metrics name a queue only by its name, in the account that asks. So when the account ID set here is
+not the credentials' own (a queue policy lets them read another account's queues), Trailbeam shows those queues'
+SQS settings and counts but no CloudWatch figures (depth history, age of the oldest message, the dead-letter
+queue's depth), and says why: CloudWatch would answer with a same-named queue in the credentials' account. To
+know which account the credentials are in, Trailbeam asks `sts:GetCallerIdentity` here too.
+
 The server uses boto3's usual credentials: environment variables, a profile, or the instance or task role. It
 never stores them. They need these three read-only permissions, and apart from `sts:GetCallerIdentity`,
 Trailbeam makes no other AWS call:

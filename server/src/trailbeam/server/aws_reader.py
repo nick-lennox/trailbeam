@@ -14,7 +14,14 @@ the admin's settings decide where the server reads: a queue is read only when
   spans name another account is not read;
 - it is in the settings' home region (``region``, else boto3's default) or one of its other ``regions``.
 
-Its URL is then built from that account, region and name. A URL from spans is never passed to AWS, so a URL key
+Its URL is then built from that account, region and name.
+
+**CloudWatch is the credentials' own account's (QV-741).** A queue policy can let the credentials read another
+account's queue with SQS, but CloudWatch's SQS metrics are named by QueueName alone, in the account that calls. So
+when the settings' ``accountId`` is not the credentials' account, a GetMetricData would return the figures of a
+same-named queue in the credentials' account. Such a queue keeps its SQS settings and counts, and gets no CloudWatch
+series, with a sentence in ``errors`` (``OTHER_ACCOUNT_METRICS``). When the credentials' account can't be found, the
+series are not read either (``METRICS_UNCONFIRMED``). A URL from spans is never passed to AWS, so a URL key
 without an account in it can't skip the account check. The dead-letter queue a redrive policy names is read only in
 the same account and region. The callers (queue_data.py) also read only queues the store has seen.
 
@@ -61,6 +68,19 @@ NO_CREDENTIALS = "No AWS credentials were found. Give the server credentials the
 NO_REGION = "No AWS region is known for this queue. Set one in Settings, under AWS, or AWS_REGION in the server's " \
             "environment."
 NOT_A_NAME = "This is not an SQS queue name, so nothing is read for it."
+def other_account_metrics(queue_account: str, caller: str) -> str:
+    return (f"CloudWatch is not read for this queue: it is in AWS account {queue_account}, and the server's credentials "
+            f"are in account {caller}, where CloudWatch would give the figures of a queue with the same name. The "
+            "depth history, the age of the oldest message and the dead-letter queue's depth need credentials in "
+            f"account {queue_account}.")
+
+
+def metrics_unconfirmed(e: BaseException) -> str:
+    return (f"CloudWatch is not read for this queue: the credentials' AWS account could not be found "
+            f"(sts:GetCallerIdentity failed with {aws_reads.error_name(e)}), so it is not known whether CloudWatch "
+            "would give this queue's figures or another account's.")
+
+
 NOT_SEEN = "Trailbeam has no spans for this queue, so AWS is not read for it."
 
 
@@ -265,6 +285,21 @@ class AwsReader:
         def place(q: dict, r: Optional[str]) -> dict:  # noqa: F811 - from here on the account is known
             return {"accountId": account, "region": r}
 
+        # CloudWatch answers for the credentials' account only (QV-741). A failed lookup is kept a minute, so a server
+        # that can't reach STS doesn't wait on it at every page load.
+        cw_off: Optional[str] = None
+        if s.get("accountId"):
+            def caller() -> dict:
+                try:
+                    return {"account": aws_reads.caller_account(clients["sts"])}
+                except Exception as e:  # noqa: BLE001
+                    return {"error": e}
+            c = self.cache.get("caller", METRICS_TTL_MS, now, caller)
+            if c.get("error") is not None:
+                cw_off = metrics_unconfirmed(c["error"])
+            elif c["account"] != account:
+                cw_off = other_account_metrics(account, c["account"])
+
         # settings first: the dead-letter queue's name, for its depth, is in the redrive policy
         urls: dict = {}
         for q in qs:
@@ -314,17 +349,21 @@ class AwsReader:
                 except Exception:  # noqa: BLE001 - the credentials may not reach the DLQ: CloudWatch has its depth
                     return
                 if d.get("visible") is not None:
-                    dlq_now[p["name"]] = {"visible": d["visible"], "at": now}
+                    dlq_now[arn] = {"visible": d["visible"], "at": now}
 
             list(pool.map(dlq, arns))
             for q in ok:
-                d = settings[q["key"]].get("dlqName")
+                d = settings[q["key"]].get("dlqArn")
                 out[q["key"]]["dlqNow"] = dlq_now.get(d) if d else None
 
+        if cw_off is not None:
+            for q in ok:
+                out[q["key"]]["errors"].append(cw_off)
+
         # one GetMetricData per window for every queue of this region and their dead-letter queues
-        names = sorted({q["name"] for q in ok})
+        names = sorted({q["name"] for q in ok}) if cw_off is None else []
         dlqs = sorted({settings[q["key"]]["dlqName"] for q in ok
-                       if settings[q["key"]].get("dlqName") and settings[q["key"]]["dlqName"] not in dlq_now})
+                       if settings[q["key"]].get("dlqName") and settings[q["key"]].get("dlqArn") not in dlq_now})
         ms = sorted(set(metrics)) if metrics is not None else None
 
         def window(w: dict) -> None:
@@ -334,7 +373,7 @@ class AwsReader:
             # aligned to the period, so the same request is made, and kept, across page loads in the same minute
             from_ms = (w["fromMs"] // step) * step
             to_ms = -((-w["toMs"]) // step) * step
-            key = (f"metrics|{base}|{w['periodS']}|{from_ms}|{to_ms}|{','.join(names)}|{','.join(dlqs)}|"
+            key = (f"metrics|{account}|{base}|{w['periodS']}|{from_ms}|{to_ms}|{','.join(names)}|{','.join(dlqs)}|"
                    f"{','.join(ms) if ms is not None else 'all'}")
             try:
                 r = self.cache.get(key, METRICS_TTL_MS, now, lambda: aws_reads.read_queue_metrics(

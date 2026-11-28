@@ -165,10 +165,12 @@ def test_without_an_account_in_the_settings_it_is_the_credentials_own():
                             f"https://sqs.{REGION}.amazonaws.com/{ACCOUNT}/billing-a"]
     r.read([ref("orders")], [], T0 + 20_000)
     assert st.sts.calls == 1  # kept as the clients are
-    # named in the settings: never asked
+    # named in the settings: SQS is read there, and the credentials' account is asked only to know whose CloudWatch
+    # it is (QV-741)
     st2 = Stubs()
-    reader({**ON, "accountId": ACCOUNT}, st2).read([ref("orders")], [], T0)
-    assert st2.sts.calls == 0 and len(st2.sqs.calls) == 1
+    out = reader({**ON, "accountId": ACCOUNT}, st2).read([ref("orders")], [window()], T0)
+    assert st2.sts.calls == 1 and len(st2.sqs.calls) == 1 and len(st2.cw.calls) == 1
+    assert out["orders"]["errors"] == [] and out["orders"]["series"]["1h"]["queue"]["visible"] == [[T0, 3.0]]
 
 
 def test_the_credentials_account_not_found_says_what_to_set():
@@ -261,6 +263,48 @@ def test_a_dead_letter_queue_in_another_account_is_not_read():
     a = reader(stubs=st).read([ref("orders")], [], T0, dlq_depth="sqs")["orders"]
     assert a["status"] == "ok" and a["dlqNow"] is None
     assert st.sqs.calls == [f"https://sqs.{REGION}.amazonaws.com/{ACCOUNT}/orders"]
+
+
+# ── CloudWatch is the credentials' account's (QV-741) ─────────────────────────────────────────────────────────────
+
+def test_a_queue_in_another_account_than_the_credentials_gets_no_cloudwatch_figures():
+    """The report's steps: the credentials are in 111111111111, a queue policy lets them read 222222222222's orders,
+    and the settings name 222222222222. CloudWatch would answer with 111111111111's orders."""
+    st = Stubs(account="111111111111")
+    out = reader({**ON, "accountId": "222222222222"}, st).read([ref("orders", account="222222222222")],
+                                                               [window(), window("1d", period=300)], T0)
+    a = out["orders"]
+    assert a["status"] == "ok" and a["accountId"] == "222222222222"
+    assert a["settings"]["visible"] == 7 and a["triggers"] is not None  # SQS's own counts, and its Lambda triggers
+    assert st.sqs.calls == [f"https://sqs.{REGION}.amazonaws.com/222222222222/orders"]
+    assert a["series"] == {} and st.cw.calls == []
+    assert a["errors"] == [aws_reader.other_account_metrics("222222222222", "111111111111")]
+    assert "account 222222222222" in a["errors"][0] and "account 111111111111" in a["errors"][0]
+
+
+def test_cloudwatch_is_not_read_when_the_credentials_account_cannot_be_found():
+    st = Stubs(sts_fail=denied("GetCallerIdentity"))
+    r = reader({**ON, "accountId": ACCOUNT}, st)
+    a = r.read([ref("orders")], [window()], T0)["orders"]
+    assert a["status"] == "ok" and a["settings"]["visible"] == 7 and a["series"] == {} and st.cw.calls == []
+    assert a["errors"] == [aws_reader.metrics_unconfirmed(denied("GetCallerIdentity"))]
+    assert "sts:GetCallerIdentity failed with AccessDenied" in a["errors"][0]
+    # the failure is kept a minute, so a server that can't reach STS doesn't wait on it at every page
+    r.read([ref("orders")], [window()], T0 + 20_000)
+    assert st.sts.calls == 1
+    r.read([ref("orders")], [window()], T0 + 2 * MIN)
+    assert st.sts.calls == 2
+
+
+def test_dead_letter_queue_depths_from_sqs_are_kept_by_arn():
+    dlq = {"RedrivePolicy": json.dumps({"deadLetterTargetArn": f"arn:aws:sqs:{REGION}:{ACCOUNT}:orders-dlq",
+                                        "maxReceiveCount": 3})}
+    st = Stubs(attrs={"orders": dlq, "orders-dlq": {"ApproximateNumberOfMessages": "4000"}})
+    out = reader({**ANY, "accountId": ACCOUNT}, st).read([ref("orders")], [window()], T0, dlq_depth="sqs")
+    assert out["orders"]["dlqNow"] == {"visible": 4000, "at": T0}
+    # the depth came from SQS, so CloudWatch is not asked for it
+    from trailbeam.server.aws_figures import METRICS
+    assert st.cw.calls[0][2] == len(METRICS)
 
 
 # ── against moto ─────────────────────────────────────────────────────────────────────────────────────────────────
