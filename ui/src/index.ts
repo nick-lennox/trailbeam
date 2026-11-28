@@ -1,5 +1,5 @@
 /*
-  @trailbeam/ui: Trailbeam's views (the timeline, tenants, message lists, Needs attention, the first-run screen, the queue page, the Event explorer, people, tokens), shared by self-hosted Trailbeam (built into the shell in ../shell)
+  @trailbeam/ui: Trailbeam's views (the timeline, tenants, message lists, Needs attention, the first-run screen, the queue page, the Event explorer, people, tokens, alerts), shared by self-hosted Trailbeam (built into the shell in ../shell)
   and the hosted app. A view takes the API's data as props and knows nothing about where it runs.
   Plan: the hosted app's docs/plans/shared-ui.md.
 */
@@ -25,6 +25,12 @@ export {
   type AnyToken, type NewTokenRequest, type TokenKind,
 } from "./tokens/Tokens.tsx";
 export type * from "./tokens/types.ts";
+export {
+  FOREVER as ALERT_FOREVER, HINT as CHANNEL_HINT, KIND as CHANNEL_KIND, PLACEHOLDER as CHANNEL_PLACEHOLDER, SNOOZES_S, channelRowsOf, checkEvery,
+  checkStatus, dashboardToneText, deliveredWhen, heldText, heldWord, quietText, ruleRank, ruleState, rulesViewOf, sortRules, toneText, whenText,
+  type ApiChannel, type ApiRule, type ApiRules, type ApiState, type CheckStatus, type RuleState,
+} from "./alerts/Alerts.ts";
+export type * from "./alerts/types.ts";
 export { useCopy, type CopyState } from "./copy.ts";
 export { BodyPanel, type BodyPanelProps } from "./body/BodyPanel.tsx";
 export { bodyView, NO_BODY_TEXT, noBodyNotes, type BodySpan } from "./body/rules.ts";
