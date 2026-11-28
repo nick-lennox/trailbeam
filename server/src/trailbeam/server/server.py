@@ -76,7 +76,7 @@ class App:
                  oidc: Optional[oidc_mod.Settings] = None, oidc_provider=None,
                  github: Optional[github_mod.Settings] = None, github_provider=None, alerts="auto",
                  public_url: Optional[str] = None, mailer=None, dashboards="auto",
-                 passkeys="auto"):
+                 passkeys="auto", alert_check=None):
         self.db = db
         # --public-url: where links in emails and invites point (else the request's address); None: not set
         self.public_url = public_url.rstrip("/") if public_url else None
@@ -125,6 +125,8 @@ class App:
         except access_mod.AccessUnavailable as e:
             log.warning("%s; asking again on the next request", e)
         self.purger = purger  # retention.Purger, for /api/health; None: no retention configured (tests)
+        # the scheduled alert check (alerts_scheduler.AlertScheduler), for /api/health; None: not running here
+        self.alert_check = alert_check
         self.gate = gate or IngestGate()
         self.started = time.time()
         # the shared UI's build (ui_files.py); None serves only the server-rendered pages
@@ -398,7 +400,9 @@ class App:
         except Exception as e:  # noqa: BLE001
             data = {"last_row": None, "last_span_ns": None, "store": "unreachable"}
             log.warning("health: the store is unreachable: %s", e)
-        return {"status": "ok", "version": __version__, "ingest": ingest, "data": data,
+        # the alert check: a stuck or late one shows here (alerts_scheduler.AlertScheduler.health); None: not running
+        alert_check = self.alert_check.health() if self.alert_check is not None else None
+        return {"status": "ok", "version": __version__, "ingest": ingest, "data": data, "alert_check": alert_check,
                 "config": {"auth": self._mode(), "ingest_auth": self._ingest_auth(),
                            "stuck_after_s": self.stuck_after_s, "lambda_timeout_s": self.lambda_timeout_s,
                            "max_receive_counts": self.max_receive_counts,

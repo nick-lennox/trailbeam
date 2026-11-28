@@ -612,7 +612,7 @@ def test_version_2_fills_the_lookup_tables_place_by_place(pg_store):
         _as_version(c, 1)
     again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
     try:
-        assert again.migrated == [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+        assert again.migrated == [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
         with again.ingest.connection() as c:
             assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
             assert [r["version"] for r in c.execute("SELECT version FROM schema_version ORDER BY 1")] == list(range(1, pg_schema_latest() + 1))
@@ -925,7 +925,7 @@ def test_version_3_indexes_the_list_tables_place_by_place(pg_store):
     for attempt in range(2):
         again = PostgresStore(s.url, bucket_ns=SEC)
         try:
-            assert again.migrated == [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+            assert again.migrated == [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
             with again.ingest.connection() as c:
                 parts = _list_partitions(c)
                 assert len(parts["message_queues"]) == 11 + attempt  # 12 places less the dropped one, + "after-0"
@@ -1166,7 +1166,7 @@ def test_version_4_builds_the_rollup_place_by_place(pg_store):
         _as_version(c, 3)
     again = PostgresStore(s.url, bucket_ns=HOUR_MS * 10 ** 6)
     try:
-        assert again.migrated == [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+        assert again.migrated == [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
         assert [_rollup_page(again, a, b) for a, b in ranges] == want
         with again.ingest.connection() as c:
             assert c.execute("SELECT * FROM tenant_events ORDER BY rclass, bucket, at_ms, mid, seq").fetchall() == events
@@ -1201,7 +1201,7 @@ def test_version_7_takes_deduplicated_fifo_sends_out_of_the_tenant_events(pg_sto
         _as_version(c, 6)
     again = PostgresStore(s.url, bucket_ns=SEC)
     try:
-        assert again.migrated == [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+        assert again.migrated == [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
         assert queries.tenants(again, T0, 900, ms - 3_600_000, ms + 3_600_000) == want
         with again.ingest.connection() as c:
             assert [r["kind"] for r in c.execute("SELECT kind FROM tenant_events ORDER BY at_ms, kind")] == \
@@ -1448,7 +1448,7 @@ def test_version_5_partitions_the_lookup_tables_place_by_place(pg_store, tmp_pat
                          "AND relnamespace = current_schema()::regnamespace").fetchone()["relkind"] == "r"
     again = PostgresStore(s.url, bucket_ns=SEC, store_bodies={"orders"})
     try:
-        assert again.migrated == [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+        assert again.migrated == [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
         with again.ingest.connection() as c:
             assert {t: c.execute(f"SELECT * FROM {t} ORDER BY 1, 2, 3").fetchall() for t in lookups} == lookups
             assert c.execute("SELECT to_regclass('mid_places_v4') AS t").fetchone()["t"] is None
@@ -1699,7 +1699,7 @@ def test_version_11_builds_the_queue_events_place_by_place(pg_store):
         _as_version(c, 10)
     again = PostgresStore(s.url, bucket_ns=HOUR_MS * 10 ** 6)
     try:
-        assert again.migrated == [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+        assert again.migrated == [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
         assert _queue_page(again, ranges, now_ms) == want
         with again.ingest.connection() as c:
             assert c.execute(q).fetchall() == events
@@ -1729,7 +1729,7 @@ def test_version_15_indexes_the_spans_of_no_message_and_takes_rabbitmq_spans(pg_
         _as_version(conn, 14)
     again = PostgresStore(s.url)
     try:
-        assert again.migrated == [15, 16, 17, 18, 19, 20, 21, 22, 23]
+        assert again.migrated == [15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
         with again.ingest.connection() as conn:
             names = {r["indexname"] for r in conn.execute("SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() "
                                                 "AND tablename = 'spans'").fetchall()}
@@ -1873,7 +1873,7 @@ def test_version_16_keys_the_spans_by_time_and_builds_the_step_rollup(pg_store):
         assert conn.execute("SELECT to_regclass('step_rollup') AS t").fetchone()["t"] is None
     again = PostgresStore(s.url, bucket_ns=hour)
     try:
-        assert again.migrated == [16, 17, 18, 19, 20, 21, 22, 23]
+        assert again.migrated == [16, 17, 18, 19, 20, 21, 22, 23, 24]
         with again.ingest.connection() as conn:
             parts = conn.execute("SELECT COUNT(*) AS n FROM places").fetchone()["n"]
             assert parts > 5

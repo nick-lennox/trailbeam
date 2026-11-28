@@ -362,6 +362,79 @@ def test_a_check_longer_than_the_interval_is_followed_at_once_and_never_overlaps
     assert most[0] == 1
 
 
+def _wait(cond, s=5.0):
+    import time
+    end = time.monotonic() + s
+    while not cond():
+        assert time.monotonic() < end, "timed out"
+        time.sleep(0.01)
+
+
+def test_health_says_late_when_no_check_has_ended_for_two_intervals():
+    now = [1000.0]
+    s = sched.AlertScheduler(lambda: {"workspaces": 1, "changes": 0, "failed": []}, 60, clock=lambda: now[0])
+    s.tick()
+    h = s.health()
+    assert h["status"] == "ok" and h["problem"] is None and h["last_done_at_ms"] == 1_000_000
+    assert h["last"] == {"workspaces": 1, "changes": 0, "resent": None, "dropped": None, "ms": None, "failed": 0}
+    now[0] += 2 * 60
+    assert s.health()["status"] == "ok"
+    now[0] += 1
+    h = s.health()
+    assert h["status"] == "late" and "No check has ended for 2 min; one should run every 1 min." == h["problem"]
+
+
+def test_health_says_failing_after_a_check_that_raised():
+    def check():
+        raise RuntimeError("disk full")
+
+    s = sched.AlertScheduler(check, 60)
+    s.tick()
+    assert s.health()["status"] == "failing" and "disk full" in s.health()["problem"]
+
+
+def test_a_check_past_its_deadline_is_logged_and_health_says_stuck(caplog):
+    go, began = threading.Event(), threading.Event()
+
+    def check():
+        began.set()
+        go.wait(10)
+        return {}
+
+    s = sched.AlertScheduler(check, 60, deadline_s=0.05).start()
+    try:
+        assert began.wait(5)
+        _wait(lambda: s.overdue == 1)
+        h = s.health()
+        assert h["status"] == "stuck" and "past its deadline" in h["problem"] and h["running_since_ms"]
+        assert "has not returned" in caplog.text
+    finally:
+        go.set()
+        assert s.stop(5)
+    assert s.health()["status"] == "late"  # stopped: its thread is not running
+
+
+def test_stop_waits_a_bounded_time_for_a_check_under_way():
+    go, began = threading.Event(), threading.Event()
+
+    def check():
+        began.set()
+        go.wait(10)
+        return {}
+
+    s = sched.AlertScheduler(check, 60).start()
+    try:
+        assert began.wait(5)
+        import time
+        t0 = time.monotonic()
+        assert s.stop(0.1) is False and time.monotonic() - t0 < 2
+    finally:
+        go.set()
+    assert s.stop(5) is True
+    # the default fits the container's stop grace period (docker stop: 10 s)
+    assert sched.STOP_WAIT_S < 10 and sched.DEADLINE_S * 1000 < run.LEASE_MS
+
+
 def test_every_s_must_be_positive():
     with pytest.raises(ValueError):
         sched.AlertScheduler(dict, 0)

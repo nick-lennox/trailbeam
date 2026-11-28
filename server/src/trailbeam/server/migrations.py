@@ -207,7 +207,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 );
 """ + summary_table.CREATE + body_table.CREATE + PROBES_CREATE + account_tables.SQLITE_CREATE + f"""
 {account_tables.SQLITE_ADD_PROXY};
-""" + STEP_ROLLUP_CREATE + account_tables.SQLITE_OIDC + alerts_store.SQLITE_CREATE + dashboards_store.SQLITE_CREATE + account_tables.SQLITE_PASSKEYS
+""" + STEP_ROLLUP_CREATE + account_tables.SQLITE_OIDC + alerts_store.SQLITE_CREATE + dashboards_store.SQLITE_CREATE + account_tables.SQLITE_PASSKEYS + alerts_store.SQLITE_OUTBOX
 
 # Schema 1 was the first released (the CREATE of version 1 is in tests/server/test_migrations.py).
 # Schema 1 had no start_ns. Its rows came from contract v1 spans, stamped only when the response arrived,
@@ -290,6 +290,8 @@ CREATE TABLE IF NOT EXISTS schema_version (
 # the reporting host's. Rows stored before it keep NULL: when they arrived is not known, so none of them ever counts
 # as a new failure (as on the hosted app). Adding a nullable column rewrites no row. No index: triage reads the seq
 # of spans it has already read by message.
+# Schema 30 (QV-674) adds alert_outbox (alerts_store.py: the changes a check is sending), empty. It changes no span
+# data.
 _REBUILD_SPANS = (statements(SPANS_TABLE.format(name="spans_new", added=""))
                   + [f"INSERT INTO spans_new ({SPANS_COLUMNS}) SELECT {SPANS_COLUMNS} FROM spans ORDER BY row",
                      "DROP TABLE spans",
@@ -420,6 +422,7 @@ MIGRATIONS = (
     Migration(27, "dashboards and their widgets", tuple(statements(dashboards_store.SQLITE_CREATE))),
     Migration(28, "passkeys and their challenges", tuple(statements(account_tables.SQLITE_PASSKEYS))),
     Migration(29, "spans.seq: when each span reached the server", (), run=_to_29),
+    Migration(30, "alert outbox", tuple(statements(alerts_store.SQLITE_OUTBOX))),
 )
 LATEST = MIGRATIONS[-1].version
 VERSION_TABLE_FROM = 6  # the first version with the schema_version table

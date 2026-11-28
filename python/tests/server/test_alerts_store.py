@@ -451,7 +451,7 @@ def test_a_postgres_database_at_19_gets_the_alert_tables_a_new_one_has():
     try:
         with s.ingest.connection() as c:
             new = columns(c)
-            c.execute("DROP TABLE alert_rules, alert_channels, alert_state, alert_checks")
+            c.execute(f"DROP TABLE {', '.join(alerts_store.TABLES)}")
             c.execute("UPDATE schema_version SET version = 19")
         again = PostgresStore(s.url)
         try:
@@ -463,3 +463,109 @@ def test_a_postgres_database_at_19_gets_the_alert_tables_a_new_one_has():
             again.close()
     finally:
         s.close()
+
+
+# ── a check stopped between record() and deliver() (QV-674) ──────────────────────────────────────────────────────
+
+class Killed(BaseException):
+    """The process going away mid-check: not an Exception, so nothing in the check catches it."""
+
+
+def _deps(store, deliver, at):
+    return run.Deps(store=store, dashboards=lambda only: {}, data=lambda ws, boards: {},
+                    causes=lambda ws: MAKE.read("m1", "m2"), deliver=deliver, now=lambda: at, owner="me")
+
+
+def _kill(ws, changes):
+    raise Killed()
+
+
+def test_a_check_stopped_before_it_delivered_sends_its_changes_at_the_next_check(store):
+    add(store, WS, MAKE.rule(), MAKE.memory())
+    with pytest.raises(Killed):
+        run.run_alerts(_deps(store, _kill, T))
+    assert store.alert_states(WS)[0]["tone"] == "critical"  # record() wrote it: no later check finds it new
+    [held] = store.held(WS)
+    assert held["tries"] == 1 and [c["kind"] for c in held["changes"]] == ["fired"]
+    delivered: list = []
+    # past the lease of the check that died
+    r = run.run_alerts(_deps(store, lambda ws, ch: delivered.append(ch), T + run.LEASE_MS + 1))
+    assert [[c["kind"] for c in ch] for ch in delivered] == [["fired"]]
+    assert r["resent"] == 1 and r["changes"] == 0 and r["failed"] == []
+    assert store.held(WS) == []
+    delivered.clear()
+    run.run_alerts(_deps(store, lambda ws, ch: delivered.append(ch), T + 2 * run.LEASE_MS))
+    assert delivered == []  # sent once
+
+
+def test_a_delivery_that_raises_fails_the_workspace_and_is_sent_by_the_next_check(store):
+    add(store, WS, MAKE.rule(), MAKE.memory())
+
+    def broken(ws, changes):
+        raise RuntimeError("could not list the channels")
+
+    r = run.run_alerts(_deps(store, broken, T))
+    assert r["failed"] == [{"ws": WS, "error": "could not list the channels"}] and len(store.held(WS)) == 1
+    delivered: list = []
+    r = run.run_alerts(_deps(store, lambda ws, ch: delivered.append(ch), T + run.MIN_GAP_MS))
+    assert r["resent"] == 1 and len(delivered) == 1 and store.held(WS) == []
+
+
+def test_a_batch_that_never_goes_out_is_given_up_after_max_tries_and_logged(store, caplog):
+    add(store, WS, MAKE.rule(), MAKE.memory())
+
+    def broken(ws, changes):
+        raise RuntimeError("down")
+
+    at = T
+    for _ in range(run.MAX_TRIES):
+        assert run.run_alerts(_deps(store, broken, at))["failed"]
+        at += run.MIN_GAP_MS
+    assert store.held(WS)[0]["tries"] == run.MAX_TRIES
+    r = run.run_alerts(_deps(store, lambda ws, ch: pytest.fail("given up"), at))
+    assert r["dropped"] == 1 and r["failed"] == [] and store.held(WS) == []
+    assert "gave up on 1 change(s) of workspace local" in caplog.text
+
+
+def test_a_batch_held_too_long_is_not_sent(store):
+    add(store, WS, MAKE.rule(), MAKE.memory())
+    store.hold(WS, "old", [{"kind": "fired", "old": True}], T - run.MAX_HELD_MS - 1)
+    delivered: list = []
+    r = run.run_alerts(_deps(store, lambda ws, ch: delivered.extend(ch), T))
+    assert r["dropped"] == 1 and store.held(WS) == []
+    assert [c["kind"] for c in delivered] == ["fired"] and not any(c.get("old") for c in delivered)
+
+
+def test_a_server_killed_mid_check_sends_the_changes_after_it_starts_again(tmp_path):
+    path = str(tmp_path / "trailbeam.sqlite")
+    db = Database(path)
+    try:
+        t = AlertTables(db)
+        add(t, WS, MAKE.rule(), MAKE.memory())
+        # the lease is never given back, as when the process is killed
+        t.release = lambda *a: None
+        with pytest.raises(Killed):
+            run.run_alerts(_deps(t, _kill, T))
+    finally:
+        db.close()
+    db = Database(path)
+    try:
+        t = AlertTables(db)
+        delivered: list = []
+        r = run.run_alerts(_deps(t, lambda ws, ch: delivered.append(ch), T + 60_000))
+        assert r["skipped"]["leased"] == 1 and delivered == []  # the dead check's lease still holds
+        r = run.run_alerts(_deps(t, lambda ws, ch: delivered.append(ch), T + run.LEASE_MS + 1))
+        assert r["resent"] == 1 and [c["kind"] for c in delivered[0]] == ["fired"] and t.held(WS) == []
+    finally:
+        db.close()
+
+
+def test_the_outbox_round_trips_on_every_store(store):
+    changes = [{"kind": "fired", "from": None, "alert": {"label": "a\x00b", "n": 1}}]
+    store.hold(WS, "b2", changes, T + 1)
+    store.hold(WS, "b1", [], T)
+    assert [b["id"] for b in store.held(WS)] == ["b1", "b2"] and store.held("other") == []
+    store.retry(WS, "b2")
+    b2 = store.held(WS)[1]
+    assert b2 == {"id": "b2", "changes": changes, "heldAt": T + 1, "tries": 2}
+    assert store.sent(WS, "b2") and not store.sent(WS, "b2")

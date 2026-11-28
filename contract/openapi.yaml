@@ -4699,6 +4699,41 @@ components:
                 empty store, while the store is unreachable, or when the store does not say. The test spans of
                 `trailbeam doctor` are probes, not spans, so they never set it. Added in 0.4.
             store: {type: string, const: unreachable, description: Present only while the store is unreachable.}
+        alert_check:
+          description: |
+            The scheduled alert check in this process (`TRAILBEAM_ALERT_CHECK`), or null when it does not run here.
+            `status` is `late` when no check has ended for two intervals (or its thread is not running), `stuck`
+            when a check has run past its deadline, `failing` when the last check raised. Added in 0.5.
+          oneOf:
+            - {type: 'null'}
+            - type: object
+              additionalProperties: false
+              required: [status, problem, every_s, deadline_s, last_at_ms, last_done_at_ms, running_since_ms, last_error]
+              properties:
+                status: {type: string, enum: [ok, failing, late, stuck]}
+                problem: {type: [string, 'null'], description: 'What is wrong, in a sentence; null when `status` is `ok`.'}
+                every_s: {type: number, description: How often a check starts, in seconds.}
+                deadline_s: {type: number, description: How long a check may run before it is reported stuck.}
+                started_at_ms: {type: [integer, 'null'], description: When the scheduler started (ms since the epoch).}
+                last_at_ms: {type: [integer, 'null'], description: When the last check began (ms since the epoch).}
+                last_done_at_ms: {type: [integer, 'null'], description: When the last check ended (ms since the epoch).}
+                running_since_ms: {type: [integer, 'null'], description: When the check under way began; null when none is.}
+                last_error: {type: [string, 'null'], description: What the last check raised; null when it went fine.}
+                ticks: {type: integer}
+                overdue: {type: integer, description: Checks that ran past the deadline since the server started.}
+                last:
+                  description: What the last check did; null before the first, after one that raised, or when there was nothing to check.
+                  oneOf:
+                    - {type: 'null'}
+                    - type: object
+                      additionalProperties: false
+                      properties:
+                        workspaces: {type: [integer, 'null']}
+                        changes: {type: [integer, 'null'], description: Changes sent.}
+                        resent: {type: [integer, 'null'], description: Changes a stopped check left in the outbox, sent by this one.}
+                        dropped: {type: [integer, 'null'], description: Changes held too long or tried too often, given up.}
+                        ms: {type: [integer, 'null']}
+                        failed: {type: integer, description: Workspaces that failed.}
         config:
           type: object
           description: The configuration this server runs with.

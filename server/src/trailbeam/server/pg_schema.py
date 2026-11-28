@@ -479,7 +479,7 @@ CREATE TABLE IF NOT EXISTS hash_places (
     bucket BIGINT NOT NULL,
     PRIMARY KEY (receipt_hmac, key_id, rclass, bucket)
 ) PARTITION BY RANGE (rclass, bucket);
-""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + QUEUE_CREATE + SNS + account_tables.PG_OIDC + STEP_CREATE + EVENTBRIDGE + S3 + S3_IDS + alerts_store.PG_CREATE + dashboards_store.PG_CREATE + account_tables.PG_PASSKEYS + """
+""" + SEALING + PROBES + account_tables.PG_CREATE + account_tables.PG_ADD_PROXY + ";\n" + PURGES + QUEUE_CREATE + SNS + account_tables.PG_OIDC + STEP_CREATE + EVENTBRIDGE + S3 + S3_IDS + alerts_store.PG_CREATE + dashboards_store.PG_CREATE + account_tables.PG_PASSKEYS + alerts_store.PG_OUTBOX + """
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at_ms BIGINT,
@@ -888,8 +888,10 @@ MIGRATIONS: tuple = (
     # is added to every place without rewriting it, as version 10's.
     Migration(23, "spans.seq: when each span reached the server (QV-593)",
               ("ALTER TABLE spans ADD COLUMN IF NOT EXISTS seq BIGINT",)),
+    # Version 24 (QV-674): alert_outbox (alerts_store.py: the changes a check is sending), new and empty.
+    Migration(24, "alert outbox (QV-674)", tuple(statements(alerts_store.PG_OUTBOX))),
 )
-LATEST = 23
+LATEST = 24
 MIGRATION_LOCK = 0x7472_6169_6c62_6d01  # pg_advisory_lock key: "trailbm" + 1, held while the schema is opened
 
 

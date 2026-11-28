@@ -518,3 +518,39 @@ def test_before_an_admin_exists_whoever_is_let_in_manages_channels(monkeypatch):
         assert status == 400
     finally:
         s.close()
+
+
+# ── the API in the server: its tables, links and mail (QV-674) ───────────────────────────────────────────────────
+
+def test_the_server_keeps_alerts_in_its_tables_links_to_its_public_url_and_mails_through_its_server(
+        monkeypatch, tmp_path):
+    from trailbeam.server import alert_delivery, alerts_store, mail, server
+    monkeypatch.setenv("TRAILBEAM_ALERT_CHECK", "5")
+    db = Database(str(tmp_path / "trailbeam.sqlite"))
+    try:
+        smtp = alert_delivery.SmtpConfig(host="smtp.example.com", sender="tb@example.com")
+        app = server.App(db, ui_dir=None, public_url="https://tb.example.com/", mailer=mail.Mailer(smtp))
+        assert isinstance(app.alerts.store, alerts_store.AlertTables)
+        assert app.alerts.delivery.base == "https://tb.example.com" and app.alerts.delivery.smtp is smtp
+        bare = server.App(db, ui_dir=None)
+        assert bare.alerts.delivery.base == "http://localhost" and bare.alerts.delivery.smtp is None
+    finally:
+        db.close()
+
+
+def test_health_shows_the_alert_check_and_a_late_one(monkeypatch):
+    from trailbeam.server import alerts_scheduler, server
+    monkeypatch.delenv("TRAILBEAM_ALERT_CHECK", raising=False)
+    db = Database(":memory:")
+    try:
+        assert server.App(db, ui_dir=None).health({}, [])["alert_check"] is None
+        now = [1000.0]
+        s = alerts_scheduler.AlertScheduler(dict, 300, clock=lambda: now[0])
+        s.tick()
+        app = server.App(db, ui_dir=None, alert_check=s)
+        assert app.health({}, [])["alert_check"]["status"] == "ok"
+        now[0] += 2 * 300 + 1
+        h = app.health({}, [])["alert_check"]
+        assert h["status"] == "late" and h["last_done_at_ms"] == 1_000_000 and h["every_s"] == 300
+    finally:
+        db.close()
