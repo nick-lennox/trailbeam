@@ -660,6 +660,8 @@ def _pages(s, places: int) -> dict:
         "duplicates": s.duplicate_messages(5), "duplicates_queue": s.duplicate_messages(5, "orders"),
         "stuck": s.stuck_messages(T0 + places * SEC, 5),
         "stuck_queue": s.stuck_messages(T0 + places * SEC, 5, "billing"),
+        "stuck_keys": s.stuck_messages(T0 + places * SEC, 5, "billing", keys=["billing"]),
+        "stuck_no_key": s.stuck_messages(T0 + places * SEC, 5, keys=["123456789012/eu-west-1/billing"]),
         "stuck_after": s.stuck_messages(T0 + places * SEC, 5, after=(T0 + 7 * SEC + 10, "m-7")),
         "queue": sorted(s.queue_messages("orders")),
         "activity": sorted((a.tenant, a.sent, a.dead_lettered, sorted(a.waits.counts.items()))
