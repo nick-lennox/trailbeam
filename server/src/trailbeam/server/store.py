@@ -284,12 +284,14 @@ class Store(abc.ABC):
         an accepted delete whose ``receive_row`` is the message's latest receive (by time_ns, then row), or a
         ``success`` outcome with that receive's ``faas_invocation_id``.
 
-        Purged messages are not listed (purge.py): those with a purge record of ``result = 'ok'`` on their summary's
-        ``current_queue`` whose ``start_ns`` is after the summary's ``last_ns``. Possibly purged ones are."""
+        Purged messages are not listed (purge.py): those with a purge record of ``result = 'ok'`` on the queue of
+        their summary's ``current_key`` (by queue key, purge.keyed: not another account's or region's queue of that
+        name) whose ``start_ns`` is after the summary's ``last_ns`` (purge.stuck_starts). Possibly purged ones are."""
 
     def purges(self, queues) -> list[Row]:
-        """The purge records (contract section 18) stored for these queues, every column of purge.COLUMNS, by
-        (time_ns, row); ``row`` is unique among purges. Few: one per PurgeQueue call. Not abstract, so a store
+        """The purge records (contract section 18) stored for queues of these names (None: every purge), every
+        column of purge.COLUMNS, by (time_ns, row); ``row`` is unique among purges. By name: purge.keyed tells
+        which queue of a name each is of. Few: one per PurgeQueue call. Not abstract, so a store
         written before revision 3.3 still loads: by default, none."""
         return []
 

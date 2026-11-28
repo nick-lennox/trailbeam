@@ -60,11 +60,11 @@ GATED_ATTRIBUTES = BODY_ATTRIBUTES + (s3.OBJECT_KEY,)
 # spans_unjoined_hash settle spans with no receive yet. A settle span is joined before its row is inserted, so
 # one that finds its receive never has an entry in spans_unjoined_hash (QV-78: a page fewer per span).
 # A PurgeQueue call SQS accepted on the message's queue that started after its newest step ended (contract
-# section 18, purge.classify): the message is purged, not stuck. spans_kind_time holds the few purge rows; a purge
-# that started after last_ns also ended after it, so the time range narrows the scan. ``s``: the messages row.
-_PURGED_SQL = """SELECT 1 FROM spans p INDEXED BY spans_kind_time
-   WHERE p.kind = 'purge' AND p.time_ns > s.last_ns AND p.start_ns > s.last_ns
-     AND p.result = 'ok' AND p.queue = s.current_queue"""
+# section 18, purge.classify): the message is purged, not stuck. The purges are few (one per call), so they are read
+# first and matched by queue key in Python (purge.stuck_starts: a purge of "orders" in another account or region is
+# of another queue, QV-725); the parameter is their JSON [[queue key, latest start], ...]. ``s``: the messages row.
+_PURGED_SQL = """SELECT 1 FROM json_each(?) pg
+   WHERE json_extract(pg.value, '$[0]') = s.current_key AND json_extract(pg.value, '$[1]') > s.last_ns"""
 SETTLE_JOIN_SQL = """SELECT row, message_id FROM spans INDEXED BY spans_receive_hash
    WHERE kind = 'receive' AND receipt_hmac = ? AND key_id = ?
    ORDER BY (time_ns <= ?) DESC,
@@ -668,14 +668,20 @@ class SqliteStore(Store):
         if version:
             where += self._BY_VERSION
             p.append(version)
+        starts = purge.stuck_starts(self, queue or None)
+        if starts:
+            where += f" AND NOT EXISTS ({_PURGED_SQL})"
+            p.append(json.dumps(starts))
         rows = self.query(
             f"""SELECT s.mid, s.stuck_first_ns, s.stuck_sqs_clock FROM messages s INDEXED BY messages_stuck
                 WHERE s.stuck_open AND s.stuck_first_ns IS NOT NULL AND s.stuck_first_ns < ?{where}
-                AND NOT EXISTS ({_PURGED_SQL})
                 ORDER BY s.stuck_first_ns, s.mid LIMIT ?""", tuple(p) + (limit,))
         return [StuckCandidate(r["mid"], r["stuck_first_ns"], bool(r["stuck_sqs_clock"])) for r in rows]
 
-    def purges(self, queues: Iterable[str]) -> list[sqlite3.Row]:
+    def purges(self, queues: Optional[Iterable[str]]) -> list[sqlite3.Row]:
+        if queues is None:
+            return self.query(f"SELECT {', '.join(purge.COLUMNS)} FROM spans INDEXED BY spans_kind_time "
+                              "WHERE kind = 'purge' ORDER BY time_ns, row")
         queues = sorted(set(queues))
         if not queues:
             return []

@@ -27,6 +27,7 @@ from . import s3 as s3_mod
 from . import order as order_mod
 from . import origin as origin_mod
 from . import purge as purge_mod
+from . import queues as queues_mod
 from . import rabbitmq as amqp_mod
 from . import sns as sns_mod
 from . import systems
@@ -135,6 +136,13 @@ def source_queue_of(mid: Optional[str], sends: list, receives: list, fallback: s
     if systems.system_of(mid) == systems.RABBITMQ:
         return receives[0]["queue"] if receives else (sends[0]["queue"] if sends else fallback)
     return sends[0]["queue"] if sends else (receives[0]["queue"] if receives else fallback)
+
+
+def current_key_of(sends: list, receives: list, rows: list) -> str:
+    """The queue key (queues.key) of the queue a message is on: its latest receive's, else its first send's, else
+    its first row's, which is where its current queue's name comes from (contract section 18; QV-725)."""
+    r = receives[-1] if receives else (sends[0] if sends else rows[0])
+    return queues_mod.key(r["queue"], r["queue_url"])
 
 
 def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOUT_S,
@@ -310,7 +318,8 @@ def build(rows: list, now_ns: int, lambda_timeout_s: int = DEFAULT_LAMBDA_TIMEOU
     # ---- a PurgeQueue call on the message's queue (contract section 18) ---------------------------
     # The purge is observed and placed like any observed step, by the proven order; that it removed this
     # message is what SQS's documentation says a purge does, and the event says so.
-    verdict = purge_mod.classify(rows[-1]["time_ns"], current_queue, purges) if state in purge_mod.APPLIES_TO else None
+    verdict = (purge_mod.classify(rows[-1]["time_ns"], current_key_of(sends, receives, rows), purges)
+               if state in purge_mod.APPLIES_TO else None)
     steps = rows
     if verdict is not None:
         prow = purge_mod.as_row(verdict.purge)

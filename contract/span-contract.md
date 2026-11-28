@@ -887,8 +887,12 @@ remove messages that arrive within 60 seconds of its end. Trailbeam calls that s
 start to 60 seconds after its end, the purge's **window**.
 
 **How Trailbeam reads it.** Only `trailbeam.result = ok` purges count. A message is on the queue of its latest
-receive, else of its send (its `current_queue` in the API). For a message on a purged queue that has no final
-delete (section 4.3) and no delete inferred from a Lambda outcome:
+receive, else of its send (its `current_queue` in the API). A purge is of the queue its span names, matched by
+**queue key**: the account, region and name that `aws.sqs.queue.url` says, as for every other queue view, not by
+name alone. Two queues called `orders` in different accounts or regions are two queues, and a purge of one changes
+no message of the other. A key that says less (no URL, or an emulator's URL that names no region) is the one queue
+it fits that says more, when there is exactly one; when two fit, it is neither. For a message on a purged queue
+that has no final delete (section 4.3) and no delete inferred from a Lambda outcome:
 
 - **Purged:** the purge started after the message's newest step ended, on the hosts' clocks (`clock`, section
   9a: newest step's end < purge's start). Trailbeam shows it as "Purged (observed: PurgeQueue at *start of the
