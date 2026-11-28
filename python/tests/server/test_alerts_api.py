@@ -400,18 +400,6 @@ def test_routes_are_matched_whole():
 
 # ── in the server ────────────────────────────────────────────────────────────────────────────────────────────────
 
-@pytest.fixture(autouse=True)
-def _not_in_openapi_yet(record_api_responses, monkeypatch):
-    """/api/alerts goes into contract/openapi.yaml with the part of QV-592 that turns it on (it is off by default,
-    and kept in memory, until the alert tables exist): its answers are not checked against the file yet."""
-    orig = record_api_responses.record
-
-    def record(method, raw_url, *a, **k):
-        if not raw_url.startswith("/api/alerts"):
-            orig(method, raw_url, *a, **k)
-    monkeypatch.setattr(record_api_responses, "record", record)
-
-
 QUICK = Hasher(log2_n=10, r=8, p=1)
 J = {"Content-Type": "application/json"}
 
@@ -674,3 +662,126 @@ def test_a_test_send_reaches_a_private_endpoint_with_the_switch_on():
         assert len(hook.got) == 1
     finally:
         hook.close()
+
+
+# ── contract/openapi.yaml (QV-770) ───────────────────────────────────────────────────────────────────────────────
+
+RID, CID = "4f1c2b9e-0d7a-4c55-9a3e-2b8e6f0c1d2a", "0b6c1e52-7d3f-4a8e-9c21-5f4d2a7b8e10"
+
+
+def test_every_alerts_route_and_status_the_file_lists_is_answered(monkeypatch, record_api_responses):
+    """What test_openapi.py checks for the other routes, with alerts on: every Alerts operation is served, its
+    x-example-request answers 200 or 201, and every status the file lists for it is given (and matches the file, as
+    the recorder checks every answer)."""
+    from openapi_contract import contract
+    from test_openapi import serve
+    from trailbeam.server import access as access_mod
+    from trailbeam.server import proxy_auth, server
+    from trailbeam.server.proxy import TrustedProxies, parse_networks
+
+    ops = [op for op in contract().ops if "Alerts" in op.op.get("tags", [])]
+    assert len(ops) == len(api.ROUTES) == 11
+    off = Server(monkeypatch, check=None, accounts=False)
+    try:
+        for op in ops:  # off: 404
+            off(op.method, op.template.replace("{rule_id}", RID).replace("{channel_id}", CID),
+                {} if op.method != "GET" else None)
+    finally:
+        off.close()
+
+    s = Server(monkeypatch)
+    store, member, admin = s.app.alerts.store, s.member, s.admin
+    s.app.alerts.causes = lambda: CAUSES
+    good = {"POST /api/alerts/rules": {"causeId": "c2", "channels": [CID], "mode": "every"},
+            "PATCH /api/alerts/rules/{rule_id}": {"channels": [CID], "mode": "every"},
+            "POST /api/alerts/rules/{rule_id}/mute": {"forS": 3600},
+            "POST /api/alerts/channels": {"kind": "email", "target": "a@acme.io"},
+            "PATCH /api/alerts/channels/{channel_id}": {"minTone": "critical"},
+            "POST /api/alerts/channels/{channel_id}/test": {}}
+    bad = {"POST /api/alerts/rules": {"causeId": "c1", "channels": [], "mode": "every"},
+           "PATCH /api/alerts/rules/{rule_id}": {"channels": [CID], "mode": "sometimes"},
+           "POST /api/alerts/rules/{rule_id}/mute": {"forS": 5},
+           "POST /api/alerts/channels": {"kind": "webhook", "target": "http://x.io"},
+           "PATCH /api/alerts/channels/{channel_id}": {"target": "http://x.io"}}
+
+    def fresh():
+        """Rule RID on cause c1, sent to channel CID (an email channel, so a test send fails without a mail
+        server and is still a 200): the IDs each operation's x-example-request names."""
+        store.remove_rule("local", RID)
+        for c in store.list_channels("local"):
+            store.remove_channel("local", c["id"])
+        store.add_channel("local", {"id": CID, "kind": "email", "name": "Ops", "target": "ops@acme.io", "secret": None,
+                                    "minTone": "warning", "createdBy": "1", "createdAt": T, "lastAt": None,
+                                    "lastOk": None, "lastDetail": None})
+        store.add_rule("local", {"id": RID, "kind": "cause", "causeKey": KEY, "causeId": "c1", "label": "l",
+                                 "queue": "orders", "channels": [CID], "mode": "every", "quietS": 0,
+                                 "mutedUntil": None, "mutedBy": None, "mutedAt": None, "createdBy": "1",
+                                 "createdAt": T, "updatedAt": T})
+        store.write_state("local", {"dashboardId": "rule", "widgetId": RID, "dashboardName": "", "title": "l",
+                                    "tone": "critical", "value": "3", "limit": "new messages at a check",
+                                    "queue": "orders", "since": T, "checkedAt": T}, None)
+
+    def path(op, rid=RID, cid=CID):
+        return op.template.replace("{rule_id}", rid).replace("{channel_id}", cid)
+
+    try:
+        for op in ops:
+            fresh()
+            body = good.get(op.key)
+            raw = json.dumps(body).encode() if body is not None else None
+            who = admin if "channels" in op.template and op.method != "GET" else member
+            example = op.op.get("x-example-request", op.template)
+            assert s(op.method, example, body, who)[0] in (200, 201), op.key
+            fresh()
+            s(op.method, path(op), body)  # 401
+            if who is admin:
+                s(op.method, path(op), body, member)  # 403: a member
+            s(op.method, path(op, "nope", "nope"), body, who)  # 404 (removing a missing one: 200)
+            if op.key in bad:
+                assert s(op.method, path(op), bad[op.key], who)[0] == 400, op.key
+            if op.method != "GET":
+                s(op.method, path(op), body, {**who, "Sec-Fetch-Site": "cross-site"})  # 403: csrf
+                s(op.method, path(op), None, {**who, "Content-Length": "99999"})  # 413
+                s(op.method, path(op), raw=b"{}", headers={**who, "Content-Type": "text/plain"})  # 415
+        fresh()
+        assert s("POST", "/api/alerts/rules", {"causeId": "c1", "channels": [CID], "mode": "every"}, member)[1][
+            "existed"] is True  # 200
+
+        def boom(*a, **k):
+            raise RuntimeError("a test's broken store")
+
+        def unreachable(*a, **k):
+            raise access_mod.AccessUnavailable("a test's unreachable store")
+
+        with pytest.MonkeyPatch.context() as mp:  # 500
+            for meth in ("list_rules", "list_channels", "get_channel", "alert_states", "update_rule", "remove_rule",
+                         "remove_channel", "rule_for_cause"):
+                mp.setattr(store, meth, boom)
+            for op in ops:
+                s(op.method, path(op), good.get(op.key, {}) if op.method != "GET" else None, admin)
+        with pytest.MonkeyPatch.context() as mp:  # 503
+            mp.setattr(s.app.access, "check", unreachable)
+            for op in ops:
+                if op.method != "GET":
+                    s(op.method, path(op), {})
+    finally:
+        s.close()
+
+    # 403 on a read: signed in through a proxy as someone who may not be (as test_openapi.py does)
+    db = Database(":memory:")
+    try:
+        proxied = server.App(db, ui_dir=None, trusted_proxies=TrustedProxies(parse_networks("127.0.0.1")),
+                             proxy_auth=proxy_auth.configure("X-Forwarded-Email",
+                                                             proxies=TrustedProxies(parse_networks("127.0.0.1"))))
+        proxied.accounts.create_user("root@example.com", "Root", "admin", None, 0)
+        proxied.access.state.changed()
+        with serve(proxied) as base:
+            for op in ops:
+                request(base, op.method, path(op), b"{}" if op.method != "GET" else None,
+                        {"X-Forwarded-Email": "root@example.com", **(J if op.method != "GET" else {})})
+    finally:
+        db.close()
+    assert not record_api_responses.problems, "\n".join(record_api_responses.problems)
+    answered = {(x.op.key, x.status) for x in record_api_responses.seen if x.op is not None}
+    never = [f"{op.key} {st}" for op in ops for st in op.op["responses"] if (op.key, int(st)) not in answered]
+    assert not never, "the file lists these statuses, the server never gave them:\n" + "\n".join(never)

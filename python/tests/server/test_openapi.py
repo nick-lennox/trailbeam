@@ -241,8 +241,9 @@ def _people_op(op) -> bool:
     return bool(PEOPLE_TAGS & set(op.op.get("tags", [])))
 
 
-# off unless a setting turns them on, so not served by these tests' servers: test_dashboards_api.py asks them
-OFF_BY_DEFAULT_TAGS = {"Dashboards"}
+# off unless a setting turns them on, so not served by these tests' servers: test_dashboards_api.py and
+# test_alerts_api.py ask them
+OFF_BY_DEFAULT_TAGS = {"Dashboards", "Alerts"}
 
 
 def _off_op(op) -> bool:
