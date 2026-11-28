@@ -26,11 +26,16 @@
 import type { ReactNode } from "react";
 import { ChevronRight, Info } from "lucide-react";
 import type {
-  AfterEntry, BlindSpot, Group, Notice, PublishedEvent, PutEventStep, Timeline, TimelineEvent,
+  AfterEntry, BlindSpot, Group, Notice, PublishedEvent, PutEventStep, QueueCopy, Timeline, TimelineEvent,
 } from "./types.ts";
 import { ErrorCauses } from "./ErrorCauses.tsx";
 import { errorCauses } from "../errors.ts";
-import { BLIND_SPOTS, NOTICE_LINKS, ORDER_SOURCE, STATE_WORDS, clock, purgeNote, traceUrl } from "./words.ts";
+import {
+  BLIND_SPOTS, COPY_ENDED, COPY_OPEN, DEAD_LETTER_REASONS, DONE_NOTE_RABBITMQ, NOTICE_LINKS, ORDER_SOURCE, ORDER_SOURCE_RABBITMQ, RETURN_CAUSES,
+  STATE_WORDS, STATE_WORDS_RABBITMQ, clock, purgeNote, traceUrl,
+} from "./words.ts";
+import { isRabbitMq, shownId, systemOf } from "../systems.ts";
+import { SystemBadge } from "../design/SystemBadge.tsx";
 import { Tooltip } from "../design/Tooltip.tsx";
 
 /* ── Words ──────────────────────────────────────────────────────────────── */
@@ -44,7 +49,46 @@ const AWS_SOURCE_NOTE = {
 const RECORDED_NOTE = "Recorded by a Trailbeam package in your service.";
 const INFERRED_NOTE = "Not recorded by any source. Trailbeam deduced it from the steps it saw and the queue's settings.";
 
-function title(e: TimelineEvent): string {
+/*
+  A RabbitMQ message's steps (QV-308) are named in RabbitMQ's terms, as the server's own page names them (QV-307):
+  published, routed, delivered, acked, requeued, refused, channel closed, returned to the publisher, returned to the
+  queue with its cause, dead-lettered. A step is a RabbitMQ one by its type, its AMQP method or the x-death report;
+  `amqp` says so for the steps that carry neither (an inferred gap in the deliveries).
+*/
+const AMQP_TYPES = new Set(["routed", "acked", "requeued", "rejected", "channel_closed", "returned", "returned_to_queue"]);
+export function isAmqpStep(e: TimelineEvent): boolean {
+  const op = "operation" in e && typeof e.operation === "string" ? e.operation : "";
+  return AMQP_TYPES.has(e.type) || ("source" in e && e.source === "amqp_x_death") || /^(basic|channel|connection)\./.test(op);
+}
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+/** the default exchange (its name is the empty string, amq.default in the spans) by its name in RabbitMQ's docs */
+const exchangeName = (x: string) => (x === "" || x === "amq.default" ? "the default exchange" : `exchange ${x}`);
+
+function amqpTitle(e: TimelineEvent): string | null {
+  switch (e.type) {
+    case "sent":
+      if (e.result !== undefined && e.result !== "ok") return `Publish to ${exchangeName(e.exchange ?? e.queue)} failed`;
+      return `${e.published_again ? "Published again" : "Published"} to ${exchangeName(e.exchange ?? e.queue)}`;
+    case "routed": return `Routed to ${plural(e.count, "queue")}`;
+    case "received": return e.dead_letter ? `Delivered from the dead-letter queue ${e.queue}` : `Delivered on ${e.queue} (receive count ${e.receive_count})`;
+    case "acked":
+      return e.status === "final" ? "Acked (basic.ack)" : e.status === "failed" ? "Ack failed" : e.status === "stale_handle" ? "Acked an earlier delivery" : "Acked (no matching delivery)";
+    case "requeued": return e.result !== "ok" ? "Requeue failed" : `Requeued with ${e.operation ?? "basic.nack"}`;
+    case "rejected": return e.result !== "ok" ? "Refusal failed" : `Refused with ${e.operation ?? "basic.reject"}, not requeued`;
+    case "channel_closed": return e.consumer_timeout ? "Channel closed by the broker: consumer timeout" : "Channel closed before an ack";
+    case "returned": return "Returned to the publisher (basic.return)";
+    case "returned_to_queue": return `Returned to the queue: ${RETURN_CAUSES[e.cause] ?? e.cause}`;
+    case "moved_to_dead_letter_queue": return `Dead-lettered to ${e.to_queue}`;
+    case "deliveries_not_observed": return `${plural(e.count ?? 0, "delivery", "deliveries")} not observed`;
+    default: return null;
+  }
+}
+
+function title(e: TimelineEvent, amqp = false): string {
+  if (amqp || isAmqpStep(e)) {
+    const t = amqpTitle(e);
+    if (t !== null) return t;
+  }
   switch (e.type) {
     case "sent": return e.deduplicated ? `Sent again to ${e.queue}, deduplicated by SQS` : `Sent to ${e.queue}`;
     case "received": return e.dlq_source_arn ? "Received from the dead-letter queue" : `Received (receive count ${e.receive_count})`;
@@ -64,14 +108,39 @@ function title(e: TimelineEvent): string {
     case "arrived_via_sns": return `Arrived via SNS topic ${e.topic}`;
     case "arrived_via_eventbridge": return `Arrived via an EventBridge rule: ${e.detail_type}`;
     case "s3_event": return e.test_event ? `S3 test message for bucket ${e.bucket}` : `S3 ${e.s3_event_name} in ${e.bucket}`;
+    case "routed": case "acked": case "requeued": case "rejected": case "channel_closed": case "returned": case "returned_to_queue":
+      return amqpTitle(e)!;
     case "aws_step":
       return { trigger_delete: "Deleted by Lambda's trigger", filter_drop: "Dropped by the event filter", second_function: "Taken by another function",
         timeout: "Timed out", out_of_memory: "Ran out of memory", never_handled: "Sent, never handled" }[e.aws_kind];
   }
 }
 
+/** A RabbitMQ step's short label, as the server's page names it (web.py _ref). */
+function amqpShort(e: TimelineEvent): string | null {
+  const d = "delivery" in e && e.delivery ? ` of ${e.delivery}` : "";
+  switch (e.type) {
+    case "sent": return e.published_again ? `publish ${e.publish}` : "the publish";
+    case "received": return `delivery ${e.delivery}`;
+    case "acked": return `ack${d}`;
+    case "requeued": return `requeue${d}`;
+    case "rejected": return `refusal${d}`;
+    case "channel_closed": return `channel close${d}`;
+    case "returned": return "the basic.return";
+    case "returned_to_queue": return "return to the queue";
+    case "routed": return "the routing";
+    case "moved_to_dead_letter_queue": return "dead-letter move";
+    case "deliveries_not_observed": return "unseen deliveries";
+    default: return null;
+  }
+}
+
 /** Short label for an event, as the concurrent box names its members ("e2 receive 1"). */
-function shortLabel(e: TimelineEvent): string {
+function shortLabel(e: TimelineEvent, amqp = false): string {
+  if (amqp || isAmqpStep(e)) {
+    const t = amqpShort(e);
+    if (t !== null) return t;
+  }
   switch (e.type) {
     case "sent": return e.deduplicated ? "the deduplicated send" : "the send";
     case "received": return `receive ${e.delivery}`;
@@ -89,25 +158,32 @@ function shortLabel(e: TimelineEvent): string {
     case "deliveries_not_observed": return "unseen receives";
     case "deleted_by_lambda": return "Lambda delete";
     case "lambda_invocation_ended_without_outcome": return "no outcome";
+    case "routed": case "acked": case "requeued": case "rejected": case "channel_closed": case "returned": case "returned_to_queue":
+      return amqpShort(e)!;
     case "aws_step": return { trigger_delete: "trigger delete", filter_drop: "filter drop", second_function: "other function",
       timeout: "timed out", out_of_memory: "out of memory", never_handled: "never handled" }[e.aws_kind];
   }
 }
 
 /** How the record names an earlier step ("After e3 (the visibility change on receive 1)"). */
-function refLabel(e: TimelineEvent): string {
+function refLabel(e: TimelineEvent, amqp = false): string {
+  if (amqp || isAmqpStep(e)) {
+    const d = "delivery" in e && e.delivery ? ` of delivery ${e.delivery}` : "";
+    if (e.type === "acked" || e.type === "requeued" || e.type === "rejected" || e.type === "channel_closed") return `the ${amqpShort(e)!.split(" of ")[0]}${d}`;
+    if (e.type === "returned_to_queue") return `the return to the queue after delivery ${e.after_delivery}`;
+  }
   if (e.type === "visibility_changed") return `the visibility change${e.delivery ? ` on receive ${e.delivery}` : ""}`;
   if (e.type === "deleted") return `the delete${e.delivery ? ` on receive ${e.delivery}` : ""}`;
-  return shortLabel(e);
+  return shortLabel(e, amqp);
 }
 
 /** Who or where: the line under the time. */
-function where(e: TimelineEvent): string {
+function where(e: TimelineEvent, amqp = false): string {
   if (e.type === "aws_step") return e.aws_kind !== "never_handled" && e.function_name ? `${e.function_name} (AWS)` : "AWS side";
   if (e.type === "arrived_via_sns") return "SNS";
   if (e.type === "arrived_via_eventbridge") return `${e.eventbridge_source} (EventBridge)`;
   if (e.type === "s3_event") return "S3";
-  if (e.type === "moved_to_dead_letter_queue" || e.inferred) return "SQS";
+  if (e.type === "moved_to_dead_letter_queue" || e.inferred) return amqp || isAmqpStep(e) ? "RabbitMQ" : "SQS";
   const name = e.consumer.service_name ?? "unknown service";
   return e.consumer.service_version ? `${name} ${e.consumer.service_version}` : name;
 }
@@ -115,6 +191,10 @@ function where(e: TimelineEvent): string {
 /** The ending a node shows: good, retry, lost (a bad ending), plain. */
 type Tone = "good" | "retry" | "lost" | "plain";
 function tone(e: TimelineEvent): Tone {
+  if (e.type === "acked") return e.result !== "ok" ? "lost" : e.status === "final" ? "good" : "retry";
+  if (e.type === "requeued" || e.type === "channel_closed") return "retry";
+  if (e.type === "rejected" || e.type === "returned") return "lost";
+  if (e.type === "sent" && e.result !== undefined && e.result !== "ok") return "lost";
   if (e.type === "deleted" && e.result !== "ok") return "lost";
   if (e.type === "deleted" && e.status === "final") return "good";
   if (e.type === "aws_step" && e.aws_kind === "trigger_delete") return "good";
@@ -122,7 +202,7 @@ function tone(e: TimelineEvent): Tone {
   if (e.type === "moved_to_dead_letter_queue" || e.type === "aws_step") return "lost";
   if (e.type === "queue_purged") return e.removal === "possible" ? "retry" : "lost";
   if (e.type === "deleted" && e.status !== "final") return "retry";
-  if (e.type === "received" && e.receive_count > 1 && !e.dlq_source_arn) return "retry";
+  if (e.type === "received" && e.receive_count > 1 && !e.dlq_source_arn && !e.dead_letter) return "retry";
   return "plain";
 }
 const TONE_COLOR: Record<Tone, string> = {
@@ -171,6 +251,9 @@ function sourceTags(e: TimelineEvent) {
         <span className="text-xs font-medium text-ink-3">AWS side</span>
       </>
     );
+  }
+  if (e.type === "moved_to_dead_letter_queue" && e.source === "amqp_x_death") {
+    return <SourceTag kind="recorded" note="RabbitMQ reported the move: the delivery from the dead-letter queue carries an x-death header naming the queue it came from and why.">x-death header</SourceTag>;
   }
   if (e.type === "moved_to_dead_letter_queue") {
     return <SourceTag kind="recorded" note="SQS reported the move: the receive from the dead-letter queue names the queue it came from.">SQS DLQ receive</SourceTag>;
@@ -253,6 +336,7 @@ function facts(e: TimelineEvent): Fact[] {
     }
   }
   if (e.type === "sent" && e.deduplicated) out.push(["Deduplicated, so it enqueued nothing"]);
+  if (isAmqpStep(e)) return [...out, ...amqpFacts(e)];
   if (e.type === "received") {
     out.push(["Receive", String(e.delivery)], ["Receive count", String(e.receive_count)]);
     if (e.dlq_source_arn) out.push(["From", e.queue]);
@@ -287,6 +371,47 @@ function facts(e: TimelineEvent): Fact[] {
     if (typeof e.record.eventName === "string") out.push(["Event", e.record.eventName]);
   }
   if ((e.type === "received" || e.type === "lambda_outcome") && "start_observed" in e && !e.start_observed) out.push(["Start not observed"]);
+  return out;
+}
+
+/** A RabbitMQ step's facts. An ack gets no reply in AMQP 0-9-1, so a settle says nothing about the broker accepting it. */
+function amqpFacts(e: TimelineEvent): Fact[] {
+  const out: Fact[] = [];
+  const key = (x: { routing_key?: string; routing_key_hmac?: string }) =>
+    x.routing_key ? out.push(["Routing key", x.routing_key]) : x.routing_key_hmac ? out.push(["Routing key not exported, its hash", x.routing_key_hmac.slice(0, 12)]) : 0;
+  switch (e.type) {
+    case "sent":
+      key(e);
+      if ((e.publish ?? 1) > 1) out.push(["Publish", String(e.publish)]);
+      out.push([e.confirmed ? "Confirmed by the broker" : "No publisher confirm"]);
+      if (e.mandatory) out.push(["Mandatory"]);
+      if (e.error_code) out.push(["Error", e.error_code]);
+      break;
+    case "routed": out.push(["Queues", e.queues.join(", ")]); if (e.lower_bound) out.push(["At least this many"]); break;
+    case "received":
+      out.push(["Delivery", String(e.delivery)], ["Receive count", String(e.receive_count)]);
+      if (e.redelivered) out.push(["Redelivered"]);
+      if (e.consumer_tag) out.push(["Consumer tag", e.consumer_tag]);
+      break;
+    case "acked": case "requeued": case "rejected": case "channel_closed":
+      out.push(["Delivery", String(e.delivery ?? "unknown")]);
+      if (e.result !== "ok") out.push(["Error", e.error_code ?? "unknown"]);
+      if (e.multiple) out.push(["Multiple, so it settled earlier deliveries too"]);
+      if (e.type === "channel_closed" && e.initiator) out.push(["Closed by", { client: "the application", broker: "the broker", network: "a lost connection" }[e.initiator] ?? e.initiator]);
+      break;
+    case "returned":
+      key(e);
+      if (e.reply_code !== null) out.push(["Reply code", String(e.reply_code)]);
+      break;
+    case "returned_to_queue":
+      out.push(["After delivery", String(e.after_delivery)]);
+      if (!e.cause_observed) out.push(["Cause not observed"]);
+      break;
+    case "moved_to_dead_letter_queue":
+      out.push(["From", e.from_queue], ["To", e.to_queue], ["Reported on delivery", String(e.reported_on_delivery)]);
+      if (e.dead_letter_reason) out.push(["Reason", e.dead_letter_reason]);
+      break;
+  }
   return out;
 }
 
@@ -331,14 +456,15 @@ function BlindSpotNote({ spot }: { spot: BlindSpot }) {
   );
 }
 
-function OrderTag({ s }: { s: string }) {
-  return <SourceTag kind={s === "inferred_from" ? "inferred" : "recorded"} note={ORDER_SOURCE[s]?.long}>{ORDER_SOURCE[s]?.label ?? s}</SourceTag>;
+function OrderTag({ s, amqp = false }: { s: string; amqp?: boolean }) {
+  const words = (amqp ? ORDER_SOURCE_RABBITMQ : ORDER_SOURCE)[s];
+  return <SourceTag kind={s === "inferred_from" ? "inferred" : "recorded"} note={words?.long}>{words?.label ?? s}</SourceTag>;
 }
 
-function Why({ e, byId }: { e: TimelineEvent; byId: ById }) {
+function Why({ e, byId, amqp = false }: { e: TimelineEvent; byId: ById; amqp?: boolean }) {
   const rows: { label: string; entry: AfterEntry }[] = [
-    ...e.after.map((a) => ({ label: `After ${a.event} (${refLabel(byId.get(a.event)!)})`, entry: a })),
-    ...("before" in e && e.before ? [{ label: `Before ${e.before.event} (${refLabel(byId.get(e.before.event)!)})`, entry: e.before }] : []),
+    ...e.after.map((a) => ({ label: `After ${a.event} (${refLabel(byId.get(a.event)!, amqp)})`, entry: a })),
+    ...("before" in e && e.before ? [{ label: `Before ${e.before.event} (${refLabel(byId.get(e.before.event)!, amqp)})`, entry: e.before }] : []),
   ];
   return (
     <dl className="grid gap-y-2 text-[13px] leading-[1.45]">
@@ -346,7 +472,7 @@ function Why({ e, byId }: { e: TimelineEvent; byId: ById }) {
         <div key={label + entry.source}>
           <dt className="flex flex-wrap items-center gap-2 text-ink">
             {label}
-            {entry.sources.map((s) => <OrderTag key={s} s={s} />)}
+            {entry.sources.map((s) => <OrderTag key={s} s={s} amqp={amqp} />)}
           </dt>
           <dd className="mt-0.5 text-ink-2">{entry.why}</dd>
         </div>
@@ -366,7 +492,21 @@ function Detail({ e }: { e: TimelineEvent }) {
     if (e.first_receive_timestamp) rows.push(["First receive (SQS)", clock(e.first_receive_timestamp)]);
     if (e.dlq_source_arn) rows.push(["DeadLetterQueueSourceArn", e.dlq_source_arn]);
   }
-  if (e.type === "moved_to_dead_letter_queue") rows.push(["Source ARN", e.source_arn]);
+  if (e.type === "moved_to_dead_letter_queue" && e.source_arn) rows.push(["Source ARN", e.source_arn]);
+  if (e.type === "moved_to_dead_letter_queue" && e.source === "amqp_x_death") {
+    if (e.dead_letter_reason) rows.push(["x-death reason", `${e.dead_letter_reason}${DEAD_LETTER_REASONS[e.dead_letter_reason] ? `: ${DEAD_LETTER_REASONS[e.dead_letter_reason]}` : ""}`]);
+    if (e.dead_letter_count !== undefined) rows.push(["x-death count", String(e.dead_letter_count)]);
+    if (e.first_dead_lettered) rows.push(["First dead-lettered (broker clock, whole seconds)", e.first_dead_lettered]);
+  }
+  if (e.type === "received" && isAmqpStep(e)) {
+    if (e.exchange !== undefined) rows.push(["Exchange", e.exchange || "(default)"]);
+    if (e.routing_key) rows.push(["Routing key", e.routing_key]);
+    if (e.receive_count_source) rows.push(["Receive count from", e.receive_count_source]);
+    if (e.x_delivery_count !== undefined) rows.push(["x-delivery-count", String(e.x_delivery_count)]);
+    if (e.x_acquired_count !== undefined) rows.push(["x-acquired-count", String(e.x_acquired_count)]);
+  }
+  if ((e.type === "channel_closed" || e.type === "returned") && e.reply_text) rows.push(["Reply", `${e.reply_code ?? ""} ${e.reply_text}`.trim()]);
+  if ((e.type === "acked" || e.type === "requeued" || e.type === "rejected" || e.type === "channel_closed" || e.type === "sent" || e.type === "returned") && e.operation) rows.push(["AMQP method", e.operation]);
   if (e.type === "published" || e.type === "arrived_via_sns") {
     rows.push(["Topic ARN", e.topic_arn], ["SNS message ID", e.sns_message_id]);
     if (e.type === "published") {
@@ -460,17 +600,17 @@ function reasonOf(e: TimelineEvent): string | null {
   return null;
 }
 
-function Step({ e, byId, self, href, open = false, compact = false, last = false }: { e: TimelineEvent; byId: ById; self: string; href?: Href; open?: boolean; compact?: boolean; last?: boolean }) {
+function Step({ e, byId, self, href, open = false, compact = false, last = false, amqp = false }: { e: TimelineEvent; byId: ById; self: string; href?: Href; open?: boolean; compact?: boolean; last?: boolean; amqp?: boolean }) {
   const reason = reasonOf(e);
-  const spots: BlindSpot[] = e.type === "aws_step" ? e.blind_spots : e.type === "moved_to_dead_letter_queue" ? ["dlq_not_verified_on_real_sqs"] : [];
-  const attempt = e.type === "received" && e.receive_count > 1 && !e.dlq_source_arn;
+  const spots: BlindSpot[] = e.type === "aws_step" ? e.blind_spots : e.type === "moved_to_dead_letter_queue" && e.source === "sqs_dlq_source" ? ["dlq_not_verified_on_real_sqs"] : [];
+  const attempt = e.type === "received" && e.receive_count > 1 && !e.dlq_source_arn && !e.dead_letter;
   const failed = tone(e) === "lost";
   return (
     <li className={`grid grid-cols-[1.5rem_1fr] gap-x-3 ${compact ? "" : "md:grid-cols-[8.5rem_1.5rem_1fr]"}`}>
       {/* time and where: its own column from md, a line above the title on phones */}
       <div className={`hidden pt-[3px] text-right ${compact ? "" : "md:block"}`}>
         <TimeCell e={e} />
-        <div className="mt-0.5 truncate text-xs text-ink-3">{where(e)}</div>
+        <div className="mt-0.5 truncate text-xs text-ink-3">{where(e, amqp)}</div>
       </div>
       <div className="relative flex justify-center pt-1">
         {/* the rail runs on to the next step; steps inside a concurrent box get none */}
@@ -479,11 +619,11 @@ function Step({ e, byId, self, href, open = false, compact = false, last = false
       </div>
       <div className="min-w-0 pb-4">
         <div className={`mb-1 flex gap-x-3 text-xs text-ink-3 ${compact ? "" : "md:hidden"}`}>
-          <TimeCell e={e} /> <span className="truncate">{where(e)}</span>
+          <TimeCell e={e} /> <span className="truncate">{where(e, amqp)}</span>
         </div>
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
           <span className={`${mono} text-micro text-ink-3`}>{e.id}</span>
-          <h4 className={`text-[15px] leading-[1.45] font-medium ${attempt ? "text-warning-text" : failed ? "text-critical-text" : "text-ink"}`}>{title(e)}</h4>
+          <h4 className={`text-[15px] leading-[1.45] font-medium ${attempt ? "text-warning-text" : failed ? "text-critical-text" : "text-ink"}`}>{title(e, amqp)}</h4>
           {sourceTags(e)}
           <TraceLink e={e} />
         </div>
@@ -497,7 +637,7 @@ function Step({ e, byId, self, href, open = false, compact = false, last = false
             Why it&rsquo;s here, and the record
           </summary>
           <div className="mt-2 grid max-w-[40rem] gap-3 border-l border-line py-1 pl-4">
-            {e.after.length > 0 || ("before" in e && e.before) ? <Why e={e} byId={byId} /> : <p className="text-[13px] text-ink-2">The first step seen for this message.</p>}
+            {e.after.length > 0 || ("before" in e && e.before) ? <Why e={e} byId={byId} amqp={amqp} /> : <p className="text-[13px] text-ink-2">The first step seen for this message.</p>}
             <Detail e={e} />
           </div>
         </details>
@@ -519,7 +659,7 @@ function markOf(e: TimelineEvent): Mark | null {
   return null;
 }
 
-function ConcurrentBox({ g, members, byId, self, href }: { g: Group; members: TimelineEvent[]; byId: ById; self: string; href?: Href }) {
+function ConcurrentBox({ g, members, byId, self, href, amqp = false }: { g: Group; members: TimelineEvent[]; byId: ById; self: string; href?: Href; amqp?: boolean }) {
   const marks = members.map((m) => [m, markOf(m)] as const);
   // The scale covers what was observed. Inferred windows are clipped to it and say so.
   const pts = marks.flatMap(([, k]) => (!k || k.kind === "window" ? [] : [k.to, ...(k.from !== undefined ? [k.from] : [])]));
@@ -561,7 +701,7 @@ function ConcurrentBox({ g, members, byId, self, href }: { g: Group; members: Ti
             {marks.map(([m, k]) => (
               <li key={m.id} className="grid grid-cols-1 gap-x-3 gap-y-1 sm:grid-cols-[10.5rem_1fr] sm:items-center">
                 <span className="flex items-center gap-1.5 truncate text-xs text-ink-2">
-                  <Node e={m} size={10} /> <span className={`${mono} text-micro text-ink-3`}>{m.id}</span> {shortLabel(m)}
+                  <Node e={m} size={10} /> <span className={`${mono} text-micro text-ink-3`}>{m.id}</span> {shortLabel(m, amqp)}
                 </span>
                 <span className="relative block h-4">
                   <span className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-line" />
@@ -601,12 +741,12 @@ function ConcurrentBox({ g, members, byId, self, href }: { g: Group; members: Ti
 
         {insidePairs.length > 0 && (
           <p className="mx-4 border-t border-line py-2 text-xs text-ink-3">
-            Ordered inside: {insidePairs.map((p) => `${p.a} before ${p.b} (${p.src.map((s) => ORDER_SOURCE[s]?.label ?? s).join(", ")})`).join("; ")}. Every other pair: unknown.
+            Ordered inside: {insidePairs.map((p) => `${p.a} before ${p.b} (${p.src.map((s) => (amqp ? ORDER_SOURCE_RABBITMQ : ORDER_SOURCE)[s]?.label ?? s).join(", ")})`).join("; ")}. Every other pair: unknown.
           </p>
         )}
 
         <ul className="border-t border-line px-3 pt-4 md:px-4">
-          {members.map((m) => <Step key={m.id} e={m} byId={byId} self={self} href={href} compact />)}
+          {members.map((m) => <Step key={m.id} e={m} byId={byId} self={self} href={href} compact amqp={amqp} />)}
         </ul>
       </section>
     </li>
@@ -641,6 +781,43 @@ export function Notices({ notices, className = "" }: { notices: Notice[]; classN
   );
 }
 
+/**
+  A RabbitMQ message's copies (contract A6, design P4): one row per queue the message was delivered on, with its
+  deliveries and how the copy left the queue. A fanout to two queues is one message with two rows, not a duplicate.
+  The virtual host is a column only when the copies are in more than one.
+*/
+export function QueueCopies({ copies, className = "" }: { copies: QueueCopy[]; className?: string }) {
+  if (!copies.length) return null;
+  const vhosts = new Set(copies.map((c) => c.vhost)).size > 1;
+  const th = "px-3 py-2 text-left text-xs font-medium text-ink-3";
+  const td = "px-3 py-2 align-top";
+  return (
+    <section aria-label="Queue copies" className={className} data-copies="">
+      <h4 className="text-sm font-medium text-ink">
+        {copies.length === 1 ? "One queue copy" : `${copies.length} queue copies`}
+        <Tooltip content="Each queue an exchange routes a message to holds its own copy, delivered and settled on its own. Copies on two queues are not a duplicate." tabIndex={0} className="ml-1.5 inline-flex align-middle text-ink-3">
+          <Info size={13} aria-label="About queue copies" />
+        </Tooltip>
+      </h4>
+      <table className="mt-2 w-full max-w-[40rem] border-collapse text-sm">
+        <thead className="border-b border-line">
+          <tr><th className={th}>Queue</th>{vhosts && <th className={th}>Virtual host</th>}<th className={th}>Deliveries</th><th className={th}>Ended</th></tr>
+        </thead>
+        <tbody>
+          {copies.map((c) => (
+            <tr key={`${c.vhost} ${c.queue}`} className="border-b border-line last:border-0" data-copy={c.queue}>
+              <td className={`${td} ${mono} text-caption text-ink`}>{c.queue}</td>
+              {vhosts && <td className={`${td} ${mono} text-caption text-ink-2`}>{c.vhost}</td>}
+              <td className={`${td} ${mono} text-caption text-ink-2`}>{c.deliveries}</td>
+              <td className={`${td} ${c.ended ? "text-ink-2" : "text-warning-text"}`}>{c.ended ? COPY_ENDED[c.ended] ?? c.ended : COPY_OPEN}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
 const stateTone = (t: Timeline) =>
   t.in_dead_letter_queue || t.state === "purged" ? "text-critical-text" : t.state === "not_deleted" || t.state === "processing" ? "text-warning-text" : "text-good-text";
 
@@ -657,6 +834,7 @@ export type TimelineViewProps = {
 };
 
 export function TimelineView({ t, answer, openSteps = [], messageHref, inPage = false }: TimelineViewProps) {
+  const amqp = isRabbitMq(t);
   const byId: ById = new Map(t.events.map((e) => [e.id, e]));
   const earlier = new Set<string>();
   const items: ReactNode[] = [];
@@ -672,17 +850,21 @@ export function TimelineView({ t, answer, openSteps = [], messageHref, inPage = 
       const links = linksInto(members, earlier);
       if (links.length) items.push(<OrderLink key={`o${e.id}`} entries={links} />);
     }
-    if (g?.concurrent) items.push(<ConcurrentBox key={`g${g.group}`} g={g} members={members} byId={byId} self={t.message_id} href={messageHref} />);
-    else for (const m of members) items.push(<Step key={m.id} e={m} byId={byId} self={t.message_id} href={messageHref} open={openSteps.includes(m.id)} last={m.id === lastId} />);
+    if (g?.concurrent) items.push(<ConcurrentBox key={`g${g.group}`} g={g} members={members} byId={byId} self={t.message_id} href={messageHref} amqp={amqp} />);
+    else for (const m of members) items.push(<Step key={m.id} e={m} byId={byId} self={t.message_id} href={messageHref} open={openSteps.includes(m.id)} last={m.id === lastId} amqp={amqp} />);
     if (g) drawn.add(g.group);
     for (const m of members) earlier.add(m.id);
   }
   const s = t.scope;
   const purged = purgeNote(t);
+  const stateWords = amqp ? STATE_WORDS_RABBITMQ : STATE_WORDS;
   const figures: [string, ReactNode][] = [
-    ...(inPage ? [] : [["State", <span key="s" className={stateTone(t)}>{STATE_WORDS[t.state]}{t.in_dead_letter_queue ? ", in the DLQ" : ""}{purged && <span className="text-ink-3"> {purged}</span>}</span>] as [string, ReactNode]]),
+    ...(inPage ? [] : [["State", <Tooltip key="s" content={amqp && t.state === "deleted" ? DONE_NOTE_RABBITMQ : undefined} tabIndex={amqp && t.state === "deleted" ? 0 : undefined} className={stateTone(t)}>{stateWords[t.state]}{t.in_dead_letter_queue ? ", in the DLQ" : ""}{purged && <span className="text-ink-3"> {purged}</span>}</Tooltip>] as [string, ReactNode]]),
     ["Queue now", <span key="q" className={mono}>{t.current_queue}</span>],
-    ["Receives", <span key="r"><span className={mono}>{t.deliveries}</span> <span className="text-ink-3">(<span className={mono}>{t.successful_deliveries}</span> handled)</span></span>],
+    ...(amqp && (t.publishes ?? 0) > 1 ? [["Publishes", <span key="p" className={mono}>{t.publishes}</span>] as [string, ReactNode]] : []),
+    amqp
+      ? ["Deliveries", <span key="r"><span className={mono}>{t.deliveries}</span> <span className="text-ink-3">(<span className={mono}>{t.successful_deliveries}</span> acked)</span></span>]
+      : ["Receives", <span key="r"><span className={mono}>{t.deliveries}</span> <span className="text-ink-3">(<span className={mono}>{t.successful_deliveries}</span> handled)</span></span>],
     ["First seen", <span key="f"><span className={mono}>{clock(t.first_seen)}</span> <span className="text-ink-3">{t.first_seen_clock === "sqs" ? "SQS clock" : "host clock"}</span></span>],
   ];
 
@@ -693,7 +875,8 @@ export function TimelineView({ t, answer, openSteps = [], messageHref, inPage = 
           <>
             <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3">
               <span>Message</span>
-              <span className={`${mono} text-caption break-all text-ink-2`}>{t.message_id}</span>
+              <span className={`${mono} text-caption break-all text-ink-2`}>{shownId(t.message_id)}</span>
+              <SystemBadge system={systemOf(t.message_id)} />
             </p>
             {s && (
               <p className="mt-1.5 flex flex-wrap gap-x-2 text-xs text-ink-3">
@@ -712,6 +895,7 @@ export function TimelineView({ t, answer, openSteps = [], messageHref, inPage = 
             </div>
           ))}
         </dl>
+        {amqp && t.copies && <QueueCopies copies={t.copies} className="mt-4" />}
       </header>
       {!inPage && <Notices notices={t.notices} className="border-b border-line px-4 py-3 md:px-6" />}
       <ol className="px-3 pt-5 pb-2 md:px-6" aria-label="Steps, in proven order">

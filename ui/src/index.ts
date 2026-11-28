@@ -6,6 +6,8 @@
 // the timeline view and the message page are in @trailbeam/ui/design (their hover notes are the design system's Tooltip); their words are here
 export { ORDER_SOURCE, BLIND_SPOTS, NOTICE_LINKS, STATE_WORDS, clock, traceUrl, purgeNote } from "./timeline/words.ts";
 export { answerFor, consumersOf } from "./summary.ts";
+// which messaging system a message is on, from its key (QV-308)
+export { RABBITMQ, SQS, SYSTEM_NAME, SYSTEM_NOTE, isRabbitMq, shownId, splitKey, systemOf, type MessagingSystem } from "./systems.ts";
 export { ErrorCauses } from "./timeline/ErrorCauses.tsx";
 export type { MessageHrefs, MessageTab } from "./message/types.ts";
 export { errorCauses, type ErrorCause } from "./errors.ts";

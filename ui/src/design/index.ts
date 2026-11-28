@@ -12,6 +12,7 @@ export { Sidebar, type SidebarItem, type SidebarQueue } from "./Sidebar.tsx";
 export { AppThemeProvider, useAppTheme, type AppTheme } from "./theme.tsx";
 export { Tooltip } from "./Tooltip.tsx";
 export { Badge, type BadgeTone } from "./Badge.tsx";
+export { SystemBadge } from "./SystemBadge.tsx";
 export { Button, type ButtonProps, type ButtonVariant } from "./Button.tsx";
 export { Card, IconTile } from "./Card.tsx";
 export { Container, Eyebrow, Section, SectionHeader } from "./Layout.tsx";

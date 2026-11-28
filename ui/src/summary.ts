@@ -1,4 +1,6 @@
 import type { Timeline } from "./timeline/types.ts";
+import { isRabbitMq } from "./systems.ts";
+import { RETURN_CAUSES } from "./timeline/words.ts";
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const names = (xs: string[]) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
@@ -24,8 +26,41 @@ function againFor(t: Timeline): string | null {
   return null;
 }
 
+const exchangeName = (x: string) => (x === "" || x === "amq.default" ? "the default exchange" : `exchange ${x}`);
+
+/** A RabbitMQ message's sentence (QV-308), in RabbitMQ's terms: published, delivered, acked, requeued, dead-lettered. */
+function amqpAnswer(t: Timeline): string {
+  const consumers = consumersOf(t);
+  const by = consumers.length ? ` by ${names(consumers)}` : "";
+  const n = t.deliveries;
+  const copies = t.copies ?? [];
+  const pubs = t.publishes ?? 0;
+  if (t.in_dead_letter_queue) {
+    const before = t.events.filter((e) => e.type === "received" && e.queue === t.source_queue).length;
+    return before
+      ? `Dead-lettered to ${t.current_queue} after ${plural(before, "delivery", "deliveries")} on ${t.source_queue}.`
+      : `Dead-lettered from ${t.source_queue} to ${t.current_queue}. No delivery on ${t.source_queue} was observed.`;
+  }
+  if (t.dead_letter_queue_move === "not_seen_on_dlq_yet") return `Returned to ${t.source_queue} more times than its x-delivery-limit allows, so RabbitMQ dead-letters it, or drops it with no dead-letter exchange. Not seen on a dead-letter queue yet.`;
+  if (n === 0) {
+    const returned = t.events.find((e) => e.type === "returned");
+    if (returned?.type === "returned") return `Published to ${exchangeName(returned.exchange)}, and no queue took it: the broker returned it to the publisher with basic.return.`;
+    return `Published to ${t.source_queue} and not delivered yet.`;
+  }
+  if (t.state === "deleted") {
+    if (copies.length > 1) return `Routed to ${plural(copies.length, "queue")}, ${names(copies.map((c) => c.queue))}. Each queue's copy was delivered${by} and acked.`;
+    if (pubs > 1) return `Published ${plural(pubs, "time")} under one message ID, delivered ${plural(n, "time")}${by} and acked.`;
+    if (n === 1) return `Delivered once${by} and acked.`;
+    const back = t.events.find((e) => e.type === "returned_to_queue" && e.after_delivery === 1);
+    if (n === 2 && back?.type === "returned_to_queue") return `Returned to the queue after delivery 1 (${RETURN_CAUSES[back.cause] ?? back.cause}), delivered again${by} and acked.`;
+    return `Delivered ${plural(n, "time")}${by}, then acked.`;
+  }
+  return `Delivered ${plural(n, "time")}${by}. No ack seen yet.`;
+}
+
 /** The one sentence at the top of a timeline: what happened to the message, from the timeline itself. */
 export function answerFor(t: Timeline): string {
+  if (isRabbitMq(t)) return amqpAnswer(t);
   const consumers = consumersOf(t);
   const by = consumers.length ? ` by ${names(consumers)}` : "";
   const n = t.deliveries;
