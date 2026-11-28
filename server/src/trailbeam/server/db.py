@@ -604,7 +604,7 @@ class SqliteStore(Store):
     # spans_kind_time and sort every row of the window. The counts read spans_kind_time, which covers them when
     # no queue or service is given (no table read), one range per kind.
     _STEP_COLS = ("time_ns, start_ns, trace_id, span_id, kind, mid, queue, service_name, service_version, result, "
-                  "error_code, outcome, error_type, receive_count, visibility_timeout")
+                  "error_code, outcome, error_type, receive_count, visibility_timeout, queue_url")
 
     @staticmethod
     def _step_where(queue, service, kinds) -> tuple[str, list]:

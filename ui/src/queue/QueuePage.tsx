@@ -55,6 +55,9 @@ export type QueuePageProps = {
   onSplit: (on: boolean) => void;
   /** a link component; the host's Nav link (UiLink) by default */
   Link?: ComponentType<LinkProps>;
+  /** why AWS wasn't read for this queue, in the host's words (self-hosted: the server's sentence and its AWS settings);
+      the hosted sentences, with Connect its account, when unset */
+  awsWhy?: (aws: QueueAwsView) => ReactNode;
   /** a host's own section, drawn right under the CloudWatch band (hosted: "In ‹queue› now"); nothing when unset */
   afterCloudWatch?: ReactNode;
   /** under the page's parts: the host's footnote (times are in UTC, the JSON link) */
@@ -213,7 +216,7 @@ function SettingsPanel({ d, p }: { d: QueuePageData; p: QueuePageProps }) {
     ...(read && (read.delayS ?? 0) > 0 ? [{ label: "Delivery delay", value: fmtS(read.delayS!) }] : []),
   ];
   const right = read && aws?.readAt ? <Tag>Read from SQS at {utc(aws.readAt, { seconds: true })} UTC</Tag>
-    : aws && aws.status !== "ok" ? <>{AWS_REASON[aws.status](aws.detail)}{aws.status === "no_account" && p.href.connect && <Link href={p.href.connect} className={link}>Connect its account</Link>}</>
+    : aws && aws.status !== "ok" ? (p.awsWhy ? p.awsWhy(aws) : <>{AWS_REASON[aws.status](aws.detail)}{aws.status === "no_account" && p.href.connect && <Link href={p.href.connect} className={link}>Connect its account</Link>}</>)
       : null;
   return <Panel title="Settings" right={right}><Figures cells={cells} Link={Link} /></Panel>;
 }
@@ -372,7 +375,7 @@ function CloudWatchBand({ d, p, hover, setHover }: { d: QueuePageData; p: QueueP
     return (
       <Panel title="From CloudWatch">
         <div className={`border-t border-line px-4 py-3 ${BAND}`}>
-          <p><strong className="font-medium text-ink">Depth, in flight, the oldest message&rsquo;s age and the DLQ&rsquo;s depth come from CloudWatch.</strong> {AWS_REASON[aws.status](aws.detail)}{aws.status === "no_account" && p.href.connect && <> <Link href={p.href.connect} className={link}>Connect an AWS account</Link></>}</p>
+          <p><strong className="font-medium text-ink">Depth, in flight, the oldest message&rsquo;s age and the DLQ&rsquo;s depth come from CloudWatch.</strong> {p.awsWhy ? p.awsWhy(aws) : <>{AWS_REASON[aws.status](aws.detail)}{aws.status === "no_account" && p.href.connect && <> <Link href={p.href.connect} className={link}>Connect an AWS account</Link></>}</>}</p>
           <p className="mt-1">Until then, this page shows what your services reported.</p>
         </div>
       </Panel>
