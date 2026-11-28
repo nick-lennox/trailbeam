@@ -126,6 +126,33 @@ def test_a_regression_while_muted_or_before_the_rule_is_let_pass():
     assert c.sent == []
 
 
+# ── "every" rules ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+def test_an_every_rule_sends_at_each_check_that_finds_new_messages():
+    c = Check(rule=MAKE.rule(mode="every", quietS=0))  # m1 seen at the last check
+    c()
+    assert c.sent == [], "nothing new"
+    first = c.at
+    for ids, new in ((("m1", "m2"), 1), (("m1", "m2", "m3"), 1), (("m1", "m2", "m3", "m4", "m5"), 2)):
+        c.read = MAKE.read(*ids)
+        c()
+        [x] = c.sent
+        assert x["kind"] == "fired" and x["alert"]["rule"]["newCount"] == new
+        assert x["alert"]["since"] == first, "since: when it began firing"
+    c()
+    assert [x["kind"] for x in c.sent] == ["resolved"]
+
+
+def test_an_every_rule_woken_with_new_messages_sends_one_change():
+    c = Check(rule=MAKE.rule(mode="every", quietS=0, mutedUntil=T - MIN),
+              memory=MAKE.memory(lastNewAt=T - 20 * MIN, wasMuted=True))
+    c.store.states["a"] = {"rule/r1": MAKE.firing()}
+    c.read = MAKE.read("m1", "m2")
+    c()
+    [x] = c.sent
+    assert x["kind"] == "fired" and x["alert"]["rule"]["newCount"] == 1
+
+
 # ── overlapping checks, failures ─────────────────────────────────────────────────────────────────────────────────
 
 def test_a_change_another_check_wrote_first_is_not_sent_twice():
